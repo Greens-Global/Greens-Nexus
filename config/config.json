@@ -1,0 +1,17 @@
+{
+  "userSettings": {
+    "globalPermissionGrants": {
+      "allow": [
+        "command(npm run)",
+        "read_url(fonts.gstatic.com)",
+        "read_url(raw.githubusercontent.com)",
+        "command(powershell)",
+        "command(git status)",
+        "command(Select-String)",
+        "command(git diff)",
+        "command(npx)"
+      ]
+    },
+    "useAiCredits": true
+  }
+}
