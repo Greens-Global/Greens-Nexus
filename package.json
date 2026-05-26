@@ -1,0 +1,12 @@
+{
+  "name": "greens-global-portal",
+  "version": "1.0.0",
+  "description": "Greens Nexus Master Portal",
+  "main": "app.js",
+  "scripts": {
+    "dev": "npx http-server -p 3000"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

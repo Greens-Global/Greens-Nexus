@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Greens Nexus - Master Portal</title>
+  <!-- Google Fonts: Plus Jakarta Sans for UI, Inter for body/numbers -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar Left -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo-box">GN</div>
+        <div class="company-info">
+          <span class="company-name">Greens Nexus</span>
+        </div>
+      </div>
+      
+      <div class="nav-section-title">Navigation</div>
+      
+      <nav class="sidebar-nav">
+        <ul class="nav-list">
+          <!-- Group 1 -->
+          <li class="nav-item active" data-view="dashboard">
+            <i data-lucide="layout-dashboard"></i>
+            <span>Dashboard</span>
+          </li>
+          <li class="nav-item" data-view="manager-dashboard">
+            <i data-lucide="user-check"></i>
+            <span>Manager Dashboard</span>
+          </li>
+          <li class="nav-item" data-view="purchase">
+            <i data-lucide="shopping-cart"></i>
+            <span>Purchase Requisition</span>
+          </li>
+          
+          <li class="nav-divider"></li>
+          
+          <!-- Group 2 -->
+          <li class="nav-item" data-view="tasks">
+            <i data-lucide="check-square"></i>
+            <span>Tasks</span>
+          </li>
+          <li class="nav-item has-submenu" data-view="sop" id="sop-nav-item">
+            <div class="nav-item-main">
+              <i data-lucide="book-open"></i>
+              <span>Knowledge Base</span>
+              <button class="submenu-toggle-btn" id="sop-submenu-toggle" aria-label="Toggle Submenu">
+                <i data-lucide="chevron-down" style="width: 14px; height: 14px;"></i>
+              </button>
+            </div>
+            <ul class="sidebar-submenu" id="sop-submenu" style="display: none;">
+              <li class="submenu-item" data-subview="index">
+                <i data-lucide="book-open"></i>
+                <span>SOP Index</span>
+              </li>
+              <li class="submenu-item" data-subview="review">
+                <i data-lucide="check-square"></i>
+                <span>Review SOP</span>
+              </li>
+              <li class="submenu-item" data-subview="lms">
+                <i data-lucide="graduation-cap"></i>
+                <span>LMS</span>
+              </li>
+            </ul>
+          </li>
+          
+          <li class="nav-divider"></li>
+          
+          <!-- Group 3 -->
+          <li class="nav-item has-submenu" data-view="it" id="it-nav-item">
+            <div class="nav-item-main">
+              <i data-lucide="monitor"></i>
+              <span>IT</span>
+              <button class="submenu-toggle-btn" id="it-submenu-toggle" aria-label="Toggle Submenu">
+                <i data-lucide="chevron-down" style="width: 14px; height: 14px;"></i>
+              </button>
+            </div>
+            <ul class="sidebar-submenu" id="it-submenu" style="display: none;">
+              <li class="submenu-item" data-subview="access">
+                <i data-lucide="shield-check"></i>
+                <span>Access Management</span>
+              </li>
+              <li class="submenu-item" data-subview="website">
+                <i data-lucide="globe"></i>
+                <span>Website Management</span>
+              </li>
+              <li class="submenu-item" data-subview="integrations">
+                <i data-lucide="cpu"></i>
+                <span>API & Integrations</span>
+              </li>
+              <li class="submenu-item" data-subview="asset">
+                <i data-lucide="package"></i>
+                <span>Hardware Assets</span>
+              </li>
+              <li class="submenu-item" data-subview="network">
+                <i data-lucide="wifi"></i>
+                <span>Network Management</span>
+              </li>
+            </ul>
+          </li>
+          
+          <li class="nav-divider"></li>
+          
+          <!-- Group 4 -->
+          <li class="nav-item has-submenu" data-view="ops" id="ops-nav-item">
+            <div class="nav-item-main">
+              <svg class="material-symbol-svg" viewBox="0 -960 960 960"><path d="M756-120 537-339l84-84 219 219-84 84Zm-552 0-84-84 276-276-68-68-28 28-51-51v82l-28 28-121-121 28-28h82l-50-50 142-142q20-20 43-29t47-9q24 0 47 9t43 29l-92 92 50 50-28 28 68 68 90-90q-4-11-6.5-23t-2.5-24q0-59 40.5-99.5T701-841q15 0 28.5 3t27.5 9l-99 99 72 72 99-99q7 14 9.5 27.5T841-701q0 59-40.5 99.5T701-561q-12 0-24-2t-23-7L204-120Z"/></svg>
+              <span>Construction</span>
+              <button class="submenu-toggle-btn" id="ops-submenu-toggle" aria-label="Toggle Submenu">
+                <i data-lucide="chevron-down" style="width: 14px; height: 14px;"></i>
+              </button>
+            </div>
+            <ul class="sidebar-submenu" id="ops-submenu" style="display: none;">
+              <li class="submenu-item" data-subview="ops-dashboard">
+                <i data-lucide="layout-dashboard"></i>
+                <span>Project Dashboard</span>
+              </li>
+              <li class="submenu-item" data-subview="ops-cubby">
+                <i data-lucide="folder-sync"></i>
+                <span>Cubby Integration</span>
+              </li>
+            </ul>
+          </li>
+          <li class="nav-item has-submenu" data-view="development" id="development-nav-item">
+            <div class="nav-item-main">
+              <svg class="material-symbol-svg" viewBox="0 -960 960 960"><path d="M42-120v-112q0-33 17-62t47-44q51-26 115-44t141-18q77 0 141 18t115 44q30 15 47 44t17 62v112H42Zm80-80h480v-32q0-11-5.5-20T582-266q-36-18-92.5-36T362-320q-71 0-127.5 18T142-266q-9 5-14.5 14t-5.5 20v32Zm240-240q-66 0-113-47t-47-113h-10q-9 0-14.5-5.5T172-620q0-9 5.5-14.5T192-640h10q0-45 22-81t58-57v38q0 9 5.5 14.5T302-720q9 0 14.5-5.5T322-740v-54q9-3 19-4.5t21-1.5q11 0 21 1.5t19 4.5v54q0 9 5.5 14.5T422-720q9 0 14.5-5.5T442-740v-38q36 21 58 57t22 81h10q9 0 14.5-5.5T552-620q0 9-5.5 14.5T532-600h-10q0 66-47 113t-113 47Zm0-80q33 0 56.5-23.5T442-600H282q0 33 23.5 56.5T362-520Zm300 160-6-30q-6-2-11.5-4.5T634-402l-28 10-20-36 22-20v-24l-22-20 20-36 28 10q4-4 10-7t12-5l6-30h40l6 30q6 2 12 5t10 7l28-10 20 36-22 20v24l22 20-20 36-28-10q-5 5-10.5 7.5T708-390l-6 30h-40Zm20-70q12 0 21-9t9-21q0-12-9-21t-21-9q-12 0-21 9t-9 21q0 12 9 21t21 9Zm72-130-8-42q-9-3-16.5-7.5T716-620l-42 14-28-48 34-30q-2-5-2-8v-16q0-3 2-8l-34-30 28-48 42 14q6-6 13.5-10.5T746-798l8-42h56l8 42q9 3 16.5 7.5T848-780l42-14 28 48-34 30q2 5 2 8v16q0 3-2 8l34 30-28 48-42-14q-6 6-13.5 10.5T818-602l-8 42h-56Zm28-90q21 0 35.5-14.5T832-700q0-21-14.5-35.5T782-750q-21 0-35.5 14.5T732-700q0 21 14.5 35.5T782-650ZM362-200Z"/></svg>
+              <span>Development</span>
+              <button class="submenu-toggle-btn" id="development-submenu-toggle" aria-label="Toggle Submenu">
+                <i data-lucide="chevron-down" style="width: 14px; height: 14px;"></i>
+              </button>
+            </div>
+            <ul class="sidebar-submenu" id="development-submenu" style="display: none;">
+              <li class="submenu-item" data-subview="dev-permits">
+                <i data-lucide="file-check"></i>
+                <span>Permit Status</span>
+              </li>
+              <li class="submenu-item" data-subview="dev-plans">
+                <i data-lucide="map"></i>
+                <span>Project Plans</span>
+              </li>
+              <li class="submenu-item" data-subview="dev-details">
+                <i data-lucide="info"></i>
+                <span>Property Details</span>
+              </li>
+            </ul>
+          </li>
+          <li class="nav-item has-submenu" data-view="property-asset" id="property-asset-nav-item">
+            <div class="nav-item-main">
+              <i data-lucide="home"></i>
+              <span>Asset Management</span>
+              <button class="submenu-toggle-btn" id="property-asset-submenu-toggle" aria-label="Toggle Submenu">
+                <i data-lucide="chevron-down" style="width: 14px; height: 14px;"></i>
+              </button>
+            </div>
+            <ul class="sidebar-submenu" id="property-asset-submenu" style="display: none;">
+              <li class="submenu-item" data-subview="asset-portfolio">
+                <i data-lucide="layout-grid"></i>
+                <span>Property Portfolio</span>
+              </li>
+              <li class="submenu-item" data-subview="asset-warranties">
+                <i data-lucide="shield"></i>
+                <span>Equipment Warranties</span>
+              </li>
+              <li class="submenu-item" data-subview="asset-plans">
+                <i data-lucide="file-text"></i>
+                <span>As-Built Plans</span>
+              </li>
+              <li class="submenu-item" data-subview="asset-inspections">
+                <i data-lucide="clipboard-check"></i>
+                <span>Annual Inspections</span>
+              </li>
+            </ul>
+          </li>
+          
+          <li class="nav-divider"></li>
+          
+          <!-- Group 5 -->
+          <li class="nav-item has-submenu" data-view="accounting" id="accounting-nav-item">
+            <div class="nav-item-main">
+              <i data-lucide="calculator"></i>
+              <span>Accounting</span>
+              <button class="submenu-toggle-btn" id="accounting-submenu-toggle" aria-label="Toggle Submenu">
+                <i data-lucide="chevron-down" style="width: 14px; height: 14px;"></i>
+              </button>
+            </div>
+            <ul class="sidebar-submenu" id="accounting-submenu" style="display: none;">
+              <li class="submenu-item" data-subview="transactions">
+                <i data-lucide="arrow-right-left"></i>
+                <span>Transactions</span>
+              </li>
+              <li class="submenu-item" data-subview="invoices">
+                <i data-lucide="file-text"></i>
+                <span>Invoices</span>
+              </li>
+              <li class="submenu-item" data-subview="budgets">
+                <i data-lucide="pie-chart"></i>
+                <span>Budgets</span>
+              </li>
+              <li class="submenu-item" data-subview="imports">
+                <i data-lucide="download"></i>
+                <span>Import Hub</span>
+              </li>
+              <li class="submenu-item" data-subview="ramp">
+                <i data-lucide="credit-card"></i>
+                <span>Ramp Cards</span>
+              </li>
+              <li class="submenu-item" data-subview="ama">
+                <i data-lucide="file-check"></i>
+                <span>AMA Entities</span>
+              </li>
+              <li class="submenu-item" data-subview="mre">
+                <i data-lucide="building"></i>
+                <span>MRE</span>
+              </li>
+              <li class="submenu-item" data-subview="mri">
+                <i data-lucide="server"></i>
+                <span>MRI</span>
+              </li>
+              <li class="submenu-item" data-subview="reports">
+                <i data-lucide="file-spreadsheet"></i>
+                <span>Reports</span>
+              </li>
+            </ul>
+          </li>
+          <li class="nav-item has-submenu" data-view="investor-relations" id="investor-relations-nav-item">
+            <div class="nav-item-main">
+              <i data-lucide="landmark"></i>
+              <span>Investor Relations</span>
+              <button class="submenu-toggle-btn" id="investor-relations-submenu-toggle" aria-label="Toggle Submenu">
+                <i data-lucide="chevron-down" style="width: 14px; height: 14px;"></i>
+              </button>
+            </div>
+            <ul class="sidebar-submenu" id="investor-relations-submenu" style="display: none;">
+              <li class="submenu-item" data-subview="investor-dashboard">
+                <i data-lucide="bar-chart-3"></i>
+                <span>Investor Dashboard</span>
+              </li>
+              <li class="submenu-item" data-subview="investor-reports">
+                <i data-lucide="file-spreadsheet"></i>
+                <span>Reports</span>
+              </li>
+            </ul>
+          </li>
+          
+          <li class="nav-divider"></li>
+          
+          <!-- Group 6 -->
+          <li class="nav-item has-submenu" data-view="hr" id="hr-nav-item">
+            <div class="nav-item-main">
+              <i data-lucide="users"></i>
+              <span>HR</span>
+              <button class="submenu-toggle-btn" id="hr-submenu-toggle" aria-label="Toggle Submenu">
+                <i data-lucide="chevron-down" style="width: 14px; height: 14px;"></i>
+              </button>
+            </div>
+            <ul class="sidebar-submenu" id="hr-submenu" style="display: none;">
+              <li class="submenu-item" data-subview="hr-ms">
+                <i data-lucide="log-in"></i>
+                <span>Onboarding - MS</span>
+              </li>
+              <li class="submenu-item" data-subview="hr-asana">
+                <i data-lucide="check-square"></i>
+                <span>Onboarding - Asana</span>
+              </li>
+              <li class="submenu-item" data-subview="hr-disclosures">
+                <i data-lucide="pen-tool"></i>
+                <span>Disclosures</span>
+              </li>
+              <li class="submenu-item" data-subview="hr-documents">
+                <i data-lucide="files"></i>
+                <span>Documents</span>
+              </li>
+            </ul>
+          </li>
+          
+          <li class="nav-divider"></li>
+          
+          <!-- Group 7 -->
+          <li class="nav-item has-submenu" data-view="marketing" id="marketing-nav-item">
+            <div class="nav-item-main">
+              <i data-lucide="megaphone"></i>
+              <span>Marketing & Reputation</span>
+              <button class="submenu-toggle-btn" id="marketing-submenu-toggle" aria-label="Toggle Submenu">
+                <i data-lucide="chevron-down" style="width: 14px; height: 14px;"></i>
+              </button>
+            </div>
+            <ul class="sidebar-submenu" id="marketing-submenu" style="display: none;">
+              <li class="submenu-item" data-subview="marketing-ads">
+                <i data-lucide="megaphone"></i>
+                <span>Google Ads</span>
+              </li>
+              <li class="submenu-item" data-subview="marketing-reputation">
+                <i data-lucide="star"></i>
+                <span>Reputation Mgmt</span>
+              </li>
+            </ul>
+          </li>
+          <li class="nav-item" data-view="external-links">
+            <i data-lucide="external-link"></i>
+            <span>External Links</span>
+          </li>
+          <li class="nav-item" data-view="admin">
+            <i data-lucide="settings"></i>
+            <span>Administration</span>
+          </li>
+        </ul>
+      </nav>
+    </aside>
+
+    <!-- Overlay for mobile sidebar -->
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <!-- Main Content Area Right -->
+    <main class="main-content">
+      <!-- Top Header -->
+      <header class="top-header">
+        <div class="header-left">
+          <button class="mobile-toggle" id="mobile-toggle" aria-label="Toggle Sidebar">
+            <i data-lucide="menu"></i>
+          </button>
+          <div class="breadcrumb">
+            <i data-lucide="sidebar" class="breadcrumb-icon"></i>
+            <span class="breadcrumb-current" id="current-view-title">Dashboard</span>
+          </div>
+        </div>
+        <div class="header-right">
+          <!-- Theme Switcher Button -->
+          <button class="theme-toggle-btn" id="theme-toggle-btn" aria-label="Toggle Theme">
+            <i data-lucide="moon" class="theme-icon-dark"></i>
+            <i data-lucide="sun" class="theme-icon-light" style="display: none;"></i>
+          </button>
+          <div class="user-profile">
+            <div class="user-avatar">P</div>
+            <span class="user-name-header">Pranshu</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- Viewport where different views are injected -->
+      <div class="viewport" id="main-viewport">
+        <!-- Content gets loaded dynamically here -->
+      </div>
+    </main>
+  </div>
+
+  <!-- Scripts loaded sequentially -->
+  <script src="views/dashboard.js"></script>
+  <script src="views/managerDashboard.js"></script>
+  <script src="views/tasks.js"></script>
+  <script src="views/purchase.js"></script>
+  <script src="views/marketing.js"></script>
+  <script src="views/sop.js"></script>
+  <script src="views/it.js"></script>
+  <script src="views/accounting.js"></script>
+  <script src="views/operations.js"></script>
+  <script src="views/development.js"></script>
+  <script src="views/propertyAsset.js"></script>
+  <script src="views/hr.js"></script>
+  <script src="views/investorRelations.js"></script>
+
+  <script src="views/admin.js"></script>
+
+  <script src="views/externalLinks.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

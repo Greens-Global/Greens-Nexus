@@ -1,9 +1,0 @@
-node_modules/
-dist/
-.env
-.DS_Store
-/.cache
-/.vscode
-/.history
-npm-debug.log
-yarn-error.log
