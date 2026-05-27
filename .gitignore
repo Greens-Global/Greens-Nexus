@@ -31,7 +31,12 @@ frontend/.env.*
 .idea/
 *.swp
 *.swo
+/.history
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Logs
+npm-debug.log
+yarn-error.log
