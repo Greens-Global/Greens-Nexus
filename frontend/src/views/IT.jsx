@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { RefreshCw, Download, ArrowLeft, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
 
-const BASE = "http://localhost:8000/unifi";
+const BASE = `${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/unifi`;
 
 export default function IT({ activeSub = "network" }) {
   if (activeSub === "network") return <NetworkDashboard />;
