@@ -3,7 +3,7 @@ import { RefreshCw, Download, ArrowLeft, AlertTriangle, ChevronDown, ChevronUp }
 
 const BASE = "http://localhost:8000/unifi";
 
-export default function IT({ activeSub = "network", onSubChange }) {
+export default function IT({ activeSub = "network" }) {
   if (activeSub === "network") return <NetworkDashboard />;
   return null;
 }

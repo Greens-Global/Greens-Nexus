@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LogIn, CheckSquare, PenTool, Files, ShieldCheck, RefreshCw, Check, Download, X } from 'lucide-react';
+import { LogIn, CheckSquare, PenTool, Files, ShieldCheck, RefreshCw, Check, Download } from 'lucide-react';
 
 const INIT_MS = [
   { id: 1, name: 'Alice Thompson', role: 'Project Coordinator', dept: 'OPS', startDate: '2026-06-01', adAccount: 'Pending', emailSetup: 'Pending', msLicensing: 'Pending', laptopTracking: 'Shipped (Delivered May 24)' },

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileCheck, Map, Info, Building, MapPin, DollarSign, Calendar, TrendingUp, RefreshCw, ExternalLink, File, X, Plus } from 'lucide-react';
+import { FileCheck, Map, Info, Building, MapPin, RefreshCw, ExternalLink, File, X, Plus } from 'lucide-react';
 
 const INIT_PERMITS = [
   { id: 1, project: 'Luxury Apartment Complex', permitNo: 'BLD-2026-00412', type: 'Zoning & Height Variance', agency: 'Oceanview Zoning Board', status: 'Approved', date: '2026-02-18' },

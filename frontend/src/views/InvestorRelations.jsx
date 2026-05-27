@@ -1,4 +1,4 @@
-export default function InvestorRelations({ activeSub, onSubChange }) {
+export default function InvestorRelations() {
   return (
     <div className="view-header">
       <div className="view-title-group">

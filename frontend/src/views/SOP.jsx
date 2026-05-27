@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BookOpen, CheckSquare, GraduationCap, FilePlus, Search, Clock, Sparkles, Play, BadgeCheck, Users, X } from 'lucide-react';
+import { BookOpen, CheckSquare, FilePlus, Search, Clock, Sparkles, Play, BadgeCheck, Users, X } from 'lucide-react';
 
 const INIT_SOPS = [
   { id: 1, title: 'IT Security Policy v2.1', category: 'IT Procedures', status: 'Published', date: '2026-05-20' },
