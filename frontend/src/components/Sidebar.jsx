@@ -27,7 +27,9 @@ const NAV = [
   {
     view: "it", label: "IT", icon: Monitor,
     sub: [
-      { subview: "network", label: "Network Dashboard", icon: Wifi },
+      { subview: "network",     label: "Network Dashboard", icon: Wifi },
+      { subview: "it-assets",   label: "Asset Management",  icon: Monitor },
+      { subview: "it-websites", label: "Website Management", icon: ExternalLink },
     ],
   },
   { divider: true },

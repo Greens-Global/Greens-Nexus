@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
-import { RefreshCw, Download, ArrowLeft, AlertTriangle, ChevronDown, ChevronUp, Wifi } from "lucide-react";
+import { RefreshCw, Download, ArrowLeft, AlertTriangle, ChevronDown, ChevronUp, Wifi, Laptop, Globe, Plus, ExternalLink, AlertCircle } from "lucide-react";
 
 const BASE = `${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/unifi`;
 
 const TABS = [
-  { key: 'network', label: 'Network Dashboard', Icon: Wifi },
+  { key: 'network',    label: 'Network Dashboard', Icon: Wifi },
+  { key: 'it-assets',  label: 'Asset Management',  Icon: Laptop },
+  { key: 'it-websites',label: 'Website Management', Icon: Globe },
 ];
 
 export default function IT({ activeSub = "network", onSubChange }) {
@@ -21,7 +23,294 @@ export default function IT({ activeSub = "network", onSubChange }) {
           </button>
         ))}
       </div>
-      {sub === 'network' && <NetworkDashboard />}
+      {sub === 'network'     && <NetworkDashboard />}
+      {sub === 'it-assets'   && <ITAssets />}
+      {sub === 'it-websites' && <ITWebsites />}
+    </div>
+  );
+}
+
+// ── IT Asset Management ──────────────────────────────────────────────────────
+
+const INIT_ASSETS = [
+  { id: 'A001', name: 'Dell XPS 15 Laptop',         category: 'Laptop',   assignee: 'Visesh Lodha',    dept: 'IT',          location: 'Main Office',       status: 'Active',      purchased: '2024-03-10', warrantyEnd: '2027-03-10' },
+  { id: 'A002', name: 'MacBook Pro 14" M3',          category: 'Laptop',   assignee: 'Sarah Johnson',   dept: 'Accounting',  location: 'Main Office',       status: 'Active',      purchased: '2024-06-01', warrantyEnd: '2027-06-01' },
+  { id: 'A003', name: 'Dell UltraSharp 27" Monitor', category: 'Monitor',  assignee: 'Michael Chen',    dept: 'Development', location: 'Dev Floor',         status: 'Active',      purchased: '2023-11-15', warrantyEnd: '2026-11-15' },
+  { id: 'A004', name: 'HP ProDesk 600 G9 Desktop',   category: 'Desktop',  assignee: 'Reception Desk',  dept: 'Admin',       location: 'Front Lobby',       status: 'Active',      purchased: '2023-08-20', warrantyEnd: '2026-08-20' },
+  { id: 'A005', name: 'Cisco Catalyst 2960 Switch',  category: 'Network',  assignee: 'IT Rack',         dept: 'IT',          location: 'Server Room',       status: 'Active',      purchased: '2022-05-01', warrantyEnd: '2025-05-01' },
+  { id: 'A006', name: 'Synology DS1823xs+ NAS',      category: 'Server',   assignee: 'IT Infrastructure',dept: 'IT',         location: 'Server Room',       status: 'Active',      purchased: '2023-02-14', warrantyEnd: '2026-02-14' },
+  { id: 'A007', name: 'iPhone 15 Pro',               category: 'Phone',    assignee: 'Robert Kim',      dept: 'OPS',         location: 'Field',             status: 'Active',      purchased: '2024-01-08', warrantyEnd: '2025-01-08' },
+  { id: 'A008', name: 'iPad Pro 12.9" Gen 6',        category: 'Tablet',   assignee: 'Marcus Vance',    dept: 'OPS',         location: 'Field',             status: 'Active',      purchased: '2023-09-22', warrantyEnd: '2024-09-22' },
+  { id: 'A009', name: 'Logitech MX Keys Keyboard',   category: 'Peripheral',assignee: 'Dev Team Pool',  dept: 'Development', location: 'Dev Floor',         status: 'In Storage',  purchased: '2024-02-28', warrantyEnd: '2026-02-28' },
+  { id: 'A010', name: 'APC Smart-UPS 1500VA',        category: 'Power',    assignee: 'IT Rack',         dept: 'IT',          location: 'Server Room',       status: 'Active',      purchased: '2022-11-01', warrantyEnd: '2025-11-01' },
+];
+
+const ASSET_CATEGORIES = ['All', 'Laptop', 'Desktop', 'Monitor', 'Phone', 'Tablet', 'Server', 'Network', 'Peripheral', 'Power'];
+const TODAY_DATE = new Date('2026-05-28');
+
+function ITAssets() {
+  const [assets, setAssets] = useState(INIT_ASSETS);
+  const [filter, setFilter] = useState('All');
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState({ name: '', category: 'Laptop', assignee: '', dept: 'IT', location: '', status: 'Active', purchased: '', warrantyEnd: '' });
+
+  const visible = filter === 'All' ? assets : assets.filter(a => a.category === filter);
+
+  const warrantyAlert = (end) => {
+    const days = Math.ceil((new Date(end) - TODAY_DATE) / (1000 * 3600 * 24));
+    return { expired: days < 0, expiring: days >= 0 && days <= 90, days };
+  };
+
+  const submit = (e) => {
+    e.preventDefault();
+    const id = `A${String(assets.length + 1).padStart(3, '0')}`;
+    setAssets(prev => [{ id, ...form }, ...prev]);
+    setShowModal(false);
+    setForm({ name: '', category: 'Laptop', assignee: '', dept: 'IT', location: '', status: 'Active', purchased: '', warrantyEnd: '' });
+  };
+
+  return (
+    <div>
+      <div className="view-header">
+        <div className="view-title-group">
+          <h2>IT Asset Management</h2>
+          <p>Track hardware, devices, and equipment across all departments</p>
+        </div>
+        <button className="primary-btn" onClick={() => setShowModal(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Plus size={14} /> Add Asset
+        </button>
+      </div>
+
+      {/* Summary cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
+        {[
+          { label: 'Total Assets',   value: assets.length,                                         color: 'hsl(var(--color-blue))' },
+          { label: 'Active',         value: assets.filter(a => a.status === 'Active').length,       color: 'hsl(var(--color-green))' },
+          { label: 'In Storage',     value: assets.filter(a => a.status === 'In Storage').length,   color: 'var(--text-secondary)' },
+          { label: 'Warranty Expiring', value: assets.filter(a => { const w = warrantyAlert(a.warrantyEnd); return w.expiring || w.expired; }).length, color: 'hsl(var(--color-orange))' },
+        ].map(s => (
+          <div key={s.label} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '16px 18px' }}>
+            <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 6 }}>{s.label}</div>
+            <div style={{ fontSize: '1.8rem', fontWeight: 700, color: s.color }}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Category filter */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+        {ASSET_CATEGORIES.map(c => (
+          <button key={c} onClick={() => setFilter(c)}
+            style={{ padding: '4px 12px', borderRadius: 20, border: '1px solid var(--border-color)', background: filter === c ? 'var(--text-primary)' : 'var(--bg-card)', color: filter === c ? 'var(--bg-primary)' : 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer' }}>
+            {c}
+          </button>
+        ))}
+      </div>
+
+      {/* Table */}
+      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
+        <table className="req-table">
+          <thead>
+            <tr><th>Asset ID</th><th>Name / Category</th><th>Assigned To</th><th>Location</th><th>Warranty</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            {visible.map(a => {
+              const w = warrantyAlert(a.warrantyEnd);
+              return (
+                <tr key={a.id}>
+                  <td style={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'var(--text-muted)' }}>{a.id}</td>
+                  <td>
+                    <div style={{ fontWeight: 600 }}>{a.name}</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{a.category} · {a.dept}</div>
+                  </td>
+                  <td>{a.assignee}</td>
+                  <td style={{ color: 'var(--text-secondary)', fontSize: '0.88rem' }}>{a.location}</td>
+                  <td>
+                    <span style={{ fontSize: '0.82rem', color: w.expired ? 'hsl(var(--color-red))' : w.expiring ? 'hsl(var(--color-orange))' : 'var(--text-secondary)', fontWeight: w.expired || w.expiring ? 600 : 400 }}>
+                      {w.expired ? `Expired ${Math.abs(w.days)}d ago` : w.expiring ? `${w.days}d left` : a.warrantyEnd}
+                    </span>
+                  </td>
+                  <td><span className={`status-badge ${a.status === 'Active' ? 'status-approved' : 'status-pending'}`}>{a.status}</span></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Add Asset Modal */}
+      {showModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 28, width: 480, maxHeight: '90vh', overflowY: 'auto' }}>
+            <h3 style={{ marginBottom: 20, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Add New Asset</h3>
+            <form onSubmit={submit}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                {[
+                  { label: 'Asset Name', key: 'name', type: 'text', full: true },
+                  { label: 'Category', key: 'category', type: 'select', options: ASSET_CATEGORIES.slice(1) },
+                  { label: 'Assigned To', key: 'assignee', type: 'text' },
+                  { label: 'Department', key: 'dept', type: 'text' },
+                  { label: 'Location', key: 'location', type: 'text' },
+                  { label: 'Status', key: 'status', type: 'select', options: ['Active', 'In Storage', 'Decommissioned'] },
+                  { label: 'Purchase Date', key: 'purchased', type: 'date' },
+                  { label: 'Warranty End', key: 'warrantyEnd', type: 'date' },
+                ].map(f => (
+                  <div key={f.key} className="form-group" style={f.full ? { gridColumn: '1/-1' } : {}}>
+                    <label>{f.label}</label>
+                    {f.type === 'select'
+                      ? <select className="form-select" value={form[f.key]} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}>
+                          {f.options.map(o => <option key={o}>{o}</option>)}
+                        </select>
+                      : <input className="form-input" type={f.type} required value={form[f.key]} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))} />
+                    }
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
+                <button type="button" className="secondary-btn" onClick={() => setShowModal(false)}>Cancel</button>
+                <button type="submit" className="primary-btn">Add Asset</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Website Management ───────────────────────────────────────────────────────
+
+const INIT_SITES = [
+  { id: 1, name: 'Greens Global',        url: 'https://greensglobal.com',       platform: 'WordPress',  hosting: 'WP Engine',    domainExpiry: '2027-01-14', sslExpiry: '2026-08-01', status: 'Live',       analytics: '4,280 visits/mo' },
+  { id: 2, name: 'Greens Nexus App',     url: 'https://vlow2k.github.io/Greens-Nexus', platform: 'React/Vite', hosting: 'GitHub Pages', domainExpiry: '—',         sslExpiry: 'Auto',       status: 'Live',       analytics: 'Internal' },
+  { id: 3, name: 'Greens Global Ads LP', url: 'https://greensglobal.com/promo', platform: 'WordPress',  hosting: 'WP Engine',    domainExpiry: '2027-01-14', sslExpiry: '2026-08-01', status: 'Live',       analytics: '1,050 visits/mo' },
+  { id: 4, name: 'Investor Portal',      url: 'https://investors.greensglobal.com', platform: 'Custom',  hosting: 'AWS',          domainExpiry: '2027-01-14', sslExpiry: '2026-11-20', status: 'In Development', analytics: '—' },
+  { id: 5, name: 'OPS Field App',        url: 'https://ops.greensglobal.com',   platform: 'React',      hosting: 'Render',       domainExpiry: '2027-01-14', sslExpiry: 'Auto',       status: 'Staging',    analytics: 'Internal' },
+];
+
+function ITWebsites() {
+  const [sites, setSites] = useState(INIT_SITES);
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState({ name: '', url: '', platform: '', hosting: '', domainExpiry: '', sslExpiry: '', status: 'Live', analytics: '' });
+
+  const sslDaysLeft = (val) => {
+    if (val === 'Auto' || val === '—') return null;
+    return Math.ceil((new Date(val) - TODAY_DATE) / (1000 * 3600 * 24));
+  };
+
+  const submit = (e) => {
+    e.preventDefault();
+    setSites(prev => [{ id: Date.now(), ...form }, ...prev]);
+    setShowModal(false);
+    setForm({ name: '', url: '', platform: '', hosting: '', domainExpiry: '', sslExpiry: '', status: 'Live', analytics: '' });
+  };
+
+  const statusColor = (s) => s === 'Live' ? 'status-approved' : s === 'Staging' ? 'status-pending' : 'status-badge';
+
+  return (
+    <div>
+      <div className="view-header">
+        <div className="view-title-group">
+          <h2>Website Management</h2>
+          <p>Monitor domains, SSL certificates, hosting, and site status</p>
+        </div>
+        <button className="primary-btn" onClick={() => setShowModal(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Plus size={14} /> Add Site
+        </button>
+      </div>
+
+      {/* Summary */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
+        {[
+          { label: 'Total Sites',   value: sites.length,                                       color: 'hsl(var(--color-blue))' },
+          { label: 'Live',          value: sites.filter(s => s.status === 'Live').length,       color: 'hsl(var(--color-green))' },
+          { label: 'Staging / Dev', value: sites.filter(s => s.status !== 'Live').length,      color: 'hsl(var(--color-orange))' },
+          { label: 'SSL Alerts',    value: sites.filter(s => { const d = sslDaysLeft(s.sslExpiry); return d !== null && d <= 60; }).length, color: 'hsl(var(--color-red))' },
+        ].map(s => (
+          <div key={s.label} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '16px 18px' }}>
+            <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 6 }}>{s.label}</div>
+            <div style={{ fontSize: '1.8rem', fontWeight: 700, color: s.color }}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Site cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
+        {sites.map(site => {
+          const sslDays = sslDaysLeft(site.sslExpiry);
+          const sslWarn = sslDays !== null && sslDays <= 60;
+          return (
+            <div key={site.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: 4 }}>{site.name}</div>
+                  <a href={site.url} target="_blank" rel="noreferrer" style={{ fontSize: '0.78rem', color: 'hsl(var(--color-blue))', display: 'inline-flex', alignItems: 'center', gap: 4, textDecoration: 'none' }}>
+                    {site.url.replace('https://', '')} <ExternalLink size={10} />
+                  </a>
+                </div>
+                <span className={`status-badge ${statusColor(site.status)}`}>{site.status}</span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: '0.82rem' }}>
+                {[
+                  { label: 'Platform', value: site.platform },
+                  { label: 'Hosting',  value: site.hosting },
+                  { label: 'Domain Expiry', value: site.domainExpiry },
+                  { label: 'Analytics', value: site.analytics },
+                ].map(r => (
+                  <div key={r.label}>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>{r.label}</div>
+                    <div style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{r.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 10, borderTop: '1px solid var(--border-color)' }}>
+                {sslWarn && <AlertCircle size={13} style={{ color: 'hsl(var(--color-orange))' }} />}
+                <span style={{ fontSize: '0.78rem', color: sslWarn ? 'hsl(var(--color-orange))' : 'var(--text-secondary)', fontWeight: sslWarn ? 600 : 400 }}>
+                  SSL: {site.sslExpiry === 'Auto' ? 'Auto-renew' : site.sslExpiry === '—' ? 'N/A' : sslDays !== null && sslDays < 0 ? 'EXPIRED' : `${sslDays}d remaining`}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Add Site Modal */}
+      {showModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 28, width: 480, maxHeight: '90vh', overflowY: 'auto' }}>
+            <h3 style={{ marginBottom: 20, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Add New Site</h3>
+            <form onSubmit={submit}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                {[
+                  { label: 'Site Name', key: 'name', type: 'text', full: true },
+                  { label: 'URL', key: 'url', type: 'url', full: true },
+                  { label: 'Platform', key: 'platform', type: 'text' },
+                  { label: 'Hosting', key: 'hosting', type: 'text' },
+                  { label: 'Domain Expiry', key: 'domainExpiry', type: 'date' },
+                  { label: 'SSL Expiry', key: 'sslExpiry', type: 'text' },
+                  { label: 'Status', key: 'status', type: 'select', options: ['Live', 'Staging', 'In Development', 'Offline'] },
+                  { label: 'Analytics', key: 'analytics', type: 'text' },
+                ].map(f => (
+                  <div key={f.key} className="form-group" style={f.full ? { gridColumn: '1/-1' } : {}}>
+                    <label>{f.label}</label>
+                    {f.type === 'select'
+                      ? <select className="form-select" value={form[f.key]} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}>
+                          {f.options.map(o => <option key={o}>{o}</option>)}
+                        </select>
+                      : <input className="form-input" type={f.type} required={f.key !== 'analytics'} value={form[f.key]} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))} />
+                    }
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
+                <button type="button" className="secondary-btn" onClick={() => setShowModal(false)}>Cancel</button>
+                <button type="submit" className="primary-btn">Add Site</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
