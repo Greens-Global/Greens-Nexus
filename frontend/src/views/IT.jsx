@@ -4,12 +4,13 @@ import { RefreshCw, Download, ArrowLeft, AlertTriangle, ChevronDown, ChevronUp, 
 const BASE = `${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/unifi`;
 
 const TABS = [
+  { key: 'network',    label: 'Network Dashboard',  Icon: Wifi },
   { key: 'it-assets',  label: 'Asset Management',   Icon: Laptop },
   { key: 'it-websites',label: 'Website Management', Icon: Globe },
 ];
 
-export default function IT({ activeSub = "it-assets", onSubChange }) {
-  const sub = (activeSub === 'network' || !activeSub) ? 'it-assets' : activeSub;
+export default function IT({ activeSub = "network", onSubChange }) {
+  const sub = activeSub || 'network';
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -22,6 +23,7 @@ export default function IT({ activeSub = "it-assets", onSubChange }) {
           </button>
         ))}
       </div>
+      {sub === 'network'     && <NetworkDashboard />}
       {sub === 'it-assets'   && <ITAssets />}
       {sub === 'it-websites' && <ITWebsites />}
     </div>
@@ -327,13 +329,26 @@ function NetworkDashboard() {
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
 
+  const fetchWithTimeout = async (url, timeoutMs = 12000) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const r = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+      return r.json();
+    } catch (e) {
+      clearTimeout(timer);
+      if (e.name === 'AbortError') throw new Error('Request timed out — backend may be waking up. Try refreshing in a few seconds.');
+      throw e;
+    }
+  };
+
   const loadOverview = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(`${BASE}/overview`);
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
-      const data = await r.json();
+      const data = await fetchWithTimeout(`${BASE}/overview`);
       const fresh = data.data || [];
       setSites(fresh);
       sessionStorage.setItem(CACHE_KEY, JSON.stringify(fresh));
@@ -349,9 +364,8 @@ function NetworkDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(`${BASE}/stats?siteId=${encodeURIComponent(siteId)}`);
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
-      setDetail(await r.json());
+      const data = await fetchWithTimeout(`${BASE}/stats?siteId=${encodeURIComponent(siteId)}`);
+      setDetail(data);
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (e) {
       setError(e.message);
@@ -502,11 +516,19 @@ function NetworkDashboard() {
           )}
 
           {/* Site cards */}
-          {sites.length === 0 && !loading ? (
+          {sites.length === 0 && loading && (
+            <div style={{ textAlign: "center", padding: 60, color: "var(--text-secondary)" }}>
+              <RefreshCw style={{ width: 20, height: 20, animation: "spin 1s linear infinite", marginBottom: 12 }} />
+              <div style={{ fontSize: "0.9rem" }}>Connecting to UniFi backend…</div>
+              <div style={{ fontSize: "0.78rem", marginTop: 6, color: "var(--text-muted)" }}>This may take a few seconds on first load.</div>
+            </div>
+          )}
+          {sites.length === 0 && !loading && !error && (
             <div style={{ textAlign: "center", padding: 60, color: "var(--text-secondary)", border: "1px dashed var(--border-color)", borderRadius: 12 }}>
               No sites found — check that the backend is running and the UniFi API key is configured.
             </div>
-          ) : (
+          )}
+          {sites.length > 0 && (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
               {sites.map(site => {
                 const hasOffline = site.offline_devices.length > 0;

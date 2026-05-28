@@ -2,6 +2,9 @@
    Greens Nexus — Design System v3 (neutral monochrome)
    ========================================================================== */
 
+@keyframes fadeIn  { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes spin    { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
 :root {
   --paper:       #f4f5f7;
   --card:        #ffffff;
