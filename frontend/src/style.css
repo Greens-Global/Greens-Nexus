@@ -51,32 +51,35 @@
 }
 
 [data-theme="dark"] {
-  --paper:   #0b0f19;
-  --card:    #1f2937;
-  --sidebar: #0e1320;
-  --ink:     #f3f4f6;
-  --muted:   #9ca3af;
-  --line:    #374151;
-  --mist:    #1f2937;
-  --ok-bg:   #052e16; --ok-fg:   #86efac;
-  --warn-bg: #1c1007; --warn-fg: #fcd34d;
-  --bad-bg:  #1c0a0a; --bad-fg:  #fca5a5;
-  --info-bg: #0c1a2e; --info-fg: #93c5fd;
+  --body-bg: linear-gradient(145deg, #0a0f1e 0%, #0f172a 100%);
+  --paper:   #0f172a;
+  --card:    #1e293b;
+  --sidebar: #0a0f1e;
+  --ink:     #f1f5f9;
+  --muted:   #94a3b8;
+  --line:    rgba(255,255,255,0.08);
+  --pine:    #e2e8f0;
+  --fern:    #cbd5e1;
+  --mist:    #1e293b;
+  --ok-bg:   #052e16; --ok-fg:   #4ade80;
+  --warn-bg: #1c1007; --warn-fg: #fbbf24;
+  --bad-bg:  #1c0a0a; --bad-fg:  #f87171;
+  --info-bg: #0c1a2e; --info-fg: #60a5fa;
   --bg-primary:   var(--paper);
-  --bg-secondary: #111827;
+  --bg-secondary: #1e293b;
   --bg-sidebar:   var(--sidebar);
   --bg-card:      var(--card);
-  --border-color: var(--line);
-  --border-hover: #4b5563;
+  --border-color: rgba(255,255,255,0.08);
+  --border-hover: rgba(255,255,255,0.15);
   --text-primary:   var(--ink);
   --text-secondary: var(--muted);
-  --text-muted: #6b7280;
-  --sidebar-hover-bg:   var(--mist);
-  --sidebar-active-bg:  var(--pine);
-  --sidebar-active-text: #ffffff;
-  --shadow-sm: 0 1px 3px rgba(0,0,0,.3), 0 1px 6px rgba(0,0,0,.2);
-  --shadow-md: 0 2px 12px rgba(0,0,0,.35), 0 4px 24px rgba(0,0,0,.25);
-  --shadow-lg: 0 8px 32px rgba(0,0,0,.4), 0 2px 10px rgba(0,0,0,.3);
+  --text-muted: #64748b;
+  --sidebar-hover-bg:   rgba(255,255,255,0.06);
+  --sidebar-active-bg:  rgba(255,255,255,0.10);
+  --sidebar-active-text: #f1f5f9;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.4), 0 1px 6px rgba(0,0,0,.3);
+  --shadow-md: 0 2px 12px rgba(0,0,0,.5), 0 4px 24px rgba(0,0,0,.35);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,.6), 0 2px 10px rgba(0,0,0,.4);
 }
 
 /* ── Reset ─────────────────────────────────────────────────────────────── */
@@ -84,7 +87,7 @@
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: linear-gradient(145deg, #f4f5f7 0%, #edf0f4 100%);
+  background: var(--body-bg, linear-gradient(145deg, #f4f5f7 0%, #e8ecf2 100%));
   min-height: 100vh;
   color: var(--ink);
   line-height: 1.5;
@@ -178,9 +181,9 @@ h1,h2,h3,h4,h5,h6,
   user-select: none;
   list-style: none;
 }
-.nav-item:hover { background: var(--mist); color: var(--ink); }
-.nav-item.active { background: var(--pine); color: #fff; }
-.nav-item.active svg { color: #fff; opacity: .9; }
+.nav-item:hover { background: var(--sidebar-hover-bg); color: var(--ink); }
+.nav-item.active { background: var(--sidebar-active-bg); color: var(--sidebar-active-text); }
+.nav-item.active svg { color: var(--sidebar-active-text); opacity: .9; }
 
 /* items with submenu */
 .nav-item.has-submenu { cursor: default; flex-direction: column; align-items: stretch; padding: 0; gap: 0; }
@@ -550,8 +553,50 @@ h1,h2,h3,h4,h5,h6,
 }
 .kpi-delta.up { color: var(--ok-fg); }
 
-/* card color variants — no colored borders, keep class names for compat */
-.card-blue, .card-orange, .card-green, .card-purple, .card-red, .card-gold { }
+/* ── Legacy KPI card inner classes (ManagerDashboard, Operations, Accounting) */
+.cards-grid { display: grid; gap: 16px; }
+.kpi-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+.kpi-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: .01em;
+}
+.kpi-icon-container {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(0,0,0,0.04);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.kpi-stat {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -.04em;
+  color: var(--ink);
+  line-height: 1;
+  margin-bottom: 5px;
+}
+.kpi-helper {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* subtle semantic top-border accents — only for alert/status cards */
+.card-blue   { border-top: 2px solid hsl(var(--color-blue)) !important; }
+.card-red    { border-top: 2px solid hsl(var(--color-red)) !important; }
+.card-orange { border-top: 2px solid hsl(var(--color-orange)) !important; }
+.card-green, .card-purple, .card-gold { }
 
 /* ── Dashboard ─────────────────────────────────────────────────────────── */
 .dashboard-view { display: flex; flex-direction: column; gap: 18px; }

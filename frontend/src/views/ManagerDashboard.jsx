@@ -64,16 +64,16 @@ export default function ManagerDashboard() {
       </div>
 
       {/* Tab Navigation */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--border-color)', paddingBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
         {tabs.map(t => (
           <button
             key={t.id}
-            className="secondary-btn"
             onClick={() => setActiveTab(t.id)}
             style={{
-              border: 'none', padding: '8px 16px', borderRadius: 20, fontWeight: 600, fontSize: '0.85rem',
-              backgroundColor: activeTab === t.id ? 'var(--text-primary)' : 'transparent',
-              color: activeTab === t.id ? 'var(--bg-primary)' : 'var(--text-secondary)',
+              border: 'none', padding: '7px 16px', borderRadius: 20, fontWeight: 600, fontSize: '13px',
+              fontFamily: 'Inter, sans-serif', cursor: 'pointer', transition: 'all 0.13s',
+              background: activeTab === t.id ? 'var(--ink)' : 'rgba(0,0,0,0.05)',
+              color: activeTab === t.id ? 'var(--sidebar-active-text)' : 'var(--muted)',
             }}
           >
             {t.label}
@@ -86,8 +86,8 @@ export default function ManagerDashboard() {
         {activeTab === 'workload' && (
           <>
             <div style={{ marginBottom: 20 }}>
-              <h3 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '1.15rem' }}>Employee Workload Analysis</h3>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Task distribution and estimated time per employee</p>
+              <h3 style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '-.02em' }}>Employee Workload Analysis</h3>
+              <p style={{ color: 'var(--muted)', fontSize: '13px', marginTop: 3 }}>Task distribution and estimated time per employee</p>
             </div>
             <div className="req-table-wrapper">
               <table className="req-table">
