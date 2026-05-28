@@ -66,8 +66,8 @@ export default function Purchase() {
                 </select>
               </div>
             </div>
-            <button type="submit" className="primary-btn" style={{ width: '100%', justifyContent: 'center', marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Send size={16} /> Submit Requisition
+            <button type="submit" className="primary-btn" style={{ marginTop: 12, width: '100%', justifyContent: 'center' }}>
+              <Send size={14} /> Submit Requisition
             </button>
           </form>
         </div>
@@ -99,8 +99,8 @@ export default function Purchase() {
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       {req.status === 'pending' ? (
                         <>
-                          <button className="primary-btn" onClick={() => approve(req.id)} style={{ padding: '4px 8px', fontSize: '0.75rem', backgroundColor: 'hsl(var(--color-green))', borderRadius: 4, marginRight: 4 }}>Approve</button>
-                          <button className="secondary-btn" onClick={() => reject(req.id)} style={{ padding: '4px 8px', fontSize: '0.75rem', color: 'hsl(var(--color-red))', borderColor: 'hsla(var(--color-red), 0.2)', borderRadius: 4 }}>Reject</button>
+                          <button className="primary-btn" onClick={() => approve(req.id)} style={{ padding: '4px 12px', fontSize: '12px', marginRight: 4 }}>Approve</button>
+                          <button className="secondary-btn" onClick={() => reject(req.id)} style={{ padding: '4px 12px', fontSize: '12px' }}>Reject</button>
                         </>
                       ) : (
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>Closed</span>
