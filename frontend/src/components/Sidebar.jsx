@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   LayoutDashboard, UserCheck, ShoppingCart, CheckSquare, BookOpen,
-  GraduationCap, Monitor,
+  GraduationCap, Monitor, Wifi,
   Home, LayoutGrid, Shield, FileText, ClipboardCheck,
   Calculator, ArrowRightLeft, PieChart, Download, CreditCard,
   Building, Server, FileSpreadsheet, Landmark, BarChart3,
@@ -27,7 +27,8 @@ const NAV = [
   {
     view: "it", label: "IT", icon: Monitor,
     sub: [
-      { subview: "it-assets",   label: "Asset Management",  icon: Monitor },
+      { subview: "network",     label: "Network Dashboard",  icon: Wifi },
+      { subview: "it-assets",   label: "Asset Management",   icon: Monitor },
       { subview: "it-websites", label: "Website Management", icon: ExternalLink },
     ],
   },

@@ -315,9 +315,13 @@ function ITWebsites() {
   );
 }
 
+const CACHE_KEY = "unifi_overview_cache";
+
 function NetworkDashboard() {
   const [view, setView] = useState("overview");
-  const [sites, setSites] = useState([]);
+  const [sites, setSites] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem(CACHE_KEY)) || []; } catch { return []; }
+  });
   const [detail, setDetail] = useState(null);
   const [currentSite, setCurrentSite] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -332,7 +336,9 @@ function NetworkDashboard() {
       const r = await fetch(`${BASE}/overview`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
       const data = await r.json();
-      setSites(data.data || []);
+      const fresh = data.data || [];
+      setSites(fresh);
+      sessionStorage.setItem(CACHE_KEY, JSON.stringify(fresh));
       setLastUpdated(new Date().toLocaleTimeString());
     } catch (e) {
       setError(e.message);
