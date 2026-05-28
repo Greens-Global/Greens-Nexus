@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { AuthenticatedTemplate, UnauthenticatedTemplate } from "@azure/msal-react";
+import LoginPage from "./views/LoginPage";
 import Sidebar from "./components/Sidebar";
 import TopHeader from "./components/TopHeader";
 import Dashboard from "./views/Dashboard";
@@ -91,25 +93,32 @@ export default function App() {
   }
 
   return (
-    <div className="app-container">
-      <Sidebar
-        activeView={activeView}
-        activeSub={activeSub}
-        onNavigate={navigate}
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-      />
-      <main className="main-content">
-        <TopHeader
-          title={VIEW_LABELS[activeView] || activeView}
-          theme={theme}
-          onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")}
-          onMobileToggle={() => setSidebarOpen(o => !o)}
-        />
-        <div className="viewport">
-          {renderView()}
+    <>
+      <AuthenticatedTemplate>
+        <div className="app-container">
+          <Sidebar
+            activeView={activeView}
+            activeSub={activeSub}
+            onNavigate={navigate}
+            isOpen={sidebarOpen}
+            onClose={() => setSidebarOpen(false)}
+          />
+          <main className="main-content">
+            <TopHeader
+              title={VIEW_LABELS[activeView] || activeView}
+              theme={theme}
+              onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")}
+              onMobileToggle={() => setSidebarOpen(o => !o)}
+            />
+            <div className="viewport">
+              {renderView()}
+            </div>
+          </main>
         </div>
-      </main>
-    </div>
+      </AuthenticatedTemplate>
+      <UnauthenticatedTemplate>
+        <LoginPage />
+      </UnauthenticatedTemplate>
+    </>
   );
 }

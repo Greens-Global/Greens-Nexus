@@ -1,6 +1,21 @@
-import { Menu, Sidebar as SidebarIcon, Moon, Sun } from "lucide-react";
+import { Menu, Sidebar as SidebarIcon, Moon, Sun, LogOut } from "lucide-react";
+import { useMsal } from "@azure/msal-react";
 
 export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle }) {
+  const { instance, accounts } = useMsal();
+  const account = accounts[0];
+  const displayName = account?.name ?? account?.username ?? "User";
+  const initials = displayName
+    .split(" ")
+    .map(p => p[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
+  function handleSignOut() {
+    instance.logoutRedirect();
+  }
+
   return (
     <header className="top-header">
       <div className="header-left">
@@ -20,9 +35,12 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle 
           }
         </button>
         <div className="user-profile">
-          <div className="user-avatar">P</div>
-          <span className="user-name-header">Pranshu</span>
+          <div className="user-avatar">{initials}</div>
+          <span className="user-name-header">{displayName.split(" ")[0]}</span>
         </div>
+        <button className="theme-toggle-btn" onClick={handleSignOut} aria-label="Sign Out" title="Sign out">
+          <LogOut style={{ width: 18, height: 18 }} />
+        </button>
       </div>
     </header>
   );
