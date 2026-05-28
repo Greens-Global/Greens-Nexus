@@ -315,6 +315,7 @@ function ITWebsites() {
   );
 }
 
+// eslint-disable-next-line no-unused-vars
 function NetworkDashboard() {
   const [view, setView] = useState("overview");
   const [sites, setSites] = useState([]);
