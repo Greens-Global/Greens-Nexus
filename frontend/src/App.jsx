@@ -62,7 +62,7 @@ export default function App() {
   function getDefaultSub(view) {
     const defaults = {
       sop:               "index",
-      it:                "network",
+      it:                "it-assets",
       ops:               "ops-dashboard",
       operations:        "fms",
       development:       "dev-permits",

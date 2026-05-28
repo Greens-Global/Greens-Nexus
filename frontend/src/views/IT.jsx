@@ -4,13 +4,12 @@ import { RefreshCw, Download, ArrowLeft, AlertTriangle, ChevronDown, ChevronUp, 
 const BASE = `${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/unifi`;
 
 const TABS = [
-  { key: 'network',    label: 'Network Dashboard',  Icon: Wifi },
   { key: 'it-assets',  label: 'Asset Management',   Icon: Laptop },
   { key: 'it-websites',label: 'Website Management', Icon: Globe },
 ];
 
-export default function IT({ activeSub = "network", onSubChange }) {
-  const sub = activeSub || 'network';
+export default function IT({ activeSub = "it-assets", onSubChange }) {
+  const sub = (activeSub === 'network' || !activeSub) ? 'it-assets' : activeSub;
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -23,7 +22,6 @@ export default function IT({ activeSub = "network", onSubChange }) {
           </button>
         ))}
       </div>
-      {sub === 'network'     && <NetworkDashboard />}
       {sub === 'it-assets'   && <ITAssets />}
       {sub === 'it-websites' && <ITWebsites />}
     </div>
