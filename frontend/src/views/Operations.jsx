@@ -92,10 +92,10 @@ export default function Operations({ activeSub, onSubChange }) {
 
           <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 24 }}>
             {[
-              { label: 'Total Workforce', value: '156', helper: '+8 this month', helperColor: 'hsl(var(--color-green))' },
-              { label: 'Active Sites', value: '12', helper: '+2 this month', helperColor: 'hsl(var(--color-green))' },
+              { label: 'Total Workforce', value: '156', helper: '+8 this month', helperColor: 'var(--ok-fg)' },
+              { label: 'Active Sites', value: '12', helper: '+2 this month', helperColor: 'var(--ok-fg)' },
               { label: 'Safety Incidents', value: '0', helper: '0 this month', helperColor: 'var(--text-secondary)' },
-              { label: 'Productivity', value: '94%', helper: '+3% this month', helperColor: 'hsl(var(--color-green))' },
+              { label: 'Productivity', value: '94%', helper: '+3% this month', helperColor: 'var(--ok-fg)' },
             ].map(({ label, value, helper, helperColor }) => (
               <div key={label} className="kpi-card card-blue" style={{ cursor: 'default' }}>
                 <div className="kpi-card-header"><span className="kpi-title">{label}</span></div>
@@ -257,7 +257,7 @@ export default function Operations({ activeSub, onSubChange }) {
               </div>
               <div className="kpi-stat" style={{ fontSize: '1.6rem' }}>42.5 GB / 100 GB</div>
               <div style={{ width: '100%', height: 4, backgroundColor: 'var(--border-color)', borderRadius: 2, overflow: 'hidden', marginTop: 8 }}>
-                <div style={{ width: '42.5%', height: '100%', backgroundColor: 'hsl(var(--color-blue))' }} />
+                <div style={{ width: '42.5%', height: '100%', backgroundColor: 'var(--ink)' }} />
               </div>
             </div>
             <div className="kpi-card card-green" style={{ cursor: 'default' }}>
@@ -266,7 +266,7 @@ export default function Operations({ activeSub, onSubChange }) {
                 <div className="kpi-icon-container"><Server size={18} /></div>
               </div>
               <div className="kpi-stat" style={{ fontSize: '1.6rem' }}>3 Local Syncs</div>
-              <div className="kpi-helper" style={{ color: 'hsl(var(--color-green))', fontWeight: 600 }}>HQ Server, Trailers, Procore Sync</div>
+              <div className="kpi-helper" style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>HQ Server, Trailers, Procore Sync</div>
             </div>
             <div className="kpi-card card-purple" style={{ cursor: 'default' }}>
               <div className="kpi-card-header">
@@ -283,7 +283,7 @@ export default function Operations({ activeSub, onSubChange }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: '0.9rem' }}>
                 <FolderOpen size={18} style={{ color: 'var(--text-secondary)' }} />
                 <span>Cubby Root</span>
-                {!isRoot && <><span>·</span><span style={{ color: 'hsl(var(--color-blue))', fontWeight: 700 }}>{cubbyDir}</span></>}
+                {!isRoot && <><span>·</span><span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{cubbyDir}</span></>}
               </div>
               {!isRoot
                 ? <button className="secondary-btn" onClick={() => setCubbyDir('root')} style={{ padding: '4px 10px', fontSize: '0.775rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}>

@@ -32,15 +32,15 @@ function OccupancyChart() {
     <svg className="chart-area" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
       <defs>
         <linearGradient id="og" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#2D6A4F" stopOpacity="0.28" />
-          <stop offset="100%" stopColor="#2D6A4F" stopOpacity="0" />
+          <stop offset="0%" stopColor="#111827" stopOpacity="0.12" />
+          <stop offset="100%" stopColor="#111827" stopOpacity="0" />
         </linearGradient>
       </defs>
       <path d={area} fill="url(#og)" />
-      <polyline points={pts} fill="none" stroke="#1B4332" strokeWidth="2.5" strokeLinejoin="round" />
+      <polyline points={pts} fill="none" stroke="#111827" strokeWidth="2.5" strokeLinejoin="round" />
       {TREND.map((d, i) => (
         <g key={d.m}>
-          <circle cx={xs(i)} cy={ys(d.occ)} r="3" fill="#1B4332" />
+          <circle cx={xs(i)} cy={ys(d.occ)} r="3" fill="#111827" />
           <text x={xs(i)} y={h - 2} fontSize="10" fill="#7C8579" textAnchor="middle" fontFamily="Hanken Grotesk, sans-serif">{d.m}</text>
         </g>
       ))}
