@@ -13,4 +13,5 @@ export const msalConfig = {
 
 export const loginRequest = {
   scopes: ["User.Read"],
+  prompt: "select_account",
 };

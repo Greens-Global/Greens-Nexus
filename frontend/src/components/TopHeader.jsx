@@ -13,7 +13,10 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle 
     .toUpperCase();
 
   function handleSignOut() {
-    instance.logoutRedirect();
+    instance.logoutRedirect({
+      account,
+      postLogoutRedirectUri: window.location.origin + window.location.pathname,
+    });
   }
 
   return (
