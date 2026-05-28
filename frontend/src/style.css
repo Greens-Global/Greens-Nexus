@@ -181,8 +181,8 @@ h1,h2,h3,h4,h5,h6,
 .nav-item.active svg { color: #fff; opacity: .9; }
 
 /* items with submenu */
-.nav-item.has-submenu { cursor: default; }
-.nav-item.has-submenu:hover { background: var(--mist); color: var(--ink); }
+.nav-item.has-submenu { cursor: default; flex-direction: column; align-items: stretch; padding: 0; gap: 0; }
+.nav-item.has-submenu:hover { background: transparent; }
 .nav-item.has-submenu.active { background: transparent; color: var(--ink); }
 
 .nav-item-main {
