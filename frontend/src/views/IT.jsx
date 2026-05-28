@@ -1,17 +1,16 @@
 import { useState, useEffect, useCallback } from "react";
-import { RefreshCw, Download, ArrowLeft, AlertTriangle, ChevronDown, ChevronUp, Laptop, Globe, Plus, ExternalLink, AlertCircle } from "lucide-react";
-// Wifi import kept for NetworkDashboard (currently hidden from UI, code preserved for future use)
-// import { Wifi } from "lucide-react";
+import { RefreshCw, Download, ArrowLeft, AlertTriangle, ChevronDown, ChevronUp, Laptop, Globe, Wifi, Plus, ExternalLink, AlertCircle } from "lucide-react";
 
 const BASE = `${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/unifi`;
 
 const TABS = [
-  { key: 'it-assets',  label: 'Asset Management',  Icon: Laptop },
+  { key: 'network',    label: 'Network Dashboard',  Icon: Wifi },
+  { key: 'it-assets',  label: 'Asset Management',   Icon: Laptop },
   { key: 'it-websites',label: 'Website Management', Icon: Globe },
 ];
 
-export default function IT({ activeSub = "it-assets", onSubChange }) {
-  const sub = activeSub === 'network' ? 'it-assets' : (activeSub || 'it-assets');
+export default function IT({ activeSub = "network", onSubChange }) {
+  const sub = activeSub || 'network';
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -24,6 +23,7 @@ export default function IT({ activeSub = "it-assets", onSubChange }) {
           </button>
         ))}
       </div>
+      {sub === 'network'     && <NetworkDashboard />}
       {sub === 'it-assets'   && <ITAssets />}
       {sub === 'it-websites' && <ITWebsites />}
     </div>
@@ -315,7 +315,6 @@ function ITWebsites() {
   );
 }
 
-// eslint-disable-next-line no-unused-vars
 function NetworkDashboard() {
   const [view, setView] = useState("overview");
   const [sites, setSites] = useState([]);
