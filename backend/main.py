@@ -12,7 +12,10 @@ import models
 from database import engine, get_db
 from unifi_client import fetch_all, build_site_payload
 
-models.Base.metadata.create_all(bind=engine)
+try:
+    models.Base.metadata.create_all(bind=engine)
+except Exception as e:
+    print(f"[startup] DB not ready: {e}")
 
 app = FastAPI(title="Greens Nexus API")
 
