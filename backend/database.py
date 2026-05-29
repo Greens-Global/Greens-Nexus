@@ -10,7 +10,11 @@ DATABASE_URL = os.environ.get(
 if DATABASE_URL.startswith("sqlite"):
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 else:
-    engine = create_engine(DATABASE_URL)
+    # Force pg8000 driver (pure Python, no C extensions needed)
+    url = DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+pg8000://")
+    if not url.startswith("postgresql+"):
+        url = url.replace("postgresql://", "postgresql+pg8000://")
+    engine = create_engine(url)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
