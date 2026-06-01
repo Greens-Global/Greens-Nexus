@@ -33,7 +33,7 @@ jobs:
       - run: npm run build
         env:
           VITE_API_BASE: ${{ secrets.VITE_API_BASE }}
-          VITE_REDIRECT_URI: https://nexus.greensglobal.com
+          VITE_REDIRECT_URI: ${{ vars.VITE_REDIRECT_URI }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend/dist
