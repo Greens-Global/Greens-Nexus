@@ -7,7 +7,7 @@ import {
   CreditCard, Building, Server, FileSpreadsheet, Landmark, BarChart3,
   Users, LogIn, PenTool, Files, Megaphone, Star, ExternalLink,
   Settings, ChevronDown, ChevronUp, HelpCircle, Store, Calendar,
-  MessageSquare,
+  MessageSquare, Package,
 } from "lucide-react";
 
 const NAV = [
@@ -42,7 +42,7 @@ const NAV = [
     ],
   },
   {
-    view: "operations", label: "Operations", icon: Store, badge: "NEW",
+    view: "operations", label: "Operations", icon: Store,
     sub: [
       { subview: "fms",        label: "FMS Integration",        icon: Server },
       { subview: "reputation", label: "Reputation Management",  icon: Star },
@@ -58,6 +58,7 @@ const NAV = [
       { subview: "dev-details", label: "Property Details", icon: FileText },
     ],
   },
+  { view: "inventory", label: "Inventory Management", icon: Package },
   {
     view: "property-asset", label: "Asset Management", icon: Home,
     sub: [
@@ -109,7 +110,7 @@ const NAV = [
   },
   { view: "admin",          label: "Administration", icon: Settings },
   { divider: true },
-  { view: "support",        label: "Support",        icon: HelpCircle, badge: "NEW" },
+  { view: "support",        label: "Support",        icon: HelpCircle },
   { view: "external-links", label: "External Links", icon: ExternalLink },
 ];
 
@@ -136,7 +137,6 @@ export default function Sidebar({ activeView, activeSub, onNavigate, isOpen, onC
           <div className="logo-box">GN</div>
           <div className="company-info">
             <span className="company-name">Nexus</span>
-            <span className="brand-sub">Greens Global</span>
           </div>
         </div>
 
@@ -151,7 +151,7 @@ export default function Sidebar({ activeView, activeSub, onNavigate, isOpen, onC
                   <li key={item.view} className={`nav-item has-submenu${activeView === item.view ? " active" : ""}`}>
                     <div
                       className="nav-item-main"
-                      onClick={() => { onNavigate(item.view); if (!open) setExpanded(p => ({ ...p, [item.view]: true })); }}
+                      onClick={() => { onNavigate(item.view); toggle(item.view); }}
                     >
                       {item.icon
                         ? <item.icon style={{ width: 17, height: 17 }} />

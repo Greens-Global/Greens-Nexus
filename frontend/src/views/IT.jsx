@@ -174,12 +174,12 @@ function ITAssets() {
       {/* Summary cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
         {[
-          { label: 'Total Assets',      value: totalCount,    color: 'hsl(var(--color-blue))' },
-          { label: 'Available',         value: availCount,    color: 'hsl(var(--color-green))' },
-          { label: 'Checked Out',       value: checkedCount,  color: 'hsl(var(--color-orange))' },
-          { label: 'Warranty Expiring', value: warrantyCount, color: 'hsl(var(--color-red))' },
+          { label: 'Total Assets',      value: totalCount,    color: 'hsl(var(--color-blue))',   tab: 'inventory'   },
+          { label: 'Available',         value: availCount,    color: 'hsl(var(--color-green))',  tab: 'allocation'  },
+          { label: 'Checked Out',       value: checkedCount,  color: 'hsl(var(--color-orange))', tab: 'returns'     },
+          { label: 'Warranty Expiring', value: warrantyCount, color: 'hsl(var(--color-red))',    tab: 'inventory'   },
         ].map(s => (
-          <div key={s.label} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '16px 18px' }}>
+          <div key={s.label} className="motion-card" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '16px 18px', cursor: 'pointer' }} onClick={() => setInnerTab(s.tab)}>
             <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 6 }}>{s.label}</div>
             <div style={{ fontSize: '1.8rem', fontWeight: 700, color: s.color }}>{s.value}</div>
           </div>
@@ -189,13 +189,7 @@ function ITAssets() {
       {/* Inner tab navigation */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
         {innerTabs.map(t => (
-          <button key={t.id} onClick={() => setInnerTab(t.id)}
-            style={{
-              padding: '5px 14px', borderRadius: 20, border: '1px solid var(--border-color)',
-              background: innerTab === t.id ? 'var(--text-primary)' : 'var(--bg-card)',
-              color: innerTab === t.id ? 'var(--bg-primary)' : 'var(--text-secondary)',
-              fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer',
-            }}>
+          <button key={t.id} className={`tab-pill${innerTab === t.id ? ' active' : ''}`} style={{ fontSize: '0.82rem' }} onClick={() => setInnerTab(t.id)}>
             {t.label}
           </button>
         ))}
@@ -207,14 +201,13 @@ function ITAssets() {
           {/* Category filter */}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
             {ASSET_CATEGORIES.map(c => (
-              <button key={c} onClick={() => setFilter(c)}
-                style={{ padding: '4px 12px', borderRadius: 20, border: '1px solid var(--border-color)', background: filter === c ? 'var(--text-primary)' : 'var(--bg-card)', color: filter === c ? 'var(--bg-primary)' : 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer' }}>
+              <button key={c} className={`tab-pill${filter === c ? ' active' : ''}`} style={{ fontSize: '0.8rem', padding: '4px 12px' }} onClick={() => setFilter(c)}>
                 {c}
               </button>
             ))}
           </div>
 
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
+          <div className="motion-card" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
             <table className="req-table">
               <thead>
                 <tr>
@@ -289,7 +282,7 @@ function ITAssets() {
 
       {/* ── Pending Allocation tab ── */}
       {innerTab === 'allocation' && (
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
+        <div className="motion-card" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
           {pendingAlloc.length === 0 ? (
             <div style={{ padding: '48px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
               <Package size={28} style={{ marginBottom: 10, opacity: 0.4 }} />
@@ -358,7 +351,7 @@ function ITAssets() {
 
       {/* ── Return Confirmations tab ── */}
       {innerTab === 'returns' && (
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
+        <div className="motion-card" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
           {returnPending.length === 0 ? (
             <div style={{ padding: '48px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
               <RotateCcw size={28} style={{ marginBottom: 10, opacity: 0.4 }} />
@@ -611,7 +604,7 @@ function ITWebsites() {
           { label: 'Staging / Dev', value: sites.filter(s => s.status !== 'Live').length,      color: 'hsl(var(--color-orange))' },
           { label: 'SSL Alerts',    value: sites.filter(s => { const d = sslDaysLeft(s.sslExpiry); return d !== null && d <= 60; }).length, color: 'hsl(var(--color-red))' },
         ].map(s => (
-          <div key={s.label} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '16px 18px' }}>
+          <div key={s.label} className="motion-card" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '16px 18px' }}>
             <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 6 }}>{s.label}</div>
             <div style={{ fontSize: '1.8rem', fontWeight: 700, color: s.color }}>{s.value}</div>
           </div>
@@ -624,7 +617,7 @@ function ITWebsites() {
           const sslDays = sslDaysLeft(site.sslExpiry);
           const sslWarn = sslDays !== null && sslDays <= 60;
           return (
-            <div key={site.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div key={site.id} className="motion-card" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: 4 }}>{site.name}</div>
@@ -886,6 +879,7 @@ function NetworkDashboard() {
                 const dotColor = hasOffline ? "hsl(var(--color-red))" : hasOutdated ? "hsl(var(--color-orange))" : "hsl(var(--color-green))";
                 return (
                   <div key={site.siteId} onClick={() => openDetail(site)}
+                    className="motion-card"
                     style={{ background: "var(--bg-card)", border: `1px solid ${hasOffline ? "hsla(0,80%,50%,0.3)" : "var(--border-color)"}`, borderRadius: 12, padding: 20, cursor: "pointer", display: "flex", flexDirection: "column", gap: 14, transition: "border-color 0.15s, box-shadow 0.15s" }}
                     onMouseEnter={e => e.currentTarget.style.boxShadow = "var(--shadow-md, 0 4px 12px rgba(0,0,0,0.1))"}
                     onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}>
@@ -982,7 +976,7 @@ function NetworkDashboard() {
                   { label: "Wireless Clients", count: detail.wireless_clients, desc: "connected via WiFi" },
                   { label: "Wired Clients",    count: detail.wired_clients,    desc: "connected via ethernet" },
                 ].map(c => (
-                  <div key={c.label} style={{ background: "var(--bg-card)", border: "1px solid var(--border-color)", borderRadius: 8, padding: 20 }}>
+                  <div key={c.label} className="motion-card" style={{ background: "var(--bg-card)", border: "1px solid var(--border-color)", borderRadius: 8, padding: 20 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, paddingBottom: 10, borderBottom: "1px solid var(--border-color)" }}>
                       <span style={{ fontSize: "0.75rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", fontWeight: 600 }}>{c.label}</span>
                       <span className="status-badge" style={{ background: "hsla(215,100%,50%,0.1)", color: "hsl(var(--color-blue))" }}>{c.count}</span>

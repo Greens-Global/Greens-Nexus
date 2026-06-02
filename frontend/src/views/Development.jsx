@@ -128,7 +128,7 @@ export default function Development({ activeSub, onSubChange }) {
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Access blueprints, structural CAD files, and electrical drawing links by project site</p>
             </div>
             {Object.keys(INIT_PLANS).map(projName => (
-              <div key={projName} style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 20, backgroundColor: 'var(--bg-primary)', marginBottom: 16 }}>
+              <div key={projName} className="motion-card" style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 20, backgroundColor: 'var(--bg-primary)', marginBottom: 16 }}>
                 <h4 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '0.95rem', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-primary)' }}>
                   <Building size={18} style={{ color: 'var(--text-secondary)' }} />
                   {projName}
@@ -166,7 +166,7 @@ export default function Development({ activeSub, onSubChange }) {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
               {properties.map(p => (
-                <div key={p.id} style={{ backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 20 }}>
+                <div key={p.id} className="motion-card" style={{ backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 20 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                     <div>
                       <strong style={{ fontSize: '1.05rem', color: 'var(--text-primary)', fontFamily: "'Plus Jakarta Sans', sans-serif", display: 'block' }}>{p.name}</strong>

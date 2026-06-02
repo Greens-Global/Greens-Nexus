@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { AuthenticatedTemplate, UnauthenticatedTemplate } from "@azure/msal-react";
 import { RequisitionProvider } from "./contexts/RequisitionContext";
+import { InventoryProvider } from "./contexts/InventoryContext";
+import InventoryManagement from "./views/InventoryManagement";
 import LoginPage from "./views/LoginPage";
 import Sidebar from "./components/Sidebar";
 import TopHeader from "./components/TopHeader";
@@ -39,6 +41,7 @@ const VIEW_LABELS = {
   "hr":                 "HR",
   "marketing":          "Marketing",
   "external-links":     "External Links",
+  "inventory":          "Inventory Management",
   "admin":              "Administration",
   "support":            "Support",
 };
@@ -92,6 +95,7 @@ export default function App() {
       case "investor-relations": return <InvestorRelations activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
       case "hr":                 return <HR activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
       case "marketing":          return <Marketing activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
+      case "inventory":          return <InventoryManagement />;
       case "admin":              return <Admin />;
       case "external-links":     return <ExternalLinks />;
       case "support":            return <Support />;
@@ -103,6 +107,7 @@ export default function App() {
     <>
       <AuthenticatedTemplate>
         <RequisitionProvider>
+        <InventoryProvider>
         <div className="app-container">
           <Sidebar
             activeView={activeView}
@@ -123,6 +128,7 @@ export default function App() {
             </div>
           </main>
         </div>
+        </InventoryProvider>
         </RequisitionProvider>
       </AuthenticatedTemplate>
       <UnauthenticatedTemplate>

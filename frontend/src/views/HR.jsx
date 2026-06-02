@@ -85,7 +85,7 @@ export default function HR({ activeSub, onSubChange }) {
               {msEmp.map(emp => {
                 const pending = emp.adAccount === 'Pending';
                 return (
-                  <div key={emp.id} style={{ backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 18, transition: 'all 0.15s' }}>
+                  <div key={emp.id} className="motion-card" style={{ backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 18, transition: 'all 0.15s' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
                       <div>
                         <strong style={{ fontSize: '1rem', color: 'var(--text-primary)', fontFamily: "'Plus Jakarta Sans', sans-serif", display: 'block' }}>{emp.name}</strong>
@@ -213,7 +213,7 @@ export default function HR({ activeSub, onSubChange }) {
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Company policies, onboarding forms, benefits packages, and tax documents</p>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
               {HR_DOCS.map(doc => (
-                <div key={doc.name} style={{ backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 18 }}>
+                <div key={doc.name} className="motion-card" style={{ backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 18 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                     <div style={{ width: 36, height: 36, borderRadius: 8, backgroundColor: 'hsla(var(--color-red), 0.08)', color: 'hsl(var(--color-red))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <Files size={18} />

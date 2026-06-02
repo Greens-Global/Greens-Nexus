@@ -200,7 +200,7 @@ h1,h2,h3,h4,h5,h6,
 }
 .nav-item:hover { background: var(--sidebar-hover-bg); color: var(--nav-text-hover); }
 .nav-item.active { background: var(--sidebar-active-bg); color: var(--sidebar-active-text); }
-.nav-item.active svg { color: var(--sidebar-active-text); }
+.nav-item.active:not(.has-submenu) svg { color: var(--sidebar-active-text); }
 
 /* items with submenu */
 .nav-item.has-submenu { cursor: default; flex-direction: column; align-items: stretch; padding: 0; gap: 0; color: var(--nav-text); }
@@ -549,11 +549,114 @@ h1,h2,h3,h4,h5,h6,
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
   width: 100%;
 }
+.form-select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  cursor: pointer;
+}
+[data-theme="dark"] .form-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b97b0' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+}
 .form-input:focus, .form-select:focus {
   border-color: var(--pine);
   background: #fff;
   box-shadow: 0 0 0 3px rgba(15,23,42,0.06);
 }
+.form-input::placeholder, .form-select::placeholder { color: #94a3b8; }
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; }
+
+/* ── Modal system ──────────────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.15s ease;
+}
+
+.modal-content {
+  background: var(--card);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.2), 0 4px 16px rgba(0,0,0,0.1);
+  animation: fadeInUp 0.2s cubic-bezier(.16,1,.3,1) both;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.modal-header h3 {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  margin: 0;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 24px 20px;
+  border-top: 1px solid var(--line);
+}
+
+.modal-content .form-grid,
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  padding: 20px 24px;
+}
+.form-group-full { grid-column: 1 / -1; }
+
+.close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: none;
+  background: var(--mist);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  flex-shrink: 0;
+}
+.close-btn:hover { background: var(--line); color: var(--ink); }
+
+[data-theme="dark"] .form-input,
+[data-theme="dark"] .form-select {
+  background: var(--mist);
+  border-color: rgba(255,255,255,0.1);
+  color: var(--ink);
+}
+[data-theme="dark"] .form-input:focus,
+[data-theme="dark"] .form-select:focus {
+  background: var(--card);
+  border-color: rgba(255,255,255,0.3);
+  box-shadow: 0 0 0 3px rgba(255,255,255,0.06);
+}
+[data-theme="dark"] .form-input::placeholder,
+[data-theme="dark"] .form-select::placeholder { color: var(--muted); }
 
 /* ── Cards ─────────────────────────────────────────────────────────────── */
 .card, .dash-card {
@@ -964,3 +1067,113 @@ h1,h2,h3,h4,h5,h6,
 @media (max-width: 900px) {
   .purchase-split { grid-template-columns: 1fr; }
 }
+
+/* ── Tab pill — theme-safe active state ─────────────────────────────────── */
+.tab-pill {
+  border: none; padding: 7px 16px; border-radius: 20px; font-weight: 600; font-size: 13px;
+  font-family: 'Inter', sans-serif; cursor: pointer; transition: background 0.13s, color 0.13s;
+  background: var(--mist); color: var(--muted);
+}
+.tab-pill.active { background: var(--pine); color: #ffffff; }
+.tab-pill:not(.active):hover { background: var(--line); color: var(--ink); }
+
+/* ── Chart draw animation ────────────────────────────────────────────────── */
+@keyframes drawLine {
+  from { stroke-dashoffset: 1200; }
+  to   { stroke-dashoffset: 0; }
+}
+@keyframes dotPop {
+  from { opacity: 0; transform: scale(0); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.chart-line {
+  stroke-dasharray: 1200;
+  stroke-dashoffset: 1200;
+  animation: drawLine 1.4s cubic-bezier(.16,1,.3,1) 0.2s both;
+}
+.chart-dot {
+  transform-origin: center;
+  animation: dotPop 0.3s cubic-bezier(.16,1,.3,1) both;
+}
+/* <defs>=1, <path>=2, <polyline>=3, then <g> dots start at 4 */
+.chart-dot:nth-child(4) { animation-delay: 0.85s; }
+.chart-dot:nth-child(5) { animation-delay: 1.00s; }
+.chart-dot:nth-child(6) { animation-delay: 1.15s; }
+.chart-dot:nth-child(7) { animation-delay: 1.30s; }
+.chart-dot:nth-child(8) { animation-delay: 1.45s; }
+.chart-dot:nth-child(9) { animation-delay: 1.60s; }
+
+/* ── Motion & Hover animations ───────────────────────────────────────────── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Hover lift — individual leaf cards only ────────────────────────────── */
+/* Small cards: full 5px lift */
+.kpi-card,
+.facility-card,
+.support-card,
+.motion-card {
+  transition: transform 0.2s cubic-bezier(.16,1,.3,1), box-shadow 0.2s cubic-bezier(.16,1,.3,1), z-index 0s;
+  position: relative;
+  z-index: 0;
+}
+.kpi-card:hover,
+.facility-card:hover,
+.support-card:hover,
+.motion-card:hover {
+  transform: translateY(-5px);
+  box-shadow: var(--shadow-lg);
+  z-index: 2;
+}
+
+/* Large panels: subtle 2px lift */
+.dash-card,
+.purchase-form-card,
+.requisitions-list-card {
+  transition: transform 0.2s cubic-bezier(.16,1,.3,1), box-shadow 0.2s cubic-bezier(.16,1,.3,1);
+  position: relative;
+  z-index: 0;
+}
+.dash-card:hover,
+.purchase-form-card:hover,
+.requisitions-list-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 28px rgba(0,0,0,.09), 0 2px 8px rgba(0,0,0,.05);
+  z-index: 2;
+}
+
+/* ── Staggered entrance animations ──────────────────────────────────────── */
+
+/* KPI metric cards — stagger each card individually */
+.kpi-grid > .kpi-card:nth-child(1),
+.cards-grid > .kpi-card:nth-child(1) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 0ms   both; }
+.kpi-grid > .kpi-card:nth-child(2),
+.cards-grid > .kpi-card:nth-child(2) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 60ms  both; }
+.kpi-grid > .kpi-card:nth-child(3),
+.cards-grid > .kpi-card:nth-child(3) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 120ms both; }
+.kpi-grid > .kpi-card:nth-child(4),
+.cards-grid > .kpi-card:nth-child(4) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 180ms both; }
+.kpi-grid > .kpi-card:nth-child(5),
+.cards-grid > .kpi-card:nth-child(5) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 240ms both; }
+
+/* Facility cards — stagger */
+.facilities-grid > .facility-card:nth-child(1) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 0ms   both; }
+.facilities-grid > .facility-card:nth-child(2) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 50ms  both; }
+.facilities-grid > .facility-card:nth-child(3) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 100ms both; }
+.facilities-grid > .facility-card:nth-child(4) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 150ms both; }
+.facilities-grid > .facility-card:nth-child(5) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 200ms both; }
+.facilities-grid > .facility-card:nth-child(6) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 250ms both; }
+
+/* Dash-grid panels — stagger */
+.dash-grid-2 > .dash-card:nth-child(1) { animation: fadeInUp 0.42s cubic-bezier(.16,1,.3,1) 80ms  both; }
+.dash-grid-2 > .dash-card:nth-child(2) { animation: fadeInUp 0.42s cubic-bezier(.16,1,.3,1) 160ms both; }
+
+/* SOP / other pages: dash-cards inside cards-grid */
+.cards-grid > .dash-card:nth-child(1) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 0ms   both; }
+.cards-grid > .dash-card:nth-child(2) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 60ms  both; }
+.cards-grid > .dash-card:nth-child(3) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 120ms both; }
+.cards-grid > .dash-card:nth-child(4) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 180ms both; }
+.cards-grid > .dash-card:nth-child(5) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 240ms both; }
+.cards-grid > .dash-card:nth-child(6) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 300ms both; }
