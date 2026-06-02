@@ -13,8 +13,8 @@ import {
 const NAV = [
   { view: "dashboard",        label: "Dashboard",          icon: LayoutDashboard },
   { view: "manager-dashboard",label: "Manager Dashboard",  icon: UserCheck },
-  { view: "purchase",         label: "Purchase Requisition",icon: ShoppingCart },
   { divider: true },
+  { view: "purchase",         label: "Purchase Requisition",icon: ShoppingCart },
   { view: "tasks",            label: "Tasks",              icon: CheckSquare },
   {
     view: "sop", label: "Knowledge Base", icon: BookOpen,
@@ -68,7 +68,6 @@ const NAV = [
       { subview: "compliance",        label: "Compliance",            icon: Shield },
     ],
   },
-  { divider: true },
   {
     view: "accounting", label: "Accounting", icon: Calculator,
     sub: [
@@ -92,7 +91,6 @@ const NAV = [
       { subview: "investor-reports",   label: "Reports",            icon: FileSpreadsheet },
     ],
   },
-  { divider: true },
   {
     view: "hr", label: "HR", icon: Users,
     sub: [
@@ -102,7 +100,6 @@ const NAV = [
       { subview: "hr-documents",   label: "Documents",         icon: Files },
     ],
   },
-  { divider: true },
   {
     view: "marketing", label: "Marketing", icon: Megaphone,
     sub: [
@@ -110,10 +107,10 @@ const NAV = [
       { subview: "marketing-reputation", label: "Meta",            icon: Star },
     ],
   },
+  { view: "admin",          label: "Administration", icon: Settings },
   { divider: true },
   { view: "support",        label: "Support",        icon: HelpCircle, badge: "NEW" },
   { view: "external-links", label: "External Links", icon: ExternalLink },
-  { view: "admin",          label: "Administration", icon: Settings },
 ];
 
 export default function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose }) {
