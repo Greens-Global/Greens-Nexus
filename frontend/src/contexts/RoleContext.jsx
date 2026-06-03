@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useMsal } from '@azure/msal-react';
+import { api }     from '../api';
 
 const RoleCtx = createContext(null);
 
@@ -12,49 +13,55 @@ export const ROLES = {
   owner:         { label: 'Owner',          level: 5, color: 'var(--color-gold)',   bg: 'hsla(var(--color-gold),0.12)',   description: 'Full access including role management' },
 };
 
-const STORAGE_KEY = 'gg-nexus-roles';
-
-function load() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}'); } catch { return {}; }
-}
-function save(map) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
-}
-
 export function RoleProvider({ children }) {
-  const { accounts } = useMsal();
-  const myEmail      = (accounts[0]?.username ?? '').toLowerCase();
+  const { accounts }    = useMsal();
+  const myEmail         = (accounts[0]?.username ?? '').toLowerCase();
 
-  const [roleMap, setRoleMap] = useState(() => {
-    const stored = load();
-    // Seed: Visesh is Owner by default if no roles assigned yet
-    if (Object.keys(stored).length === 0 && myEmail) {
-      const seed = { [myEmail]: 'owner' };
-      save(seed);
-      return seed;
-    }
-    // Auto-assign owner to current user if they have no role and nobody else is owner
-    if (myEmail && !stored[myEmail] && !Object.values(stored).includes('owner')) {
-      const updated = { ...stored, [myEmail]: 'owner' };
-      save(updated);
-      return updated;
-    }
-    return stored;
-  });
+  const [myRole,    setMyRole]    = useState('employee');
+  const [allRoles,  setAllRoles]  = useState({});   // { email: role }
+  const [loading,   setLoading]   = useState(true);
 
-  const assignRole = useCallback((email, role) => {
-    const updated = { ...roleMap, [email.toLowerCase()]: role };
-    setRoleMap(updated);
-    save(updated);
-  }, [roleMap]);
+  // Fetch current user's role on mount / account change
+  useEffect(() => {
+    if (!myEmail) { setLoading(false); return; }
+    api.getMyRole(myEmail)
+      .then(data  => { setMyRole(data.role ?? 'employee'); })
+      .catch(()   => { setMyRole('employee'); })
+      .finally(() => setLoading(false));
+  }, [myEmail]);
 
-  const getRole    = useCallback((email) => roleMap[email?.toLowerCase()] ?? 'employee', [roleMap]);
-  const myRole     = getRole(myEmail);
-  const myLevel    = ROLES[myRole]?.level ?? 1;
-  const can        = (minRole) => myLevel >= (ROLES[minRole]?.level ?? 1);
+  // Fetch all role assignments (used by Admin page)
+  const refreshAllRoles = useCallback(() => {
+    api.getAllRoles()
+      .then(list => {
+        const map = {};
+        list.forEach(r => { map[r.email.toLowerCase()] = r.role; });
+        setAllRoles(map);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Assign a role — writes to backend, refreshes local state
+  const assignRole = useCallback(async (email, role) => {
+    const lowerEmail = email.toLowerCase();
+    await api.assignRole(lowerEmail, role, myEmail);
+    setAllRoles(prev => ({ ...prev, [lowerEmail]: role }));
+    // If assigning own role, update myRole too
+    if (lowerEmail === myEmail) setMyRole(role);
+  }, [myEmail]);
+
+  const getRole = useCallback((email) =>
+    allRoles[email?.toLowerCase()] ?? 'employee', [allRoles]);
+
+  const myLevel = ROLES[myRole]?.level ?? 1;
+  const can     = (minRole) => myLevel >= (ROLES[minRole]?.level ?? 1);
 
   return (
-    <RoleCtx.Provider value={{ roleMap, myRole, myEmail, can, getRole, assignRole, ROLES }}>
+    <RoleCtx.Provider value={{
+      myRole, myEmail, loading,
+      allRoles, getRole, refreshAllRoles,
+      can, assignRole, ROLES,
+    }}>
       {children}
     </RoleCtx.Provider>
   );

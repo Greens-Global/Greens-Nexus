@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Search, Shield, AlertTriangle, RefreshCw, Users, CheckCircle, Crown } from 'lucide-react';
 import { useRole, ROLES } from '../contexts/RoleContext';
 import { useGraphUsers }  from '../hooks/useGraphUsers';
@@ -50,27 +50,36 @@ function PermissionMissing() {
 }
 
 export default function Admin() {
-  const { myRole, myEmail, getRole, assignRole, can }  = useRole();
-  const { users, loading, error }   = useGraphUsers();
-  const { accounts }                = useMsal();
-  const myEmail2                    = accounts[0]?.username?.toLowerCase() ?? '';
+  const { myRole, myEmail, getRole, assignRole, refreshAllRoles, can } = useRole();
+  const { users, loading: graphLoading, error } = useGraphUsers();
+  const { accounts } = useMsal();
+  const myEmail2 = accounts[0]?.username?.toLowerCase() ?? '';
 
-  const [search,   setSearch]   = useState('');
-  const [filter,   setFilter]   = useState('all');  // all | by role
-  const [saved,    setSaved]    = useState({});      // email → true (flash)
+  const [search,    setSearch]    = useState('');
+  const [filter,    setFilter]    = useState('all');
+  const [saved,     setSaved]     = useState({});
+  const [saving,    setSaving]    = useState({});   // email → true while PUT in flight
   const [activeTab, setActiveTab] = useState('users');
+
+  const loading = graphLoading;
+
+  // Load all role assignments when admin page opens
+  useEffect(() => { refreshAllRoles(); }, [refreshAllRoles]);
 
   const isOwner = myRole === 'owner';
   const isAdmin = can('administrator');
 
-  function handleAssign(email, role) {
-    // Owners can assign any role. Admins can assign up to Manager.
-    const myLevel    = ROLES[myRole]?.level ?? 1;
-    const targetLevel = ROLES[role]?.level ?? 1;
-    if (targetLevel > myLevel && !isOwner) return; // can't promote above yourself
-    assignRole(email, role);
-    setSaved(p => ({ ...p, [email]: true }));
-    setTimeout(() => setSaved(p => { const n = {...p}; delete n[email]; return n; }), 1800);
+  async function handleAssign(email, role) {
+    setSaving(p => ({ ...p, [email]: true }));
+    try {
+      await assignRole(email, role);
+      setSaved(p => ({ ...p, [email]: true }));
+      setTimeout(() => setSaved(p => { const n = {...p}; delete n[email]; return n; }), 1800);
+    } catch (err) {
+      alert(err.message ?? 'Failed to update role');
+    } finally {
+      setSaving(p => { const n = {...p}; delete n[email]; return n; });
+    }
   }
 
   // Build user list — Graph users + any locally assigned users not in Graph
@@ -241,7 +250,7 @@ export default function Admin() {
                             <td>
                               <select
                                 value={u.role}
-                                disabled={!isOwner && u.role === 'owner'}
+                                disabled={saving[u.email] || (!isOwner && u.role === 'owner')}
                                 onChange={e => handleAssign(u.email, e.target.value)}
                                 className="form-input"
                                 style={{ padding: '5px 10px', fontSize: 12.5, height: 32, minWidth: 140 }}>

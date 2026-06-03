@@ -215,6 +215,13 @@ class HardwareAsset(Base):
     last_updated = Column(String, default="")
 
 
+class NexusRole(Base):
+    __tablename__ = "nexus_roles"
+    email       = Column(String, primary_key=True)   # Azure AD UPN / email
+    role        = Column(String, nullable=False, default="employee")
+    assigned_by = Column(String, default="system")
+
+
 class ApprovalHistory(Base):
     __tablename__ = "approval_history"
     id = Column(Integer, primary_key=True, autoincrement=True)

@@ -53,6 +53,11 @@ export const api = {
   createExternalLink: (data) => req("/external-links", { method: "POST", body: JSON.stringify(data) }),
   clickExternalLink: (id) => req(`/external-links/${id}/click`, { method: "PATCH" }),
 
+  // Nexus Roles
+  getMyRole:    (email)              => req(`/roles/me?email=${encodeURIComponent(email)}`),
+  getAllRoles:   ()                   => req('/roles'),
+  assignRole:   (email, role, by)    => req(`/roles/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify({ role, assigned_by: by }) }),
+
   // Accounting
   getTransactions: () => req("/accounting/transactions"),
   getRamp: () => req("/accounting/ramp"),
