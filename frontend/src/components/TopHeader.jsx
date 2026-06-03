@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from "react";
-import { Menu, Moon, Sun, Search, LogOut, Settings, User, Bell } from "lucide-react";
+import { Menu, Moon, Sun, Search, LogOut, Settings, User, Bell, ArrowLeft } from "lucide-react";
 import { useMsal } from "@azure/msal-react";
 
-export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle }) {
+export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle, canGoBack, onBack, prevLabel }) {
   const { instance, accounts } = useMsal();
   const account = accounts[0];
   const name = account?.name ?? "User";
@@ -34,6 +34,17 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle 
           <Menu style={{ width: 18, height: 18 }} />
         </button>
         <div className="breadcrumb">
+          {canGoBack && (
+            <button className="breadcrumb-back" onClick={onBack} title={`Back to ${prevLabel}`}>
+              <ArrowLeft style={{ width: 15, height: 15 }} />
+            </button>
+          )}
+          {canGoBack && prevLabel && (
+            <>
+              <span className="breadcrumb-prev">{prevLabel}</span>
+              <span style={{ color: "var(--muted)", opacity: 0.4, fontSize: 11, userSelect: "none" }}>/</span>
+            </>
+          )}
           <span className="breadcrumb-current">{title}</span>
         </div>
       </div>

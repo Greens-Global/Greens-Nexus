@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Folder, AlertCircle, MessageSquare, Clock, Users, SlidersHorizontal, Download, CheckCircle, XCircle, ChevronDown } from 'lucide-react';
-import { useRequisitions } from '../RequisitionContext';
+import { Folder, AlertCircle, MessageSquare, Clock, Users, SlidersHorizontal, Download, CheckCircle, XCircle, ChevronDown, Package } from 'lucide-react';
+import { useRequisitions } from '../contexts/RequisitionContext';
+import { useInventory } from '../contexts/InventoryContext';
 
 const EMPLOYEES = [
   { name: 'Sarah Johnson',    dept: 'Accounting',  tasks: 8,  est: 32, act: 18, completed: 3, inprogress: 4, overdue: 1, workload: 85 },
@@ -15,11 +16,14 @@ const MANAGER_NAME = 'Visesh Lodha';
 
 export default function ManagerDashboard() {
   const { requisitions, pendingManagerCount, approveRequisition, rejectRequisition } = useRequisitions();
+  const { requests: invRequests, approveRequest: approveInvReq, rejectRequest: rejectInvReq } = useInventory();
 
-  const [activeTab,    setActiveTab]    = useState('workload');
-  const [rejectingId,  setRejectingId]  = useState(null);
-  const [rejectReason, setRejectReason] = useState('');
-  const [expandedReq,  setExpandedReq]  = useState(null);
+  const [activeTab,       setActiveTab]       = useState('workload');
+  const [rejectingId,     setRejectingId]     = useState(null);
+  const [rejectReason,    setRejectReason]    = useState('');
+  const [expandedReq,     setExpandedReq]     = useState(null);
+  const [rejectingInvId,  setRejectingInvId]  = useState(null);
+  const [rejectInvReason, setRejectInvReason] = useState('');
 
   const totalTasks  = EMPLOYEES.reduce((s, e) => s + e.tasks, 0);
   const totalOverdue = EMPLOYEES.reduce((s, e) => s + e.overdue, 0);
@@ -27,7 +31,8 @@ export default function ManagerDashboard() {
 
   const workloadColor = (w) => w >= 90 ? 'hsl(var(--color-red))' : w >= 75 ? 'hsl(var(--color-orange))' : 'hsl(var(--color-blue))';
 
-  const pendingReqs = requisitions.filter(r => r.status === 'pending_manager');
+  const pendingReqs    = requisitions.filter(r => r.status === 'pending_manager');
+  const pendingInvReqs = invRequests.filter(r => r.status === 'pending');
 
   const handleApprove = (id) => {
     approveRequisition(id, MANAGER_NAME);
@@ -42,10 +47,11 @@ export default function ManagerDashboard() {
 
   const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 
+  const totalPending = pendingManagerCount + pendingInvReqs.length;
   const tabs = [
     { id: 'workload',  label: 'Workload by Employee' },
     { id: 'projects',  label: 'Project-wise Tasks' },
-    { id: 'actions',   label: `Pending Actions${pendingManagerCount > 0 ? ` (${pendingManagerCount})` : ''}` },
+    { id: 'actions',   label: `Pending Actions${totalPending > 0 ? ` (${totalPending})` : ''}` },
     { id: 'calendar',  label: 'Team Calendar' },
   ];
 
@@ -69,13 +75,13 @@ export default function ManagerDashboard() {
       {/* KPI Cards */}
       <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)', marginBottom: 24 }}>
         {[
-          { label: 'Total Tasks',     value: totalTasks,              helper: 'Across all employees', color: 'card-blue',   Icon: Folder },
-          { label: 'Overdue Tasks',   value: totalOverdue,            helper: 'Requires attention',   color: 'card-red',    Icon: AlertCircle },
-          { label: 'Pending Action',  value: 3 + pendingManagerCount, helper: 'No comment/action',    color: 'card-orange', Icon: MessageSquare },
-          { label: 'Estimated Hours', value: `${totalEst}h`,          helper: 'This week',            color: 'card-blue',   Icon: Clock },
-          { label: 'Team Members',    value: EMPLOYEES.length,        helper: 'Active employees',     color: 'card-green',  Icon: Users },
-        ].map(({ label, value, helper, color, Icon }) => (
-          <div key={label} className={`kpi-card ${color}`} style={{ cursor: 'default' }}>
+          { label: 'Total Tasks',     value: totalTasks,              helper: 'Across all employees', color: 'card-blue',   Icon: Folder,        tab: 'workload' },
+          { label: 'Overdue Tasks',   value: totalOverdue,            helper: 'Requires attention',   color: 'card-red',    Icon: AlertCircle,   tab: 'actions'  },
+          { label: 'Pending Action',  value: 3 + pendingManagerCount, helper: 'No comment/action',    color: 'card-orange', Icon: MessageSquare, tab: 'actions'  },
+          { label: 'Estimated Hours', value: `${totalEst}h`,          helper: 'This week',            color: 'card-blue',   Icon: Clock,         tab: 'workload' },
+          { label: 'Team Members',    value: EMPLOYEES.length,        helper: 'Active employees',     color: 'card-green',  Icon: Users,         tab: 'workload' },
+        ].map(({ label, value, helper, color, Icon, tab }) => (
+          <div key={label} className={`kpi-card ${color}`} style={{ cursor: 'pointer' }} onClick={() => setActiveTab(tab)}>
             <div className="kpi-card-header">
               <span className="kpi-title">{label}</span>
               <div className="kpi-icon-container"><Icon size={18} /></div>
@@ -89,13 +95,7 @@ export default function ManagerDashboard() {
       {/* Tab Navigation */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
         {tabs.map(t => (
-          <button key={t.id} onClick={() => setActiveTab(t.id)}
-            style={{
-              border: 'none', padding: '7px 16px', borderRadius: 20, fontWeight: 600, fontSize: '13px',
-              fontFamily: 'Inter, sans-serif', cursor: 'pointer', transition: 'all 0.13s',
-              background: activeTab === t.id ? 'var(--ink)' : 'rgba(0,0,0,0.05)',
-              color: activeTab === t.id ? 'var(--sidebar-active-text)' : 'var(--muted)',
-            }}>
+          <button key={t.id} className={`tab-pill${activeTab === t.id ? ' active' : ''}`} onClick={() => setActiveTab(t.id)}>
             {t.label}
           </button>
         ))}
@@ -286,6 +286,92 @@ export default function ManagerDashboard() {
                               style={{ padding: '5px 14px', fontSize: '0.82rem', background: 'hsl(var(--color-red))' }}
                               onClick={() => handleReject(req.id)}
                               disabled={!rejectReason.trim()}>
+                              Confirm Reject
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Divider */}
+            <div style={{ borderTop: '1px solid var(--border-color)', marginBottom: 20 }} />
+
+            {/* Inventory Requests */}
+            <div style={{ marginBottom: 28 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <div>
+                  <h3 style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '-.02em', marginBottom: 2 }}>Inventory Requests</h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Review and approve or reject employee inventory requests.</p>
+                </div>
+                {pendingInvReqs.length > 0 && (
+                  <span className="status-badge status-pending" style={{ fontSize: '0.8rem' }}>{pendingInvReqs.length} pending</span>
+                )}
+              </div>
+
+              {pendingInvReqs.length === 0 ? (
+                <div style={{ border: '1px dashed var(--border-color)', borderRadius: 8, padding: '28px 0', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                  No inventory requests awaiting approval.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {pendingInvReqs.map(req => (
+                    <div key={req.id} style={{ border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden', backgroundColor: 'var(--bg-primary)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 16px' }}>
+                        <div style={{ width: 34, height: 34, borderRadius: 8, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <Package size={16} color="hsl(var(--color-blue))" />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                            <span style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: 'var(--text-muted)', background: 'var(--border-color)', padding: '2px 7px', borderRadius: 4 }}>{req.id}</span>
+                            <strong style={{ fontSize: '0.92rem' }}>{req.itemName}</strong>
+                            <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>× {req.quantity} &nbsp;·&nbsp; {req.days}d</span>
+                          </div>
+                          <div style={{ marginTop: 5, fontSize: '0.84rem', color: 'var(--text-secondary)', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                            <span><strong>By:</strong> {req.requestedBy}</span>
+                            <span><strong>Dept:</strong> {req.department}</span>
+                            <span><strong>Reason:</strong> {req.reason}</span>
+                            <span><strong>Submitted:</strong> {fmtDate(req.createdAt)}</span>
+                          </div>
+                        </div>
+                        {rejectingInvId !== req.id && (
+                          <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                            <button
+                              className="primary-btn"
+                              style={{ padding: '5px 14px', fontSize: '0.82rem', background: 'hsl(var(--color-green))' }}
+                              onClick={() => approveInvReq(req.id, MANAGER_NAME)}>
+                              <CheckCircle size={13} /> Approve
+                            </button>
+                            <button
+                              className="secondary-btn"
+                              style={{ padding: '5px 14px', fontSize: '0.82rem', color: 'hsl(var(--color-red))', borderColor: 'hsl(var(--color-red))' }}
+                              onClick={() => { setRejectingInvId(req.id); setRejectInvReason(''); }}>
+                              <XCircle size={13} /> Reject
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      {rejectingInvId === req.id && (
+                        <div style={{ borderTop: '1px solid var(--border-color)', padding: '12px 16px', background: 'hsla(0,80%,50%,0.04)' }}>
+                          <p style={{ fontSize: '0.82rem', marginBottom: 8, color: 'hsl(var(--color-red))', fontWeight: 600 }}>Enter rejection reason:</p>
+                          <textarea
+                            className="form-input" rows={2}
+                            style={{ width: '100%', resize: 'vertical', fontSize: '0.85rem' }}
+                            placeholder="Explain why this request is being rejected..."
+                            value={rejectInvReason}
+                            onChange={e => setRejectInvReason(e.target.value)}
+                            autoFocus
+                          />
+                          <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
+                            <button className="secondary-btn" style={{ padding: '5px 12px', fontSize: '0.82rem' }} onClick={() => setRejectingInvId(null)}>Cancel</button>
+                            <button
+                              className="primary-btn"
+                              style={{ padding: '5px 14px', fontSize: '0.82rem', background: 'hsl(var(--color-red))' }}
+                              onClick={() => { rejectInvReq(req.id, MANAGER_NAME, rejectInvReason); setRejectingInvId(null); setRejectInvReason(''); }}
+                              disabled={!rejectInvReason.trim()}>
                               Confirm Reject
                             </button>
                           </div>

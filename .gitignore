@@ -38,5 +38,9 @@ frontend/.env.*
 Thumbs.db
 
 # Logs
+*.log
 npm-debug.log
 yarn-error.log
+
+# Linter cache
+.ruff_cache/

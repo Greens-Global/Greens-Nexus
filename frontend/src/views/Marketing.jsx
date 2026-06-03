@@ -20,7 +20,7 @@ const REVIEWS = [
 const PROPERTY_OPTIONS = ['All Properties', 'Harbor View', 'Downtown Complex', 'Oakridge', 'Residential Towers', 'Luxury Condos', 'Commercial Spaces'];
 
 export default function Marketing({ activeSub, onSubChange }) {
-  const sub = activeSub || 'ads';
+  const sub = activeSub || 'marketing-ads';
   const [propertyFilter, setPropertyFilter] = useState('All Properties');
   const [reviews, setReviews] = useState(REVIEWS);
   const [expandedAI, setExpandedAI] = useState(null);
@@ -62,7 +62,7 @@ export default function Marketing({ activeSub, onSubChange }) {
       {/* Top Bar: Tabs + Filter */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16, marginBottom: 20, borderBottom: '1px solid var(--border-color)', paddingBottom: 16 }}>
         <div style={{ display: 'flex', gap: 8 }}>
-          {[{ key: 'ads', label: 'Google Ads Performance', Icon: Megaphone }, { key: 'reputation', label: 'Reputation Management', Icon: Star }].map(({ key, label, Icon }) => (
+          {[{ key: 'marketing-ads', label: 'Google Ads Performance', Icon: Megaphone }, { key: 'marketing-reputation', label: 'Reputation Management', Icon: Star }].map(({ key, label, Icon }) => (
             <button key={key} onClick={() => onSubChange(key)}
               style={{ background: 'none', border: 'none', padding: '10px 18px', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '0.95rem', cursor: 'pointer', color: sub === key ? 'var(--text-primary)' : 'var(--text-secondary)', position: 'relative', transition: 'color 0.15s', display: 'flex', alignItems: 'center', gap: 8 }}>
               <Icon size={18} /> {label}
@@ -79,7 +79,7 @@ export default function Marketing({ activeSub, onSubChange }) {
       </div>
 
       {/* Google Ads */}
-      {sub === 'ads' && (
+      {sub === 'marketing-ads' && (
         <>
           <div className="view-header" style={{ marginBottom: 24 }}>
             <div className="view-title-group">
@@ -157,7 +157,7 @@ export default function Marketing({ activeSub, onSubChange }) {
       )}
 
       {/* Reputation Management */}
-      {sub === 'reputation' && (
+      {sub === 'marketing-reputation' && (
         <>
           <div className="view-header" style={{ marginBottom: 24 }}>
             <div className="view-title-group">

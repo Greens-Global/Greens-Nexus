@@ -75,13 +75,13 @@ export default function Tasks() {
       {/* KPI Cards */}
       <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(5, 1fr)', marginBottom: 24 }}>
         {[
-          { label: 'Total Tasks', value: tasks.length, color: 'card-blue', Icon: Folder },
-          { label: 'In Progress', value: inProgress, color: 'card-blue', Icon: Clock, accent: 'blue' },
-          { label: 'Overdue', value: overdue, color: 'card-red', Icon: Triangle, accent: 'red' },
-          { label: 'No Comments', value: noComments, color: 'card-orange', Icon: MessageSquare, accent: 'orange' },
-          { label: 'Needs Review', value: needsReview, color: 'card-purple', Icon: UserCheck, accent: 'purple' },
-        ].map(({ label, value, color, Icon, accent }) => (
-          <div key={label} className={`kpi-card ${color}`} style={{ cursor: 'default' }}>
+          { label: 'Total Tasks', value: tasks.length, color: 'card-blue',   Icon: Folder,      accent: null,     tab: 'all' },
+          { label: 'In Progress', value: inProgress,   color: 'card-blue',   Icon: Clock,       accent: 'blue',   tab: 'all' },
+          { label: 'Overdue',     value: overdue,       color: 'card-red',    Icon: Triangle,    accent: 'red',    tab: 'needs-attention' },
+          { label: 'No Comments', value: noComments,    color: 'card-orange', Icon: MessageSquare, accent: 'orange', tab: 'needs-attention' },
+          { label: 'Needs Review', value: needsReview,  color: 'card-purple', Icon: UserCheck,   accent: 'purple', tab: 'needs-attention' },
+        ].map(({ label, value, color, Icon, accent, tab }) => (
+          <div key={label} className={`kpi-card ${color}`} style={{ cursor: 'pointer' }} onClick={() => setActiveTab(tab)}>
             <div className="kpi-card-header">
               <span className="kpi-title" style={accent ? { color: `hsl(var(--color-${accent}))` } : {}}>{label}</span>
               <div className="kpi-icon-container" style={accent ? { color: `hsl(var(--color-${accent}))` } : {}}><Icon size={18} /></div>
@@ -94,11 +94,9 @@ export default function Tasks() {
       {/* Filter Pills */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
         {[{ id: 'all', label: 'All Tasks' }, { id: 'mobile', label: 'Mobile View' }, { id: 'needs-attention', label: 'Needs Attention' }].map(p => (
-          <button key={p.id} onClick={() => setActiveTab(p.id)} style={{
-            border: '1px solid var(--border-color)', padding: '6px 14px', borderRadius: 20, fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer',
-            backgroundColor: activeTab === p.id ? 'var(--text-primary)' : 'var(--bg-card)',
-            color: activeTab === p.id ? 'var(--bg-primary)' : 'var(--text-secondary)',
-          }}>{p.label}</button>
+          <button key={p.id} className={`tab-pill${activeTab === p.id ? ' active' : ''}`} onClick={() => setActiveTab(p.id)}>
+            {p.label}
+          </button>
         ))}
       </div>
 

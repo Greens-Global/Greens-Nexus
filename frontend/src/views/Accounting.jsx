@@ -110,12 +110,12 @@ export default function Accounting({ activeSub, onSubChange }) {
       {/* KPI Cards */}
       <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 24 }}>
         {[
-          { label: 'Total Revenue', value: '$8.4M', helper: '↑ 12.5% from last quarter', color: 'card-green', helperColor: 'hsl(var(--color-green))', Icon: TrendingUp },
-          { label: 'Total Expenses', value: '$6.1M', helper: '↑ 8.2% from last quarter', color: 'card-green', helperColor: 'hsl(var(--color-green))', Icon: TrendingDown },
-          { label: 'Net Profit', value: '$2.3M', helper: '↓ 18.9% from last quarter', color: 'card-red', helperColor: 'hsl(var(--color-red))', Icon: DollarSign },
-          { label: 'Outstanding Invoices', value: '$450K', helper: '↓ 5.3% from last quarter', color: 'card-red', helperColor: 'hsl(var(--color-red))', Icon: FileText },
-        ].map(({ label, value, helper, color, helperColor, Icon }) => (
-          <div key={label} className={`kpi-card ${color}`} style={{ cursor: 'default' }}>
+          { label: 'Total Revenue',        value: '$8.4M', helper: '↑ 12.5% from last quarter', color: 'card-green', helperColor: 'hsl(var(--color-green))', Icon: TrendingUp,   sub: 'transactions' },
+          { label: 'Total Expenses',       value: '$6.1M', helper: '↑ 8.2% from last quarter',  color: 'card-green', helperColor: 'hsl(var(--color-green))', Icon: TrendingDown, sub: 'budgets' },
+          { label: 'Net Profit',           value: '$2.3M', helper: '↓ 18.9% from last quarter', color: 'card-red',   helperColor: 'hsl(var(--color-red))',   Icon: DollarSign,   sub: 'reports' },
+          { label: 'Outstanding Invoices', value: '$450K', helper: '↓ 5.3% from last quarter',  color: 'card-red',   helperColor: 'hsl(var(--color-red))',   Icon: FileText,     sub: 'invoices' },
+        ].map(({ label, value, helper, color, helperColor, Icon, sub: target }) => (
+          <div key={label} className={`kpi-card ${color}`} style={{ cursor: 'pointer' }} onClick={() => onSubChange(target)}>
             <div className="kpi-card-header">
               <span className="kpi-title">{label}</span>
               <div className="kpi-icon-container"><Icon size={18} /></div>
@@ -129,8 +129,7 @@ export default function Accounting({ activeSub, onSubChange }) {
       {/* Scrollable Tab Pills */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 24, overflowX: 'auto', paddingBottom: 8, borderBottom: '1px solid var(--border-color)' }}>
         {TABS.map(t => (
-          <button key={t} onClick={() => onSubChange(t)}
-            style={{ background: sub === t ? 'var(--text-primary)' : 'none', border: '1px solid var(--border-color)', padding: '8px 16px', borderRadius: 20, fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', color: sub === t ? 'var(--bg-primary)' : 'var(--text-secondary)', whiteSpace: 'nowrap', transition: 'all 0.15s' }}>
+          <button key={t} className={`tab-pill${sub === t ? ' active' : ''}`} style={{ whiteSpace: 'nowrap' }} onClick={() => onSubChange(t)}>
             {TAB_LABELS[t]}
           </button>
         ))}

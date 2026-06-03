@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { AuthenticatedTemplate, UnauthenticatedTemplate } from "@azure/msal-react";
-import { RequisitionProvider } from "./RequisitionContext";
+import { RequisitionProvider } from "./contexts/RequisitionContext";
+import { InventoryProvider } from "./contexts/InventoryContext";
+import InventoryManagement from "./views/InventoryManagement";
 import LoginPage from "./views/LoginPage";
 import Sidebar from "./components/Sidebar";
 import TopHeader from "./components/TopHeader";
@@ -39,25 +41,41 @@ const VIEW_LABELS = {
   "hr":                 "HR",
   "marketing":          "Marketing",
   "external-links":     "External Links",
+  "inventory":          "Inventory Management",
   "admin":              "Administration",
   "support":            "Support",
 };
 
 export default function App() {
-  const [activeView, setActiveView] = useState("dashboard");
-  const [activeSub,  setActiveSub]  = useState(null);
-  const [theme,      setTheme]      = useState(() => localStorage.getItem("gg-theme") || "light");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [activeView,       setActiveView]       = useState("dashboard");
+  const [activeSub,        setActiveSub]        = useState(null);
+  const [theme,            setTheme]            = useState(() => localStorage.getItem("gg-theme") || "light");
+  const [sidebarOpen,      setSidebarOpen]      = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("gg-sidebar-collapsed") === "true");
+  const [navHistory,       setNavHistory]       = useState([]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("gg-theme", theme);
   }, [theme]);
 
+  useEffect(() => {
+    localStorage.setItem("gg-sidebar-collapsed", sidebarCollapsed);
+  }, [sidebarCollapsed]);
+
   function navigate(view, sub = null) {
+    setNavHistory(prev => [...prev.slice(-19), { view: activeView, sub: activeSub }]);
     setActiveView(view);
     setActiveSub(sub ?? getDefaultSub(view));
     setSidebarOpen(false);
+  }
+
+  function goBack() {
+    if (!navHistory.length) return;
+    const prev = navHistory[navHistory.length - 1];
+    setNavHistory(h => h.slice(0, -1));
+    setActiveView(prev.view);
+    setActiveSub(prev.sub);
   }
 
   function getDefaultSub(view) {
@@ -92,6 +110,7 @@ export default function App() {
       case "investor-relations": return <InvestorRelations activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
       case "hr":                 return <HR activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
       case "marketing":          return <Marketing activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
+      case "inventory":          return <InventoryManagement />;
       case "admin":              return <Admin />;
       case "external-links":     return <ExternalLinks />;
       case "support":            return <Support />;
@@ -103,6 +122,7 @@ export default function App() {
     <>
       <AuthenticatedTemplate>
         <RequisitionProvider>
+        <InventoryProvider>
         <div className="app-container">
           <Sidebar
             activeView={activeView}
@@ -110,19 +130,28 @@ export default function App() {
             onNavigate={navigate}
             isOpen={sidebarOpen}
             onClose={() => setSidebarOpen(false)}
+            collapsed={sidebarCollapsed}
+            onToggleCollapse={() => setSidebarCollapsed(c => !c)}
           />
-          <main className="main-content">
+          {!sidebarCollapsed && (
+            <div className="sidebar-dismiss-overlay" onClick={() => setSidebarCollapsed(true)} />
+          )}
+          <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
             <TopHeader
               title={VIEW_LABELS[activeView] || activeView}
               theme={theme}
               onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")}
               onMobileToggle={() => setSidebarOpen(o => !o)}
+              canGoBack={navHistory.length > 0}
+              onBack={goBack}
+              prevLabel={navHistory.length > 0 ? (VIEW_LABELS[navHistory[navHistory.length - 1].view] || navHistory[navHistory.length - 1].view) : null}
             />
             <div className="viewport">
               {renderView()}
             </div>
           </main>
         </div>
+        </InventoryProvider>
         </RequisitionProvider>
       </AuthenticatedTemplate>
       <UnauthenticatedTemplate>
