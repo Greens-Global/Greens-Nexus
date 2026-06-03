@@ -57,6 +57,7 @@ export const api = {
   getMyRole:    (email)              => req(`/roles/me?email=${encodeURIComponent(email)}`),
   getAllRoles:   ()                   => req('/roles'),
   assignRole:   (email, role, by)    => req(`/roles/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify({ role, assigned_by: by }) }),
+  syncRoles:    (emails)             => req('/roles/sync', { method: 'POST', body: JSON.stringify({ emails }) }),
 
   // Accounting
   getTransactions: () => req("/accounting/transactions"),

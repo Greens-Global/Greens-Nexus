@@ -37,6 +37,26 @@ class RoleAssignment(BaseModel):
     role:        str
     assigned_by: str   # email of the person making the change
 
+class SyncRequest(BaseModel):
+    emails: list[str]
+
+
+@router.post("/sync")
+def sync_users(body: SyncRequest, db: Session = Depends(get_db)):
+    """Insert all provided emails with role='employee' if they don't already have a row."""
+    new_count = 0
+    for email in body.emails:
+        email = email.lower().strip()
+        if not email:
+            continue
+        exists = db.query(NexusRole).filter(NexusRole.email == email).first()
+        if not exists:
+            db.add(NexusRole(email=email, role="employee", assigned_by="system"))
+            new_count += 1
+    if new_count:
+        db.commit()
+    return {"synced": new_count, "total": len(body.emails)}
+
 
 @router.get("/me")
 def get_my_role(email: str, db: Session = Depends(get_db)):

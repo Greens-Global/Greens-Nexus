@@ -66,6 +66,14 @@ export default function Admin() {
   // Load all role assignments when admin page opens
   useEffect(() => { refreshAllRoles(); }, [refreshAllRoles]);
 
+  // Once Graph users load, sync all emails to nexus_roles as Employee (no-op if row exists)
+  useEffect(() => {
+    if (!graphLoading && users.length > 0) {
+      const emails = users.map(u => (u.mail ?? u.userPrincipalName ?? '').toLowerCase()).filter(Boolean);
+      if (emails.length) api.syncRoles(emails).catch(() => {});
+    }
+  }, [graphLoading, users]);
+
   const isOwner = myRole === 'owner';
   const isAdmin = can('administrator');
 
