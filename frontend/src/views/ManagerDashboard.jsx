@@ -75,7 +75,8 @@ export default function ManagerDashboard() {
   const pendingAlloc = invRequests
     .filter(r => r.status === 'approved')
     .map(r => ({
-      key: r.id, employee: r.requestedBy, raisedBy: r.raisedBy,
+      key: r.id, employee: r.requestedBy, employeeEmail: r.requestedByEmail ?? '',
+      raisedBy: r.raisedBy,
       item: r.itemName, dept: r.department, reqId: r.id,
       approvedAt: r.resolvedAt, approvedBy: r.resolvedBy,
     }));
@@ -555,7 +556,7 @@ export default function ManagerDashboard() {
                               setAllocating(p => ({ ...p, [row.key]: true }));
                               addNotification({
                                 type:      'approved',
-                                recipient: row.employee,
+                                recipient: row.employeeEmail || row.employee,
                                 title:     'Item Allocated ✓',
                                 body:      `Your ${row.item} has been allocated and is ready for collection. Please pick it up from your supervisor.`,
                                 action:    { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },

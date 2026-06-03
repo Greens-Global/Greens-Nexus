@@ -32,7 +32,8 @@ export default function NotificationBell({ onNavigate }) {
   const { approveRequisition, rejectRequisition }   = useRequisitions();
   const { accounts } = useMsal();
   const { can }      = useRole();
-  const myName = accounts[0]?.name ?? '';
+  const myName  = accounts[0]?.name     ?? '';
+  const myEmail = (accounts[0]?.username ?? '').toLowerCase();
 
   const [open,         setOpen]         = useState(false);
   const [rejectingId,  setRejectingId]  = useState(null);
@@ -61,7 +62,11 @@ export default function NotificationBell({ onNavigate }) {
         approveRequest(refId, MANAGER_NAME);
         markActioned(n.id);
         dismiss(n.id);
-        addNotification({ type: 'approved', recipient: requestedBy, requestedBy, itemName,
+        const recipientEmail = n.action?.requestedByEmail ?? '';
+        addNotification({
+          type:        'approved',
+          recipient:   recipientEmail || requestedBy,
+          requestedBy, itemName,
           title: 'Request Approved ✓',
           body:  `Your request for ${itemName} has been approved by ${MANAGER_NAME}. It will be assigned to you by your supervisor shortly.`,
           action: { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
@@ -88,7 +93,11 @@ export default function NotificationBell({ onNavigate }) {
 
     if (n.type === 'inv_request') {
       rejectRequest(refId, MANAGER_NAME, rejectReason.trim());
-      addNotification({ type: 'rejected', recipient: requestedBy, requestedBy, itemName,
+      const recipientEmail = n.action?.requestedByEmail ?? '';
+      addNotification({
+        type:        'rejected',
+        recipient:   recipientEmail || requestedBy,
+        requestedBy, itemName,
         title: 'Request Rejected',
         body:  `Your request for ${itemName} was not approved. Reason: "${rejectReason.trim()}"`,
         action: { label: 'View Request →', view: 'inventory', sub: 'my-requests' },
@@ -112,10 +121,10 @@ export default function NotificationBell({ onNavigate }) {
     (n.type === 'inv_request' || n.type === 'req_pending') && !n.recipient
   ) : [];
 
-  // Updates: no recipient (global) OR explicitly addressed to me
+  // Updates: no recipient (global) OR addressed to my email or my display name
   const updates = notifications.filter(n =>
     n.type !== 'inv_request' && n.type !== 'req_pending' &&
-    (!n.recipient || n.recipient === myName)
+    (!n.recipient || n.recipient === myEmail || n.recipient === myName)
   );
 
   // Unread count scoped to what I can see

@@ -1,4 +1,7 @@
-import { createContext, useContext, useState } from 'react';
+/* eslint-disable react-refresh/only-export-components */
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useMsal } from '@azure/msal-react';
+import { api } from '../api';
 
 const InventoryContext = createContext(null);
 
@@ -50,57 +53,100 @@ let reqCounter = 1;
 function genId() { return `IREQ-${String(reqCounter++).padStart(3, '0')}`; }
 
 export function InventoryProvider({ children }) {
+  const { accounts } = useMsal();
+  const myEmail = (accounts[0]?.username ?? '').toLowerCase();
+
   const [items]    = useState(INITIAL_ITEMS);
   const [requests, setRequests] = useState([]);
 
-  function raiseRequest({ itemId, itemName, requestedBy, raisedBy, department, quantity, days, reason }) {
+  const fetchRequests = useCallback(() => {
+    api.getInventoryRequests()
+      .then(rows => setRequests(rows))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchRequests();
+    const timer = setInterval(fetchRequests, 30000);
+    return () => clearInterval(timer);
+  }, [fetchRequests]);
+
+  function raiseRequest({ itemId, itemName, requestedBy, requestedByEmail, raisedBy, department, quantity, days, reason }) {
+    const id = genId();
+    const resolvedEmail = requestedByEmail || myEmail;
     const req = {
-      id: genId(),
-      itemId, itemName,
-      requestedBy,                          // who the item is for
-      raisedBy: raisedBy || requestedBy,    // who submitted the request
+      id, itemId, itemName,
+      requestedBy,
+      requestedByEmail: resolvedEmail,
+      raisedBy: raisedBy || requestedBy,
       department, quantity, days, reason,
       status: 'pending',
       createdAt: new Date().toISOString(),
       resolvedAt: null, resolvedBy: null, rejectReason: null,
     };
+    // Optimistic update
     setRequests(prev => [req, ...prev]);
-    return req; // return so callers can use the id for notifications
+    // Persist to backend
+    api.createInventoryRequest({
+      id,
+      item_id:             itemId,
+      item_name:           itemName,
+      requested_by:        requestedBy,
+      requested_by_email:  resolvedEmail,
+      raised_by:           req.raisedBy,
+      department, quantity, days, reason,
+    }).then(saved => {
+      setRequests(prev => prev.map(r => r.id === id ? saved : r));
+    }).catch(() => {});
+    return req;
   }
 
   function approveRequest(id, managerName) {
     setRequests(prev => prev.map(r =>
       r.id === id ? { ...r, status: 'approved', resolvedAt: new Date().toISOString(), resolvedBy: managerName } : r
     ));
+    api.updateInventoryRequest(id, { status: 'approved', resolved_by: managerName }).catch(() => {});
   }
 
   function allocateItem(id, supervisorName) {
     setRequests(prev => prev.map(r =>
-      r.id === id ? {
-        ...r,
-        status:      'allocated',
-        allocatedAt: new Date().toISOString(),
-        allocatedBy: supervisorName,
-      } : r
+      r.id === id ? { ...r, status: 'allocated', allocatedAt: new Date().toISOString(), allocatedBy: supervisorName } : r
     ));
+    api.updateInventoryRequest(id, { status: 'allocated', allocated_by: supervisorName }).catch(() => {});
   }
 
   function rejectRequest(id, managerName, reason) {
     setRequests(prev => prev.map(r =>
       r.id === id ? { ...r, status: 'rejected', resolvedAt: new Date().toISOString(), resolvedBy: managerName, rejectReason: reason } : r
     ));
+    api.updateInventoryRequest(id, { status: 'rejected', resolved_by: managerName, reject_reason: reason }).catch(() => {});
   }
 
   function returnItem(id, { photoUrl, photoName, conditionNote }) {
     setRequests(prev => prev.map(r =>
-      r.id === id ? { ...r, status: 'returned', returnedAt: new Date().toISOString(), returnPhotoUrl: photoUrl, returnPhotoName: photoName, conditionNote } : r
+      r.id === id ? {
+        ...r, status: 'returned',
+        returnedAt: new Date().toISOString(),
+        returnPhotoUrl: photoUrl,
+        returnPhotoName: photoName,
+        conditionNote,
+      } : r
     ));
+    api.updateInventoryRequest(id, {
+      status: 'returned',
+      return_photo_name: photoName || '',
+      condition_note:    conditionNote || '',
+    }).catch(() => {});
   }
 
   const pendingCount = requests.filter(r => r.status === 'pending').length;
 
   return (
-    <InventoryContext.Provider value={{ items, requests, pendingCount, raiseRequest, approveRequest, rejectRequest, allocateItem, returnItem }}>
+    <InventoryContext.Provider value={{
+      items, requests, pendingCount,
+      raiseRequest, approveRequest, rejectRequest, allocateItem, returnItem,
+      refreshRequests: fetchRequests,
+    }}>
       {children}
     </InventoryContext.Provider>
   );

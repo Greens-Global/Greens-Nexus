@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import models
 from database import engine
-from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications
+from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, inventory_requests
 
 
 @asynccontextmanager
@@ -50,3 +50,4 @@ app.include_router(dashboard.router)
 app.include_router(requisitions.router)
 app.include_router(roles.router)
 app.include_router(notifications.router)
+app.include_router(inventory_requests.router)

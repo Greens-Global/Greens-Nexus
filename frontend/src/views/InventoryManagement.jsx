@@ -328,7 +328,8 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
   const { addNotification } = useNotifications();
   const { can }             = useRole();
   const { accounts }        = useMsal();
-  const userName            = accounts[0]?.name ?? 'Employee';
+  const userName            = accounts[0]?.name     ?? 'Employee';
+  const userEmail           = (accounts[0]?.username ?? '').toLowerCase();
 
   const [search,       setSearch]       = useState('');
   const [catFilter,    setCatFilter]    = useState('All');
@@ -365,12 +366,15 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
   const pendingReqs    = requests.filter(r => r.status === 'pending').length;
 
   function handleSubmit({ item, qty, days, reason, requestFor }) {
-    const forPerson = requestFor || userName;
+    const forPerson      = requestFor || userName;
+    const forPersonEmail = requestFor ? '' : userEmail; // email only known when requesting for self
     const req = raiseRequest({
-      itemId: item.id, itemName: item.name,
-      requestedBy: forPerson,
-      raisedBy: userName,
-      department: item.department,
+      itemId:            item.id,
+      itemName:          item.name,
+      requestedBy:       forPerson,
+      requestedByEmail:  forPersonEmail,
+      raisedBy:          userName,
+      department:        item.department,
       quantity: qty, days, reason,
     });
     const byLine = requestFor ? `${userName} on behalf of ${requestFor}` : userName;
@@ -379,10 +383,10 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
       refId:       req.id,
       title:       'New Inventory Request',
       body:        `${byLine} requested ${qty}× ${item.name} for ${days} day${days > 1 ? 's' : ''} — "${reason}"`,
-      requestedBy: forPerson,   // who the item is for (used to target approval notification)
+      requestedBy: forPerson,
       itemName:    item.name,
-      qty,
-      days,
+      // Store the requester's email inside action so the bell can target the approval notification
+      action:      forPersonEmail ? { requestedByEmail: forPersonEmail } : null,
     });
     setShowModal(false);
   }

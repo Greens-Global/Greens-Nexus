@@ -232,6 +232,30 @@ class NexusNotification(Base):
     created_at  = Column(String, nullable=False)
 
 
+class InventoryRequest(Base):
+    __tablename__ = "inventory_requests"
+    id                 = Column(String, primary_key=True)
+    item_id            = Column(String, nullable=False)
+    item_name          = Column(String, nullable=False)
+    requested_by       = Column(String, nullable=False)          # display name
+    requested_by_email = Column(String, default="")              # email for targeting notifications
+    raised_by          = Column(String, nullable=False)          # who submitted (supervisor or self)
+    department         = Column(String, nullable=False)
+    quantity           = Column(Integer, default=1)
+    days               = Column(Integer, default=1)
+    reason             = Column(String, default="")
+    status             = Column(String, default="pending")       # pending|approved|allocated|rejected|returned
+    created_at         = Column(String, nullable=False)
+    resolved_at        = Column(String, default="")
+    resolved_by        = Column(String, default="")
+    reject_reason      = Column(String, default="")
+    allocated_at       = Column(String, default="")
+    allocated_by       = Column(String, default="")
+    returned_at        = Column(String, default="")
+    return_photo_name  = Column(String, default="")
+    condition_note     = Column(String, default="")
+
+
 class NexusRole(Base):
     __tablename__ = "nexus_roles"
     email       = Column(String, primary_key=True)   # Azure AD UPN / email

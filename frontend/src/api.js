@@ -66,6 +66,11 @@ export const api = {
   markNotifActioned:(id)             => req(`/notifications/${id}/action`, { method: 'PATCH' }),
   deleteNotif:      (id)             => req(`/notifications/${id}`, { method: 'DELETE' }),
 
+  // Inventory Requests (persisted in Supabase)
+  getInventoryRequests:    ()          => req('/inventory-requests'),
+  createInventoryRequest:  (data)      => req('/inventory-requests', { method: 'POST', body: JSON.stringify(data) }),
+  updateInventoryRequest:  (id, data)  => req(`/inventory-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
   // Accounting
   getTransactions: () => req("/accounting/transactions"),
   getRamp: () => req("/accounting/ramp"),
