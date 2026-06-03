@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Folder, AlertCircle, MessageSquare, Clock, Users, SlidersHorizontal, Download, CheckCircle, XCircle, ChevronDown, Package, Eye, Mail, Filter } from 'lucide-react';
-import { useRequisitions } from '../contexts/RequisitionContext';
-import { useInventory }    from '../contexts/InventoryContext';
+import { useRequisitions }  from '../contexts/RequisitionContext';
+import { useInventory }     from '../contexts/InventoryContext';
 import { useNotifications } from '../contexts/NotificationContext';
+import { useRole }          from '../contexts/RoleContext';
 
 const EMPLOYEES = [
   { name: 'Sarah Johnson',    dept: 'Accounting',  tasks: 8,  est: 32, act: 18, completed: 3, inprogress: 4, overdue: 1, workload: 85 },
@@ -16,6 +17,8 @@ const EMPLOYEES = [
 const MANAGER_NAME = 'Visesh Lodha';
 
 export default function ManagerDashboard() {
+  // ── All hooks must be at the top ──────────────────────────────────────────
+  const { can }            = useRole();
   const { requisitions, hwAssets, pendingManagerCount, approveRequisition, rejectRequisition } = useRequisitions();
   const { requests: invRequests, approveRequest: approveInvReq, rejectRequest: rejectInvReq, allocateItem } = useInventory();
   const { sendOverdueAlert, addNotification } = useNotifications();
@@ -27,8 +30,20 @@ export default function ManagerDashboard() {
   const [rejectingInvId,  setRejectingInvId]  = useState(null);
   const [rejectInvReason, setRejectInvReason] = useState('');
   const [whoHasWhatDept,  setWhoHasWhatDept]  = useState('All');
-  const [alertSent,       setAlertSent]       = useState({});  // reqId → true
-  const [allocating,      setAllocating]      = useState({});  // reqId → true (loading)
+  const [alertSent,       setAlertSent]       = useState({});
+  const [allocating,      setAllocating]      = useState({});
+
+  // ── Access gate (after hooks) ─────────────────────────────────────────────
+  if (!can('supervisor')) {
+    return (
+      <div className="view-header">
+        <div className="view-title-group">
+          <h2>Manager Dashboard</h2>
+          <p>You need Supervisor access or above to view this section.</p>
+        </div>
+      </div>
+    );
+  }
 
   const totalTasks  = EMPLOYEES.reduce((s, e) => s + e.tasks, 0);
   const totalOverdue = EMPLOYEES.reduce((s, e) => s + e.overdue, 0);
@@ -118,13 +133,20 @@ export default function ManagerDashboard() {
 
   const totalPending = pendingManagerCount + pendingInvReqs.length;
   const overdueCount = allCheckedOut.filter(i => i.isOverdue).length;
+  const isManager    = can('manager');
+
   const tabs = [
-    { id: 'workload',      label: 'Workload by Employee' },
-    { id: 'projects',      label: 'Project-wise Tasks' },
-    { id: 'actions',       label: `Pending Actions${totalPending > 0 ? ` (${totalPending})` : ''}` },
-    { id: 'who-has-what',  label: `Who Has What${overdueCount > 0 ? ` ⚠ ${overdueCount}` : ''}` },
-    { id: 'calendar',      label: 'Team Calendar' },
+    ...(isManager ? [
+      { id: 'workload',     label: 'Workload by Employee' },
+      { id: 'projects',     label: 'Project-wise Tasks' },
+      { id: 'actions',      label: `Pending Actions${totalPending > 0 ? ` (${totalPending})` : ''}` },
+    ] : []),
+    { id: 'who-has-what', label: `Who Has What${overdueCount > 0 ? ` ⚠ ${overdueCount}` : ''}` },
+    ...(isManager ? [{ id: 'calendar', label: 'Team Calendar' }] : []),
   ];
+
+  // Default to who-has-what for supervisors who can't see workload
+  const effectiveTab = activeTab === 'workload' && !isManager ? 'who-has-what' : activeTab;
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -176,7 +198,7 @@ export default function ManagerDashboard() {
       <div className="requisitions-list-card">
 
         {/* ── Workload ── */}
-        {activeTab === 'workload' && (
+        {effectiveTab === 'workload' && (
           <>
             <div style={{ marginBottom: 20 }}>
               <h3 style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '-.02em' }}>Employee Workload Analysis</h3>
@@ -227,7 +249,7 @@ export default function ManagerDashboard() {
         )}
 
         {/* ── Projects ── */}
-        {activeTab === 'projects' && (
+        {effectiveTab === 'projects' && (
           <>
             <h3>Project-wise Tasks Analysis</h3>
             <p style={{ color: 'var(--text-secondary)', marginBottom: 20 }}>Distribution of current construction project tasks across active job sites.</p>
@@ -262,7 +284,7 @@ export default function ManagerDashboard() {
         )}
 
         {/* ── Pending Actions ── */}
-        {activeTab === 'actions' && (
+        {effectiveTab === 'actions' && (
           <>
             {/* Purchase Requisitions awaiting approval */}
             <div style={{ marginBottom: 28 }}>
@@ -478,7 +500,7 @@ export default function ManagerDashboard() {
         )}
 
         {/* ── Who Has What ── */}
-        {activeTab === 'who-has-what' && (
+        {effectiveTab === 'who-has-what' && (
           <>
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:12, marginBottom:20 }}>
               <div>
@@ -644,7 +666,7 @@ export default function ManagerDashboard() {
         )}
 
         {/* ── Calendar ── */}
-        {activeTab === 'calendar' && (
+        {effectiveTab === 'calendar' && (
           <>
             <h3>Team Schedule Calendar</h3>
             <p style={{ color: 'var(--text-secondary)', marginBottom: 20 }}>Onsite shift and safety briefing rosters for the current week.</p>

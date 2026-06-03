@@ -13,8 +13,8 @@ import {
 } from "lucide-react";
 
 const NAV = [
-  { view: "dashboard",        label: "Dashboard",          icon: LayoutDashboard },
-  { view: "manager-dashboard",label: "Manager Dashboard",  icon: UserCheck },
+  { view: "dashboard",         label: "Dashboard",         icon: LayoutDashboard },
+  { view: "manager-dashboard", label: "Manager Dashboard", icon: UserCheck, minRole: 'supervisor' },
   { divider: true },
   { view: "purchase",         label: "Purchase Requisition",icon: ShoppingCart },
   { view: "tasks",            label: "Tasks",              icon: CheckSquare },
@@ -119,7 +119,7 @@ const NAV = [
 export default function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }) {
   const [expanded, setExpanded] = useState({});
   const { accounts } = useMsal();
-  const { myRole }   = useRole();
+  const { myRole, can } = useRole();
   const account     = accounts[0];
   const displayName = account?.name ?? account?.username ?? "User";
   const initials    = displayName.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase();
@@ -168,7 +168,7 @@ export default function Sidebar({ activeView, activeSub, onNavigate, isOpen, onC
         {/* ── Nav ── */}
         <nav className="sidebar-nav">
           <ul className="nav-list">
-            {NAV.map((item, i) => {
+            {NAV.filter(item => !item.minRole || can(item.minRole)).map((item, i) => {
               if (item.divider) return <li key={i} className="nav-divider" />;
 
               // ── Collapsed: icon-only rail ──

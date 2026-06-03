@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useInventory }       from '../contexts/InventoryContext';
 import { useNotifications }   from '../contexts/NotificationContext';
+import { useRole }            from '../contexts/RoleContext';
 import { useMsal } from '@azure/msal-react';
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -38,7 +39,7 @@ const STATUS_META = {
 };
 
 // ── Raise Request Modal ───────────────────────────────────────────────────────
-function RaiseRequestModal({ items, onClose, onSubmit, currentUser }) {
+function RaiseRequestModal({ items, onClose, onSubmit, currentUser, canRaiseOnBehalf }) {
   const [itemSearch,  setItemSearch]  = useState('');
   const [selected,    setSelected]    = useState(null);
   const [qty,         setQty]         = useState(1);
@@ -110,16 +111,18 @@ function RaiseRequestModal({ items, onClose, onSubmit, currentUser }) {
           </div>
         </div>
 
-        {/* Request on behalf */}
-        <div style={{ marginBottom:14 }}>
-          <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>
-            REQUESTING FOR <span style={{ fontWeight:400, textTransform:'none' }}>(optional — leave blank if for yourself)</span>
-          </label>
-          <input className="form-input" style={{ width:'100%' }}
-            placeholder={`e.g. Sarah Johnson  (you are: ${currentUser})`}
-            value={requestFor}
-            onChange={e => setRequestFor(e.target.value)} />
-        </div>
+        {/* Request on behalf — supervisors and above only */}
+        {canRaiseOnBehalf && (
+          <div style={{ marginBottom:14 }}>
+            <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>
+              REQUESTING FOR <span style={{ fontWeight:400, textTransform:'none' }}>(optional — leave blank if for yourself)</span>
+            </label>
+            <input className="form-input" style={{ width:'100%' }}
+              placeholder={`e.g. Sarah Johnson  (you are: ${currentUser})`}
+              value={requestFor}
+              onChange={e => setRequestFor(e.target.value)} />
+          </div>
+        )}
 
         <div style={{ marginBottom:24 }}>
           <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>REASON FOR REQUEST</label>
@@ -323,8 +326,9 @@ function StageTracker({ request }) {
 export default function InventoryManagement({ activeSub, onSubChange }) {
   const { items, requests, raiseRequest, returnItem } = useInventory();
   const { addNotification } = useNotifications();
-  const { accounts } = useMsal();
-  const userName = accounts[0]?.name ?? 'Employee';
+  const { can }             = useRole();
+  const { accounts }        = useMsal();
+  const userName            = accounts[0]?.name ?? 'Employee';
 
   const [search,       setSearch]       = useState('');
   const [catFilter,    setCatFilter]    = useState('All');
@@ -642,7 +646,7 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
       )}
 
       {showModal && (
-        <RaiseRequestModal items={items} currentUser={userName} onClose={() => setShowModal(false)} onSubmit={handleSubmit} />
+        <RaiseRequestModal items={items} currentUser={userName} canRaiseOnBehalf={can('supervisor')} onClose={() => setShowModal(false)} onSubmit={handleSubmit} />
       )}
       {returningReq && (
         <ReturnModal request={returningReq} onClose={() => setReturningReq(null)}

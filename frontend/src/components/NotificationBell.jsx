@@ -4,6 +4,7 @@ import { useNotifications } from '../contexts/NotificationContext';
 import { useInventory }      from '../contexts/InventoryContext';
 import { useRequisitions }   from '../contexts/RequisitionContext';
 import { useMsal }           from '@azure/msal-react';
+import { useRole }           from '../contexts/RoleContext';
 
 const MANAGER_NAME = 'Visesh Lodha';
 
@@ -30,6 +31,7 @@ export default function NotificationBell({ onNavigate }) {
   const { approveRequest, rejectRequest } = useInventory();
   const { approveRequisition, rejectRequisition }   = useRequisitions();
   const { accounts } = useMsal();
+  const { can }      = useRole();
   const myName = accounts[0]?.name ?? '';
 
   const [open,         setOpen]         = useState(false);
@@ -107,10 +109,10 @@ export default function NotificationBell({ onNavigate }) {
     setRejectReason('');
   }
 
-  // Needs Action: untargeted requests (for managers)
-  const actionable = notifications.filter(n =>
+  // Needs Action: only visible to managers+ (they have approve/reject capability)
+  const actionable = can('manager') ? notifications.filter(n =>
     (n.type === 'inv_request' || n.type === 'req_pending') && !n.recipient
-  );
+  ) : [];
 
   // Updates: no recipient (global) OR explicitly addressed to me
   const updates = notifications.filter(n =>
