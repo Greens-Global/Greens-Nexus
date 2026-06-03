@@ -1,5 +1,6 @@
 import { useMsal } from '@azure/msal-react';
 import { MapPin, RefreshCw } from 'lucide-react';
+import { useRef, useEffect, useState } from 'react';
 
 const FACILITIES = [
   { id: "hv", name: "Harbor View Storage",  city: "Tacoma, WA",   occ: 94, units: 612, rented: 575, mrr: 88200,  climate: true  },
@@ -23,28 +24,111 @@ const TREND = [
 ];
 
 function OccupancyChart() {
-  const w = 500, h = 160, padX = 20, padY = 16, min = 75, max = 95;
-  const xs = i => padX + i * ((w - padX * 2) / (TREND.length - 1));
-  const ys = v => h - padY - ((v - min) / (max - min)) * (h - padY * 2);
-  const pts = TREND.map((d, i) => `${xs(i)},${ys(d.occ)}`).join(" ");
-  const area = `M ${xs(0)},${h - padY} L ` + TREND.map((d, i) => `${xs(i)},${ys(d.occ)}`).join(" L ") + ` L ${xs(TREND.length - 1)},${h - padY} Z`;
+  const containerRef  = useRef(null);
+  const [w, setW]     = useState(500);
+  const [hovered, setHovered] = useState(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const ro = new ResizeObserver(([entry]) => {
+      const width = entry.contentRect.width;
+      if (width > 0) setW(Math.floor(width));
+    });
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  const h = 168, padX = 38, padY = 20, min = 75, max = 95;
+  const xs   = i => padX + i * ((w - padX * 2) / (TREND.length - 1));
+  const ys   = v => padY + ((max - v) / (max - min)) * (h - padY * 2 - 18);
+  const pts  = TREND.map((d, i) => `${xs(i)},${ys(d.occ)}`).join(" ");
+  const area = `M ${xs(0)},${h - 18} ` +
+    TREND.map((d, i) => `L ${xs(i)},${ys(d.occ)}`).join(" ") +
+    ` L ${xs(TREND.length - 1)},${h - 18} Z`;
+
   return (
-    <svg className="chart-area" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ color: 'var(--ink)' }}>
-      <defs>
-        <linearGradient id="og" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="currentColor" stopOpacity="0.1" />
-          <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={area} fill="url(#og)" />
-      <polyline className="chart-line" points={pts} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinejoin="round" />
-      {TREND.map((d, i) => (
-        <g key={d.m} className="chart-dot">
-          <circle cx={xs(i)} cy={ys(d.occ)} r="3" fill="currentColor" />
-          <text x={xs(i)} y={h - 2} fontSize="10" style={{ fill: 'var(--muted)' }} textAnchor="middle" fontFamily="Hanken Grotesk, sans-serif">{d.m}</text>
-        </g>
-      ))}
-    </svg>
+    <div ref={containerRef} style={{ width: "100%" }}>
+      <svg width={w} height={h} style={{ display: "block", overflow: "visible", color: "var(--ink)" }}>
+        <defs>
+          <linearGradient id="og" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stopColor="currentColor" stopOpacity="0.13" />
+            <stop offset="100%" stopColor="currentColor" stopOpacity="0"    />
+          </linearGradient>
+        </defs>
+
+        {/* Area fill */}
+        <path d={area} fill="url(#og)" />
+
+        {/* Line */}
+        <polyline
+          className="chart-line"
+          points={pts}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+
+        {/* Hover guide line */}
+        {hovered !== null && (
+          <line
+            x1={xs(hovered)} y1={padY}
+            x2={xs(hovered)} y2={h - 18}
+            stroke="var(--muted)" strokeWidth="1"
+            strokeDasharray="3 3" opacity="0.55"
+          />
+        )}
+
+        {/* Dots + labels */}
+        {TREND.map((d, i) => (
+          <g key={d.m} className="chart-dot">
+            <circle
+              cx={xs(i)} cy={ys(d.occ)}
+              r={hovered === i ? 5.5 : 3.5}
+              fill="currentColor"
+              style={{ transition: "r 0.15s ease" }}
+            />
+            <text
+              x={xs(i)} y={h - 3}
+              fontSize="10.5" textAnchor="middle"
+              fontFamily="Inter, sans-serif"
+              fontWeight={hovered === i ? 600 : 400}
+              style={{ fill: hovered === i ? "var(--ink)" : "var(--muted)", transition: "fill 0.15s" }}
+            >{d.m}</text>
+          </g>
+        ))}
+
+        {/* Tooltip */}
+        {hovered !== null && (() => {
+          const tx = Math.min(Math.max(xs(hovered), 42), w - 42);
+          const ty = Math.max(ys(TREND[hovered].occ) - 52, 4);
+          return (
+            <g style={{ pointerEvents: "none" }}>
+              <rect x={tx - 30} y={ty} width={60} height={38} rx={9} fill="var(--ink)" />
+              <polygon points={`${tx - 5},${ty + 38} ${tx + 5},${ty + 38} ${tx},${ty + 44}`} fill="var(--ink)" />
+              <text x={tx} y={ty + 13} textAnchor="middle" fontSize="10"
+                fontFamily="Inter, sans-serif" fill="rgba(255,255,255,0.6)">{TREND[hovered].m}</text>
+              <text x={tx} y={ty + 30} textAnchor="middle" fontSize="14"
+                fontFamily="Inter, sans-serif" fontWeight="700" fill="white">{TREND[hovered].occ}%</text>
+            </g>
+          );
+        })()}
+
+        {/* Invisible hover zones */}
+        {TREND.map((d, i) => {
+          const zw = (w - padX * 2) / (TREND.length - 1);
+          return (
+            <rect key={`hz${i}`}
+              x={xs(i) - zw / 2} y={0} width={zw} height={h}
+              fill="transparent" style={{ cursor: "crosshair" }}
+              onMouseEnter={() => setHovered(i)}
+              onMouseLeave={() => setHovered(null)}
+            />
+          );
+        })}
+      </svg>
+    </div>
   );
 }
 
