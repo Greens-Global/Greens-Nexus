@@ -1017,8 +1017,10 @@ input[type="number"] { -moz-appearance: textfield; }
 /* ── Sidebar dismiss overlay (desktop click-outside) ──────────────────── */
 .sidebar-dismiss-overlay {
   position: fixed;
-  inset: 0;
-  left: 264px;
+  top: 56px; /* sit below the header so breadcrumb/back arrow stay clickable */
+  bottom: 0;
+  left: 0;
+  right: 0;
   z-index: 99;
   cursor: default;
 }
