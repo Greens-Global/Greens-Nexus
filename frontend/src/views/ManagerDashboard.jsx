@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Folder, AlertCircle, MessageSquare, Clock, Users, SlidersHorizontal, Download, CheckCircle, XCircle, ChevronDown, Package } from 'lucide-react';
+import { Folder, AlertCircle, MessageSquare, Clock, Users, SlidersHorizontal, Download, CheckCircle, XCircle, ChevronDown, Package, Eye, Mail, Filter } from 'lucide-react';
 import { useRequisitions } from '../contexts/RequisitionContext';
-import { useInventory } from '../contexts/InventoryContext';
+import { useInventory }    from '../contexts/InventoryContext';
+import { useNotifications } from '../contexts/NotificationContext';
 
 const EMPLOYEES = [
   { name: 'Sarah Johnson',    dept: 'Accounting',  tasks: 8,  est: 32, act: 18, completed: 3, inprogress: 4, overdue: 1, workload: 85 },
@@ -15,8 +16,9 @@ const EMPLOYEES = [
 const MANAGER_NAME = 'Visesh Lodha';
 
 export default function ManagerDashboard() {
-  const { requisitions, pendingManagerCount, approveRequisition, rejectRequisition } = useRequisitions();
-  const { requests: invRequests, approveRequest: approveInvReq, rejectRequest: rejectInvReq } = useInventory();
+  const { requisitions, hwAssets, pendingManagerCount, approveRequisition, rejectRequisition } = useRequisitions();
+  const { requests: invRequests, approveRequest: approveInvReq, rejectRequest: rejectInvReq, allocateItem } = useInventory();
+  const { sendOverdueAlert, addNotification } = useNotifications();
 
   const [activeTab,       setActiveTab]       = useState('workload');
   const [rejectingId,     setRejectingId]     = useState(null);
@@ -24,6 +26,9 @@ export default function ManagerDashboard() {
   const [expandedReq,     setExpandedReq]     = useState(null);
   const [rejectingInvId,  setRejectingInvId]  = useState(null);
   const [rejectInvReason, setRejectInvReason] = useState('');
+  const [whoHasWhatDept,  setWhoHasWhatDept]  = useState('All');
+  const [alertSent,       setAlertSent]       = useState({});  // reqId → true
+  const [allocating,      setAllocating]      = useState({});  // reqId → true (loading)
 
   const totalTasks  = EMPLOYEES.reduce((s, e) => s + e.tasks, 0);
   const totalOverdue = EMPLOYEES.reduce((s, e) => s + e.overdue, 0);
@@ -47,12 +52,78 @@ export default function ManagerDashboard() {
 
   const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 
+  // ── Who Has What data ───────────────────────────────────────────────────────
+  const now = Date.now();
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  // Pending allocation: approved but not yet given to employee
+  const pendingAlloc = invRequests
+    .filter(r => r.status === 'approved')
+    .map(r => ({
+      key: r.id, employee: r.requestedBy, raisedBy: r.raisedBy,
+      item: r.itemName, dept: r.department, reqId: r.id,
+      approvedAt: r.resolvedAt, approvedBy: r.resolvedBy,
+    }));
+
+  // Temporary: allocated (physically given) and not yet returned
+  const tempItems = invRequests
+    .filter(r => r.status === 'allocated')
+    .map(r => {
+      const startDate = r.allocatedAt ?? r.createdAt;
+      const dueDate   = new Date(new Date(startDate).getTime() + (r.days || 1) * 86400000);
+      const isOverdue = dueDate < new Date();
+      return {
+        key:       r.id,
+        employee:  r.requestedBy,
+        raisedBy:  r.raisedBy,
+        item:      r.itemName,
+        dept:      r.department,
+        type:      'Temporary',
+        since:     r.allocatedAt ?? r.createdAt,
+        dueDate:   dueDate.toISOString().split('T')[0],
+        isOverdue,
+        reqId:     r.id,
+      };
+    });
+
+  // Permanent: hwAssets checked out (with or without a requisition)
+  const permItems = hwAssets
+    .filter(a => a.status === 'Checked Out' && a.assignedTo && a.assignedTo !== 'Unassigned')
+    .map(a => {
+      const linkedReq  = requisitions.find(r => r.assetId === a.id && r.status === 'asset_allocated');
+      const isOverdue  = linkedReq?.expectedReturnDate && linkedReq.expectedReturnDate < todayStr;
+      return {
+        key:       a.id,
+        employee:  a.assignedTo,
+        item:      a.name,
+        dept:      a.dept,
+        type:      'Permanent',
+        since:     a.lastUpdated,
+        dueDate:   linkedReq?.expectedReturnDate ?? '—',
+        isOverdue: !!isOverdue,
+        reqId:     a.id,
+      };
+    });
+
+  const allCheckedOut = [...tempItems, ...permItems];
+  const WHWDEPTS = ['All', 'IT', 'Construction', 'Operations', 'Accounting'];
+  const filteredWHW = whoHasWhatDept === 'All'
+    ? allCheckedOut
+    : allCheckedOut.filter(i => i.dept === whoHasWhatDept || i.dept?.toLowerCase().includes(whoHasWhatDept.toLowerCase()));
+
+  function handleSendOverdueAlert(row) {
+    sendOverdueAlert(row.reqId, row.employee, row.item);
+    setAlertSent(p => ({ ...p, [row.key]: true }));
+  }
+
   const totalPending = pendingManagerCount + pendingInvReqs.length;
+  const overdueCount = allCheckedOut.filter(i => i.isOverdue).length;
   const tabs = [
-    { id: 'workload',  label: 'Workload by Employee' },
-    { id: 'projects',  label: 'Project-wise Tasks' },
-    { id: 'actions',   label: `Pending Actions${totalPending > 0 ? ` (${totalPending})` : ''}` },
-    { id: 'calendar',  label: 'Team Calendar' },
+    { id: 'workload',      label: 'Workload by Employee' },
+    { id: 'projects',      label: 'Project-wise Tasks' },
+    { id: 'actions',       label: `Pending Actions${totalPending > 0 ? ` (${totalPending})` : ''}` },
+    { id: 'who-has-what',  label: `Who Has What${overdueCount > 0 ? ` ⚠ ${overdueCount}` : ''}` },
+    { id: 'calendar',      label: 'Team Calendar' },
   ];
 
   return (
@@ -403,6 +474,172 @@ export default function ManagerDashboard() {
                 </div>
               ))}
             </div>
+          </>
+        )}
+
+        {/* ── Who Has What ── */}
+        {activeTab === 'who-has-what' && (
+          <>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:12, marginBottom:20 }}>
+              <div>
+                <h3 style={{ fontSize:15, fontWeight:700, margin:0 }}>Who Has What</h3>
+                <p style={{ fontSize:13, color:'var(--muted)', marginTop:3 }}>
+                  All assets currently checked out — <strong>Permanent</strong> (via Purchase Requisition) and <strong>Temporary</strong> (via Inventory).
+                </p>
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <Filter size={14} style={{ color:'var(--muted)' }} />
+                <select value={whoHasWhatDept} onChange={e => setWhoHasWhatDept(e.target.value)}
+                  className="form-input" style={{ padding:'6px 10px', fontSize:13, height:34 }}>
+                  {WHWDEPTS.map(d => <option key={d}>{d}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {/* ── Pending Allocation ── */}
+            {pendingAlloc.length > 0 && (
+              <div style={{ marginBottom:24, border:'1px solid hsla(var(--color-blue),0.25)', borderRadius:12, overflow:'hidden', background:'hsla(var(--color-blue),0.03)' }}>
+                <div style={{ padding:'12px 16px', borderBottom:'1px solid hsla(var(--color-blue),0.15)', display:'flex', alignItems:'center', gap:8 }}>
+                  <span style={{ fontSize:12, fontWeight:700, color:'hsl(var(--color-blue))', textTransform:'uppercase', letterSpacing:'.05em' }}>
+                    Pending Allocation — {pendingAlloc.length}
+                  </span>
+                  <span style={{ fontSize:11.5, color:'var(--muted)' }}>Approved by manager, awaiting physical handover by supervisor</span>
+                </div>
+                <table className="req-table" style={{ fontSize:13 }}>
+                  <thead>
+                    <tr>
+                      <th>Employee</th><th>Item</th><th>Dept</th><th>Approved</th><th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingAlloc.map(row => (
+                      <tr key={row.key}>
+                        <td style={{ fontWeight:600 }}>
+                          {row.employee}
+                          {row.raisedBy && row.raisedBy !== row.employee && (
+                            <div style={{ fontSize:10.5, color:'var(--muted)', fontWeight:400 }}>via {row.raisedBy}</div>
+                          )}
+                        </td>
+                        <td>{row.item}</td>
+                        <td style={{ color:'var(--muted)' }}>{row.dept}</td>
+                        <td style={{ color:'var(--muted)', fontSize:12 }}>
+                          {row.approvedAt ? new Date(row.approvedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—'}
+                          {row.approvedBy && <div style={{ fontSize:10.5 }}>by {row.approvedBy}</div>}
+                        </td>
+                        <td>
+                          <button
+                            onClick={() => {
+                              allocateItem(row.reqId, MANAGER_NAME);
+                              setAllocating(p => ({ ...p, [row.key]: true }));
+                              addNotification({
+                                type:      'approved',
+                                recipient: row.employee,
+                                title:     'Item Allocated ✓',
+                                body:      `Your ${row.item} has been allocated and is ready for collection. Please pick it up from your supervisor.`,
+                                action:    { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
+                              });
+                            }}
+                            style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:7, border:'none', background:'hsl(var(--color-green))', color:'#fff', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+                            <CheckCircle size={13} /> Mark Allocated
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Summary row */}
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:20 }}>
+              {[
+                { label:'Total Checked Out', value: allCheckedOut.length },
+                { label:'Temporary',         value: tempItems.length },
+                { label:'Overdue',           value: overdueCount, red: overdueCount > 0 },
+              ].map(({ label, value, red }) => (
+                <div key={label} style={{ background:'var(--card)', border:`1px solid ${red && value > 0 ? 'hsla(var(--color-red),0.3)' : 'var(--line)'}`, borderRadius:10, padding:'12px 16px' }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.04em' }}>{label}</div>
+                  <div style={{ fontSize:24, fontWeight:700, marginTop:4, color: red && value > 0 ? 'hsl(var(--color-red))' : 'var(--ink)' }}>{value}</div>
+                </div>
+              ))}
+            </div>
+
+            {filteredWHW.length === 0 ? (
+              <div style={{ textAlign:'center', padding:'48px 0', color:'var(--muted)', fontSize:14 }}>
+                No assets currently checked out{whoHasWhatDept !== 'All' ? ` for ${whoHasWhatDept}` : ''}.
+              </div>
+            ) : (
+              <div style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden' }}>
+                <table className="req-table" style={{ fontSize:13 }}>
+                  <thead>
+                    <tr>
+                      <th>Employee</th>
+                      <th>Item</th>
+                      <th>Dept</th>
+                      <th>Type</th>
+                      <th>Since</th>
+                      <th>Due / Return</th>
+                      <th>Status</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredWHW.map(row => (
+                      <tr key={row.key} style={{ background: row.isOverdue ? 'hsla(var(--color-red),0.04)' : 'transparent' }}>
+                        <td style={{ fontWeight:600 }}>
+                          {row.employee}
+                          {row.raisedBy && row.raisedBy !== row.employee && (
+                            <div style={{ fontSize:10.5, color:'var(--muted)', fontWeight:400 }}>via {row.raisedBy}</div>
+                          )}
+                        </td>
+                        <td>{row.item}</td>
+                        <td style={{ color:'var(--muted)' }}>{row.dept}</td>
+                        <td>
+                          <span style={{
+                            padding:'2px 8px', borderRadius:20, fontSize:11, fontWeight:600,
+                            background: row.type === 'Temporary' ? 'hsla(var(--color-blue),0.1)' : 'hsla(var(--color-purple),0.1)',
+                            color: row.type === 'Temporary' ? 'hsl(var(--color-blue))' : 'hsl(var(--color-purple))',
+                          }}>
+                            {row.type}
+                          </span>
+                        </td>
+                        <td style={{ color:'var(--muted)', fontSize:12 }}>
+                          {row.since ? new Date(row.since).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—'}
+                        </td>
+                        <td style={{ fontWeight: row.isOverdue ? 700 : 400, color: row.isOverdue ? 'hsl(var(--color-red))' : 'var(--ink)' }}>
+                          {row.isOverdue && '⚠ '}{row.dueDate === '—' ? '—' : row.dueDate}
+                        </td>
+                        <td>
+                          {row.isOverdue ? (
+                            <span style={{ padding:'2px 8px', borderRadius:20, fontSize:11, fontWeight:700, background:'hsla(var(--color-red),0.12)', color:'hsl(var(--color-red))' }}>
+                              Overdue
+                            </span>
+                          ) : (
+                            <span style={{ padding:'2px 8px', borderRadius:20, fontSize:11, fontWeight:600, background:'hsla(var(--color-green),0.1)', color:'hsl(var(--color-green))' }}>
+                              Active
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          {row.isOverdue && (
+                            alertSent[row.key] ? (
+                              <span style={{ fontSize:11.5, color:'hsl(var(--color-green))', fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>
+                                <CheckCircle size={12} /> Alert sent
+                              </span>
+                            ) : (
+                              <button onClick={() => handleSendOverdueAlert(row)}
+                                style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 10px', borderRadius:7, border:'1px solid hsla(var(--color-orange),0.3)', background:'hsla(var(--color-orange),0.08)', color:'hsl(var(--color-orange))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+                                <Mail size={11} /> Send Alert
+                              </button>
+                            )
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </>
         )}
 

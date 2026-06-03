@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { AuthenticatedTemplate, UnauthenticatedTemplate } from "@azure/msal-react";
+import { NotificationProvider } from "./contexts/NotificationContext";
+import { RoleProvider }         from "./contexts/RoleContext";
 import { RequisitionProvider } from "./contexts/RequisitionContext";
 import { InventoryProvider } from "./contexts/InventoryContext";
 import InventoryManagement from "./views/InventoryManagement";
@@ -42,7 +44,7 @@ const VIEW_LABELS = {
   "marketing":          "Marketing",
   "external-links":     "External Links",
   "inventory":          "Inventory Management",
-  "admin":              "Administration",
+  "admin":              "Nexus Access Manager",
   "support":            "Support",
 };
 
@@ -101,7 +103,9 @@ export default function App() {
       case "tasks":              return <Tasks />;
       case "purchase":           return <Purchase />;
       case "sop":                return <SOP activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
-      case "it":                 return <IT activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
+      case "it":
+        if (activeSub === "nexus-access-manager") return <Admin />;
+        return <IT activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
       case "ops":                return <Operations activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
       case "operations":         return <FacilityOperations activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
       case "development":        return <Development activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
@@ -110,7 +114,7 @@ export default function App() {
       case "investor-relations": return <InvestorRelations activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
       case "hr":                 return <HR activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
       case "marketing":          return <Marketing activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
-      case "inventory":          return <InventoryManagement />;
+      case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
       case "admin":              return <Admin />;
       case "external-links":     return <ExternalLinks />;
       case "support":            return <Support />;
@@ -121,6 +125,8 @@ export default function App() {
   return (
     <>
       <AuthenticatedTemplate>
+        <NotificationProvider>
+        <RoleProvider>
         <RequisitionProvider>
         <InventoryProvider>
         <div className="app-container">
@@ -144,6 +150,7 @@ export default function App() {
               onMobileToggle={() => setSidebarOpen(o => !o)}
               canGoBack={navHistory.length > 0}
               onBack={goBack}
+              onNavigate={navigate}
               prevLabel={navHistory.length > 0 ? (VIEW_LABELS[navHistory[navHistory.length - 1].view] || navHistory[navHistory.length - 1].view) : null}
             />
             <div className="viewport">
@@ -153,6 +160,8 @@ export default function App() {
         </div>
         </InventoryProvider>
         </RequisitionProvider>
+        </RoleProvider>
+        </NotificationProvider>
       </AuthenticatedTemplate>
       <UnauthenticatedTemplate>
         <LoginPage />

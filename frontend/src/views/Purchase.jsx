@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Send, FileText } from 'lucide-react';
-import { useRequisitions } from '../contexts/RequisitionContext';
+import { useRequisitions }  from '../contexts/RequisitionContext';
+import { useNotifications } from '../contexts/NotificationContext';
 
 const ITEMS = ['Laptop','PC','Monitors','Speakers','Headset','Mouse','Keyboard','Battery Backup','Webcam','Safety Vest','Safety Helmet','Hand Tools','Power Tools','Nametag','Uniforms','Keys & Key Sets','Tablet','Phone'];
 const DEPTS = ['Operations','Accounting','IT Support','Real Estate','Marketing','Admin','Construction'];
@@ -26,6 +27,7 @@ const STATUS_CLASS = {
 
 export default function Purchase() {
   const { requisitions, submitRequisition, exportToCsv } = useRequisitions();
+  const { addNotification } = useNotifications();
 
   const [employeeName, setEmployeeName] = useState('');
   const [item,         setItem]         = useState('');
@@ -37,7 +39,15 @@ export default function Purchase() {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!item || !employeeName.trim() || !reason.trim()) return;
-    submitRequisition({ employeeName: employeeName.trim(), employeeDept: dept, item, quantity: qty, reason: reason.trim() });
+    const newReq = submitRequisition({ employeeName: employeeName.trim(), employeeDept: dept, item, quantity: qty, reason: reason.trim() });
+    addNotification({
+      type:        'req_pending',
+      refId:       newReq.id,
+      title:       'New Purchase Requisition',
+      body:        `${employeeName.trim()} (${dept}) requested ${qty}× ${item} — "${reason.trim()}"`,
+      requestedBy: employeeName.trim(),
+      itemName:    item,
+    });
     setEmployeeName(''); setItem(''); setQty(1); setDept('Operations'); setReason('');
     setFlash(true);
     setTimeout(() => setFlash(false), 3500);

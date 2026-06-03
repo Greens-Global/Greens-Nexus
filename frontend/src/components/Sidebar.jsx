@@ -29,9 +29,10 @@ const NAV = [
   {
     view: "it", label: "IT", icon: Monitor,
     sub: [
-      { subview: "network",     label: "Network Dashboard",  icon: Wifi },
-      { subview: "it-assets",   label: "Asset Management",   icon: Monitor },
-      { subview: "it-websites", label: "Website Management", icon: ExternalLink },
+      { subview: "network",               label: "Network Dashboard",    icon: Wifi },
+      { subview: "it-assets",             label: "Asset Management",     icon: Monitor },
+      { subview: "it-websites",           label: "Website Management",   icon: ExternalLink },
+      { subview: "nexus-access-manager",  label: "Nexus Access Manager", icon: Shield },
     ],
   },
   {
@@ -109,7 +110,6 @@ const NAV = [
       { subview: "marketing-reputation", label: "Meta",            icon: Star },
     ],
   },
-  { view: "admin",          label: "Administration", icon: Settings },
   { divider: true },
   { view: "support",        label: "Support",        icon: HelpCircle },
   { view: "external-links", label: "External Links", icon: ExternalLink },

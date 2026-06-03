@@ -1,13 +1,17 @@
 import { useState, useRef, useEffect } from "react";
-import { Menu, Moon, Sun, Search, LogOut, Settings, User, Bell, ArrowLeft } from "lucide-react";
-import { useMsal } from "@azure/msal-react";
+import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield } from "lucide-react";
+import NotificationBell from "./NotificationBell";
+import { useMsal }        from "@azure/msal-react";
+import { useRole, ROLES } from "../contexts/RoleContext";
 
-export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle, canGoBack, onBack, prevLabel }) {
+export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel }) {
   const { instance, accounts } = useMsal();
-  const account = accounts[0];
-  const name = account?.name ?? "User";
-  const email = account?.username ?? "";
+  const { myRole } = useRole();
+  const account  = accounts[0];
+  const name     = account?.name ?? "User";
+  const email    = account?.username ?? "";
   const initials = name.split(" ").map(n => n[0]).slice(0, 2).join("").toUpperCase();
+  const roleMeta = ROLES[myRole] ?? ROLES.employee;
 
   const [open, setOpen] = useState(false);
   const dropRef = useRef(null);
@@ -63,6 +67,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
             : <Moon style={{ width: 16, height: 16 }} />
           }
         </button>
+        <NotificationBell onNavigate={onNavigate} />
 
         {/* User profile pill */}
         <div className="header-user-wrap" ref={dropRef}>
@@ -83,15 +88,19 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
                   <div className="hud-email">{email}</div>
                 </div>
               </div>
+              {/* Role badge */}
+              <div style={{ padding: '4px 10px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Shield size={11} style={{ color: `hsl(${roleMeta.color})`, flexShrink: 0 }} />
+                <span style={{ fontSize: 11, fontWeight: 700, color: `hsl(${roleMeta.color})`, background: roleMeta.bg, padding: '1px 8px', borderRadius: 10 }}>
+                  {roleMeta.label}
+                </span>
+              </div>
               <div className="hud-divider" />
               <button className="hud-item">
                 <User size={14} /> My Profile
               </button>
               <button className="hud-item">
                 <Settings size={14} /> Account Settings
-              </button>
-              <button className="hud-item">
-                <Bell size={14} /> Notifications
               </button>
               <div className="hud-divider" />
               <button className="hud-item hud-signout" onClick={handleSignOut}>

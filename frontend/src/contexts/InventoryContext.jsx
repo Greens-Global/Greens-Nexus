@@ -3,46 +3,85 @@ import { createContext, useContext, useState } from 'react';
 const InventoryContext = createContext(null);
 
 const INITIAL_ITEMS = [
-  { id: 'INV-001', name: 'Power Drill',            category: 'Tools',            department: 'Construction', available: 3,  total: 5  },
-  { id: 'INV-002', name: 'Angle Grinder',           category: 'Tools',            department: 'Construction', available: 2,  total: 4  },
-  { id: 'INV-003', name: 'Safety Helmet',           category: 'Safety Equipment', department: 'Construction', available: 10, total: 20 },
-  { id: 'INV-004', name: 'Hi-Vis Vest',             category: 'Safety Equipment', department: 'Construction', available: 8,  total: 15 },
-  { id: 'INV-005', name: 'Tape Measure (5m)',       category: 'Tools',            department: 'Construction', available: 7,  total: 10 },
-  { id: 'INV-006', name: 'Laptop (Dell)',            category: 'IT Supplies',      department: 'IT',           available: 2,  total: 6  },
-  { id: 'INV-007', name: 'Network Switch 24-Port',  category: 'IT Supplies',      department: 'IT',           available: 1,  total: 3  },
-  { id: 'INV-008', name: 'HDMI Cable (2m)',          category: 'IT Supplies',      department: 'IT',           available: 6,  total: 10 },
-  { id: 'INV-009', name: 'Extension Lead (5m)',     category: 'Electrical',       department: 'IT',           available: 4,  total: 7  },
-  { id: 'INV-010', name: 'Office Chair',            category: 'Furniture',        department: 'Operations',   available: 3,  total: 8  },
-  { id: 'INV-011', name: 'Standing Desk',           category: 'Furniture',        department: 'Operations',   available: 1,  total: 4  },
-  { id: 'INV-012', name: 'Printer Paper (Ream)',    category: 'Office Supplies',  department: 'Accounting',   available: 20, total: 50 },
-  { id: 'INV-013', name: 'Stapler',                 category: 'Office Supplies',  department: 'Accounting',   available: 5,  total: 8  },
-  { id: 'INV-014', name: 'First Aid Kit',           category: 'Safety Equipment', department: 'Operations',   available: 4,  total: 6  },
-  { id: 'INV-015', name: 'Projector',               category: 'IT Supplies',      department: 'Marketing',    available: 1,  total: 2  },
+  // ── IT ─────────────────────────────────────────────────────────────────────
+  { id: 'INV-001', name: 'Laptop (Dell XPS 15)',      category: 'IT Supplies',      department: 'IT',           available: 2,  total: 6  },
+  { id: 'INV-002', name: 'Network Switch 24-Port',    category: 'IT Supplies',      department: 'IT',           available: 1,  total: 3  },
+  { id: 'INV-003', name: 'HDMI Cable (2m)',            category: 'IT Supplies',      department: 'IT',           available: 6,  total: 10 },
+  { id: 'INV-004', name: 'Extension Lead (5m)',        category: 'Electrical',       department: 'IT',           available: 4,  total: 7  },
+  { id: 'INV-005', name: 'USB-C Docking Station',     category: 'IT Supplies',      department: 'IT',           available: 3,  total: 5  },
+  { id: 'INV-006', name: 'Wireless Mouse & Keyboard', category: 'IT Supplies',      department: 'IT',           available: 8,  total: 12 },
+  { id: 'INV-007', name: 'External Monitor 27"',      category: 'IT Supplies',      department: 'IT',           available: 1,  total: 4  },
+  { id: 'INV-008', name: 'UPS Battery Backup',        category: 'Electrical',       department: 'IT',           available: 2,  total: 3  },
+  { id: 'INV-009', name: 'Ethernet Cable Box (30m)',  category: 'IT Supplies',      department: 'IT',           available: 5,  total: 8  },
+  { id: 'INV-010', name: 'Webcam HD 1080p',           category: 'IT Supplies',      department: 'IT',           available: 0,  total: 4  },
+
+  // ── Construction ───────────────────────────────────────────────────────────
+  { id: 'INV-011', name: 'Power Drill (Cordless)',    category: 'Tools',            department: 'Construction', available: 3,  total: 5  },
+  { id: 'INV-012', name: 'Angle Grinder',             category: 'Tools',            department: 'Construction', available: 2,  total: 4  },
+  { id: 'INV-013', name: 'Safety Helmet',             category: 'Safety Equipment', department: 'Construction', available: 10, total: 20 },
+  { id: 'INV-014', name: 'Hi-Vis Vest',               category: 'Safety Equipment', department: 'Construction', available: 8,  total: 15 },
+  { id: 'INV-015', name: 'Tape Measure (5m)',         category: 'Tools',            department: 'Construction', available: 7,  total: 10 },
+  { id: 'INV-016', name: 'Circular Saw',              category: 'Tools',            department: 'Construction', available: 1,  total: 3  },
+  { id: 'INV-017', name: 'Safety Goggles',            category: 'Safety Equipment', department: 'Construction', available: 12, total: 20 },
+  { id: 'INV-018', name: 'Ear Protection (Pair)',     category: 'Safety Equipment', department: 'Construction', available: 15, total: 25 },
+  { id: 'INV-019', name: 'Spirit Level (600mm)',      category: 'Tools',            department: 'Construction', available: 4,  total: 6  },
+  { id: 'INV-020', name: 'Cable Reel (25m)',          category: 'Electrical',       department: 'Construction', available: 0,  total: 4  },
+
+  // ── Operations ─────────────────────────────────────────────────────────────
+  { id: 'INV-021', name: 'Office Chair (Ergonomic)', category: 'Furniture',        department: 'Operations',   available: 3,  total: 8  },
+  { id: 'INV-022', name: 'Standing Desk',            category: 'Furniture',        department: 'Operations',   available: 1,  total: 4  },
+  { id: 'INV-023', name: 'First Aid Kit',            category: 'Safety Equipment', department: 'Operations',   available: 4,  total: 6  },
+  { id: 'INV-024', name: 'Walkie Talkie (Set of 2)', category: 'Tools',            department: 'Operations',   available: 5,  total: 8  },
+  { id: 'INV-025', name: 'Floor Cleaning Machine',  category: 'Tools',            department: 'Operations',   available: 0,  total: 2  },
+  { id: 'INV-026', name: 'Storage Cabinet',         category: 'Furniture',        department: 'Operations',   available: 2,  total: 3  },
+  { id: 'INV-027', name: 'Handheld Vacuum',         category: 'Tools',            department: 'Operations',   available: 3,  total: 4  },
+
+  // ── Accounting ─────────────────────────────────────────────────────────────
+  { id: 'INV-028', name: 'Printer Paper (Ream)',     category: 'Office Supplies',  department: 'Accounting',   available: 20, total: 50 },
+  { id: 'INV-029', name: 'Stapler',                  category: 'Office Supplies',  department: 'Accounting',   available: 5,  total: 8  },
+  { id: 'INV-030', name: 'File Folders (Box of 50)', category: 'Office Supplies',  department: 'Accounting',   available: 10, total: 20 },
+  { id: 'INV-031', name: 'Financial Calculator',     category: 'Office Supplies',  department: 'Accounting',   available: 3,  total: 6  },
+  { id: 'INV-032', name: 'Document Shredder',        category: 'Office Supplies',  department: 'Accounting',   available: 1,  total: 2  },
+  { id: 'INV-033', name: 'Binding Machine',          category: 'Office Supplies',  department: 'Accounting',   available: 0,  total: 1  },
+  { id: 'INV-034', name: 'Whiteboard + Markers Kit', category: 'Office Supplies',  department: 'Accounting',   available: 2,  total: 4  },
 ];
 
 let reqCounter = 1;
 function genId() { return `IREQ-${String(reqCounter++).padStart(3, '0')}`; }
 
 export function InventoryProvider({ children }) {
-  const [items] = useState(INITIAL_ITEMS);
+  const [items]    = useState(INITIAL_ITEMS);
   const [requests, setRequests] = useState([]);
 
-  function raiseRequest({ itemId, itemName, requestedBy, department, quantity, reason }) {
+  function raiseRequest({ itemId, itemName, requestedBy, raisedBy, department, quantity, days, reason }) {
     const req = {
       id: genId(),
-      itemId, itemName, requestedBy, department, quantity, reason,
+      itemId, itemName,
+      requestedBy,                          // who the item is for
+      raisedBy: raisedBy || requestedBy,    // who submitted the request
+      department, quantity, days, reason,
       status: 'pending',
       createdAt: new Date().toISOString(),
-      resolvedAt: null,
-      resolvedBy: null,
-      rejectReason: null,
+      resolvedAt: null, resolvedBy: null, rejectReason: null,
     };
     setRequests(prev => [req, ...prev]);
+    return req; // return so callers can use the id for notifications
   }
 
   function approveRequest(id, managerName) {
     setRequests(prev => prev.map(r =>
       r.id === id ? { ...r, status: 'approved', resolvedAt: new Date().toISOString(), resolvedBy: managerName } : r
+    ));
+  }
+
+  function allocateItem(id, supervisorName) {
+    setRequests(prev => prev.map(r =>
+      r.id === id ? {
+        ...r,
+        status:      'allocated',
+        allocatedAt: new Date().toISOString(),
+        allocatedBy: supervisorName,
+      } : r
     ));
   }
 
@@ -61,12 +100,10 @@ export function InventoryProvider({ children }) {
   const pendingCount = requests.filter(r => r.status === 'pending').length;
 
   return (
-    <InventoryContext.Provider value={{ items, requests, pendingCount, raiseRequest, approveRequest, rejectRequest, returnItem }}>
+    <InventoryContext.Provider value={{ items, requests, pendingCount, raiseRequest, approveRequest, rejectRequest, allocateItem, returnItem }}>
       {children}
     </InventoryContext.Provider>
   );
 }
 
-export function useInventory() {
-  return useContext(InventoryContext);
-}
+export function useInventory() { return useContext(InventoryContext); }

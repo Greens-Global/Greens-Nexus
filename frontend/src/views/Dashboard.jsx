@@ -1,6 +1,7 @@
 import { useMsal } from '@azure/msal-react';
-import { MapPin, RefreshCw } from 'lucide-react';
+import { MapPin, RefreshCw, AlertTriangle, X } from 'lucide-react';
 import { useRef, useEffect, useState } from 'react';
+import { useNotifications } from '../contexts/NotificationContext';
 
 const FACILITIES = [
   { id: "hv", name: "Harbor View Storage",  city: "Tacoma, WA",   occ: 94, units: 612, rented: 575, mrr: 88200,  climate: true  },
@@ -134,15 +135,41 @@ function OccupancyChart() {
 
 export default function Dashboard({ onNavigate }) {
   const { accounts } = useMsal();
-  const firstName = (accounts[0]?.name ?? "there").split(" ")[0];
-  const hour = new Date().getHours();
+  const { activeOverdueAlerts, dismissOverdueAlert } = useNotifications();
+  const fullName  = accounts[0]?.name ?? 'there';
+  const firstName = fullName.split(" ")[0];
+  const hour      = new Date().getHours();
   const timeOfDay = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+
+  // Overdue alerts relevant to this user
+  const myOverdueAlerts = activeOverdueAlerts.filter(a =>
+    a.employeeName?.toLowerCase() === fullName.toLowerCase()
+  );
 
   const totalMrr = FACILITIES.reduce((a, f) => a + f.mrr, 0);
   const avgOcc   = Math.round(FACILITIES.reduce((a, f) => a + f.occ, 0) / FACILITIES.length);
 
   return (
     <div className="dashboard-view">
+      {/* ── Persistent overdue alerts ── */}
+      {myOverdueAlerts.map(alert => (
+        <div key={alert.id} style={{
+          display:'flex', alignItems:'center', gap:12,
+          background:'hsla(var(--color-red),0.1)', border:'1px solid hsla(var(--color-red),0.3)',
+          borderRadius:10, padding:'11px 16px', marginBottom:0,
+          animation:'fadeIn 0.2s ease',
+        }}>
+          <AlertTriangle size={16} style={{ color:'hsl(var(--color-red))', flexShrink:0 }} />
+          <div style={{ flex:1, fontSize:13, color:'hsl(var(--color-red))' }}>
+            <strong>Overdue item:</strong> <strong>{alert.itemName}</strong> was due for return and has not been returned yet. Please return it as soon as possible.
+          </div>
+          <button onClick={() => dismissOverdueAlert(alert.id)}
+            style={{ background:'none', border:'none', cursor:'pointer', color:'hsl(var(--color-red))', padding:4, borderRadius:5, display:'flex', alignItems:'center' }}
+            title="Dismiss (acknowledge)">
+            <X size={14} />
+          </button>
+        </div>
+      ))}
       {/* Greeting */}
       <div className="greeting-section">
         <div>
