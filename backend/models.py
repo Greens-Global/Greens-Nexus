@@ -215,6 +215,23 @@ class HardwareAsset(Base):
     last_updated = Column(String, default="")
 
 
+class NexusNotification(Base):
+    __tablename__ = "nexus_notifications"
+    id          = Column(String, primary_key=True)
+    type        = Column(String, nullable=False)          # inv_request | req_pending | approved | rejected | overdue
+    recipient   = Column(String, default=None)            # NULL = all managers, email = specific user
+    title       = Column(String, nullable=False)
+    body        = Column(String, nullable=False)
+    ref_id      = Column(String, default="")              # inv request id / req id
+    ref_type    = Column(String, default="")
+    item_name   = Column(String, default="")
+    requested_by = Column(String, default="")
+    action      = Column(String, default="")              # serialised JSON for action button
+    actioned    = Column(Boolean, default=False)
+    read_by     = Column(String, default="")              # comma-separated emails
+    created_at  = Column(String, nullable=False)
+
+
 class NexusRole(Base):
     __tablename__ = "nexus_roles"
     email       = Column(String, primary_key=True)   # Azure AD UPN / email

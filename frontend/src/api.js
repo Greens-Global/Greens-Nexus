@@ -59,6 +59,13 @@ export const api = {
   assignRole:   (email, role, by)    => req(`/roles/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify({ role, assigned_by: by }) }),
   syncRoles:    (emails)             => req('/roles/sync', { method: 'POST', body: JSON.stringify({ emails }) }),
 
+  // Notifications (cross-device, stored in Supabase)
+  pushNotification: (n)             => req('/notifications', { method: 'POST', body: JSON.stringify(n) }),
+  getNotifications: (email)         => req(`/notifications?email=${encodeURIComponent(email)}`),
+  markNotifRead:    (id, email)      => req(`/notifications/${id}/read`, { method: 'PATCH', body: JSON.stringify({ email }) }),
+  markNotifActioned:(id)             => req(`/notifications/${id}/action`, { method: 'PATCH' }),
+  deleteNotif:      (id)             => req(`/notifications/${id}`, { method: 'DELETE' }),
+
   // Accounting
   getTransactions: () => req("/accounting/transactions"),
   getRamp: () => req("/accounting/ramp"),

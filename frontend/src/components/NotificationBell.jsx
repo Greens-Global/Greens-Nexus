@@ -27,7 +27,7 @@ const TYPE_META = {
 };
 
 export default function NotificationBell({ onNavigate }) {
-  const { notifications, unreadCount, markRead, markAllRead, dismiss, clearRead, addNotification } = useNotifications();
+  const { notifications, unreadCount, markRead, markAllRead, dismiss, clearRead, addNotification, markActioned } = useNotifications();
   const { approveRequest, rejectRequest } = useInventory();
   const { approveRequisition, rejectRequisition }   = useRequisitions();
   const { accounts } = useMsal();
@@ -52,58 +52,56 @@ export default function NotificationBell({ onNavigate }) {
   }
 
   function handleAction(n, action) {
+    const refId       = n.refId       ?? '';
+    const itemName    = n.itemName    ?? 'the item';
+    const requestedBy = n.requestedBy ?? '';
+
     if (n.type === 'inv_request') {
       if (action === 'approve') {
-        approveRequest(n.refId, MANAGER_NAME);
+        approveRequest(refId, MANAGER_NAME);
+        markActioned(n.id);
         dismiss(n.id);
-        // Targeted notification → shows in employee's bell only
-        addNotification({
-          type:      'approved',
-          recipient: n.requestedBy,
-          title:     'Request Approved ✓',
-          body:      `Your request for ${n.itemName ?? 'the item'} has been approved by ${MANAGER_NAME}. It will be assigned to you by your supervisor shortly.`,
-          action:    { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
+        addNotification({ type: 'approved', recipient: requestedBy, requestedBy, itemName,
+          title: 'Request Approved ✓',
+          body:  `Your request for ${itemName} has been approved by ${MANAGER_NAME}. It will be assigned to you by your supervisor shortly.`,
+          action: { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
         });
-      } else {
-        setRejectingId(n.id);
-      }
+      } else { setRejectingId(n.id); }
     } else if (n.type === 'req_pending') {
       if (action === 'approve') {
-        approveRequisition(n.refId, MANAGER_NAME);
+        approveRequisition(refId, MANAGER_NAME);
+        markActioned(n.id);
         dismiss(n.id);
-        addNotification({
-          type:      'approved',
-          recipient: n.requestedBy,
-          title:     'Requisition Approved ✓',
-          body:      `Your purchase requisition has been approved by ${MANAGER_NAME}. Your supervisor will allocate the asset to you.`,
+        addNotification({ type: 'approved', recipient: requestedBy, requestedBy, itemName,
+          title: 'Requisition Approved ✓',
+          body:  `Your purchase requisition has been approved by ${MANAGER_NAME}. Your supervisor will allocate the asset to you.`,
         });
-      } else {
-        setRejectingId(n.id);
-      }
+      } else { setRejectingId(n.id); }
     }
   }
 
   function submitReject(n) {
     if (!rejectReason.trim()) return;
+    const refId       = n.refId       ?? '';
+    const itemName    = n.itemName    ?? 'the item';
+    const requestedBy = n.requestedBy ?? '';
+
     if (n.type === 'inv_request') {
-      rejectRequest(n.refId, MANAGER_NAME, rejectReason.trim());
-      addNotification({
-        type:      'rejected',
-        recipient: n.requestedBy,
-        title:     'Request Rejected',
-        body:      `Your request for ${n.itemName ?? 'the item'} was not approved. Reason: "${rejectReason.trim()}"`,
-        action:    { label: 'View Request →', view: 'inventory', sub: 'my-requests' },
+      rejectRequest(refId, MANAGER_NAME, rejectReason.trim());
+      addNotification({ type: 'rejected', recipient: requestedBy, requestedBy, itemName,
+        title: 'Request Rejected',
+        body:  `Your request for ${itemName} was not approved. Reason: "${rejectReason.trim()}"`,
+        action: { label: 'View Request →', view: 'inventory', sub: 'my-requests' },
       });
     }
     if (n.type === 'req_pending') {
-      rejectRequisition(n.refId, MANAGER_NAME, rejectReason.trim());
-      addNotification({
-        type:      'rejected',
-        recipient: n.requestedBy,
-        title:     'Requisition Rejected',
-        body:      `Your purchase requisition was not approved. Reason: "${rejectReason.trim()}"`,
+      rejectRequisition(refId, MANAGER_NAME, rejectReason.trim());
+      addNotification({ type: 'rejected', recipient: requestedBy, requestedBy, itemName,
+        title: 'Requisition Rejected',
+        body:  `Your purchase requisition was not approved. Reason: "${rejectReason.trim()}"`,
       });
     }
+    markActioned(n.id);
     dismiss(n.id);
     setRejectingId(null);
     setRejectReason('');
