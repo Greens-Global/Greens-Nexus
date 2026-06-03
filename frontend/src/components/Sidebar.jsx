@@ -1,4 +1,5 @@
 import { useState } from "react";
+import GlobeLogo from "./GlobeLogo";
 import { useMsal } from "@azure/msal-react";
 import {
   LayoutDashboard, UserCheck, ShoppingCart, CheckSquare, BookOpen,
@@ -6,8 +7,8 @@ import {
   ClipboardCheck, Calculator, ArrowRightLeft, PieChart, Download,
   CreditCard, Building, Server, FileSpreadsheet, Landmark, BarChart3,
   Users, LogIn, PenTool, Files, Megaphone, Star, ExternalLink,
-  Settings, ChevronDown, ChevronUp, HelpCircle, Store, Calendar,
-  MessageSquare, Package,
+  Settings, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
+  HelpCircle, Store, Calendar, MessageSquare, Package,
 } from "lucide-react";
 
 const NAV = [
@@ -114,56 +115,83 @@ const NAV = [
   { view: "external-links", label: "External Links", icon: ExternalLink },
 ];
 
-export default function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose }) {
+export default function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }) {
   const [expanded, setExpanded] = useState({});
   const { accounts } = useMsal();
-  const account = accounts[0];
+  const account     = accounts[0];
   const displayName = account?.name ?? account?.username ?? "User";
-  const initials = displayName.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase();
-  const firstName = displayName.split(" ")[0];
+  const initials    = displayName.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase();
+  const firstName   = displayName.split(" ")[0];
 
   function toggle(view) {
     setExpanded(prev => ({ ...prev, [view]: !prev[view] }));
   }
-
   function isExpanded(view) {
     return expanded[view] ?? (activeView === view);
   }
 
+  function renderIcon(item, size = 17) {
+    return item.icon
+      ? <item.icon style={{ width: size, height: size, flexShrink: 0 }} />
+      : <svg className="material-symbol-svg" viewBox="0 -960 960 960" style={{ width: size, height: size, flexShrink: 0 }}><path d={item.svgPath} /></svg>;
+  }
+
   return (
     <>
-      <aside className={`sidebar${isOpen ? " open" : ""}`}>
+      <aside className={`sidebar${isOpen ? " open" : ""}${collapsed ? " collapsed" : ""}`}>
+
+        {/* ── Collapse toggle ── */}
+        <button
+          className="sidebar-collapse-btn"
+          onClick={onToggleCollapse}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {collapsed
+            ? <ChevronRight style={{ width: 13, height: 13 }} />
+            : <ChevronLeft  style={{ width: 13, height: 13 }} />
+          }
+        </button>
+
+        {/* ── Header ── */}
         <div className="sidebar-header">
-          <div className="logo-box">GN</div>
-          <div className="company-info">
-            <span className="company-name">Nexus</span>
-          </div>
+          <GlobeLogo size={38} borderRadius="10px" interactive={false} nodeCount={60} />
+          {!collapsed && (
+            <div className="company-info">
+              <span className="company-name">Nexus</span>
+            </div>
+          )}
         </div>
 
+        {/* ── Nav ── */}
         <nav className="sidebar-nav">
           <ul className="nav-list">
             {NAV.map((item, i) => {
               if (item.divider) return <li key={i} className="nav-divider" />;
 
+              // ── Collapsed: icon-only rail ──
+              if (collapsed) {
+                return (
+                  <li
+                    key={item.view || i}
+                    className={`nav-item nav-item--icon${activeView === item.view ? " active" : ""}`}
+                    onClick={() => item.view && onNavigate(item.view)}
+                    title={item.label}
+                  >
+                    {renderIcon(item)}
+                  </li>
+                );
+              }
+
+              // ── Expanded: submenu items ──
               if (item.sub) {
                 const open = isExpanded(item.view);
                 return (
                   <li key={item.view} className={`nav-item has-submenu${activeView === item.view ? " active" : ""}`}>
-                    <div
-                      className="nav-item-main"
-                      onClick={() => { onNavigate(item.view); toggle(item.view); }}
-                    >
-                      {item.icon
-                        ? <item.icon style={{ width: 17, height: 17 }} />
-                        : <svg className="material-symbol-svg" viewBox="0 -960 960 960" style={{ width: 17, height: 17 }}><path d={item.svgPath} /></svg>
-                      }
+                    <div className="nav-item-main" onClick={() => { onNavigate(item.view); toggle(item.view); }}>
+                      {renderIcon(item)}
                       <span>{item.label}</span>
                       {item.badge && <em className="nav-badge">{item.badge}</em>}
-                      <button
-                        className="submenu-toggle-btn"
-                        onClick={e => { e.stopPropagation(); toggle(item.view); }}
-                        aria-label="Toggle Submenu"
-                      >
+                      <button className="submenu-toggle-btn" onClick={e => { e.stopPropagation(); toggle(item.view); }} aria-label="Toggle Submenu">
                         {open ? <ChevronUp style={{ width: 13, height: 13 }} /> : <ChevronDown style={{ width: 13, height: 13 }} />}
                       </button>
                     </div>
@@ -185,13 +213,14 @@ export default function Sidebar({ activeView, activeSub, onNavigate, isOpen, onC
                 );
               }
 
+              // ── Expanded: regular items ──
               return (
                 <li
                   key={item.view}
                   className={`nav-item${activeView === item.view ? " active" : ""}`}
                   onClick={() => onNavigate(item.view)}
                 >
-                  <item.icon style={{ width: 17, height: 17 }} />
+                  {renderIcon(item)}
                   <span>{item.label}</span>
                   {item.badge && <em className="nav-badge">{item.badge}</em>}
                 </li>
@@ -200,12 +229,15 @@ export default function Sidebar({ activeView, activeSub, onNavigate, isOpen, onC
           </ul>
         </nav>
 
+        {/* ── User footer ── */}
         <div className="sidebar-user">
           <div className="user-avatar">{initials}</div>
-          <div className="sidebar-user-info">
-            <div className="sidebar-user-name">{firstName}</div>
-            <div className="sidebar-user-role">Administrator</div>
-          </div>
+          {!collapsed && (
+            <div className="sidebar-user-info">
+              <div className="sidebar-user-name">{firstName}</div>
+              <div className="sidebar-user-role">Administrator</div>
+            </div>
+          )}
         </div>
       </aside>
       {isOpen && <div className="sidebar-overlay active" onClick={onClose} />}

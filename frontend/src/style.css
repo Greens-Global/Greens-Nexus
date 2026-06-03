@@ -137,7 +137,61 @@ h1,h2,h3,h4,h5,h6,
   z-index: 100;
   flex-shrink: 0;
   overflow: hidden;
+  transition: width 0.26s cubic-bezier(.16,1,.3,1);
 }
+
+/* ── Collapsed sidebar ───────────────────────────────────────────────────── */
+.sidebar.collapsed { width: 60px; }
+
+.sidebar.collapsed .sidebar-header {
+  padding: 16px 0 14px;
+  justify-content: center;
+  gap: 0;
+}
+.sidebar.collapsed .sidebar-nav { padding: 4px 5px 8px; }
+.sidebar.collapsed .sidebar-user {
+  justify-content: center;
+  padding: 14px 0;
+}
+
+/* Icon-only nav item */
+.nav-item--icon {
+  justify-content: center !important;
+  padding: 9px 6px !important;
+}
+
+/* ── Sidebar collapse toggle button ─────────────────────────────────────── */
+.sidebar-collapse-btn {
+  position: fixed;
+  top: calc(50vh - 22px);
+  left: calc(var(--sw, 264px) - 9px);
+  width: 18px;
+  height: 44px;
+  border-radius: 9px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 101;
+  box-shadow: var(--shadow-sm);
+  transition: left 0.26s cubic-bezier(.16,1,.3,1),
+              background var(--transition-fast),
+              color var(--transition-fast),
+              box-shadow var(--transition-fast);
+  padding: 0;
+}
+.sidebar-collapse-btn:hover {
+  background: var(--ink);
+  color: var(--card);
+  border-color: var(--ink);
+  box-shadow: var(--shadow-md);
+}
+.sidebar-collapse-btn svg { width: 11px; height: 11px; }
+.sidebar.collapsed { --sw: 60px; }
+.sidebar:not(.collapsed) { --sw: 264px; }
 
 .sidebar-header {
   display: flex;
@@ -289,7 +343,12 @@ h1,h2,h3,h4,h5,h6,
 .sidebar-user-role { font-size: 11px; color: var(--muted); }
 
 /* ── Main content ─────────────────────────────────────────────────────── */
-.main-content { flex: 1; min-width: 0; margin-left: 264px; display: flex; flex-direction: column; min-height: 100vh; }
+.main-content {
+  flex: 1; min-width: 0; margin-left: 264px;
+  display: flex; flex-direction: column; min-height: 100vh;
+  transition: margin-left 0.26s cubic-bezier(.16,1,.3,1);
+}
+.main-content.main-collapsed { margin-left: 60px; }
 
 /* ── Top header ─────────────────────────────────────────────────────────── */
 .top-header {
@@ -325,8 +384,26 @@ h1,h2,h3,h4,h5,h6,
 }
 
 .breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
-.breadcrumb-icon { color: var(--muted); }
+.breadcrumb-icon    { color: var(--muted); }
 .breadcrumb-current { color: var(--ink); }
+.breadcrumb-prev    { color: var(--muted); font-weight: 500; }
+
+.breadcrumb-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  transition: color var(--transition-fast);
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+.breadcrumb-back:hover { color: var(--ink); opacity: 1; }
 
 .header-center { flex: 1; max-width: 260px; }
 .search-bar {
@@ -937,6 +1014,15 @@ input[type="number"] { -moz-appearance: textfield; }
 }
 .sidebar-overlay.active { display: block; }
 
+/* ── Sidebar dismiss overlay (desktop click-outside) ──────────────────── */
+.sidebar-dismiss-overlay {
+  position: fixed;
+  inset: 0;
+  left: 264px;
+  z-index: 99;
+  cursor: default;
+}
+
 /* ── Login page ─────────────────────────────────────────────────────────── */
 .login-page {
   min-height: 100vh;
@@ -945,47 +1031,77 @@ input[type="number"] { -moz-appearance: textfield; }
   justify-content: center;
   background: var(--paper);
 }
+
 .login-card {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 48px 40px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 24px;
+  padding: 40px 44px 48px;
   width: 100%;
-  max-width: 400px;
+  max-width: 420px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
-  box-shadow: var(--shadow-lg);
+  gap: 14px;
+  box-shadow: 0 12px 56px rgba(0,0,0,0.12), 0 2px 12px rgba(0,0,0,0.06);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  animation: fadeInUp 0.55s cubic-bezier(.16,1,.3,1) both;
 }
+[data-theme="dark"] .login-card {
+  background: rgba(13, 18, 32, 0.82);
+  border-color: rgba(255, 255, 255, 0.07);
+  box-shadow: 0 12px 56px rgba(0,0,0,0.55), 0 2px 12px rgba(0,0,0,0.35),
+              inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
 .login-logo {
-  width: 64px; height: 64px;
-  border-radius: 16px;
-  background: var(--pine);
   display: flex; align-items: center; justify-content: center;
-  margin-bottom: 8px;
+  margin-bottom: 2px;
 }
-.login-logo-icon { font-family: 'Inter', sans-serif; font-weight: 800; font-size: 28px; color: #fff; }
-.login-title { font-size: 1.5rem; color: var(--ink); margin: 0; }
-.login-subtitle { font-size: .875rem; color: var(--muted); text-align: center; margin-bottom: 8px; }
+
+.login-title {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink);
+  margin: 0;
+  min-height: 2.4rem;
+  font-family: 'Inter', sans-serif;
+}
+
+.login-subtitle {
+  font-size: .8rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  text-align: center;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
 .login-btn {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 11px 20px;
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  color: var(--ink);
+  padding: 12px 20px;
+  background: var(--pine);
+  border: none;
+  border-radius: 11px;
+  color: #fff;
   font-family: 'Inter', sans-serif;
-  font-size: .9rem;
+  font-size: .88rem;
   font-weight: 600;
   cursor: pointer;
   justify-content: center;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  letter-spacing: 0.01em;
+  transition: opacity var(--transition-fast), box-shadow var(--transition-fast);
+  box-shadow: 0 2px 12px rgba(15,23,42,0.25);
 }
-.login-btn:hover { background: var(--mist); border-color: var(--fern); }
+.login-btn:hover { opacity: 0.88; box-shadow: 0 4px 20px rgba(15,23,42,0.35); }
+[data-theme="dark"] .login-btn { box-shadow: 0 2px 12px rgba(0,0,0,0.4); }
 
 /* ── Operations (facility) ───────────────────────────────────────────── */
 .banner-warn {
