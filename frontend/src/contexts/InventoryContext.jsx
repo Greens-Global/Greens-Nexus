@@ -1,7 +1,8 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { api } from '../api';
+import { supabase } from '../lib/supabase';
 
 const InventoryContext = createContext(null);
 
@@ -58,6 +59,8 @@ export function InventoryProvider({ children }) {
 
   const [items]    = useState(INITIAL_ITEMS);
   const [requests, setRequests] = useState([]);
+  const channelRef = useRef(null);
+  const pollRef    = useRef(null);
 
   const fetchRequests = useCallback(() => {
     api.getInventoryRequests()
@@ -67,8 +70,39 @@ export function InventoryProvider({ children }) {
 
   useEffect(() => {
     fetchRequests();
-    const timer = setInterval(fetchRequests, 30000);
-    return () => clearInterval(timer);
+
+    if (supabase) {
+      channelRef.current = supabase
+        .channel('inventory_requests_changes')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'inventory_requests' },
+          payload => {
+            setRequests(prev => {
+              if (prev.some(r => r.id === payload.new.id)) return prev;
+              return [payload.new, ...prev];
+            });
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'inventory_requests' },
+          payload => {
+            setRequests(prev => prev.map(r => r.id === payload.new.id ? payload.new : r));
+          }
+        )
+        .subscribe();
+
+      // 60s fallback poll
+      pollRef.current = setInterval(fetchRequests, 60000);
+    } else {
+      pollRef.current = setInterval(fetchRequests, 5000);
+    }
+
+    return () => {
+      if (channelRef.current) supabase?.removeChannel(channelRef.current);
+      clearInterval(pollRef.current);
+    };
   }, [fetchRequests]);
 
   function raiseRequest({ itemId, itemName, requestedBy, requestedByEmail, raisedBy, department, quantity, days, reason }) {

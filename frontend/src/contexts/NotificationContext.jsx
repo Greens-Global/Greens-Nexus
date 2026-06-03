@@ -2,53 +2,105 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { api }     from '../api';
+import { supabase } from '../lib/supabase';
 
 const NotificationCtx = createContext(null);
 
 let counter = 1;
 const genId = () => `N${Date.now()}-${counter++}`;
 
-const POLL_INTERVAL = 30000; // 30 seconds
+const FALLBACK_POLL = 60000; // 60s fallback in case realtime misses anything
+
+function rowToNotif(r) {
+  return {
+    id:          r.id,
+    type:        r.type,
+    recipient:   r.recipient,
+    title:       r.title,
+    body:        r.body,
+    refId:       r.ref_id,
+    itemName:    r.item_name,
+    requestedBy: r.requested_by,
+    action:      r.action,
+    actioned:    r.actioned,
+    read:        r.read,
+    timestamp:   r.created_at,
+  };
+}
 
 export function NotificationProvider({ children }) {
-  const { accounts }  = useMsal();
-  const myEmail       = (accounts[0]?.username ?? '').toLowerCase();
+  const { accounts } = useMsal();
+  const myEmail      = (accounts[0]?.username ?? '').toLowerCase();
 
-  const [notifications,  setNotifications]  = useState([]);
-  const [overdueAlerts,  setOverdueAlerts]  = useState([]);
-  const pollRef = useRef(null);
+  const [notifications, setNotifications] = useState([]);
+  const [overdueAlerts, setOverdueAlerts] = useState([]);
+  const pollRef    = useRef(null);
+  const channelRef = useRef(null);
 
-  // ── Fetch notifications from backend ─────────────────────────────────────
+  // ── Full fetch from backend ───────────────────────────────────────────────
   const fetchNotifications = useCallback(() => {
     if (!myEmail) return;
     api.getNotifications(myEmail)
-      .then(rows => {
-        setNotifications(rows.map(r => ({
-          id:          r.id,
-          type:        r.type,
-          recipient:   r.recipient,
-          title:       r.title,
-          body:        r.body,
-          refId:       r.ref_id,
-          itemName:    r.item_name,
-          requestedBy: r.requested_by,
-          action:      r.action,
-          actioned:    r.actioned,
-          read:        r.read,
-          timestamp:   r.created_at,
-        })));
-      })
+      .then(rows => setNotifications(rows.map(rowToNotif)))
       .catch(() => {});
   }, [myEmail]);
 
-  // Poll on mount + every 30s
+  // ── Supabase Realtime subscription ────────────────────────────────────────
   useEffect(() => {
-    fetchNotifications();
-    pollRef.current = setInterval(fetchNotifications, POLL_INTERVAL);
-    return () => clearInterval(pollRef.current);
-  }, [fetchNotifications]);
+    if (!myEmail) return;
 
-  // ── Add notification — writes to backend + local state ───────────────────
+    // Initial load
+    fetchNotifications();
+
+    if (supabase) {
+      // Subscribe to new inserts on nexus_notifications
+      channelRef.current = supabase
+        .channel(`notifs:${myEmail}`)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'nexus_notifications' },
+          payload => {
+            const r = payload.new;
+            const rec = (r.recipient ?? '').toLowerCase();
+            // Only process if it's a broadcast or addressed to me
+            if (rec === '' || rec === myEmail) {
+              const readList = (r.read_by ?? '').split(',').filter(Boolean);
+              setNotifications(prev => {
+                // Deduplicate — realtime and poll can both fire
+                if (prev.some(n => n.id === r.id)) return prev;
+                return [rowToNotif({ ...r, read: readList.includes(myEmail) }), ...prev.slice(0, 49)];
+              });
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'nexus_notifications' },
+          payload => {
+            const r = payload.new;
+            setNotifications(prev => prev.map(n => {
+              if (n.id !== r.id) return n;
+              const readList = (r.read_by ?? '').split(',').filter(Boolean);
+              return rowToNotif({ ...r, read: readList.includes(myEmail) });
+            }));
+          }
+        )
+        .subscribe();
+
+      // 60s fallback poll to catch anything realtime missed
+      pollRef.current = setInterval(fetchNotifications, FALLBACK_POLL);
+    } else {
+      // No Supabase client — fall back to 5s polling
+      pollRef.current = setInterval(fetchNotifications, 5000);
+    }
+
+    return () => {
+      if (channelRef.current) supabase?.removeChannel(channelRef.current);
+      clearInterval(pollRef.current);
+    };
+  }, [myEmail, fetchNotifications]);
+
+  // ── Add notification — writes to backend (realtime pushes it back) ────────
   const addNotification = useCallback((n) => {
     const id = n.id ?? genId();
     const notif = {
@@ -65,9 +117,12 @@ export function NotificationProvider({ children }) {
       read:        false,
       timestamp:   new Date().toISOString(),
     };
-    // Optimistic local update
-    setNotifications(prev => [notif, ...prev.slice(0, 49)]);
-    // Persist to backend
+    // Optimistic update for sender (realtime will echo it back, dedup logic handles it)
+    setNotifications(prev => {
+      if (prev.some(x => x.id === id)) return prev;
+      return [notif, ...prev.slice(0, 49)];
+    });
+    // Persist to backend — realtime subscription on other devices picks it up instantly
     api.pushNotification({
       id,
       type:         notif.type,
@@ -110,13 +165,11 @@ export function NotificationProvider({ children }) {
     api.markNotifActioned(id).catch(() => {});
   }, []);
 
-  // ── Persistent overdue alerts (in-memory, dismissable) ───────────────────
   const sendOverdueAlert = useCallback((reqId, employeeName, itemName) => {
     setOverdueAlerts(prev => {
       if (prev.some(a => a.reqId === reqId && !a.dismissed)) return prev;
       return [{ id: genId(), reqId, employeeName, itemName, sentAt: new Date().toISOString(), dismissed: false }, ...prev];
     });
-    // Also push as a targeted notification so the employee's bell shows it
     addNotification({
       type:      'overdue',
       recipient: employeeName.toLowerCase(),
@@ -128,13 +181,12 @@ export function NotificationProvider({ children }) {
   const dismissOverdueAlert = useCallback((id) =>
     setOverdueAlerts(p => p.map(a => a.id === id ? { ...a, dismissed: true } : a)), []);
 
-  const unreadCount       = notifications.filter(n => !n.read && !n.actioned).length;
+  const unreadCount         = notifications.filter(n => !n.read && !n.actioned).length;
   const activeOverdueAlerts = overdueAlerts.filter(a => !a.dismissed);
 
   return (
     <NotificationCtx.Provider value={{
-      notifications, overdueAlerts, activeOverdueAlerts,
-      unreadCount,
+      notifications, overdueAlerts, activeOverdueAlerts, unreadCount,
       addNotification, markRead, markAllRead, dismiss, clearRead, markActioned,
       sendOverdueAlert, dismissOverdueAlert,
       refreshNotifications: fetchNotifications,
