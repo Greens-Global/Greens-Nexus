@@ -1,6 +1,7 @@
 import { useState } from "react";
-import GlobeLogo from "./GlobeLogo";
+import GlobeLogo  from "./GlobeLogo";
 import { useMsal } from "@azure/msal-react";
+import { useRole, ROLES } from "../contexts/RoleContext";
 import {
   LayoutDashboard, UserCheck, ShoppingCart, CheckSquare, BookOpen,
   GraduationCap, Monitor, Wifi, Home, LayoutGrid, Shield, FileText,
@@ -118,10 +119,12 @@ const NAV = [
 export default function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }) {
   const [expanded, setExpanded] = useState({});
   const { accounts } = useMsal();
+  const { myRole }   = useRole();
   const account     = accounts[0];
   const displayName = account?.name ?? account?.username ?? "User";
   const initials    = displayName.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase();
   const firstName   = displayName.split(" ")[0];
+  const roleLabel   = ROLES[myRole]?.label ?? 'Employee';
 
   function toggle(view) {
     setExpanded(prev => ({ ...prev, [view]: !prev[view] }));
@@ -235,7 +238,7 @@ export default function Sidebar({ activeView, activeSub, onNavigate, isOpen, onC
           {!collapsed && (
             <div className="sidebar-user-info">
               <div className="sidebar-user-name">{firstName}</div>
-              <div className="sidebar-user-role">Administrator</div>
+              <div className="sidebar-user-role">{roleLabel}</div>
             </div>
           )}
         </div>
