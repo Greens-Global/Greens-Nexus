@@ -17,7 +17,6 @@ class NotificationIn(BaseModel):
     title:        str
     body:         str
     ref_id:       Optional[str] = ""
-    ref_type:     Optional[str] = ""
     item_name:    Optional[str] = ""
     requested_by: Optional[str] = ""
     action:       Optional[dict] = None
@@ -36,7 +35,6 @@ def create_notification(n: NotificationIn, db: Session = Depends(get_db)):
         title        = n.title,
         body         = n.body,
         ref_id       = n.ref_id or "",
-        ref_type     = n.ref_type or "",
         item_name    = n.item_name or "",
         requested_by = n.requested_by or "",
         action       = json.dumps(n.action) if n.action else "",

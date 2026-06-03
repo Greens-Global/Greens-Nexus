@@ -28,7 +28,7 @@ const TYPE_META = {
 
 export default function NotificationBell({ onNavigate }) {
   const { notifications, unreadCount, markRead, markAllRead, dismiss, clearRead, addNotification, markActioned } = useNotifications();
-  const { approveRequest, rejectRequest } = useInventory();
+  const { approveRequest, rejectRequest, requests: invRequests } = useInventory();
   const { approveRequisition, rejectRequisition }   = useRequisitions();
   const { accounts } = useMsal();
   const { can }      = useRole();
@@ -62,13 +62,15 @@ export default function NotificationBell({ onNavigate }) {
         approveRequest(refId, MANAGER_NAME);
         markActioned(n.id);
         dismiss(n.id);
-        const recipientEmail = n.action?.requestedByEmail ?? '';
+        // Resolve recipient email: prefer from notification action, then from the live request record
+        const invReq = invRequests.find(r => r.id === refId);
+        const recipientEmail = n.action?.requestedByEmail ?? invReq?.requestedByEmail ?? '';
         addNotification({
           type:        'approved',
           recipient:   recipientEmail || requestedBy,
           requestedBy, itemName,
           title: 'Request Approved ✓',
-          body:  `Your request for ${itemName} has been approved by ${MANAGER_NAME}. It will be assigned to you by your supervisor shortly.`,
+          body:  `Your request for ${itemName} has been approved. It will be assigned to you by your supervisor shortly.`,
           action: { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
         });
       } else { setRejectingId(n.id); }
@@ -93,7 +95,8 @@ export default function NotificationBell({ onNavigate }) {
 
     if (n.type === 'inv_request') {
       rejectRequest(refId, MANAGER_NAME, rejectReason.trim());
-      const recipientEmail = n.action?.requestedByEmail ?? '';
+      const invReq = invRequests.find(r => r.id === refId);
+      const recipientEmail = n.action?.requestedByEmail ?? invReq?.requestedByEmail ?? '';
       addNotification({
         type:        'rejected',
         recipient:   recipientEmail || requestedBy,

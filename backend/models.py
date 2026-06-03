@@ -223,7 +223,6 @@ class NexusNotification(Base):
     title       = Column(String, nullable=False)
     body        = Column(String, nullable=False)
     ref_id      = Column(String, default="")              # inv request id / req id
-    ref_type    = Column(String, default="")
     item_name   = Column(String, default="")
     requested_by = Column(String, default="")
     action      = Column(String, default="")              # serialised JSON for action button
