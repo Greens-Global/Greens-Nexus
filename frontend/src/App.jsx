@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { AuthenticatedTemplate, UnauthenticatedTemplate } from "@azure/msal-react";
 import { NotificationProvider } from "./contexts/NotificationContext";
-import { RoleProvider }         from "./contexts/RoleContext";
+import { RoleProvider, useRole } from "./contexts/RoleContext";
 import { RequisitionProvider } from "./contexts/RequisitionContext";
 import { InventoryProvider } from "./contexts/InventoryContext";
 import InventoryManagement from "./views/InventoryManagement";
@@ -47,6 +47,17 @@ const VIEW_LABELS = {
   "admin":              "Nexus Access Manager",
   "support":            "Support",
 };
+
+// Waits for role to load so the UI never flashes with wrong access level
+function RoleGate({ children }) {
+  const { loading } = useRole();
+  if (loading) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--paper)' }}>
+      <div style={{ width: 32, height: 32, borderRadius: '50%', border: '3px solid var(--line)', borderTopColor: 'var(--ink)', animation: 'spin 0.7s linear infinite' }} />
+    </div>
+  );
+  return children;
+}
 
 export default function App() {
   const [activeView,       setActiveView]       = useState("dashboard");
@@ -127,6 +138,7 @@ export default function App() {
       <AuthenticatedTemplate>
         <NotificationProvider>
         <RoleProvider>
+        <RoleGate>
         <RequisitionProvider>
         <InventoryProvider>
         <div className="app-container">
@@ -160,6 +172,7 @@ export default function App() {
         </div>
         </InventoryProvider>
         </RequisitionProvider>
+        </RoleGate>
         </RoleProvider>
         </NotificationProvider>
       </AuthenticatedTemplate>

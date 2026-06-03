@@ -3,6 +3,7 @@ import { Search, Shield, AlertTriangle, RefreshCw, Users, CheckCircle, Crown } f
 import { useRole, ROLES } from '../contexts/RoleContext';
 import { useGraphUsers }  from '../hooks/useGraphUsers';
 import { useMsal }        from '@azure/msal-react';
+import { api }            from '../api';
 
 const ROLE_ORDER = ['owner', 'administrator', 'manager', 'supervisor', 'employee'];
 

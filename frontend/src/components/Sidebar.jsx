@@ -13,13 +13,13 @@ import {
 } from "lucide-react";
 
 const NAV = [
-  { view: "dashboard",         label: "Dashboard",         icon: LayoutDashboard },
-  { view: "manager-dashboard", label: "Manager Dashboard", icon: UserCheck, minRole: 'supervisor' },
+  { view: "dashboard",         label: "Dashboard",          icon: LayoutDashboard },
+  { view: "manager-dashboard", label: "Manager Dashboard",  icon: UserCheck,    minRole: 'supervisor' },
   { divider: true },
-  { view: "purchase",         label: "Purchase Requisition",icon: ShoppingCart },
-  { view: "tasks",            label: "Tasks",              icon: CheckSquare },
+  { view: "purchase",          label: "Purchase Requisition", icon: ShoppingCart, minRole: 'supervisor' },
+  { view: "tasks",             label: "Tasks",               icon: CheckSquare,  minRole: 'supervisor' },
   {
-    view: "sop", label: "Knowledge Base", icon: BookOpen,
+    view: "sop", label: "Knowledge Base", icon: BookOpen, minRole: 'supervisor',
     sub: [
       { subview: "index",  label: "SOP Index",  icon: BookOpen },
       { subview: "review", label: "Review SOP", icon: CheckSquare },
@@ -28,7 +28,7 @@ const NAV = [
   },
   { divider: true },
   {
-    view: "it", label: "IT", icon: Monitor,
+    view: "it", label: "IT", icon: Monitor, minRole: 'supervisor',
     sub: [
       { subview: "network",               label: "Network Dashboard",    icon: Wifi },
       { subview: "it-assets",             label: "Asset Management",     icon: Monitor },
@@ -37,7 +37,7 @@ const NAV = [
     ],
   },
   {
-    view: "ops", label: "Construction", icon: null,
+    view: "ops", label: "Construction", icon: null, minRole: 'supervisor',
     svgPath: "M756-120 537-339l84-84 219 219-84 84Zm-552 0-84-84 276-276-68-68-28 28-51-51v82l-28 28-121-121 28-28h82l-50-50 142-142q20-20 43-29t47-9q24 0 47 9t43 29l-92 92 50 50-28 28 68 68 90-90q-4-11-6.5-23t-2.5-24q0-59 40.5-99.5T701-841q15 0 28.5 3t27.5 9l-99 99 72 72 99-99q7 14 9.5 27.5T841-701q0 59-40.5 99.5T701-561q-12 0-24-2t-23-7L204-120Z",
     sub: [
       { subview: "ops-dashboard", label: "Project Dashboard", icon: LayoutDashboard },
@@ -45,7 +45,7 @@ const NAV = [
     ],
   },
   {
-    view: "operations", label: "Operations", icon: Store,
+    view: "operations", label: "Operations", icon: Store, minRole: 'supervisor',
     sub: [
       { subview: "fms",        label: "FMS Integration",        icon: Server },
       { subview: "reputation", label: "Reputation Management",  icon: Star },
@@ -53,7 +53,7 @@ const NAV = [
     ],
   },
   {
-    view: "development", label: "Development", icon: null,
+    view: "development", label: "Development", icon: null, minRole: 'supervisor',
     svgPath: "M42-120v-112q0-33 17-62t47-44q51-26 115-44t141-18q77 0 141 18t115 44q30 15 47 44t17 62v112H42Zm80-80h480v-32q0-11-5.5-20T582-266q-36-18-92.5-36T362-320q-71 0-127.5 18T142-266q-9 5-14.5 14t-5.5 20v32Zm240-240q-66 0-113-47t-47-113h-10q-9 0-14.5-5.5T172-620q0-9 5.5-14.5T192-640h10q0-45 22-81t58-57v38q0 9 5.5 14.5T302-720q9 0 14.5-5.5T322-740v-54q9-3 19-4.5t21-1.5q11 0 21 1.5t19 4.5v54q0 9 5.5 14.5T422-720q9 0 14.5-5.5T442-740v-38q36 21 58 57t22 81h10q9 0 14.5-5.5T552-620q0 9-5.5 14.5T532-600h-10q0 66-47 113t-113 47Zm0-80q33 0 56.5-23.5T442-600H282q0 33 23.5 56.5T362-520Zm300 160-6-30q-6-2-11.5-4.5T634-402l-28 10-20-36 22-20v-24l-22-20 20-36 28 10q4-4 10-7t12-5l6-30h40l6 30q6 2 12 5t10 7l28-10 20 36-22 20v24l22 20-20 36-28-10q-5 5-10.5 7.5T708-390l-6 30h-40Zm20-70q12 0 21-9t9-21q0-12-9-21t-21-9q-12 0-21 9t-9 21q0 12 9 21t21 9Zm72-130-8-42q-9-3-16.5-7.5T716-620l-42 14-28-48 34-30q-2-5-2-8v-16q0-3 2-8l-34-30 28-48 42 14q6-6 13.5-10.5T746-798l8-42h56l8 42q9 3 16.5 7.5T848-780l42-14 28 48-34 30q2 5 2 8v16q0 3-2 8l34 30-28 48-42-14q-6 6-13.5 10.5T818-602l-8 42h-56Zm28-90q21 0 35.5-14.5T832-700q0-21-14.5-35.5T782-750q-21 0-35.5 14.5T732-700q0 21 14.5 35.5T782-650ZM362-200Z",
     sub: [
       { subview: "dev-permits", label: "Permit Status",    icon: FileText },
@@ -63,7 +63,7 @@ const NAV = [
   },
   { view: "inventory", label: "Inventory Management", icon: Package },
   {
-    view: "property-asset", label: "Asset Management", icon: Home,
+    view: "property-asset", label: "Asset Management", icon: Home, minRole: 'supervisor',
     sub: [
       { subview: "asset-portfolio",   label: "Property Portfolio",    icon: LayoutGrid },
       { subview: "asset-warranties",  label: "Equipment Warranties",  icon: Shield },
@@ -73,7 +73,7 @@ const NAV = [
     ],
   },
   {
-    view: "accounting", label: "Accounting", icon: Calculator,
+    view: "accounting", label: "Accounting", icon: Calculator, minRole: 'supervisor',
     sub: [
       { subview: "transactions",    label: "Transactions",       icon: ArrowRightLeft },
       { subview: "invoices",        label: "Invoices",           icon: FileText },
@@ -89,14 +89,14 @@ const NAV = [
     ],
   },
   {
-    view: "investor-relations", label: "Investor Relations", icon: Landmark,
+    view: "investor-relations", label: "Investor Relations", icon: Landmark, minRole: 'supervisor',
     sub: [
       { subview: "investor-dashboard", label: "Investor Dashboard", icon: BarChart3 },
       { subview: "investor-reports",   label: "Reports",            icon: FileSpreadsheet },
     ],
   },
   {
-    view: "hr", label: "HR", icon: Users,
+    view: "hr", label: "HR", icon: Users, minRole: 'supervisor',
     sub: [
       { subview: "hr-ms",          label: "IT Provisioning",   icon: LogIn },
       { subview: "hr-asana",       label: "Onboarding Tasks",  icon: CheckSquare },
@@ -105,7 +105,7 @@ const NAV = [
     ],
   },
   {
-    view: "marketing", label: "Marketing", icon: Megaphone,
+    view: "marketing", label: "Marketing", icon: Megaphone, minRole: 'supervisor',
     sub: [
       { subview: "marketing-ads",        label: "Google",          icon: Megaphone },
       { subview: "marketing-reputation", label: "Meta",            icon: Star },
@@ -113,7 +113,7 @@ const NAV = [
   },
   { divider: true },
   { view: "support",        label: "Support",        icon: HelpCircle },
-  { view: "external-links", label: "External Links", icon: ExternalLink },
+  { view: "external-links", label: "External Links", icon: ExternalLink, minRole: 'supervisor' },
 ];
 
 export default function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }) {
