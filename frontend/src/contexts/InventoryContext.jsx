@@ -68,6 +68,33 @@ export function InventoryProvider({ children }) {
       .catch(() => {});
   }, []);
 
+  // Convert raw Supabase Realtime row (snake_case) → camelCase to match API shape
+  function rowToRequest(r) {
+    return {
+      id:               r.id,
+      itemId:           r.item_id,
+      itemName:         r.item_name,
+      requestedBy:      r.requested_by,
+      requestedByEmail: r.requested_by_email,
+      raisedBy:         r.raised_by,
+      department:       r.department,
+      quantity:         r.quantity,
+      days:             r.days,
+      reason:           r.reason,
+      status:           r.status,
+      createdAt:        r.created_at,
+      resolvedAt:       r.resolved_at   || null,
+      resolvedBy:       r.resolved_by   || null,
+      rejectReason:     r.reject_reason || null,
+      allocatedAt:      r.allocated_at  || null,
+      allocatedBy:      r.allocated_by  || null,
+      returnedAt:       r.returned_at   || null,
+      returnPhotoName:  r.return_photo_name || null,
+      returnPhotoUrl:   r.return_photo_url  || null,
+      conditionNote:    r.condition_note    || null,
+    };
+  }
+
   useEffect(() => {
     fetchRequests();
 
@@ -78,9 +105,10 @@ export function InventoryProvider({ children }) {
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'inventory_requests' },
           payload => {
+            const incoming = rowToRequest(payload.new);
             setRequests(prev => {
-              if (prev.some(r => r.id === payload.new.id)) return prev;
-              return [payload.new, ...prev];
+              if (prev.some(r => r.id === incoming.id)) return prev;
+              return [incoming, ...prev];
             });
           }
         )
@@ -88,7 +116,8 @@ export function InventoryProvider({ children }) {
           'postgres_changes',
           { event: 'UPDATE', schema: 'public', table: 'inventory_requests' },
           payload => {
-            setRequests(prev => prev.map(r => r.id === payload.new.id ? payload.new : r));
+            const updated = rowToRequest(payload.new);
+            setRequests(prev => prev.map(r => r.id === updated.id ? updated : r));
           }
         )
         .subscribe();
