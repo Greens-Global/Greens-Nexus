@@ -115,9 +115,9 @@ export function InventoryProvider({ children }) {
         .on(
           'postgres_changes',
           { event: 'UPDATE', schema: 'public', table: 'inventory_requests' },
-          payload => {
-            const updated = rowToRequest(payload.new);
-            setRequests(prev => prev.map(r => r.id === updated.id ? updated : r));
+          () => {
+            // Always re-fetch on any update — avoids snake_case/camelCase merge issues
+            fetchRequests();
           }
         )
         .subscribe();
