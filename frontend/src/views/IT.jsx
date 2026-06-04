@@ -1063,7 +1063,9 @@ function NetworkDashboard() {
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
                     {Object.entries(detail.wans).map(([key, wan]) => {
                       const port = (detail.wan_ports || []).find(p => p.type === key);
-                      const hasWanIssues = wan.issues?.length > 0;
+                      const isPlugged = port ? port.plugged : wan.uptime > 0;
+                      // Only surface issues on ports that are actually connected
+                      const hasWanIssues = isPlugged && wan.issues?.length > 0;
                       return (
                         <div key={key} style={{ background: "var(--bg-card)", border: `1px solid ${hasWanIssues ? "hsla(0,80%,50%,0.3)" : "var(--border-color)"}`, borderRadius: 10, padding: "16px 18px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -1104,8 +1106,12 @@ function NetworkDashboard() {
                 </div>
               )}
 
-              {/* Internet issues 5min */}
-              {(detail.internet_issues_5min || []).filter(p => p.wan_downtime || p.packet_loss || p.not_reported).length > 0 && (
+              {/* Internet issues 5min — only shown when at least one connected WAN is unhealthy */}
+              {(detail.internet_issues_5min || []).filter(p => p.wan_downtime || p.packet_loss || p.not_reported).length > 0 &&
+               Object.entries(detail.wans || {}).some(([key, wan]) => {
+                 const port = (detail.wan_ports || []).find(p => p.type === key);
+                 return (port ? port.plugged : wan.uptime > 0) && wan.uptime < 100;
+               }) && (
                 <div style={{ marginBottom: 20, background: "var(--bg-card)", border: "1px solid hsla(0,80%,50%,0.25)", borderRadius: 10, padding: "14px 18px" }}>
                   <div style={{ fontSize: "0.75rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "hsl(var(--color-red))", fontWeight: 600, marginBottom: 10 }}>
                     Internet Issues — Last 5 Minutes
