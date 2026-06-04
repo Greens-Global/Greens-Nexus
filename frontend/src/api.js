@@ -3,7 +3,7 @@ import { apiTokenRequest } from './authConfig';
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
-async function getAuthHeader() {
+async function getAuthHeader(forceRefresh = false) {
   // Wait for MSAL to finish loading its cache before asking for a token.
   // Without this, acquireTokenSilent fails on first render and the request
   // goes out with no Authorization header, causing a 401.
@@ -14,6 +14,7 @@ async function getAuthHeader() {
     const result = await msalInstance.acquireTokenSilent({
       ...apiTokenRequest,
       account: accounts[0],
+      forceRefresh,
     });
     return { Authorization: `Bearer ${result.idToken}` };
   } catch {
@@ -31,6 +32,21 @@ async function req(path, options = {}, attempt = 1) {
       ...(options.headers ?? {}),
     },
   });
+  // On 401 (expired token), force-refresh MSAL token and retry once
+  if (res.status === 401 && attempt === 1) {
+    const freshHeader = await getAuthHeader(true);
+    const res2 = await fetch(`${BASE}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...freshHeader,
+        ...(options.headers ?? {}),
+      },
+    });
+    if (!res2.ok) throw new Error(`API error ${res2.status}`);
+    if (res2.status === 204) return null;
+    return res2.json();
+  }
   // Retry once on 5xx — handles Azure cold-start transient failures
   if (res.status >= 500 && attempt === 1) {
     await new Promise(r => setTimeout(r, 800));
