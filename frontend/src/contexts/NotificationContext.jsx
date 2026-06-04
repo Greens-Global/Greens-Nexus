@@ -9,7 +9,7 @@ const NotificationCtx = createContext(null);
 let counter = 1;
 const genId = () => `N${Date.now()}-${counter++}`;
 
-const FALLBACK_POLL = 60000; // 60s fallback in case realtime misses anything
+const FALLBACK_POLL = 8000; // 8s fallback in case realtime misses anything
 
 function rowToNotif(r) {
   return {

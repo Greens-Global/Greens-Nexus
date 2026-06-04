@@ -93,8 +93,8 @@ export function InventoryProvider({ children }) {
         )
         .subscribe();
 
-      // 60s fallback poll
-      pollRef.current = setInterval(fetchRequests, 60000);
+      // 8s fallback poll
+      pollRef.current = setInterval(fetchRequests, 8000);
     } else {
       pollRef.current = setInterval(fetchRequests, 5000);
     }
