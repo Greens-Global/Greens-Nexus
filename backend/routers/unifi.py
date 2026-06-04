@@ -1,11 +1,12 @@
 import csv
 import io
 import re
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
-from unifi_client import fetch_all, build_site_payload, unifi_get
+from unifi_client import fetch_all, build_site_payload
+from auth import get_current_user
 
-router = APIRouter(prefix="/unifi", tags=["UniFi Network"])
+router = APIRouter(prefix="/unifi", tags=["UniFi Network"], dependencies=[Depends(get_current_user)])
 
 
 def _build_maps(sites_raw, devices_raw, hosts_raw):
@@ -67,21 +68,3 @@ async def unifi_export_csv(siteId: str):
     return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={safe_name}_inventory.csv"})
 
 
-@router.get("/debug/raw")
-async def unifi_debug_raw():
-    """Return the complete raw API responses from UniFi — use this to inspect available fields."""
-    sites_raw, devices_raw, hosts_raw = await fetch_all()
-    first_host = devices_raw.get("data", [None])[0] if devices_raw.get("data") else None
-    first_device = first_host.get("devices", [None])[0] if first_host else None
-    return {
-        "sites_keys": list(sites_raw.get("data", [{}])[0].keys()) if sites_raw.get("data") else [],
-        "host_keys": list(first_host.keys()) if first_host else [],
-        "device_keys": list(first_device.keys()) if first_device else [],
-        "first_device_full": first_device,
-        "first_site_full": sites_raw.get("data", [None])[0],
-        "hosts_raw": hosts_raw,
-        "device_count_per_host": [
-            {"hostId": h.get("hostId"), "hostName": h.get("hostName"), "device_count": len(h.get("devices", []))}
-            for h in devices_raw.get("data", [])
-        ],
-    }
