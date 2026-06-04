@@ -1,8 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { api } from '../api';
-import { supabase } from '../lib/supabase';
 
 export const DEPT_SUPERVISORS = {
   'Operations':    'Robert Kim',
@@ -104,7 +103,6 @@ export function RequisitionProvider({ children }) {
 
   const [requisitions, setRequisitions] = useState([]);
   const [hwAssets,     setHwAssets]     = useState([]);
-  const channelRef = useRef(null);
 
   const ts    = () => new Date().toISOString();
   const today = () => new Date().toISOString().split('T')[0];
@@ -166,16 +164,18 @@ export function RequisitionProvider({ children }) {
       });
   }, []);
 
-  // ── Supabase Realtime ──────────────────────────────────────────────────────
+  // ── Poll every 30s through the authenticated API ──────────────────────────
+  // Realtime is intentionally not used here: requisitions and hardware_assets
+  // are protected by Supabase RLS (anon key has no SELECT access), so change
+  // events would never arrive. Polling via the backend keeps data fresh while
+  // keeping all access behind the Azure AD token.
 
   useEffect(() => {
-    if (!supabase) return;
-    channelRef.current = supabase
-      .channel('requisitions_assets_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'requisitions' }, refreshRequisitions)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'hardware_assets' }, refreshAssets)
-      .subscribe();
-    return () => supabase?.removeChannel(channelRef.current);
+    const iv = setInterval(() => {
+      refreshRequisitions();
+      refreshAssets();
+    }, 30000);
+    return () => clearInterval(iv);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Mutations ──────────────────────────────────────────────────────────────
