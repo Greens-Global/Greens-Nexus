@@ -50,8 +50,7 @@ const INITIAL_ITEMS = [
   { id: 'INV-034', name: 'Whiteboard + Markers Kit', category: 'Office Supplies',  department: 'Accounting',   available: 2,  total: 4  },
 ];
 
-let reqCounter = 1;
-function genId() { return `IREQ-${String(reqCounter++).padStart(3, '0')}`; }
+function genId() { return `IREQ-${Date.now().toString(36).toUpperCase()}`; }
 
 export function InventoryProvider({ children }) {
   const { accounts } = useMsal();
@@ -122,10 +121,10 @@ export function InventoryProvider({ children }) {
         )
         .subscribe();
 
-      // 8s fallback poll
-      pollRef.current = setInterval(fetchRequests, 8000);
+      // 3s fallback poll — safety net for missed Realtime events
+      pollRef.current = setInterval(fetchRequests, 3000);
     } else {
-      pollRef.current = setInterval(fetchRequests, 5000);
+      pollRef.current = setInterval(fetchRequests, 3000);
     }
 
     return () => {
@@ -168,21 +167,27 @@ export function InventoryProvider({ children }) {
     setRequests(prev => prev.map(r =>
       r.id === id ? { ...r, status: 'approved', resolvedAt: new Date().toISOString(), resolvedBy: managerName } : r
     ));
-    api.updateInventoryRequest(id, { status: 'approved', resolved_by: managerName }).catch(() => {});
+    api.updateInventoryRequest(id, { status: 'approved', resolved_by: managerName })
+      .then(() => fetchRequests())
+      .catch(() => fetchRequests());
   }
 
   function allocateItem(id, supervisorName) {
     setRequests(prev => prev.map(r =>
       r.id === id ? { ...r, status: 'allocated', allocatedAt: new Date().toISOString(), allocatedBy: supervisorName } : r
     ));
-    api.updateInventoryRequest(id, { status: 'allocated', allocated_by: supervisorName }).catch(() => {});
+    api.updateInventoryRequest(id, { status: 'allocated', allocated_by: supervisorName })
+      .then(() => fetchRequests())
+      .catch(() => fetchRequests());
   }
 
   function rejectRequest(id, managerName, reason) {
     setRequests(prev => prev.map(r =>
       r.id === id ? { ...r, status: 'rejected', resolvedAt: new Date().toISOString(), resolvedBy: managerName, rejectReason: reason } : r
     ));
-    api.updateInventoryRequest(id, { status: 'rejected', resolved_by: managerName, reject_reason: reason }).catch(() => {});
+    api.updateInventoryRequest(id, { status: 'rejected', resolved_by: managerName, reject_reason: reason })
+      .then(() => fetchRequests())
+      .catch(() => fetchRequests());
   }
 
   async function returnItem(id, { file, photoName, conditionNote }) {
