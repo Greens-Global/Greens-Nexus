@@ -51,3 +51,4 @@ app.include_router(requisitions.router)
 app.include_router(roles.router)
 app.include_router(notifications.router)
 app.include_router(inventory_requests.router)
+
