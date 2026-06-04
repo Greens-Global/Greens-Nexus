@@ -1,8 +1,10 @@
 import os
 import time
+import json
 import httpx
+import jwt as pyjwt
+from jwt.algorithms import RSAAlgorithm
 from fastapi import Header, HTTPException, Depends
-from jose import jwt, JWTError
 from sqlalchemy.orm import Session
 from database import get_db
 
@@ -26,6 +28,22 @@ def _fetch_jwks() -> dict:
     r.raise_for_status()
     _jwks_cache.update({"keys": r.json(), "at": now})
     return _jwks_cache["keys"]
+
+
+def _get_public_key(token: str):
+    """Find the RSA public key matching the token's kid."""
+    header = pyjwt.get_unverified_header(token)
+    kid = header.get("kid")
+    jwks = _fetch_jwks()
+    key_data = next((k for k in jwks["keys"] if k.get("kid") == kid), None)
+    if not key_data:
+        # Bust cache and retry once (handles key rotation)
+        _jwks_cache["keys"] = None
+        jwks = _fetch_jwks()
+        key_data = next((k for k in jwks["keys"] if k.get("kid") == kid), None)
+    if not key_data:
+        raise HTTPException(status_code=401, detail="Token signing key not found")
+    return RSAAlgorithm.from_jwk(json.dumps(key_data))
 
 
 def _role_for(email: str, db: Session) -> tuple[str, int]:
@@ -56,31 +74,16 @@ def get_current_user(
     token = authorization.removeprefix("Bearer ").strip()
 
     try:
-        jwks = _fetch_jwks()
-        claims = jwt.decode(
-            token, jwks,
+        public_key = _get_public_key(token)
+        claims = pyjwt.decode(
+            token,
+            public_key,
             algorithms=["RS256"],
             audience=CLIENT_ID,
             issuer=ISSUER,
-            options={"verify_at_hash": False},
         )
-    except JWTError as exc:
-        # If JWKS may be stale (key rotation), bust cache and retry once
-        if _jwks_cache["keys"]:
-            _jwks_cache["keys"] = None
-            try:
-                jwks = _fetch_jwks()
-                claims = jwt.decode(
-                    token, jwks,
-                    algorithms=["RS256"],
-                    audience=CLIENT_ID,
-                    issuer=ISSUER,
-                    options={"verify_at_hash": False},
-                )
-            except JWTError:
-                raise HTTPException(status_code=401, detail=f"Invalid token: {exc}")
-        else:
-            raise HTTPException(status_code=401, detail=f"Invalid token: {exc}")
+    except pyjwt.PyJWTError as exc:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {exc}")
 
     # Azure AD puts the UPN in several possible claims
     email = (
@@ -102,7 +105,7 @@ def require_level(min_level: int):
     """Returns a dependency that enforces a minimum role level."""
     def _check(user: dict = Depends(get_current_user)):
         if user["level"] < min_level:
-            raise HTTPException(status_code=403, detail="Insufficient permissions")
+            raise HTTPException(status_code=401, detail="Insufficient permissions")
         return user
     return _check
 
