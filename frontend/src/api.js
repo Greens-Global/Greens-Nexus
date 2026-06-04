@@ -21,7 +21,7 @@ async function getAuthHeader() {
   }
 }
 
-async function req(path, options = {}) {
+async function req(path, options = {}, attempt = 1) {
   const authHeader = await getAuthHeader();
   const res = await fetch(`${BASE}${path}`, {
     ...options,
@@ -31,6 +31,11 @@ async function req(path, options = {}) {
       ...(options.headers ?? {}),
     },
   });
+  // Retry once on 5xx — handles Azure cold-start transient failures
+  if (res.status >= 500 && attempt === 1) {
+    await new Promise(r => setTimeout(r, 800));
+    return req(path, options, 2);
+  }
   if (!res.ok) throw new Error(`API error ${res.status}`);
   if (res.status === 204) return null;
   return res.json();

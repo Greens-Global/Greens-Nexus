@@ -204,6 +204,7 @@ export default function Admin() {
   const [showAddUser,  setShowAddUser]  = useState(false);
   const [addingSaving, setAddingSaving] = useState(false);
   const [manualUsers,  setManualUsers]  = useState([]);
+  const [roleError,    setRoleError]    = useState('');
 
   const loading = graphLoading;
 
@@ -220,13 +221,15 @@ export default function Admin() {
   const isAdmin = can('administrator');
 
   async function handleAssign(email, role) {
+    setRoleError('');
     setSaving(p => ({ ...p, [email]: true }));
     try {
       await assignRole(email, role);
       setSaved(p => ({ ...p, [email]: true }));
       setTimeout(() => setSaved(p => { const n = {...p}; delete n[email]; return n; }), 1800);
     } catch (err) {
-      alert(err.message ?? 'Failed to update role');
+      setRoleError(err.message ?? 'Failed to update role — please try again');
+      setTimeout(() => setRoleError(''), 4000);
     } finally {
       setSaving(p => { const n = {...p}; delete n[email]; return n; });
     }
@@ -234,6 +237,7 @@ export default function Admin() {
 
   async function handleAddUser({ name, email, dept, title, role }) {
     setAddingSaving(true);
+    setRoleError('');
     try {
       await assignRole(email, role);
       setManualUsers(p => {
@@ -242,7 +246,8 @@ export default function Admin() {
       });
       setShowAddUser(false);
     } catch (err) {
-      alert(err.message ?? 'Failed to add user');
+      setRoleError(err.message ?? 'Failed to add user — please try again');
+      setTimeout(() => setRoleError(''), 4000);
     } finally {
       setAddingSaving(false);
     }
@@ -312,6 +317,12 @@ export default function Admin() {
           <RoleBadge role={myRole} size="md" />
         </div>
       </div>
+
+      {roleError && (
+        <div style={{ background: 'hsla(0,80%,50%,0.12)', border: '1px solid hsla(0,80%,50%,0.3)', color: 'var(--color-red, #f87171)', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 14 }}>
+          {roleError}
+        </div>
+      )}
 
       {/* Tab strip */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
