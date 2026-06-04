@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { RefreshCw, Download, ArrowLeft, AlertTriangle, ChevronDown, ChevronUp, Laptop, Globe, Wifi, Plus, ExternalLink, AlertCircle, Package, CheckCircle, RotateCcw, FileText } from "lucide-react";
 import { useRequisitions } from "../contexts/RequisitionContext";
+import { msalInstance, msalReady } from "../msalInstance";
+import { apiTokenRequest } from "../authConfig";
 
 const BASE = `${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/unifi`;
 
@@ -718,11 +720,22 @@ function NetworkDashboard() {
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
 
+  const getAuthHeader = async () => {
+    await msalReady;
+    const accounts = msalInstance.getAllAccounts();
+    if (!accounts.length) return {};
+    try {
+      const result = await msalInstance.acquireTokenSilent({ ...apiTokenRequest, account: accounts[0] });
+      return { Authorization: `Bearer ${result.idToken}` };
+    } catch { return {}; }
+  };
+
   const fetchWithTimeout = async (url, timeoutMs = 12000) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const r = await fetch(url, { signal: controller.signal });
+      const authHeader = await getAuthHeader();
+      const r = await fetch(url, { signal: controller.signal, headers: authHeader });
       clearTimeout(timer);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
       return r.json();
