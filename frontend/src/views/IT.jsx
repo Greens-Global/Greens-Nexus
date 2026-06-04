@@ -839,7 +839,7 @@ function NetworkDashboard() {
           {lastUpdated && <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Updated {lastUpdated}</span>}
           {view === "detail" && detail?.hostId && (
             <a
-              href={`https://unifi.ui.com/consoles/${detail.hostId}`}
+              href={`https://unifi.ui.com/consoles/${detail.hostId}/network/default/dashboard`}
               target="_blank" rel="noopener noreferrer"
               className="secondary-btn" style={{ display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
               <ExternalLink style={{ width: 14, height: 14 }} /> Open in UniFi
@@ -1051,7 +1051,7 @@ function NetworkDashboard() {
                   { label: "Total Devices",    value: detail.total_devices,          color: "hsl(var(--color-blue))" },
                   { label: "Online",           value: detail.online_devices,          color: "hsl(var(--color-green))" },
                   { label: "Offline",          value: detailOfflineCount,             color: detailOfflineCount > 0 ? "hsl(var(--color-red))" : "var(--text-secondary)" },
-                  { label: "Pending Updates",  value: detail.pending_updates || 0,    color: detail.pending_updates > 0 ? "hsl(var(--color-orange))" : "var(--text-secondary)", link: detail.pending_updates > 0 && detail.hostId ? `https://unifi.ui.com/consoles/${detail.hostId}` : null },
+                  { label: "Pending Updates",  value: detail.pending_updates || 0,    color: detail.pending_updates > 0 ? "hsl(var(--color-orange))" : "var(--text-secondary)", link: detail.pending_updates > 0 && detail.hostId ? `https://unifi.ui.com/consoles/${detail.hostId}/network/default/dashboard` : null },
                   { label: "Critical Alerts",  value: detail.critical_notifications || 0, color: detail.critical_notifications > 0 ? "hsl(var(--color-red))" : "var(--text-secondary)" },
                   { label: "WiFi Clients",     value: detail.wifi_clients,            color: "hsl(var(--color-blue))" },
                   { label: "Wired Clients",    value: detail.wired_clients,           color: "hsl(var(--color-blue))" },
@@ -1169,7 +1169,7 @@ function NetworkDashboard() {
                             <td>
                               <div style={{ fontWeight: 600 }}>{d.name || "—"}</div>
                               {d.isConsole && (
-                                <a href={`https://unifi.ui.com/consoles/${detail.hostId}`}
+                                <a href={`https://unifi.ui.com/consoles/${detail.hostId}/network/default/dashboard`}
                                    target="_blank" rel="noopener noreferrer"
                                    style={{ fontSize: "0.68rem", color: "hsl(var(--color-blue))", fontWeight: 600, textDecoration: "none" }}>
                                   CONSOLE ↗
@@ -1184,7 +1184,7 @@ function NetworkDashboard() {
                               {!d.firmwareStatus || d.firmwareStatus === "upToDate"
                                 ? <span className="status-badge status-approved">Up to date</span>
                                 : d.firmwareStatus === "upgradeable"
-                                  ? <a href={`https://unifi.ui.com/consoles/${detail.hostId}`} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
+                                  ? <a href={`https://unifi.ui.com/consoles/${detail.hostId}/network/default/dashboard`} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
                                       <span className="status-badge" style={{ background: "hsla(38,90%,50%,0.12)", color: "hsl(var(--color-orange))", cursor: "pointer" }}>Update available ↗</span>
                                     </a>
                                   : <span className="status-badge" style={{ background: "var(--border-color)", color: "var(--text-secondary)" }}>{d.firmwareStatus}</span>
