@@ -58,13 +58,19 @@ export function InventoryProvider({ children }) {
 
   const [items]    = useState(INITIAL_ITEMS);
   const [requests, setRequests] = useState([]);
-  const channelRef = useRef(null);
-  const pollRef    = useRef(null);
+  const channelRef    = useRef(null);
+  const broadcastRef  = useRef(null);
+  const pollRef       = useRef(null);
 
   const fetchRequests = useCallback(() => {
     api.getInventoryRequests()
       .then(rows => setRequests(rows))
       .catch(() => {});
+  }, []);
+
+  // Broadcast a refresh signal to all connected clients (no Postgres/RLS involved)
+  const broadcastRefresh = useCallback(() => {
+    broadcastRef.current?.send({ type: 'broadcast', event: 'inv_refresh', payload: {} });
   }, []);
 
   // Convert raw Supabase Realtime row (snake_case) → camelCase to match API shape
@@ -98,6 +104,7 @@ export function InventoryProvider({ children }) {
     fetchRequests();
 
     if (supabase) {
+      // postgres_changes: catch new inserts (works reliably for INSERT)
       channelRef.current = supabase
         .channel('inventory_requests_changes')
         .on(
@@ -114,21 +121,26 @@ export function InventoryProvider({ children }) {
         .on(
           'postgres_changes',
           { event: 'UPDATE', schema: 'public', table: 'inventory_requests' },
-          () => {
-            // Always re-fetch on any update — avoids snake_case/camelCase merge issues
-            fetchRequests();
-          }
+          () => fetchRequests()
         )
         .subscribe();
 
-      // 3s fallback poll — safety net for missed Realtime events
+      // Broadcast channel: direct WebSocket message — no Postgres/RLS/publication needed
+      // When any user mutates a request, they broadcast here and all others re-fetch
+      broadcastRef.current = supabase
+        .channel('inventory_broadcast')
+        .on('broadcast', { event: 'inv_refresh' }, () => fetchRequests())
+        .subscribe();
+
+      // 3s fallback poll — catches anything Realtime or Broadcast missed
       pollRef.current = setInterval(fetchRequests, 3000);
     } else {
       pollRef.current = setInterval(fetchRequests, 3000);
     }
 
     return () => {
-      if (channelRef.current) supabase?.removeChannel(channelRef.current);
+      if (channelRef.current)   supabase?.removeChannel(channelRef.current);
+      if (broadcastRef.current) supabase?.removeChannel(broadcastRef.current);
       clearInterval(pollRef.current);
     };
   }, [fetchRequests]);
@@ -168,7 +180,7 @@ export function InventoryProvider({ children }) {
       r.id === id ? { ...r, status: 'approved', resolvedAt: new Date().toISOString(), resolvedBy: managerName } : r
     ));
     api.updateInventoryRequest(id, { status: 'approved', resolved_by: managerName })
-      .then(() => fetchRequests())
+      .then(() => { fetchRequests(); broadcastRefresh(); })
       .catch(() => fetchRequests());
   }
 
@@ -177,7 +189,7 @@ export function InventoryProvider({ children }) {
       r.id === id ? { ...r, status: 'allocated', allocatedAt: new Date().toISOString(), allocatedBy: supervisorName } : r
     ));
     api.updateInventoryRequest(id, { status: 'allocated', allocated_by: supervisorName })
-      .then(() => fetchRequests())
+      .then(() => { fetchRequests(); broadcastRefresh(); })
       .catch(() => fetchRequests());
   }
 
@@ -186,7 +198,7 @@ export function InventoryProvider({ children }) {
       r.id === id ? { ...r, status: 'rejected', resolvedAt: new Date().toISOString(), resolvedBy: managerName, rejectReason: reason } : r
     ));
     api.updateInventoryRequest(id, { status: 'rejected', resolved_by: managerName, reject_reason: reason })
-      .then(() => fetchRequests())
+      .then(() => { fetchRequests(); broadcastRefresh(); })
       .catch(() => fetchRequests());
   }
 
@@ -225,7 +237,7 @@ export function InventoryProvider({ children }) {
       return_photo_name: photoName     || '',
       return_photo_url:  permanentUrl  || '',
       condition_note:    conditionNote || '',
-    }).catch(() => {});
+    }).then(() => { fetchRequests(); broadcastRefresh(); }).catch(() => {});
   }
 
   const pendingCount = requests.filter(r => r.status === 'pending').length;
