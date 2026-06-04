@@ -839,7 +839,7 @@ function NetworkDashboard() {
           {lastUpdated && <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Updated {lastUpdated}</span>}
           {view === "detail" && detail?.hostId && (
             <a
-              href={detail.direct_connect_domain ? `https://${detail.direct_connect_domain}` : `https://unifi.ui.com/consoles/${detail.hostId}`}
+              href={`https://unifi.ui.com/consoles/${detail.hostId}`}
               target="_blank" rel="noopener noreferrer"
               className="secondary-btn" style={{ display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
               <ExternalLink style={{ width: 14, height: 14 }} /> Open in UniFi
@@ -1169,7 +1169,7 @@ function NetworkDashboard() {
                             <td>
                               <div style={{ fontWeight: 600 }}>{d.name || "—"}</div>
                               {d.isConsole && (
-                                <a href={detail.direct_connect_domain ? `https://${detail.direct_connect_domain}` : `https://unifi.ui.com/consoles/${detail.hostId}`}
+                                <a href={`https://unifi.ui.com/consoles/${detail.hostId}`}
                                    target="_blank" rel="noopener noreferrer"
                                    style={{ fontSize: "0.68rem", color: "hsl(var(--color-blue))", fontWeight: 600, textDecoration: "none" }}>
                                   CONSOLE ↗
