@@ -31,16 +31,19 @@ export function RoleProvider({ children }) {
     const tryFetch = (attempt = 1) => {
       api.getMyRole()
         .then(data => {
-          if (!cancelled) setMyRole(data.role ?? 'employee');
+          if (!cancelled) {
+            setMyRole(data.role ?? 'employee');
+            setLoading(false);
+          }
         })
         .catch(() => {
           if (!cancelled && attempt < 3) {
             setTimeout(() => tryFetch(attempt + 1), 1000 * attempt);
           } else if (!cancelled) {
             setMyRole('employee');
+            setLoading(false);
           }
-        })
-        .finally(() => { if (!cancelled) setLoading(false); });
+        });
     };
 
     tryFetch();

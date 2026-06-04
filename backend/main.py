@@ -13,6 +13,13 @@ async def lifespan(app: FastAPI):
         print("[startup] DB tables ready")
     except Exception as e:
         print(f"[startup] DB not ready: {e}")
+    try:
+        from auth import _fetch_jwks, SKIP_AUTH
+        if not SKIP_AUTH:
+            _fetch_jwks()
+            print("[startup] JWKS keys cached")
+    except Exception as e:
+        print(f"[startup] JWKS prefetch skipped: {e}")
     yield
 
 
