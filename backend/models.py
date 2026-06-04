@@ -253,6 +253,7 @@ class InventoryRequest(Base):
     allocated_by       = Column(String, default="")
     returned_at        = Column(String, default="")
     return_photo_name  = Column(String, default="")
+    return_photo_url   = Column(String, default="")   # permanent Supabase Storage URL
     condition_note     = Column(String, default="")
 
 

@@ -156,19 +156,40 @@ export function InventoryProvider({ children }) {
     api.updateInventoryRequest(id, { status: 'rejected', resolved_by: managerName, reject_reason: reason }).catch(() => {});
   }
 
-  function returnItem(id, { photoUrl, photoName, conditionNote }) {
+  async function returnItem(id, { file, photoName, conditionNote }) {
+    const now = new Date().toISOString();
+    let permanentUrl = '';
+
+    // Upload to Supabase Storage if we have a file and a client
+    if (file && supabase) {
+      const ext  = photoName?.split('.').pop() || 'jpg';
+      const path = `${id}/${Date.now()}.${ext}`;
+      const { data: uploaded, error } = await supabase.storage
+        .from('return-photos')
+        .upload(path, file, { contentType: file.type, upsert: false });
+      if (!error && uploaded) {
+        const { data: urlData } = supabase.storage
+          .from('return-photos')
+          .getPublicUrl(uploaded.path);
+        permanentUrl = urlData.publicUrl;
+      }
+    }
+
+    // Optimistic update — use permanent URL if available, otherwise nothing
     setRequests(prev => prev.map(r =>
-      r.id === id ? {
+      r.id !== id ? r : {
         ...r, status: 'returned',
-        returnedAt: new Date().toISOString(),
-        returnPhotoUrl: photoUrl,
-        returnPhotoName: photoName,
-        conditionNote,
-      } : r
+        returnedAt:     now,
+        returnPhotoUrl:  permanentUrl || null,
+        returnPhotoName: photoName    || null,
+        conditionNote:   conditionNote || null,
+      }
     ));
+
     api.updateInventoryRequest(id, {
-      status: 'returned',
-      return_photo_name: photoName || '',
+      status:            'returned',
+      return_photo_name: photoName     || '',
+      return_photo_url:  permanentUrl  || '',
       condition_note:    conditionNote || '',
     }).catch(() => {});
   }

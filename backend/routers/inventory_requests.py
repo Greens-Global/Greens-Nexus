@@ -24,12 +24,13 @@ class RequestIn(BaseModel):
 
 
 class StatusUpdate(BaseModel):
-    status:            str
-    resolved_by:       Optional[str] = ""
-    reject_reason:     Optional[str] = ""
-    allocated_by:      Optional[str] = ""
-    return_photo_name: Optional[str] = ""
-    condition_note:    Optional[str] = ""
+    status:             str
+    resolved_by:        Optional[str] = ""
+    reject_reason:      Optional[str] = ""
+    allocated_by:       Optional[str] = ""
+    return_photo_name:  Optional[str] = ""
+    return_photo_url:   Optional[str] = ""
+    condition_note:     Optional[str] = ""
 
 
 def _to_dict(r: InventoryRequest) -> dict:
@@ -53,6 +54,7 @@ def _to_dict(r: InventoryRequest) -> dict:
         "allocatedBy":       r.allocated_by  or None,
         "returnedAt":        r.returned_at   or None,
         "returnPhotoName":   r.return_photo_name or None,
+        "returnPhotoUrl":    r.return_photo_url  or None,
         "conditionNote":     r.condition_note    or None,
     }
 
@@ -103,8 +105,9 @@ def update_request(req_id: str, body: StatusUpdate, db: Session = Depends(get_db
         row.allocated_at = now
         row.allocated_by = body.allocated_by or ""
     elif body.status == "returned":
-        row.returned_at = now
+        row.returned_at       = now
         row.return_photo_name = body.return_photo_name or ""
-        row.condition_note = body.condition_note or ""
+        row.return_photo_url  = body.return_photo_url  or ""
+        row.condition_note    = body.condition_note    or ""
     db.commit()
     return _to_dict(row)

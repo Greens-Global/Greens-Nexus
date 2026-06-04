@@ -158,7 +158,7 @@ function ReturnModal({ request, onClose, onSubmit }) {
   function handleFile(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setPhoto({ url: URL.createObjectURL(file), name: file.name });
+    setPhoto({ url: URL.createObjectURL(file), name: file.name, file });
   }
 
   return (
@@ -205,7 +205,7 @@ function ReturnModal({ request, onClose, onSubmit }) {
         <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
           <button className="secondary-btn" onClick={onClose}>Cancel</button>
           <button className="primary-btn" disabled={!photo}
-            onClick={() => onSubmit({ photoUrl: photo?.url, photoName: photo?.name, conditionNote: conditionNote.trim() })}>
+            onClick={() => onSubmit({ file: photo?.file, photoName: photo?.name, conditionNote: conditionNote.trim() })}>
             Confirm Return
           </button>
         </div>
