@@ -37,6 +37,11 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/version")
+def version():
+    return {"version": "2.0.0", "auth": "token-based"}
+
+
 app.include_router(tasks.router)
 app.include_router(purchases.router)
 app.include_router(reviews.router)
