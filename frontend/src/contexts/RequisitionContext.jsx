@@ -1,5 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { api } from '../api';
+import { supabase } from '../lib/supabase';
 
 export const DEPT_SUPERVISORS = {
   'Operations':    'Robert Kim',
@@ -12,42 +14,171 @@ export const DEPT_SUPERVISORS = {
 };
 
 const INIT_HW_ASSETS = [
-  { id: 'A001', name: 'Dell XPS 15 Laptop',          category: 'Laptop',    serialNumber: 'SN-XPS15-001',  assignedTo: 'Visesh Lodha',      dept: 'IT',          location: 'Main Office',  status: 'Checked Out', purchased: '2024-03-10', warrantyEnd: '2027-03-10', assignedReqId: null, lastUpdated: '2026-05-28' },
-  { id: 'A002', name: 'MacBook Pro 14" M3',           category: 'Laptop',    serialNumber: 'SN-MBP14-002',  assignedTo: 'Sarah Johnson',     dept: 'Accounting',  location: 'Main Office',  status: 'Checked Out', purchased: '2024-06-01', warrantyEnd: '2027-06-01', assignedReqId: null, lastUpdated: '2026-05-28' },
-  { id: 'A003', name: 'Dell UltraSharp 27" Monitor',  category: 'Monitor',   serialNumber: 'SN-DEL27-003',  assignedTo: 'Michael Chen',      dept: 'Development', location: 'Dev Floor',    status: 'Checked Out', purchased: '2023-11-15', warrantyEnd: '2026-11-15', assignedReqId: null, lastUpdated: '2026-05-28' },
-  { id: 'A004', name: 'HP ProDesk 600 G9 Desktop',    category: 'Desktop',   serialNumber: 'SN-HPD600-004', assignedTo: 'Reception Desk',    dept: 'Admin',       location: 'Front Lobby',  status: 'Checked Out', purchased: '2023-08-20', warrantyEnd: '2026-08-20', assignedReqId: null, lastUpdated: '2026-05-28' },
-  { id: 'A005', name: 'Cisco Catalyst 2960 Switch',   category: 'Network',   serialNumber: 'SN-CC2960-005', assignedTo: 'IT Rack',           dept: 'IT',          location: 'Server Room',  status: 'Checked Out', purchased: '2022-05-01', warrantyEnd: '2025-05-01', assignedReqId: null, lastUpdated: '2026-05-28' },
-  { id: 'A006', name: 'Synology DS1823xs+ NAS',       category: 'Server',    serialNumber: 'SN-SYN-006',    assignedTo: 'IT Infrastructure', dept: 'IT',          location: 'Server Room',  status: 'Checked Out', purchased: '2023-02-14', warrantyEnd: '2026-02-14', assignedReqId: null, lastUpdated: '2026-05-28' },
-  { id: 'A007', name: 'iPhone 15 Pro',                category: 'Phone',     serialNumber: 'SN-IP15P-007',  assignedTo: 'Robert Kim',        dept: 'OPS',         location: 'Field',        status: 'Checked Out', purchased: '2024-01-08', warrantyEnd: '2025-01-08', assignedReqId: null, lastUpdated: '2026-05-28' },
-  { id: 'A008', name: 'iPad Pro 12.9" Gen 6',         category: 'Tablet',    serialNumber: 'SN-IPAD-008',   assignedTo: 'Marcus Vance',      dept: 'OPS',         location: 'Field',        status: 'Checked Out', purchased: '2023-09-22', warrantyEnd: '2024-09-22', assignedReqId: null, lastUpdated: '2026-05-28' },
-  { id: 'A009', name: 'Logitech MX Keys Keyboard',    category: 'Peripheral',serialNumber: 'SN-LGT-009',    assignedTo: 'Unassigned',        dept: 'IT',          location: 'IT Storage',   status: 'Available',   purchased: '2024-02-28', warrantyEnd: '2026-02-28', assignedReqId: null, lastUpdated: '2026-05-28' },
-  { id: 'A010', name: 'APC Smart-UPS 1500VA',         category: 'Power',     serialNumber: 'SN-APC-010',    assignedTo: 'IT Rack',           dept: 'IT',          location: 'Server Room',  status: 'Checked Out', purchased: '2022-11-01', warrantyEnd: '2025-11-01', assignedReqId: null, lastUpdated: '2026-05-28' },
-  { id: 'A011', name: 'Dell Latitude 5540 Laptop',    category: 'Laptop',    serialNumber: 'SN-LAT54-011',  assignedTo: 'Unassigned',        dept: 'IT',          location: 'IT Storage',   status: 'Available',   purchased: '2025-01-15', warrantyEnd: '2028-01-15', assignedReqId: null, lastUpdated: '2026-05-28' },
-  { id: 'A012', name: 'HP EliteBook 840 G11',         category: 'Laptop',    serialNumber: 'SN-HPE840-012', assignedTo: 'Unassigned',        dept: 'IT',          location: 'IT Storage',   status: 'Available',   purchased: '2025-03-10', warrantyEnd: '2028-03-10', assignedReqId: null, lastUpdated: '2026-05-28' },
-  { id: 'A013', name: 'Samsung Galaxy Tab S9',        category: 'Tablet',    serialNumber: 'SN-SGT-013',    assignedTo: 'Unassigned',        dept: 'IT',          location: 'IT Storage',   status: 'Available',   purchased: '2025-02-20', warrantyEnd: '2028-02-20', assignedReqId: null, lastUpdated: '2026-05-28' },
-  { id: 'A014', name: 'Dell 24" Monitor P2423D',      category: 'Monitor',   serialNumber: 'SN-DEL24-014',  assignedTo: 'Unassigned',        dept: 'IT',          location: 'IT Storage',   status: 'Available',   purchased: '2025-04-01', warrantyEnd: '2028-04-01', assignedReqId: null, lastUpdated: '2026-05-28' },
+  { id: 'A001', name: 'Dell XPS 15 Laptop',          category: 'Laptop',     serialNumber: 'SN-XPS15-001',  assignedTo: 'Visesh Lodha',      dept: 'IT',          location: 'Main Office',  status: 'Checked Out', purchased: '2024-03-10', warrantyEnd: '2027-03-10' },
+  { id: 'A002', name: 'MacBook Pro 14" M3',           category: 'Laptop',     serialNumber: 'SN-MBP14-002',  assignedTo: 'Sarah Johnson',     dept: 'Accounting',  location: 'Main Office',  status: 'Checked Out', purchased: '2024-06-01', warrantyEnd: '2027-06-01' },
+  { id: 'A003', name: 'Dell UltraSharp 27" Monitor',  category: 'Monitor',    serialNumber: 'SN-DEL27-003',  assignedTo: 'Michael Chen',      dept: 'Development', location: 'Dev Floor',    status: 'Checked Out', purchased: '2023-11-15', warrantyEnd: '2026-11-15' },
+  { id: 'A004', name: 'HP ProDesk 600 G9 Desktop',    category: 'Desktop',    serialNumber: 'SN-HPD600-004', assignedTo: 'Reception Desk',    dept: 'Admin',       location: 'Front Lobby',  status: 'Checked Out', purchased: '2023-08-20', warrantyEnd: '2026-08-20' },
+  { id: 'A005', name: 'Cisco Catalyst 2960 Switch',   category: 'Network',    serialNumber: 'SN-CC2960-005', assignedTo: 'IT Rack',           dept: 'IT',          location: 'Server Room',  status: 'Checked Out', purchased: '2022-05-01', warrantyEnd: '2025-05-01' },
+  { id: 'A006', name: 'Synology DS1823xs+ NAS',       category: 'Server',     serialNumber: 'SN-SYN-006',    assignedTo: 'IT Infrastructure', dept: 'IT',          location: 'Server Room',  status: 'Checked Out', purchased: '2023-02-14', warrantyEnd: '2026-02-14' },
+  { id: 'A007', name: 'iPhone 15 Pro',                category: 'Phone',      serialNumber: 'SN-IP15P-007',  assignedTo: 'Robert Kim',        dept: 'OPS',         location: 'Field',        status: 'Checked Out', purchased: '2024-01-08', warrantyEnd: '2025-01-08' },
+  { id: 'A008', name: 'iPad Pro 12.9" Gen 6',         category: 'Tablet',     serialNumber: 'SN-IPAD-008',   assignedTo: 'Marcus Vance',      dept: 'OPS',         location: 'Field',        status: 'Checked Out', purchased: '2023-09-22', warrantyEnd: '2024-09-22' },
+  { id: 'A009', name: 'Logitech MX Keys Keyboard',    category: 'Peripheral', serialNumber: 'SN-LGT-009',    assignedTo: 'Unassigned',        dept: 'IT',          location: 'IT Storage',   status: 'Available',   purchased: '2024-02-28', warrantyEnd: '2026-02-28' },
+  { id: 'A010', name: 'APC Smart-UPS 1500VA',         category: 'Power',      serialNumber: 'SN-APC-010',    assignedTo: 'IT Rack',           dept: 'IT',          location: 'Server Room',  status: 'Checked Out', purchased: '2022-11-01', warrantyEnd: '2025-11-01' },
+  { id: 'A011', name: 'Dell Latitude 5540 Laptop',    category: 'Laptop',     serialNumber: 'SN-LAT54-011',  assignedTo: 'Unassigned',        dept: 'IT',          location: 'IT Storage',   status: 'Available',   purchased: '2025-01-15', warrantyEnd: '2028-01-15' },
+  { id: 'A012', name: 'HP EliteBook 840 G11',         category: 'Laptop',     serialNumber: 'SN-HPE840-012', assignedTo: 'Unassigned',        dept: 'IT',          location: 'IT Storage',   status: 'Available',   purchased: '2025-03-10', warrantyEnd: '2028-03-10' },
+  { id: 'A013', name: 'Samsung Galaxy Tab S9',        category: 'Tablet',     serialNumber: 'SN-SGT-013',    assignedTo: 'Unassigned',        dept: 'IT',          location: 'IT Storage',   status: 'Available',   purchased: '2025-02-20', warrantyEnd: '2028-02-20' },
+  { id: 'A014', name: 'Dell 24" Monitor P2423D',      category: 'Monitor',    serialNumber: 'SN-DEL24-014',  assignedTo: 'Unassigned',        dept: 'IT',          location: 'IT Storage',   status: 'Available',   purchased: '2025-04-01', warrantyEnd: '2028-04-01' },
 ];
 
-function load(key, fallback) {
-  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
+// ── Mappers: API (snake_case) ↔ frontend (camelCase) ─────────────────────────
+
+function reqFromApi(r) {
+  return {
+    id:                   r.id,
+    employeeName:         r.employee_name,
+    employeeDept:         r.employee_dept,
+    item:                 r.item,
+    quantity:             r.quantity,
+    reason:               r.reason,
+    status:               r.status,
+    supervisorName:       r.supervisor_name,
+    managerName:          r.manager_name || null,
+    managerApprovalDate:  r.manager_approval_date || null,
+    rejectionReason:      r.rejection_reason || null,
+    assetId:              r.asset_id || null,
+    assetName:            r.asset_name || null,
+    assetCategory:        r.asset_category || null,
+    assetSerial:          r.asset_serial || null,
+    assetAllocatedDate:   r.asset_allocated_date || null,
+    expectedReturnDate:   r.expected_return_date || null,
+    allocatedBy:          r.allocated_by || null,
+    actualReturnDate:     r.actual_return_date || null,
+    returnConfirmedBy:    r.return_confirmed_by || null,
+    returnAssetCondition: r.return_asset_condition || null,
+    history:              r.history || [],
+    createdAt:            r.created_at,
+    updatedAt:            r.updated_at,
+  };
 }
+
+function assetFromApi(a) {
+  return {
+    id:             a.id,
+    name:           a.name,
+    category:       a.category,
+    serialNumber:   a.serial_number,
+    assignedTo:     a.assigned_to,
+    dept:           a.dept,
+    location:       a.location,
+    status:         a.status,
+    assignedReqId:  a.assigned_req_id || null,
+    purchased:      a.purchased,
+    warrantyEnd:    a.warranty_end,
+    lastUpdated:    a.last_updated,
+  };
+}
+
+function assetToApi(a) {
+  return {
+    id:             a.id,
+    name:           a.name,
+    category:       a.category,
+    serial_number:  a.serialNumber || '',
+    assigned_to:    a.assignedTo || 'Unassigned',
+    dept:           a.dept || '',
+    location:       a.location || '',
+    status:         a.status || 'Available',
+    purchased:      a.purchased || '',
+    warranty_end:   a.warrantyEnd || '',
+  };
+}
+
+// ── Context ───────────────────────────────────────────────────────────────────
 
 const Ctx = createContext(null);
 
 export function RequisitionProvider({ children }) {
-  const [requisitions, setRequisitions] = useState(() => load('gn_reqs', []));
-  const [hwAssets, setHwAssets]         = useState(() => load('gn_hw_assets', INIT_HW_ASSETS));
-
-  const persist = (r, a) => {
-    localStorage.setItem('gn_reqs',      JSON.stringify(r));
-    localStorage.setItem('gn_hw_assets', JSON.stringify(a));
-  };
+  const [requisitions, setRequisitions] = useState([]);
+  const [hwAssets,     setHwAssets]     = useState([]);
+  const channelRef = useRef(null);
 
   const ts    = () => new Date().toISOString();
   const today = () => new Date().toISOString().split('T')[0];
 
+  // ── Fetch helpers ──────────────────────────────────────────────────────────
+
+  const refreshRequisitions = () =>
+    api.getRequisitions().then(rows => setRequisitions(rows.map(reqFromApi))).catch(() => {});
+
+  const refreshAssets = () =>
+    api.getHardwareAssets().then(rows => setHwAssets(rows.map(assetFromApi))).catch(() => {});
+
+  // ── Initial load + one-time localStorage migration ─────────────────────────
+
+  useEffect(() => {
+    Promise.all([api.getRequisitions(), api.getHardwareAssets()])
+      .then(async ([reqs, assets]) => {
+        // Migrate hw_assets from localStorage if DB is empty
+        if (assets.length === 0) {
+          let seed;
+          try { seed = JSON.parse(localStorage.getItem('gn_hw_assets')) || INIT_HW_ASSETS; }
+          catch { seed = INIT_HW_ASSETS; }
+          await Promise.allSettled(seed.map(a => api.createHardwareAsset(assetToApi(a))));
+          localStorage.removeItem('gn_hw_assets');
+          const fresh = await api.getHardwareAssets();
+          setHwAssets(fresh.map(assetFromApi));
+        } else {
+          setHwAssets(assets.map(assetFromApi));
+        }
+
+        // Migrate requisitions from localStorage if DB is empty
+        if (reqs.length === 0) {
+          let seed;
+          try { seed = JSON.parse(localStorage.getItem('gn_reqs')) || []; }
+          catch { seed = []; }
+          if (seed.length > 0) {
+            await Promise.allSettled(seed.map(r => api.createRequisition({
+              id:              r.id,
+              employee_name:   r.employeeName,
+              employee_dept:   r.employeeDept,
+              item:            r.item,
+              quantity:        r.quantity,
+              reason:          r.reason || '',
+              status:          r.status,
+              supervisor_name: r.supervisorName || '',
+            })));
+            localStorage.removeItem('gn_reqs');
+          }
+          const fresh = await api.getRequisitions();
+          setRequisitions(fresh.map(reqFromApi));
+        } else {
+          setRequisitions(reqs.map(reqFromApi));
+        }
+      })
+      .catch(() => {
+        // API unreachable — fall back to localStorage so app still works
+        try { setRequisitions(JSON.parse(localStorage.getItem('gn_reqs')) || []); } catch { setRequisitions([]); }
+        try { setHwAssets(JSON.parse(localStorage.getItem('gn_hw_assets')) || INIT_HW_ASSETS); } catch { setHwAssets(INIT_HW_ASSETS); }
+      });
+  }, []);
+
+  // ── Supabase Realtime ──────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!supabase) return;
+    channelRef.current = supabase
+      .channel('requisitions_assets_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'requisitions' }, refreshRequisitions)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'hardware_assets' }, refreshAssets)
+      .subscribe();
+    return () => supabase?.removeChannel(channelRef.current);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Mutations ──────────────────────────────────────────────────────────────
+
   const submitRequisition = ({ employeeName, employeeDept, item, quantity, reason }) => {
-    const id = `REQ-${Date.now().toString().slice(-6)}`;
+    const id  = `REQ-${Date.now().toString().slice(-6)}`;
+    const now = ts();
     const newReq = {
       id, employeeName, employeeDept, item,
       quantity: Number(quantity), reason,
@@ -57,33 +188,37 @@ export function RequisitionProvider({ children }) {
       assetId: null, assetName: null, assetCategory: null, assetSerial: null,
       assetAllocatedDate: null, expectedReturnDate: null, allocatedBy: null,
       actualReturnDate: null, returnConfirmedBy: null, returnAssetCondition: null,
-      history: [{ action: 'Submitted', by: employeeName, role: 'Employee', date: ts() }],
-      createdAt: ts(), updatedAt: ts(),
+      history: [{ action: 'Submitted', by: employeeName, role: 'Employee', date: now }],
+      createdAt: now, updatedAt: now,
     };
-    const r = [newReq, ...requisitions];
-    setRequisitions(r);
-    persist(r, hwAssets);
+    setRequisitions(prev => [newReq, ...prev]);
+    api.createRequisition({
+      id, employee_name: employeeName, employee_dept: employeeDept,
+      item, quantity: Number(quantity), reason: reason || '',
+      status: 'pending_manager',
+      supervisor_name: DEPT_SUPERVISORS[employeeDept] || 'TBD',
+    }).catch(() => setRequisitions(prev => prev.filter(r => r.id !== id)));
     return newReq;
   };
 
   const approveRequisition = (id, managerName) => {
-    const r = requisitions.map(req => req.id !== id ? req : {
-      ...req, status: 'manager_approved', managerName,
+    setRequisitions(prev => prev.map(r => r.id !== id ? r : {
+      ...r, status: 'manager_approved', managerName,
       managerApprovalDate: ts(), updatedAt: ts(),
-      history: [...req.history, { action: 'Approved by Manager', by: managerName, role: 'Manager', date: ts() }],
-    });
-    setRequisitions(r);
-    persist(r, hwAssets);
+      history: [...r.history, { action: 'Approved by Manager', by: managerName, role: 'Manager', date: ts() }],
+    }));
+    api.approveRequisition(id, { manager_name: managerName })
+      .then(updated => setRequisitions(prev => prev.map(r => r.id !== id ? r : { ...reqFromApi(updated), history: reqFromApi(updated).history })))
+      .catch(refreshRequisitions);
   };
 
   const rejectRequisition = (id, managerName, reason) => {
-    const r = requisitions.map(req => req.id !== id ? req : {
-      ...req, status: 'rejected', managerName,
-      rejectionReason: reason, updatedAt: ts(),
-      history: [...req.history, { action: 'Rejected by Manager', by: managerName, role: 'Manager', comment: reason, date: ts() }],
-    });
-    setRequisitions(r);
-    persist(r, hwAssets);
+    setRequisitions(prev => prev.map(r => r.id !== id ? r : {
+      ...r, status: 'rejected', managerName, rejectionReason: reason, updatedAt: ts(),
+      history: [...r.history, { action: 'Rejected by Manager', by: managerName, role: 'Manager', comment: reason, date: ts() }],
+    }));
+    api.rejectRequisition(id, { manager_name: managerName, rejection_reason: reason })
+      .catch(refreshRequisitions);
   };
 
   const allocateAsset = (reqId, assetId, supervisorName, expectedReturnDate) => {
@@ -91,19 +226,22 @@ export function RequisitionProvider({ children }) {
     const req   = requisitions.find(r => r.id === reqId);
     if (!asset || asset.status !== 'Available' || !req) return false;
 
-    const a = hwAssets.map(x => x.id !== assetId ? x : {
-      ...x, status: 'Checked Out', assignedTo: req.employeeName,
+    setHwAssets(prev => prev.map(a => a.id !== assetId ? a : {
+      ...a, status: 'Checked Out', assignedTo: req.employeeName,
       assignedReqId: reqId, lastUpdated: today(),
-    });
-    const r = requisitions.map(x => x.id !== reqId ? x : {
-      ...x, status: 'asset_allocated',
+    }));
+    setRequisitions(prev => prev.map(r => r.id !== reqId ? r : {
+      ...r, status: 'asset_allocated',
       assetId, assetName: asset.name, assetCategory: asset.category,
       assetSerial: asset.serialNumber || asset.id,
       assetAllocatedDate: ts(), expectedReturnDate, allocatedBy: supervisorName,
       updatedAt: ts(),
-      history: [...x.history, { action: 'Asset Allocated', by: supervisorName, role: 'Supervisor', comment: `${asset.name} (${assetId})`, date: ts() }],
-    });
-    setHwAssets(a); setRequisitions(r); persist(r, a);
+      history: [...r.history, { action: 'Asset Allocated', by: supervisorName, role: 'Supervisor', comment: `${asset.name} (${assetId})`, date: ts() }],
+    }));
+    api.allocateRequisitionAsset(reqId, {
+      asset_id: assetId, supervisor_name: supervisorName,
+      expected_return_date: expectedReturnDate || '',
+    }).catch(() => { refreshRequisitions(); refreshAssets(); });
     return true;
   };
 
@@ -111,12 +249,13 @@ export function RequisitionProvider({ children }) {
     const req = requisitions.find(r => r.id === reqId);
     if (!req?.assetId) return false;
 
-    const a = hwAssets.map(x => x.id !== req.assetId ? x : { ...x, status: 'Return Pending', lastUpdated: today() });
-    const r = requisitions.map(x => x.id !== reqId ? x : {
-      ...x, status: 'return_initiated', updatedAt: ts(),
-      history: [...x.history, { action: 'Return Initiated', by: initiatedBy, role: 'Employee/Supervisor', date: ts() }],
-    });
-    setHwAssets(a); setRequisitions(r); persist(r, a);
+    setHwAssets(prev => prev.map(a => a.id !== req.assetId ? a : { ...a, status: 'Return Pending', lastUpdated: today() }));
+    setRequisitions(prev => prev.map(r => r.id !== reqId ? r : {
+      ...r, status: 'return_initiated', updatedAt: ts(),
+      history: [...r.history, { action: 'Return Initiated', by: initiatedBy, role: 'Employee/Supervisor', date: ts() }],
+    }));
+    api.initiateRequisitionReturn(reqId, { initiated_by: initiatedBy })
+      .catch(() => { refreshRequisitions(); refreshAssets(); });
     return true;
   };
 
@@ -127,18 +266,19 @@ export function RequisitionProvider({ children }) {
     const condMap = { Available: 'Available', Damaged: 'Damaged', 'Under Repair': 'Under Repair', Retired: 'Retired' };
     const newStatus = condMap[condition] || 'Available';
 
-    const a = hwAssets.map(x => x.id !== req.assetId ? x : {
-      ...x, status: newStatus,
-      assignedTo: newStatus === 'Available' ? 'Unassigned' : x.assignedTo,
+    setHwAssets(prev => prev.map(a => a.id !== req.assetId ? a : {
+      ...a, status: newStatus,
+      assignedTo: newStatus === 'Available' ? 'Unassigned' : a.assignedTo,
       assignedReqId: null, lastUpdated: today(),
-    });
-    const r = requisitions.map(x => x.id !== reqId ? x : {
-      ...x, status: 'returned', actualReturnDate: ts(),
+    }));
+    setRequisitions(prev => prev.map(r => r.id !== reqId ? r : {
+      ...r, status: 'returned', actualReturnDate: ts(),
       returnConfirmedBy: supervisorName, returnAssetCondition: condition,
       updatedAt: ts(),
-      history: [...x.history, { action: 'Return Confirmed', by: supervisorName, role: 'Supervisor', comment: `Condition: ${condition}`, date: ts() }],
-    });
-    setHwAssets(a); setRequisitions(r); persist(r, a);
+      history: [...r.history, { action: 'Return Confirmed', by: supervisorName, role: 'Supervisor', comment: `Condition: ${condition}`, date: ts() }],
+    }));
+    api.confirmRequisitionReturn(reqId, { supervisor_name: supervisorName, condition })
+      .catch(() => { refreshRequisitions(); refreshAssets(); });
     return true;
   };
 
@@ -146,22 +286,23 @@ export function RequisitionProvider({ children }) {
     const req = requisitions.find(r => r.id === reqId);
     if (!req?.assetId) return false;
 
-    const a = hwAssets.map(x => x.id !== req.assetId ? x : { ...x, status: 'Lost', lastUpdated: today() });
-    const r = requisitions.map(x => x.id !== reqId ? x : {
-      ...x, status: 'asset_lost', updatedAt: ts(),
-      history: [...x.history, { action: 'Asset Marked Lost', by: supervisorName, role: 'Supervisor', comment: notes, date: ts() }],
-    });
-    setHwAssets(a); setRequisitions(r); persist(r, a);
+    setHwAssets(prev => prev.map(a => a.id !== req.assetId ? a : { ...a, status: 'Lost', lastUpdated: today() }));
+    setRequisitions(prev => prev.map(r => r.id !== reqId ? r : {
+      ...r, status: 'asset_lost', updatedAt: ts(),
+      history: [...r.history, { action: 'Asset Marked Lost', by: supervisorName, role: 'Supervisor', comment: notes, date: ts() }],
+    }));
+    api.markRequisitionLost(reqId, { supervisor_name: supervisorName, notes: notes || '' })
+      .catch(() => { refreshRequisitions(); refreshAssets(); });
     return true;
   };
 
   const addHwAsset = (data) => {
-    const nextNum = hwAssets.length + 1;
-    const id = `A${String(nextNum).padStart(3, '0')}`;
+    const id    = `A${Date.now().toString().slice(-6)}`;
     const asset = { id, ...data, assignedReqId: null, lastUpdated: today() };
-    const a = [asset, ...hwAssets];
-    setHwAssets(a);
-    persist(requisitions, a);
+    setHwAssets(prev => [asset, ...prev]);
+    api.createHardwareAsset(assetToApi(asset))
+      .then(saved => setHwAssets(prev => prev.map(a => a.id !== id ? a : assetFromApi(saved))))
+      .catch(() => setHwAssets(prev => prev.filter(a => a.id !== id)));
     return asset;
   };
 

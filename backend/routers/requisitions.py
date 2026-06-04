@@ -73,7 +73,23 @@ class HardwareAssetCreate(BaseModel):
 
 @router.get("/requisitions")
 def list_requisitions(db: Session = Depends(get_db)):
-    return db.query(models.Requisition).all()
+    reqs = db.query(models.Requisition).order_by(models.Requisition.created_at.desc()).all()
+    result = []
+    for r in reqs:
+        hist = (
+            db.query(models.ApprovalHistory)
+            .filter(models.ApprovalHistory.requisition_id == r.id)
+            .order_by(models.ApprovalHistory.created_at)
+            .all()
+        )
+        row = {c.name: getattr(r, c.name) for c in r.__table__.columns}
+        row["history"] = [
+            {"action": h.action, "by": h.action_by, "role": h.action_role,
+             "comment": h.comment or "", "date": h.created_at}
+            for h in hist
+        ]
+        result.append(row)
+    return result
 
 
 @router.post("/requisitions", status_code=201)
