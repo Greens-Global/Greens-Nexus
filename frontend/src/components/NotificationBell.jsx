@@ -6,7 +6,7 @@ import { useRequisitions }   from '../contexts/RequisitionContext';
 import { useMsal }           from '@azure/msal-react';
 import { useRole }           from '../contexts/RoleContext';
 
-const MANAGER_NAME = 'Visesh Lodha';
+// Resolved dynamically from MSAL account — see myName below
 
 function timeAgo(iso) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -59,7 +59,7 @@ export default function NotificationBell({ onNavigate }) {
 
     if (n.type === 'inv_request') {
       if (action === 'approve') {
-        approveRequest(refId, MANAGER_NAME);
+        approveRequest(refId, myName);
         markActioned(n.id);
         dismiss(n.id);
         // Resolve recipient email: prefer from notification action, then from the live request record
@@ -70,18 +70,18 @@ export default function NotificationBell({ onNavigate }) {
           recipient:   recipientEmail || requestedBy,
           requestedBy, itemName,
           title: 'Request Approved ✓',
-          body:  `Your request for ${itemName} has been approved. It will be assigned to you by your supervisor shortly.`,
+          body:  `Your request for ${itemName} has been approved by ${myName}. It will be assigned to you by your supervisor shortly.`,
           action: { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
         });
       } else { setRejectingId(n.id); }
     } else if (n.type === 'req_pending') {
       if (action === 'approve') {
-        approveRequisition(refId, MANAGER_NAME);
+        approveRequisition(refId, myName);
         markActioned(n.id);
         dismiss(n.id);
         addNotification({ type: 'approved', recipient: requestedBy, requestedBy, itemName,
           title: 'Requisition Approved ✓',
-          body:  `Your purchase requisition has been approved by ${MANAGER_NAME}. Your supervisor will allocate the asset to you.`,
+          body:  `Your purchase requisition has been approved by ${myName}. Your supervisor will allocate the asset to you.`,
         });
       } else { setRejectingId(n.id); }
     }
@@ -94,7 +94,7 @@ export default function NotificationBell({ onNavigate }) {
     const requestedBy = n.requestedBy ?? '';
 
     if (n.type === 'inv_request') {
-      rejectRequest(refId, MANAGER_NAME, rejectReason.trim());
+      rejectRequest(refId, myName, rejectReason.trim());
       const invReq = invRequests.find(r => r.id === refId);
       const recipientEmail = n.action?.requestedByEmail ?? invReq?.requestedByEmail ?? '';
       addNotification({
@@ -107,7 +107,7 @@ export default function NotificationBell({ onNavigate }) {
       });
     }
     if (n.type === 'req_pending') {
-      rejectRequisition(refId, MANAGER_NAME, rejectReason.trim());
+      rejectRequisition(refId, myName, rejectReason.trim());
       addNotification({ type: 'rejected', recipient: requestedBy, requestedBy, itemName,
         title: 'Requisition Rejected',
         body:  `Your purchase requisition was not approved. Reason: "${rejectReason.trim()}"`,
