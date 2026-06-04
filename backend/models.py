@@ -176,6 +176,7 @@ class Requisition(Base):
     __tablename__ = "requisitions"
     id = Column(String, primary_key=True)
     employee_name = Column(String, nullable=False)
+    employee_email = Column(String, default="")   # added for auth-based scoping
     employee_dept = Column(String, nullable=False)
     item = Column(String, nullable=False)
     quantity = Column(Integer, default=1)

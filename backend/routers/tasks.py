@@ -4,8 +4,9 @@ from pydantic import BaseModel
 from typing import Optional
 import models
 from database import get_db
+from auth import get_current_user
 
-router = APIRouter(prefix="/tasks", tags=["Tasks"])
+router = APIRouter(prefix="/tasks", tags=["Tasks"], dependencies=[Depends(get_current_user)])
 
 
 class TaskCreate(BaseModel):

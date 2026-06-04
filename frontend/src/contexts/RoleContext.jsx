@@ -24,7 +24,7 @@ export function RoleProvider({ children }) {
   // Fetch current user's role on mount / account change
   useEffect(() => {
     if (!myEmail) { setLoading(false); return; }
-    api.getMyRole(myEmail)
+    api.getMyRole()
       .then(data  => { setMyRole(data.role ?? 'employee'); })
       .catch(()   => { setMyRole('employee'); })
       .finally(() => setLoading(false));

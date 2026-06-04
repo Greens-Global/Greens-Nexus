@@ -3,8 +3,9 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import models
 from database import get_db
+from auth import get_current_user
 
-router = APIRouter(tags=["SOP & LMS"])
+router = APIRouter(tags=["SOP & LMS"], dependencies=[Depends(get_current_user)])
 
 
 class SopCreate(BaseModel):

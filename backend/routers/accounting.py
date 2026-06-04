@@ -2,8 +2,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 import models
 from database import get_db
+from auth import get_current_user
 
-router = APIRouter(prefix="/accounting", tags=["Accounting"])
+router = APIRouter(prefix="/accounting", tags=["Accounting"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("/transactions")

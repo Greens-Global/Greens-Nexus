@@ -4,9 +4,10 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
+from auth import get_current_user
 from models import InventoryRequest
 
-router = APIRouter(prefix="/inventory-requests", tags=["inventory-requests"])
+router = APIRouter(prefix="/inventory-requests", tags=["inventory-requests"], dependencies=[Depends(get_current_user)])
 
 
 class RequestIn(BaseModel):

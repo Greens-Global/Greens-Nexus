@@ -6,8 +6,9 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import models
 from database import get_db
+from auth import get_current_user
 
-router = APIRouter(tags=["Requisitions & Hardware Assets"])
+router = APIRouter(tags=["Requisitions & Hardware Assets"], dependencies=[Depends(get_current_user)])
 
 
 def _ts():
@@ -19,6 +20,7 @@ def _ts():
 class RequisitionCreate(BaseModel):
     id: str
     employee_name: str
+    employee_email: str = ""
     employee_dept: str
     item: str
     quantity: int = 1
@@ -72,10 +74,26 @@ class HardwareAssetCreate(BaseModel):
 # ── Requisition Routes ────────────────────────────────────────────────────────
 
 @router.get("/requisitions")
-def list_requisitions(db: Session = Depends(get_db)):
-    reqs = db.query(models.Requisition).order_by(models.Requisition.created_at.desc()).all()
+def list_requisitions(
+    user: dict = Depends(get_current_user),
+    db:   Session = Depends(get_db),
+):
+    # Managers and above see all requisitions; employees/supervisors see only their own
+    q = db.query(models.Requisition).order_by(models.Requisition.created_at.desc())
+    if user["level"] < 3:
+        q = q.filter(
+            (models.Requisition.employee_email == user["email"]) |
+            (models.Requisition.employee_email == "")  # legacy rows without email
+        )
+
+    reqs = q.all()
     result = []
     for r in reqs:
+        # For legacy rows (no email), restrict by name match as fallback
+        if user["level"] < 3 and not r.employee_email:
+            name_part = user["email"].split("@")[0].lower()
+            if name_part not in r.employee_name.lower():
+                continue
         hist = (
             db.query(models.ApprovalHistory)
             .filter(models.ApprovalHistory.requisition_id == r.id)
@@ -93,8 +111,15 @@ def list_requisitions(db: Session = Depends(get_db)):
 
 
 @router.post("/requisitions", status_code=201)
-def create_requisition(data: RequisitionCreate, db: Session = Depends(get_db)):
-    req = models.Requisition(**data.model_dump(), created_at=_ts(), updated_at=_ts())
+def create_requisition(
+    data: RequisitionCreate,
+    user: dict = Depends(get_current_user),
+    db:   Session = Depends(get_db),
+):
+    # Always stamp the verified email — never trust the client-supplied value
+    payload = data.model_dump()
+    payload["employee_email"] = user["email"]
+    req = models.Requisition(**payload, created_at=_ts(), updated_at=_ts())
     db.add(req)
     db.commit()
     db.refresh(req)

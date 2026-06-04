@@ -1,0 +1,113 @@
+import os
+import time
+import httpx
+from fastapi import Header, HTTPException, Depends
+from jose import jwt, JWTError
+from sqlalchemy.orm import Session
+from database import get_db
+
+TENANT_ID = os.getenv("AZURE_TENANT_ID", "40966012-b88e-45c8-941a-341f87b9dc60")
+CLIENT_ID = os.getenv("AZURE_CLIENT_ID",  "be6f1e37-83a8-4a29-8b46-96d20beb32f9")
+JWKS_URI  = f"https://login.microsoftonline.com/{TENANT_ID}/discovery/v2.0/keys"
+ISSUER    = f"https://login.microsoftonline.com/{TENANT_ID}/v2.0"
+
+# Set NEXUS_SKIP_AUTH=true in local .env to bypass token checks during development
+SKIP_AUTH = os.getenv("NEXUS_SKIP_AUTH", "").lower() in ("1", "true", "yes")
+
+_jwks_cache: dict = {"keys": None, "at": 0.0}
+
+
+def _fetch_jwks() -> dict:
+    """Fetch Azure AD public keys, cached for 1 hour."""
+    now = time.time()
+    if _jwks_cache["keys"] and now - _jwks_cache["at"] < 3600:
+        return _jwks_cache["keys"]
+    r = httpx.get(JWKS_URI, timeout=10, verify=True)
+    r.raise_for_status()
+    _jwks_cache.update({"keys": r.json(), "at": now})
+    return _jwks_cache["keys"]
+
+
+def _role_for(email: str, db: Session) -> tuple[str, int]:
+    from models import NexusRole
+    row = db.query(NexusRole).filter(NexusRole.email == email.lower()).first()
+    role = row.role if row else "employee"
+    levels = {"employee": 1, "supervisor": 2, "manager": 3, "administrator": 4, "owner": 5}
+    return role, levels.get(role, 1)
+
+
+def get_current_user(
+    authorization: str = Header(default=None),
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    FastAPI dependency. Validates the Azure AD ID token from the Authorization
+    header, returns {email, role, level}. Set NEXUS_SKIP_AUTH=true to bypass
+    in local development (never set in production).
+    """
+    if SKIP_AUTH:
+        dev_email = os.getenv("NEXUS_DEV_EMAIL", "dev@localhost").lower()
+        role, level = _role_for(dev_email, db)
+        return {"email": dev_email, "role": role, "level": level}
+
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+
+    token = authorization.removeprefix("Bearer ").strip()
+
+    try:
+        jwks = _fetch_jwks()
+        claims = jwt.decode(
+            token, jwks,
+            algorithms=["RS256"],
+            audience=CLIENT_ID,
+            issuer=ISSUER,
+            options={"verify_at_hash": False},
+        )
+    except JWTError as exc:
+        # If JWKS may be stale (key rotation), bust cache and retry once
+        if _jwks_cache["keys"]:
+            _jwks_cache["keys"] = None
+            try:
+                jwks = _fetch_jwks()
+                claims = jwt.decode(
+                    token, jwks,
+                    algorithms=["RS256"],
+                    audience=CLIENT_ID,
+                    issuer=ISSUER,
+                    options={"verify_at_hash": False},
+                )
+            except JWTError:
+                raise HTTPException(status_code=401, detail=f"Invalid token: {exc}")
+        else:
+            raise HTTPException(status_code=401, detail=f"Invalid token: {exc}")
+
+    # Azure AD puts the UPN in several possible claims
+    email = (
+        claims.get("preferred_username")
+        or claims.get("upn")
+        or claims.get("unique_name")
+        or claims.get("email")
+        or ""
+    ).lower().strip()
+
+    if not email:
+        raise HTTPException(status_code=401, detail="Token contains no identifiable email claim")
+
+    role, level = _role_for(email, db)
+    return {"email": email, "role": role, "level": level}
+
+
+def require_level(min_level: int):
+    """Returns a dependency that enforces a minimum role level."""
+    def _check(user: dict = Depends(get_current_user)):
+        if user["level"] < min_level:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+        return user
+    return _check
+
+
+# Convenience shortcuts
+require_manager       = require_level(3)
+require_administrator = require_level(4)
+require_owner         = require_level(5)

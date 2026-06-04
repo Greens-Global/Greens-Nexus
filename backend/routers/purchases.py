@@ -3,8 +3,9 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import models
 from database import get_db
+from auth import get_current_user
 
-router = APIRouter(prefix="/purchase-requests", tags=["Purchases"])
+router = APIRouter(prefix="/purchase-requests", tags=["Purchases"], dependencies=[Depends(get_current_user)])
 
 
 class PurchaseCreate(BaseModel):

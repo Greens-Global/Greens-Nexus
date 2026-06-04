@@ -15,3 +15,8 @@ export const loginRequest = {
   scopes: ["User.Read"],
   prompt: "select_account",
 };
+
+// Scopes used to acquire the ID token sent to the Nexus backend
+export const apiTokenRequest = {
+  scopes: ["openid", "profile", "email"],
+};

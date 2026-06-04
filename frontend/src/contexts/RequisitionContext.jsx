@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { useMsal } from '@azure/msal-react';
 import { api } from '../api';
 import { supabase } from '../lib/supabase';
 
@@ -98,6 +99,9 @@ function assetToApi(a) {
 const Ctx = createContext(null);
 
 export function RequisitionProvider({ children }) {
+  const { accounts } = useMsal();
+  const myEmail = (accounts[0]?.username ?? '').toLowerCase();
+
   const [requisitions, setRequisitions] = useState([]);
   const [hwAssets,     setHwAssets]     = useState([]);
   const channelRef = useRef(null);
@@ -193,9 +197,9 @@ export function RequisitionProvider({ children }) {
     };
     setRequisitions(prev => [newReq, ...prev]);
     api.createRequisition({
-      id, employee_name: employeeName, employee_dept: employeeDept,
-      item, quantity: Number(quantity), reason: reason || '',
-      status: 'pending_manager',
+      id, employee_name: employeeName, employee_email: myEmail,
+      employee_dept: employeeDept, item, quantity: Number(quantity),
+      reason: reason || '', status: 'pending_manager',
       supervisor_name: DEPT_SUPERVISORS[employeeDept] || 'TBD',
     }).catch(() => setRequisitions(prev => prev.filter(r => r.id !== id)));
     return newReq;

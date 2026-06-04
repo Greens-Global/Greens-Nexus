@@ -1,9 +1,32 @@
+import { msalInstance } from './msalInstance';
+import { apiTokenRequest } from './authConfig';
+
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
+async function getAuthHeader() {
+  const accounts = msalInstance.getAllAccounts();
+  if (!accounts.length) return {};
+  try {
+    const result = await msalInstance.acquireTokenSilent({
+      ...apiTokenRequest,
+      account: accounts[0],
+    });
+    return { Authorization: `Bearer ${result.idToken}` };
+  } catch {
+    // Silent refresh failed — user may need to re-authenticate
+    return {};
+  }
+}
+
 async function req(path, options = {}) {
+  const authHeader = await getAuthHeader();
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeader,
+      ...(options.headers ?? {}),
+    },
   });
   if (!res.ok) throw new Error(`API error ${res.status}`);
   if (res.status === 204) return null;
@@ -54,7 +77,7 @@ export const api = {
   clickExternalLink: (id) => req(`/external-links/${id}/click`, { method: "PATCH" }),
 
   // Nexus Roles
-  getMyRole:    (email)              => req(`/roles/me?email=${encodeURIComponent(email)}`),
+  getMyRole:    ()                    => req('/roles/me'),
   getAllRoles:   ()                   => req('/roles'),
   assignRole:   (email, role, by)    => req(`/roles/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify({ role, assigned_by: by }) }),
   syncRoles:    (emails)             => req('/roles/sync', { method: 'POST', body: JSON.stringify({ emails }) }),

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from database import get_db
 from models import NexusRole
+from auth import get_current_user, require_administrator
 
 router = APIRouter(prefix="/roles", tags=["roles"])
 
@@ -59,47 +60,55 @@ def sync_users(body: SyncRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/me")
-def get_my_role(email: str, db: Session = Depends(get_db)):
-    """Return the Nexus role for the given email. Defaults to 'employee'."""
+def get_my_role(
+    user: dict = Depends(get_current_user),
+    db:   Session = Depends(get_db),
+):
+    """Return the caller's role — identity is taken from the verified token, never from a param."""
     _seed_if_empty(db)
-    role = _get_role(email, db)
-    return {"email": email.lower(), "role": role}
+    role = _get_role(user["email"], db)
+    return {"email": user["email"], "role": role}
 
 
 @router.get("")
-def get_all_roles(db: Session = Depends(get_db)):
-    """Return all explicit role assignments."""
+def get_all_roles(
+    user: dict = Depends(require_administrator),
+    db:   Session = Depends(get_db),
+):
+    """Return all role assignments. Requires administrator or above."""
     rows = db.query(NexusRole).all()
     return [{"email": r.email, "role": r.role, "assigned_by": r.assigned_by} for r in rows]
 
 
 @router.put("/{email}")
-def assign_role(email: str, body: RoleAssignment, db: Session = Depends(get_db)):
-    """Assign a role to a user. Requester must be administrator or owner."""
-    target_email    = email.lower().strip()
-    requester_email = body.assigned_by.lower().strip()
-    new_role        = body.role.lower().strip()
+def assign_role(
+    email: str,
+    body:  RoleAssignment,
+    user:  dict = Depends(get_current_user),
+    db:    Session = Depends(get_db),
+):
+    """Assign a role. Requester identity comes from the verified token — not the request body."""
+    target_email = email.lower().strip()
+    new_role     = body.role.lower().strip()
 
     if new_role not in VALID_ROLES:
         raise HTTPException(status_code=400, detail=f"Invalid role '{new_role}'")
 
-    requester_role  = _get_role(requester_email, db)
-    requester_level = ROLE_LEVEL.get(requester_role, 1)
+    requester_level = user["level"]
     target_level    = ROLE_LEVEL.get(new_role, 1)
 
     if requester_level < ROLE_LEVEL["administrator"]:
         raise HTTPException(status_code=403, detail="Need administrator or owner role to manage roles")
 
-    # Non-owners cannot assign a role higher than their own
-    if target_level > requester_level and requester_role != "owner":
+    if target_level > requester_level and user["role"] != "owner":
         raise HTTPException(status_code=403, detail="Cannot assign a role higher than your own")
 
     row = db.query(NexusRole).filter(NexusRole.email == target_email).first()
     if row:
         row.role        = new_role
-        row.assigned_by = requester_email
+        row.assigned_by = user["email"]
     else:
-        row = NexusRole(email=target_email, role=new_role, assigned_by=requester_email)
+        row = NexusRole(email=target_email, role=new_role, assigned_by=user["email"])
         db.add(row)
     db.commit()
     return {"email": target_email, "role": new_role}

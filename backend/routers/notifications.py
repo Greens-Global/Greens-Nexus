@@ -5,9 +5,10 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
+from auth import get_current_user
 from models import NexusNotification
 
-router = APIRouter(prefix="/notifications", tags=["notifications"])
+router = APIRouter(prefix="/notifications", tags=["notifications"], dependencies=[Depends(get_current_user)])
 
 
 class NotificationIn(BaseModel):
