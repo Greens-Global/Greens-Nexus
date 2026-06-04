@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import models
 from database import get_db
-from auth import get_current_user, require_manager
+from auth import require_manager
 
 router = APIRouter(prefix="/purchase-requests", tags=["Purchases"], dependencies=[Depends(require_manager)])
 
