@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, forwardRef } from "react";
 import GlobeLogo  from "./GlobeLogo";
 import { useMsal } from "@azure/msal-react";
 import { useRole, ROLES } from "../contexts/RoleContext";
@@ -30,10 +30,10 @@ const NAV = [
   {
     view: "it", label: "IT", icon: Monitor, minRole: 'supervisor',
     sub: [
+      { subview: "nexus-access-manager",  label: "Nexus Access Manager", icon: Shield },
       { subview: "network",               label: "Network Dashboard",    icon: Wifi },
       { subview: "it-assets",             label: "Asset Management",     icon: Monitor },
       { subview: "it-websites",           label: "Website Management",   icon: ExternalLink },
-      { subview: "nexus-access-manager",  label: "Nexus Access Manager", icon: Shield },
     ],
   },
   {
@@ -116,7 +116,7 @@ const NAV = [
   { view: "external-links", label: "External Links", icon: ExternalLink, minRole: 'supervisor' },
 ];
 
-export default function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }) {
+const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }, ref) {
   const [expanded, setExpanded] = useState({});
   const { accounts } = useMsal();
   const { myRole, can } = useRole();
@@ -141,7 +141,7 @@ export default function Sidebar({ activeView, activeSub, onNavigate, isOpen, onC
 
   return (
     <>
-      <aside className={`sidebar${isOpen ? " open" : ""}${collapsed ? " collapsed" : ""}`}>
+      <aside ref={ref} className={`sidebar${isOpen ? " open" : ""}${collapsed ? " collapsed" : ""}`}>
 
         {/* ── Collapse toggle ── */}
         <button
@@ -246,4 +246,6 @@ export default function Sidebar({ activeView, activeSub, onNavigate, isOpen, onC
       {isOpen && <div className="sidebar-overlay active" onClick={onClose} />}
     </>
   );
-}
+});
+
+export default Sidebar;

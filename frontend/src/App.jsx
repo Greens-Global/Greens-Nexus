@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { AuthenticatedTemplate, UnauthenticatedTemplate } from "@azure/msal-react";
 import { NotificationProvider } from "./contexts/NotificationContext";
 import { RoleProvider, useRole } from "./contexts/RoleContext";
@@ -70,6 +70,19 @@ export default function App() {
   const [sidebarOpen,      setSidebarOpen]      = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("gg-sidebar-collapsed") === "true");
   const [navHistory,       setNavHistory]       = useState([]);
+  const sidebarRef = useRef(null);
+
+  // Collapse sidebar when clicking outside it — lets clicks pass through to content
+  useEffect(() => {
+    if (sidebarCollapsed) return;
+    const handleClickOutside = (e) => {
+      if (sidebarRef.current && !sidebarRef.current.contains(e.target)) {
+        setSidebarCollapsed(true);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -147,6 +160,7 @@ export default function App() {
         <InventoryProvider>
         <div className="app-container">
           <Sidebar
+            ref={sidebarRef}
             activeView={activeView}
             activeSub={activeSub}
             onNavigate={navigate}
@@ -155,9 +169,6 @@ export default function App() {
             collapsed={sidebarCollapsed}
             onToggleCollapse={() => setSidebarCollapsed(c => !c)}
           />
-          {!sidebarCollapsed && (
-            <div className="sidebar-dismiss-overlay" onClick={() => setSidebarCollapsed(true)} />
-          )}
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
             <TopHeader
               title={VIEW_LABELS[activeView] || activeView}
