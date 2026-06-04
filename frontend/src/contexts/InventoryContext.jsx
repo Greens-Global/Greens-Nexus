@@ -68,9 +68,13 @@ export function InventoryProvider({ children }) {
       .catch(() => {});
   }, []);
 
-  // Broadcast a refresh signal to all connected clients (no Postgres/RLS involved)
-  const broadcastRefresh = useCallback(() => {
-    broadcastRef.current?.send({ type: 'broadcast', event: 'inv_refresh', payload: {} });
+  // Broadcast a targeted refresh signal — payload carries the changed request ID
+  // Recipients only re-fetch if the change is relevant to them
+  const broadcastRefresh = useCallback((id, affectedEmail = '') => {
+    broadcastRef.current?.send({
+      type: 'broadcast', event: 'inv_refresh',
+      payload: { id, affectedEmail },
+    });
   }, []);
 
   // Convert raw Supabase Realtime row (snake_case) → camelCase to match API shape
@@ -125,17 +129,23 @@ export function InventoryProvider({ children }) {
         )
         .subscribe();
 
-      // Broadcast channel: direct WebSocket message — no Postgres/RLS/publication needed
-      // When any user mutates a request, they broadcast here and all others re-fetch
+      // Broadcast channel: direct WebSocket — no Postgres/RLS/publication needed
+      // Only re-fetch if this change is relevant: I'm a manager, or it's my request
       broadcastRef.current = supabase
         .channel('inventory_broadcast')
-        .on('broadcast', { event: 'inv_refresh' }, () => fetchRequests())
+        .on('broadcast', { event: 'inv_refresh' }, ({ payload }) => {
+          const isMyRequest = payload?.affectedEmail && myEmail &&
+            payload.affectedEmail.toLowerCase() === myEmail;
+          const iAmInvolved = isMyRequest ||
+            requests.some(r => r.id === payload?.id);
+          if (iAmInvolved) fetchRequests();
+        })
         .subscribe();
 
-      // 3s fallback poll — catches anything Realtime or Broadcast missed
-      pollRef.current = setInterval(fetchRequests, 3000);
+      // 30s fallback poll — safety net only; Broadcast handles real-time updates
+      pollRef.current = setInterval(fetchRequests, 30000);
     } else {
-      pollRef.current = setInterval(fetchRequests, 3000);
+      pollRef.current = setInterval(fetchRequests, 30000);
     }
 
     return () => {
@@ -176,29 +186,32 @@ export function InventoryProvider({ children }) {
   }
 
   function approveRequest(id, managerName) {
+    const req = requests.find(r => r.id === id);
     setRequests(prev => prev.map(r =>
       r.id === id ? { ...r, status: 'approved', resolvedAt: new Date().toISOString(), resolvedBy: managerName } : r
     ));
     api.updateInventoryRequest(id, { status: 'approved', resolved_by: managerName })
-      .then(() => { fetchRequests(); broadcastRefresh(); })
+      .then(() => { fetchRequests(); broadcastRefresh(id, req?.requestedByEmail); })
       .catch(() => fetchRequests());
   }
 
   function allocateItem(id, supervisorName) {
+    const req = requests.find(r => r.id === id);
     setRequests(prev => prev.map(r =>
       r.id === id ? { ...r, status: 'allocated', allocatedAt: new Date().toISOString(), allocatedBy: supervisorName } : r
     ));
     api.updateInventoryRequest(id, { status: 'allocated', allocated_by: supervisorName })
-      .then(() => { fetchRequests(); broadcastRefresh(); })
+      .then(() => { fetchRequests(); broadcastRefresh(id, req?.requestedByEmail); })
       .catch(() => fetchRequests());
   }
 
   function rejectRequest(id, managerName, reason) {
+    const req = requests.find(r => r.id === id);
     setRequests(prev => prev.map(r =>
       r.id === id ? { ...r, status: 'rejected', resolvedAt: new Date().toISOString(), resolvedBy: managerName, rejectReason: reason } : r
     ));
     api.updateInventoryRequest(id, { status: 'rejected', resolved_by: managerName, reject_reason: reason })
-      .then(() => { fetchRequests(); broadcastRefresh(); })
+      .then(() => { fetchRequests(); broadcastRefresh(id, req?.requestedByEmail); })
       .catch(() => fetchRequests());
   }
 
