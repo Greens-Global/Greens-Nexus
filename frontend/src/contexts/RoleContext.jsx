@@ -21,13 +21,30 @@ export function RoleProvider({ children }) {
   const [allRoles,  setAllRoles]  = useState({});   // { email: role }
   const [loading,   setLoading]   = useState(true);
 
-  // Fetch current user's role on mount / account change
+  // Fetch current user's role on mount / account change.
+  // Retries up to 3 times with backoff — guards against the MSAL token
+  // not being ready on the very first render.
   useEffect(() => {
     if (!myEmail) { setLoading(false); return; }
-    api.getMyRole()
-      .then(data  => { setMyRole(data.role ?? 'employee'); })
-      .catch(()   => { setMyRole('employee'); })
-      .finally(() => setLoading(false));
+    let cancelled = false;
+
+    const tryFetch = (attempt = 1) => {
+      api.getMyRole()
+        .then(data => {
+          if (!cancelled) setMyRole(data.role ?? 'employee');
+        })
+        .catch(() => {
+          if (!cancelled && attempt < 3) {
+            setTimeout(() => tryFetch(attempt + 1), 1000 * attempt);
+          } else if (!cancelled) {
+            setMyRole('employee');
+          }
+        })
+        .finally(() => { if (!cancelled) setLoading(false); });
+    };
+
+    tryFetch();
+    return () => { cancelled = true; };
   }, [myEmail]);
 
   // Fetch all role assignments (used by Admin page)

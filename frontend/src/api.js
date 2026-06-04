@@ -1,9 +1,13 @@
-import { msalInstance } from './msalInstance';
+import { msalInstance, msalReady } from './msalInstance';
 import { apiTokenRequest } from './authConfig';
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
 async function getAuthHeader() {
+  // Wait for MSAL to finish loading its cache before asking for a token.
+  // Without this, acquireTokenSilent fails on first render and the request
+  // goes out with no Authorization header, causing a 401.
+  await msalReady;
   const accounts = msalInstance.getAllAccounts();
   if (!accounts.length) return {};
   try {
@@ -13,7 +17,6 @@ async function getAuthHeader() {
     });
     return { Authorization: `Bearer ${result.idToken}` };
   } catch {
-    // Silent refresh failed — user may need to re-authenticate
     return {};
   }
 }
