@@ -342,7 +342,10 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
     if (activeSub === 'my-requests') setTab('my-requests');
   }, [activeSub]);
 
-  const myReqs = requests.filter(r => r.requestedBy === userName);
+  const myReqs = requests.filter(r =>
+    (r.requestedByEmail && r.requestedByEmail.toLowerCase() === userEmail) ||
+    r.requestedBy === userName
+  );
 
   const filtered = items.filter(item => {
     const matchSearch = item.name.toLowerCase().includes(search.toLowerCase());
