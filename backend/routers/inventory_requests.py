@@ -1,11 +1,41 @@
+import os
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
+import httpx
 from database import get_db
 from auth import get_current_user
 from models import InventoryRequest
+
+_SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+_SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+
+
+def _fire_inventory_event(request_id: str, status: str, affected_email: str) -> None:
+    """Insert a row into inventory_events so Supabase Realtime notifies clients.
+    Fire-and-forget: a Supabase outage must never break the main API response."""
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return
+    try:
+        httpx.post(
+            f"{_SUPABASE_URL}/rest/v1/inventory_events",
+            headers={
+                "apikey": _SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal",
+            },
+            json={
+                "request_id": request_id,
+                "status": status,
+                "affected_email": affected_email,
+            },
+            timeout=5.0,
+        )
+    except Exception:
+        pass
 
 router = APIRouter(prefix="/inventory-requests", tags=["inventory-requests"], dependencies=[Depends(get_current_user)])
 
@@ -110,4 +140,5 @@ def update_request(req_id: str, body: StatusUpdate, db: Session = Depends(get_db
         row.return_photo_url  = body.return_photo_url  or ""
         row.condition_note    = body.condition_note    or ""
     db.commit()
+    _fire_inventory_event(req_id, row.status, row.requested_by_email or "")
     return _to_dict(row)

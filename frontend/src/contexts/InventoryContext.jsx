@@ -58,23 +58,21 @@ export function InventoryProvider({ children }) {
 
   const [items]    = useState(INITIAL_ITEMS);
   const [requests, setRequests] = useState([]);
-  const channelRef    = useRef(null);
-  const broadcastRef  = useRef(null);
-  const pollRef       = useRef(null);
+  const channelRef  = useRef(null);  // postgres_changes on inventory_requests
+  const eventsRef   = useRef(null);  // postgres_changes on inventory_events
+  const pollRef     = useRef(null);
+  // Always-current snapshot of requests for use inside subscription callbacks.
+  // Avoids stale closure: subscriptions are set up once but need fresh state.
+  const requestsRef = useRef([]);
+
+  useEffect(() => {
+    requestsRef.current = requests;
+  }, [requests]);
 
   const fetchRequests = useCallback(() => {
     api.getInventoryRequests()
       .then(rows => setRequests(rows))
       .catch(() => {});
-  }, []);
-
-  // Broadcast a targeted refresh signal — payload carries the changed request ID
-  // Recipients only re-fetch if the change is relevant to them
-  const broadcastRefresh = useCallback((id, affectedEmail = '') => {
-    broadcastRef.current?.send({
-      type: 'broadcast', event: 'inv_refresh',
-      payload: { id, affectedEmail },
-    });
   }, []);
 
   // Convert raw Supabase Realtime row (snake_case) → camelCase to match API shape
@@ -108,7 +106,8 @@ export function InventoryProvider({ children }) {
     fetchRequests();
 
     if (supabase) {
-      // postgres_changes: catch new inserts (works reliably for INSERT)
+      // INSERT on inventory_requests: new request submitted — add directly to state
+      // UPDATE on inventory_requests: kept as backup in case inventory_events misses
       channelRef.current = supabase
         .channel('inventory_requests_changes')
         .on(
@@ -129,31 +128,37 @@ export function InventoryProvider({ children }) {
         )
         .subscribe();
 
-      // Broadcast channel: direct WebSocket — no Postgres/RLS/publication needed
-      // Only re-fetch if this change is relevant: I'm a manager, or it's my request
-      broadcastRef.current = supabase
-        .channel('inventory_broadcast')
-        .on('broadcast', { event: 'inv_refresh' }, ({ payload }) => {
-          const isMyRequest = payload?.affectedEmail && myEmail &&
-            payload.affectedEmail.toLowerCase() === myEmail;
-          const iAmInvolved = isMyRequest ||
-            requests.some(r => r.id === payload?.id);
-          if (iAmInvolved) fetchRequests();
-        })
+      // INSERT on inventory_events: backend-pushed signal after every status change.
+      // Only the affected user and users who already have the request refetch —
+      // keeps API load minimal regardless of how many users are connected.
+      eventsRef.current = supabase
+        .channel('inventory_events_inserts')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'inventory_events' },
+          payload => {
+            const { affected_email, request_id } = payload.new ?? {};
+            const isMyRequest = affected_email && myEmail &&
+              affected_email.toLowerCase() === myEmail;
+            const iAmInvolved = isMyRequest ||
+              requestsRef.current.some(r => r.id === request_id);
+            if (iAmInvolved) fetchRequests();
+          }
+        )
         .subscribe();
 
-      // 30s fallback poll — safety net only; Broadcast handles real-time updates
+      // 30s fallback poll — catches anything missed if WebSocket drops
       pollRef.current = setInterval(fetchRequests, 30000);
     } else {
       pollRef.current = setInterval(fetchRequests, 30000);
     }
 
     return () => {
-      if (channelRef.current)   supabase?.removeChannel(channelRef.current);
-      if (broadcastRef.current) supabase?.removeChannel(broadcastRef.current);
+      if (channelRef.current) supabase?.removeChannel(channelRef.current);
+      if (eventsRef.current)  supabase?.removeChannel(eventsRef.current);
       clearInterval(pollRef.current);
     };
-  }, [fetchRequests]);
+  }, [fetchRequests, myEmail]);
 
   function raiseRequest({ itemId, itemName, requestedBy, requestedByEmail, raisedBy, department, quantity, days, reason }) {
     const id = genId();
@@ -168,9 +173,7 @@ export function InventoryProvider({ children }) {
       createdAt: new Date().toISOString(),
       resolvedAt: null, resolvedBy: null, rejectReason: null,
     };
-    // Optimistic update
     setRequests(prev => [req, ...prev]);
-    // Persist to backend
     api.createInventoryRequest({
       id,
       item_id:             itemId,
@@ -186,32 +189,29 @@ export function InventoryProvider({ children }) {
   }
 
   function approveRequest(id, managerName) {
-    const req = requests.find(r => r.id === id);
     setRequests(prev => prev.map(r =>
       r.id === id ? { ...r, status: 'approved', resolvedAt: new Date().toISOString(), resolvedBy: managerName } : r
     ));
     api.updateInventoryRequest(id, { status: 'approved', resolved_by: managerName })
-      .then(() => { fetchRequests(); broadcastRefresh(id, req?.requestedByEmail); })
+      .then(() => fetchRequests())
       .catch(() => fetchRequests());
   }
 
   function allocateItem(id, supervisorName) {
-    const req = requests.find(r => r.id === id);
     setRequests(prev => prev.map(r =>
       r.id === id ? { ...r, status: 'allocated', allocatedAt: new Date().toISOString(), allocatedBy: supervisorName } : r
     ));
     api.updateInventoryRequest(id, { status: 'allocated', allocated_by: supervisorName })
-      .then(() => { fetchRequests(); broadcastRefresh(id, req?.requestedByEmail); })
+      .then(() => fetchRequests())
       .catch(() => fetchRequests());
   }
 
   function rejectRequest(id, managerName, reason) {
-    const req = requests.find(r => r.id === id);
     setRequests(prev => prev.map(r =>
       r.id === id ? { ...r, status: 'rejected', resolvedAt: new Date().toISOString(), resolvedBy: managerName, rejectReason: reason } : r
     ));
     api.updateInventoryRequest(id, { status: 'rejected', resolved_by: managerName, reject_reason: reason })
-      .then(() => { fetchRequests(); broadcastRefresh(id, req?.requestedByEmail); })
+      .then(() => fetchRequests())
       .catch(() => fetchRequests());
   }
 
@@ -219,7 +219,6 @@ export function InventoryProvider({ children }) {
     const now = new Date().toISOString();
     let permanentUrl = '';
 
-    // Upload to Supabase Storage if we have a file and a client
     if (file && supabase) {
       const ext  = photoName?.split('.').pop() || 'jpg';
       const path = `${id}/${Date.now()}.${ext}`;
@@ -234,7 +233,6 @@ export function InventoryProvider({ children }) {
       }
     }
 
-    // Optimistic update — use permanent URL if available, otherwise nothing
     setRequests(prev => prev.map(r =>
       r.id !== id ? r : {
         ...r, status: 'returned',
@@ -250,7 +248,7 @@ export function InventoryProvider({ children }) {
       return_photo_name: photoName     || '',
       return_photo_url:  permanentUrl  || '',
       condition_note:    conditionNote || '',
-    }).then(() => { fetchRequests(); broadcastRefresh(); }).catch(() => {});
+    }).then(() => fetchRequests()).catch(() => {});
   }
 
   const pendingCount = requests.filter(r => r.status === 'pending').length;
