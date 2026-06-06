@@ -17,6 +17,31 @@ function fmtTime(iso) {
   } catch { return iso.slice(0, 16).replace('T', ' '); }
 }
 
+// Renders the JSON `details` payload as a compact, human-scannable line —
+// e.g. `qty: 2 · reason: "Replacing cracked screen" · condition: damaged`.
+// Falls back silently to nothing for path/status-only entries (older rows,
+// or routes that don't carry a meaningful business payload).
+const _DETAIL_LABELS = {
+  status: 'status', item_name: 'item', quantity: 'qty', days: 'days',
+  reason: 'reason', reject_reason: 'reject reason', condition_note: 'condition',
+  resolved_by: 'by', allocated_by: 'by', name: 'name', category: 'category',
+  assigned_to: 'assigned to', dept: 'dept',
+};
+function summarizeDetails(raw) {
+  if (!raw) return '';
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch { return ''; }
+  if (!parsed || typeof parsed !== 'object') return '';
+  const parts = [];
+  for (const [key, label] of Object.entries(_DETAIL_LABELS)) {
+    const v = parsed[key];
+    if (v === undefined || v === null || v === '') continue;
+    const display = typeof v === 'string' && v.length > 60 ? `${v.slice(0, 57)}…` : v;
+    parts.push(`${label}: ${typeof v === 'string' ? `"${display}"` : display}`);
+  }
+  return parts.join('  ·  ');
+}
+
 function actionColor(action) {
   const a = action.toLowerCase();
   if (a.includes('approved') || a.includes('confirmed') || a.includes('synced')) return 'hsl(var(--color-green))';
@@ -144,6 +169,7 @@ function AuditLogs() {
                 <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: 'var(--muted)', letterSpacing: '.04em', textTransform: 'uppercase' }}>Who</th>
                 <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: 'var(--muted)', letterSpacing: '.04em', textTransform: 'uppercase' }}>Action</th>
                 <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: 'var(--muted)', letterSpacing: '.04em', textTransform: 'uppercase' }}>Resource</th>
+                <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: 'var(--muted)', letterSpacing: '.04em', textTransform: 'uppercase' }}>Details</th>
                 <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: 'var(--muted)', letterSpacing: '.04em', textTransform: 'uppercase' }}>IP</th>
               </tr>
             </thead>
@@ -168,6 +194,10 @@ function AuditLogs() {
                   </td>
                   <td style={{ padding: '10px 14px', color: 'var(--muted)', fontSize: 12, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {r.resource_id || r.resource_type || '—'}
+                  </td>
+                  <td style={{ padding: '10px 14px', color: 'var(--muted)', fontSize: 11.5, maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    title={summarizeDetails(r.details)}>
+                    {summarizeDetails(r.details) || '—'}
                   </td>
                   <td style={{ padding: '10px 14px', color: 'var(--muted)', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
                     {r.ip_address || '—'}

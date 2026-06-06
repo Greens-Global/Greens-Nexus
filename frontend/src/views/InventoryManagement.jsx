@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   Package, Plus, Search, CheckCircle, Clock, XCircle,
   RotateCcw, Camera, Monitor, Wrench, Building2, Calculator,
-  AlertCircle, Filter,
+  AlertCircle, Filter, X, Loader2, ZoomIn,
 } from 'lucide-react';
 import { useInventory }       from '../contexts/InventoryContext';
 import { useNotifications }   from '../contexts/NotificationContext';
@@ -38,6 +38,61 @@ const STATUS_META = {
   returned:  { label: 'Returned',        bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))',   Icon: RotateCcw },
 };
 
+// ── Shared modal helpers ──────────────────────────────────────────────────────
+// Escape-to-close — every modal in this file wires this in so keyboard users
+// (and anyone used to standard dialog behavior) aren't stuck clicking the backdrop.
+function useEscapeKey(onEscape) {
+  useEffect(() => {
+    function handler(e) { if (e.key === 'Escape') onEscape(); }
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onEscape]);
+}
+
+// Full-size photo viewer — opened by clicking any return-photo thumbnail.
+function ImageLightbox({ src, alt, onClose }) {
+  useEscapeKey(onClose);
+  return (
+    <div role="dialog" aria-modal="true" aria-label={alt || 'Photo preview'}
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.8)', zIndex:1100, display:'flex', alignItems:'center', justifyContent:'center', padding:32 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <img src={src} alt={alt || 'Photo preview'} style={{ maxWidth:'100%', maxHeight:'100%', borderRadius:10, boxShadow:'0 20px 80px rgba(0,0,0,0.5)' }} />
+      <button onClick={onClose} aria-label="Close photo preview"
+        style={{ position:'absolute', top:20, right:24, background:'rgba(255,255,255,0.12)', border:'none', borderRadius:8, padding:8, color:'#fff', cursor:'pointer', display:'flex' }}>
+        <X size={20} />
+      </button>
+    </div>
+  );
+}
+
+// Lightweight toast/snackbar — the app has no app-wide system, and this view
+// is the one place we currently swallow async errors silently. Self-contained
+// so it doesn't force a wider refactor; can be promoted to NotificationContext later.
+function Toast({ toasts, onDismiss }) {
+  if (toasts.length === 0) return null;
+  return (
+    <div style={{ position:'fixed', bottom:24, right:24, zIndex:1200, display:'flex', flexDirection:'column', gap:8, maxWidth:340 }}>
+      {toasts.map(t => (
+        <div key={t.id} role="status"
+          style={{
+            display:'flex', alignItems:'flex-start', gap:10, padding:'12px 14px', borderRadius:10,
+            background: 'var(--card)', border: `1px solid ${t.kind === 'error' ? 'hsla(var(--color-red),0.35)' : 'hsla(var(--color-green),0.35)'}`,
+            boxShadow:'0 8px 28px rgba(0,0,0,0.18)', animation:'fadeIn 0.2s ease-out',
+          }}>
+          {t.kind === 'error'
+            ? <XCircle size={16} color="hsl(var(--color-red))" style={{ flexShrink:0, marginTop:1 }} />
+            : <CheckCircle size={16} color="hsl(var(--color-green))" style={{ flexShrink:0, marginTop:1 }} />}
+          <span style={{ fontSize:13, color:'var(--ink)', lineHeight:1.4, flex:1 }}>{t.message}</span>
+          <button onClick={() => onDismiss(t.id)} aria-label="Dismiss notification"
+            style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', flexShrink:0 }}>
+            <X size={14} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Raise Request Modal ───────────────────────────────────────────────────────
 function RaiseRequestModal({ items, onClose, onSubmit, currentUser, canRaiseOnBehalf }) {
   const [itemSearch,  setItemSearch]  = useState('');
@@ -47,20 +102,39 @@ function RaiseRequestModal({ items, onClose, onSubmit, currentUser, canRaiseOnBe
   const [reason,      setReason]      = useState('');
   const [showList,    setShowList]    = useState(false);
   const [requestFor,  setRequestFor]  = useState(''); // optional: on behalf of
+  const [qtyClamped,  setQtyClamped]  = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEscapeKey(onClose);
 
   const filtered = items.filter(i =>
     i.available > 0 && i.name.toLowerCase().includes(itemSearch.toLowerCase())
   );
 
   function selectItem(item) {
-    setSelected(item); setItemSearch(item.name); setShowList(false); setQty(1);
+    setSelected(item); setItemSearch(item.name); setShowList(false); setQty(1); setQtyClamped(false);
+  }
+
+  function changeQty(raw) {
+    const max = selected?.available ?? 1;
+    const clamped = Math.max(1, Math.min(max, Number(raw) || 1));
+    setQtyClamped(Number(raw) > max);
+    setQty(clamped);
+  }
+
+  function submit() {
+    if (!selected || !reason.trim() || isSubmitting) return;
+    setIsSubmitting(true);
+    Promise.resolve(onSubmit({ item: selected, qty, days, reason: reason.trim(), requestFor: requestFor.trim() || null }))
+      .finally(() => setIsSubmitting(false));
   }
 
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+    <div role="dialog" aria-modal="true" aria-labelledby="raise-request-title"
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:460, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 style={{ fontSize:'16px', fontWeight:700, marginBottom:4 }}>Raise Inventory Request</h3>
+        <h3 id="raise-request-title" style={{ fontSize:'16px', fontWeight:700, marginBottom:4 }}>Raise Inventory Request</h3>
         <p style={{ fontSize:'13px', color:'var(--muted)', marginBottom:24 }}>Search for an item and submit a request.</p>
 
         <div style={{ marginBottom:14, position:'relative' }}>
@@ -102,12 +176,20 @@ function RaiseRequestModal({ items, onClose, onSubmit, currentUser, canRaiseOnBe
           <div>
             <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>QUANTITY</label>
             <input type="number" min={1} max={selected?.available ?? 1} value={qty} className="form-input" style={{ width:'100%' }}
-              onChange={e => setQty(Math.max(1, Math.min(selected?.available ?? 1, Number(e.target.value))))} disabled={!selected} />
+              onChange={e => changeQty(e.target.value)} disabled={!selected} />
+            {qtyClamped && (
+              <div style={{ fontSize:11, color:'hsl(var(--color-orange))', marginTop:4 }}>
+                Only {selected?.available} available — capped at {selected?.available}
+              </div>
+            )}
           </div>
           <div>
             <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>DAYS NEEDED</label>
-            <input type="number" min={1} value={days} className="form-input" style={{ width:'100%' }}
-              onChange={e => setDays(Math.max(1, Number(e.target.value)))} disabled={!selected} />
+            <input type="number" min={1} max={90} value={days} className="form-input" style={{ width:'100%' }}
+              onChange={e => setDays(Math.max(1, Math.min(90, Number(e.target.value) || 1)))} disabled={!selected} />
+            {days >= 90 && (
+              <div style={{ fontSize:11, color:'hsl(var(--color-orange))', marginTop:4 }}>Maximum 90 days per request</div>
+            )}
           </div>
         </div>
 
@@ -138,10 +220,11 @@ function RaiseRequestModal({ items, onClose, onSubmit, currentUser, canRaiseOnBe
         )}
 
         <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
-          <button className="secondary-btn" onClick={onClose}>Cancel</button>
-          <button className="primary-btn" disabled={!selected || !reason.trim()}
-            onClick={() => { if (selected && reason.trim()) onSubmit({ item: selected, qty, days, reason: reason.trim(), requestFor: requestFor.trim() || null }); }}>
-            Submit Request
+          <button className="secondary-btn" onClick={onClose} disabled={isSubmitting}>Cancel</button>
+          <button className="primary-btn" disabled={!selected || !reason.trim() || isSubmitting}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:140, justifyContent:'center' }}
+            onClick={submit}>
+            {isSubmitting ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Submitting…</> : 'Submit Request'}
           </button>
         </div>
       </div>
@@ -153,7 +236,11 @@ function RaiseRequestModal({ items, onClose, onSubmit, currentUser, canRaiseOnBe
 function ReturnModal({ request, onClose, onSubmit }) {
   const [photo,         setPhoto]         = useState(null);
   const [conditionNote, setConditionNote] = useState('');
+  const [isSubmitting,  setIsSubmitting]  = useState(false);
+  const [preview,       setPreview]       = useState(null); // lightbox src, or null
   const fileRef = useRef(null);
+
+  useEscapeKey(onClose);
 
   function handleFile(e) {
     const file = e.target.files?.[0];
@@ -161,11 +248,19 @@ function ReturnModal({ request, onClose, onSubmit }) {
     setPhoto({ url: URL.createObjectURL(file), name: file.name, file });
   }
 
+  function submit() {
+    if (!photo || isSubmitting) return;
+    setIsSubmitting(true);
+    Promise.resolve(onSubmit({ file: photo?.file, photoName: photo?.name, conditionNote: conditionNote.trim() }))
+      .finally(() => setIsSubmitting(false));
+  }
+
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+    <div role="dialog" aria-modal="true" aria-labelledby="return-item-title"
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:440, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 style={{ fontSize:'16px', fontWeight:700, marginBottom:4 }}>Return Item</h3>
+        <h3 id="return-item-title" style={{ fontSize:'16px', fontWeight:700, marginBottom:4 }}>Return Item</h3>
         <p style={{ fontSize:'13px', color:'var(--muted)', marginBottom:24 }}>
           <strong>{request.itemName}</strong> — {request.quantity} unit{request.quantity > 1 ? 's' : ''}
         </p>
@@ -174,8 +269,13 @@ function ReturnModal({ request, onClose, onSubmit }) {
           <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:8, letterSpacing:'.04em' }}>PHOTO OF ITEM</label>
           {photo ? (
             <div style={{ position:'relative', borderRadius:10, overflow:'hidden', border:'1px solid var(--line)' }}>
-              <img src={photo.url} alt="Return" style={{ width:'100%', maxHeight:200, objectFit:'cover', display:'block' }} />
-              <button onClick={() => { setPhoto(null); fileRef.current.value=''; }}
+              <img src={photo.url} alt="Return preview" onClick={() => setPreview(photo.url)}
+                style={{ width:'100%', maxHeight:200, objectFit:'cover', display:'block', cursor:'zoom-in' }} />
+              <button onClick={() => setPreview(photo.url)} aria-label="View full-size photo"
+                style={{ position:'absolute', bottom:8, left:8, background:'rgba(0,0,0,0.6)', border:'none', borderRadius:6, padding:'4px 8px', color:'#fff', cursor:'pointer', display:'flex', alignItems:'center', gap:5, fontSize:'11px', fontFamily:'Inter,sans-serif' }}>
+                <ZoomIn size={12} /> View full size
+              </button>
+              <button onClick={() => { setPhoto(null); fileRef.current.value=''; }} aria-label="Remove photo"
                 style={{ position:'absolute', top:8, right:8, background:'rgba(0,0,0,0.6)', border:'none', borderRadius:6, padding:'4px 10px', color:'#fff', fontSize:'12px', cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
                 Remove
               </button>
@@ -203,14 +303,16 @@ function ReturnModal({ request, onClose, onSubmit }) {
         </div>
 
         <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
-          <button className="secondary-btn" onClick={onClose}>Cancel</button>
-          <button className="primary-btn" disabled={!photo}
-            onClick={() => onSubmit({ file: photo?.file, photoName: photo?.name, conditionNote: conditionNote.trim() })}>
-            Confirm Return
+          <button className="secondary-btn" onClick={onClose} disabled={isSubmitting}>Cancel</button>
+          <button className="primary-btn" disabled={!photo || isSubmitting}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:140, justifyContent:'center' }}
+            onClick={submit}>
+            {isSubmitting ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Submitting…</> : 'Confirm Return'}
           </button>
         </div>
         {!photo && <p style={{ textAlign:'right', fontSize:'11px', color:'hsl(var(--color-red))', marginTop:8 }}>A photo is required to confirm return.</p>}
       </div>
+      {preview && <ImageLightbox src={preview} alt="Return photo preview" onClose={() => setPreview(null)} />}
     </div>
   );
 }
@@ -324,7 +426,11 @@ function StageTracker({ request }) {
 
 // ── Main View ─────────────────────────────────────────────────────────────────
 export default function InventoryManagement({ activeSub, onSubChange }) {
-  const { items, requests, raiseRequest, returnItem } = useInventory();
+  const {
+    items, itemsLoading, itemsError,
+    requests, requestsLoading, requestsError,
+    raiseRequest, returnItem,
+  } = useInventory();
   const { addNotification } = useNotifications();
   const { can }             = useRole();
   const { accounts }        = useMsal();
@@ -337,15 +443,27 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
   const [tab,          setTab]          = useState(activeSub === 'my-requests' ? 'my-requests' : 'inventory');
   const [showModal,    setShowModal]    = useState(false);
   const [returningReq, setReturningReq] = useState(null);
+  const [reqSearch,    setReqSearch]    = useState('');
+  const [photoPreview, setPhotoPreview] = useState(null); // lightbox src, or null
+
+  // Minimal local toast/feedback system — see <Toast> for rationale.
+  const [toasts, setToasts] = useState([]);
+  const toast = (message, kind = 'success') => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setToasts(prev => [...prev, { id, message, kind }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), kind === 'error' ? 6000 : 4000);
+  };
+  const dismissToast = id => setToasts(prev => prev.filter(t => t.id !== id));
 
   useEffect(() => {
     if (activeSub === 'my-requests') setTab('my-requests');
   }, [activeSub]);
 
-  const myReqs = requests.filter(r =>
-    (r.requestedByEmail && r.requestedByEmail.toLowerCase() === userEmail) ||
-    r.requestedBy === userName
-  );
+  const myReqs = requests
+    .filter(r =>
+      (r.requestedByEmail && r.requestedByEmail.toLowerCase() === userEmail) ||
+      r.requestedBy === userName)
+    .filter(r => r.itemName.toLowerCase().includes(reqSearch.toLowerCase()));
 
   const filtered = items.filter(item => {
     const matchSearch = item.name.toLowerCase().includes(search.toLowerCase());
@@ -371,7 +489,7 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
   function handleSubmit({ item, qty, days, reason, requestFor }) {
     const forPerson      = requestFor || userName;
     const forPersonEmail = requestFor ? '' : userEmail; // email only known when requesting for self
-    const req = raiseRequest({
+    return raiseRequest({
       itemId:            item.id,
       itemName:          item.name,
       requestedBy:       forPerson,
@@ -379,19 +497,32 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
       raisedBy:          userName,
       department:        item.department,
       quantity: qty, days, reason,
+    }).then(saved => {
+      const byLine = requestFor ? `${userName} on behalf of ${requestFor}` : userName;
+      addNotification({
+        type:        'inv_request',
+        refId:       saved.id,
+        title:       'New Inventory Request',
+        body:        `${byLine} requested ${qty}× ${item.name} for ${days} day${days > 1 ? 's' : ''} — "${reason}"`,
+        requestedBy: forPerson,
+        itemName:    item.name,
+        // Store the requester's email inside action so the bell can target the approval notification
+        action:      forPersonEmail ? { requestedByEmail: forPersonEmail } : null,
+      });
+      toast(`Request submitted — ${qty}× ${item.name}`);
+      setShowModal(false);
+    }).catch(() => {
+      toast(`Couldn't submit your request for ${item.name} — please try again`, 'error');
     });
-    const byLine = requestFor ? `${userName} on behalf of ${requestFor}` : userName;
-    addNotification({
-      type:        'inv_request',
-      refId:       req.id,
-      title:       'New Inventory Request',
-      body:        `${byLine} requested ${qty}× ${item.name} for ${days} day${days > 1 ? 's' : ''} — "${reason}"`,
-      requestedBy: forPerson,
-      itemName:    item.name,
-      // Store the requester's email inside action so the bell can target the approval notification
-      action:      forPersonEmail ? { requestedByEmail: forPersonEmail } : null,
+  }
+
+  function handleReturnSubmit(req, data) {
+    return returnItem(req.id, data).then(() => {
+      toast(`Return confirmed — ${req.itemName}`);
+      setReturningReq(null);
+    }).catch(() => {
+      toast(`Couldn't confirm the return of ${req.itemName} — please try again`, 'error');
     });
-    setShowModal(false);
   }
 
   const fmtDate = iso => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -437,17 +568,31 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
       {/* ── My Requests tab ── */}
       {tab === 'my-requests' && (
         <div style={{ marginBottom: 24 }}>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16, flexWrap:'wrap', gap:12 }}>
             <div>
               <h3 style={{ fontSize:15, fontWeight:700, margin:0 }}>My Requests</h3>
               <p style={{ fontSize:13, color:'var(--muted)', marginTop:3 }}>{myReqs.length} request{myReqs.length !== 1 ? 's' : ''} raised</p>
             </div>
+            <div className="search-bar" style={{ width:220 }}>
+              <Search size={14} style={{ flexShrink:0 }} />
+              <input placeholder="Search by item name…" value={reqSearch} onChange={e => setReqSearch(e.target.value)} />
+            </div>
           </div>
 
-          {myReqs.length === 0 ? (
+          {requestsError ? (
+            <div style={{ display:'flex', alignItems:'center', gap:10, padding:'16px 18px', borderRadius:10, background:'hsla(var(--color-red),0.06)', border:'1px solid hsla(var(--color-red),0.2)', color:'hsl(var(--color-red))', fontSize:13.5 }}>
+              <AlertCircle size={16} /> Couldn't load your requests. {requestsError}
+            </div>
+          ) : requestsLoading ? (
+            <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+              {[...Array(3)].map((_, i) => (
+                <div key={i} style={{ height:120, borderRadius:14, background:'var(--mist)', opacity:1 - i * 0.15, animation:'pulse 1.5s ease-in-out infinite' }} />
+              ))}
+            </div>
+          ) : myReqs.length === 0 ? (
             <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)', fontSize:'14px' }}>
               <Package size={32} style={{ opacity:.2, marginBottom:10, display:'block', margin:'0 auto 10px' }} />
-              You haven't raised any requests yet.
+              {reqSearch ? `No requests match "${reqSearch}".` : "You haven't raised any requests yet."}
             </div>
           ) : (
             <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
@@ -500,7 +645,15 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
                       )}
                       {r.status === 'returned' && r.returnPhotoUrl && (
                         <div style={{ display:'flex', alignItems:'center', gap:10, flex:1 }}>
-                          <img src={r.returnPhotoUrl} alt="Return" style={{ width:44, height:44, objectFit:'cover', borderRadius:7, border:'1px solid var(--line)', flexShrink:0 }} />
+                          <button onClick={() => setPhotoPreview(r.returnPhotoUrl)} aria-label={`View return photo for ${r.itemName}`}
+                            style={{ position:'relative', padding:0, border:'1px solid var(--line)', borderRadius:7, cursor:'zoom-in', background:'none', flexShrink:0, lineHeight:0 }}>
+                            <img src={r.returnPhotoUrl} alt={`Return photo — ${r.itemName}`} style={{ width:44, height:44, objectFit:'cover', borderRadius:6, display:'block' }} />
+                            <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,0)', borderRadius:6, transition:'background 0.15s' }}
+                              onMouseEnter={e => { e.currentTarget.style.background='rgba(0,0,0,0.35)'; e.currentTarget.firstChild.style.opacity=1; }}
+                              onMouseLeave={e => { e.currentTarget.style.background='rgba(0,0,0,0)'; e.currentTarget.firstChild.style.opacity=0; }}>
+                              <ZoomIn size={14} color="#fff" style={{ opacity:0, transition:'opacity 0.15s' }} />
+                            </span>
+                          </button>
                           {r.conditionNote && <span style={{ fontSize:'12px', color:'var(--muted)' }}>{r.conditionNote}</span>}
                         </div>
                       )}
@@ -646,9 +799,22 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
         })}
       </div>
 
-      {filtered.length === 0 && (
+      {itemsError ? (
+        <div style={{ display:'flex', alignItems:'center', gap:8, padding:'14px 16px', borderRadius:10, background:'hsla(var(--color-red),0.08)', color:'hsl(var(--color-red))', fontSize:'13.5px' }}>
+          <AlertCircle size={16} /> Couldn't load inventory items. {itemsError}
+        </div>
+      ) : itemsLoading && filtered.length === 0 && (
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(230px,1fr))', gap:14 }}>
+          {[...Array(6)].map((_, i) => (
+            <div key={i} style={{ height:138, borderRadius:12, background:'var(--mist)', opacity:1 - (i % 3) * 0.15, animation:'pulse 1.5s ease-in-out infinite' }} />
+          ))}
+        </div>
+      )}
+
+      {!itemsLoading && !itemsError && filtered.length === 0 && (
         <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)', fontSize:'14px' }}>
-          No items match your filters.
+          <Package size={32} style={{ margin:'0 auto 10px', opacity:0.35, display:'block' }} />
+          {search || catFilter !== 'All' ? `No items match your filters.` : 'No inventory items found.'}
         </div>
       )}
 
@@ -657,8 +823,12 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
       )}
       {returningReq && (
         <ReturnModal request={returningReq} onClose={() => setReturningReq(null)}
-          onSubmit={data => { returnItem(returningReq.id, data); setReturningReq(null); }} />
+          onSubmit={data => handleReturnSubmit(returningReq, data)} />
       )}
+      {photoPreview && (
+        <ImageLightbox src={photoPreview} alt="Return photo" onClose={() => setPhotoPreview(null)} />
+      )}
+      <Toast toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }

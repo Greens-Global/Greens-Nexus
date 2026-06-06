@@ -2,13 +2,57 @@ import os
 import threading
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 import httpx
 from database import get_db
 from auth import get_current_user
-from models import InventoryRequest
+from models import InventoryRequest, InventoryItem
+
+# Valid predecessor statuses for each target status — guards against illegal
+# jumps like pending -> allocated or re-approving an already-resolved request.
+_VALID_TRANSITIONS = {
+    "approved":  {"pending"},
+    "rejected":  {"pending"},
+    "allocated": {"approved"},
+    "returned":  {"allocated"},
+}
+
+_DAMAGE_KEYWORDS = ("damaged", "broken", "cracked", "lost", "destroyed", "unusable", "retired")
+
+
+def _reserve_stock(db: Session, item_id: str, qty: int) -> bool:
+    """Atomically decrement available_qty, but only if enough stock remains.
+    A single UPDATE...WHERE is atomic at the row level in Postgres — no explicit
+    locking needed, and it can't race two simultaneous allocations into negative
+    stock the way a SELECT-then-UPDATE would."""
+    result = db.execute(
+        text("UPDATE inventory_items SET available_qty = available_qty - :qty, "
+             "last_updated = :now WHERE id = :id AND available_qty >= :qty"),
+        {"qty": qty, "id": item_id, "now": datetime.now(timezone.utc).isoformat()},
+    )
+    return result.rowcount > 0
+
+
+def _release_stock(db: Session, item_id: str, qty: int, damaged: bool) -> None:
+    """Atomically restore stock on return. A damaged/lost/retired unit never
+    re-enters circulation — it comes off both available_qty and total_qty."""
+    now = datetime.now(timezone.utc).isoformat()
+    if damaged:
+        db.execute(
+            text("UPDATE inventory_items SET total_qty = GREATEST(total_qty - :qty, 0), "
+                 "last_updated = :now WHERE id = :id"),
+            {"qty": qty, "id": item_id, "now": now},
+        )
+    else:
+        db.execute(
+            text("UPDATE inventory_items SET "
+                 "available_qty = LEAST(available_qty + :qty, total_qty), "
+                 "last_updated = :now WHERE id = :id"),
+            {"qty": qty, "id": item_id, "now": now},
+        )
 
 _SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
@@ -100,6 +144,25 @@ def _to_dict(r: InventoryRequest) -> dict:
     }
 
 
+def _item_to_dict(i: InventoryItem) -> dict:
+    return {
+        "id":         i.id,
+        "name":       i.name,
+        "category":   i.category,
+        "department": i.department,
+        "available":  i.available_qty,
+        "total":      i.total_qty,
+    }
+
+
+@router.get("/items")
+def list_items(db: Session = Depends(get_db)):
+    """Live stock levels — the single source of truth for available/total counts.
+    Replaces the static mock data the frontend used to carry locally."""
+    rows = db.query(InventoryItem).order_by(InventoryItem.department, InventoryItem.name).all()
+    return [_item_to_dict(i) for i in rows]
+
+
 @router.get("")
 def list_requests(email: Optional[str] = None, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     q = db.query(InventoryRequest).order_by(InventoryRequest.created_at.desc())
@@ -114,6 +177,9 @@ def list_requests(email: Optional[str] = None, user: dict = Depends(get_current_
 
 @router.post("")
 def create_request(body: RequestIn, db: Session = Depends(get_db)):
+    if db.query(InventoryRequest).filter(InventoryRequest.id == body.id).first():
+        raise HTTPException(409, "A request with this id already exists")
+
     now = datetime.now(timezone.utc).isoformat()
     row = InventoryRequest(
         id=body.id,
@@ -129,7 +195,7 @@ def create_request(body: RequestIn, db: Session = Depends(get_db)):
         status="pending",
         created_at=now,
     )
-    db.merge(row)
+    db.add(row)
     db.commit()
     _fire_inventory_event(row.id, "pending", row.requested_by_email or "")
     return _to_dict(row)
@@ -148,21 +214,37 @@ def update_request(req_id: str, body: StatusUpdate, user: dict = Depends(get_cur
     if body.status == "returned" and user["level"] < 2 and row.requested_by_email.lower() != user["email"]:
         raise HTTPException(403, "You can only return your own items")
 
+    valid_predecessors = _VALID_TRANSITIONS.get(body.status)
+    if valid_predecessors is not None and row.status not in valid_predecessors:
+        raise HTTPException(409, f"Cannot move a '{row.status}' request to '{body.status}'")
+
     now = datetime.now(timezone.utc).isoformat()
-    row.status = body.status
+
     if body.status in ("approved", "rejected"):
         row.resolved_at = now
         row.resolved_by = body.resolved_by or ""
         if body.status == "rejected":
             row.reject_reason = body.reject_reason or ""
+
     elif body.status == "allocated":
+        # Reserve stock atomically before flipping status — if there isn't enough
+        # available, fail the whole request rather than allocating phantom units.
+        if not _reserve_stock(db, row.item_id, row.quantity):
+            db.rollback()
+            raise HTTPException(409, "Not enough stock available to allocate this request")
         row.allocated_at = now
         row.allocated_by = body.allocated_by or ""
+
     elif body.status == "returned":
+        note = (body.condition_note or "").lower()
+        damaged = any(k in note for k in _DAMAGE_KEYWORDS)
+        _release_stock(db, row.item_id, row.quantity, damaged)
         row.returned_at       = now
         row.return_photo_name = body.return_photo_name or ""
         row.return_photo_url  = body.return_photo_url  or ""
         row.condition_note    = body.condition_note    or ""
+
+    row.status = body.status
     db.commit()
     _fire_inventory_event(req_id, row.status, row.requested_by_email or "")
     return _to_dict(row)

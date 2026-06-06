@@ -259,6 +259,21 @@ class InventoryRequest(Base):
     condition_note     = Column(String, default="")
 
 
+class InventoryItem(Base):
+    """Master stock record for a requestable inventory item.
+    available_qty is the live source of truth — decremented atomically when a
+    request is allocated, incremented when it's returned in good condition
+    (or total_qty is reduced instead, when the returned unit is damaged/retired)."""
+    __tablename__ = "inventory_items"
+    id            = Column(String, primary_key=True)
+    name          = Column(String, nullable=False)
+    category      = Column(String, default="")
+    department    = Column(String, default="")
+    total_qty     = Column(Integer, default=0)
+    available_qty = Column(Integer, default=0)
+    last_updated  = Column(String, default="")
+
+
 class NexusRole(Base):
     __tablename__ = "nexus_roles"
     email       = Column(String, primary_key=True)   # Azure AD UPN / email

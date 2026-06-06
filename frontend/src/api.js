@@ -114,6 +114,7 @@ export const api = {
   deleteNotif:      (id)             => req(`/notifications/${id}`, { method: 'DELETE' }),
 
   // Inventory Requests (persisted in Supabase)
+  getInventoryItems:       ()          => req('/inventory-requests/items'),
   getInventoryRequests:    ()          => req('/inventory-requests'),
   createInventoryRequest:  (data)      => req('/inventory-requests', { method: 'POST', body: JSON.stringify(data) }),
   updateInventoryRequest:  (id, data)  => req(`/inventory-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

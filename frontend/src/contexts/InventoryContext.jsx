@@ -6,58 +6,21 @@ import { supabase } from '../lib/supabase';
 
 const InventoryContext = createContext(null);
 
-const INITIAL_ITEMS = [
-  // ── IT ─────────────────────────────────────────────────────────────────────
-  { id: 'INV-001', name: 'Laptop (Dell XPS 15)',      category: 'IT Supplies',      department: 'IT',           available: 2,  total: 6  },
-  { id: 'INV-002', name: 'Network Switch 24-Port',    category: 'IT Supplies',      department: 'IT',           available: 1,  total: 3  },
-  { id: 'INV-003', name: 'HDMI Cable (2m)',            category: 'IT Supplies',      department: 'IT',           available: 6,  total: 10 },
-  { id: 'INV-004', name: 'Extension Lead (5m)',        category: 'Electrical',       department: 'IT',           available: 4,  total: 7  },
-  { id: 'INV-005', name: 'USB-C Docking Station',     category: 'IT Supplies',      department: 'IT',           available: 3,  total: 5  },
-  { id: 'INV-006', name: 'Wireless Mouse & Keyboard', category: 'IT Supplies',      department: 'IT',           available: 8,  total: 12 },
-  { id: 'INV-007', name: 'External Monitor 27"',      category: 'IT Supplies',      department: 'IT',           available: 1,  total: 4  },
-  { id: 'INV-008', name: 'UPS Battery Backup',        category: 'Electrical',       department: 'IT',           available: 2,  total: 3  },
-  { id: 'INV-009', name: 'Ethernet Cable Box (30m)',  category: 'IT Supplies',      department: 'IT',           available: 5,  total: 8  },
-  { id: 'INV-010', name: 'Webcam HD 1080p',           category: 'IT Supplies',      department: 'IT',           available: 0,  total: 4  },
-
-  // ── Construction ───────────────────────────────────────────────────────────
-  { id: 'INV-011', name: 'Power Drill (Cordless)',    category: 'Tools',            department: 'Construction', available: 3,  total: 5  },
-  { id: 'INV-012', name: 'Angle Grinder',             category: 'Tools',            department: 'Construction', available: 2,  total: 4  },
-  { id: 'INV-013', name: 'Safety Helmet',             category: 'Safety Equipment', department: 'Construction', available: 10, total: 20 },
-  { id: 'INV-014', name: 'Hi-Vis Vest',               category: 'Safety Equipment', department: 'Construction', available: 8,  total: 15 },
-  { id: 'INV-015', name: 'Tape Measure (5m)',         category: 'Tools',            department: 'Construction', available: 7,  total: 10 },
-  { id: 'INV-016', name: 'Circular Saw',              category: 'Tools',            department: 'Construction', available: 1,  total: 3  },
-  { id: 'INV-017', name: 'Safety Goggles',            category: 'Safety Equipment', department: 'Construction', available: 12, total: 20 },
-  { id: 'INV-018', name: 'Ear Protection (Pair)',     category: 'Safety Equipment', department: 'Construction', available: 15, total: 25 },
-  { id: 'INV-019', name: 'Spirit Level (600mm)',      category: 'Tools',            department: 'Construction', available: 4,  total: 6  },
-  { id: 'INV-020', name: 'Cable Reel (25m)',          category: 'Electrical',       department: 'Construction', available: 0,  total: 4  },
-
-  // ── Operations ─────────────────────────────────────────────────────────────
-  { id: 'INV-021', name: 'Office Chair (Ergonomic)', category: 'Furniture',        department: 'Operations',   available: 3,  total: 8  },
-  { id: 'INV-022', name: 'Standing Desk',            category: 'Furniture',        department: 'Operations',   available: 1,  total: 4  },
-  { id: 'INV-023', name: 'First Aid Kit',            category: 'Safety Equipment', department: 'Operations',   available: 4,  total: 6  },
-  { id: 'INV-024', name: 'Walkie Talkie (Set of 2)', category: 'Tools',            department: 'Operations',   available: 5,  total: 8  },
-  { id: 'INV-025', name: 'Floor Cleaning Machine',  category: 'Tools',            department: 'Operations',   available: 0,  total: 2  },
-  { id: 'INV-026', name: 'Storage Cabinet',         category: 'Furniture',        department: 'Operations',   available: 2,  total: 3  },
-  { id: 'INV-027', name: 'Handheld Vacuum',         category: 'Tools',            department: 'Operations',   available: 3,  total: 4  },
-
-  // ── Accounting ─────────────────────────────────────────────────────────────
-  { id: 'INV-028', name: 'Printer Paper (Ream)',     category: 'Office Supplies',  department: 'Accounting',   available: 20, total: 50 },
-  { id: 'INV-029', name: 'Stapler',                  category: 'Office Supplies',  department: 'Accounting',   available: 5,  total: 8  },
-  { id: 'INV-030', name: 'File Folders (Box of 50)', category: 'Office Supplies',  department: 'Accounting',   available: 10, total: 20 },
-  { id: 'INV-031', name: 'Financial Calculator',     category: 'Office Supplies',  department: 'Accounting',   available: 3,  total: 6  },
-  { id: 'INV-032', name: 'Document Shredder',        category: 'Office Supplies',  department: 'Accounting',   available: 1,  total: 2  },
-  { id: 'INV-033', name: 'Binding Machine',          category: 'Office Supplies',  department: 'Accounting',   available: 0,  total: 1  },
-  { id: 'INV-034', name: 'Whiteboard + Markers Kit', category: 'Office Supplies',  department: 'Accounting',   available: 2,  total: 4  },
-];
-
 function genId() { return `IREQ-${Date.now().toString(36).toUpperCase()}`; }
 
 export function InventoryProvider({ children }) {
   const { accounts } = useMsal();
   const myEmail = (accounts[0]?.username ?? '').toLowerCase();
 
-  const [items]    = useState(INITIAL_ITEMS);
-  const [requests, setRequests] = useState([]);
+  // Stock levels now live server-side (inventory_items table) and are the
+  // single source of truth — decremented on allocation, restored on return.
+  // No more locally-held mock data that drifts from reality.
+  const [items,         setItems]         = useState([]);
+  const [itemsLoading,  setItemsLoading]   = useState(true);
+  const [itemsError,    setItemsError]     = useState(null);
+  const [requests,      setRequests]       = useState([]);
+  const [requestsLoading, setRequestsLoading] = useState(true);
+  const [requestsError, setRequestsError]  = useState(null);
   const channelRef  = useRef(null);  // postgres_changes on inventory_requests
   const eventsRef   = useRef(null);  // postgres_changes on inventory_events
   const pollRef     = useRef(null);
@@ -69,10 +32,18 @@ export function InventoryProvider({ children }) {
     requestsRef.current = requests;
   }, [requests]);
 
+  const fetchItems = useCallback(() => {
+    return api.getInventoryItems()
+      .then(rows => { setItems(rows); setItemsError(null); })
+      .catch(err => setItemsError(err?.message || 'Failed to load inventory items'))
+      .finally(() => setItemsLoading(false));
+  }, []);
+
   const fetchRequests = useCallback(() => {
-    api.getInventoryRequests()
-      .then(rows => setRequests(rows))
-      .catch(() => {});
+    return api.getInventoryRequests()
+      .then(rows => { setRequests(rows); setRequestsError(null); })
+      .catch(err => setRequestsError(err?.message || 'Failed to load requests'))
+      .finally(() => setRequestsLoading(false));
   }, []);
 
   // Convert raw Supabase Realtime row (snake_case) → camelCase to match API shape
@@ -103,6 +74,7 @@ export function InventoryProvider({ children }) {
   }
 
   useEffect(() => {
+    fetchItems();
     fetchRequests();
 
     if (supabase) {
@@ -131,26 +103,30 @@ export function InventoryProvider({ children }) {
       // INSERT on inventory_events: backend-pushed signal after every status change.
       // Only the affected user and users who already have the request refetch —
       // keeps API load minimal regardless of how many users are connected.
+      // Stock only moves on allocation/return, both of which always fire one of
+      // these events — so re-fetching items here keeps "available" counts live
+      // for everyone without subscribing to a second realtime channel.
       eventsRef.current = supabase
         .channel('inventory_events_inserts')
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'inventory_events' },
           payload => {
-            const { affected_email, request_id } = payload.new ?? {};
+            const { affected_email, request_id, status } = payload.new ?? {};
             const isMyRequest = affected_email && myEmail &&
               affected_email.toLowerCase() === myEmail;
             const iAmInvolved = isMyRequest ||
               requestsRef.current.some(r => r.id === request_id);
             if (iAmInvolved) fetchRequests();
+            if (status === 'allocated' || status === 'returned') fetchItems();
           }
         )
         .subscribe();
 
       // 30s fallback poll — catches anything missed if WebSocket drops
-      pollRef.current = setInterval(fetchRequests, 30000);
+      pollRef.current = setInterval(() => { fetchItems(); fetchRequests(); }, 30000);
     } else {
-      pollRef.current = setInterval(fetchRequests, 30000);
+      pollRef.current = setInterval(() => { fetchItems(); fetchRequests(); }, 30000);
     }
 
     return () => {
@@ -158,7 +134,7 @@ export function InventoryProvider({ children }) {
       if (eventsRef.current)  supabase?.removeChannel(eventsRef.current);
       clearInterval(pollRef.current);
     };
-  }, [fetchRequests, myEmail]);
+  }, [fetchItems, fetchRequests, myEmail]);
 
   function raiseRequest({ itemId, itemName, requestedBy, requestedByEmail, raisedBy, department, quantity, days, reason }) {
     const id = genId();
@@ -174,7 +150,11 @@ export function InventoryProvider({ children }) {
       resolvedAt: null, resolvedBy: null, rejectReason: null,
     };
     setRequests(prev => [req, ...prev]);
-    api.createInventoryRequest({
+    // Returns the persistence promise (not just the optimistic local object) so
+    // the caller can show real success/failure feedback and roll back on error —
+    // silently swallowing this used to mean a failed save looked identical to a
+    // successful one from the user's point of view.
+    return api.createInventoryRequest({
       id,
       item_id:             itemId,
       item_name:           itemName,
@@ -184,8 +164,11 @@ export function InventoryProvider({ children }) {
       department, quantity, days, reason,
     }).then(saved => {
       setRequests(prev => prev.map(r => r.id === id ? saved : r));
-    }).catch(() => {});
-    return req;
+      return saved;
+    }).catch(err => {
+      setRequests(prev => prev.filter(r => r.id !== id));
+      throw err;
+    });
   }
 
   function approveRequest(id, managerName) {
@@ -248,21 +231,31 @@ export function InventoryProvider({ children }) {
       }
     ));
 
-    api.updateInventoryRequest(id, {
+    return api.updateInventoryRequest(id, {
       status:            'returned',
       return_photo_name: photoName     || '',
       return_photo_url:  permanentUrl  || '',
       condition_note:    conditionNote || '',
-    }).then(() => fetchRequests()).catch(() => {});
+    }).then(saved => {
+      fetchRequests();
+      fetchItems();
+      return saved;
+    }).catch(err => {
+      fetchRequests();
+      throw err;
+    });
   }
 
   const pendingCount = requests.filter(r => r.status === 'pending').length;
 
   return (
     <InventoryContext.Provider value={{
-      items, requests, pendingCount,
+      items, itemsLoading, itemsError,
+      requests, requestsLoading, requestsError,
+      pendingCount,
       raiseRequest, approveRequest, rejectRequest, allocateItem, returnItem,
       refreshRequests: fetchRequests,
+      refreshItems: fetchItems,
     }}>
       {children}
     </InventoryContext.Provider>

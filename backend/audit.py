@@ -126,8 +126,52 @@ def _extract_email(request: Request) -> str:
         return "unknown"
 
 
+# Resources where the request body carries the meaningful business event (item,
+# quantity, reason, condition, etc.) that a path-only log entry would discard.
+# These fields, when present in the JSON body, are copied into `details` so an
+# auditor can see *what* changed, not just that *something* changed.
+_BODY_FIELDS_BY_RESOURCE = {
+    "inventory-requests": (
+        "status", "item_id", "item_name", "quantity", "days", "reason",
+        "resolved_by", "reject_reason", "allocated_by", "condition_note",
+        "return_photo_name",
+    ),
+    "requisitions": (
+        "status", "item_id", "item_name", "quantity", "reason",
+        "reject_reason", "condition", "condition_note",
+    ),
+    "hardware-assets": ("name", "category", "status", "assigned_to", "dept"),
+}
+
+
+async def _read_body_fields(request: Request, resource: str) -> dict:
+    fields = _BODY_FIELDS_BY_RESOURCE.get(resource)
+    if not fields:
+        return {}
+    try:
+        raw = await request.body()
+        if not raw:
+            return {}
+        body = json.loads(raw)
+        if not isinstance(body, dict):
+            return {}
+        return {k: body[k] for k in fields if k in body and body[k] not in (None, "")}
+    except Exception:
+        return {}
+
+
 class AuditMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        path     = request.url.path
+        method   = request.method
+        resource = path.split("/")[1] if len(path.split("/")) > 1 else ""
+
+        # Body must be read before call_next consumes the stream — Starlette
+        # caches it internally so the downstream route still sees it intact.
+        body_fields = {}
+        if method not in ("GET", "HEAD", "OPTIONS"):
+            body_fields = await _read_body_fields(request, resource)
+
         response = await call_next(request)
 
         if request.method in ("GET", "HEAD", "OPTIONS"):
@@ -136,8 +180,6 @@ class AuditMiddleware(BaseHTTPMiddleware):
             return response
 
         try:
-            path   = request.url.path
-            method = request.method
             action, resource_id = _describe(method, path)
             user_email = _extract_email(request)
 
@@ -148,6 +190,9 @@ class AuditMiddleware(BaseHTTPMiddleware):
                 else (request.client.host if request.client else "")
             )
 
+            details = {"path": path, "status": response.status_code}
+            details.update(body_fields)
+
             db = SessionLocal()
             try:
                 db.add(models.AuditLog(
@@ -155,9 +200,9 @@ class AuditMiddleware(BaseHTTPMiddleware):
                     user_email=user_email,
                     user_role="",
                     action=action,
-                    resource_type=path.split("/")[1] if "/" in path else "",
+                    resource_type=resource,
                     resource_id=resource_id,
-                    details=json.dumps({"path": path, "status": response.status_code}),
+                    details=json.dumps(details),
                     ip_address=ip,
                 ))
                 db.commit()
