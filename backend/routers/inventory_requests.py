@@ -120,6 +120,7 @@ def create_request(body: RequestIn, db: Session = Depends(get_db)):
     )
     db.merge(row)
     db.commit()
+    _fire_inventory_event(row.id, "pending", row.requested_by_email or "")
     return _to_dict(row)
 
 
