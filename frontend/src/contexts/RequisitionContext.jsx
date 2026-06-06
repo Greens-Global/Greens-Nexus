@@ -2,6 +2,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { api } from '../api';
+import { supabase } from '../lib/supabase';
 
 export const DEPT_SUPERVISORS = {
   'Operations':    'Robert Kim',
@@ -55,6 +56,8 @@ function reqFromApi(r) {
     actualReturnDate:     r.actual_return_date || null,
     returnConfirmedBy:    r.return_confirmed_by || null,
     returnAssetCondition: r.return_asset_condition || null,
+    returnPhotoName:      r.return_photo_name || null,
+    returnPhotoUrl:       r.return_photo_url  || null,
     history:              r.history || [],
     createdAt:            r.created_at,
     updatedAt:            r.updated_at,
@@ -263,12 +266,30 @@ export function RequisitionProvider({ children }) {
     return true;
   };
 
-  const confirmReturn = (reqId, supervisorName, condition) => {
+  const confirmReturn = async (reqId, supervisorName, condition, photoFile) => {
     const req = requisitions.find(r => r.id === reqId);
     if (!req?.assetId) return false;
 
     const condMap = { Available: 'Available', Damaged: 'Damaged', 'Under Repair': 'Under Repair', Retired: 'Retired' };
     const newStatus = condMap[condition] || 'Available';
+
+    let permanentUrl = '';
+    let photoName = '';
+    if (photoFile && supabase) {
+      const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+      if (ALLOWED_TYPES.includes(photoFile.type) && photoFile.size <= 10 * 1024 * 1024) {
+        const ext  = photoFile.type.split('/')[1] || 'jpg';
+        const path = `${reqId}/${Date.now()}.${ext}`;
+        photoName  = photoFile.name || path;
+        const { data: uploaded, error } = await supabase.storage
+          .from('return-photos')
+          .upload(path, photoFile, { contentType: photoFile.type, upsert: false });
+        if (!error && uploaded) {
+          const { data: urlData } = supabase.storage.from('return-photos').getPublicUrl(uploaded.path);
+          permanentUrl = urlData.publicUrl;
+        }
+      }
+    }
 
     setHwAssets(prev => prev.map(a => a.id !== req.assetId ? a : {
       ...a, status: newStatus,
@@ -278,11 +299,16 @@ export function RequisitionProvider({ children }) {
     setRequisitions(prev => prev.map(r => r.id !== reqId ? r : {
       ...r, status: 'returned', actualReturnDate: ts(),
       returnConfirmedBy: supervisorName, returnAssetCondition: condition,
+      returnPhotoName: photoName || null, returnPhotoUrl: permanentUrl || null,
       updatedAt: ts(),
       history: [...r.history, { action: 'Return Confirmed', by: supervisorName, role: 'Supervisor', comment: `Condition: ${condition}`, date: ts() }],
     }));
-    api.confirmRequisitionReturn(reqId, { supervisor_name: supervisorName, condition })
-      .catch(() => { refreshRequisitions(); refreshAssets(); });
+    api.confirmRequisitionReturn(reqId, {
+      supervisor_name: supervisorName,
+      condition,
+      return_photo_name: photoName,
+      return_photo_url:  permanentUrl,
+    }).catch(() => { refreshRequisitions(); refreshAssets(); });
     return true;
   };
 

@@ -51,6 +51,8 @@ class RequisitionReturn(BaseModel):
 class RequisitionConfirmReturn(BaseModel):
     supervisor_name: str
     condition: str = "Available"
+    return_photo_name: str = ""
+    return_photo_url: str = ""
 
 
 class RequisitionMarkLost(BaseModel):
@@ -224,6 +226,8 @@ def confirm_return(req_id: str, body: RequisitionConfirmReturn, user: dict = Dep
     req.actual_return_date = _ts()
     req.return_confirmed_by = body.supervisor_name
     req.return_asset_condition = body.condition
+    req.return_photo_name = body.return_photo_name or ""
+    req.return_photo_url  = body.return_photo_url  or ""
     req.updated_at = _ts()
     db.add(models.ApprovalHistory(requisition_id=req_id, action="Return Confirmed", action_by=body.supervisor_name, action_role="Supervisor", comment=f"Condition: {body.condition}", created_at=_ts()))
     db.commit()

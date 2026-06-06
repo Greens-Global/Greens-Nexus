@@ -68,6 +68,7 @@ function ITAssets() {
   const [returnModal,      setReturnModal]      = useState(null); // asset object
   const [returnSupervisor, setReturnSupervisor] = useState('');
   const [returnCondition,  setReturnCondition]  = useState('Available');
+  const [returnPhotoFile,  setReturnPhotoFile]  = useState(null);
 
   // Lost asset modal state
   const [lostModal,      setLostModal]      = useState(null); // asset object
@@ -120,13 +121,15 @@ function ITAssets() {
     setReturnModal(asset);
     setReturnSupervisor('IT Supervisor');
     setReturnCondition('Available');
+    setReturnPhotoFile(null);
   };
 
-  const handleConfirmReturn = () => {
+  const handleConfirmReturn = async () => {
     if (!returnModal || !returnSupervisor.trim()) return;
     const req = requisitions.find(r => r.id === returnModal.assignedReqId || (r.assetId === returnModal.id && r.status === 'return_initiated'));
-    if (req) confirmReturn(req.id, returnSupervisor.trim(), returnCondition);
+    if (req) await confirmReturn(req.id, returnSupervisor.trim(), returnCondition, returnPhotoFile);
     setReturnModal(null);
+    setReturnPhotoFile(null);
   };
 
   const handleInitiateReturn = (asset) => {
@@ -474,10 +477,27 @@ function ITAssets() {
                 <label>Confirmed By (Supervisor)</label>
                 <input type="text" className="form-input" value={returnSupervisor} onChange={e => setReturnSupervisor(e.target.value)} />
               </div>
+              <div className="form-group">
+                <label>Return Photo <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span></label>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/gif,image/webp"
+                  className="form-input"
+                  style={{ paddingTop: 6 }}
+                  onChange={e => setReturnPhotoFile(e.target.files?.[0] || null)}
+                />
+                {returnPhotoFile && (
+                  <img
+                    src={URL.createObjectURL(returnPhotoFile)}
+                    alt="preview"
+                    style={{ marginTop: 8, width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--line)' }}
+                  />
+                )}
+              </div>
             </div>
 
             <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
-              <button className="secondary-btn" onClick={() => setReturnModal(null)}>Cancel</button>
+              <button className="secondary-btn" onClick={() => { setReturnModal(null); setReturnPhotoFile(null); }}>Cancel</button>
               <button className="primary-btn" onClick={handleConfirmReturn} disabled={!returnSupervisor.trim()}>
                 <CheckCircle size={14} /> Confirm Return
               </button>

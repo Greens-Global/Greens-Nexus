@@ -195,6 +195,8 @@ class Requisition(Base):
     actual_return_date = Column(String, default="")
     return_confirmed_by = Column(String, default="")
     return_asset_condition = Column(String, default="")
+    return_photo_name = Column(String, default="")
+    return_photo_url  = Column(String, default="")
     allocated_by = Column(String, default="")
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
