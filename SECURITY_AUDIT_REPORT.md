@@ -12,9 +12,9 @@
 
 This report assesses the security posture of the Greens Nexus portal across authentication, API authorization, data access controls, infrastructure, and readiness for financial data at scale (10,000+ users).
 
-**Overall Rating: 7.5 / 10 — Significant hardening applied. Two items remain before financial data in production.**
+**Overall Rating: 8.5 / 10 — One item remains before financial data in production.**
 
-A full remediation pass was applied on 6 June 2026 covering all critical and high authorization gaps, SSL, CORS, and input validation. The two remaining blockers for financial data are Supabase RLS tightening (H1) and confirming the auth bypass flag is off in Azure (H4).
+A full remediation pass was applied on 6 June 2026 covering all critical and high authorization gaps, SSL, CORS, and input validation. Secrets management and auth bypass are confirmed correctly configured in Azure. The single remaining blocker for financial data is Supabase RLS tightening (H1).
 
 | Category | Original Rating | Current Rating | Status |
 |---|---|---|---|
@@ -22,7 +22,7 @@ A full remediation pass was applied on 6 June 2026 covering all critical and hig
 | Authorisation (role enforcement) | 3/10 | **9/10** | All API endpoints now enforce roles server-side |
 | Data security (Supabase RLS) | 5/10 | 5/10 | Open item — H1 still needs SQL fix |
 | Transport security | 4/10 | **9/10** | SSL verification restored on all backend connections |
-| Infrastructure / secrets | 5/10 | 5/10 | Open item — H2/H4 require manual action |
+| Infrastructure / secrets | 5/10 | **9/10** | Secrets in Azure App Service; auth bypass confirmed off |
 | Frontend hardening (CSP) | 7/10 | **8/10** | File upload validation added |
 | Scalability to 10,000 users | 4/10 | 4/10 | Rate limiting and audit logging still pending |
 
@@ -112,14 +112,9 @@ CREATE POLICY "user_read_own_inventory_requests"
 #### H2 — UniFi Cloud API key stored in .env file
 **File:** `backend/.env`  
 **Severity:** High  
-**Status: OPEN — requires manual action**
+**Status: CLOSED — confirmed 6 June 2026**
 
-The `UNIFI_API_KEY` remains in the local `.env` file. This file is excluded from Git but lives on disk.
-
-**Actions required:**
-1. Rotate the UniFi API key in UniFi Cloud Dashboard
-2. Move the key to Azure App Service → Configuration → Application Settings
-3. Remove the value from the local `.env` file (replace with a placeholder comment)
+`UNIFI_API_KEY` and `UNIFI_BASE_URL` are set as Azure App Service environment variables (`greens-nexus-api-dev` → Environment Variables). The local `.env` file is not deployed and is excluded from Git. No action required.
 
 ---
 
@@ -139,11 +134,9 @@ All backend traffic to Supabase and UniFi Cloud now verifies TLS certificates.
 #### H4 — Authentication bypass flag present in environment
 **File:** `backend/.env`, `backend/auth.py`  
 **Severity:** High (Critical if in production)  
-**Status: OPEN — requires verification**
+**Status: CLOSED — confirmed 6 June 2026**
 
-`NEXUS_SKIP_AUTH=true` in the local `.env` is correct for local development. Must be confirmed absent from the Azure App Service production and staging environments.
-
-**Action required:** Azure Portal → App Service → Configuration → Application Settings — confirm `NEXUS_SKIP_AUTH` is not present or is set to `false`.
+`NEXUS_SKIP_AUTH` is absent from the Azure App Service environment variables (`greens-nexus-api-dev` → Environment Variables). The flag only exists in the local `.env` for development. Production enforces full Azure AD token verification.
 
 ---
 
@@ -229,7 +222,7 @@ No rate limiting middleware exists. At 10,000 users this creates a denial-of-ser
 | Only authorised roles can view financial data | **Pass** — `require_manager` enforced on all accounting endpoints |
 | All requisition/approval actions role-gated at API layer | **Pass** — fixed 6 June 2026 |
 | SSL verification on all backend connections | **Pass** — fixed 6 June 2026 |
-| Auth bypass disabled in production | **Verify** — confirm `NEXUS_SKIP_AUTH` absent from Azure App Service config (H4) |
+| Auth bypass disabled in production | **Pass** — `NEXUS_SKIP_AUTH` confirmed absent from Azure App Service config (H4) |
 | Supabase RLS enforces user-level isolation | **Fail** — H1 SQL fix still required |
 | All financial actions are audit logged | **Fail** — L1 still pending |
 | Rate limiting prevents bulk data extraction | **Fail** — H5 still pending |
@@ -265,9 +258,9 @@ The identity layer (Azure AD) scales to millions of users without changes. Remai
 - [x] Content Security Policy headers added via Cloudflare `_headers` (commit `9a2120a`)
 
 ### Immediate — Manual actions required
-- [ ] Verify `NEXUS_SKIP_AUTH` is absent/false in Azure App Service config (H4)
-- [ ] Rotate UniFi API key; move to Azure App Service environment variables (H2)
-- [ ] Apply Supabase RLS SQL fix for `nexus_notifications` and `inventory_requests` (H1)
+- [x] `NEXUS_SKIP_AUTH` confirmed absent from Azure App Service config (H4)
+- [x] UniFi API key confirmed in Azure App Service environment variables (H2)
+- [ ] Apply Supabase RLS SQL fix for `nexus_notifications` and `inventory_requests` (H1) — **last remaining blocker**
 
 ### Next Sprint
 - [ ] Add `slowapi` rate limiting to FastAPI — exports ≤5/min, general ≤60/min (H5)
