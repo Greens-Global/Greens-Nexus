@@ -4,7 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL
-from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, inventory_requests
+from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, inventory_requests, audit
+from audit import AuditMiddleware
 
 
 def _run_migrations():
@@ -67,6 +68,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Greens Nexus API", lifespan=lifespan)
 
+# AuditMiddleware must be added before CORSMiddleware so it wraps the full request
+app.add_middleware(AuditMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -104,4 +107,5 @@ app.include_router(requisitions.router)
 app.include_router(roles.router)
 app.include_router(notifications.router)
 app.include_router(inventory_requests.router)
+app.include_router(audit.router)
 

@@ -275,3 +275,16 @@ class ApprovalHistory(Base):
     action_role = Column(String, nullable=False)
     comment = Column(String, default="")
     created_at = Column(String, nullable=False)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp     = Column(String, nullable=False)
+    user_email    = Column(String, nullable=False)
+    user_role     = Column(String, default="")
+    action        = Column(String, nullable=False)
+    resource_type = Column(String, default="")
+    resource_id   = Column(String, default="")
+    details       = Column(String, default="")   # JSON string
+    ip_address    = Column(String, default="")
