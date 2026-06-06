@@ -1,6 +1,7 @@
 """
 Audit middleware — logs every state-changing request (non-GET) to audit_logs.
-One central place; all current and future routers are covered automatically.
+Generates a descriptive action string that includes the resource ID from the URL
+so logs read as "Approved requisition REQ-ABC" rather than just "Approved requisition".
 """
 import json
 from datetime import datetime
@@ -9,48 +10,98 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from database import SessionLocal
 import models
 
-# Map (method, path-prefix) → human-readable action label
-_ACTION_MAP = [
-    ("POST",   "/requisitions",                    "Created requisition"),
-    ("PATCH",  "/requisitions",  "/approve",        "Approved requisition"),
-    ("PATCH",  "/requisitions",  "/reject",         "Rejected requisition"),
-    ("PATCH",  "/requisitions",  "/allocate",       "Allocated asset to requisition"),
-    ("PATCH",  "/requisitions",  "/initiate-return","Initiated return"),
-    ("PATCH",  "/requisitions",  "/confirm-return", "Confirmed return"),
-    ("PATCH",  "/requisitions",  "/mark-lost",      "Marked asset lost"),
-    ("POST",   "/hardware-assets",                 "Created hardware asset"),
-    ("POST",   "/inventory-requests",              "Created inventory request"),
-    ("PATCH",  "/inventory-requests",              "Updated inventory request"),
-    ("PUT",    "/roles",                           "Assigned role"),
-    ("POST",   "/roles/sync",                      "Synced user roles"),
-    ("PATCH",  "/reviews",        "/reply",         "Replied to review"),
-    ("POST",   "/tasks",                           "Created task"),
-    ("PATCH",  "/tasks",                           "Updated task"),
-    ("DELETE", "/tasks",                           "Deleted task"),
-    ("POST",   "/purchases",                       "Created purchase request"),
-    ("PATCH",  "/purchases",                       "Updated purchase request"),
-    ("POST",   "/assets",                          "Created asset"),
-    ("PATCH",  "/assets",                          "Updated asset"),
-    ("DELETE", "/assets",                          "Deleted asset"),
-    ("POST",   "/accounting",                      "Created accounting entry"),
-    ("PATCH",  "/accounting",                      "Updated accounting entry"),
-    ("DELETE", "/accounting",                      "Deleted accounting entry"),
-    ("POST",   "/operations",                      "Created operations entry"),
-    ("PATCH",  "/operations",                      "Updated operations entry"),
-]
 
+def _describe(method: str, path: str) -> tuple[str, str]:
+    """Return (human_readable_action, resource_id) from method + path."""
+    parts = [p for p in path.split("/") if p]
+    # parts[0] = resource type, parts[1] = id or sub-action, parts[2] = sub-action
 
-def _resolve_action(method: str, path: str) -> str:
-    for entry in _ACTION_MAP:
-        if len(entry) == 3:
-            m, prefix, _ = entry
-            if method == m and path.startswith(prefix):
-                return entry[2]
-        else:
-            m, prefix, suffix, label = entry
-            if method == m and prefix in path and path.endswith(suffix):
-                return label
-    return f"{method} {path}"
+    resource = parts[0] if parts else ""
+    rid      = parts[1] if len(parts) > 1 else ""
+    sub      = parts[2] if len(parts) > 2 else ""
+
+    # Ignore non-meaningful sub-path segments used as IDs
+    _SKIP_AS_ID = {"sync", "read", "action", "export", "excel", "reply", "approve",
+                   "reject", "allocate", "initiate-return", "confirm-return", "mark-lost",
+                   "click", "me", "summary"}
+
+    display_id = rid if rid and rid not in _SKIP_AS_ID else ""
+
+    def _fmt(label: str) -> str:
+        return f"{label} {display_id}".strip() if display_id else label
+
+    # ── Requisitions ──────────────────────────────────────────────────────────
+    if resource == "requisitions":
+        if method == "POST":                    return "Created requisition", ""
+        if sub == "approve":                    return _fmt("Approved requisition"), display_id
+        if sub == "reject":                     return _fmt("Rejected requisition"), display_id
+        if sub == "allocate":                   return _fmt("Allocated asset →"), display_id
+        if sub == "initiate-return":            return _fmt("Initiated return"), display_id
+        if sub == "confirm-return":             return _fmt("Confirmed return"), display_id
+        if sub == "mark-lost":                  return _fmt("Marked asset lost"), display_id
+
+    # ── Inventory requests ────────────────────────────────────────────────────
+    if resource == "inventory-requests":
+        if method == "POST":                    return "Created inventory request", ""
+        if method == "PATCH":                   return _fmt("Updated inventory request"), display_id
+
+    # ── Hardware assets ───────────────────────────────────────────────────────
+    if resource == "hardware-assets":
+        if method == "POST":                    return "Added hardware asset", ""
+        if method == "PATCH":                   return _fmt("Updated hardware asset"), display_id
+        if method == "DELETE":                  return _fmt("Deleted hardware asset"), display_id
+
+    # ── Roles ─────────────────────────────────────────────────────────────────
+    if resource == "roles":
+        if method == "POST" and rid == "sync":  return "Synced user roles from M365", ""
+        if method == "PUT":                     return f"Assigned role → {rid}", rid
+        if method == "DELETE":                  return f"Removed user {rid}", rid
+
+    # ── Reviews ───────────────────────────────────────────────────────────────
+    if resource == "reviews":
+        if sub == "reply":                      return _fmt("Replied to review"), display_id
+
+    # ── Notifications ─────────────────────────────────────────────────────────
+    if resource == "notifications":
+        if method == "POST":                    return "Sent notification", ""
+        if sub == "read":                       return "Marked notification read", ""
+        if sub == "action":                     return "Actioned notification", ""
+        if method == "DELETE":                  return "Deleted notification", ""
+
+    # ── Tasks ─────────────────────────────────────────────────────────────────
+    if resource == "tasks":
+        if method == "POST":                    return "Created task", ""
+        if method == "PATCH":                   return _fmt("Updated task"), display_id
+        if method == "DELETE":                  return _fmt("Deleted task"), display_id
+
+    # ── Purchases ─────────────────────────────────────────────────────────────
+    if resource == "purchase-requests":
+        if method == "POST":                    return "Created purchase request", ""
+        if method == "PATCH":                   return _fmt("Updated purchase request"), display_id
+
+    # ── Assets ───────────────────────────────────────────────────────────────
+    if resource == "assets":
+        if method == "POST":                    return "Added asset", ""
+        if method == "PATCH":                   return _fmt("Updated asset"), display_id
+        if method == "DELETE":                  return _fmt("Deleted asset"), display_id
+
+    # ── Reviews ───────────────────────────────────────────────────────────────
+    if resource == "sop-updates":
+        if method == "POST":                    return "Created SOP entry", ""
+        if method == "PATCH":                   return _fmt("Updated SOP entry"), display_id
+
+    # ── Operations / dev ─────────────────────────────────────────────────────
+    if resource == "ops-projects":
+        if method == "POST":                    return "Created ops project", ""
+        if method == "PATCH":                   return _fmt("Updated ops project"), display_id
+
+    # ── External links ────────────────────────────────────────────────────────
+    if resource == "external-links":
+        if method == "POST":                    return "Added external link", ""
+        if sub == "click":                      return "Clicked external link", ""
+
+    # ── Fallback ──────────────────────────────────────────────────────────────
+    return f"{method} /{resource}", rid
 
 
 def _extract_email(request: Request) -> str:
@@ -60,7 +111,6 @@ def _extract_email(request: Request) -> str:
     try:
         import base64
         token = auth[7:]
-        # Decode payload without verification (already verified by auth dependency)
         parts = token.split(".")
         if len(parts) < 2:
             return "unknown"
@@ -80,19 +130,18 @@ class AuditMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
 
-        # Only log writes that succeeded
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return response
         if response.status_code >= 400:
             return response
 
         try:
-            path = request.url.path
+            path   = request.url.path
             method = request.method
-            action = _resolve_action(method, path)
+            action, resource_id = _describe(method, path)
             user_email = _extract_email(request)
 
-            forwarded = request.headers.get("x-forwarded-for")
+            forwarded  = request.headers.get("x-forwarded-for")
             ip = (
                 forwarded.split(",")[0].strip()
                 if forwarded
@@ -107,7 +156,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
                     user_role="",
                     action=action,
                     resource_type=path.split("/")[1] if "/" in path else "",
-                    resource_id=path.split("/")[2] if path.count("/") >= 2 else "",
+                    resource_id=resource_id,
                     details=json.dumps({"path": path, "status": response.status_code}),
                     ip_address=ip,
                 ))
@@ -115,6 +164,6 @@ class AuditMiddleware(BaseHTTPMiddleware):
             finally:
                 db.close()
         except Exception:
-            pass  # Audit failure must never break the response
+            pass
 
         return response
