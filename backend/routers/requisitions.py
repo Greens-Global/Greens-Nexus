@@ -343,5 +343,12 @@ def create_hardware_asset(data: HardwareAssetCreate, user: dict = Depends(requir
 
 
 @router.get("/approval-history/{req_id}")
-def get_approval_history(req_id: str, db: Session = Depends(get_db)):
+def get_approval_history(req_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if user["level"] < 3:
+        req = db.query(models.Requisition).filter(
+            models.Requisition.id == req_id,
+            models.Requisition.employee_email == user["email"]
+        ).first()
+        if not req:
+            raise HTTPException(403, "Access denied")
     return db.query(models.ApprovalHistory).filter(models.ApprovalHistory.requisition_id == req_id).all()
