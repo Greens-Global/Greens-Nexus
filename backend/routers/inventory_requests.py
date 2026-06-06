@@ -1,4 +1,5 @@
 import os
+import threading
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -13,11 +14,7 @@ _SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
 
-def _fire_inventory_event(request_id: str, status: str, affected_email: str) -> None:
-    """Insert a row into inventory_events so Supabase Realtime notifies clients.
-    Fire-and-forget: a Supabase outage must never break the main API response."""
-    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
-        return
+def _post_inventory_event(request_id: str, status: str, affected_email: str) -> None:
     try:
         httpx.post(
             f"{_SUPABASE_URL}/rest/v1/inventory_events",
@@ -36,6 +33,20 @@ def _fire_inventory_event(request_id: str, status: str, affected_email: str) -> 
         )
     except Exception:
         pass
+
+
+def _fire_inventory_event(request_id: str, status: str, affected_email: str) -> None:
+    """Insert a row into inventory_events so Supabase Realtime notifies clients.
+    Fire-and-forget: runs on a background thread so a slow/down Supabase never
+    holds the request thread (and its checked-out DB connection) hostage for
+    up to 5 seconds — that was compounding pool contention under load."""
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        return
+    threading.Thread(
+        target=_post_inventory_event,
+        args=(request_id, status, affected_email),
+        daemon=True,
+    ).start()
 
 router = APIRouter(prefix="/inventory-requests", tags=["inventory-requests"], dependencies=[Depends(get_current_user)])
 

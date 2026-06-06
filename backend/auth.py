@@ -46,12 +46,37 @@ def _get_public_key(token: str):
     return RSAAlgorithm.from_jwk(json.dumps(key_data))
 
 
+_LEVELS = {"employee": 1, "supervisor": 2, "manager": 3, "administrator": 4, "owner": 5}
+
+# get_current_user runs on every single API request (it's a dependency of every
+# router), so an uncached _role_for meant every request — regardless of which
+# endpoint it hit — did a DB round trip just to resolve the caller's role.
+# Under load that was a huge multiplier on connection-pool pressure for data
+# that changes only via rare admin actions. Cache it for a short, safe TTL.
+_ROLE_CACHE_TTL = 120.0
+_role_cache: dict[str, tuple[str, int, float]] = {}
+
+
 def _role_for(email: str, db: Session) -> tuple[str, int]:
     from models import NexusRole
+
+    cached = _role_cache.get(email)
+    if cached and time.time() - cached[2] < _ROLE_CACHE_TTL:
+        return cached[0], cached[1]
+
     row = db.query(NexusRole).filter(NexusRole.email == email.lower()).first()
     role = row.role if row else "employee"
-    levels = {"employee": 1, "supervisor": 2, "manager": 3, "administrator": 4, "owner": 5}
-    return role, levels.get(role, 1)
+    level = _LEVELS.get(role, 1)
+    _role_cache[email] = (role, level, time.time())
+    return role, level
+
+
+def invalidate_role_cache(email: str | None = None) -> None:
+    """Call after assigning/changing a role so the new value takes effect immediately."""
+    if email:
+        _role_cache.pop(email.lower(), None)
+    else:
+        _role_cache.clear()
 
 
 def get_current_user(
@@ -99,6 +124,12 @@ def get_current_user(
             raise HTTPException(status_code=401, detail="Token contains no identifiable email claim")
     else:
         email = os.getenv("NEXUS_DEV_EMAIL", "dev@localhost").lower()
+
+    # Cache hit → skip the DB connection checkout entirely (the common case:
+    # the same ~180 employees re-authenticate on every request they make).
+    cached = _role_cache.get(email)
+    if cached and time.time() - cached[2] < _ROLE_CACHE_TTL:
+        return {"email": email, "role": cached[0], "level": cached[1]}
 
     db = SessionLocal()
     try:

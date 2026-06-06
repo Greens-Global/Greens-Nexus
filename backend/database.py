@@ -27,6 +27,12 @@ else:
         connect_args={"ssl_context": ssl_ctx},
         # Routes are sync (`def`, not `async def`), so each request borrows a
         # connection from this pool while running in FastAPI's threadpool.
+        # SQLAlchemy's defaults (5 + 10 = 15 per worker) became the limiting
+        # factor once CPU was no longer the bottleneck. Modest bump — stay
+        # mindful this multiplies by gunicorn worker count against whatever
+        # connection ceiling the Supabase pooler enforces on the dev project.
+        pool_size=10,
+        max_overflow=15,
         # Under load, the default pool_timeout (30s) made starved requests hang
         # for up to 30s before failing — fail fast instead so the tail latency
         # stays bounded and the caller gets a prompt error to retry.

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from database import get_db
 from models import NexusRole
-from auth import get_current_user, require_administrator, require_level
+from auth import get_current_user, require_administrator, require_level, invalidate_role_cache
 
 router = APIRouter(prefix="/roles", tags=["roles"])
 
@@ -111,4 +111,5 @@ def assign_role(
         row = NexusRole(email=target_email, role=new_role, assigned_by=user["email"])
         db.add(row)
     db.commit()
+    invalidate_role_cache(target_email)
     return {"email": target_email, "role": new_role}
