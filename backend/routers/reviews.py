@@ -4,7 +4,9 @@ from pydantic import BaseModel
 import models
 from database import get_db
 
-router = APIRouter(prefix="/reviews", tags=["Reviews"])
+from auth import get_current_user
+
+router = APIRouter(prefix="/reviews", tags=["Reviews"], dependencies=[Depends(get_current_user)])
 
 
 class ReviewReply(BaseModel):

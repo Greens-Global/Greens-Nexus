@@ -90,9 +90,13 @@ def _to_dict(r: InventoryRequest) -> dict:
 
 
 @router.get("")
-def list_requests(email: Optional[str] = None, db: Session = Depends(get_db)):
+def list_requests(email: Optional[str] = None, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     q = db.query(InventoryRequest).order_by(InventoryRequest.created_at.desc())
-    if email:
+    if user["level"] < 3:
+        # Non-managers only see their own requests regardless of email param
+        q = q.filter(InventoryRequest.requested_by_email == user["email"])
+    elif email:
+        # Managers can optionally filter by a specific email
         q = q.filter(InventoryRequest.requested_by_email == email.lower())
     return [_to_dict(r) for r in q.all()]
 
@@ -120,10 +124,18 @@ def create_request(body: RequestIn, db: Session = Depends(get_db)):
 
 
 @router.patch("/{req_id}")
-def update_request(req_id: str, body: StatusUpdate, db: Session = Depends(get_db)):
+def update_request(req_id: str, body: StatusUpdate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     row = db.query(InventoryRequest).filter(InventoryRequest.id == req_id).first()
     if not row:
         return {"ok": False, "error": "not found"}
+
+    if body.status in ("approved", "rejected") and user["level"] < 3:
+        raise HTTPException(403, "Manager or above required to approve or reject requests")
+    if body.status == "allocated" and user["level"] < 2:
+        raise HTTPException(403, "Supervisor or above required to allocate items")
+    if body.status == "returned" and user["level"] < 2 and row.requested_by_email.lower() != user["email"]:
+        raise HTTPException(403, "You can only return your own items")
+
     now = datetime.now(timezone.utc).isoformat()
     row.status = body.status
     if body.status in ("approved", "rejected"):

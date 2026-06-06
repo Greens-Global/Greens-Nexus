@@ -40,7 +40,7 @@ export function NotificationProvider({ children }) {
   // ── Full fetch from backend ───────────────────────────────────────────────
   const fetchNotifications = useCallback(() => {
     if (!myEmail) return;
-    api.getNotifications(myEmail)
+    api.getNotifications()
       .then(rows => setNotifications(rows.map(rowToNotif)))
       .catch(() => {});
   }, [myEmail]);
@@ -138,7 +138,7 @@ export function NotificationProvider({ children }) {
 
   const markRead = useCallback((id) => {
     setNotifications(p => p.map(n => n.id === id ? { ...n, read: true } : n));
-    if (myEmail) api.markNotifRead(id, myEmail).catch(() => {});
+    if (myEmail) api.markNotifRead(id).catch(() => {});
   }, [myEmail]);
 
   const markAllRead = useCallback(() => {

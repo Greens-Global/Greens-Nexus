@@ -220,7 +220,12 @@ export function InventoryProvider({ children }) {
     let permanentUrl = '';
 
     if (file && supabase) {
-      const ext  = photoName?.split('.').pop() || 'jpg';
+      const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+      const MAX_BYTES = 10 * 1024 * 1024;
+      if (!ALLOWED_TYPES.includes(file.type)) throw new Error('Only image files are allowed (JPEG, PNG, GIF, WebP)');
+      if (file.size > MAX_BYTES) throw new Error('Photo must be under 10 MB');
+
+      const ext  = file.type.split('/')[1] || 'jpg';
       const path = `${id}/${Date.now()}.${ext}`;
       const { data: uploaded, error } = await supabase.storage
         .from('return-photos')

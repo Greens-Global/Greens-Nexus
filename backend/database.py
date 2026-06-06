@@ -15,10 +15,8 @@ else:
     url = DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+pg8000://")
     if not url.startswith("postgresql+"):
         url = url.replace("postgresql://", "postgresql+pg8000://")
-    # Supabase requires SSL — pg8000 needs it passed explicitly
+    # Supabase requires SSL — pg8000 needs it passed explicitly via ssl_context
     ssl_ctx = ssl.create_default_context()
-    ssl_ctx.check_hostname = False
-    ssl_ctx.verify_mode  = ssl.CERT_NONE
     engine = create_engine(url, connect_args={"ssl_context": ssl_ctx})
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

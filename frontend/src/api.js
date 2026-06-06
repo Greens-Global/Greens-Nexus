@@ -108,8 +108,8 @@ export const api = {
 
   // Notifications (cross-device, stored in Supabase)
   pushNotification: (n)             => req('/notifications', { method: 'POST', body: JSON.stringify(n) }),
-  getNotifications: (email)         => req(`/notifications?email=${encodeURIComponent(email)}`),
-  markNotifRead:    (id, email)      => req(`/notifications/${id}/read`, { method: 'PATCH', body: JSON.stringify({ email }) }),
+  getNotifications: ()               => req('/notifications'),
+  markNotifRead:    (id)             => req(`/notifications/${id}/read`, { method: 'PATCH' }),
   markNotifActioned:(id)             => req(`/notifications/${id}/action`, { method: 'PATCH' }),
   deleteNotif:      (id)             => req(`/notifications/${id}`, { method: 'DELETE' }),
 

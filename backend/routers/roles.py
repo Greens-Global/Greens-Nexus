@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from database import get_db
 from models import NexusRole
-from auth import get_current_user, require_administrator
+from auth import get_current_user, require_administrator, require_level
 
 router = APIRouter(prefix="/roles", tags=["roles"])
 
@@ -43,7 +43,7 @@ class SyncRequest(BaseModel):
 
 
 @router.post("/sync")
-def sync_users(body: SyncRequest, db: Session = Depends(get_db)):
+def sync_users(body: SyncRequest, user: dict = Depends(require_level(4)), db: Session = Depends(get_db)):
     """Insert all provided emails with role='employee' if they don't already have a row."""
     new_count = 0
     for email in body.emails:

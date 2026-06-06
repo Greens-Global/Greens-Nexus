@@ -23,9 +23,6 @@ class NotificationIn(BaseModel):
     action:       Optional[dict] = None
 
 
-class MarkRead(BaseModel):
-    email: str
-
 
 @router.post("")
 def create_notification(n: NotificationIn, db: Session = Depends(get_db)):
@@ -49,13 +46,14 @@ def create_notification(n: NotificationIn, db: Session = Depends(get_db)):
 
 
 @router.get("")
-def get_notifications(email: str, db: Session = Depends(get_db)):
+def get_notifications(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """
-    Returns notifications visible to this email:
+    Returns notifications visible to the authenticated caller:
     - recipient IS NULL/empty  → broadcast to all managers (caller filters by role client-side)
     - recipient == email       → personal notification for this user
+    Identity comes from the verified token — never from a query parameter.
     """
-    email = email.lower()
+    email = user["email"]
     rows = db.query(NexusNotification).order_by(NexusNotification.created_at.desc()).limit(100).all()
 
     result = []
@@ -81,13 +79,13 @@ def get_notifications(email: str, db: Session = Depends(get_db)):
 
 
 @router.patch("/{nid}/read")
-def mark_read(nid: str, body: MarkRead, db: Session = Depends(get_db)):
+def mark_read(nid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     row = db.query(NexusNotification).filter(NexusNotification.id == nid).first()
     if not row:
         return {"ok": False}
     emails = [x for x in (row.read_by or "").split(",") if x]
-    if body.email.lower() not in emails:
-        emails.append(body.email.lower())
+    if user["email"] not in emails:
+        emails.append(user["email"])
         row.read_by = ",".join(emails)
         db.commit()
     return {"ok": True}
