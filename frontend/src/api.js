@@ -132,6 +132,17 @@ export const api = {
   getHardwareAssets:  ()      => req('/hardware-assets'),
   createHardwareAsset:(data)  => req('/hardware-assets', { method: 'POST', body: JSON.stringify(data) }),
 
+  // Audit Logs
+  getAuditLogs: (params = {}) => {
+    const qs = new URLSearchParams();
+    if (params.limit)         qs.set('limit',         params.limit);
+    if (params.offset)        qs.set('offset',        params.offset);
+    if (params.user_email)    qs.set('user_email',    params.user_email);
+    if (params.action)        qs.set('action',        params.action);
+    if (params.resource_type) qs.set('resource_type', params.resource_type);
+    return req(`/audit-logs?${qs.toString()}`);
+  },
+
   // Accounting
   getTransactions: () => req("/accounting/transactions"),
   getRamp: () => req("/accounting/ramp"),

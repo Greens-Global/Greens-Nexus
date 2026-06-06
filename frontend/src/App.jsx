@@ -6,6 +6,7 @@ import { RequisitionProvider } from "./contexts/RequisitionContext";
 import { InventoryProvider } from "./contexts/InventoryContext";
 import Sidebar from "./components/Sidebar";
 import TopHeader from "./components/TopHeader";
+import AdminPanel from "./components/AdminPanel";
 
 // Always loaded — critical path
 import LoginPage from "./views/LoginPage";
@@ -70,6 +71,8 @@ export default function App() {
   const [sidebarOpen,      setSidebarOpen]      = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("gg-sidebar-collapsed") === "true");
   const [navHistory,       setNavHistory]       = useState([]);
+  const [adminPanelOpen,   setAdminPanelOpen]   = useState(false);
+  const [adminPanelTab,    setAdminPanelTab]    = useState('access');
   const sidebarRef = useRef(null);
 
   // Collapse sidebar when clicking outside it — lets clicks pass through to content
@@ -179,6 +182,7 @@ export default function App() {
               onBack={goBack}
               onNavigate={navigate}
               prevLabel={navHistory.length > 0 ? (VIEW_LABELS[navHistory[navHistory.length - 1].view] || navHistory[navHistory.length - 1].view) : null}
+              onOpenAdmin={tab => { setAdminPanelTab(tab); setAdminPanelOpen(true); }}
             />
             <div className="viewport">
               <Suspense fallback={
@@ -191,6 +195,11 @@ export default function App() {
             </div>
           </main>
         </div>
+        <AdminPanel
+          open={adminPanelOpen}
+          initialTab={adminPanelTab}
+          onClose={() => setAdminPanelOpen(false)}
+        />
         </InventoryProvider>
         </RequisitionProvider>
         </RoleGate>
