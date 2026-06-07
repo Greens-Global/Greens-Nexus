@@ -67,10 +67,12 @@ const PERMISSION_MATRIX = [
   {
     section: 'SYSTEM SETTINGS',
     rows: [
-      { feature: 'Add / Remove Users', owner: true,  administrator: true,  manager: false, supervisor: false, employee: false },
-      { feature: 'Assign Roles',       owner: true,  administrator: false, manager: false, supervisor: false, employee: false },
-      { feature: 'Send Notifications', owner: true,  administrator: true,  manager: true,  supervisor: true,  employee: false },
-      { feature: 'View Audit Logs',    owner: true,  administrator: true,  manager: false, supervisor: false, employee: false },
+      { feature: 'Add Users',                owner: true,  administrator: true,     manager: false, supervisor: false, employee: false },
+      { feature: 'Assign Roles',             owner: true,  administrator: 'Up to Manager', manager: false, supervisor: false, employee: false },
+      { feature: 'Manage Other Admins',      owner: true,  administrator: false,    manager: false, supervisor: false, employee: false },
+      { feature: 'Send Notifications',       owner: true,  administrator: true,     manager: true,  supervisor: true,  employee: false },
+      { feature: 'View Audit Logs',          owner: true,  administrator: true,     manager: false, supervisor: false, employee: false },
+      { feature: 'Permanently Delete Records', owner: true, administrator: false,   manager: false, supervisor: false, employee: false },
     ],
   },
 ];
@@ -217,8 +219,22 @@ export default function Admin() {
     }
   }, [graphLoading, users]);
 
-  const isOwner = myRole === 'owner';
-  const isAdmin = can('administrator');
+  const isOwner  = myRole === 'owner';
+  const isAdmin  = can('administrator');
+  const myLevel  = ROLES[myRole]?.level ?? 1;
+
+  // IT Admins may delegate access only "down" (strictly below their own level)
+  // and can't touch anyone who's already an admin — only Global Admin can
+  // create, edit, or demote other admins. Mirrors the backend check in
+  // routers/roles.py so the UI doesn't offer choices that'll just 403.
+  function canEditRoleOf(targetRole) {
+    if (isOwner) return true;
+    return (ROLES[targetRole]?.level ?? 1) < ROLES.administrator.level;
+  }
+  function assignableRoles() {
+    if (isOwner) return ROLE_ORDER;
+    return ROLE_ORDER.filter(r => (ROLES[r]?.level ?? 1) < myLevel);
+  }
 
   async function handleAssign(email, role, displayName) {
     setRoleError('');
@@ -432,14 +448,17 @@ export default function Admin() {
                             <td>
                               <select
                                 value={u.role}
-                                disabled={saving[u.email] || (!isOwner && u.role === 'owner')}
+                                disabled={saving[u.email] || !canEditRoleOf(u.role)}
+                                title={!canEditRoleOf(u.role) ? "Only a Global Admin can manage another admin's access" : undefined}
                                 onChange={e => handleAssign(u.email, e.target.value, u.name)}
                                 className="form-input"
                                 style={{ padding: '5px 10px', fontSize: 12.5, height: 32, minWidth: 140 }}>
-                                {ROLE_ORDER.map(r => {
-                                  if (r === 'owner' && !isOwner) return null;
-                                  return <option key={r} value={r}>{ROLES[r].label}</option>;
-                                })}
+                                {assignableRoles().includes(u.role)
+                                  ? null
+                                  : <option value={u.role}>{ROLES[u.role]?.label ?? u.role}</option>}
+                                {assignableRoles().map(r => (
+                                  <option key={r} value={r}>{ROLES[r].label}</option>
+                                ))}
                               </select>
                             </td>
                             <td style={{ width: 70 }}>
