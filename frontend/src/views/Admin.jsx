@@ -67,10 +67,12 @@ const PERMISSION_MATRIX = [
   {
     section: 'SYSTEM SETTINGS',
     rows: [
-      { feature: 'Add / Remove Users', owner: true,  administrator: true,  manager: false, supervisor: false, employee: false },
-      { feature: 'Assign Roles',       owner: true,  administrator: false, manager: false, supervisor: false, employee: false },
-      { feature: 'Send Notifications', owner: true,  administrator: true,  manager: true,  supervisor: true,  employee: false },
-      { feature: 'View Audit Logs',    owner: true,  administrator: true,  manager: false, supervisor: false, employee: false },
+      { feature: 'Add Users',                owner: true,  administrator: true,     manager: false, supervisor: false, employee: false },
+      { feature: 'Assign Roles',             owner: true,  administrator: 'Up to Manager', manager: false, supervisor: false, employee: false },
+      { feature: 'Manage Other Admins',      owner: true,  administrator: false,    manager: false, supervisor: false, employee: false },
+      { feature: 'Send Notifications',       owner: true,  administrator: true,     manager: true,  supervisor: true,  employee: false },
+      { feature: 'View Audit Logs',          owner: true,  administrator: true,     manager: false, supervisor: false, employee: false },
+      { feature: 'Permanently Delete Records', owner: true, administrator: false,   manager: false, supervisor: false, employee: false },
     ],
   },
 ];
@@ -204,6 +206,7 @@ export default function Admin() {
   const [showAddUser,  setShowAddUser]  = useState(false);
   const [addingSaving, setAddingSaving] = useState(false);
   const [manualUsers,  setManualUsers]  = useState([]);
+  const [roleError,    setRoleError]    = useState('');
 
   const loading = graphLoading;
 
@@ -216,17 +219,33 @@ export default function Admin() {
     }
   }, [graphLoading, users]);
 
-  const isOwner = myRole === 'owner';
-  const isAdmin = can('administrator');
+  const isOwner  = myRole === 'owner';
+  const isAdmin  = can('administrator');
+  const myLevel  = ROLES[myRole]?.level ?? 1;
 
-  async function handleAssign(email, role) {
+  // IT Admins may delegate access only "down" (strictly below their own level)
+  // and can't touch anyone who's already an admin — only Global Admin can
+  // create, edit, or demote other admins. Mirrors the backend check in
+  // routers/roles.py so the UI doesn't offer choices that'll just 403.
+  function canEditRoleOf(targetRole) {
+    if (isOwner) return true;
+    return (ROLES[targetRole]?.level ?? 1) < ROLES.administrator.level;
+  }
+  function assignableRoles() {
+    if (isOwner) return ROLE_ORDER;
+    return ROLE_ORDER.filter(r => (ROLES[r]?.level ?? 1) < myLevel);
+  }
+
+  async function handleAssign(email, role, displayName) {
+    setRoleError('');
     setSaving(p => ({ ...p, [email]: true }));
     try {
-      await assignRole(email, role);
+      await assignRole(email, role, displayName);
       setSaved(p => ({ ...p, [email]: true }));
       setTimeout(() => setSaved(p => { const n = {...p}; delete n[email]; return n; }), 1800);
     } catch (err) {
-      alert(err.message ?? 'Failed to update role');
+      setRoleError(err.message ?? 'Failed to update role — please try again');
+      setTimeout(() => setRoleError(''), 4000);
     } finally {
       setSaving(p => { const n = {...p}; delete n[email]; return n; });
     }
@@ -234,15 +253,17 @@ export default function Admin() {
 
   async function handleAddUser({ name, email, dept, title, role }) {
     setAddingSaving(true);
+    setRoleError('');
     try {
-      await assignRole(email, role);
+      await assignRole(email, role, name);
       setManualUsers(p => {
         if (p.some(u => u.email === email)) return p.map(u => u.email === email ? { ...u, name, dept, title, role } : u);
         return [...p, { id: email, name, email, dept, title, role }];
       });
       setShowAddUser(false);
     } catch (err) {
-      alert(err.message ?? 'Failed to add user');
+      setRoleError(err.message ?? 'Failed to add user — please try again');
+      setTimeout(() => setRoleError(''), 4000);
     } finally {
       setAddingSaving(false);
     }
@@ -313,6 +334,12 @@ export default function Admin() {
         </div>
       </div>
 
+      {roleError && (
+        <div style={{ background: 'hsla(0,80%,50%,0.12)', border: '1px solid hsla(0,80%,50%,0.3)', color: 'var(--color-red, #f87171)', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 14 }}>
+          {roleError}
+        </div>
+      )}
+
       {/* Tab strip */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
         {tabs.map(t => (
@@ -379,7 +406,9 @@ export default function Admin() {
               {displayUsers.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '56px 0', color: 'var(--muted)', fontSize: 14 }}>
                   <Users size={32} style={{ opacity: .2, display: 'block', margin: '0 auto 10px' }} />
-                  {users.length === 0 ? 'No users loaded from Microsoft 365 yet.' : 'No users match your filter.'}
+                  {error
+                    ? 'Couldn\'t load users from Microsoft 365 — please refresh to try again.'
+                    : users.length === 0 ? 'No users loaded from Microsoft 365 yet.' : 'No users match your filter.'}
                 </div>
               ) : (
                 <div style={{ border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
@@ -419,14 +448,17 @@ export default function Admin() {
                             <td>
                               <select
                                 value={u.role}
-                                disabled={saving[u.email] || (!isOwner && u.role === 'owner')}
-                                onChange={e => handleAssign(u.email, e.target.value)}
+                                disabled={saving[u.email] || !canEditRoleOf(u.role)}
+                                title={!canEditRoleOf(u.role) ? "Only a Global Admin can manage another admin's access" : undefined}
+                                onChange={e => handleAssign(u.email, e.target.value, u.name)}
                                 className="form-input"
                                 style={{ padding: '5px 10px', fontSize: 12.5, height: 32, minWidth: 140 }}>
-                                {ROLE_ORDER.map(r => {
-                                  if (r === 'owner' && !isOwner) return null;
-                                  return <option key={r} value={r}>{ROLES[r].label}</option>;
-                                })}
+                                {assignableRoles().includes(u.role)
+                                  ? null
+                                  : <option value={u.role}>{ROLES[u.role]?.label ?? u.role}</option>}
+                                {assignableRoles().map(r => (
+                                  <option key={r} value={r}>{ROLES[r].label}</option>
+                                ))}
                               </select>
                             </td>
                             <td style={{ width: 70 }}>

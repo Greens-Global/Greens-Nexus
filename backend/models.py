@@ -195,6 +195,8 @@ class Requisition(Base):
     actual_return_date = Column(String, default="")
     return_confirmed_by = Column(String, default="")
     return_asset_condition = Column(String, default="")
+    return_photo_name = Column(String, default="")
+    return_photo_url  = Column(String, default="")
     allocated_by = Column(String, default="")
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
@@ -244,11 +246,13 @@ class InventoryRequest(Base):
     quantity           = Column(Integer, default=1)
     days               = Column(Integer, default=1)
     reason             = Column(String, default="")
-    status             = Column(String, default="pending")       # pending|approved|allocated|rejected|returned
+    status             = Column(String, default="pending")       # pending|approved|allocated|rejected|returned|cancelled
     created_at         = Column(String, nullable=False)
     resolved_at        = Column(String, default="")
     resolved_by        = Column(String, default="")
     reject_reason      = Column(String, default="")
+    assigned_allocator_email = Column(String, default="")        # who the manager picked to hand the item over
+    assigned_allocator_name  = Column(String, default="")
     allocated_at       = Column(String, default="")
     allocated_by       = Column(String, default="")
     returned_at        = Column(String, default="")
@@ -257,11 +261,27 @@ class InventoryRequest(Base):
     condition_note     = Column(String, default="")
 
 
+class InventoryItem(Base):
+    """Master stock record for a requestable inventory item.
+    available_qty is the live source of truth — decremented atomically when a
+    request is allocated, incremented when it's returned in good condition
+    (or total_qty is reduced instead, when the returned unit is damaged/retired)."""
+    __tablename__ = "inventory_items"
+    id            = Column(String, primary_key=True)
+    name          = Column(String, nullable=False)
+    category      = Column(String, default="")
+    department    = Column(String, default="")
+    total_qty     = Column(Integer, default=0)
+    available_qty = Column(Integer, default=0)
+    last_updated  = Column(String, default="")
+
+
 class NexusRole(Base):
     __tablename__ = "nexus_roles"
-    email       = Column(String, primary_key=True)   # Azure AD UPN / email
-    role        = Column(String, nullable=False, default="employee")
-    assigned_by = Column(String, default="system")
+    email        = Column(String, primary_key=True)   # Azure AD UPN / email
+    role         = Column(String, nullable=False, default="employee")
+    display_name = Column(String, default="")         # captured from Microsoft Graph when assigned via Access Manager
+    assigned_by  = Column(String, default="system")
 
 
 class ApprovalHistory(Base):
@@ -273,3 +293,16 @@ class ApprovalHistory(Base):
     action_role = Column(String, nullable=False)
     comment = Column(String, default="")
     created_at = Column(String, nullable=False)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp     = Column(String, nullable=False)
+    user_email    = Column(String, nullable=False)
+    user_role     = Column(String, default="")
+    action        = Column(String, nullable=False)
+    resource_type = Column(String, default="")
+    resource_id   = Column(String, default="")
+    details       = Column(String, default="")   # JSON string
+    ip_address    = Column(String, default="")

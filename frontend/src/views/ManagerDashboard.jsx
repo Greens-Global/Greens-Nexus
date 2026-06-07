@@ -1,9 +1,11 @@
-import { useState } from 'react';
-import { Folder, AlertCircle, MessageSquare, Clock, Users, SlidersHorizontal, Download, CheckCircle, XCircle, ChevronDown, Package, Eye, Mail, Filter } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useMsal } from '@azure/msal-react';
+import { Folder, AlertCircle, MessageSquare, Clock, Users, SlidersHorizontal, Download, CheckCircle, XCircle, ChevronDown, Package, Eye, Mail, Filter, Loader2 } from 'lucide-react';
 import { useRequisitions }  from '../contexts/RequisitionContext';
 import { useInventory }     from '../contexts/InventoryContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useRole }          from '../contexts/RoleContext';
+import { api }              from '../api';
 
 const EMPLOYEES = [
   { name: 'Sarah Johnson',    dept: 'Accounting',  tasks: 8,  est: 32, act: 18, completed: 3, inprogress: 4, overdue: 1, workload: 85 },
@@ -19,6 +21,9 @@ const MANAGER_NAME = 'Visesh Lodha';
 export default function ManagerDashboard() {
   // ── All hooks must be at the top ──────────────────────────────────────────
   const { can }            = useRole();
+  const { accounts }       = useMsal();
+  const myEmail            = (accounts[0]?.username ?? '').toLowerCase();
+  const myName             = accounts[0]?.name ?? MANAGER_NAME;
   const { requisitions, hwAssets, pendingManagerCount, approveRequisition, rejectRequisition } = useRequisitions();
   const { requests: invRequests, approveRequest: approveInvReq, rejectRequest: rejectInvReq, allocateItem } = useInventory();
   const { sendOverdueAlert, addNotification } = useNotifications();
@@ -29,9 +34,67 @@ export default function ManagerDashboard() {
   const [expandedReq,     setExpandedReq]     = useState(null);
   const [rejectingInvId,  setRejectingInvId]  = useState(null);
   const [rejectInvReason, setRejectInvReason] = useState('');
+  const [approvingInvId,  setApprovingInvId]  = useState(null);
+  const [pickedAllocator, setPickedAllocator] = useState('');
+  const [approvingBusy,   setApprovingBusy]   = useState(false);
+  const [allocators,      setAllocators]      = useState([]);
   const [whoHasWhatDept,  setWhoHasWhatDept]  = useState('All');
   const [alertSent,       setAlertSent]       = useState({});
   const [allocating,      setAllocating]      = useState({});
+  const [allocErrors,     setAllocErrors]     = useState({});
+
+  // Who the manager can hand an approved request off to — fetched once for the dropdown.
+  useEffect(() => {
+    if (!can('manager')) return;
+    api.getInventoryAllocators().then(setAllocators).catch(() => {});
+  }, [can]);
+
+  function handleApproveInv(req) {
+    const chosen = allocators.find(a => a.email === pickedAllocator);
+    if (!chosen) return;
+    setApprovingBusy(true);
+    approveInvReq(req.id, MANAGER_NAME, chosen.email, chosen.name)
+      .then(() => {
+        addNotification({
+          type:        'allocate_request',
+          recipient:   chosen.email,
+          refId:       req.id,
+          itemName:    req.itemName,
+          requestedBy: req.requestedBy,
+          title:       'Allocate an Item',
+          body:        `${MANAGER_NAME} approved ${req.requestedBy}'s request for ${req.itemName} and assigned it to you to hand over.`,
+          action:      { label: 'Allocate Now →', kind: 'allocate' },
+        });
+        setApprovingInvId(null);
+        setPickedAllocator('');
+      })
+      .catch(() => {})
+      .finally(() => setApprovingBusy(false));
+  }
+
+  function handleAllocate(row) {
+    setAllocating(p => ({ ...p, [row.key]: true }));
+    setAllocErrors(p => ({ ...p, [row.key]: null }));
+    allocateItem(row.reqId, myName).then(() => {
+      addNotification({
+        type:      'allocated',
+        recipient: row.employeeEmail || row.employee,
+        title:     'Item Allocated ✓',
+        body:      `Your ${row.item} has been allocated and is ready for collection. Please pick it up from your supervisor.`,
+        action:    { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
+      });
+    }).catch(err => {
+      // Most common failure: atomic stock-reservation rejected the allocation
+      // because available_qty ran out between approval and pickup — surface
+      // that explicitly so the manager isn't left guessing why nothing happened.
+      const msg = /409|stock/i.test(err?.message || '')
+        ? `Not enough ${row.item} in stock to allocate right now.`
+        : `Couldn't allocate ${row.item} — please try again.`;
+      setAllocErrors(p => ({ ...p, [row.key]: msg }));
+    }).finally(() => {
+      setAllocating(p => ({ ...p, [row.key]: false }));
+    });
+  }
 
   // ── Access gate (after hooks) ─────────────────────────────────────────────
   if (!can('supervisor')) {
@@ -71,14 +134,19 @@ export default function ManagerDashboard() {
   const now = Date.now();
   const todayStr = new Date().toISOString().split('T')[0];
 
-  // Pending allocation: approved but not yet given to employee
+  // Pending allocation: approved but not yet given to employee. Managers see
+  // everything here (oversight + override); supervisors only see what's been
+  // assigned to them specifically — matches the backend's allocation gate.
   const pendingAlloc = invRequests
-    .filter(r => r.status === 'approved')
+    .filter(r => r.status === 'approved' &&
+      (can('manager') || (r.assignedAllocatorEmail || '').toLowerCase() === myEmail))
     .map(r => ({
       key: r.id, employee: r.requestedBy, employeeEmail: r.requestedByEmail ?? '',
       raisedBy: r.raisedBy,
       item: r.itemName, dept: r.department, reqId: r.id,
       approvedAt: r.resolvedAt, approvedBy: r.resolvedBy,
+      assignedTo: r.assignedAllocatorName || '',
+      assignedToEmail: (r.assignedAllocatorEmail || '').toLowerCase(),
     }));
 
   // Temporary: allocated (physically given) and not yet returned
@@ -431,12 +499,12 @@ export default function ManagerDashboard() {
                             <span><strong>Submitted:</strong> {fmtDate(req.createdAt)}</span>
                           </div>
                         </div>
-                        {rejectingInvId !== req.id && (
+                        {rejectingInvId !== req.id && approvingInvId !== req.id && (
                           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
                             <button
                               className="primary-btn"
                               style={{ padding: '5px 14px', fontSize: '0.82rem', background: 'hsl(var(--color-green))' }}
-                              onClick={() => approveInvReq(req.id, MANAGER_NAME)}>
+                              onClick={() => { setApprovingInvId(req.id); setPickedAllocator(''); }}>
                               <CheckCircle size={13} /> Approve
                             </button>
                             <button
@@ -448,6 +516,35 @@ export default function ManagerDashboard() {
                           </div>
                         )}
                       </div>
+                      {approvingInvId === req.id && (
+                        <div style={{ borderTop: '1px solid var(--border-color)', padding: '12px 16px', background: 'hsla(var(--color-green),0.04)' }}>
+                          <p style={{ fontSize: '0.82rem', marginBottom: 8, color: 'hsl(var(--color-green))', fontWeight: 600 }}>Who should hand this item over to {req.requestedBy}?</p>
+                          <select
+                            className="form-input"
+                            style={{ width: '100%', maxWidth: 280, fontSize: '0.85rem' }}
+                            value={pickedAllocator}
+                            onChange={e => setPickedAllocator(e.target.value)}
+                            autoFocus>
+                            <option value="">Select a person…</option>
+                            {allocators.map(a => (
+                              <option key={a.email} value={a.email}>{a.name}</option>
+                            ))}
+                          </select>
+                          <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
+                            <button className="secondary-btn" style={{ padding: '5px 12px', fontSize: '0.82rem' }}
+                              onClick={() => { setApprovingInvId(null); setPickedAllocator(''); }} disabled={approvingBusy}>
+                              Cancel
+                            </button>
+                            <button
+                              className="primary-btn"
+                              style={{ padding: '5px 14px', fontSize: '0.82rem', background: 'hsl(var(--color-green))' }}
+                              onClick={() => handleApproveInv(req)}
+                              disabled={!pickedAllocator || approvingBusy}>
+                              {approvingBusy ? <><Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> Approving…</> : 'Confirm Approval'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       {rejectingInvId === req.id && (
                         <div style={{ borderTop: '1px solid var(--border-color)', padding: '12px 16px', background: 'hsla(0,80%,50%,0.04)' }}>
                           <p style={{ fontSize: '0.82rem', marginBottom: 8, color: 'hsl(var(--color-red))', fontWeight: 600 }}>Enter rejection reason:</p>
@@ -531,7 +628,7 @@ export default function ManagerDashboard() {
                 <table className="req-table" style={{ fontSize:13 }}>
                   <thead>
                     <tr>
-                      <th>Employee</th><th>Item</th><th>Dept</th><th>Approved</th><th>Action</th>
+                      <th>Employee</th><th>Item</th><th>Dept</th><th>Approved</th><th>Assigned To</th><th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -549,22 +646,26 @@ export default function ManagerDashboard() {
                           {row.approvedAt ? new Date(row.approvedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—'}
                           {row.approvedBy && <div style={{ fontSize:10.5 }}>by {row.approvedBy}</div>}
                         </td>
+                        <td style={{ fontSize:12 }}>
+                          {row.assignedTo || <span style={{ color:'var(--muted)' }}>—</span>}
+                          {row.assignedToEmail === myEmail && (
+                            <div style={{ fontSize:10, color:'hsl(var(--color-blue))', fontWeight:600 }}>You</div>
+                          )}
+                        </td>
                         <td>
                           <button
-                            onClick={() => {
-                              allocateItem(row.reqId, MANAGER_NAME);
-                              setAllocating(p => ({ ...p, [row.key]: true }));
-                              addNotification({
-                                type:      'approved',
-                                recipient: row.employeeEmail || row.employee,
-                                title:     'Item Allocated ✓',
-                                body:      `Your ${row.item} has been allocated and is ready for collection. Please pick it up from your supervisor.`,
-                                action:    { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
-                              });
-                            }}
-                            style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:7, border:'none', background:'hsl(var(--color-green))', color:'#fff', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-                            <CheckCircle size={13} /> Mark Allocated
+                            onClick={() => handleAllocate(row)}
+                            disabled={!!allocating[row.key]}
+                            style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:7, border:'none', background:'hsl(var(--color-green))', color:'#fff', fontSize:12, fontWeight:600, cursor: allocating[row.key] ? 'default' : 'pointer', opacity: allocating[row.key] ? 0.6 : 1, fontFamily:'Inter,sans-serif' }}>
+                            {allocating[row.key]
+                              ? <><Loader2 size={13} style={{ animation:'spin 0.7s linear infinite' }} /> Allocating…</>
+                              : <><CheckCircle size={13} /> Mark Allocated</>}
                           </button>
+                          {allocErrors[row.key] && (
+                            <div style={{ marginTop:6, display:'flex', alignItems:'center', gap:5, fontSize:11, color:'hsl(var(--color-red))', maxWidth:220 }}>
+                              <AlertCircle size={12} style={{ flexShrink:0 }} /> {allocErrors[row.key]}
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))}

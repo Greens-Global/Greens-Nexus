@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { RefreshCw, Download, ArrowLeft, AlertTriangle, ChevronDown, ChevronUp, Laptop, Globe, Wifi, Plus, ExternalLink, AlertCircle, Package, CheckCircle, RotateCcw, FileText } from "lucide-react";
 import { useRequisitions } from "../contexts/RequisitionContext";
+import { msalInstance, msalReady } from "../msalInstance";
+import { apiTokenRequest } from "../authConfig";
 
 const BASE = `${import.meta.env.VITE_API_BASE ?? "http://localhost:8000"}/unifi`;
 
@@ -66,6 +68,7 @@ function ITAssets() {
   const [returnModal,      setReturnModal]      = useState(null); // asset object
   const [returnSupervisor, setReturnSupervisor] = useState('');
   const [returnCondition,  setReturnCondition]  = useState('Available');
+  const [returnPhotoFile,  setReturnPhotoFile]  = useState(null);
 
   // Lost asset modal state
   const [lostModal,      setLostModal]      = useState(null); // asset object
@@ -118,13 +121,15 @@ function ITAssets() {
     setReturnModal(asset);
     setReturnSupervisor('IT Supervisor');
     setReturnCondition('Available');
+    setReturnPhotoFile(null);
   };
 
-  const handleConfirmReturn = () => {
+  const handleConfirmReturn = async () => {
     if (!returnModal || !returnSupervisor.trim()) return;
     const req = requisitions.find(r => r.id === returnModal.assignedReqId || (r.assetId === returnModal.id && r.status === 'return_initiated'));
-    if (req) confirmReturn(req.id, returnSupervisor.trim(), returnCondition);
+    if (req) await confirmReturn(req.id, returnSupervisor.trim(), returnCondition, returnPhotoFile);
     setReturnModal(null);
+    setReturnPhotoFile(null);
   };
 
   const handleInitiateReturn = (asset) => {
@@ -472,10 +477,27 @@ function ITAssets() {
                 <label>Confirmed By (Supervisor)</label>
                 <input type="text" className="form-input" value={returnSupervisor} onChange={e => setReturnSupervisor(e.target.value)} />
               </div>
+              <div className="form-group">
+                <label>Return Photo <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span></label>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/gif,image/webp"
+                  className="form-input"
+                  style={{ paddingTop: 6 }}
+                  onChange={e => setReturnPhotoFile(e.target.files?.[0] || null)}
+                />
+                {returnPhotoFile && (
+                  <img
+                    src={URL.createObjectURL(returnPhotoFile)}
+                    alt="preview"
+                    style={{ marginTop: 8, width: '100%', maxHeight: 160, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--line)' }}
+                  />
+                )}
+              </div>
             </div>
 
             <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
-              <button className="secondary-btn" onClick={() => setReturnModal(null)}>Cancel</button>
+              <button className="secondary-btn" onClick={() => { setReturnModal(null); setReturnPhotoFile(null); }}>Cancel</button>
               <button className="primary-btn" onClick={handleConfirmReturn} disabled={!returnSupervisor.trim()}>
                 <CheckCircle size={14} /> Confirm Return
               </button>
@@ -718,17 +740,35 @@ function NetworkDashboard() {
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
 
-  const fetchWithTimeout = async (url, timeoutMs = 12000) => {
+  const getAuthHeader = async () => {
+    await msalReady;
+    const accounts = msalInstance.getAllAccounts();
+    if (!accounts.length) return {};
+    try {
+      const result = await msalInstance.acquireTokenSilent({ ...apiTokenRequest, account: accounts[0] });
+      return { Authorization: `Bearer ${result.idToken}` };
+    } catch { return {}; }
+  };
+
+  const fetchWithTimeout = async (url, timeoutMs = 12000, attempt = 1) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const r = await fetch(url, { signal: controller.signal });
+      const authHeader = await getAuthHeader();
+      const r = await fetch(url, { signal: controller.signal, headers: authHeader });
       clearTimeout(timer);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
       return r.json();
     } catch (e) {
       clearTimeout(timer);
       if (e.name === 'AbortError') throw new Error('Request timed out — backend may be waking up. Try refreshing in a few seconds.', { cause: e });
+      // "Failed to fetch" — fetch() couldn't even complete (dropped connection,
+      // brief network blip). Usually transient, so retry with backoff rather
+      // than showing the user a cryptic browser-level error.
+      if (e instanceof TypeError && attempt < 3) {
+        await new Promise(r => setTimeout(r, 500 * attempt));
+        return fetchWithTimeout(url, timeoutMs, attempt + 1);
+      }
       throw e;
     }
   };
@@ -824,6 +864,14 @@ function NetworkDashboard() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {lastUpdated && <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Updated {lastUpdated}</span>}
+          {view === "detail" && detail?.hostId && (
+            <a
+              href={`https://unifi.ui.com/consoles/${detail.hostId}/network/default/dashboard`}
+              target="_blank" rel="noopener noreferrer"
+              className="secondary-btn" style={{ display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none" }}>
+              <ExternalLink style={{ width: 14, height: 14 }} /> Open in UniFi
+            </a>
+          )}
           {view === "detail" && (
             <button className="secondary-btn" style={{ display: "inline-flex", alignItems: "center", gap: 6 }} onClick={exportCSV}>
               <Download style={{ width: 14, height: 14 }} /> Export CSV
@@ -1030,16 +1078,23 @@ function NetworkDashboard() {
                   { label: "Total Devices",    value: detail.total_devices,          color: "hsl(var(--color-blue))" },
                   { label: "Online",           value: detail.online_devices,          color: "hsl(var(--color-green))" },
                   { label: "Offline",          value: detailOfflineCount,             color: detailOfflineCount > 0 ? "hsl(var(--color-red))" : "var(--text-secondary)" },
-                  { label: "Pending Updates",  value: detail.pending_updates || 0,    color: detail.pending_updates > 0 ? "hsl(var(--color-orange))" : "var(--text-secondary)" },
+                  { label: "Pending Updates",  value: detail.pending_updates || 0,    color: detail.pending_updates > 0 ? "hsl(var(--color-orange))" : "var(--text-secondary)", link: detail.pending_updates > 0 && detail.hostId ? `https://unifi.ui.com/consoles/${detail.hostId}/network/default/dashboard` : null },
                   { label: "Critical Alerts",  value: detail.critical_notifications || 0, color: detail.critical_notifications > 0 ? "hsl(var(--color-red))" : "var(--text-secondary)" },
                   { label: "WiFi Clients",     value: detail.wifi_clients,            color: "hsl(var(--color-blue))" },
                   { label: "Wired Clients",    value: detail.wired_clients,           color: "hsl(var(--color-blue))" },
                   { label: "TX Retry",         value: `${detail.tx_retry_pct || 0}%`, color: (detail.tx_retry_pct || 0) >= 5 ? "hsl(var(--color-orange))" : "var(--text-secondary)" },
                 ].map(s => (
-                  <div key={s.label} style={{ background: "var(--bg-card)", padding: "16px 14px" }}>
-                    <div style={{ fontSize: "0.65rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>{s.label}</div>
-                    <div style={{ fontSize: "1.7rem", fontWeight: 700, lineHeight: 1, color: s.color }}>{s.value}</div>
-                  </div>
+                  s.link
+                    ? <a key={s.label} href={s.link} target="_blank" rel="noopener noreferrer"
+                        style={{ background: "var(--bg-card)", padding: "16px 14px", textDecoration: "none", display: "block", cursor: "pointer" }}
+                        title="Open in UniFi">
+                        <div style={{ fontSize: "0.65rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>{s.label} ↗</div>
+                        <div style={{ fontSize: "1.7rem", fontWeight: 700, lineHeight: 1, color: s.color }}>{s.value}</div>
+                      </a>
+                    : <div key={s.label} style={{ background: "var(--bg-card)", padding: "16px 14px" }}>
+                        <div style={{ fontSize: "0.65rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>{s.label}</div>
+                        <div style={{ fontSize: "1.7rem", fontWeight: 700, lineHeight: 1, color: s.color }}>{s.value}</div>
+                      </div>
                 ))}
               </div>
 
@@ -1050,7 +1105,9 @@ function NetworkDashboard() {
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
                     {Object.entries(detail.wans).map(([key, wan]) => {
                       const port = (detail.wan_ports || []).find(p => p.type === key);
-                      const hasWanIssues = wan.issues?.length > 0;
+                      const isPlugged = port ? port.plugged : wan.uptime > 0;
+                      // Only surface issues on ports that are actually connected
+                      const hasWanIssues = isPlugged && wan.issues?.length > 0;
                       return (
                         <div key={key} style={{ background: "var(--bg-card)", border: `1px solid ${hasWanIssues ? "hsla(0,80%,50%,0.3)" : "var(--border-color)"}`, borderRadius: 10, padding: "16px 18px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -1091,8 +1148,12 @@ function NetworkDashboard() {
                 </div>
               )}
 
-              {/* Internet issues 5min */}
-              {(detail.internet_issues_5min || []).filter(p => p.wan_downtime || p.packet_loss || p.not_reported).length > 0 && (
+              {/* Internet issues 5min — only shown when at least one connected WAN is unhealthy */}
+              {(detail.internet_issues_5min || []).filter(p => p.wan_downtime || p.packet_loss || p.not_reported).length > 0 &&
+               Object.entries(detail.wans || {}).some(([key, wan]) => {
+                 const port = (detail.wan_ports || []).find(p => p.type === key);
+                 return (port ? port.plugged : wan.uptime > 0) && wan.uptime < 100;
+               }) && (
                 <div style={{ marginBottom: 20, background: "var(--bg-card)", border: "1px solid hsla(0,80%,50%,0.25)", borderRadius: 10, padding: "14px 18px" }}>
                   <div style={{ fontSize: "0.75rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "hsl(var(--color-red))", fontWeight: 600, marginBottom: 10 }}>
                     Internet Issues — Last 5 Minutes
@@ -1134,7 +1195,13 @@ function NetworkDashboard() {
                           <tr key={i}>
                             <td>
                               <div style={{ fontWeight: 600 }}>{d.name || "—"}</div>
-                              {d.isConsole && <div style={{ fontSize: "0.68rem", color: "hsl(var(--color-blue))", fontWeight: 600 }}>CONSOLE</div>}
+                              {d.isConsole && (
+                                <a href={`https://unifi.ui.com/consoles/${detail.hostId}/network/default/dashboard`}
+                                   target="_blank" rel="noopener noreferrer"
+                                   style={{ fontSize: "0.68rem", color: "hsl(var(--color-blue))", fontWeight: 600, textDecoration: "none" }}>
+                                  CONSOLE ↗
+                                </a>
+                              )}
                             </td>
                             <td><span className="status-badge" style={{ background: "var(--border-color)", color: "var(--text-secondary)", fontSize: "0.7rem" }}>{d.model || "—"}</span></td>
                             <td style={{ fontSize: "0.8rem", color: "var(--text-secondary)", textTransform: "capitalize" }}>{d.productLine || "—"}</td>
@@ -1144,7 +1211,9 @@ function NetworkDashboard() {
                               {!d.firmwareStatus || d.firmwareStatus === "upToDate"
                                 ? <span className="status-badge status-approved">Up to date</span>
                                 : d.firmwareStatus === "upgradeable"
-                                  ? <span className="status-badge" style={{ background: "hsla(38,90%,50%,0.12)", color: "hsl(var(--color-orange))" }}>Update available</span>
+                                  ? <a href={`https://unifi.ui.com/consoles/${detail.hostId}/network/default/dashboard`} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
+                                      <span className="status-badge" style={{ background: "hsla(38,90%,50%,0.12)", color: "hsl(var(--color-orange))", cursor: "pointer" }}>Update available ↗</span>
+                                    </a>
                                   : <span className="status-badge" style={{ background: "var(--border-color)", color: "var(--text-secondary)" }}>{d.firmwareStatus}</span>
                               }
                             </td>

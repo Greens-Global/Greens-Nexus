@@ -9,7 +9,7 @@ const NotificationCtx = createContext(null);
 let counter = 1;
 const genId = () => `N${Date.now()}-${counter++}`;
 
-const FALLBACK_POLL = 60000; // 60s fallback in case realtime misses anything
+const FALLBACK_POLL = 8000; // 8s fallback in case realtime misses anything
 
 function rowToNotif(r) {
   return {
@@ -34,13 +34,17 @@ export function NotificationProvider({ children }) {
 
   const [notifications, setNotifications] = useState([]);
   const [overdueAlerts, setOverdueAlerts] = useState([]);
+  // Set when a toast/popup for an actionable notification is clicked — tells
+  // the bell panel to open itself straight into that item's approval workflow
+  // (allocator picker / reject reason) instead of just opening the list.
+  const [pendingApprovalId, setPendingApprovalId] = useState(null);
   const pollRef    = useRef(null);
   const channelRef = useRef(null);
 
   // ── Full fetch from backend ───────────────────────────────────────────────
   const fetchNotifications = useCallback(() => {
     if (!myEmail) return;
-    api.getNotifications(myEmail)
+    api.getNotifications()
       .then(rows => setNotifications(rows.map(rowToNotif)))
       .catch(() => {});
   }, [myEmail]);
@@ -138,7 +142,7 @@ export function NotificationProvider({ children }) {
 
   const markRead = useCallback((id) => {
     setNotifications(p => p.map(n => n.id === id ? { ...n, read: true } : n));
-    if (myEmail) api.markNotifRead(id, myEmail).catch(() => {});
+    if (myEmail) api.markNotifRead(id).catch(() => {});
   }, [myEmail]);
 
   const markAllRead = useCallback(() => {
@@ -181,6 +185,9 @@ export function NotificationProvider({ children }) {
   const dismissOverdueAlert = useCallback((id) =>
     setOverdueAlerts(p => p.map(a => a.id === id ? { ...a, dismissed: true } : a)), []);
 
+  const openApproval = useCallback((id) => setPendingApprovalId(id), []);
+  const clearPendingApproval = useCallback(() => setPendingApprovalId(null), []);
+
   const unreadCount         = notifications.filter(n => !n.read && !n.actioned).length;
   const activeOverdueAlerts = overdueAlerts.filter(a => !a.dismissed);
 
@@ -189,6 +196,7 @@ export function NotificationProvider({ children }) {
       notifications, overdueAlerts, activeOverdueAlerts, unreadCount,
       addNotification, markRead, markAllRead, dismiss, clearRead, markActioned,
       sendOverdueAlert, dismissOverdueAlert,
+      pendingApprovalId, openApproval, clearPendingApproval,
       refreshNotifications: fetchNotifications,
     }}>
       {children}

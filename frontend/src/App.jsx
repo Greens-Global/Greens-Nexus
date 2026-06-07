@@ -1,31 +1,37 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { AuthenticatedTemplate, UnauthenticatedTemplate } from "@azure/msal-react";
 import { NotificationProvider } from "./contexts/NotificationContext";
 import { RoleProvider, useRole } from "./contexts/RoleContext";
 import { RequisitionProvider } from "./contexts/RequisitionContext";
 import { InventoryProvider } from "./contexts/InventoryContext";
-import InventoryManagement from "./views/InventoryManagement";
-import LoginPage from "./views/LoginPage";
 import Sidebar from "./components/Sidebar";
 import TopHeader from "./components/TopHeader";
+import AdminPanel from "./components/AdminPanel";
+import NotificationToasts from "./components/NotificationToasts";
+
+// Always loaded — critical path
+import LoginPage from "./views/LoginPage";
 import Dashboard from "./views/Dashboard";
-import Tasks from "./views/Tasks";
-import Purchase from "./views/Purchase";
-import SOP from "./views/SOP";
-import IT from "./views/IT";
-import Accounting from "./views/Accounting";
-import Operations from "./views/Operations";
-import FacilityOperations from "./views/FacilityOperations";
-import Development from "./views/Development";
-import PropertyAsset from "./views/PropertyAsset";
-import HR from "./views/HR";
-import InvestorRelations from "./views/InvestorRelations";
-import Marketing from "./views/Marketing";
-import Admin from "./views/Admin";
-import ExternalLinks from "./views/ExternalLinks";
-import ManagerDashboard from "./views/ManagerDashboard";
-import Support from "./views/Support";
-import Placeholder from "./views/Placeholder";
+
+// Lazy-loaded — only fetched when the user navigates there
+const InventoryManagement = lazy(() => import("./views/InventoryManagement"));
+const Tasks               = lazy(() => import("./views/Tasks"));
+const Purchase            = lazy(() => import("./views/Purchase"));
+const SOP                 = lazy(() => import("./views/SOP"));
+const IT                  = lazy(() => import("./views/IT"));
+const Accounting          = lazy(() => import("./views/Accounting"));
+const Operations          = lazy(() => import("./views/Operations"));
+const FacilityOperations  = lazy(() => import("./views/FacilityOperations"));
+const Development         = lazy(() => import("./views/Development"));
+const PropertyAsset       = lazy(() => import("./views/PropertyAsset"));
+const HR                  = lazy(() => import("./views/HR"));
+const InvestorRelations   = lazy(() => import("./views/InvestorRelations"));
+const Marketing           = lazy(() => import("./views/Marketing"));
+const Admin               = lazy(() => import("./views/Admin"));
+const ExternalLinks       = lazy(() => import("./views/ExternalLinks"));
+const ManagerDashboard    = lazy(() => import("./views/ManagerDashboard"));
+const Support             = lazy(() => import("./views/Support"));
+const Placeholder         = lazy(() => import("./views/Placeholder"));
 
 const VIEW_LABELS = {
   "dashboard":          "Dashboard",
@@ -66,6 +72,21 @@ export default function App() {
   const [sidebarOpen,      setSidebarOpen]      = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("gg-sidebar-collapsed") === "true");
   const [navHistory,       setNavHistory]       = useState([]);
+  const [adminPanelOpen,   setAdminPanelOpen]   = useState(false);
+  const [adminPanelTab,    setAdminPanelTab]    = useState('access');
+  const sidebarRef = useRef(null);
+
+  // Collapse sidebar when clicking outside it — lets clicks pass through to content
+  useEffect(() => {
+    if (sidebarCollapsed) return;
+    const handleClickOutside = (e) => {
+      if (sidebarRef.current && !sidebarRef.current.contains(e.target)) {
+        setSidebarCollapsed(true);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -114,9 +135,7 @@ export default function App() {
       case "tasks":              return <Tasks />;
       case "purchase":           return <Purchase />;
       case "sop":                return <SOP activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
-      case "it":
-        if (activeSub === "nexus-access-manager") return <Admin />;
-        return <IT activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
+      case "it":                 return <IT activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
       case "ops":                return <Operations activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
       case "operations":         return <FacilityOperations activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
       case "development":        return <Development activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
@@ -141,8 +160,10 @@ export default function App() {
         <RoleGate>
         <RequisitionProvider>
         <InventoryProvider>
+        <NotificationToasts onNavigate={navigate} />
         <div className="app-container">
           <Sidebar
+            ref={sidebarRef}
             activeView={activeView}
             activeSub={activeSub}
             onNavigate={navigate}
@@ -151,9 +172,6 @@ export default function App() {
             collapsed={sidebarCollapsed}
             onToggleCollapse={() => setSidebarCollapsed(c => !c)}
           />
-          {!sidebarCollapsed && (
-            <div className="sidebar-dismiss-overlay" onClick={() => setSidebarCollapsed(true)} />
-          )}
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
             <TopHeader
               title={VIEW_LABELS[activeView] || activeView}
@@ -164,12 +182,24 @@ export default function App() {
               onBack={goBack}
               onNavigate={navigate}
               prevLabel={navHistory.length > 0 ? (VIEW_LABELS[navHistory[navHistory.length - 1].view] || navHistory[navHistory.length - 1].view) : null}
+              onOpenAdmin={tab => { setAdminPanelTab(tab); setAdminPanelOpen(true); }}
             />
             <div className="viewport">
-              {renderView()}
+              <Suspense fallback={
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
+                  <div style={{ width: 28, height: 28, borderRadius: '50%', border: '3px solid var(--border-color)', borderTopColor: 'var(--text-primary)', animation: 'spin 0.7s linear infinite' }} />
+                </div>
+              }>
+                {renderView()}
+              </Suspense>
             </div>
           </main>
         </div>
+        <AdminPanel
+          open={adminPanelOpen}
+          initialTab={adminPanelTab}
+          onClose={() => setAdminPanelOpen(false)}
+        />
         </InventoryProvider>
         </RequisitionProvider>
         </RoleGate>

@@ -8,9 +8,9 @@ const RoleCtx = createContext(null);
 export const ROLES = {
   employee:      { label: 'Employee',      level: 1, color: 'var(--color-blue)',   bg: 'hsla(var(--color-blue),0.12)',   description: 'Raise requests, view own activity' },
   supervisor:    { label: 'Supervisor',     level: 2, color: 'var(--color-green)',  bg: 'hsla(var(--color-green),0.12)',  description: 'Allocate items, manage returns' },
-  manager:       { label: 'Manager',        level: 3, color: 'var(--color-orange)', bg: 'hsla(var(--color-orange),0.12)', description: 'Approve requests, team oversight' },
-  administrator: { label: 'Administrator',  level: 4, color: 'var(--color-purple)', bg: 'hsla(var(--color-purple),0.12)', description: 'System settings, manage inventory' },
-  owner:         { label: 'Owner',          level: 5, color: 'var(--color-gold)',   bg: 'hsla(var(--color-gold),0.12)',   description: 'Full access including role management' },
+  manager:       { label: 'Manager',        level: 3, color: 'var(--color-orange)', bg: 'hsla(var(--color-orange),0.12)', description: 'Approve requests, team oversight — no access-granting or deletion rights' },
+  administrator: { label: 'IT Admin',       level: 4, color: 'var(--color-purple)', bg: 'hsla(var(--color-purple),0.12)', description: 'Manage settings & inventory, grant access up to Manager — cannot manage other admins or delete core records' },
+  owner:         { label: 'Global Admin',   level: 5, color: 'var(--color-gold)',   bg: 'hsla(var(--color-gold),0.12)',   description: 'Full, unrestricted access — including managing other admins and deleting core records' },
 };
 
 export function RoleProvider({ children }) {
@@ -21,13 +21,33 @@ export function RoleProvider({ children }) {
   const [allRoles,  setAllRoles]  = useState({});   // { email: role }
   const [loading,   setLoading]   = useState(true);
 
-  // Fetch current user's role on mount / account change
+  // Fetch current user's role on mount / account change.
+  // Retries up to 3 times with backoff — guards against the MSAL token
+  // not being ready on the very first render.
   useEffect(() => {
     if (!myEmail) { setLoading(false); return; }
-    api.getMyRole()
-      .then(data  => { setMyRole(data.role ?? 'employee'); })
-      .catch(()   => { setMyRole('employee'); })
-      .finally(() => setLoading(false));
+    let cancelled = false;
+
+    const tryFetch = (attempt = 1) => {
+      api.getMyRole()
+        .then(data => {
+          if (!cancelled) {
+            setMyRole(data.role ?? 'employee');
+            setLoading(false);
+          }
+        })
+        .catch(() => {
+          if (!cancelled && attempt < 3) {
+            setTimeout(() => tryFetch(attempt + 1), 1000 * attempt);
+          } else if (!cancelled) {
+            setMyRole('employee');
+            setLoading(false);
+          }
+        });
+    };
+
+    tryFetch();
+    return () => { cancelled = true; };
   }, [myEmail]);
 
   // Fetch all role assignments (used by Admin page)
@@ -42,9 +62,9 @@ export function RoleProvider({ children }) {
   }, []);
 
   // Assign a role — writes to backend, refreshes local state
-  const assignRole = useCallback(async (email, role) => {
+  const assignRole = useCallback(async (email, role, displayName) => {
     const lowerEmail = email.toLowerCase();
-    await api.assignRole(lowerEmail, role, myEmail);
+    await api.assignRole(lowerEmail, role, myEmail, displayName);
     setAllRoles(prev => ({ ...prev, [lowerEmail]: role }));
     // If assigning own role, update myRole too
     if (lowerEmail === myEmail) setMyRole(role);

@@ -4,7 +4,9 @@ from pydantic import BaseModel
 import models
 from database import get_db
 
-router = APIRouter(prefix="/reviews", tags=["Reviews"])
+from auth import get_current_user, require_manager
+
+router = APIRouter(prefix="/reviews", tags=["Reviews"], dependencies=[Depends(get_current_user)])
 
 
 class ReviewReply(BaseModel):
@@ -17,7 +19,7 @@ def list_reviews(db: Session = Depends(get_db)):
 
 
 @router.patch("/{review_id}/reply")
-def reply_to_review(review_id: int, reply: ReviewReply, db: Session = Depends(get_db)):
+def reply_to_review(review_id: int, reply: ReviewReply, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     review = db.query(models.Review).filter(models.Review.id == review_id).first()
     if not review:
         raise HTTPException(status_code=404, detail="Review not found")

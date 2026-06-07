@@ -17,7 +17,7 @@ HEADERS = {
 
 async def unifi_get(path: str):
     url = f"{BASE_URL}{path}"
-    async with httpx.AsyncClient(verify=False, timeout=15) as client:
+    async with httpx.AsyncClient(timeout=15) as client:
         r = await client.get(url, headers=HEADERS)
     if r.status_code == 401:
         raise HTTPException(401, "Invalid UniFi API key")

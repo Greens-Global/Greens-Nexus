@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import models
 from database import get_db
-from auth import get_current_user
+from auth import get_current_user, require_manager, require_administrator, require_level
 
 router = APIRouter(tags=["Requisitions & Hardware Assets"], dependencies=[Depends(get_current_user)])
 
@@ -51,6 +51,8 @@ class RequisitionReturn(BaseModel):
 class RequisitionConfirmReturn(BaseModel):
     supervisor_name: str
     condition: str = "Available"
+    return_photo_name: str = ""
+    return_photo_url: str = ""
 
 
 class RequisitionMarkLost(BaseModel):
@@ -127,7 +129,7 @@ def create_requisition(
 
 
 @router.patch("/requisitions/{req_id}/approve")
-def approve_requisition(req_id: str, body: RequisitionApprove, db: Session = Depends(get_db)):
+def approve_requisition(req_id: str, body: RequisitionApprove, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     req = db.query(models.Requisition).filter(models.Requisition.id == req_id).first()
     if not req:
         raise HTTPException(404, "Requisition not found")
@@ -142,7 +144,7 @@ def approve_requisition(req_id: str, body: RequisitionApprove, db: Session = Dep
 
 
 @router.patch("/requisitions/{req_id}/reject")
-def reject_requisition(req_id: str, body: RequisitionReject, db: Session = Depends(get_db)):
+def reject_requisition(req_id: str, body: RequisitionReject, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     req = db.query(models.Requisition).filter(models.Requisition.id == req_id).first()
     if not req:
         raise HTTPException(404, "Requisition not found")
@@ -157,7 +159,7 @@ def reject_requisition(req_id: str, body: RequisitionReject, db: Session = Depen
 
 
 @router.patch("/requisitions/{req_id}/allocate")
-def allocate_asset(req_id: str, body: RequisitionAllocate, db: Session = Depends(get_db)):
+def allocate_asset(req_id: str, body: RequisitionAllocate, user: dict = Depends(require_level(2)), db: Session = Depends(get_db)):
     req = db.query(models.Requisition).filter(models.Requisition.id == req_id).first()
     asset = db.query(models.HardwareAsset).filter(models.HardwareAsset.id == body.asset_id).first()
     if not req:
@@ -189,10 +191,12 @@ def allocate_asset(req_id: str, body: RequisitionAllocate, db: Session = Depends
 
 
 @router.patch("/requisitions/{req_id}/initiate-return")
-def initiate_return(req_id: str, body: RequisitionReturn, db: Session = Depends(get_db)):
+def initiate_return(req_id: str, body: RequisitionReturn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     req = db.query(models.Requisition).filter(models.Requisition.id == req_id).first()
     if not req:
         raise HTTPException(404, "Requisition not found")
+    if user["level"] < 2 and req.employee_email.lower() != user["email"]:
+        raise HTTPException(403, "You can only return your own allocated items")
     if req.asset_id:
         asset = db.query(models.HardwareAsset).filter(models.HardwareAsset.id == req.asset_id).first()
         if asset:
@@ -207,7 +211,7 @@ def initiate_return(req_id: str, body: RequisitionReturn, db: Session = Depends(
 
 
 @router.patch("/requisitions/{req_id}/confirm-return")
-def confirm_return(req_id: str, body: RequisitionConfirmReturn, db: Session = Depends(get_db)):
+def confirm_return(req_id: str, body: RequisitionConfirmReturn, user: dict = Depends(require_level(2)), db: Session = Depends(get_db)):
     req = db.query(models.Requisition).filter(models.Requisition.id == req_id).first()
     if not req:
         raise HTTPException(404, "Requisition not found")
@@ -222,6 +226,8 @@ def confirm_return(req_id: str, body: RequisitionConfirmReturn, db: Session = De
     req.actual_return_date = _ts()
     req.return_confirmed_by = body.supervisor_name
     req.return_asset_condition = body.condition
+    req.return_photo_name = body.return_photo_name or ""
+    req.return_photo_url  = body.return_photo_url  or ""
     req.updated_at = _ts()
     db.add(models.ApprovalHistory(requisition_id=req_id, action="Return Confirmed", action_by=body.supervisor_name, action_role="Supervisor", comment=f"Condition: {body.condition}", created_at=_ts()))
     db.commit()
@@ -230,7 +236,7 @@ def confirm_return(req_id: str, body: RequisitionConfirmReturn, db: Session = De
 
 
 @router.patch("/requisitions/{req_id}/mark-lost")
-def mark_lost(req_id: str, body: RequisitionMarkLost, db: Session = Depends(get_db)):
+def mark_lost(req_id: str, body: RequisitionMarkLost, user: dict = Depends(require_level(2)), db: Session = Depends(get_db)):
     req = db.query(models.Requisition).filter(models.Requisition.id == req_id).first()
     if not req:
         raise HTTPException(404, "Requisition not found")
@@ -248,7 +254,7 @@ def mark_lost(req_id: str, body: RequisitionMarkLost, db: Session = Depends(get_
 
 
 @router.get("/requisitions/export/excel")
-def export_requisitions_excel(db: Session = Depends(get_db)):
+def export_requisitions_excel(user: dict = Depends(require_manager), db: Session = Depends(get_db)):
     try:
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill, Alignment
@@ -328,7 +334,7 @@ def list_hardware_assets(db: Session = Depends(get_db)):
 
 
 @router.post("/hardware-assets", status_code=201)
-def create_hardware_asset(data: HardwareAssetCreate, db: Session = Depends(get_db)):
+def create_hardware_asset(data: HardwareAssetCreate, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
     asset = models.HardwareAsset(**data.model_dump(), last_updated=_ts()[:10])
     db.add(asset)
     db.commit()
@@ -337,5 +343,12 @@ def create_hardware_asset(data: HardwareAssetCreate, db: Session = Depends(get_d
 
 
 @router.get("/approval-history/{req_id}")
-def get_approval_history(req_id: str, db: Session = Depends(get_db)):
+def get_approval_history(req_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if user["level"] < 3:
+        req = db.query(models.Requisition).filter(
+            models.Requisition.id == req_id,
+            models.Requisition.employee_email == user["email"]
+        ).first()
+        if not req:
+            raise HTTPException(403, "Access denied")
     return db.query(models.ApprovalHistory).filter(models.ApprovalHistory.requisition_id == req_id).all()

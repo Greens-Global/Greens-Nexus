@@ -2,9 +2,10 @@ import os
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+from typing import Optional
 from database import get_db
 from models import NexusRole
-from auth import get_current_user, require_administrator
+from auth import get_current_user, require_administrator, require_level, invalidate_role_cache
 
 router = APIRouter(prefix="/roles", tags=["roles"])
 
@@ -35,15 +36,16 @@ def _get_role(email: str, db: Session) -> str:
 
 
 class RoleAssignment(BaseModel):
-    role:        str
-    assigned_by: str   # email of the person making the change
+    role:         str
+    assigned_by:  str   # email of the person making the change
+    display_name: Optional[str] = ""  # from Microsoft Graph — lets us show names instead of emails elsewhere
 
 class SyncRequest(BaseModel):
     emails: list[str]
 
 
 @router.post("/sync")
-def sync_users(body: SyncRequest, db: Session = Depends(get_db)):
+def sync_users(body: SyncRequest, user: dict = Depends(require_level(4)), db: Session = Depends(get_db)):
     """Insert all provided emails with role='employee' if they don't already have a row."""
     new_count = 0
     for email in body.emails:
@@ -77,7 +79,7 @@ def get_all_roles(
 ):
     """Return all role assignments. Requires administrator or above."""
     rows = db.query(NexusRole).all()
-    return [{"email": r.email, "role": r.role, "assigned_by": r.assigned_by} for r in rows]
+    return [{"email": r.email, "role": r.role, "display_name": r.display_name or "", "assigned_by": r.assigned_by} for r in rows]
 
 
 @router.put("/{email}")
@@ -98,17 +100,30 @@ def assign_role(
     target_level    = ROLE_LEVEL.get(new_role, 1)
 
     if requester_level < ROLE_LEVEL["administrator"]:
-        raise HTTPException(status_code=403, detail="Need administrator or owner role to manage roles")
+        raise HTTPException(status_code=403, detail="Need IT Admin or Global Admin role to manage roles")
 
-    if target_level > requester_level and user["role"] != "owner":
-        raise HTTPException(status_code=403, detail="Cannot assign a role higher than your own")
+    # IT Admins can delegate access, but only "down" — strictly below their own
+    # level — and may not create, edit, or demote peer/other admins. Creating
+    # or changing anyone at IT Admin level or above is reserved for Global Admin
+    # (the one role that can do anything, including destructive system changes).
+    if user["role"] != "owner":
+        if target_level >= requester_level:
+            raise HTTPException(status_code=403, detail="You can only grant access up to one level below your own role")
+        existing_role = _get_role(target_email, db)
+        if ROLE_LEVEL.get(existing_role, 1) >= ROLE_LEVEL["administrator"]:
+            raise HTTPException(status_code=403, detail="Only a Global Admin can change another admin's access")
+
+    display_name = (body.display_name or "").strip()
 
     row = db.query(NexusRole).filter(NexusRole.email == target_email).first()
     if row:
         row.role        = new_role
         row.assigned_by = user["email"]
+        if display_name:
+            row.display_name = display_name
     else:
-        row = NexusRole(email=target_email, role=new_role, assigned_by=user["email"])
+        row = NexusRole(email=target_email, role=new_role, display_name=display_name, assigned_by=user["email"])
         db.add(row)
     db.commit()
+    invalidate_role_cache(target_email)
     return {"email": target_email, "role": new_role}
