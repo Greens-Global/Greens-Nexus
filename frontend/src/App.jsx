@@ -135,9 +135,7 @@ export default function App() {
       case "tasks":              return <Tasks />;
       case "purchase":           return <Purchase />;
       case "sop":                return <SOP activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
-      case "it":
-        if (activeSub === "nexus-access-manager") return <Admin />;
-        return <IT activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
+      case "it":                 return <IT activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
       case "ops":                return <Operations activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
       case "operations":         return <FacilityOperations activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
       case "development":        return <Development activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;

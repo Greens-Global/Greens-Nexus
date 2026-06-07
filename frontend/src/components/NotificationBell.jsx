@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, Loader2 } from 'lucide-react';
+import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, Loader2, AlertCircle } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useInventory }      from '../contexts/InventoryContext';
 import { useRequisitions }   from '../contexts/RequisitionContext';
@@ -55,6 +55,10 @@ export default function NotificationBell({ onNavigate }) {
   // brief confirmation (checkmark + message) then collapse out of the list,
   // instead of vanishing instantly. { [notifId]: { kind, collapsing } }
   const [resolvedIds,    setResolvedIds]    = useState({});
+  // Per-notification approve/reject failure messages — surfaced inline so a
+  // failed action doesn't just silently snap back to the idle form with no
+  // explanation (e.g. someone else already resolved the request first).
+  const [actionError,    setActionError]    = useState({});
   const panelRef = useRef(null);
   const dismissTimers = useRef({});
   const resolveTimers = useRef({});
@@ -83,6 +87,15 @@ export default function NotificationBell({ onNavigate }) {
 
   function handleOpen() {
     setOpen(o => !o);
+  }
+
+  // Translates a thrown API error into something a manager can act on —
+  // e.g. "already resolved" beats a bare "API error 409" or a silent failure.
+  function friendlyActionError(err) {
+    if (err?.status === 409) return 'This request was already resolved (likely by someone else) — refresh to see its current status.';
+    if (err?.status === 403) return "You don't have permission to do that.";
+    if (err?.status === 400 && err?.detail) return err.detail;
+    return "Couldn't go through — please try again.";
   }
 
   // Replaces an instant markActioned+dismiss with a brief "Approved ✓ /
@@ -117,7 +130,21 @@ export default function NotificationBell({ onNavigate }) {
         setApprovingId(n.id);
         setPickedAllocator('');
         setRejectingId(null);
-      } else { setRejectingId(n.id); setApprovingId(null); }
+        setActionError(prev => {
+          if (!(n.id in prev)) return prev;
+          const next = { ...prev };
+          delete next[n.id];
+          return next;
+        });
+      } else {
+        setRejectingId(n.id); setApprovingId(null);
+        setActionError(prev => {
+          if (!(n.id in prev)) return prev;
+          const next = { ...prev };
+          delete next[n.id];
+          return next;
+        });
+      }
     } else if (n.type === 'req_pending') {
       if (action === 'approve') {
         approveRequisition(refId, myName);
@@ -143,6 +170,12 @@ export default function NotificationBell({ onNavigate }) {
     const recipientEmail = n.action?.requestedByEmail ?? invReq?.requestedByEmail ?? '';
 
     setApprovingBusy(true);
+    setActionError(prev => {
+      if (!(n.id in prev)) return prev;
+      const next = { ...prev };
+      delete next[n.id];
+      return next;
+    });
     approveRequest(refId, myName, chosen.email, chosen.name)
       .then(() => {
         markActioned(n.id);
@@ -168,7 +201,7 @@ export default function NotificationBell({ onNavigate }) {
         setApprovingId(null);
         setPickedAllocator('');
       })
-      .catch(() => {})
+      .catch(err => setActionError(prev => ({ ...prev, [n.id]: friendlyActionError(err) })))
       .finally(() => setApprovingBusy(false));
   }
 
@@ -362,7 +395,7 @@ export default function NotificationBell({ onNavigate }) {
                     <div key={n.id} style={{
                       overflow: 'hidden',
                       transition: 'max-height 0.4s cubic-bezier(.16,1,.3,1), opacity 0.32s ease, transform 0.36s cubic-bezier(.16,1,.3,1)',
-                      maxHeight: resolution?.collapsing ? 0 : 220,
+                      maxHeight: resolution?.collapsing ? 0 : 280,
                       opacity: resolution?.collapsing ? 0 : 1,
                       transform: resolution?.collapsing ? 'translateX(28px) scale(0.97)' : 'translateX(0) scale(1)',
                     }}>
@@ -408,6 +441,11 @@ export default function NotificationBell({ onNavigate }) {
                               {n.type === 'inv_request' ? (
                                 <>
                                   <p style={{ fontSize: 11.5, color: 'hsl(var(--color-green))', fontWeight: 600, margin: '0 0 6px' }}>Who should hand this item over to {n.requestedBy}?</p>
+                                  {actionError[n.id] && (
+                                    <p style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.08)', borderRadius: 6, padding: '5px 8px', margin: '0 0 6px', lineHeight: 1.35 }}>
+                                      <AlertCircle size={12} style={{ flexShrink: 0 }} /> {actionError[n.id]}
+                                    </p>
+                                  )}
                                   <select
                                     autoFocus
                                     className="form-input"

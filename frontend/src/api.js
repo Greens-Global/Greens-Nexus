@@ -57,7 +57,14 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
     await new Promise(r => setTimeout(r, 800));
     return req(path, options, attempt + 1, tokenRefreshed);
   }
-  if (!res.ok) throw new Error(`API error ${res.status}`);
+  if (!res.ok) {
+    let detail;
+    try { detail = (await res.json())?.detail; } catch { /* not JSON */ }
+    const err = new Error(detail || `API error ${res.status}`);
+    err.status = res.status;
+    err.detail = detail;
+    throw err;
+  }
   if (res.status === 204) return null;
   return res.json();
 }
