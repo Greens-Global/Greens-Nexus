@@ -3,7 +3,7 @@ import {
   Package, Plus, Search, CheckCircle, Clock, XCircle,
   RotateCcw, Camera, Monitor, Wrench, Building2, Calculator,
   AlertCircle, Filter, X, Loader2, ZoomIn, ChevronDown, ChevronRight,
-  UploadCloud, FileSpreadsheet, Download,
+  UploadCloud, FileSpreadsheet, Download, Pencil, Trash2,
 } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import { useInventory }       from '../contexts/InventoryContext';
@@ -277,6 +277,12 @@ function parseCsvLine(line) {
   return out;
 }
 
+// Item cards are filtered by these exact category/department tabs — a value
+// outside either list will still import fine but will never surface under any
+// filter tab (only "All"), so we flag mismatches in the preview before commit.
+const KNOWN_CATEGORIES   = CATEGORIES.filter(c => c !== 'All');
+const KNOWN_DEPARTMENTS  = DEPARTMENTS.filter(d => d !== 'All');
+
 function parseInventoryCsv(text) {
   const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
   if (lines.length < 2) return { rows: [], error: 'That file looks empty — it needs a header row plus at least one item.' };
@@ -292,37 +298,181 @@ function parseInventoryCsv(text) {
 
   const rows = lines.slice(1).map(line => {
     const cells = parseCsvLine(line);
-    const name   = (cells[idx.name] || '').trim();
+    const name       = (cells[idx.name] || '').trim();
+    const category   = idx.category   > -1 ? (cells[idx.category]   || '').trim() : '';
+    const department = idx.department > -1 ? (cells[idx.department] || '').trim() : '';
     const qtyRaw = idx.qty > -1 ? (cells[idx.qty] || '').trim() : '';
     const qty    = qtyRaw ? parseInt(qtyRaw, 10) : 0;
     return {
-      name,
-      category:   idx.category   > -1 ? (cells[idx.category]   || '').trim() : '',
-      department: idx.department > -1 ? (cells[idx.department] || '').trim() : '',
-      total_qty:  Number.isFinite(qty) ? qty : 0,
-      _valid:     !!name,
+      name, category, department,
+      total_qty:          Number.isFinite(qty) ? qty : 0,
+      _valid:             !!name,
+      _unknownCategory:   !!category   && !KNOWN_CATEGORIES.includes(category),
+      _unknownDepartment: !!department && !KNOWN_DEPARTMENTS.includes(department),
     };
   });
   return { rows, error: null };
 }
 
-// Hands people a starter file with the headers the parser recognizes plus a
-// couple of filled-in example rows — saves them guessing column names/order.
-function downloadImportTemplate() {
-  const csv = [
-    'Name,Category,Department,Total Qty',
-    'Dell Monitor 24 inch,IT Supplies,IT,15',
-    'Cordless Drill,Tools,Construction,8',
-  ].join('\r\n');
+function triggerCsvDownload(filename, csv) {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href = url;
-  a.download = 'inventory-import-template.csv';
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+// Hands people a starter file with the headers the parser recognizes plus a
+// couple of filled-in example rows — saves them guessing column names/order.
+function downloadImportTemplate() {
+  triggerCsvDownload('inventory-import-template.csv', [
+    'Name,Category,Department,Total Qty',
+    'Dell Monitor 24 inch,IT Supplies,IT,15',
+    'Cordless Drill,Tools,Construction,8',
+  ].join('\r\n'));
+}
+
+function csvField(value) {
+  const s = String(value ?? '');
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+// Round-trips with the import — pulls the live catalogue (already loaded in
+// the view) into the same column shape the importer expects, so people can
+// export, edit in bulk, and re-upload instead of building rows from scratch.
+function downloadInventoryCsv(items) {
+  const lines = ['Name,Category,Department,Total Qty,Available Qty'];
+  for (const item of items) {
+    lines.push([item.name, item.category, item.department, item.total, item.available].map(csvField).join(','));
+  }
+  triggerCsvDownload(`inventory-catalogue-${new Date().toISOString().slice(0, 10)}.csv`, lines.join('\r\n'));
+}
+
+// ── Edit Item Modal ───────────────────────────────────────────────────────────
+function EditItemModal({ item, onClose, onSave }) {
+  const [name,       setName]       = useState(item.name);
+  const [category,   setCategory]   = useState(item.category);
+  const [department, setDepartment] = useState(item.department);
+  const [totalQty,   setTotalQty]   = useState(String(item.total));
+  const [saving,     setSaving]     = useState(false);
+  const [error,      setError]      = useState('');
+
+  useEscapeKey(onClose);
+
+  function submit() {
+    const trimmed = name.trim();
+    if (!trimmed || saving) return;
+    setSaving(true);
+    setError('');
+    Promise.resolve(onSave({
+      name: trimmed, category, department,
+      total_qty: Math.max(parseInt(totalQty, 10) || 0, 0),
+    }))
+      .then(onClose)
+      .catch(err => setError(err?.message || 'Couldn’t save changes — please try again.'))
+      .finally(() => setSaving(false));
+  }
+
+  return (
+    <div role="dialog" aria-modal="true" aria-labelledby="edit-item-title"
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+        <h3 id="edit-item-title" style={{ fontSize:'16px', fontWeight:700, marginBottom:20 }}>Edit Item</h3>
+
+        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+          <div>
+            <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>NAME</label>
+            <input className="form-input" style={{ width:'100%' }} value={name} onChange={e => setName(e.target.value)} />
+          </div>
+          <div style={{ display:'flex', gap:12 }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>CATEGORY</label>
+              <select className="form-input" style={{ width:'100%' }} value={category} onChange={e => setCategory(e.target.value)}>
+                {KNOWN_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>DEPARTMENT</label>
+              <select className="form-input" style={{ width:'100%' }} value={department} onChange={e => setDepartment(e.target.value)}>
+                {KNOWN_DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>TOTAL QUANTITY</label>
+            <input type="number" min="0" className="form-input" style={{ width:'100%' }}
+              value={totalQty} onChange={e => setTotalQty(e.target.value)} />
+            <p style={{ fontSize:'11.5px', color:'var(--muted)', marginTop:6 }}>
+              Currently {item.available} of {item.total} available — changing the total shifts availability by the same amount.
+            </p>
+          </div>
+        </div>
+
+        {error && (
+          <p style={{ display:'flex', alignItems:'center', gap:6, fontSize:'12.5px', color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:8, padding:'9px 12px', margin:'14px 0 0' }}>
+            <AlertCircle size={14} style={{ flexShrink:0 }} /> {error}
+          </p>
+        )}
+
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:22 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="primary-btn" disabled={!name.trim() || saving}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:130, justifyContent:'center' }}
+            onClick={submit}>
+            {saving ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Saving…</> : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Delete Item Modal ─────────────────────────────────────────────────────────
+function DeleteItemModal({ item, onClose, onConfirm }) {
+  const [busy,  setBusy]  = useState(false);
+  const [error, setError] = useState('');
+
+  useEscapeKey(onClose);
+
+  function confirm() {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    Promise.resolve(onConfirm())
+      .then(onClose)
+      .catch(err => setError(err?.message || 'Couldn’t delete this item — please try again.'))
+      .finally(() => setBusy(false));
+  }
+
+  return (
+    <div role="dialog" aria-modal="true" aria-labelledby="delete-item-title"
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:400, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+        <h3 id="delete-item-title" style={{ fontSize:'16px', fontWeight:700, marginBottom:8 }}>Delete “{item.name}”?</h3>
+        <p style={{ fontSize:'13px', color:'var(--muted)' }}>
+          This permanently removes the item from the catalogue and can’t be undone. It only works while there’s no pending, approved, or active request against it.
+        </p>
+        {error && (
+          <p style={{ display:'flex', alignItems:'center', gap:6, fontSize:'12.5px', color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:8, padding:'9px 12px', marginTop:14 }}>
+            <AlertCircle size={14} style={{ flexShrink:0 }} /> {error}
+          </p>
+        )}
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:22 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button disabled={busy} onClick={confirm}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:130, justifyContent:'center', background:'hsl(var(--color-red))', color:'#fff', border:'none', borderRadius:8, padding:'9px 18px', fontSize:'13px', fontWeight:600, cursor: busy ? 'default' : 'pointer', fontFamily:'Inter,sans-serif' }}>
+            {busy ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Deleting…</> : <><Trash2 size={14} /> Delete Item</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ── Import Items Modal ────────────────────────────────────────────────────────
@@ -358,8 +508,9 @@ function ImportItemsModal({ onClose, onImport }) {
     if (fileRef.current) fileRef.current.value = '';
   }
 
-  const validRows   = rows.filter(r => r._valid);
-  const invalidRows = rows.length - validRows.length;
+  const validRows    = rows.filter(r => r._valid);
+  const invalidRows  = rows.length - validRows.length;
+  const unknownRows  = validRows.filter(r => r._unknownCategory || r._unknownDepartment).length;
 
   function submit() {
     if (!validRows.length || submitting) return;
@@ -435,14 +586,25 @@ function ImportItemsModal({ onClose, onImport }) {
 
             {rows.length > 0 && !parseError && (
               <>
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', margin:'16px 0 8px' }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', margin:'16px 0 8px', flexWrap:'wrap', rowGap:4 }}>
                   <span style={{ fontSize:'12px', fontWeight:700, color:'var(--muted)', letterSpacing:'.04em', textTransform:'uppercase' }}>
                     Preview — {validRows.length} item{validRows.length !== 1 ? 's' : ''}
                   </span>
-                  {invalidRows > 0 && (
-                    <span style={{ fontSize:'12px', color:'hsl(var(--color-orange))', fontWeight:600 }}>{invalidRows} row{invalidRows !== 1 ? 's' : ''} skipped (no name)</span>
-                  )}
+                  <span style={{ display:'flex', gap:14 }}>
+                    {invalidRows > 0 && (
+                      <span style={{ fontSize:'12px', color:'hsl(var(--color-orange))', fontWeight:600 }}>{invalidRows} row{invalidRows !== 1 ? 's' : ''} skipped (no name)</span>
+                    )}
+                    {unknownRows > 0 && (
+                      <span style={{ fontSize:'12px', color:'hsl(var(--color-orange))', fontWeight:600 }}>{unknownRows} with an unrecognized category/department</span>
+                    )}
+                  </span>
                 </div>
+                {unknownRows > 0 && (
+                  <p style={{ display:'flex', alignItems:'center', gap:6, fontSize:'12px', color:'hsl(var(--color-orange))', background:'hsla(var(--color-orange),0.08)', borderRadius:8, padding:'8px 12px', marginBottom:8 }}>
+                    <AlertCircle size={13} style={{ flexShrink:0 }} />
+                    Highlighted values below aren’t one of the catalogue’s known categories/departments — those items will still import, but won’t appear under any filter tab until corrected.
+                  </p>
+                )}
                 <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto', flex:1, minHeight:0 }}>
                   <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12.5px' }}>
                     <thead>
@@ -459,8 +621,12 @@ function ImportItemsModal({ onClose, onImport }) {
                           <td style={{ padding:'7px 12px', fontWeight:600 }}>
                             {r.name || <em style={{ color:'hsl(var(--color-red))', fontWeight:400 }}>missing name</em>}
                           </td>
-                          <td style={{ padding:'7px 12px', color:'var(--muted)' }}>{r.category   || '—'}</td>
-                          <td style={{ padding:'7px 12px', color:'var(--muted)' }}>{r.department || '—'}</td>
+                          <td style={{ padding:'7px 12px', color: r._unknownCategory ? 'hsl(var(--color-orange))' : 'var(--muted)', fontWeight: r._unknownCategory ? 700 : 400 }}>
+                            {r.category || '—'}{r._unknownCategory && ' ⚠'}
+                          </td>
+                          <td style={{ padding:'7px 12px', color: r._unknownDepartment ? 'hsl(var(--color-orange))' : 'var(--muted)', fontWeight: r._unknownDepartment ? 700 : 400 }}>
+                            {r.department || '—'}{r._unknownDepartment && ' ⚠'}
+                          </td>
                           <td style={{ padding:'7px 12px', textAlign:'right' }}>{r.total_qty}</td>
                         </tr>
                       ))}
@@ -1014,6 +1180,8 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
   const [tab,          setTab]          = useState(activeSub === 'my-requests' ? 'my-requests' : 'inventory');
   const [showModal,    setShowModal]    = useState(false);
   const [showImport,   setShowImport]   = useState(false);
+  const [editingItem,  setEditingItem]  = useState(null);
+  const [deletingItem, setDeletingItem] = useState(null);
   const [prefillItem,  setPrefillItem]  = useState(null); // item card clicked → opens Raise Request pre-selected
   const [returningReq, setReturningReq] = useState(null);
   const [reqSearch,    setReqSearch]    = useState('');
@@ -1138,6 +1306,18 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
     setPrefillItem(null);
   }
 
+  function handleEditItem(item, data) {
+    return api.updateInventoryItem(item.id, data)
+      .then(() => { refreshItems(); toast(`Updated "${data.name}".`); })
+      .catch(err => { toast(err?.message || 'Couldn’t save changes — please try again.', 'error'); throw err; });
+  }
+
+  function handleDeleteItem(item) {
+    return api.deleteInventoryItem(item.id)
+      .then(() => { refreshItems(); toast(`Deleted "${item.name}" from the catalogue.`); })
+      .catch(err => { toast(err?.message || 'Couldn’t delete this item — please try again.', 'error'); throw err; });
+  }
+
   function handleImport(items) {
     return api.importInventoryItems(items)
       .then(res => {
@@ -1229,6 +1409,12 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
             className={tab === 'my-requests' ? 'primary-btn' : 'secondary-btn'}
             style={{ display:'inline-flex', alignItems:'center', gap:8 }}>
             <Clock size={15} /> My Requests {myReqs.length > 0 && `(${myReqs.length})`}
+          </button>
+          <button onClick={() => downloadInventoryCsv(items)} className="secondary-btn"
+            disabled={!items.length}
+            style={{ display:'inline-flex', alignItems:'center', gap:8 }}
+            title="Download the current catalogue as CSV">
+            <Download size={15} /> Export
           </button>
           <button onClick={() => setShowImport(true)} className="secondary-btn"
             style={{ display:'inline-flex', alignItems:'center', gap:8 }}>
@@ -1415,6 +1601,24 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
                   <AlertCircle size={12} /> All units currently checked out
                 </div>
               )}
+
+              {/* Catalogue management — manager+ can edit, Global Admin can also delete */}
+              {can('manager') && (
+                <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
+                  <button onClick={e => { e.stopPropagation(); setEditingItem(item); }}
+                    title={`Edit ${item.name}`} aria-label={`Edit ${item.name}`}
+                    style={{ display:'inline-flex', alignItems:'center', gap:5, background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:'11.5px', fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+                    <Pencil size={12} /> Edit
+                  </button>
+                  {can('owner') && (
+                    <button onClick={e => { e.stopPropagation(); setDeletingItem(item); }}
+                      title={`Delete ${item.name}`} aria-label={`Delete ${item.name}`}
+                      style={{ display:'inline-flex', alignItems:'center', gap:5, background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-red))', fontSize:'11.5px', fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+                      <Trash2 size={12} /> Delete
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
@@ -1443,6 +1647,14 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
       )}
       {showImport && (
         <ImportItemsModal onClose={() => setShowImport(false)} onImport={handleImport} />
+      )}
+      {editingItem && (
+        <EditItemModal item={editingItem} onClose={() => setEditingItem(null)}
+          onSave={data => handleEditItem(editingItem, data)} />
+      )}
+      {deletingItem && (
+        <DeleteItemModal item={deletingItem} onClose={() => setDeletingItem(null)}
+          onConfirm={() => handleDeleteItem(deletingItem)} />
       )}
       {photoPreview && (
         <ImageLightbox src={photoPreview} alt="Return photo" onClose={() => setPhotoPreview(null)} />

@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from typing import Optional
 import httpx
 from database import get_db
-from auth import get_current_user
+from auth import get_current_user, require_manager, require_owner
 from models import InventoryRequest, InventoryItem, NexusRole
 
 # Valid predecessor statuses for each target status — guards against illegal
@@ -235,6 +235,69 @@ def import_items(body: ItemImportRequest, user: dict = Depends(get_current_user)
 
     db.commit()
     return {"created": created, "updated": updated, "skipped": skipped}
+
+
+class ItemUpdate(BaseModel):
+    name:       Optional[str] = None
+    category:   Optional[str] = None
+    department: Optional[str] = None
+    total_qty:  Optional[int] = None
+
+
+@router.patch("/items/{item_id}")
+def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    """Edit a catalogue item's name/category/department/stock total. Manager and
+    above — same bar as approving requests, since this affects what the whole
+    org sees and can request. Changing total_qty shifts available_qty by the
+    same delta, mirroring the bulk-import logic so units on loan stay accounted for."""
+    item = db.query(InventoryItem).filter(InventoryItem.id == item_id).first()
+    if not item:
+        raise HTTPException(404, "Item not found")
+
+    if body.name is not None:
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(400, "Name cannot be empty")
+        dupe = db.query(InventoryItem).filter(
+            func.lower(InventoryItem.name) == name.lower(), InventoryItem.id != item_id
+        ).first()
+        if dupe:
+            raise HTTPException(409, f"Another item is already named '{name}'")
+        item.name = name
+    if body.category is not None:
+        item.category = body.category.strip()
+    if body.department is not None:
+        item.department = body.department.strip()
+    if body.total_qty is not None:
+        total = max(body.total_qty, 0)
+        delta = total - item.total_qty
+        item.total_qty     = total
+        item.available_qty = min(max(item.available_qty + delta, 0), total)
+
+    item.last_updated = datetime.now(timezone.utc).isoformat()
+    db.commit()
+    return _item_to_dict(item)
+
+
+@router.delete("/items/{item_id}")
+def delete_item(item_id: str, user: dict = Depends(require_owner), db: Session = Depends(get_db)):
+    """Permanently remove a catalogue item — Global Admin only, matching the
+    'Permanently Delete Records' policy. Blocked while any request against the
+    item is still pending/approved/allocated, so history never points at a void."""
+    item = db.query(InventoryItem).filter(InventoryItem.id == item_id).first()
+    if not item:
+        raise HTTPException(404, "Item not found")
+
+    active = db.query(InventoryRequest).filter(
+        InventoryRequest.item_id == item_id,
+        InventoryRequest.status.in_(["pending", "approved", "allocated"]),
+    ).count()
+    if active:
+        raise HTTPException(409, "Can't delete an item with pending or active requests against it")
+
+    db.delete(item)
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/allocators")

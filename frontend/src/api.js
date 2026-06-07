@@ -128,6 +128,8 @@ export const api = {
   // Inventory Requests (persisted in Supabase)
   getInventoryItems:       ()          => req('/inventory-requests/items'),
   importInventoryItems:    (items)      => req('/inventory-requests/items/import', { method: 'POST', body: JSON.stringify({ items }) }),
+  updateInventoryItem:     (id, data)   => req(`/inventory-requests/items/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteInventoryItem:     (id)         => req(`/inventory-requests/items/${id}`, { method: 'DELETE' }),
   getInventoryAllocators:  ()          => req('/inventory-requests/allocators'),
   getInventoryRequests:    ()          => req('/inventory-requests'),
   createInventoryRequest:  (data)      => req('/inventory-requests', { method: 'POST', body: JSON.stringify(data) }),
