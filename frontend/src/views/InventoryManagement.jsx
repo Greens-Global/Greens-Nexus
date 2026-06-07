@@ -3,11 +3,13 @@ import {
   Package, Plus, Search, CheckCircle, Clock, XCircle,
   RotateCcw, Camera, Monitor, Wrench, Building2, Calculator,
   AlertCircle, Filter, X, Loader2, ZoomIn, ChevronDown, ChevronRight,
+  UploadCloud, FileSpreadsheet,
 } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import { useInventory }       from '../contexts/InventoryContext';
 import { useNotifications }   from '../contexts/NotificationContext';
 import { useRole }            from '../contexts/RoleContext';
+import { api }                from '../api';
 import { useMsal } from '@azure/msal-react';
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -250,6 +252,217 @@ function RaiseRequestModal({ items, onClose, onSubmit, currentUser, canRaiseOnBe
             {isSubmitting ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Submitting…</> : 'Submit Request'}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── CSV parsing (no library installed — small quote-aware hand-roll) ─────────
+function parseCsvLine(line) {
+  const out = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; }
+        else inQuotes = false;
+      } else cur += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === ',') { out.push(cur); cur = ''; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out;
+}
+
+function parseInventoryCsv(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lines.length < 2) return { rows: [], error: 'That file looks empty — it needs a header row plus at least one item.' };
+
+  const header = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
+  const idx = {
+    name:       header.findIndex(h => ['name', 'item', 'item name'].includes(h)),
+    category:   header.findIndex(h => h === 'category'),
+    department: header.findIndex(h => ['department', 'dept'].includes(h)),
+    qty:        header.findIndex(h => ['total_qty', 'total', 'quantity', 'qty', 'total qty'].includes(h)),
+  };
+  if (idx.name === -1) return { rows: [], error: 'Couldn’t find a "Name" column in the header row — check your file and try again.' };
+
+  const rows = lines.slice(1).map(line => {
+    const cells = parseCsvLine(line);
+    const name   = (cells[idx.name] || '').trim();
+    const qtyRaw = idx.qty > -1 ? (cells[idx.qty] || '').trim() : '';
+    const qty    = qtyRaw ? parseInt(qtyRaw, 10) : 0;
+    return {
+      name,
+      category:   idx.category   > -1 ? (cells[idx.category]   || '').trim() : '',
+      department: idx.department > -1 ? (cells[idx.department] || '').trim() : '',
+      total_qty:  Number.isFinite(qty) ? qty : 0,
+      _valid:     !!name,
+    };
+  });
+  return { rows, error: null };
+}
+
+// ── Import Items Modal ────────────────────────────────────────────────────────
+function ImportItemsModal({ onClose, onImport }) {
+  const [fileName,    setFileName]    = useState('');
+  const [rows,        setRows]        = useState([]);
+  const [parseError,  setParseError]  = useState('');
+  const [submitting,  setSubmitting]  = useState(false);
+  const [submitError, setSubmitError] = useState('');
+  const [result,      setResult]      = useState(null); // { created, updated, skipped }
+  const fileRef = useRef(null);
+
+  useEscapeKey(onClose);
+
+  function handleFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    setResult(null);
+    setSubmitError('');
+    const reader = new FileReader();
+    reader.onload = () => {
+      const { rows: parsed, error } = parseInventoryCsv(String(reader.result || ''));
+      if (error) { setParseError(error); setRows([]); }
+      else { setParseError(''); setRows(parsed); }
+    };
+    reader.onerror = () => setParseError('Couldn’t read that file — please try again.');
+    reader.readAsText(file);
+  }
+
+  function reset() {
+    setFileName(''); setRows([]); setParseError(''); setResult(null); setSubmitError('');
+    if (fileRef.current) fileRef.current.value = '';
+  }
+
+  const validRows   = rows.filter(r => r._valid);
+  const invalidRows = rows.length - validRows.length;
+
+  function submit() {
+    if (!validRows.length || submitting) return;
+    setSubmitting(true);
+    setSubmitError('');
+    Promise.resolve(onImport(validRows.map(r => ({
+      name: r.name, category: r.category, department: r.department, total_qty: r.total_qty,
+    }))))
+      .then(res => setResult(res))
+      .catch(err => setSubmitError(err?.message || 'Import failed — please try again.'))
+      .finally(() => setSubmitting(false));
+  }
+
+  return (
+    <div role="dialog" aria-modal="true" aria-labelledby="import-items-title"
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:640, maxHeight:'88vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:4 }}>
+          <h3 id="import-items-title" style={{ fontSize:'16px', fontWeight:700 }}>Import Inventory Items</h3>
+          <button onClick={onClose} aria-label="Close" style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', padding:4 }}><X size={18} /></button>
+        </div>
+        <p style={{ fontSize:'13px', color:'var(--muted)', marginBottom:20 }}>
+          Upload a CSV to bulk-create items or update stock counts for existing ones (matched by name).
+        </p>
+
+        {result ? (
+          <div style={{ textAlign:'center', padding:'28px 12px' }}>
+            <div style={{ width:48, height:48, borderRadius:'50%', background:'hsla(var(--color-green),0.12)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 14px' }}>
+              <CheckCircle size={24} color="hsl(var(--color-green))" />
+            </div>
+            <p style={{ fontSize:'15px', fontWeight:700, marginBottom:6 }}>Import complete</p>
+            <p style={{ fontSize:'13px', color:'var(--muted)' }}>
+              {result.created} item{result.created !== 1 ? 's' : ''} created · {result.updated} updated
+              {result.skipped > 0 && ` · ${result.skipped} skipped`}
+            </p>
+            <div style={{ display:'flex', gap:10, justifyContent:'center', marginTop:22 }}>
+              <button className="secondary-btn" onClick={reset}>Import Another File</button>
+              <button className="primary-btn" onClick={onClose}>Done</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {!fileName ? (
+              <div onClick={() => fileRef.current?.click()}
+                style={{ border:'2px dashed var(--line)', borderRadius:10, padding:'34px 20px', textAlign:'center', cursor:'pointer' }}
+                onMouseEnter={e => e.currentTarget.style.borderColor='var(--pine)'}
+                onMouseLeave={e => e.currentTarget.style.borderColor='var(--line)'}>
+                <UploadCloud size={28} style={{ color:'var(--muted)', marginBottom:8 }} />
+                <div style={{ fontSize:'13px', fontWeight:600, color:'var(--ink)' }}>Click to browse or drop a CSV file</div>
+                <div style={{ fontSize:'12px', color:'var(--muted)', marginTop:4 }}>Columns: Name, Category, Department, Total Qty</div>
+              </div>
+            ) : (
+              <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', border:'1px solid var(--line)', borderRadius:10 }}>
+                <FileSpreadsheet size={18} style={{ color:'var(--muted)', flexShrink:0 }} />
+                <span style={{ fontSize:'13px', fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{fileName}</span>
+                <button onClick={reset} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', fontSize:'12px', fontFamily:'Inter,sans-serif' }}>Change file</button>
+              </div>
+            )}
+            <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display:'none' }} onChange={handleFile} />
+
+            {parseError && (
+              <p style={{ display:'flex', alignItems:'center', gap:6, fontSize:'12.5px', color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:8, padding:'9px 12px', margin:'14px 0 0' }}>
+                <AlertCircle size={14} style={{ flexShrink:0 }} /> {parseError}
+              </p>
+            )}
+
+            {rows.length > 0 && !parseError && (
+              <>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', margin:'16px 0 8px' }}>
+                  <span style={{ fontSize:'12px', fontWeight:700, color:'var(--muted)', letterSpacing:'.04em', textTransform:'uppercase' }}>
+                    Preview — {validRows.length} item{validRows.length !== 1 ? 's' : ''}
+                  </span>
+                  {invalidRows > 0 && (
+                    <span style={{ fontSize:'12px', color:'hsl(var(--color-orange))', fontWeight:600 }}>{invalidRows} row{invalidRows !== 1 ? 's' : ''} skipped (no name)</span>
+                  )}
+                </div>
+                <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto', flex:1, minHeight:0 }}>
+                  <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12.5px' }}>
+                    <thead>
+                      <tr style={{ background:'var(--mist)' }}>
+                        <th style={{ textAlign:'left',  padding:'8px 12px', fontWeight:700, color:'var(--muted)' }}>Name</th>
+                        <th style={{ textAlign:'left',  padding:'8px 12px', fontWeight:700, color:'var(--muted)' }}>Category</th>
+                        <th style={{ textAlign:'left',  padding:'8px 12px', fontWeight:700, color:'var(--muted)' }}>Department</th>
+                        <th style={{ textAlign:'right', padding:'8px 12px', fontWeight:700, color:'var(--muted)' }}>Total Qty</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.slice(0, 200).map((r, i) => (
+                        <tr key={i} style={{ borderTop:'1px solid var(--line)', opacity: r._valid ? 1 : 0.4 }}>
+                          <td style={{ padding:'7px 12px', fontWeight:600 }}>
+                            {r.name || <em style={{ color:'hsl(var(--color-red))', fontWeight:400 }}>missing name</em>}
+                          </td>
+                          <td style={{ padding:'7px 12px', color:'var(--muted)' }}>{r.category   || '—'}</td>
+                          <td style={{ padding:'7px 12px', color:'var(--muted)' }}>{r.department || '—'}</td>
+                          <td style={{ padding:'7px 12px', textAlign:'right' }}>{r.total_qty}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+            {submitError && (
+              <p style={{ display:'flex', alignItems:'center', gap:6, fontSize:'12.5px', color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:8, padding:'9px 12px', margin:'14px 0 0' }}>
+                <AlertCircle size={14} style={{ flexShrink:0 }} /> {submitError}
+              </p>
+            )}
+
+            <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
+              <button className="secondary-btn" onClick={onClose} disabled={submitting}>Cancel</button>
+              <button className="primary-btn" disabled={!validRows.length || submitting}
+                style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:160, justifyContent:'center' }}
+                onClick={submit}>
+                {submitting
+                  ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Importing…</>
+                  : `Import ${validRows.length || ''} Item${validRows.length !== 1 ? 's' : ''}`}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -775,6 +988,7 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
   const [deptTab,      setDeptTab]      = useState('All');
   const [tab,          setTab]          = useState(activeSub === 'my-requests' ? 'my-requests' : 'inventory');
   const [showModal,    setShowModal]    = useState(false);
+  const [showImport,   setShowImport]   = useState(false);
   const [prefillItem,  setPrefillItem]  = useState(null); // item card clicked → opens Raise Request pre-selected
   const [returningReq, setReturningReq] = useState(null);
   const [reqSearch,    setReqSearch]    = useState('');
@@ -899,6 +1113,19 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
     setPrefillItem(null);
   }
 
+  function handleImport(items) {
+    return api.importInventoryItems(items)
+      .then(res => {
+        refreshItems();
+        toast(`Imported ${res.created} new and updated ${res.updated} existing item${res.created + res.updated !== 1 ? 's' : ''}.`);
+        return res;
+      })
+      .catch(err => {
+        toast(err?.message || 'Import failed — please try again.', 'error');
+        throw err;
+      });
+  }
+
   function handleReturnSubmit(req, data) {
     return returnItem(req.id, data).then(saved => {
       // Tell whoever physically handed the item out that it's back — they're
@@ -977,6 +1204,10 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
             className={tab === 'my-requests' ? 'primary-btn' : 'secondary-btn'}
             style={{ display:'inline-flex', alignItems:'center', gap:8 }}>
             <Clock size={15} /> My Requests {myReqs.length > 0 && `(${myReqs.length})`}
+          </button>
+          <button onClick={() => setShowImport(true)} className="secondary-btn"
+            style={{ display:'inline-flex', alignItems:'center', gap:8 }}>
+            <UploadCloud size={15} /> Import
           </button>
           <button onClick={() => { setPrefillItem(null); setShowModal(true); }} className="primary-btn"
             style={{ display:'inline-flex', alignItems:'center', gap:8 }}>
@@ -1184,6 +1415,9 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
       {returningReq && (
         <ReturnModal request={returningReq} onClose={() => setReturningReq(null)}
           onSubmit={data => handleReturnSubmit(returningReq, data)} />
+      )}
+      {showImport && (
+        <ImportItemsModal onClose={() => setShowImport(false)} onImport={handleImport} />
       )}
       {photoPreview && (
         <ImageLightbox src={photoPreview} alt="Return photo" onClose={() => setPhotoPreview(null)} />

@@ -127,6 +127,7 @@ export const api = {
 
   // Inventory Requests (persisted in Supabase)
   getInventoryItems:       ()          => req('/inventory-requests/items'),
+  importInventoryItems:    (items)      => req('/inventory-requests/items/import', { method: 'POST', body: JSON.stringify({ items }) }),
   getInventoryAllocators:  ()          => req('/inventory-requests/allocators'),
   getInventoryRequests:    ()          => req('/inventory-requests'),
   createInventoryRequest:  (data)      => req('/inventory-requests', { method: 'POST', body: JSON.stringify(data) }),

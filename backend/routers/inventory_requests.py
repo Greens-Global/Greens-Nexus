@@ -1,8 +1,9 @@
 import os
 import threading
+import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import text, or_
+from sqlalchemy import text, or_, func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -179,6 +180,61 @@ def list_items(db: Session = Depends(get_db)):
     Replaces the static mock data the frontend used to carry locally."""
     rows = db.query(InventoryItem).order_by(InventoryItem.department, InventoryItem.name).all()
     return [_item_to_dict(i) for i in rows]
+
+
+class ItemImportRow(BaseModel):
+    name:       str
+    category:   Optional[str] = ""
+    department: Optional[str] = ""
+    total_qty:  int = 0
+
+
+class ItemImportRequest(BaseModel):
+    items: list[ItemImportRow]
+
+
+@router.post("/items/import")
+def import_items(body: ItemImportRequest, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Bulk-creates or updates catalogue items from a parsed spreadsheet.
+    Matches existing items by name (case-insensitive): an existing item's
+    total_qty is replaced and available_qty is shifted by the same delta, so
+    units already out on loan stay accounted for. Unmatched rows become new
+    items with available_qty seeded to the imported total."""
+    now = datetime.now(timezone.utc).isoformat()
+    created = updated = skipped = 0
+
+    for row in body.items:
+        name = row.name.strip()
+        if not name:
+            skipped += 1
+            continue
+        total = max(row.total_qty, 0)
+        category   = (row.category or "").strip()
+        department = (row.department or "").strip()
+
+        existing = db.query(InventoryItem).filter(func.lower(InventoryItem.name) == name.lower()).first()
+        if existing:
+            delta = total - existing.total_qty
+            existing.total_qty     = total
+            existing.available_qty = min(max(existing.available_qty + delta, 0), total)
+            if category:   existing.category   = category
+            if department: existing.department = department
+            existing.last_updated  = now
+            updated += 1
+        else:
+            db.add(InventoryItem(
+                id=str(uuid.uuid4()),
+                name=name,
+                category=category,
+                department=department,
+                total_qty=total,
+                available_qty=total,
+                last_updated=now,
+            ))
+            created += 1
+
+    db.commit()
+    return {"created": created, "updated": updated, "skipped": skipped}
 
 
 @router.get("/allocators")
