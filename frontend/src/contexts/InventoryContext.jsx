@@ -64,6 +64,8 @@ export function InventoryProvider({ children }) {
       resolvedAt:       r.resolved_at   || null,
       resolvedBy:       r.resolved_by   || null,
       rejectReason:     r.reject_reason || null,
+      assignedAllocatorEmail: r.assigned_allocator_email || null,
+      assignedAllocatorName:  r.assigned_allocator_name  || null,
       allocatedAt:      r.allocated_at  || null,
       allocatedBy:      r.allocated_by  || null,
       returnedAt:       r.returned_at   || null,
@@ -171,13 +173,29 @@ export function InventoryProvider({ children }) {
     });
   }
 
-  function approveRequest(id, managerName) {
+  function approveRequest(id, managerName, allocatorEmail, allocatorName) {
     setRequests(prev => prev.map(r =>
-      r.id === id ? { ...r, status: 'approved', resolvedAt: new Date().toISOString(), resolvedBy: managerName } : r
+      r.id === id ? {
+        ...r, status: 'approved',
+        resolvedAt: new Date().toISOString(), resolvedBy: managerName,
+        assignedAllocatorEmail: allocatorEmail, assignedAllocatorName: allocatorName,
+      } : r
     ));
-    api.updateInventoryRequest(id, { status: 'approved', resolved_by: managerName })
-      .then(() => fetchRequests())
-      .catch(() => fetchRequests());
+    return api.updateInventoryRequest(id, {
+      status: 'approved', resolved_by: managerName,
+      assigned_allocator_email: allocatorEmail, assigned_allocator_name: allocatorName,
+    })
+      .then(saved => { fetchRequests(); return saved; })
+      .catch(err => { fetchRequests(); throw err; });
+  }
+
+  function cancelRequest(id, requesterName) {
+    setRequests(prev => prev.map(r =>
+      r.id === id ? { ...r, status: 'cancelled', resolvedAt: new Date().toISOString(), resolvedBy: requesterName } : r
+    ));
+    return api.updateInventoryRequest(id, { status: 'cancelled', resolved_by: requesterName })
+      .then(saved => { fetchRequests(); return saved; })
+      .catch(err => { fetchRequests(); throw err; });
   }
 
   function allocateItem(id, supervisorName) {
@@ -272,7 +290,7 @@ export function InventoryProvider({ children }) {
       items, itemsLoading, itemsError,
       requests, requestsLoading, requestsError,
       pendingCount,
-      raiseRequest, approveRequest, rejectRequest, allocateItem, returnItem,
+      raiseRequest, approveRequest, rejectRequest, allocateItem, returnItem, cancelRequest,
       refreshRequests: fetchRequests,
       refreshItems: fetchItems,
     }}>

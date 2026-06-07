@@ -103,7 +103,7 @@ export const api = {
   // Nexus Roles
   getMyRole:    ()                    => req('/roles/me'),
   getAllRoles:   ()                   => req('/roles'),
-  assignRole:   (email, role, by)    => req(`/roles/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify({ role, assigned_by: by }) }),
+  assignRole:   (email, role, by, displayName) => req(`/roles/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify({ role, assigned_by: by, display_name: displayName || '' }) }),
   syncRoles:    (emails)             => req('/roles/sync', { method: 'POST', body: JSON.stringify({ emails }) }),
 
   // Notifications (cross-device, stored in Supabase)
@@ -115,6 +115,7 @@ export const api = {
 
   // Inventory Requests (persisted in Supabase)
   getInventoryItems:       ()          => req('/inventory-requests/items'),
+  getInventoryAllocators:  ()          => req('/inventory-requests/allocators'),
   getInventoryRequests:    ()          => req('/inventory-requests'),
   createInventoryRequest:  (data)      => req('/inventory-requests', { method: 'POST', body: JSON.stringify(data) }),
   updateInventoryRequest:  (id, data)  => req(`/inventory-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

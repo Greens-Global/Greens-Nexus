@@ -220,11 +220,11 @@ export default function Admin() {
   const isOwner = myRole === 'owner';
   const isAdmin = can('administrator');
 
-  async function handleAssign(email, role) {
+  async function handleAssign(email, role, displayName) {
     setRoleError('');
     setSaving(p => ({ ...p, [email]: true }));
     try {
-      await assignRole(email, role);
+      await assignRole(email, role, displayName);
       setSaved(p => ({ ...p, [email]: true }));
       setTimeout(() => setSaved(p => { const n = {...p}; delete n[email]; return n; }), 1800);
     } catch (err) {
@@ -239,7 +239,7 @@ export default function Admin() {
     setAddingSaving(true);
     setRoleError('');
     try {
-      await assignRole(email, role);
+      await assignRole(email, role, name);
       setManualUsers(p => {
         if (p.some(u => u.email === email)) return p.map(u => u.email === email ? { ...u, name, dept, title, role } : u);
         return [...p, { id: email, name, email, dept, title, role }];
@@ -431,7 +431,7 @@ export default function Admin() {
                               <select
                                 value={u.role}
                                 disabled={saving[u.email] || (!isOwner && u.role === 'owner')}
-                                onChange={e => handleAssign(u.email, e.target.value)}
+                                onChange={e => handleAssign(u.email, e.target.value, u.name)}
                                 className="form-input"
                                 style={{ padding: '5px 10px', fontSize: 12.5, height: 32, minWidth: 140 }}>
                                 {ROLE_ORDER.map(r => {

@@ -2,14 +2,14 @@ import os
 import threading
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import text
+from sqlalchemy import text, or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 import httpx
 from database import get_db
 from auth import get_current_user
-from models import InventoryRequest, InventoryItem
+from models import InventoryRequest, InventoryItem, NexusRole
 
 # Valid predecessor statuses for each target status — guards against illegal
 # jumps like pending -> allocated or re-approving an already-resolved request.
@@ -18,7 +18,21 @@ _VALID_TRANSITIONS = {
     "rejected":  {"pending"},
     "allocated": {"approved"},
     "returned":  {"allocated"},
+    "cancelled": {"pending", "approved"},
 }
+
+# Mirrors ROLE_LEVEL in routers/roles.py — duplicated here to avoid a cross-router
+# import; both must stay in sync if role names ever change.
+_ROLE_LEVEL = {"employee": 1, "supervisor": 2, "manager": 3, "administrator": 4, "owner": 5}
+
+
+def _title_case_email(email: str) -> str:
+    """Fallback display name for accounts with no display_name on file yet —
+    derives 'Sai Malladi' from 'sai.malladi@...' to match the org's
+    firstname.lastname@ convention. Self-heals once Access Manager captures
+    the real Microsoft Graph name on the next role assignment."""
+    local = email.split("@", 1)[0]
+    return " ".join(part.capitalize() for part in local.replace("_", ".").split(".") if part)
 
 _DAMAGE_KEYWORDS = ("damaged", "broken", "cracked", "lost", "destroyed", "unusable", "retired")
 
@@ -109,13 +123,15 @@ class RequestIn(BaseModel):
 
 
 class StatusUpdate(BaseModel):
-    status:             str
-    resolved_by:        Optional[str] = ""
-    reject_reason:      Optional[str] = ""
-    allocated_by:       Optional[str] = ""
-    return_photo_name:  Optional[str] = ""
-    return_photo_url:   Optional[str] = ""
-    condition_note:     Optional[str] = ""
+    status:                    str
+    resolved_by:               Optional[str] = ""
+    reject_reason:             Optional[str] = ""
+    assigned_allocator_email:  Optional[str] = ""
+    assigned_allocator_name:   Optional[str] = ""
+    allocated_by:              Optional[str] = ""
+    return_photo_name:         Optional[str] = ""
+    return_photo_url:          Optional[str] = ""
+    condition_note:            Optional[str] = ""
 
 
 def _to_dict(r: InventoryRequest) -> dict:
@@ -135,6 +151,8 @@ def _to_dict(r: InventoryRequest) -> dict:
         "resolvedAt":        r.resolved_at  or None,
         "resolvedBy":        r.resolved_by  or None,
         "rejectReason":      r.reject_reason or None,
+        "assignedAllocatorEmail": r.assigned_allocator_email or None,
+        "assignedAllocatorName":  r.assigned_allocator_name  or None,
         "allocatedAt":       r.allocated_at  or None,
         "allocatedBy":       r.allocated_by  or None,
         "returnedAt":        r.returned_at   or None,
@@ -163,12 +181,34 @@ def list_items(db: Session = Depends(get_db)):
     return [_item_to_dict(i) for i in rows]
 
 
+@router.get("/allocators")
+def list_allocators(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Everyone at supervisor level or above — the pool a manager can hand an
+    approved request off to for physical allocation. Manager-accessible (not
+    gated behind require_administrator like GET /roles, which is too high a
+    bar for the person who actually needs this list)."""
+    if user["level"] < _ROLE_LEVEL["manager"]:
+        raise HTTPException(403, "Manager or above required to view the allocator list")
+    rows = db.query(NexusRole).filter(NexusRole.role.in_(
+        [role for role, level in _ROLE_LEVEL.items() if level >= _ROLE_LEVEL["supervisor"]]
+    )).order_by(NexusRole.email).all()
+    return [
+        {"email": r.email, "name": r.display_name or _title_case_email(r.email), "role": r.role}
+        for r in rows
+    ]
+
+
 @router.get("")
 def list_requests(email: Optional[str] = None, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     q = db.query(InventoryRequest).order_by(InventoryRequest.created_at.desc())
     if user["level"] < 3:
-        # Non-managers only see their own requests regardless of email param
-        q = q.filter(InventoryRequest.requested_by_email == user["email"])
+        # Non-managers see their own requests, plus anything assigned to them
+        # to physically allocate — both are "their business" regardless of
+        # who raised the request.
+        q = q.filter(or_(
+            InventoryRequest.requested_by_email == user["email"],
+            InventoryRequest.assigned_allocator_email == user["email"],
+        ))
     elif email:
         # Managers can optionally filter by a specific email
         q = q.filter(InventoryRequest.requested_by_email == email.lower())
@@ -209,10 +249,18 @@ def update_request(req_id: str, body: StatusUpdate, user: dict = Depends(get_cur
 
     if body.status in ("approved", "rejected") and user["level"] < 3:
         raise HTTPException(403, "Manager or above required to approve or reject requests")
-    if body.status == "allocated" and user["level"] < 2:
-        raise HTTPException(403, "Supervisor or above required to allocate items")
+    if body.status == "approved" and not (body.assigned_allocator_email or "").strip():
+        raise HTTPException(400, "Pick who should allocate this item before approving")
+    if body.status == "allocated":
+        # Only the person the manager assigned can hand the item over physically —
+        # managers/admins keep an override for when the assignee is unavailable.
+        is_assignee = row.assigned_allocator_email and row.assigned_allocator_email.lower() == user["email"]
+        if not is_assignee and user["level"] < 3:
+            raise HTTPException(403, "Only the assigned allocator (or a manager) can mark this as allocated")
     if body.status == "returned" and user["level"] < 2 and row.requested_by_email.lower() != user["email"]:
         raise HTTPException(403, "You can only return your own items")
+    if body.status == "cancelled" and row.requested_by_email.lower() != user["email"]:
+        raise HTTPException(403, "You can only cancel your own requests")
 
     valid_predecessors = _VALID_TRANSITIONS.get(body.status)
     if valid_predecessors is not None and row.status not in valid_predecessors:
@@ -223,8 +271,15 @@ def update_request(req_id: str, body: StatusUpdate, user: dict = Depends(get_cur
     if body.status in ("approved", "rejected"):
         row.resolved_at = now
         row.resolved_by = body.resolved_by or ""
+        if body.status == "approved":
+            row.assigned_allocator_email = (body.assigned_allocator_email or "").lower().strip()
+            row.assigned_allocator_name  = (body.assigned_allocator_name  or "").strip()
         if body.status == "rejected":
             row.reject_reason = body.reject_reason or ""
+
+    elif body.status == "cancelled":
+        row.resolved_at = now
+        row.resolved_by = body.resolved_by or ""
 
     elif body.status == "allocated":
         # Reserve stock atomically before flipping status — if there isn't enough

@@ -62,9 +62,9 @@ export function RoleProvider({ children }) {
   }, []);
 
   // Assign a role — writes to backend, refreshes local state
-  const assignRole = useCallback(async (email, role) => {
+  const assignRole = useCallback(async (email, role, displayName) => {
     const lowerEmail = email.toLowerCase();
-    await api.assignRole(lowerEmail, role, myEmail);
+    await api.assignRole(lowerEmail, role, myEmail, displayName);
     setAllRoles(prev => ({ ...prev, [lowerEmail]: role }));
     // If assigning own role, update myRole too
     if (lowerEmail === myEmail) setMyRole(role);

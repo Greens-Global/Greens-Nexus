@@ -19,17 +19,18 @@ function timeAgo(iso) {
 }
 
 const TYPE_META = {
-  inv_request:   { icon: Package,      label: 'Inventory Request',  color: 'var(--color-blue)'   },
-  req_pending:   { icon: ShoppingCart, label: 'Purchase Requisition', color: 'var(--color-orange)' },
-  item_returned: { icon: RotateCcw,    label: 'Item Returned',       color: 'var(--color-green)'  },
-  allocated:     { icon: CheckCircle,  label: 'Item Allocated',      color: 'var(--color-green)'  },
-  approved:      { icon: CheckCircle,  label: 'Request Approved',    color: 'var(--color-green)'  },
-  rejected:      { icon: XCircle,      label: 'Request Rejected',    color: 'var(--color-red)'    },
+  inv_request:     { icon: Package,      label: 'Inventory Request',    color: 'var(--color-blue)'   },
+  req_pending:     { icon: ShoppingCart, label: 'Purchase Requisition', color: 'var(--color-orange)' },
+  item_returned:   { icon: RotateCcw,    label: 'Item Returned',        color: 'var(--color-green)'  },
+  allocate_request:{ icon: Package,      label: 'Allocation Needed',    color: 'var(--color-orange)' },
+  allocated:       { icon: CheckCircle,  label: 'Item Allocated',       color: 'var(--color-green)'  },
+  approved:        { icon: CheckCircle,  label: 'Request Approved',     color: 'var(--color-green)'  },
+  rejected:        { icon: XCircle,      label: 'Request Rejected',     color: 'var(--color-red)'    },
 };
 
 export default function NotificationBell({ onNavigate }) {
   const { notifications, unreadCount, markRead, markAllRead, dismiss, clearRead, addNotification, markActioned } = useNotifications();
-  const { approveRequest, rejectRequest, requests: invRequests } = useInventory();
+  const { approveRequest, rejectRequest, allocateItem, requests: invRequests } = useInventory();
   const { approveRequisition, rejectRequisition }   = useRequisitions();
   const { accounts } = useMsal();
   const { can }      = useRole();
@@ -39,6 +40,7 @@ export default function NotificationBell({ onNavigate }) {
   const [open,         setOpen]         = useState(false);
   const [rejectingId,  setRejectingId]  = useState(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [allocatingId, setAllocatingId] = useState(null);
   const panelRef = useRef(null);
 
   useEffect(() => {
@@ -118,6 +120,28 @@ export default function NotificationBell({ onNavigate }) {
     dismiss(n.id);
     setRejectingId(null);
     setRejectReason('');
+  }
+
+  // Lets the assigned allocator hand the item over directly from the bell —
+  // no need to navigate to Inventory Management first.
+  function handleInlineAllocate(n) {
+    const refId = n.refId ?? '';
+    if (!refId || allocatingId) return;
+    setAllocatingId(n.id);
+    allocateItem(refId, myName).then(() => {
+      markActioned(n.id);
+      dismiss(n.id);
+      const invReq = invRequests.find(r => r.id === refId);
+      addNotification({
+        type:        'allocated',
+        recipient:   invReq?.requestedByEmail || invReq?.requestedBy || n.requestedBy || '',
+        refId,
+        itemName:    n.itemName ?? invReq?.itemName ?? 'the item',
+        title:       'Item Allocated ✓',
+        body:        `Your ${n.itemName ?? invReq?.itemName ?? 'item'} has been allocated and is ready for collection. Please pick it up from your supervisor.`,
+        action:      { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
+      });
+    }).catch(() => {}).finally(() => setAllocatingId(null));
   }
 
   // Needs Action: only visible to managers+ (they have approve/reject capability)
@@ -302,7 +326,15 @@ export default function NotificationBell({ onNavigate }) {
                           <span style={{ fontSize: 10.5, color: 'var(--muted)', flexShrink: 0 }}>{timeAgo(n.timestamp)}</span>
                         </div>
                         <p style={{ fontSize: 12, color: 'var(--muted)', margin: '2px 0 0', lineHeight: 1.4 }}>{n.body}</p>
-                        {n.action && onNavigate && (
+                        {n.action && n.action.kind === 'allocate' && (
+                          <button
+                            onClick={e => { e.stopPropagation(); handleInlineAllocate(n); }}
+                            disabled={allocatingId === n.id}
+                            style={{ marginTop: 6, background: 'none', border: 'none', padding: 0, fontSize: 11.5, fontWeight: 600, color: 'hsl(var(--color-orange))', cursor: allocatingId === n.id ? 'default' : 'pointer', opacity: allocatingId === n.id ? 0.6 : 1, fontFamily: 'Inter, sans-serif', letterSpacing: '.01em' }}>
+                            {allocatingId === n.id ? 'Allocating…' : n.action.label}
+                          </button>
+                        )}
+                        {n.action && n.action.kind !== 'allocate' && onNavigate && (
                           <button
                             onClick={e => { e.stopPropagation(); markRead(n.id); setOpen(false); onNavigate(n.action.view, n.action.sub); }}
                             style={{ marginTop: 6, background: 'none', border: 'none', padding: 0, fontSize: 11.5, fontWeight: 600, color: 'hsl(var(--color-blue))', cursor: 'pointer', fontFamily: 'Inter, sans-serif', letterSpacing: '.01em' }}>

@@ -36,13 +36,19 @@ const STATUS_META = {
   allocated: { label: 'In Use',          bg: 'hsla(var(--color-green),0.12)',  fg: 'hsl(var(--color-green))',  Icon: CheckCircle },
   rejected:  { label: 'Rejected',        bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
   returned:  { label: 'Returned',        bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))',   Icon: RotateCcw },
+  cancelled: { label: 'Cancelled',       bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
 };
 
 // Requests that still need someone to act on them — kept visible/expanded.
-// Everything else (returned, rejected) is "done" and gets tucked into a
-// collapsed history list so the active view stays short and scannable.
+// Everything else (returned, rejected, cancelled) is "done" and gets tucked
+// into a collapsed history list so the active view stays short and scannable.
 const ACTIVE_STATUSES    = ['pending', 'approved', 'allocated'];
-const COMPLETED_STATUSES = ['returned', 'rejected'];
+const COMPLETED_STATUSES = ['returned', 'rejected', 'cancelled'];
+
+// A request can only be cancelled by its requester before someone has
+// physically handed the item over — once allocated, returning it is the
+// correct path instead.
+const CANCELLABLE_STATUSES = ['pending', 'approved'];
 
 const REQ_STATUS_FILTERS = [
   { value: 'All',       label: 'All statuses' },
@@ -51,6 +57,7 @@ const REQ_STATUS_FILTERS = [
   { value: 'allocated', label: 'In Use / To Be Returned' },
   { value: 'returned',  label: 'Returned' },
   { value: 'rejected',  label: 'Rejected' },
+  { value: 'cancelled', label: 'Cancelled' },
 ];
 
 // ── Shared modal helpers ──────────────────────────────────────────────────────
@@ -343,16 +350,20 @@ function StageTracker({ request }) {
     : null;
   const isOverdue = request.status === 'allocated' && dueDate && dueDate < new Date();
   const daysLeft  = dueDate ? Math.ceil((dueDate - new Date()) / 86400000) : null;
-  const isRejected = request.status === 'rejected';
+  const isRejected  = request.status === 'rejected';
+  const isCancelled = request.status === 'cancelled';
 
   // Status rank for easy comparison
-  const rank = { pending: 0, approved: 1, allocated: 2, returned: 3, rejected: -1 };
+  const rank = { pending: 0, approved: 1, allocated: 2, returned: 3, rejected: -1, cancelled: -1 };
   const cur  = rank[request.status] ?? 0;
 
   const stages = isRejected ? [
     { label: 'Submitted',    detail: fmt(request.createdAt), state: 'done'    },
     { label: 'Under Review', detail: 'Manager notified',     state: 'done'    },
     { label: 'Rejected',     detail: request.rejectReason ? `"${request.rejectReason}"` : 'Not approved', state: 'error' },
+  ] : isCancelled ? [
+    { label: 'Submitted', detail: fmt(request.createdAt), state: 'done' },
+    { label: 'Cancelled', detail: `By ${request.resolvedBy ?? 'requester'} · ${fmt(request.resolvedAt)}`, state: 'error' },
   ] : [
     {
       label: 'Submitted',
@@ -371,7 +382,11 @@ function StageTracker({ request }) {
     },
     {
       label: 'To Be Allocated',
-      detail: cur >= 2 ? `By ${request.allocatedBy ?? 'supervisor'} · ${fmt(request.allocatedAt)}` : 'Waiting for supervisor',
+      detail: cur >= 2
+        ? `By ${request.allocatedBy ?? 'supervisor'} · ${fmt(request.allocatedAt)}`
+        : (cur === 1 && request.assignedAllocatorName
+            ? `Waiting for ${request.assignedAllocatorName}`
+            : 'Waiting for supervisor'),
       state: cur === 1 ? 'active' : cur >= 2 ? 'done' : 'upcoming',
     },
     {
@@ -444,7 +459,7 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
   const {
     items, itemsLoading, itemsError,
     requests, requestsLoading, requestsError,
-    raiseRequest, returnItem,
+    raiseRequest, returnItem, cancelRequest, allocateItem,
   } = useInventory();
   const { addNotification } = useNotifications();
   const { can }             = useRole();
@@ -463,6 +478,9 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
   const [historyOpen,  setHistoryOpen]  = useState(false);
   const [expandedReqs, setExpandedReqs] = useState(() => new Set());
   const [photoPreview, setPhotoPreview] = useState(null); // lightbox src, or null
+  const [cancellingId, setCancellingId] = useState(null);  // request awaiting cancel confirmation
+  const [cancelBusyId, setCancelBusyId] = useState(null);
+  const [allocatingId, setAllocatingId] = useState(null);  // request being allocated from "Assigned to Me"
 
   // Minimal local toast/feedback system — see <Toast> for rationale.
   const [toasts, setToasts] = useState([]);
@@ -496,6 +514,13 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
   // is actually waiting on (to be allocated, or currently out and due back).
   const activeReqs    = myReqsFiltered.filter(r => ACTIVE_STATUSES.includes(r.status));
   const completedReqs = myReqsFiltered.filter(r => COMPLETED_STATUSES.includes(r.status));
+
+  // Requests the manager has specifically handed to this person to physically
+  // allocate — distinct from "My Requests" (which is what I asked for, not
+  // what I owe someone else). The backend now includes these in `requests`
+  // for non-managers too (see GET /inventory-requests's assigned_allocator_email check).
+  const assignedToMe = requests.filter(r =>
+    r.status === 'approved' && (r.assignedAllocatorEmail || '').toLowerCase() === userEmail);
 
   // Last few returns that have a photo on file — surfaced as a quick gallery
   // strip so people don't have to dig through history to see condition photos.
@@ -593,6 +618,38 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
     });
   }
 
+  function handleCancelRequest(req) {
+    setCancelBusyId(req.id);
+    cancelRequest(req.id, userName).then(() => {
+      toast(`Request cancelled — ${req.itemName}`);
+      setCancellingId(null);
+    }).catch(() => {
+      toast(`Couldn't cancel your request for ${req.itemName} — please try again`, 'error');
+    }).finally(() => setCancelBusyId(null));
+  }
+
+  function handleAllocateFromInventory(req) {
+    setAllocatingId(req.id);
+    allocateItem(req.id, userName).then(() => {
+      addNotification({
+        type:        'allocated',
+        recipient:   req.requestedByEmail || req.requestedBy,
+        refId:       req.id,
+        itemName:    req.itemName,
+        requestedBy: req.requestedBy,
+        title:       'Item Allocated ✓',
+        body:        `Your ${req.itemName} has been allocated and is ready for collection. Please pick it up from your supervisor.`,
+        action:      { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
+      });
+      toast(`Marked as allocated — ${req.itemName}`);
+    }).catch(err => {
+      const msg = /409|stock/i.test(err?.message || '')
+        ? `Not enough ${req.itemName} in stock to allocate right now.`
+        : `Couldn't allocate ${req.itemName} — please try again.`;
+      toast(msg, 'error');
+    }).finally(() => setAllocatingId(null));
+  }
+
   const fmtDate = iso => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
   return (
@@ -681,6 +738,32 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
             </div>
           )}
 
+          {/* Assigned to You — requests a manager has handed this person to physically
+              allocate; surfaced up top so it's not buried in the requester-centric list below. */}
+          {assignedToMe.length > 0 && (
+            <div style={{ marginBottom:18, padding:'12px 14px', background:'hsla(var(--color-orange),0.07)', borderRadius:12, border:'1px solid hsla(var(--color-orange),0.22)' }}>
+              <div style={{ fontSize:11.5, fontWeight:700, color:'hsl(var(--color-orange))', marginBottom:9, display:'flex', alignItems:'center', gap:6, textTransform:'uppercase', letterSpacing:'0.04em' }}>
+                <Package size={13} /> Assigned to You — {assignedToMe.length} to allocate
+              </div>
+              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                {assignedToMe.map(r => (
+                  <div key={r.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap', padding:'10px 12px', background:'var(--card)', borderRadius:10, border:'1px solid var(--line)' }}>
+                    <div>
+                      <div style={{ fontWeight:700, fontSize:'13.5px' }}>{r.itemName} <span style={{ fontWeight:500, color:'var(--muted)' }}>×{r.quantity}</span></div>
+                      <div style={{ fontSize:'12px', color:'var(--muted)', marginTop:2 }}>For {r.requestedBy} · {r.department}</div>
+                    </div>
+                    <button onClick={() => handleAllocateFromInventory(r)} className="primary-btn"
+                      disabled={allocatingId === r.id}
+                      style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'7px 14px', fontSize:'13px' }}>
+                      {allocatingId === r.id ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <CheckCircle size={14} />}
+                      {allocatingId === r.id ? 'Allocating…' : 'Allocate'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {requestsError ? (
             <div style={{ display:'flex', alignItems:'center', gap:10, padding:'16px 18px', borderRadius:10, background:'hsla(var(--color-red),0.06)', border:'1px solid hsla(var(--color-red),0.2)', color:'hsl(var(--color-red))', fontSize:13.5 }}>
               <AlertCircle size={16} /> Couldn't load your requests. {requestsError}
@@ -749,6 +832,32 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
                             <button onClick={() => setReturningReq(r)} className="secondary-btn"
                               style={{ padding:'6px 14px', fontSize:'12.5px', display:'inline-flex', alignItems:'center', gap:5 }}>
                               <RotateCcw size={13} /> Return Item
+                            </button>
+                          </div>
+                        )}
+
+                        {CANCELLABLE_STATUSES.includes(r.status) && cancellingId !== r.id && (
+                          <div style={{ marginTop:14, display:'flex', gap:8, justifyContent:'flex-end', flexWrap:'wrap' }}>
+                            <button onClick={() => setCancellingId(r.id)} className="secondary-btn"
+                              style={{ padding:'6px 14px', fontSize:'12.5px', display:'inline-flex', alignItems:'center', gap:5, color:'hsl(var(--color-red))', borderColor:'hsl(var(--color-red))' }}>
+                              <XCircle size={13} /> Cancel Request
+                            </button>
+                          </div>
+                        )}
+                        {cancellingId === r.id && (
+                          <div style={{ marginTop:14, display:'flex', alignItems:'center', gap:10, justifyContent:'flex-end', flexWrap:'wrap', background:'hsla(var(--color-red),0.05)', border:'1px solid hsla(var(--color-red),0.2)', borderRadius:8, padding:'10px 14px' }}>
+                            <span style={{ fontSize:'12.5px', color:'var(--text)', marginRight:'auto' }}>Cancel this request? This can't be undone.</span>
+                            <button onClick={() => setCancellingId(null)} className="secondary-btn"
+                              disabled={cancelBusyId === r.id}
+                              style={{ padding:'5px 12px', fontSize:'12.5px' }}>
+                              Keep It
+                            </button>
+                            <button onClick={() => handleCancelRequest(r)} className="primary-btn"
+                              disabled={cancelBusyId === r.id}
+                              style={{ padding:'5px 14px', fontSize:'12.5px', background:'hsl(var(--color-red))', display:'inline-flex', alignItems:'center', gap:5 }}>
+                              {cancelBusyId === r.id
+                                ? <><Loader2 size={13} style={{ animation:'spin 0.7s linear infinite' }} /> Cancelling…</>
+                                : <>Yes, Cancel It</>}
                             </button>
                           </div>
                         )}

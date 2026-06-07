@@ -246,11 +246,13 @@ class InventoryRequest(Base):
     quantity           = Column(Integer, default=1)
     days               = Column(Integer, default=1)
     reason             = Column(String, default="")
-    status             = Column(String, default="pending")       # pending|approved|allocated|rejected|returned
+    status             = Column(String, default="pending")       # pending|approved|allocated|rejected|returned|cancelled
     created_at         = Column(String, nullable=False)
     resolved_at        = Column(String, default="")
     resolved_by        = Column(String, default="")
     reject_reason      = Column(String, default="")
+    assigned_allocator_email = Column(String, default="")        # who the manager picked to hand the item over
+    assigned_allocator_name  = Column(String, default="")
     allocated_at       = Column(String, default="")
     allocated_by       = Column(String, default="")
     returned_at        = Column(String, default="")
@@ -276,9 +278,10 @@ class InventoryItem(Base):
 
 class NexusRole(Base):
     __tablename__ = "nexus_roles"
-    email       = Column(String, primary_key=True)   # Azure AD UPN / email
-    role        = Column(String, nullable=False, default="employee")
-    assigned_by = Column(String, default="system")
+    email        = Column(String, primary_key=True)   # Azure AD UPN / email
+    role         = Column(String, nullable=False, default="employee")
+    display_name = Column(String, default="")         # captured from Microsoft Graph when assigned via Access Manager
+    assigned_by  = Column(String, default="system")
 
 
 class ApprovalHistory(Base):

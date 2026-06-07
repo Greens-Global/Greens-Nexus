@@ -2,6 +2,7 @@ import os
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+from typing import Optional
 from database import get_db
 from models import NexusRole
 from auth import get_current_user, require_administrator, require_level, invalidate_role_cache
@@ -35,8 +36,9 @@ def _get_role(email: str, db: Session) -> str:
 
 
 class RoleAssignment(BaseModel):
-    role:        str
-    assigned_by: str   # email of the person making the change
+    role:         str
+    assigned_by:  str   # email of the person making the change
+    display_name: Optional[str] = ""  # from Microsoft Graph — lets us show names instead of emails elsewhere
 
 class SyncRequest(BaseModel):
     emails: list[str]
@@ -77,7 +79,7 @@ def get_all_roles(
 ):
     """Return all role assignments. Requires administrator or above."""
     rows = db.query(NexusRole).all()
-    return [{"email": r.email, "role": r.role, "assigned_by": r.assigned_by} for r in rows]
+    return [{"email": r.email, "role": r.role, "display_name": r.display_name or "", "assigned_by": r.assigned_by} for r in rows]
 
 
 @router.put("/{email}")
@@ -103,12 +105,16 @@ def assign_role(
     if target_level > requester_level and user["role"] != "owner":
         raise HTTPException(status_code=403, detail="Cannot assign a role higher than your own")
 
+    display_name = (body.display_name or "").strip()
+
     row = db.query(NexusRole).filter(NexusRole.email == target_email).first()
     if row:
         row.role        = new_role
         row.assigned_by = user["email"]
+        if display_name:
+            row.display_name = display_name
     else:
-        row = NexusRole(email=target_email, role=new_role, assigned_by=user["email"])
+        row = NexusRole(email=target_email, role=new_role, display_name=display_name, assigned_by=user["email"])
         db.add(row)
     db.commit()
     invalidate_role_cache(target_email)
