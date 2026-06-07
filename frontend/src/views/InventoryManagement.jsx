@@ -3,7 +3,7 @@ import {
   Package, Plus, Search, CheckCircle, Clock, XCircle,
   RotateCcw, Camera, Monitor, Wrench, Building2, Calculator,
   AlertCircle, Filter, X, Loader2, ZoomIn, ChevronDown, ChevronRight,
-  UploadCloud, FileSpreadsheet,
+  UploadCloud, FileSpreadsheet, Download,
 } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import { useInventory }       from '../contexts/InventoryContext';
@@ -306,6 +306,25 @@ function parseInventoryCsv(text) {
   return { rows, error: null };
 }
 
+// Hands people a starter file with the headers the parser recognizes plus a
+// couple of filled-in example rows — saves them guessing column names/order.
+function downloadImportTemplate() {
+  const csv = [
+    'Name,Category,Department,Total Qty',
+    'Dell Monitor 24 inch,IT Supplies,IT,15',
+    'Cordless Drill,Tools,Construction,8',
+  ].join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = 'inventory-import-template.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 // ── Import Items Modal ────────────────────────────────────────────────────────
 function ImportItemsModal({ onClose, onImport }) {
   const [fileName,    setFileName]    = useState('');
@@ -363,9 +382,15 @@ function ImportItemsModal({ onClose, onImport }) {
           <h3 id="import-items-title" style={{ fontSize:'16px', fontWeight:700 }}>Import Inventory Items</h3>
           <button onClick={onClose} aria-label="Close" style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', padding:4 }}><X size={18} /></button>
         </div>
-        <p style={{ fontSize:'13px', color:'var(--muted)', marginBottom:20 }}>
-          Upload a CSV to bulk-create items or update stock counts for existing ones (matched by name).
-        </p>
+        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:14, marginBottom:20 }}>
+          <p style={{ fontSize:'13px', color:'var(--muted)', flex:1 }}>
+            Upload a CSV to bulk-create items or update stock counts for existing ones (matched by name).
+          </p>
+          <button onClick={downloadImportTemplate}
+            style={{ display:'inline-flex', alignItems:'center', gap:6, flexShrink:0, background:'none', border:'1px solid var(--line)', borderRadius:8, padding:'6px 12px', color:'var(--ink)', fontSize:'12.5px', fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+            <Download size={14} /> Download Template
+          </button>
+        </div>
 
         {result ? (
           <div style={{ textAlign:'center', padding:'28px 12px' }}>
