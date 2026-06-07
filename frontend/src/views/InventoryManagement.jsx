@@ -1024,7 +1024,7 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
         setCancellingId={setCancellingId}
         cancelBusyId={cancelBusyId}
         onCancelRequest={handleCancelRequest}
-        onReturnClick={setReturningReq}
+        onReturnClick={r => { setReturningReq(r); setTab('inventory'); }}
         onAllocate={handleAllocateFromInventory}
         allocatingId={allocatingId}
         onPhotoPreview={setPhotoPreview}
@@ -1118,14 +1118,14 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
               style={{ border:'1px solid var(--line)', borderRadius:12, padding:16, background:'var(--card)', display:'flex', flexDirection:'column', gap:10, cursor: avail ? 'pointer' : 'default' }}>
 
               {/* Header row */}
-              <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8 }}>
-                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+              <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8, flexWrap:'wrap', rowGap:6 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0, flex:'1 1 auto' }}>
                   <div style={{ width:36, height:36, borderRadius:9, background:cat.bg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                     <Package size={17} color={cat.fg} />
                   </div>
-                  <div>
-                    <div style={{ fontWeight:700, fontSize:'13.5px', lineHeight:1.2 }}>{item.name}</div>
-                    <div style={{ fontSize:'11px', marginTop:2, color: dm ? `hsl(${dm.color})` : 'var(--muted)', fontWeight:600 }}>
+                  <div style={{ minWidth:0 }}>
+                    <div style={{ fontWeight:700, fontSize:'13.5px', lineHeight:1.2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
+                    <div style={{ fontSize:'11px', marginTop:2, color: dm ? `hsl(${dm.color})` : 'var(--muted)', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                       {item.department}
                     </div>
                   </div>
