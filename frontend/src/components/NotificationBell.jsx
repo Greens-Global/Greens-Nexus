@@ -22,6 +22,7 @@ const TYPE_META = {
   inv_request:   { icon: Package,      label: 'Inventory Request',  color: 'var(--color-blue)'   },
   req_pending:   { icon: ShoppingCart, label: 'Purchase Requisition', color: 'var(--color-orange)' },
   item_returned: { icon: RotateCcw,    label: 'Item Returned',       color: 'var(--color-green)'  },
+  allocated:     { icon: CheckCircle,  label: 'Item Allocated',      color: 'var(--color-green)'  },
   approved:      { icon: CheckCircle,  label: 'Request Approved',    color: 'var(--color-green)'  },
   rejected:      { icon: XCircle,      label: 'Request Rejected',    color: 'var(--color-red)'    },
 };

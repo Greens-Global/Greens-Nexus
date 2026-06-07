@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
@@ -87,7 +88,15 @@ def mark_read(nid: str, user: dict = Depends(get_current_user), db: Session = De
     if user["email"] not in emails:
         emails.append(user["email"])
         row.read_by = ",".join(emails)
-        db.commit()
+        # Row can be deleted by a concurrent request (e.g. clearRead) between
+        # the SELECT above and this UPDATE — SQLAlchemy then raises
+        # StaleDataError ("0 rows matched"), which previously crashed the
+        # whole request with a 502. The end state we want (read) is moot if
+        # the notification is already gone, so treat that as success.
+        try:
+            db.commit()
+        except StaleDataError:
+            db.rollback()
     return {"ok": True}
 
 
@@ -96,7 +105,10 @@ def mark_actioned(nid: str, db: Session = Depends(get_db)):
     row = db.query(NexusNotification).filter(NexusNotification.id == nid).first()
     if row:
         row.actioned = True
-        db.commit()
+        try:
+            db.commit()
+        except StaleDataError:
+            db.rollback()
     return {"ok": True}
 
 

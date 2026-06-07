@@ -184,9 +184,20 @@ export function InventoryProvider({ children }) {
     setRequests(prev => prev.map(r =>
       r.id === id ? { ...r, status: 'allocated', allocatedAt: new Date().toISOString(), allocatedBy: supervisorName } : r
     ));
-    api.updateInventoryRequest(id, { status: 'allocated', allocated_by: supervisorName })
-      .then(() => fetchRequests())
-      .catch(() => fetchRequests());
+    // Allocation can now legitimately fail server-side (409 — not enough stock,
+    // caught by the atomic _reserve_stock guard). Propagate that to the caller
+    // so the manager sees *why* their optimistic "allocated" reverted, instead
+    // of it silently flipping back to "approved" with no explanation.
+    return api.updateInventoryRequest(id, { status: 'allocated', allocated_by: supervisorName })
+      .then(saved => {
+        fetchRequests();
+        fetchItems();
+        return saved;
+      })
+      .catch(err => {
+        fetchRequests();
+        throw err;
+      });
   }
 
   function rejectRequest(id, managerName, reason) {
@@ -201,6 +212,7 @@ export function InventoryProvider({ children }) {
   async function returnItem(id, { file, photoName, conditionNote }) {
     const now = new Date().toISOString();
     let permanentUrl = '';
+    let photoUploadError = null;
 
     if (file && supabase) {
       const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
@@ -218,6 +230,13 @@ export function InventoryProvider({ children }) {
           .from('return-photos')
           .getPublicUrl(uploaded.path);
         permanentUrl = urlData.publicUrl;
+      } else if (error) {
+        // Don't let a storage hiccup (missing bucket, RLS, network) block the
+        // return itself — the item still needs to go back into circulation.
+        // But it WAS silently dropping the photo with no feedback at all, so
+        // the requester thought it worked and the supervisor never saw it.
+        // Surface it after the fact instead — see handleReturnSubmit's toast.
+        photoUploadError = error.message || 'Photo upload failed';
       }
     }
 
@@ -239,7 +258,7 @@ export function InventoryProvider({ children }) {
     }).then(saved => {
       fetchRequests();
       fetchItems();
-      return saved;
+      return { ...saved, photoUploadError };
     }).catch(err => {
       fetchRequests();
       throw err;

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   Package, Plus, Search, CheckCircle, Clock, XCircle,
   RotateCcw, Camera, Monitor, Wrench, Building2, Calculator,
-  AlertCircle, Filter, X, Loader2, ZoomIn,
+  AlertCircle, Filter, X, Loader2, ZoomIn, ChevronDown, ChevronRight,
 } from 'lucide-react';
 import { useInventory }       from '../contexts/InventoryContext';
 import { useNotifications }   from '../contexts/NotificationContext';
@@ -37,6 +37,21 @@ const STATUS_META = {
   rejected:  { label: 'Rejected',        bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
   returned:  { label: 'Returned',        bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))',   Icon: RotateCcw },
 };
+
+// Requests that still need someone to act on them — kept visible/expanded.
+// Everything else (returned, rejected) is "done" and gets tucked into a
+// collapsed history list so the active view stays short and scannable.
+const ACTIVE_STATUSES    = ['pending', 'approved', 'allocated'];
+const COMPLETED_STATUSES = ['returned', 'rejected'];
+
+const REQ_STATUS_FILTERS = [
+  { value: 'All',       label: 'All statuses' },
+  { value: 'pending',   label: 'Pending' },
+  { value: 'approved',  label: 'To Be Allocated' },
+  { value: 'allocated', label: 'In Use / To Be Returned' },
+  { value: 'returned',  label: 'Returned' },
+  { value: 'rejected',  label: 'Rejected' },
+];
 
 // ── Shared modal helpers ──────────────────────────────────────────────────────
 // Escape-to-close — every modal in this file wires this in so keyboard users
@@ -444,6 +459,9 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
   const [showModal,    setShowModal]    = useState(false);
   const [returningReq, setReturningReq] = useState(null);
   const [reqSearch,    setReqSearch]    = useState('');
+  const [reqStatusFilter, setReqStatusFilter] = useState('All');
+  const [historyOpen,  setHistoryOpen]  = useState(false);
+  const [expandedReqs, setExpandedReqs] = useState(() => new Set());
   const [photoPreview, setPhotoPreview] = useState(null); // lightbox src, or null
 
   // Minimal local toast/feedback system — see <Toast> for rationale.
@@ -462,8 +480,37 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
   const myReqs = requests
     .filter(r =>
       (r.requestedByEmail && r.requestedByEmail.toLowerCase() === userEmail) ||
-      r.requestedBy === userName)
-    .filter(r => r.itemName.toLowerCase().includes(reqSearch.toLowerCase()));
+      r.requestedBy === userName);
+
+  const myReqsFiltered = myReqs
+    .filter(r => reqStatusFilter === 'All' || r.status === reqStatusFilter)
+    .filter(r => {
+      const q = reqSearch.trim().toLowerCase();
+      if (!q) return true;
+      return r.itemName.toLowerCase().includes(q)
+        || r.id.toLowerCase().includes(q)
+        || (r.reason || '').toLowerCase().includes(q);
+    });
+
+  // Needs-action items stay visible & expanded — these are the ones a person
+  // is actually waiting on (to be allocated, or currently out and due back).
+  const activeReqs    = myReqsFiltered.filter(r => ACTIVE_STATUSES.includes(r.status));
+  const completedReqs = myReqsFiltered.filter(r => COMPLETED_STATUSES.includes(r.status));
+
+  // Last few returns that have a photo on file — surfaced as a quick gallery
+  // strip so people don't have to dig through history to see condition photos.
+  const recentReturnPhotos = myReqs
+    .filter(r => r.status === 'returned' && r.returnPhotoUrl)
+    .sort((a, b) => new Date(b.returnedAt || 0) - new Date(a.returnedAt || 0))
+    .slice(0, 5);
+
+  function toggleExpanded(id) {
+    setExpandedReqs(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   const filtered = items.filter(item => {
     const matchSearch = item.name.toLowerCase().includes(search.toLowerCase());
@@ -517,8 +564,29 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
   }
 
   function handleReturnSubmit(req, data) {
-    return returnItem(req.id, data).then(() => {
+    return returnItem(req.id, data).then(saved => {
+      // Tell whoever physically handed the item out that it's back — they're
+      // the one who needs to inspect it and return it to circulation. Targeted
+      // by name (allocatedBy only stores a display name, not an email) the
+      // same way 'approved'/'rejected' notifications already are.
+      if (req.allocatedBy) {
+        addNotification({
+          type:        'item_returned',
+          recipient:   req.allocatedBy,
+          refId:       req.id,
+          title:       'Item Returned',
+          body:        `${req.requestedBy} returned ${req.itemName}${data?.conditionNote ? ` — "${data.conditionNote}"` : ''}.`,
+          itemName:    req.itemName,
+          requestedBy: req.requestedBy,
+        });
+      }
       toast(`Return confirmed — ${req.itemName}`);
+      // The return itself succeeded even if the photo upload failed — don't
+      // make that look like a hard error, but the requester does need to know
+      // their condition photo didn't attach (it used to fail silently here).
+      if (data?.file && saved?.photoUploadError) {
+        toast(`Photo couldn't be saved with this return — ${saved.photoUploadError}`, 'error');
+      }
       setReturningReq(null);
     }).catch(() => {
       toast(`Couldn't confirm the return of ${req.itemName} — please try again`, 'error');
@@ -573,11 +641,45 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
               <h3 style={{ fontSize:15, fontWeight:700, margin:0 }}>My Requests</h3>
               <p style={{ fontSize:13, color:'var(--muted)', marginTop:3 }}>{myReqs.length} request{myReqs.length !== 1 ? 's' : ''} raised</p>
             </div>
-            <div className="search-bar" style={{ width:220 }}>
-              <Search size={14} style={{ flexShrink:0 }} />
-              <input placeholder="Search by item name…" value={reqSearch} onChange={e => setReqSearch(e.target.value)} />
+            <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
+              <div className="search-bar" style={{ width:220 }}>
+                <Search size={14} style={{ flexShrink:0 }} />
+                <input placeholder="Search by item, ID, or reason…" value={reqSearch} onChange={e => setReqSearch(e.target.value)} />
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <Filter size={13} style={{ color:'var(--muted)' }} />
+                <select value={reqStatusFilter} onChange={e => setReqStatusFilter(e.target.value)} className="form-input"
+                  style={{ padding:'6px 10px', fontSize:'13px', height:34 }}>
+                  {REQ_STATUS_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                </select>
+              </div>
             </div>
           </div>
+
+          {/* Recent returns gallery — quick access to the last few condition photos
+              without digging through history; opens centered in the lightbox. */}
+          {recentReturnPhotos.length > 0 && (
+            <div style={{ marginBottom:18, padding:'12px 14px', background:'var(--mist)', borderRadius:12, border:'1px solid var(--line)' }}>
+              <div style={{ fontSize:11.5, fontWeight:700, color:'var(--muted)', marginBottom:9, display:'flex', alignItems:'center', gap:6, textTransform:'uppercase', letterSpacing:'0.04em' }}>
+                <Camera size={13} /> Recent Return Photos
+              </div>
+              <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
+                {recentReturnPhotos.map(r => (
+                  <button key={r.id} onClick={() => setPhotoPreview(r.returnPhotoUrl)}
+                    aria-label={`View return photo for ${r.itemName}`}
+                    title={`${r.itemName} — returned ${fmtDate(r.returnedAt || r.createdAt)}`}
+                    style={{ position:'relative', padding:0, border:'1px solid var(--line)', borderRadius:9, cursor:'zoom-in', background:'var(--card)', overflow:'hidden', width:64, height:64, flexShrink:0, lineHeight:0 }}>
+                    <img src={r.returnPhotoUrl} alt={`Return photo — ${r.itemName}`} style={{ width:64, height:64, objectFit:'cover', display:'block' }} />
+                    <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,0)', transition:'background 0.15s' }}
+                      onMouseEnter={e => { e.currentTarget.style.background='rgba(0,0,0,0.4)'; e.currentTarget.firstChild.style.opacity=1; }}
+                      onMouseLeave={e => { e.currentTarget.style.background='rgba(0,0,0,0)'; e.currentTarget.firstChild.style.opacity=0; }}>
+                      <ZoomIn size={16} color="#fff" style={{ opacity:0, transition:'opacity 0.15s' }} />
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {requestsError ? (
             <div style={{ display:'flex', alignItems:'center', gap:10, padding:'16px 18px', borderRadius:10, background:'hsla(var(--color-red),0.06)', border:'1px solid hsla(var(--color-red),0.2)', color:'hsl(var(--color-red))', fontSize:13.5 }}>
@@ -589,85 +691,153 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
                 <div key={i} style={{ height:120, borderRadius:14, background:'var(--mist)', opacity:1 - i * 0.15, animation:'pulse 1.5s ease-in-out infinite' }} />
               ))}
             </div>
-          ) : myReqs.length === 0 ? (
+          ) : myReqsFiltered.length === 0 ? (
             <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)', fontSize:'14px' }}>
               <Package size={32} style={{ opacity:.2, marginBottom:10, display:'block', margin:'0 auto 10px' }} />
-              {reqSearch ? `No requests match "${reqSearch}".` : "You haven't raised any requests yet."}
+              {reqSearch || reqStatusFilter !== 'All'
+                ? 'No requests match your search or filter.'
+                : "You haven't raised any requests yet."}
             </div>
           ) : (
-            <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-              {myReqs.map(r => {
-                const s   = STATUS_META[r.status];
-                const dm  = DEPT_META[r.department];
-                return (
-                  <div key={r.id} style={{ background:'var(--card)', border:'1px solid var(--line)', borderRadius:14, padding:'18px 20px', boxShadow:'var(--shadow-sm)' }}>
+            <>
+              {/* Needs action — pending approval, awaiting allocation, or out and due back */}
+              {activeReqs.length > 0 && (
+                <div style={{ display:'flex', flexDirection:'column', gap:14, marginBottom: completedReqs.length > 0 ? 22 : 0 }}>
+                  {activeReqs.map(r => {
+                    const s   = STATUS_META[r.status];
+                    const dm  = DEPT_META[r.department];
+                    return (
+                      <div key={r.id} style={{ background:'var(--card)', border:'1px solid var(--line)', borderRadius:14, padding:'18px 20px', boxShadow:'var(--shadow-sm)' }}>
 
-                    {/* Top row */}
-                    <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, flexWrap:'wrap', marginBottom:10 }}>
-                      <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                        <div style={{ width:38, height:38, borderRadius:10, background: dm ? `hsl(${dm.color})` + '22' : 'var(--mist)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                          <Package size={18} color={dm ? `hsl(${dm.color})` : 'var(--muted)'} />
-                        </div>
-                        <div>
-                          <div style={{ fontWeight:700, fontSize:'14.5px' }}>{r.itemName}</div>
-                          <div style={{ fontSize:'12px', color:'var(--muted)', marginTop:2 }}>
-                            {r.department} · ×{r.quantity} · {r.days} day{r.days > 1 ? 's' : ''}
-                            {r.raisedBy && r.raisedBy !== r.requestedBy && (
-                              <span style={{ marginLeft:6, color:'hsl(var(--color-blue))', fontWeight:500 }}>via {r.raisedBy}</span>
-                            )}
+                        {/* Top row */}
+                        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, flexWrap:'wrap', marginBottom:10 }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                            <div style={{ width:38, height:38, borderRadius:10, background: dm ? `hsl(${dm.color})` + '22' : 'var(--mist)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                              <Package size={18} color={dm ? `hsl(${dm.color})` : 'var(--muted)'} />
+                            </div>
+                            <div>
+                              <div style={{ fontWeight:700, fontSize:'14.5px' }}>{r.itemName}</div>
+                              <div style={{ fontSize:'12px', color:'var(--muted)', marginTop:2 }}>
+                                {r.department} · ×{r.quantity} · {r.days} day{r.days > 1 ? 's' : ''}
+                                {r.raisedBy && r.raisedBy !== r.requestedBy && (
+                                  <span style={{ marginLeft:6, color:'hsl(var(--color-blue))', fontWeight:500 }}>via {r.raisedBy}</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
+                            <span style={{ fontFamily:'monospace', fontSize:'11px', color:'var(--muted)', background:'var(--mist)', padding:'2px 7px', borderRadius:5 }}>{r.id}</span>
+                            <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'3px 10px', borderRadius:20, fontSize:'11px', fontWeight:700, background:s.bg, color:s.fg }}>
+                              <s.Icon size={11} /> {s.label}
+                            </span>
                           </div>
                         </div>
+
+                        {/* Reason */}
+                        {r.reason && (
+                          <div style={{ fontSize:'12.5px', color:'var(--muted)', background:'var(--mist)', borderRadius:8, padding:'7px 12px', marginBottom:4, borderLeft:`3px solid ${dm ? `hsl(${dm.color})` : 'var(--line)'}` }}>
+                            "{r.reason}"
+                          </div>
+                        )}
+
+                        {/* Stage tracker */}
+                        <StageTracker request={r} />
+
+                        {/* Actions */}
+                        {r.status === 'allocated' && (
+                          <div style={{ marginTop:14, display:'flex', gap:8, justifyContent:'flex-end', flexWrap:'wrap' }}>
+                            <button onClick={() => setReturningReq(r)} className="secondary-btn"
+                              style={{ padding:'6px 14px', fontSize:'12.5px', display:'inline-flex', alignItems:'center', gap:5 }}>
+                              <RotateCcw size={13} /> Return Item
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
-                        <span style={{ fontFamily:'monospace', fontSize:'11px', color:'var(--muted)', background:'var(--mist)', padding:'2px 7px', borderRadius:5 }}>{r.id}</span>
-                        <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'3px 10px', borderRadius:20, fontSize:'11px', fontWeight:700, background:s.bg, color:s.fg }}>
-                          <s.Icon size={11} /> {s.label}
-                        </span>
-                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {activeReqs.length === 0 && completedReqs.length > 0 && (
+                <div style={{ textAlign:'center', padding:'28px 0', color:'var(--muted)', fontSize:13 }}>
+                  <CheckCircle size={20} style={{ opacity:.25, marginBottom:6 }} /><br />
+                  Nothing needs your attention right now.
+                </div>
+              )}
+
+              {/* Completed / history — collapsed by default to keep this view short */}
+              {completedReqs.length > 0 && (
+                <div style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden' }}>
+                  <button onClick={() => setHistoryOpen(o => !o)}
+                    style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 16px', background:'var(--mist)', border:'none', cursor:'pointer', fontSize:13, fontWeight:700, color:'var(--text)' }}>
+                    <span style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      {historyOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                      Completed ({completedReqs.length})
+                    </span>
+                    <span style={{ fontSize:11, fontWeight:500, color:'var(--muted)' }}>
+                      {historyOpen ? 'Click to collapse' : 'Returned & rejected — click to view'}
+                    </span>
+                  </button>
+                  {historyOpen && (
+                    <div>
+                      {completedReqs.map(r => {
+                        const s      = STATUS_META[r.status];
+                        const dm     = DEPT_META[r.department];
+                        const isOpen = expandedReqs.has(r.id);
+                        return (
+                          <div key={r.id} style={{ borderTop:'1px solid var(--line)' }}>
+                            <button onClick={() => toggleExpanded(r.id)}
+                              style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'10px 16px', background:'var(--card)', border:'none', cursor:'pointer', textAlign:'left' }}>
+                              {isOpen ? <ChevronDown size={14} style={{ flexShrink:0, color:'var(--muted)' }} /> : <ChevronRight size={14} style={{ flexShrink:0, color:'var(--muted)' }} />}
+                              <div style={{ width:30, height:30, borderRadius:8, background: dm ? `hsl(${dm.color})` + '22' : 'var(--mist)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                                <Package size={14} color={dm ? `hsl(${dm.color})` : 'var(--muted)'} />
+                              </div>
+                              <div style={{ flex:1, minWidth:0 }}>
+                                <div style={{ fontWeight:600, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.itemName}</div>
+                                <div style={{ fontSize:11.5, color:'var(--muted)' }}>
+                                  {r.department} · ×{r.quantity} · {fmtDate(r.returnedAt || r.resolvedAt || r.createdAt)}
+                                </div>
+                              </div>
+                              {r.status === 'returned' && r.returnPhotoUrl && (
+                                <span role="button" tabIndex={0} aria-label={`View return photo for ${r.itemName}`}
+                                  onClick={e => { e.stopPropagation(); setPhotoPreview(r.returnPhotoUrl); }}
+                                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setPhotoPreview(r.returnPhotoUrl); } }}
+                                  style={{ display:'inline-block', cursor:'zoom-in', lineHeight:0, flexShrink:0 }}>
+                                  <img src={r.returnPhotoUrl} alt="" style={{ width:28, height:28, objectFit:'cover', borderRadius:6, border:'1px solid var(--line)', display:'block' }} />
+                                </span>
+                              )}
+                              <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'3px 10px', borderRadius:20, fontSize:'11px', fontWeight:700, background:s.bg, color:s.fg, flexShrink:0 }}>
+                                <s.Icon size={11} /> {s.label}
+                              </span>
+                            </button>
+                            {isOpen && (
+                              <div style={{ padding:'2px 16px 16px 58px' }}>
+                                {r.reason && (
+                                  <div style={{ fontSize:'12px', color:'var(--muted)', background:'var(--mist)', borderRadius:8, padding:'7px 12px', marginBottom:8, borderLeft:`3px solid ${dm ? `hsl(${dm.color})` : 'var(--line)'}` }}>
+                                    "{r.reason}"
+                                  </div>
+                                )}
+                                {r.status === 'rejected' && r.rejectReason && (
+                                  <div style={{ fontSize:'12px', color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.07)', padding:'5px 10px', borderRadius:7, marginBottom:8 }}>
+                                    Rejection reason: {r.rejectReason}
+                                  </div>
+                                )}
+                                {r.status === 'returned' && r.conditionNote && (
+                                  <div style={{ fontSize:'12px', color:'var(--muted)', marginBottom:8 }}>
+                                    Condition note: {r.conditionNote}
+                                  </div>
+                                )}
+                                <StageTracker request={r} />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-
-                    {/* Reason */}
-                    {r.reason && (
-                      <div style={{ fontSize:'12.5px', color:'var(--muted)', background:'var(--mist)', borderRadius:8, padding:'7px 12px', marginBottom:4, borderLeft:`3px solid ${dm ? `hsl(${dm.color})` : 'var(--line)'}` }}>
-                        "{r.reason}"
-                      </div>
-                    )}
-
-                    {/* Stage tracker */}
-                    <StageTracker request={r} />
-
-                    {/* Actions */}
-                    <div style={{ marginTop:14, display:'flex', gap:8, justifyContent:'flex-end', flexWrap:'wrap' }}>
-                      {r.status === 'rejected' && r.rejectReason && (
-                        <div style={{ flex:1, fontSize:'12px', color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.07)', padding:'5px 10px', borderRadius:7 }}>
-                          Rejection reason: {r.rejectReason}
-                        </div>
-                      )}
-                      {r.status === 'returned' && r.returnPhotoUrl && (
-                        <div style={{ display:'flex', alignItems:'center', gap:10, flex:1 }}>
-                          <button onClick={() => setPhotoPreview(r.returnPhotoUrl)} aria-label={`View return photo for ${r.itemName}`}
-                            style={{ position:'relative', padding:0, border:'1px solid var(--line)', borderRadius:7, cursor:'zoom-in', background:'none', flexShrink:0, lineHeight:0 }}>
-                            <img src={r.returnPhotoUrl} alt={`Return photo — ${r.itemName}`} style={{ width:44, height:44, objectFit:'cover', borderRadius:6, display:'block' }} />
-                            <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,0)', borderRadius:6, transition:'background 0.15s' }}
-                              onMouseEnter={e => { e.currentTarget.style.background='rgba(0,0,0,0.35)'; e.currentTarget.firstChild.style.opacity=1; }}
-                              onMouseLeave={e => { e.currentTarget.style.background='rgba(0,0,0,0)'; e.currentTarget.firstChild.style.opacity=0; }}>
-                              <ZoomIn size={14} color="#fff" style={{ opacity:0, transition:'opacity 0.15s' }} />
-                            </span>
-                          </button>
-                          {r.conditionNote && <span style={{ fontSize:'12px', color:'var(--muted)' }}>{r.conditionNote}</span>}
-                        </div>
-                      )}
-                      {r.status === 'allocated' && (
-                        <button onClick={() => setReturningReq(r)} className="secondary-btn"
-                          style={{ padding:'6px 14px', fontSize:'12.5px', display:'inline-flex', alignItems:'center', gap:5 }}>
-                          <RotateCcw size={13} /> Return Item
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Folder, AlertCircle, MessageSquare, Clock, Users, SlidersHorizontal, Download, CheckCircle, XCircle, ChevronDown, Package, Eye, Mail, Filter } from 'lucide-react';
+import { Folder, AlertCircle, MessageSquare, Clock, Users, SlidersHorizontal, Download, CheckCircle, XCircle, ChevronDown, Package, Eye, Mail, Filter, Loader2 } from 'lucide-react';
 import { useRequisitions }  from '../contexts/RequisitionContext';
 import { useInventory }     from '../contexts/InventoryContext';
 import { useNotifications } from '../contexts/NotificationContext';
@@ -32,6 +32,31 @@ export default function ManagerDashboard() {
   const [whoHasWhatDept,  setWhoHasWhatDept]  = useState('All');
   const [alertSent,       setAlertSent]       = useState({});
   const [allocating,      setAllocating]      = useState({});
+  const [allocErrors,     setAllocErrors]     = useState({});
+
+  function handleAllocate(row) {
+    setAllocating(p => ({ ...p, [row.key]: true }));
+    setAllocErrors(p => ({ ...p, [row.key]: null }));
+    allocateItem(row.reqId, MANAGER_NAME).then(() => {
+      addNotification({
+        type:      'allocated',
+        recipient: row.employeeEmail || row.employee,
+        title:     'Item Allocated ✓',
+        body:      `Your ${row.item} has been allocated and is ready for collection. Please pick it up from your supervisor.`,
+        action:    { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
+      });
+    }).catch(err => {
+      // Most common failure: atomic stock-reservation rejected the allocation
+      // because available_qty ran out between approval and pickup — surface
+      // that explicitly so the manager isn't left guessing why nothing happened.
+      const msg = /409|stock/i.test(err?.message || '')
+        ? `Not enough ${row.item} in stock to allocate right now.`
+        : `Couldn't allocate ${row.item} — please try again.`;
+      setAllocErrors(p => ({ ...p, [row.key]: msg }));
+    }).finally(() => {
+      setAllocating(p => ({ ...p, [row.key]: false }));
+    });
+  }
 
   // ── Access gate (after hooks) ─────────────────────────────────────────────
   if (!can('supervisor')) {
@@ -551,20 +576,18 @@ export default function ManagerDashboard() {
                         </td>
                         <td>
                           <button
-                            onClick={() => {
-                              allocateItem(row.reqId, MANAGER_NAME);
-                              setAllocating(p => ({ ...p, [row.key]: true }));
-                              addNotification({
-                                type:      'approved',
-                                recipient: row.employeeEmail || row.employee,
-                                title:     'Item Allocated ✓',
-                                body:      `Your ${row.item} has been allocated and is ready for collection. Please pick it up from your supervisor.`,
-                                action:    { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
-                              });
-                            }}
-                            style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:7, border:'none', background:'hsl(var(--color-green))', color:'#fff', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-                            <CheckCircle size={13} /> Mark Allocated
+                            onClick={() => handleAllocate(row)}
+                            disabled={!!allocating[row.key]}
+                            style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:7, border:'none', background:'hsl(var(--color-green))', color:'#fff', fontSize:12, fontWeight:600, cursor: allocating[row.key] ? 'default' : 'pointer', opacity: allocating[row.key] ? 0.6 : 1, fontFamily:'Inter,sans-serif' }}>
+                            {allocating[row.key]
+                              ? <><Loader2 size={13} style={{ animation:'spin 0.7s linear infinite' }} /> Allocating…</>
+                              : <><CheckCircle size={13} /> Mark Allocated</>}
                           </button>
+                          {allocErrors[row.key] && (
+                            <div style={{ marginTop:6, display:'flex', alignItems:'center', gap:5, fontSize:11, color:'hsl(var(--color-red))', maxWidth:220 }}>
+                              <AlertCircle size={12} style={{ flexShrink:0 }} /> {allocErrors[row.key]}
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))}
