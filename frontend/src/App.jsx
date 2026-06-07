@@ -7,6 +7,7 @@ import { InventoryProvider } from "./contexts/InventoryContext";
 import Sidebar from "./components/Sidebar";
 import TopHeader from "./components/TopHeader";
 import AdminPanel from "./components/AdminPanel";
+import NotificationToasts from "./components/NotificationToasts";
 
 // Always loaded — critical path
 import LoginPage from "./views/LoginPage";
@@ -161,6 +162,7 @@ export default function App() {
         <RoleGate>
         <RequisitionProvider>
         <InventoryProvider>
+        <NotificationToasts onNavigate={navigate} />
         <div className="app-container">
           <Sidebar
             ref={sidebarRef}
