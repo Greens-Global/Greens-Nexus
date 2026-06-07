@@ -1,9 +1,10 @@
-import { useState, useRef, useEffect } from 'react';
+﻿import { useState, useRef, useEffect } from 'react';
 import {
   Package, Plus, Search, CheckCircle, Clock, XCircle,
   RotateCcw, Camera, Monitor, Wrench, Building2, Calculator,
   AlertCircle, Filter, X, Loader2, ZoomIn, ChevronDown, ChevronRight,
 } from 'lucide-react';
+import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import { useInventory }       from '../contexts/InventoryContext';
 import { useNotifications }   from '../contexts/NotificationContext';
 import { useRole }            from '../contexts/RoleContext';
@@ -116,9 +117,9 @@ function Toast({ toasts, onDismiss }) {
 }
 
 // ── Raise Request Modal ───────────────────────────────────────────────────────
-function RaiseRequestModal({ items, onClose, onSubmit, currentUser, canRaiseOnBehalf }) {
-  const [itemSearch,  setItemSearch]  = useState('');
-  const [selected,    setSelected]    = useState(null);
+function RaiseRequestModal({ items, onClose, onSubmit, currentUser, canRaiseOnBehalf, initialItem }) {
+  const [itemSearch,  setItemSearch]  = useState(initialItem?.name ?? '');
+  const [selected,    setSelected]    = useState(initialItem ?? null);
   const [qty,         setQty]         = useState(1);
   const [days,        setDays]        = useState(1);
   const [reason,      setReason]      = useState('');
@@ -340,7 +341,7 @@ function ReturnModal({ request, onClose, onSubmit }) {
 }
 
 // ── Request Stage Tracker ─────────────────────────────────────────────────────
-function StageTracker({ request }) {
+function StageTracker({ request, onViewPhoto }) {
   const fmt = iso => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
 
   // Due date counted from allocation (not creation) since that's when the clock starts
@@ -442,6 +443,15 @@ function StageTracker({ request }) {
                   {stage.detail}
                 </div>
               )}
+              {/* Condition photo, tied directly to the Returned step it belongs to */}
+              {stage.label === 'Returned' && request.returnPhotoUrl && (
+                <button onClick={() => onViewPhoto?.(request.returnPhotoUrl)}
+                  aria-label={`View return photo for ${request.itemName}`}
+                  title="View return photo"
+                  style={{ marginTop: 6, padding: 0, border: '1px solid var(--line)', borderRadius: 7, cursor: 'zoom-in', background: 'var(--card)', overflow: 'hidden', width: 36, height: 36, flexShrink: 0, lineHeight: 0 }}>
+                  <img src={request.returnPhotoUrl} alt="" style={{ width: 36, height: 36, objectFit: 'cover', display: 'block' }} />
+                </button>
+              )}
             </div>
             {/* Connector line */}
             {i < stages.length - 1 && (
@@ -454,12 +464,305 @@ function StageTracker({ request }) {
   );
 }
 
+// ── My Requests drawer ────────────────────────────────────────────────────────
+// Slides in from the right and overlays the inventory grid rather than
+// replacing it — same pattern as the Access Manager panel (AdminPanel.jsx),
+// so "My Requests" never takes over the whole screen.
+function MyRequestsDrawer({
+  open, onClose,
+  myReqs, myReqsFiltered, activeReqs, completedReqs, assignedToMe,
+  reqSearch, setReqSearch, reqStatusFilter, setReqStatusFilter,
+  requestsLoading, requestsError, onRetry,
+  historyOpen, setHistoryOpen, expandedReqs, toggleExpanded,
+  cancellingId, setCancellingId, cancelBusyId, onCancelRequest,
+  onReturnClick, onAllocate, allocatingId,
+  onPhotoPreview, fmtDate,
+}) {
+  // Close on ESC
+  useEffect(() => {
+    if (!open) return;
+    const handler = e => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [open, onClose]);
+
+  // Lock body scroll while open
+  useEffect(() => {
+    document.body.style.overflow = open ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [open]);
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div onClick={onClose} style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+        zIndex: 1200, opacity: open ? 1 : 0, pointerEvents: open ? 'auto' : 'none',
+        transition: 'opacity 0.25s ease',
+      }} />
+
+      {/* Drawer */}
+      <div style={{
+        position: 'fixed', top: 0, right: 0, height: '100vh',
+        width: 'min(720px, 94vw)',
+        background: 'var(--card)',
+        boxShadow: '-12px 0 48px rgba(0,0,0,0.22)',
+        zIndex: 1201,
+        display: 'flex', flexDirection: 'column',
+        transform: open ? 'translateX(0)' : 'translateX(100%)',
+        transition: 'transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)',
+      }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', padding: '18px 24px', borderBottom: '1px solid var(--line)', gap: 12, flexShrink: 0 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Clock size={17} style={{ color: 'hsl(var(--color-blue))' }} />
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>My Requests</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{myReqs.length} request{myReqs.length !== 1 ? 's' : ''} raised</div>
+          </div>
+          <button onClick={onClose} aria-label="Close"
+            style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 6, borderRadius: 8, display: 'flex', flexShrink: 0 }}
+            title="Close">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Scrollable content */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+
+          {/* Search + filter */}
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 18 }}>
+            <div className="search-bar" style={{ flex: '1 1 200px', minWidth: 180 }}>
+              <Search size={14} style={{ flexShrink: 0 }} />
+              <input placeholder="Search by item, ID, or reason…" value={reqSearch} onChange={e => setReqSearch(e.target.value)} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Filter size={13} style={{ color: 'var(--muted)' }} />
+              <select value={reqStatusFilter} onChange={e => setReqStatusFilter(e.target.value)} className="form-input"
+                style={{ padding: '6px 10px', fontSize: '13px', height: 34 }}>
+                {REQ_STATUS_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Assigned to You — requests a manager has handed this person to physically
+              allocate; surfaced up top so it's not buried in the requester-centric list below. */}
+          {assignedToMe.length > 0 && (
+            <div style={{ marginBottom: 18, padding: '12px 14px', background: 'hsla(var(--color-orange),0.07)', borderRadius: 12, border: '1px solid hsla(var(--color-orange),0.22)' }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'hsl(var(--color-orange))', marginBottom: 9, display: 'flex', alignItems: 'center', gap: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                <Package size={13} /> Assigned to You — {assignedToMe.length} to allocate
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {assignedToMe.map(r => (
+                  <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '10px 12px', background: 'var(--card)', borderRadius: 10, border: '1px solid var(--line)' }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '13.5px' }}>{r.itemName} <span style={{ fontWeight: 500, color: 'var(--muted)' }}>×{r.quantity}</span></div>
+                      <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: 2 }}>For {r.requestedBy} · {r.department}</div>
+                    </div>
+                    <button onClick={() => onAllocate(r)} className="primary-btn"
+                      disabled={allocatingId === r.id}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 14px', fontSize: '13px' }}>
+                      {allocatingId === r.id ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />}
+                      {allocatingId === r.id ? 'Allocating…' : 'Allocate'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {requestsError ? (
+            <ErrorBanner message="Couldn't load your requests right now — this is usually temporary." onRetry={onRetry} />
+          ) : requestsLoading ? (
+            <SkeletonBlocks count={3} height={120} />
+          ) : myReqsFiltered.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '56px 0', color: 'var(--muted)', fontSize: '14px' }}>
+              <Package size={32} style={{ opacity: .2, marginBottom: 10, display: 'block', margin: '0 auto 10px' }} />
+              {reqSearch || reqStatusFilter !== 'All'
+                ? 'No requests match your search or filter.'
+                : "You haven't raised any requests yet."}
+            </div>
+          ) : (
+            <>
+              {/* Needs action — pending approval, awaiting allocation, or out and due back */}
+              {activeReqs.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: completedReqs.length > 0 ? 22 : 0 }}>
+                  {activeReqs.map(r => {
+                    const s  = STATUS_META[r.status];
+                    const dm = DEPT_META[r.department];
+                    return (
+                      <div key={r.id} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 20px', boxShadow: 'var(--shadow-sm)' }}>
+
+                        {/* Top row */}
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ width: 38, height: 38, borderRadius: 10, background: dm ? `hsl(${dm.color})` + '22' : 'var(--mist)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                              <Package size={18} color={dm ? `hsl(${dm.color})` : 'var(--muted)'} />
+                            </div>
+                            <div>
+                              <div style={{ fontWeight: 700, fontSize: '14.5px' }}>{r.itemName}</div>
+                              <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: 2 }}>
+                                {r.department} · ×{r.quantity} · {r.days} day{r.days > 1 ? 's' : ''}
+                                {r.raisedBy && r.raisedBy !== r.requestedBy && (
+                                  <span style={{ marginLeft: 6, color: 'hsl(var(--color-blue))', fontWeight: 500 }}>via {r.raisedBy}</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                            <span style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--muted)', background: 'var(--mist)', padding: '2px 7px', borderRadius: 5 }}>{r.id}</span>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: '11px', fontWeight: 700, background: s.bg, color: s.fg }}>
+                              <s.Icon size={11} /> {s.label}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Reason */}
+                        {r.reason && (
+                          <div style={{ fontSize: '12.5px', color: 'var(--muted)', background: 'var(--mist)', borderRadius: 8, padding: '7px 12px', marginBottom: 4, borderLeft: `3px solid ${dm ? `hsl(${dm.color})` : 'var(--line)'}` }}>
+                            "{r.reason}"
+                          </div>
+                        )}
+
+                        {/* Stage tracker — return photo (if any) shows inline on the Returned step */}
+                        <StageTracker request={r} onViewPhoto={onPhotoPreview} />
+
+                        {/* Actions */}
+                        {r.status === 'allocated' && (
+                          <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                            <button onClick={() => onReturnClick(r)} className="secondary-btn"
+                              style={{ padding: '6px 14px', fontSize: '12.5px', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                              <RotateCcw size={13} /> Return Item
+                            </button>
+                          </div>
+                        )}
+
+                        {CANCELLABLE_STATUSES.includes(r.status) && cancellingId !== r.id && (
+                          <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                            <button onClick={() => setCancellingId(r.id)} className="secondary-btn"
+                              style={{ padding: '6px 14px', fontSize: '12.5px', display: 'inline-flex', alignItems: 'center', gap: 5, color: 'hsl(var(--color-red))', borderColor: 'hsl(var(--color-red))' }}>
+                              <XCircle size={13} /> Cancel Request
+                            </button>
+                          </div>
+                        )}
+                        {cancellingId === r.id && (
+                          <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', background: 'hsla(var(--color-red),0.05)', border: '1px solid hsla(var(--color-red),0.2)', borderRadius: 8, padding: '10px 14px' }}>
+                            <span style={{ fontSize: '12.5px', color: 'var(--text)', marginRight: 'auto' }}>Cancel this request? This can't be undone.</span>
+                            <button onClick={() => setCancellingId(null)} className="secondary-btn"
+                              disabled={cancelBusyId === r.id}
+                              style={{ padding: '5px 12px', fontSize: '12.5px' }}>
+                              Keep It
+                            </button>
+                            <button onClick={() => onCancelRequest(r)} className="primary-btn"
+                              disabled={cancelBusyId === r.id}
+                              style={{ padding: '5px 14px', fontSize: '12.5px', background: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                              {cancelBusyId === r.id
+                                ? <><Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> Cancelling…</>
+                                : <>Yes, Cancel It</>}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {activeReqs.length === 0 && completedReqs.length > 0 && (
+                <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--muted)', fontSize: 13 }}>
+                  <CheckCircle size={20} style={{ opacity: .25, marginBottom: 6 }} /><br />
+                  Nothing needs your attention right now.
+                </div>
+              )}
+
+              {/* Completed / history — collapsed by default to keep this view short */}
+              {completedReqs.length > 0 && (
+                <div style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
+                  <button onClick={() => setHistoryOpen(o => !o)}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--mist)', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {historyOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                      Completed ({completedReqs.length})
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)' }}>
+                      {historyOpen ? 'Click to collapse' : 'Returned & rejected — click to view'}
+                    </span>
+                  </button>
+                  {historyOpen && (
+                    <div>
+                      {completedReqs.map(r => {
+                        const s      = STATUS_META[r.status];
+                        const dm     = DEPT_META[r.department];
+                        const isOpen = expandedReqs.has(r.id);
+                        return (
+                          <div key={r.id} style={{ borderTop: '1px solid var(--line)' }}>
+                            <button onClick={() => toggleExpanded(r.id)}
+                              style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', background: 'var(--card)', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+                              {isOpen ? <ChevronDown size={14} style={{ flexShrink: 0, color: 'var(--muted)' }} /> : <ChevronRight size={14} style={{ flexShrink: 0, color: 'var(--muted)' }} />}
+                              <div style={{ width: 30, height: 30, borderRadius: 8, background: dm ? `hsl(${dm.color})` + '22' : 'var(--mist)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <Package size={14} color={dm ? `hsl(${dm.color})` : 'var(--muted)'} />
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.itemName}</div>
+                                <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                                  {r.department} · ×{r.quantity} · {fmtDate(r.returnedAt || r.resolvedAt || r.createdAt)}
+                                </div>
+                              </div>
+                              {r.status === 'returned' && r.returnPhotoUrl && (
+                                <span role="button" tabIndex={0} aria-label={`View return photo for ${r.itemName}`}
+                                  onClick={e => { e.stopPropagation(); onPhotoPreview(r.returnPhotoUrl); }}
+                                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); onPhotoPreview(r.returnPhotoUrl); } }}
+                                  style={{ display: 'inline-block', cursor: 'zoom-in', lineHeight: 0, flexShrink: 0 }}>
+                                  <img src={r.returnPhotoUrl} alt="" style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--line)', display: 'block' }} />
+                                </span>
+                              )}
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: '11px', fontWeight: 700, background: s.bg, color: s.fg, flexShrink: 0 }}>
+                                <s.Icon size={11} /> {s.label}
+                              </span>
+                            </button>
+                            {isOpen && (
+                              <div style={{ padding: '2px 16px 16px 58px' }}>
+                                {r.reason && (
+                                  <div style={{ fontSize: '12px', color: 'var(--muted)', background: 'var(--mist)', borderRadius: 8, padding: '7px 12px', marginBottom: 8, borderLeft: `3px solid ${dm ? `hsl(${dm.color})` : 'var(--line)'}` }}>
+                                    "{r.reason}"
+                                  </div>
+                                )}
+                                {r.status === 'rejected' && r.rejectReason && (
+                                  <div style={{ fontSize: '12px', color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.07)', padding: '5px 10px', borderRadius: 7, marginBottom: 8 }}>
+                                    Rejection reason: {r.rejectReason}
+                                  </div>
+                                )}
+                                {r.status === 'returned' && r.conditionNote && (
+                                  <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: 8 }}>
+                                    Condition note: {r.conditionNote}
+                                  </div>
+                                )}
+                                <StageTracker request={r} onViewPhoto={onPhotoPreview} />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── Main View ─────────────────────────────────────────────────────────────────
 export default function InventoryManagement({ activeSub, onSubChange }) {
   const {
     items, itemsLoading, itemsError,
     requests, requestsLoading, requestsError,
     raiseRequest, returnItem, cancelRequest, allocateItem,
+    refreshRequests, refreshItems,
   } = useInventory();
   const { addNotification } = useNotifications();
   const { can }             = useRole();
@@ -472,6 +775,7 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
   const [deptTab,      setDeptTab]      = useState('All');
   const [tab,          setTab]          = useState(activeSub === 'my-requests' ? 'my-requests' : 'inventory');
   const [showModal,    setShowModal]    = useState(false);
+  const [prefillItem,  setPrefillItem]  = useState(null); // item card clicked → opens Raise Request pre-selected
   const [returningReq, setReturningReq] = useState(null);
   const [reqSearch,    setReqSearch]    = useState('');
   const [reqStatusFilter, setReqStatusFilter] = useState('All');
@@ -521,13 +825,6 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
   // for non-managers too (see GET /inventory-requests's assigned_allocator_email check).
   const assignedToMe = requests.filter(r =>
     r.status === 'approved' && (r.assignedAllocatorEmail || '').toLowerCase() === userEmail);
-
-  // Last few returns that have a photo on file — surfaced as a quick gallery
-  // strip so people don't have to dig through history to see condition photos.
-  const recentReturnPhotos = myReqs
-    .filter(r => r.status === 'returned' && r.returnPhotoUrl)
-    .sort((a, b) => new Date(b.returnedAt || 0) - new Date(a.returnedAt || 0))
-    .slice(0, 5);
 
   function toggleExpanded(id) {
     setExpandedReqs(prev => {
@@ -583,9 +880,23 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
       });
       toast(`Request submitted — ${qty}× ${item.name}`);
       setShowModal(false);
+      setPrefillItem(null);
     }).catch(() => {
       toast(`Couldn't submit your request for ${item.name} — please try again`, 'error');
     });
+  }
+
+  // Clicking an item card raises a request for it directly — no need to open
+  // the modal and search for the item all over again.
+  function openRaiseRequestFor(item) {
+    if (item.available <= 0) return;
+    setPrefillItem(item);
+    setShowModal(true);
+  }
+
+  function closeRaiseRequestModal() {
+    setShowModal(false);
+    setPrefillItem(null);
   }
 
   function handleReturnSubmit(req, data) {
@@ -667,7 +978,7 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
             style={{ display:'inline-flex', alignItems:'center', gap:8 }}>
             <Clock size={15} /> My Requests {myReqs.length > 0 && `(${myReqs.length})`}
           </button>
-          <button onClick={() => setShowModal(true)} className="primary-btn"
+          <button onClick={() => { setPrefillItem(null); setShowModal(true); }} className="primary-btn"
             style={{ display:'inline-flex', alignItems:'center', gap:8 }}>
             <Plus size={15} /> Raise Request
           </button>
@@ -690,266 +1001,35 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
         ))}
       </div>
 
-      {/* ── My Requests tab ── */}
-      {tab === 'my-requests' && (
-        <div style={{ marginBottom: 24 }}>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16, flexWrap:'wrap', gap:12 }}>
-            <div>
-              <h3 style={{ fontSize:15, fontWeight:700, margin:0 }}>My Requests</h3>
-              <p style={{ fontSize:13, color:'var(--muted)', marginTop:3 }}>{myReqs.length} request{myReqs.length !== 1 ? 's' : ''} raised</p>
-            </div>
-            <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
-              <div className="search-bar" style={{ width:220 }}>
-                <Search size={14} style={{ flexShrink:0 }} />
-                <input placeholder="Search by item, ID, or reason…" value={reqSearch} onChange={e => setReqSearch(e.target.value)} />
-              </div>
-              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                <Filter size={13} style={{ color:'var(--muted)' }} />
-                <select value={reqStatusFilter} onChange={e => setReqStatusFilter(e.target.value)} className="form-input"
-                  style={{ padding:'6px 10px', fontSize:'13px', height:34 }}>
-                  {REQ_STATUS_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Recent returns gallery — quick access to the last few condition photos
-              without digging through history; opens centered in the lightbox. */}
-          {recentReturnPhotos.length > 0 && (
-            <div style={{ marginBottom:18, padding:'12px 14px', background:'var(--mist)', borderRadius:12, border:'1px solid var(--line)' }}>
-              <div style={{ fontSize:11.5, fontWeight:700, color:'var(--muted)', marginBottom:9, display:'flex', alignItems:'center', gap:6, textTransform:'uppercase', letterSpacing:'0.04em' }}>
-                <Camera size={13} /> Recent Return Photos
-              </div>
-              <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
-                {recentReturnPhotos.map(r => (
-                  <button key={r.id} onClick={() => setPhotoPreview(r.returnPhotoUrl)}
-                    aria-label={`View return photo for ${r.itemName}`}
-                    title={`${r.itemName} — returned ${fmtDate(r.returnedAt || r.createdAt)}`}
-                    style={{ position:'relative', padding:0, border:'1px solid var(--line)', borderRadius:9, cursor:'zoom-in', background:'var(--card)', overflow:'hidden', width:64, height:64, flexShrink:0, lineHeight:0 }}>
-                    <img src={r.returnPhotoUrl} alt={`Return photo — ${r.itemName}`} style={{ width:64, height:64, objectFit:'cover', display:'block' }} />
-                    <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,0)', transition:'background 0.15s' }}
-                      onMouseEnter={e => { e.currentTarget.style.background='rgba(0,0,0,0.4)'; e.currentTarget.firstChild.style.opacity=1; }}
-                      onMouseLeave={e => { e.currentTarget.style.background='rgba(0,0,0,0)'; e.currentTarget.firstChild.style.opacity=0; }}>
-                      <ZoomIn size={16} color="#fff" style={{ opacity:0, transition:'opacity 0.15s' }} />
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Assigned to You — requests a manager has handed this person to physically
-              allocate; surfaced up top so it's not buried in the requester-centric list below. */}
-          {assignedToMe.length > 0 && (
-            <div style={{ marginBottom:18, padding:'12px 14px', background:'hsla(var(--color-orange),0.07)', borderRadius:12, border:'1px solid hsla(var(--color-orange),0.22)' }}>
-              <div style={{ fontSize:11.5, fontWeight:700, color:'hsl(var(--color-orange))', marginBottom:9, display:'flex', alignItems:'center', gap:6, textTransform:'uppercase', letterSpacing:'0.04em' }}>
-                <Package size={13} /> Assigned to You — {assignedToMe.length} to allocate
-              </div>
-              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                {assignedToMe.map(r => (
-                  <div key={r.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap', padding:'10px 12px', background:'var(--card)', borderRadius:10, border:'1px solid var(--line)' }}>
-                    <div>
-                      <div style={{ fontWeight:700, fontSize:'13.5px' }}>{r.itemName} <span style={{ fontWeight:500, color:'var(--muted)' }}>×{r.quantity}</span></div>
-                      <div style={{ fontSize:'12px', color:'var(--muted)', marginTop:2 }}>For {r.requestedBy} · {r.department}</div>
-                    </div>
-                    <button onClick={() => handleAllocateFromInventory(r)} className="primary-btn"
-                      disabled={allocatingId === r.id}
-                      style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'7px 14px', fontSize:'13px' }}>
-                      {allocatingId === r.id ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <CheckCircle size={14} />}
-                      {allocatingId === r.id ? 'Allocating…' : 'Allocate'}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {requestsError ? (
-            <div style={{ display:'flex', alignItems:'center', gap:10, padding:'16px 18px', borderRadius:10, background:'hsla(var(--color-red),0.06)', border:'1px solid hsla(var(--color-red),0.2)', color:'hsl(var(--color-red))', fontSize:13.5 }}>
-              <AlertCircle size={16} /> Couldn't load your requests. {requestsError}
-            </div>
-          ) : requestsLoading ? (
-            <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-              {[...Array(3)].map((_, i) => (
-                <div key={i} style={{ height:120, borderRadius:14, background:'var(--mist)', opacity:1 - i * 0.15, animation:'pulse 1.5s ease-in-out infinite' }} />
-              ))}
-            </div>
-          ) : myReqsFiltered.length === 0 ? (
-            <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)', fontSize:'14px' }}>
-              <Package size={32} style={{ opacity:.2, marginBottom:10, display:'block', margin:'0 auto 10px' }} />
-              {reqSearch || reqStatusFilter !== 'All'
-                ? 'No requests match your search or filter.'
-                : "You haven't raised any requests yet."}
-            </div>
-          ) : (
-            <>
-              {/* Needs action — pending approval, awaiting allocation, or out and due back */}
-              {activeReqs.length > 0 && (
-                <div style={{ display:'flex', flexDirection:'column', gap:14, marginBottom: completedReqs.length > 0 ? 22 : 0 }}>
-                  {activeReqs.map(r => {
-                    const s   = STATUS_META[r.status];
-                    const dm  = DEPT_META[r.department];
-                    return (
-                      <div key={r.id} style={{ background:'var(--card)', border:'1px solid var(--line)', borderRadius:14, padding:'18px 20px', boxShadow:'var(--shadow-sm)' }}>
-
-                        {/* Top row */}
-                        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, flexWrap:'wrap', marginBottom:10 }}>
-                          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                            <div style={{ width:38, height:38, borderRadius:10, background: dm ? `hsl(${dm.color})` + '22' : 'var(--mist)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                              <Package size={18} color={dm ? `hsl(${dm.color})` : 'var(--muted)'} />
-                            </div>
-                            <div>
-                              <div style={{ fontWeight:700, fontSize:'14.5px' }}>{r.itemName}</div>
-                              <div style={{ fontSize:'12px', color:'var(--muted)', marginTop:2 }}>
-                                {r.department} · ×{r.quantity} · {r.days} day{r.days > 1 ? 's' : ''}
-                                {r.raisedBy && r.raisedBy !== r.requestedBy && (
-                                  <span style={{ marginLeft:6, color:'hsl(var(--color-blue))', fontWeight:500 }}>via {r.raisedBy}</span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0 }}>
-                            <span style={{ fontFamily:'monospace', fontSize:'11px', color:'var(--muted)', background:'var(--mist)', padding:'2px 7px', borderRadius:5 }}>{r.id}</span>
-                            <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'3px 10px', borderRadius:20, fontSize:'11px', fontWeight:700, background:s.bg, color:s.fg }}>
-                              <s.Icon size={11} /> {s.label}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Reason */}
-                        {r.reason && (
-                          <div style={{ fontSize:'12.5px', color:'var(--muted)', background:'var(--mist)', borderRadius:8, padding:'7px 12px', marginBottom:4, borderLeft:`3px solid ${dm ? `hsl(${dm.color})` : 'var(--line)'}` }}>
-                            "{r.reason}"
-                          </div>
-                        )}
-
-                        {/* Stage tracker */}
-                        <StageTracker request={r} />
-
-                        {/* Actions */}
-                        {r.status === 'allocated' && (
-                          <div style={{ marginTop:14, display:'flex', gap:8, justifyContent:'flex-end', flexWrap:'wrap' }}>
-                            <button onClick={() => setReturningReq(r)} className="secondary-btn"
-                              style={{ padding:'6px 14px', fontSize:'12.5px', display:'inline-flex', alignItems:'center', gap:5 }}>
-                              <RotateCcw size={13} /> Return Item
-                            </button>
-                          </div>
-                        )}
-
-                        {CANCELLABLE_STATUSES.includes(r.status) && cancellingId !== r.id && (
-                          <div style={{ marginTop:14, display:'flex', gap:8, justifyContent:'flex-end', flexWrap:'wrap' }}>
-                            <button onClick={() => setCancellingId(r.id)} className="secondary-btn"
-                              style={{ padding:'6px 14px', fontSize:'12.5px', display:'inline-flex', alignItems:'center', gap:5, color:'hsl(var(--color-red))', borderColor:'hsl(var(--color-red))' }}>
-                              <XCircle size={13} /> Cancel Request
-                            </button>
-                          </div>
-                        )}
-                        {cancellingId === r.id && (
-                          <div style={{ marginTop:14, display:'flex', alignItems:'center', gap:10, justifyContent:'flex-end', flexWrap:'wrap', background:'hsla(var(--color-red),0.05)', border:'1px solid hsla(var(--color-red),0.2)', borderRadius:8, padding:'10px 14px' }}>
-                            <span style={{ fontSize:'12.5px', color:'var(--text)', marginRight:'auto' }}>Cancel this request? This can't be undone.</span>
-                            <button onClick={() => setCancellingId(null)} className="secondary-btn"
-                              disabled={cancelBusyId === r.id}
-                              style={{ padding:'5px 12px', fontSize:'12.5px' }}>
-                              Keep It
-                            </button>
-                            <button onClick={() => handleCancelRequest(r)} className="primary-btn"
-                              disabled={cancelBusyId === r.id}
-                              style={{ padding:'5px 14px', fontSize:'12.5px', background:'hsl(var(--color-red))', display:'inline-flex', alignItems:'center', gap:5 }}>
-                              {cancelBusyId === r.id
-                                ? <><Loader2 size={13} style={{ animation:'spin 0.7s linear infinite' }} /> Cancelling…</>
-                                : <>Yes, Cancel It</>}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {activeReqs.length === 0 && completedReqs.length > 0 && (
-                <div style={{ textAlign:'center', padding:'28px 0', color:'var(--muted)', fontSize:13 }}>
-                  <CheckCircle size={20} style={{ opacity:.25, marginBottom:6 }} /><br />
-                  Nothing needs your attention right now.
-                </div>
-              )}
-
-              {/* Completed / history — collapsed by default to keep this view short */}
-              {completedReqs.length > 0 && (
-                <div style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden' }}>
-                  <button onClick={() => setHistoryOpen(o => !o)}
-                    style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 16px', background:'var(--mist)', border:'none', cursor:'pointer', fontSize:13, fontWeight:700, color:'var(--text)' }}>
-                    <span style={{ display:'flex', alignItems:'center', gap:8 }}>
-                      {historyOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                      Completed ({completedReqs.length})
-                    </span>
-                    <span style={{ fontSize:11, fontWeight:500, color:'var(--muted)' }}>
-                      {historyOpen ? 'Click to collapse' : 'Returned & rejected — click to view'}
-                    </span>
-                  </button>
-                  {historyOpen && (
-                    <div>
-                      {completedReqs.map(r => {
-                        const s      = STATUS_META[r.status];
-                        const dm     = DEPT_META[r.department];
-                        const isOpen = expandedReqs.has(r.id);
-                        return (
-                          <div key={r.id} style={{ borderTop:'1px solid var(--line)' }}>
-                            <button onClick={() => toggleExpanded(r.id)}
-                              style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'10px 16px', background:'var(--card)', border:'none', cursor:'pointer', textAlign:'left' }}>
-                              {isOpen ? <ChevronDown size={14} style={{ flexShrink:0, color:'var(--muted)' }} /> : <ChevronRight size={14} style={{ flexShrink:0, color:'var(--muted)' }} />}
-                              <div style={{ width:30, height:30, borderRadius:8, background: dm ? `hsl(${dm.color})` + '22' : 'var(--mist)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                                <Package size={14} color={dm ? `hsl(${dm.color})` : 'var(--muted)'} />
-                              </div>
-                              <div style={{ flex:1, minWidth:0 }}>
-                                <div style={{ fontWeight:600, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{r.itemName}</div>
-                                <div style={{ fontSize:11.5, color:'var(--muted)' }}>
-                                  {r.department} · ×{r.quantity} · {fmtDate(r.returnedAt || r.resolvedAt || r.createdAt)}
-                                </div>
-                              </div>
-                              {r.status === 'returned' && r.returnPhotoUrl && (
-                                <span role="button" tabIndex={0} aria-label={`View return photo for ${r.itemName}`}
-                                  onClick={e => { e.stopPropagation(); setPhotoPreview(r.returnPhotoUrl); }}
-                                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setPhotoPreview(r.returnPhotoUrl); } }}
-                                  style={{ display:'inline-block', cursor:'zoom-in', lineHeight:0, flexShrink:0 }}>
-                                  <img src={r.returnPhotoUrl} alt="" style={{ width:28, height:28, objectFit:'cover', borderRadius:6, border:'1px solid var(--line)', display:'block' }} />
-                                </span>
-                              )}
-                              <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'3px 10px', borderRadius:20, fontSize:'11px', fontWeight:700, background:s.bg, color:s.fg, flexShrink:0 }}>
-                                <s.Icon size={11} /> {s.label}
-                              </span>
-                            </button>
-                            {isOpen && (
-                              <div style={{ padding:'2px 16px 16px 58px' }}>
-                                {r.reason && (
-                                  <div style={{ fontSize:'12px', color:'var(--muted)', background:'var(--mist)', borderRadius:8, padding:'7px 12px', marginBottom:8, borderLeft:`3px solid ${dm ? `hsl(${dm.color})` : 'var(--line)'}` }}>
-                                    "{r.reason}"
-                                  </div>
-                                )}
-                                {r.status === 'rejected' && r.rejectReason && (
-                                  <div style={{ fontSize:'12px', color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.07)', padding:'5px 10px', borderRadius:7, marginBottom:8 }}>
-                                    Rejection reason: {r.rejectReason}
-                                  </div>
-                                )}
-                                {r.status === 'returned' && r.conditionNote && (
-                                  <div style={{ fontSize:'12px', color:'var(--muted)', marginBottom:8 }}>
-                                    Condition note: {r.conditionNote}
-                                  </div>
-                                )}
-                                <StageTracker request={r} />
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
+      <MyRequestsDrawer
+        open={tab === 'my-requests'}
+        onClose={() => setTab('inventory')}
+        myReqs={myReqs}
+        myReqsFiltered={myReqsFiltered}
+        activeReqs={activeReqs}
+        completedReqs={completedReqs}
+        assignedToMe={assignedToMe}
+        reqSearch={reqSearch}
+        setReqSearch={setReqSearch}
+        reqStatusFilter={reqStatusFilter}
+        setReqStatusFilter={setReqStatusFilter}
+        requestsLoading={requestsLoading}
+        requestsError={requestsError}
+        onRetry={() => refreshRequests()}
+        historyOpen={historyOpen}
+        setHistoryOpen={setHistoryOpen}
+        expandedReqs={expandedReqs}
+        toggleExpanded={toggleExpanded}
+        cancellingId={cancellingId}
+        setCancellingId={setCancellingId}
+        cancelBusyId={cancelBusyId}
+        onCancelRequest={handleCancelRequest}
+        onReturnClick={setReturningReq}
+        onAllocate={handleAllocateFromInventory}
+        allocatingId={allocatingId}
+        onPhotoPreview={setPhotoPreview}
+        fmtDate={fmtDate}
+      />
 
       {/* ── Department tab strip ── */}
       <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
@@ -1029,7 +1109,13 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
           const pct   = Math.round((item.available / item.total) * 100);
           return (
             <div key={item.id} className="motion-card"
-              style={{ border:'1px solid var(--line)', borderRadius:12, padding:16, background:'var(--card)', display:'flex', flexDirection:'column', gap:10 }}>
+              role={avail ? 'button' : undefined}
+              tabIndex={avail ? 0 : undefined}
+              onClick={avail ? () => openRaiseRequestFor(item) : undefined}
+              onKeyDown={avail ? (e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openRaiseRequestFor(item); } }) : undefined}
+              title={avail ? `Raise a request for ${item.name}` : undefined}
+              aria-label={avail ? `Raise a request for ${item.name}` : undefined}
+              style={{ border:'1px solid var(--line)', borderRadius:12, padding:16, background:'var(--card)', display:'flex', flexDirection:'column', gap:10, cursor: avail ? 'pointer' : 'default' }}>
 
               {/* Header row */}
               <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8 }}>
@@ -1079,15 +1165,9 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
       </div>
 
       {itemsError ? (
-        <div style={{ display:'flex', alignItems:'center', gap:8, padding:'14px 16px', borderRadius:10, background:'hsla(var(--color-red),0.08)', color:'hsl(var(--color-red))', fontSize:'13.5px' }}>
-          <AlertCircle size={16} /> Couldn't load inventory items. {itemsError}
-        </div>
+        <ErrorBanner message="Couldn't load inventory items right now — this is usually temporary." onRetry={() => refreshItems()} />
       ) : itemsLoading && filtered.length === 0 && (
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(230px,1fr))', gap:14 }}>
-          {[...Array(6)].map((_, i) => (
-            <div key={i} style={{ height:138, borderRadius:12, background:'var(--mist)', opacity:1 - (i % 3) * 0.15, animation:'pulse 1.5s ease-in-out infinite' }} />
-          ))}
-        </div>
+        <SkeletonBlocks count={6} height={138} borderRadius={12} gridTemplateColumns="repeat(auto-fill, minmax(230px,1fr))" />
       )}
 
       {!itemsLoading && !itemsError && filtered.length === 0 && (
@@ -1098,7 +1178,8 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
       )}
 
       {showModal && (
-        <RaiseRequestModal items={items} currentUser={userName} canRaiseOnBehalf={can('supervisor')} onClose={() => setShowModal(false)} onSubmit={handleSubmit} />
+        <RaiseRequestModal items={items} currentUser={userName} canRaiseOnBehalf={can('supervisor')}
+          initialItem={prefillItem} onClose={closeRaiseRequestModal} onSubmit={handleSubmit} />
       )}
       {returningReq && (
         <ReturnModal request={returningReq} onClose={() => setReturningReq(null)}

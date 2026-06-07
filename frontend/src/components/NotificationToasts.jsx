@@ -20,7 +20,7 @@ const LIFESPAN = 7000; // how long a popup stays before auto-dismissing
 // miss when you're heads-down in another view, so freshly-arrived notifications
 // also surface here briefly before settling into the bell's list.
 export default function NotificationToasts({ onNavigate }) {
-  const { notifications } = useNotifications();
+  const { notifications, openApproval } = useNotifications();
   const { accounts }      = useMsal();
   const { can }           = useRole();
   const myName  = accounts[0]?.name     ?? '';
@@ -66,7 +66,14 @@ export default function NotificationToasts({ onNavigate }) {
   }
 
   function handleClick(n) {
-    if (n.action?.view && onNavigate) onNavigate(n.action.view, n.action.sub);
+    const isActionable = (n.type === 'inv_request' || n.type === 'req_pending') && !n.recipient;
+    if (isActionable && can('manager')) {
+      // Jump straight into the approval workflow (allocator picker / reject
+      // reason) in the bell panel — no extra navigation or hunting required.
+      openApproval(n.id);
+    } else if (n.action?.view && onNavigate) {
+      onNavigate(n.action.view, n.action.sub);
+    }
     close(n.id);
   }
 

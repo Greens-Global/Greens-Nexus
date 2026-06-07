@@ -35,7 +35,7 @@ const TYPE_META = {
 };
 
 export default function NotificationBell({ onNavigate }) {
-  const { notifications, unreadCount, markRead, markAllRead, dismiss, clearRead, addNotification, markActioned } = useNotifications();
+  const { notifications, unreadCount, markRead, markAllRead, dismiss, clearRead, addNotification, markActioned, pendingApprovalId, clearPendingApproval } = useNotifications();
   const { approveRequest, rejectRequest, allocateItem, requests: invRequests } = useInventory();
   const { approveRequisition, rejectRequisition }   = useRequisitions();
   const { accounts } = useMsal();
@@ -51,8 +51,13 @@ export default function NotificationBell({ onNavigate }) {
   const [pickedAllocator,setPickedAllocator]= useState('');
   const [approvingBusy,  setApprovingBusy]  = useState(false);
   const [allocators,     setAllocators]     = useState([]);
+  // Tracks "Needs Action" cards that just got approved/rejected — they show a
+  // brief confirmation (checkmark + message) then collapse out of the list,
+  // instead of vanishing instantly. { [notifId]: { kind, collapsing } }
+  const [resolvedIds,    setResolvedIds]    = useState({});
   const panelRef = useRef(null);
   const dismissTimers = useRef({});
+  const resolveTimers = useRef({});
 
   useEffect(() => {
     function onClickOut(e) {
@@ -73,10 +78,31 @@ export default function NotificationBell({ onNavigate }) {
   // Clean up any pending auto-dismiss timers on unmount
   useEffect(() => () => {
     Object.values(dismissTimers.current).forEach(clearTimeout);
+    Object.values(resolveTimers.current).forEach(clearTimeout);
   }, []);
 
   function handleOpen() {
     setOpen(o => !o);
+  }
+
+  // Replaces an instant markActioned+dismiss with a brief "Approved ✓ /
+  // Rejected" confirmation on the card, then a smooth collapse-and-slide-out —
+  // gives the manager visual confirmation their action landed before it clears.
+  function resolveAndDismiss(n, kind) {
+    setResolvedIds(prev => ({ ...prev, [n.id]: { kind, collapsing: false } }));
+    resolveTimers.current[`${n.id}-collapse`] = setTimeout(() => {
+      setResolvedIds(prev => prev[n.id] ? { ...prev, [n.id]: { ...prev[n.id], collapsing: true } } : prev);
+    }, 550);
+    resolveTimers.current[n.id] = setTimeout(() => {
+      dismiss(n.id);
+      setResolvedIds(prev => {
+        const next = { ...prev };
+        delete next[n.id];
+        return next;
+      });
+      delete resolveTimers.current[n.id];
+      delete resolveTimers.current[`${n.id}-collapse`];
+    }, 950);
   }
 
   function handleAction(n, action) {
@@ -96,7 +122,7 @@ export default function NotificationBell({ onNavigate }) {
       if (action === 'approve') {
         approveRequisition(refId, myName);
         markActioned(n.id);
-        dismiss(n.id);
+        resolveAndDismiss(n, 'approved');
         addNotification({ type: 'approved', recipient: requestedBy, requestedBy, itemName,
           title: 'Requisition Approved ✓',
           body:  `Your purchase requisition has been approved by ${myName}. Your supervisor will allocate the asset to you.`,
@@ -120,7 +146,7 @@ export default function NotificationBell({ onNavigate }) {
     approveRequest(refId, myName, chosen.email, chosen.name)
       .then(() => {
         markActioned(n.id);
-        dismiss(n.id);
+        resolveAndDismiss(n, 'approved');
         addNotification({
           type:        'approved',
           recipient:   recipientEmail || requestedBy,
@@ -173,7 +199,7 @@ export default function NotificationBell({ onNavigate }) {
       });
     }
     markActioned(n.id);
-    dismiss(n.id);
+    resolveAndDismiss(n, 'rejected');
     setRejectingId(null);
     setRejectReason('');
   }
@@ -214,8 +240,22 @@ export default function NotificationBell({ onNavigate }) {
 
   // Needs Action: only visible to managers+ (they have approve/reject capability)
   const actionable = can('manager') ? notifications.filter(n =>
-    (n.type === 'inv_request' || n.type === 'req_pending') && !n.recipient
+    (n.type === 'inv_request' || n.type === 'req_pending') && !n.recipient && !n.actioned
   ) : [];
+
+  // A toast click set this to a notification id — open the panel straight into
+  // its approval workflow (allocator picker for inv_request, reject reason for
+  // requisitions) instead of just opening the list and making the user hunt.
+  useEffect(() => {
+    if (!pendingApprovalId) return;
+    const n = actionable.find(x => x.id === pendingApprovalId);
+    if (!n) { clearPendingApproval(); return; }
+    setOpen(true);
+    handleAction(n, 'approve');
+    markRead(n.id);
+    clearPendingApproval();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingApprovalId]);
 
   // Updates: no recipient (global) OR addressed to my email or my display name
   const updates = notifications.filter(n =>
@@ -316,10 +356,31 @@ export default function NotificationBell({ onNavigate }) {
                   const meta = TYPE_META[n.type];
                   const isRejecting = rejectingId === n.id;
                   const isApproving = approvingId === n.id;
+                  const resolution  = resolvedIds[n.id];
+                  const resolvedColor = resolution?.kind === 'approved' ? 'var(--color-green)' : 'var(--color-red)';
                   return (
-                    <div key={n.id}
-                      style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', background: n.read ? 'transparent' : 'hsla(var(--color-blue),0.04)' }}
-                      onClick={() => markRead(n.id)}>
+                    <div key={n.id} style={{
+                      overflow: 'hidden',
+                      transition: 'max-height 0.4s cubic-bezier(.16,1,.3,1), opacity 0.32s ease, transform 0.36s cubic-bezier(.16,1,.3,1)',
+                      maxHeight: resolution?.collapsing ? 0 : 220,
+                      opacity: resolution?.collapsing ? 0 : 1,
+                      transform: resolution?.collapsing ? 'translateX(28px) scale(0.97)' : 'translateX(0) scale(1)',
+                    }}>
+                    <div
+                      style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', background: resolution ? `hsla(${resolvedColor},0.07)` : (n.read ? 'transparent' : 'hsla(var(--color-blue),0.04)'), transition: 'background 0.3s ease' }}
+                      onClick={() => !resolution && markRead(n.id)}>
+                      {resolution ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '3px 0' }}>
+                          <div style={{ width: 30, height: 30, borderRadius: 8, background: `hsla(${resolvedColor},0.15)`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, animation: 'fadeInUp 0.22s cubic-bezier(.16,1,.3,1) both' }}>
+                            {resolution.kind === 'approved'
+                              ? <CheckCircle size={16} color={`hsl(${resolvedColor})`} />
+                              : <XCircle size={16} color={`hsl(${resolvedColor})`} />}
+                          </div>
+                          <span style={{ fontSize: 12.5, fontWeight: 600, color: `hsl(${resolvedColor})`, animation: 'fadeInUp 0.22s cubic-bezier(.16,1,.3,1) both' }}>
+                            {resolution.kind === 'approved' ? 'Approved — clearing…' : 'Rejected — clearing…'}
+                          </span>
+                        </div>
+                      ) : (
                       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                         <div style={{ width: 30, height: 30, borderRadius: 8, background: `hsla(${meta.color},0.12)`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                           <meta.icon size={15} color={`hsl(${meta.color})`} />
@@ -397,6 +458,8 @@ export default function NotificationBell({ onNavigate }) {
                         </div>
                         {!n.read && <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'hsl(var(--color-blue))', flexShrink: 0, marginTop: 4 }} />}
                       </div>
+                      )}
+                    </div>
                     </div>
                   );
                 })}

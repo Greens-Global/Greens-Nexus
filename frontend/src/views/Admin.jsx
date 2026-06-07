@@ -390,7 +390,9 @@ export default function Admin() {
               {displayUsers.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '56px 0', color: 'var(--muted)', fontSize: 14 }}>
                   <Users size={32} style={{ opacity: .2, display: 'block', margin: '0 auto 10px' }} />
-                  {users.length === 0 ? 'No users loaded from Microsoft 365 yet.' : 'No users match your filter.'}
+                  {error
+                    ? 'Couldn\'t load users from Microsoft 365 — please refresh to try again.'
+                    : users.length === 0 ? 'No users loaded from Microsoft 365 yet.' : 'No users match your filter.'}
                 </div>
               ) : (
                 <div style={{ border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>

@@ -750,7 +750,7 @@ function NetworkDashboard() {
     } catch { return {}; }
   };
 
-  const fetchWithTimeout = async (url, timeoutMs = 12000) => {
+  const fetchWithTimeout = async (url, timeoutMs = 12000, attempt = 1) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -762,6 +762,13 @@ function NetworkDashboard() {
     } catch (e) {
       clearTimeout(timer);
       if (e.name === 'AbortError') throw new Error('Request timed out — backend may be waking up. Try refreshing in a few seconds.', { cause: e });
+      // "Failed to fetch" — fetch() couldn't even complete (dropped connection,
+      // brief network blip). Usually transient, so retry with backoff rather
+      // than showing the user a cryptic browser-level error.
+      if (e instanceof TypeError && attempt < 3) {
+        await new Promise(r => setTimeout(r, 500 * attempt));
+        return fetchWithTimeout(url, timeoutMs, attempt + 1);
+      }
       throw e;
     }
   };

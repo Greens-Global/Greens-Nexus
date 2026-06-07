@@ -8,7 +8,7 @@ const GRAPH_URL = 'https://graph.microsoft.com/v1.0/users'
 
 const GRAPH_SCOPE = ['User.ReadBasic.All'];
 
-async function fetchUsers(instance, account) {
+async function fetchUsers(instance, account, attempt = 1) {
   const req = { scopes: GRAPH_SCOPE, account };
 
   let tokenRes;
@@ -23,9 +23,20 @@ async function fetchUsers(instance, account) {
     }
   }
 
-  const res = await fetch(GRAPH_URL, {
-    headers: { Authorization: `Bearer ${tokenRes.accessToken}` },
-  });
+  let res;
+  try {
+    res = await fetch(GRAPH_URL, {
+      headers: { Authorization: `Bearer ${tokenRes.accessToken}` },
+    });
+  } catch (err) {
+    // "Failed to fetch" — transient network blip, not a permission issue.
+    // Retry with backoff before giving up, same as api.js does for our backend.
+    if (attempt < 3) {
+      await new Promise(r => setTimeout(r, 500 * attempt));
+      return fetchUsers(instance, account, attempt + 1);
+    }
+    throw err;
+  }
 
   if (res.status === 403) throw new Error('permission_denied');
   if (!res.ok)            throw new Error(`graph_error_${res.status}`);

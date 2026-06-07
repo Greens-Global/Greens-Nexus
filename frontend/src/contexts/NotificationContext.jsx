@@ -34,6 +34,10 @@ export function NotificationProvider({ children }) {
 
   const [notifications, setNotifications] = useState([]);
   const [overdueAlerts, setOverdueAlerts] = useState([]);
+  // Set when a toast/popup for an actionable notification is clicked — tells
+  // the bell panel to open itself straight into that item's approval workflow
+  // (allocator picker / reject reason) instead of just opening the list.
+  const [pendingApprovalId, setPendingApprovalId] = useState(null);
   const pollRef    = useRef(null);
   const channelRef = useRef(null);
 
@@ -181,6 +185,9 @@ export function NotificationProvider({ children }) {
   const dismissOverdueAlert = useCallback((id) =>
     setOverdueAlerts(p => p.map(a => a.id === id ? { ...a, dismissed: true } : a)), []);
 
+  const openApproval = useCallback((id) => setPendingApprovalId(id), []);
+  const clearPendingApproval = useCallback(() => setPendingApprovalId(null), []);
+
   const unreadCount         = notifications.filter(n => !n.read && !n.actioned).length;
   const activeOverdueAlerts = overdueAlerts.filter(a => !a.dismissed);
 
@@ -189,6 +196,7 @@ export function NotificationProvider({ children }) {
       notifications, overdueAlerts, activeOverdueAlerts, unreadCount,
       addNotification, markRead, markAllRead, dismiss, clearRead, markActioned,
       sendOverdueAlert, dismissOverdueAlert,
+      pendingApprovalId, openApproval, clearPendingApproval,
       refreshNotifications: fetchNotifications,
     }}>
       {children}

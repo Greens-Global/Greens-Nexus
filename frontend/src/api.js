@@ -22,35 +22,40 @@ async function getAuthHeader(forceRefresh = false) {
   }
 }
 
-async function req(path, options = {}, attempt = 1) {
-  const authHeader = await getAuthHeader();
-  const res = await fetch(`${BASE}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeader,
-      ...(options.headers ?? {}),
-    },
-  });
-  // On 401 (expired token), force-refresh MSAL token and retry once
-  if (res.status === 401 && attempt === 1) {
-    const freshHeader = await getAuthHeader(true);
-    const res2 = await fetch(`${BASE}${path}`, {
+const MAX_ATTEMPTS = 3;
+
+async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
+  const authHeader = await getAuthHeader(tokenRefreshed);
+  let res;
+  try {
+    res = await fetch(`${BASE}${path}`, {
       ...options,
       headers: {
         "Content-Type": "application/json",
-        ...freshHeader,
+        ...authHeader,
         ...(options.headers ?? {}),
       },
     });
-    if (!res2.ok) throw new Error(`API error ${res2.status}`);
-    if (res2.status === 204) return null;
-    return res2.json();
+  } catch (err) {
+    // fetch() itself threw — offline, dropped connection, or a cold-start
+    // timing out the CORS preflight. These show up as "Failed to fetch" and
+    // are usually transient (a reload "fixes" them), so retry with backoff
+    // instead of surfacing a scary permanent error to the user.
+    if (attempt < MAX_ATTEMPTS) {
+      await new Promise(r => setTimeout(r, 500 * attempt));
+      return req(path, options, attempt + 1, tokenRefreshed);
+    }
+    throw err;
   }
-  // Retry once on 5xx — handles Azure cold-start transient failures
-  if (res.status >= 500 && attempt === 1) {
+
+  // On 401 (expired token), force-refresh MSAL token and retry once
+  if (res.status === 401 && !tokenRefreshed) {
+    return req(path, options, attempt, true);
+  }
+  // Retry on 5xx — handles Azure cold-start transient failures
+  if (res.status >= 500 && attempt < MAX_ATTEMPTS) {
     await new Promise(r => setTimeout(r, 800));
-    return req(path, options, 2);
+    return req(path, options, attempt + 1, tokenRefreshed);
   }
   if (!res.ok) throw new Error(`API error ${res.status}`);
   if (res.status === 204) return null;
