@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Search, Shield, AlertTriangle, Users, CheckCircle, Crown, Plus, X, UserPlus } from 'lucide-react';
-import { useRole, ROLES } from '../contexts/RoleContext';
+import { Search, Shield, AlertTriangle, Users, CheckCircle, Crown, Plus, X, UserPlus, Pencil, Trash2, Layers } from 'lucide-react';
+import { useRole, ROLES, MODULES } from '../contexts/RoleContext';
 import { useGraphUsers }  from '../hooks/useGraphUsers';
 import { useMsal }        from '@azure/msal-react';
 import { api }            from '../api';
@@ -191,9 +191,190 @@ function AddUserModal({ onClose, onAdd, saving }) {
   );
 }
 
+const FIELD_LABEL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: '.04em' };
+const ICON_BTN    = { background: 'none', border: '1px solid var(--line)', borderRadius: 8, width: 30, height: 30, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--muted)' };
+
+// ── Create / Edit Group modal ─────────────────────────────────────────────────
+function GroupModal({ group, allUsers, assignableRoles, ROLES, onClose, onSave, onAssignRole, saving }) {
+  const isEdit = !!group;
+  const [name,         setName]         = useState(group?.name ?? '');
+  const [department,   setDepartment]   = useState(group?.department ?? '');
+  const [modules,      setModules]      = useState(() => new Set(group?.allowed_modules ?? []));
+  const [members,      setMembers]      = useState(() => group?.members ?? []);
+  const [memberSearch, setMemberSearch] = useState('');
+  const [bulkRole,     setBulkRole]     = useState(() => assignableRoles()[0] ?? 'employee');
+  const [bulkResult,   setBulkResult]   = useState(null);
+  const [bulkSaving,   setBulkSaving]   = useState(false);
+
+  const valid = name.trim().length > 0;
+
+  function toggleModule(id) {
+    setModules(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  const memberSet = useMemo(() => new Set(members), [members]);
+  const candidates = useMemo(() => {
+    const q = memberSearch.trim().toLowerCase();
+    if (!q) return [];
+    return allUsers.filter(u => !memberSet.has(u.email) &&
+      (u.name.toLowerCase().includes(q) || u.email.includes(q))).slice(0, 8);
+  }, [allUsers, memberSearch, memberSet]);
+
+  const memberDetails = useMemo(() =>
+    members.map(email => allUsers.find(u => u.email === email) ?? { email, name: email }),
+    [members, allUsers]);
+
+  async function handleApplyBulkRole() {
+    setBulkSaving(true);
+    setBulkResult(null);
+    try {
+      setBulkResult(await onAssignRole(group.id, bulkRole));
+    } catch (err) {
+      setBulkResult({ error: err.message ?? 'Failed to assign role — please try again' });
+    } finally {
+      setBulkSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 14, padding: 28, width: '100%', maxWidth: 660, maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <div>
+            <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{isEdit ? `Edit ${group.name}` : 'Create Group'}</h3>
+            <p style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 3 }}>Organize people, grant screen access, and manage roles together</p>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4 }}>
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Name + department */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
+          <div>
+            <label style={FIELD_LABEL}>GROUP NAME *</label>
+            <input className="form-input" style={{ width: '100%' }} placeholder="e.g. Accounting"
+              value={name} onChange={e => setName(e.target.value)} autoFocus />
+          </div>
+          <div>
+            <label style={FIELD_LABEL}>DEPARTMENT</label>
+            <input className="form-input" style={{ width: '100%' }} placeholder="optional, e.g. Finance"
+              value={department} onChange={e => setDepartment(e.target.value)} />
+          </div>
+        </div>
+
+        {/* Members */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={FIELD_LABEL}>MEMBERS ({members.length})</label>
+          <div className="search-bar" style={{ marginBottom: 8 }}>
+            <Search size={14} style={{ flexShrink: 0 }} />
+            <input placeholder="Search people by name or email to add…" value={memberSearch} onChange={e => setMemberSearch(e.target.value)} />
+          </div>
+          {candidates.length > 0 && (
+            <div style={{ border: '1px solid var(--line)', borderRadius: 10, marginBottom: 10, overflow: 'hidden' }}>
+              {candidates.map(u => (
+                <button key={u.email} type="button"
+                  onClick={() => { setMembers(p => [...p, u.email]); setMemberSearch(''); }}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '8px 12px', background: 'none', border: 'none', borderBottom: '1px solid var(--line)', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter, sans-serif' }}>
+                  <span style={{ fontSize: 13 }}>{u.name} <span style={{ color: 'var(--muted)', fontSize: 11.5 }}>· {u.email}</span></span>
+                  <Plus size={13} style={{ color: 'var(--muted)' }} />
+                </button>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {memberDetails.length === 0 && <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>No members yet — search above to add people.</span>}
+            {memberDetails.map(u => (
+              <span key={u.email} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 6px 4px 12px', borderRadius: 20, background: 'var(--mist)', fontSize: 12.5 }}>
+                {u.name}
+                <button type="button" onClick={() => setMembers(p => p.filter(e => e !== u.email))}
+                  style={{ display: 'inline-flex', background: 'var(--card)', border: 'none', borderRadius: '50%', width: 18, height: 18, alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--muted)' }}>
+                  <X size={11} />
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Module access */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={FIELD_LABEL}>SCREENS THIS GROUP CAN ACCESS</label>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
+            Members see these screens in addition to whatever their individual role already grants — checking a screen here can never take away access someone already has.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 8, border: '1px solid var(--line)', borderRadius: 10, padding: 14 }}>
+            {MODULES.map(m => (
+              <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                <input type="checkbox" checked={modules.has(m.id)} onChange={() => toggleModule(m.id)} />
+                {m.label}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Bulk role assignment — only meaningful once the group exists */}
+        {isEdit && (
+          <div style={{ marginBottom: 20, border: '1px solid var(--line)', borderRadius: 10, padding: 14 }}>
+            <label style={FIELD_LABEL}>BULK ROLE ASSIGNMENT</label>
+            <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
+              Assign one role to every member of this group at once — the same delegation rules apply as assigning roles individually.
+            </p>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <select className="form-input" style={{ minWidth: 160 }} value={bulkRole} onChange={e => setBulkRole(e.target.value)}>
+                {assignableRoles().map(r => <option key={r} value={r}>{ROLES[r].label}</option>)}
+              </select>
+              <button className="primary-btn" disabled={!members.length || bulkSaving} onClick={handleApplyBulkRole}>
+                {bulkSaving ? 'Applying…' : `Apply to ${members.length} member${members.length !== 1 ? 's' : ''}`}
+              </button>
+            </div>
+            {bulkResult && (
+              <div style={{ marginTop: 10, fontSize: 12.5 }}>
+                {bulkResult.error ? (
+                  <span style={{ color: 'var(--color-red, #f87171)' }}>{bulkResult.error}</span>
+                ) : (
+                  <>
+                    {bulkResult.updated?.length > 0 && (
+                      <div style={{ color: 'hsl(var(--color-green))', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <CheckCircle size={13} /> Updated {bulkResult.updated.length} member{bulkResult.updated.length !== 1 ? 's' : ''} to {ROLES[bulkRole]?.label}
+                      </div>
+                    )}
+                    {bulkResult.skipped?.length > 0 && (
+                      <div style={{ color: 'var(--color-orange, #fb923c)', marginTop: 4 }}>
+                        Skipped {bulkResult.skipped.length}: {bulkResult.skipped.map(s => s.email).join(', ')} — {bulkResult.skipped[0].reason}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button className="secondary-btn" onClick={onClose}>Cancel</button>
+          <button className="primary-btn"
+            disabled={!valid || saving}
+            onClick={() => onSave({ name: name.trim(), department: department.trim(), allowed_modules: [...modules], members })}>
+            {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Group'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 export default function Admin() {
-  const { myRole, myEmail, getRole, assignRole, refreshAllRoles, can } = useRole();
+  const {
+    myRole, myEmail, getRole, assignRole, refreshAllRoles, can,
+    groups, refreshGroups, createGroup, updateGroup, deleteGroup,
+    addGroupMembers, removeGroupMember, assignGroupRole,
+  } = useRole();
   const { users, loading: graphLoading, error } = useGraphUsers();
   const { accounts } = useMsal();
   const myEmail2 = accounts[0]?.username?.toLowerCase() ?? '';
@@ -208,9 +389,15 @@ export default function Admin() {
   const [manualUsers,  setManualUsers]  = useState([]);
   const [roleError,    setRoleError]    = useState('');
 
+  const [editingGroup, setEditingGroup] = useState(null);
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [groupSaving,  setGroupSaving]  = useState(false);
+  const [groupError,   setGroupError]   = useState('');
+
   const loading = graphLoading;
 
   useEffect(() => { refreshAllRoles(); }, [refreshAllRoles]);
+  useEffect(() => { refreshGroups(); }, [refreshGroups]);
 
   useEffect(() => {
     if (!graphLoading && users.length > 0) {
@@ -269,6 +456,41 @@ export default function Admin() {
     }
   }
 
+  async function handleSaveGroup({ name, department, allowed_modules, members }) {
+    setGroupSaving(true);
+    setGroupError('');
+    try {
+      if (editingGroup) {
+        await updateGroup(editingGroup.id, { name, department, allowed_modules });
+        const before  = new Set(editingGroup.members);
+        const after   = new Set(members);
+        const toAdd   = members.filter(e => !before.has(e));
+        const toDrop  = editingGroup.members.filter(e => !after.has(e));
+        if (toAdd.length) await addGroupMembers(editingGroup.id, toAdd);
+        for (const email of toDrop) await removeGroupMember(editingGroup.id, email);
+      } else {
+        await createGroup({ name, department, allowed_modules, member_emails: members });
+      }
+      setShowGroupModal(false);
+      setEditingGroup(null);
+    } catch (err) {
+      setGroupError(err.message ?? 'Failed to save group — please try again');
+      setTimeout(() => setGroupError(''), 4000);
+    } finally {
+      setGroupSaving(false);
+    }
+  }
+
+  async function handleDeleteGroup(group) {
+    if (!window.confirm(`Delete "${group.name}"? Members will lose any screen access granted by this group. This can't be undone.`)) return;
+    try {
+      await deleteGroup(group.id);
+    } catch (err) {
+      setGroupError(err.message ?? 'Failed to delete group — please try again');
+      setTimeout(() => setGroupError(''), 4000);
+    }
+  }
+
   const graphEmails = new Set(users.map(u => (u.mail ?? u.userPrincipalName ?? '').toLowerCase()));
 
   const displayUsers = useMemo(() => {
@@ -309,6 +531,7 @@ export default function Admin() {
   const tabs = [
     { id: 'users',  label: 'Users & Roles' },
     { id: 'matrix', label: 'Permissions Matrix' },
+    { id: 'groups', label: 'Groups' },
   ];
 
   if (!isAdmin) {
@@ -548,11 +771,81 @@ export default function Admin() {
         </>
       )}
 
+      {/* ── Groups ─────────────────────────────────────────────────────────── */}
+      {activeTab === 'groups' && (
+        <>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+            <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0, maxWidth: 560 }}>
+              Organize people into teams, grant them extra screens to see, and manage their roles together. Group access is additive — it only ever adds to what someone's role already allows.
+            </p>
+            <button className="primary-btn" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 7 }}
+              onClick={() => { setEditingGroup(null); setShowGroupModal(true); }}>
+              <Plus size={14} /> Create Group
+            </button>
+          </div>
+
+          {groupError && (
+            <div style={{ background: 'hsla(0,80%,50%,0.12)', border: '1px solid hsla(0,80%,50%,0.3)', color: 'var(--color-red, #f87171)', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 14 }}>
+              {groupError}
+            </div>
+          )}
+
+          {groups.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '56px 0', color: 'var(--muted)', fontSize: 14 }}>
+              <Layers size={32} style={{ opacity: .2, display: 'block', margin: '0 auto 10px' }} />
+              No groups yet — create one to organize people and manage their access together.
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
+              {groups.map(g => (
+                <div key={g.id} style={{ border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', background: 'var(--card)' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14.5 }}>{g.name}</div>
+                      {g.department && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{g.department}</div>}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={() => { setEditingGroup(g); setShowGroupModal(true); }} title="Edit group" style={ICON_BTN}><Pencil size={14} /></button>
+                      <button onClick={() => handleDeleteGroup(g)} title="Delete group" style={ICON_BTN}><Trash2 size={14} /></button>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 12, fontSize: 12.5, color: 'var(--muted)' }}>
+                    <Users size={13} /> {g.members.length} member{g.members.length !== 1 ? 's' : ''}
+                  </div>
+                  {g.allowed_modules.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                      {g.allowed_modules.map(id => (
+                        <span key={id} style={{ fontSize: 11, fontWeight: 600, padding: '2px 9px', borderRadius: 20, background: 'hsla(var(--color-blue),0.12)', color: 'hsl(var(--color-blue))' }}>
+                          {MODULES.find(m => m.id === id)?.label ?? id}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
       {showAddUser && (
         <AddUserModal
           saving={addingSaving}
           onClose={() => setShowAddUser(false)}
           onAdd={handleAddUser}
+        />
+      )}
+
+      {showGroupModal && (
+        <GroupModal
+          group={editingGroup}
+          allUsers={displayUsers}
+          assignableRoles={assignableRoles}
+          ROLES={ROLES}
+          saving={groupSaving}
+          onClose={() => { setShowGroupModal(false); setEditingGroup(null); }}
+          onSave={handleSaveGroup}
+          onAssignRole={assignGroupRole}
         />
       )}
     </div>

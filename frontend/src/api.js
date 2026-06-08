@@ -118,6 +118,15 @@ export const api = {
   assignRole:   (email, role, by, displayName) => req(`/roles/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify({ role, assigned_by: by, display_name: displayName || '' }) }),
   syncRoles:    (emails)             => req('/roles/sync', { method: 'POST', body: JSON.stringify({ emails }) }),
 
+  // Access Groups
+  getGroups:         ()                  => req('/groups'),
+  createGroup:       (body)              => req('/groups', { method: 'POST', body: JSON.stringify(body) }),
+  updateGroup:       (id, body)          => req(`/groups/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteGroup:       (id)                => req(`/groups/${id}`, { method: 'DELETE' }),
+  addGroupMembers:   (id, emails)        => req(`/groups/${id}/members`, { method: 'POST', body: JSON.stringify({ emails }) }),
+  removeGroupMember: (id, email)         => req(`/groups/${id}/members/${encodeURIComponent(email)}`, { method: 'DELETE' }),
+  assignGroupRole:   (id, role, by)      => req(`/groups/${id}/assign-role`, { method: 'POST', body: JSON.stringify({ role, assigned_by: by }) }),
+
   // Notifications (cross-device, stored in Supabase)
   pushNotification: (n)             => req('/notifications', { method: 'POST', body: JSON.stringify(n) }),
   getNotifications: ()               => req('/notifications'),

@@ -118,7 +118,7 @@ const NAV = [
 const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }, ref) {
   const [expanded, setExpanded] = useState({});
   const { accounts } = useMsal();
-  const { myRole, can } = useRole();
+  const { myRole, can, myGrantedModules } = useRole();
   const account     = accounts[0];
   const displayName = account?.name ?? account?.username ?? "User";
   const initials    = displayName.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase();
@@ -167,7 +167,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
         {/* ── Nav ── */}
         <nav className="sidebar-nav">
           <ul className="nav-list">
-            {NAV.filter(item => !item.minRole || can(item.minRole)).map((item, i) => {
+            {NAV.filter(item => !item.minRole || can(item.minRole) || myGrantedModules.has(item.view)).map((item, i) => {
               if (item.divider) return <li key={i} className="nav-divider" />;
 
               // ── Collapsed: icon-only rail ──

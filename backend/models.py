@@ -284,6 +284,24 @@ class NexusRole(Base):
     assigned_by  = Column(String, default="system")
 
 
+class NexusGroup(Base):
+    __tablename__ = "nexus_groups"
+    id              = Column(String, primary_key=True)
+    name            = Column(String, nullable=False)
+    department      = Column(String, default="")
+    allowed_modules = Column(String, default="")   # comma-separated module IDs, e.g. "it,inventory,admin"
+    created_by      = Column(String, default="")
+    created_at      = Column(String, default="")
+
+
+class NexusGroupMember(Base):
+    __tablename__ = "nexus_group_members"
+    group_id = Column(String, primary_key=True)
+    email    = Column(String, primary_key=True)
+    added_by = Column(String, default="")
+    added_at = Column(String, default="")
+
+
 class ApprovalHistory(Base):
     __tablename__ = "approval_history"
     id = Column(Integer, primary_key=True, autoincrement=True)

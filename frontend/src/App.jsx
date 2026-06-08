@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { AuthenticatedTemplate, UnauthenticatedTemplate } from "@azure/msal-react";
 import { NotificationProvider } from "./contexts/NotificationContext";
-import { RoleProvider, useRole } from "./contexts/RoleContext";
+import { RoleProvider, useRole, MODULES } from "./contexts/RoleContext";
 import { RequisitionProvider } from "./contexts/RequisitionContext";
 import { InventoryProvider } from "./contexts/InventoryContext";
 import Sidebar from "./components/Sidebar";
@@ -33,26 +33,7 @@ const ManagerDashboard    = lazy(() => import("./views/ManagerDashboard"));
 const Support             = lazy(() => import("./views/Support"));
 const Placeholder         = lazy(() => import("./views/Placeholder"));
 
-const VIEW_LABELS = {
-  "dashboard":          "Dashboard",
-  "manager-dashboard":  "Manager Dashboard",
-  "purchase":           "Purchase Requisition",
-  "tasks":              "Tasks",
-  "sop":                "Knowledge Base",
-  "it":                 "IT",
-  "ops":                "Construction",
-  "operations":         "Operations",
-  "development":        "Development",
-  "property-asset":     "Asset Management",
-  "accounting":         "Accounting",
-  "investor-relations": "Investor Relations",
-  "hr":                 "HR",
-  "marketing":          "Marketing",
-  "external-links":     "External Links",
-  "inventory":          "Inventory Management",
-  "admin":              "Nexus Access Manager",
-  "support":            "Support",
-};
+const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 
 // Waits for role to load so the UI never flashes with wrong access level
 function RoleGate({ children }) {
