@@ -6,7 +6,7 @@ import jwt as pyjwt
 from jwt.algorithms import RSAAlgorithm
 from fastapi import Header, HTTPException, Depends
 from sqlalchemy.orm import Session
-from database import SessionLocal
+from database import SessionLocal, get_db
 
 TENANT_ID = os.getenv("AZURE_TENANT_ID", "40966012-b88e-45c8-941a-341f87b9dc60")
 CLIENT_ID = os.getenv("AZURE_CLIENT_ID",  "be6f1e37-83a8-4a29-8b46-96d20beb32f9")
@@ -152,3 +152,47 @@ def require_level(min_level: int):
 require_manager       = require_level(3)
 require_administrator = require_level(4)
 require_owner         = require_level(5)
+
+
+# Per-module permission levels an Access Group can grant (mirrors the
+# folder-permission pattern: each grant carries both visibility AND a level of
+# capability, decided together in one place — Viewer/Editor/Full/Owner).
+# Rank order matters: a higher level always implies everything lower grants.
+MODULE_LEVELS = ("viewer", "editor", "full", "owner")
+_MODULE_LEVEL_RANK = {lvl: i + 1 for i, lvl in enumerate(MODULE_LEVELS)}
+
+
+def _module_level(email: str, module_id: str, db: Session) -> int:
+    """Highest permission-level rank any Access Group grants this user for
+    `module_id` (0 if none) — mirrors the frontend's myGrantedModules
+    (RoleContext.jsx), which stores the same per-module level per group."""
+    from models import NexusGroup, NexusGroupMember
+
+    rows = (
+        db.query(NexusGroup.allowed_modules)
+        .join(NexusGroupMember, NexusGroupMember.group_id == NexusGroup.id)
+        .filter(NexusGroupMember.email == email.lower())
+        .all()
+    )
+    best = 0
+    for (modules,) in rows:
+        for part in (modules or "").split(","):
+            mid, _, level = part.strip().partition(":")
+            if mid == module_id:
+                best = max(best, _MODULE_LEVEL_RANK.get(level, _MODULE_LEVEL_RANK["viewer"]))
+    return best
+
+
+def require_level_or_module(min_level: int, module_id: str, min_module_level: str):
+    """Returns a dependency admitting users at/above `min_level` globally, OR
+    anyone whose Access Group grants at least `min_module_level` for
+    `module_id` — lets a group's scoped grant raise someone's capability for
+    that module specifically, without elevating their role anywhere else.
+    Purely additive: never narrows what `min_level` alone would already allow."""
+    threshold = _MODULE_LEVEL_RANK[min_module_level]
+
+    def _check(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+        if user["level"] >= min_level or _module_level(user["email"], module_id, db) >= threshold:
+            return user
+        raise HTTPException(status_code=401, detail="Insufficient permissions")
+    return _check

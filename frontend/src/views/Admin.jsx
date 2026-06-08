@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Search, Shield, AlertTriangle, Users, CheckCircle, Crown, Plus, X, UserPlus, Pencil, Trash2, Layers } from 'lucide-react';
-import { useRole, ROLES, MODULES } from '../contexts/RoleContext';
+import { useRole, ROLES, MODULES, MODULE_LEVELS } from '../contexts/RoleContext';
 import { useGraphUsers }  from '../hooks/useGraphUsers';
 import { useMsal }        from '@azure/msal-react';
 import { api }            from '../api';
@@ -199,7 +199,10 @@ function GroupModal({ group, allUsers, assignableRoles, ROLES, onClose, onSave, 
   const isEdit = !!group;
   const [name,         setName]         = useState(group?.name ?? '');
   const [department,   setDepartment]   = useState(group?.department ?? '');
-  const [modules,      setModules]      = useState(() => new Set(group?.allowed_modules ?? []));
+  // Map<moduleId, level> — each granted screen carries an explicit permission
+  // level (Viewer/Editor/Full/Owner), decided together as one choice, mirroring
+  // a folder-permission row rather than a bare on/off checkbox.
+  const [modules,      setModules]      = useState(() => new Map((group?.allowed_modules ?? []).map(m => [m.id, m.level || 'viewer'])));
   const [members,      setMembers]      = useState(() => group?.members ?? []);
   const [memberSearch, setMemberSearch] = useState('');
   const [bulkRole,     setBulkRole]     = useState(() => assignableRoles()[0] ?? 'employee');
@@ -210,10 +213,14 @@ function GroupModal({ group, allUsers, assignableRoles, ROLES, onClose, onSave, 
 
   function toggleModule(id) {
     setModules(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      const next = new Map(prev);
+      if (next.has(id)) next.delete(id); else next.set(id, 'viewer');
       return next;
     });
+  }
+
+  function setModuleLevel(id, level) {
+    setModules(prev => new Map(prev).set(id, level));
   }
 
   const memberSet = useMemo(() => new Set(members), [members]);
@@ -303,17 +310,33 @@ function GroupModal({ group, allUsers, assignableRoles, ROLES, onClose, onSave, 
 
         {/* Module access */}
         <div style={{ marginBottom: 20 }}>
-          <label style={FIELD_LABEL}>SCREENS THIS GROUP CAN ACCESS</label>
+          <label style={FIELD_LABEL}>SCREENS &amp; PERMISSION LEVELS</label>
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
-            Members see these screens in addition to whatever their individual role already grants — checking a screen here can never take away access someone already has.
+            Granting a screen also sets what members can <em>do</em> there — visibility and capability are decided together, like a folder-permission entry. This is additive on top of whatever a member's individual role already grants, and can never take access away.
+            {' '}<strong>Viewer</strong> {MODULE_LEVELS.viewer.description.toLowerCase()} · <strong>Editor</strong> {MODULE_LEVELS.editor.description.toLowerCase()} · <strong>Full</strong> {MODULE_LEVELS.full.description.toLowerCase()} · <strong>Owner</strong> {MODULE_LEVELS.owner.description.toLowerCase()}.
           </p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 8, border: '1px solid var(--line)', borderRadius: 10, padding: 14 }}>
-            {MODULES.map(m => (
-              <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-                <input type="checkbox" checked={modules.has(m.id)} onChange={() => toggleModule(m.id)} />
-                {m.label}
-              </label>
-            ))}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 8, border: '1px solid var(--line)', borderRadius: 10, padding: 14 }}>
+            {MODULES.map(m => {
+              const granted = modules.has(m.id);
+              const level   = modules.get(m.id) ?? 'viewer';
+              return (
+                <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={granted} onChange={() => toggleModule(m.id)} />
+                    {m.label}
+                  </label>
+                  {granted && (
+                    <select className="form-input" style={{ fontSize: 12, padding: '3px 8px', minWidth: 90 }}
+                      value={level} onChange={e => setModuleLevel(m.id, e.target.value)}
+                      title={MODULE_LEVELS[level]?.description}>
+                      {Object.entries(MODULE_LEVELS).map(([key, lvl]) => (
+                        <option key={key} value={key}>{lvl.label}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -359,7 +382,7 @@ function GroupModal({ group, allUsers, assignableRoles, ROLES, onClose, onSave, 
           <button className="secondary-btn" onClick={onClose}>Cancel</button>
           <button className="primary-btn"
             disabled={!valid || saving}
-            onClick={() => onSave({ name: name.trim(), department: department.trim(), allowed_modules: [...modules], members })}>
+            onClick={() => onSave({ name: name.trim(), department: department.trim(), allowed_modules: [...modules].map(([id, level]) => ({ id, level })), members })}>
             {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Group'}
           </button>
         </div>
@@ -814,9 +837,10 @@ export default function Admin() {
                   </div>
                   {g.allowed_modules.length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
-                      {g.allowed_modules.map(id => (
-                        <span key={id} style={{ fontSize: 11, fontWeight: 600, padding: '2px 9px', borderRadius: 20, background: 'hsla(var(--color-blue),0.12)', color: 'hsl(var(--color-blue))' }}>
-                          {MODULES.find(m => m.id === id)?.label ?? id}
+                      {g.allowed_modules.map(({ id, level }) => (
+                        <span key={id} title={MODULE_LEVELS[level]?.description}
+                          style={{ fontSize: 11, fontWeight: 600, padding: '2px 9px', borderRadius: 20, background: 'hsla(var(--color-blue),0.12)', color: 'hsl(var(--color-blue))' }}>
+                          {MODULES.find(m => m.id === id)?.label ?? id} · {MODULE_LEVELS[level]?.label ?? level}
                         </span>
                       ))}
                     </div>

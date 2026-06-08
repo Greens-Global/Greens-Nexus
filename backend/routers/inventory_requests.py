@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from typing import Optional
 import httpx
 from database import get_db
-from auth import get_current_user, require_manager, require_owner
+from auth import get_current_user, require_level_or_module
 from models import InventoryRequest, InventoryItem, NexusRole, AuditLog
 
 # Valid predecessor statuses for each target status — guards against illegal
@@ -27,6 +27,16 @@ _VALID_TRANSITIONS = {
 # Mirrors ROLE_LEVEL in routers/roles.py — duplicated here to avoid a cross-router
 # import; both must stay in sync if role names ever change.
 _ROLE_LEVEL = {"employee": 1, "supervisor": 2, "manager": 3, "administrator": 4, "owner": 5}
+
+# Catalogue management, report export, and the audit log: Manager+ can always
+# do these, OR an Access Group granting "inventory" at Editor level or above
+# unlocks them for its members — without elevating anyone to Manager anywhere
+# else in the app (mirrors a folder's "Editor: Download/Edit/Upload" grant).
+require_inventory_admin = require_level_or_module(_ROLE_LEVEL["manager"], "inventory", "editor")
+
+# Deletion stays at Owner by default, OR an Access Group granting "inventory"
+# at Full level or above (mirrors "Full: Download/Edit/Upload/Delete").
+require_inventory_delete = require_level_or_module(_ROLE_LEVEL["owner"], "inventory", "full")
 
 
 def _title_case_email(email: str) -> str:
@@ -261,7 +271,7 @@ class ItemCreate(BaseModel):
 
 
 @router.post("/items", status_code=201)
-def create_item(body: ItemCreate, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+def create_item(body: ItemCreate, user: dict = Depends(require_inventory_admin), db: Session = Depends(get_db)):
     """Manually add a new catalogue item — the friendly counterpart to bulk CSV
     import, for managers who just need to add one or two new things. Same
     duplicate-name guard as update_item so the catalogue can't end up with two
@@ -291,7 +301,7 @@ def create_item(body: ItemCreate, user: dict = Depends(require_manager), db: Ses
 
 
 @router.patch("/items/{item_id}")
-def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(require_inventory_admin), db: Session = Depends(get_db)):
     """Edit a catalogue item's name/category/department/location/stock total.
     Manager and above — same bar as approving requests, since this affects what
     the whole org sees and can request. Changing total_qty shifts available_qty
@@ -329,7 +339,7 @@ def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(require_man
 
 
 @router.delete("/items/{item_id}")
-def delete_item(item_id: str, user: dict = Depends(require_owner), db: Session = Depends(get_db)):
+def delete_item(item_id: str, user: dict = Depends(require_inventory_delete), db: Session = Depends(get_db)):
     """Permanently remove a catalogue item — Global Admin only, matching the
     'Permanently Delete Records' policy. Blocked while any request against the
     item is still pending/approved/allocated, so history never points at a void."""
@@ -519,7 +529,7 @@ def export_inventory_report(
     department: Optional[str] = None,
     category: Optional[str] = None,
     status: Optional[str] = None,
-    user: dict = Depends(require_manager),
+    user: dict = Depends(require_inventory_admin),
     db: Session = Depends(get_db),
 ):
     """Filterable asset-status report, exportable as Excel or PDF — manager and
@@ -593,7 +603,7 @@ def inventory_audit_log(
     q: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
-    user: dict = Depends(require_manager),
+    user: dict = Depends(require_inventory_admin),
     db: Session = Depends(get_db),
 ):
     """Manager-accessible, inventory-scoped slice of the audit log — searchable

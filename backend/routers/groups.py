@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from typing import Optional
 from database import get_db
 from models import NexusGroup, NexusGroupMember, NexusRole
-from auth import get_current_user, require_administrator, invalidate_role_cache
+from auth import get_current_user, require_administrator, invalidate_role_cache, _MODULE_LEVEL_RANK
 from routers.roles import VALID_ROLES, ROLE_LEVEL, _get_role
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -27,35 +27,73 @@ def _seed_if_empty(db: Session):
     db.commit()
 
 
+def _parse_modules(raw: str) -> list[dict]:
+    """Decode 'inventory:full,it' → [{"id": "inventory", "level": "full"}, {"id": "it", "level": "viewer"}].
+    A bare module id with no ':level' suffix (old data, or a malformed grant)
+    defaults to "viewer" — matching the original visibility-only behaviour."""
+    out = []
+    for part in (raw or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        mid, _, level = part.partition(":")
+        mid = mid.strip().lower()
+        if not mid:
+            continue
+        level = level.strip().lower()
+        if level not in _MODULE_LEVEL_RANK:
+            level = "viewer"
+        out.append({"id": mid, "level": level})
+    return out
+
+
 def _serialize(group: NexusGroup, db: Session) -> dict:
     members = db.query(NexusGroupMember).filter(NexusGroupMember.group_id == group.id).all()
     return {
         "id": group.id,
         "name": group.name,
         "department": group.department or "",
-        "allowed_modules": [m for m in (group.allowed_modules or "").split(",") if m],
+        "allowed_modules": _parse_modules(group.allowed_modules or ""),
         "created_by": group.created_by,
         "created_at": group.created_at,
         "members": [m.email for m in members],
     }
 
 
-def _modules_csv(modules: list[str]) -> str:
-    return ",".join(sorted({m.strip().lower() for m in (modules or []) if m.strip()}))
+def _modules_csv(modules: "list[ModuleGrant]") -> str:
+    """Encode [{"id": "inventory", "level": "full"}, ...] → 'inventory:full,it:viewer',
+    deduping by module id (last grant for a given module wins) and validating levels."""
+    seen: dict[str, str] = {}
+    for m in modules or []:
+        mid = (m.id or "").strip().lower()
+        if not mid:
+            continue
+        level = (m.level or "viewer").strip().lower()
+        if level not in _MODULE_LEVEL_RANK:
+            level = "viewer"
+        seen[mid] = level
+    return ",".join(f"{mid}:{level}" for mid, level in sorted(seen.items()))
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
 
+class ModuleGrant(BaseModel):
+    """One screen + the permission level the group grants for it — mirrors a
+    folder-permission row (Viewer/Editor/Full/Owner), so visibility and
+    capability are decided together as a single, explicit, auditable choice."""
+    id: str
+    level: str = "viewer"
+
 class GroupCreate(BaseModel):
     name: str
     department: Optional[str] = ""
-    allowed_modules: Optional[list[str]] = []
+    allowed_modules: Optional[list[ModuleGrant]] = []
     member_emails: Optional[list[str]] = []
 
 class GroupUpdate(BaseModel):
     name: Optional[str] = None
     department: Optional[str] = None
-    allowed_modules: Optional[list[str]] = None
+    allowed_modules: Optional[list[ModuleGrant]] = None
 
 class MembersUpdate(BaseModel):
     emails: list[str]

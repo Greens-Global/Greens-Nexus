@@ -1544,7 +1544,14 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
     refreshRequests, refreshItems,
   } = useInventory();
   const { addNotification } = useNotifications();
-  const { can }             = useRole();
+  const { can, canAccessModule } = useRole();
+  // Catalogue management, report export, and the audit log: Manager+ always
+  // gets these; an Access Group granting "inventory" at Editor level or above
+  // also unlocks them for its members, without making anyone a Manager
+  // anywhere else (mirrors require_inventory_admin / require_inventory_delete
+  // in inventory_requests.py — Editor = create/edit, Full/Owner = also delete).
+  const canManageInventory  = canAccessModule('inventory', 'manager', 'editor');
+  const canDeleteInventory  = canAccessModule('inventory', 'owner',   'full');
   const { accounts }        = useMsal();
   const userName            = accounts[0]?.name     ?? 'Employee';
   const userEmail           = (accounts[0]?.username ?? '').toLowerCase();
@@ -1804,7 +1811,7 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
             style={{ display:'inline-flex', alignItems:'center', gap:8 }}>
             <UploadCloud size={15} /> Import
           </button>
-          {can('manager') && (
+          {canManageInventory && (
             <button onClick={() => setShowReport(true)} className="secondary-btn"
               style={{ display:'inline-flex', alignItems:'center', gap:8 }}
               title="Generate a filterable asset-status report (PDF or Excel)">
@@ -1819,7 +1826,7 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
       </div>
 
       {/* ── Main view switcher (Catalogue / Manage / Audit Log) ── */}
-      {can('manager') && (
+      {canManageInventory && (
         <div style={{ display:'flex', gap:8, marginBottom:20, borderBottom:'1px solid var(--line)' }}>
           {[
             { id: 'catalogue', label: 'Catalogue',  Icon: Package },
@@ -1842,7 +1849,7 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
       {mainView === 'manage' ? (
         <ManageItemsPanel items={items} itemsLoading={itemsLoading} itemsError={itemsError}
           onRetry={() => refreshItems()} onAdd={() => setShowAddItem(true)}
-          onEdit={setEditingItem} onDelete={setDeletingItem} canDelete={can('owner')} />
+          onEdit={setEditingItem} onDelete={setDeletingItem} canDelete={canDeleteInventory} />
       ) : mainView === 'audit' ? (
         <InventoryAuditLogPanel />
       ) : (
@@ -2027,15 +2034,15 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
                 </div>
               )}
 
-              {/* Catalogue management — manager+ can edit, Global Admin can also delete */}
-              {can('manager') && (
+              {/* Catalogue management — manager+ (or group-granted inventory access) can edit, Owner can also delete */}
+              {canManageInventory && (
                 <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
                   <button onClick={e => { e.stopPropagation(); setEditingItem(item); }}
                     title={`Edit ${item.name}`} aria-label={`Edit ${item.name}`}
                     style={{ display:'inline-flex', alignItems:'center', gap:5, background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:'11.5px', fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
                     <Pencil size={12} /> Edit
                   </button>
-                  {can('owner') && (
+                  {canDeleteInventory && (
                     <button onClick={e => { e.stopPropagation(); setDeletingItem(item); }}
                       title={`Delete ${item.name}`} aria-label={`Delete ${item.name}`}
                       style={{ display:'inline-flex', alignItems:'center', gap:5, background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-red))', fontSize:'11.5px', fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>

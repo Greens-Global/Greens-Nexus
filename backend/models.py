@@ -290,7 +290,7 @@ class NexusGroup(Base):
     id              = Column(String, primary_key=True)
     name            = Column(String, nullable=False)
     department      = Column(String, default="")
-    allowed_modules = Column(String, default="")   # comma-separated module IDs, e.g. "it,inventory,admin"
+    allowed_modules = Column(String, default="")   # comma-separated "moduleId:level" pairs, e.g. "it:viewer,inventory:full" — level ∈ viewer/editor/full/owner (see auth.MODULE_LEVELS)
     created_by      = Column(String, default="")
     created_at      = Column(String, default="")
 

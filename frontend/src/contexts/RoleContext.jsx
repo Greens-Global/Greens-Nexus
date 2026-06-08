@@ -29,6 +29,17 @@ export const MODULES = [
   { id: 'support',             label: 'Support' },
 ];
 
+// Per-module permission levels an Access Group can grant — mirrors a
+// folder-permission row (Viewer/Editor/Full/Owner): visibility and capability
+// are decided together, as one explicit, auditable choice per screen.
+// Rank order matters — a higher level always implies everything lower grants.
+export const MODULE_LEVELS = {
+  viewer: { label: 'Viewer', rank: 1, description: 'See and use the screen normally' },
+  editor: { label: 'Editor', rank: 2, description: 'Also create and edit records' },
+  full:   { label: 'Full',   rank: 3, description: 'Also delete records' },
+  owner:  { label: 'Owner',  rank: 4, description: 'Full access + manage who else has it' },
+};
+
 export const ROLES = {
   employee:      { label: 'Employee',      level: 1, color: 'var(--color-blue)',   bg: 'hsla(var(--color-blue),0.12)',   description: 'Raise requests, view own activity' },
   supervisor:    { label: 'Supervisor',     level: 2, color: 'var(--color-green)',  bg: 'hsla(var(--color-green),0.12)',  description: 'Allocate items, manage returns' },
@@ -148,23 +159,37 @@ export function RoleProvider({ children }) {
     return result;
   }, [myEmail]);
 
-  // Modules granted to the current user via any group they belong to — purely
-  // additive on top of role-based nav access (Sidebar.jsx), so membership can
-  // only ever widen visibility, never narrow it.
+  // Modules granted to the current user via any group they belong to, mapped
+  // to the highest permission level any of those groups grants for it (e.g.
+  // {"inventory": "full", "it": "viewer"}) — purely additive on top of
+  // role-based nav access (Sidebar.jsx): membership can only ever widen
+  // access, never narrow it. A module present in this map (any level) is
+  // visible in the nav; the level additionally decides what they can DO there.
   const myGrantedModules = useMemo(() => {
-    const set = new Set();
+    const map = new Map();
     groups.forEach(g => {
-      if (g.members?.includes(myEmail)) {
-        (g.allowed_modules || []).forEach(m => set.add(m));
-      }
+      if (!g.members?.includes(myEmail)) return;
+      (g.allowed_modules || []).forEach(({ id, level }) => {
+        const prevRank = MODULE_LEVELS[map.get(id)]?.rank ?? 0;
+        const nextRank = MODULE_LEVELS[level]?.rank ?? MODULE_LEVELS.viewer.rank;
+        if (nextRank > prevRank) map.set(id, level);
+      });
     });
-    return set;
+    return map;
   }, [groups, myEmail]);
 
   const myLevel = ROLES[myRole]?.level ?? 1;
   const can     = (minRole) => myLevel >= (ROLES[minRole]?.level ?? 1);
-  const canAccessModule = (moduleId, minRole) =>
-    (!minRole || can(minRole)) || myGrantedModules.has(moduleId);
+
+  // True if the user can act on `moduleId` at least at `minModuleLevel` —
+  // either because their global role already implies it (`minRole`), or
+  // because an Access Group grants that module at/above `minModuleLevel`
+  // (e.g. canAccessModule('inventory', 'manager', 'editor')).
+  const canAccessModule = (moduleId, minRole, minModuleLevel = 'viewer') => {
+    if (!minRole || can(minRole)) return true;
+    const grantedRank = MODULE_LEVELS[myGrantedModules.get(moduleId)]?.rank ?? 0;
+    return grantedRank >= (MODULE_LEVELS[minModuleLevel]?.rank ?? 1);
+  };
 
   return (
     <RoleCtx.Provider value={{
