@@ -42,6 +42,15 @@ def _describe(method: str, path: str) -> tuple[str, str]:
 
     # ── Inventory requests ────────────────────────────────────────────────────
     if resource == "inventory-requests":
+        if rid == "items":
+            # /inventory-requests/items[/{item_id}[/import]] — catalogue management,
+            # distinct from the request-lifecycle paths below (rid would otherwise
+            # be mistaken for the resource id, e.g. "Updated inventory request items")
+            item_id = sub if sub and sub != "import" else ""
+            if method == "POST" and sub == "import": return "Imported inventory items", ""
+            if method == "POST":                      return "Added inventory item", ""
+            if method == "PATCH":                     return f"Updated inventory item {item_id}".strip(), item_id
+            if method == "DELETE":                    return f"Deleted inventory item {item_id}".strip(), item_id
         if method == "POST":                    return "Created inventory request", ""
         if method == "PATCH":                   return _fmt("Updated inventory request"), display_id
 
@@ -135,6 +144,8 @@ _BODY_FIELDS_BY_RESOURCE = {
         "status", "item_id", "item_name", "quantity", "days", "reason",
         "resolved_by", "reject_reason", "allocated_by", "condition_note",
         "return_photo_name",
+        # catalogue item create/edit fields (POST|PATCH /inventory-requests/items/*)
+        "name", "category", "department", "location", "total_qty",
     ),
     "requisitions": (
         "status", "item_id", "item_name", "quantity", "reason",

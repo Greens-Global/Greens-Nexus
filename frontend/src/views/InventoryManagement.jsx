@@ -4,6 +4,7 @@ import {
   RotateCcw, Camera, Monitor, Wrench, Building2, Calculator,
   AlertCircle, Filter, X, Loader2, ZoomIn, ChevronDown, ChevronRight,
   UploadCloud, FileSpreadsheet, Download, Pencil, Trash2,
+  MapPin, ClipboardList, History, FileBarChart,
 } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import { useInventory }       from '../contexts/InventoryContext';
@@ -292,6 +293,7 @@ function parseInventoryCsv(text) {
     name:       header.findIndex(h => ['name', 'item', 'item name'].includes(h)),
     category:   header.findIndex(h => h === 'category'),
     department: header.findIndex(h => ['department', 'dept'].includes(h)),
+    location:   header.findIndex(h => ['location', 'site'].includes(h)),
     qty:        header.findIndex(h => ['total_qty', 'total', 'quantity', 'qty', 'total qty'].includes(h)),
   };
   if (idx.name === -1) return { rows: [], error: 'Couldn’t find a "Name" column in the header row — check your file and try again.' };
@@ -301,10 +303,11 @@ function parseInventoryCsv(text) {
     const name       = (cells[idx.name] || '').trim();
     const category   = idx.category   > -1 ? (cells[idx.category]   || '').trim() : '';
     const department = idx.department > -1 ? (cells[idx.department] || '').trim() : '';
+    const location   = idx.location   > -1 ? (cells[idx.location]   || '').trim() : '';
     const qtyRaw = idx.qty > -1 ? (cells[idx.qty] || '').trim() : '';
     const qty    = qtyRaw ? parseInt(qtyRaw, 10) : 0;
     return {
-      name, category, department,
+      name, category, department, location,
       total_qty:          Number.isFinite(qty) ? qty : 0,
       _valid:             !!name,
       _unknownCategory:   !!category   && !KNOWN_CATEGORIES.includes(category),
@@ -315,9 +318,12 @@ function parseInventoryCsv(text) {
 }
 
 function triggerCsvDownload(filename, csv) {
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
+  triggerBlobDownload(filename, new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+}
+
+function triggerBlobDownload(filename, blob) {
+  const url = URL.createObjectURL(blob);
+  const a   = document.createElement('a');
   a.href = url;
   a.download = filename;
   document.body.appendChild(a);
@@ -330,9 +336,9 @@ function triggerCsvDownload(filename, csv) {
 // couple of filled-in example rows — saves them guessing column names/order.
 function downloadImportTemplate() {
   triggerCsvDownload('inventory-import-template.csv', [
-    'Name,Category,Department,Total Qty',
-    'Dell Monitor 24 inch,IT Supplies,IT,15',
-    'Cordless Drill,Tools,Construction,8',
+    'Name,Category,Department,Location,Total Qty',
+    'Dell Monitor 24 inch,IT Supplies,IT,GSE,15',
+    'Cordless Drill,Tools,Construction,GSVC,8',
   ].join('\r\n'));
 }
 
@@ -345,9 +351,9 @@ function csvField(value) {
 // the view) into the same column shape the importer expects, so people can
 // export, edit in bulk, and re-upload instead of building rows from scratch.
 function downloadInventoryCsv(items) {
-  const lines = ['Name,Category,Department,Total Qty,Available Qty'];
+  const lines = ['Name,Category,Department,Location,Total Qty,Available Qty'];
   for (const item of items) {
-    lines.push([item.name, item.category, item.department, item.total, item.available].map(csvField).join(','));
+    lines.push([item.name, item.category, item.department, item.location, item.total, item.available].map(csvField).join(','));
   }
   triggerCsvDownload(`inventory-catalogue-${new Date().toISOString().slice(0, 10)}.csv`, lines.join('\r\n'));
 }
@@ -357,6 +363,7 @@ function EditItemModal({ item, onClose, onSave }) {
   const [name,       setName]       = useState(item.name);
   const [category,   setCategory]   = useState(item.category);
   const [department, setDepartment] = useState(item.department);
+  const [location,   setLocation]   = useState(item.location ?? '');
   const [totalQty,   setTotalQty]   = useState(String(item.total));
   const [saving,     setSaving]     = useState(false);
   const [error,      setError]      = useState('');
@@ -369,7 +376,7 @@ function EditItemModal({ item, onClose, onSave }) {
     setSaving(true);
     setError('');
     Promise.resolve(onSave({
-      name: trimmed, category, department,
+      name: trimmed, category, department, location: location.trim(),
       total_qty: Math.max(parseInt(totalQty, 10) || 0, 0),
     }))
       .then(onClose)
@@ -404,6 +411,11 @@ function EditItemModal({ item, onClose, onSave }) {
             </div>
           </div>
           <div>
+            <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>LOCATION</label>
+            <input className="form-input" style={{ width:'100%' }} placeholder="e.g. GSVC, GSE"
+              value={location} onChange={e => setLocation(e.target.value)} />
+          </div>
+          <div>
             <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>TOTAL QUANTITY</label>
             <input type="number" min="0" className="form-input" style={{ width:'100%' }}
               value={totalQty} onChange={e => setTotalQty(e.target.value)} />
@@ -425,6 +437,205 @@ function EditItemModal({ item, onClose, onSave }) {
             style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:130, justifyContent:'center' }}
             onClick={submit}>
             {saving ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Saving…</> : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Add Item Modal ────────────────────────────────────────────────────────────
+// The friendly counterpart to CSV import — lets a manager add a single new
+// catalogue item (and, via free-text category/department fields backed by a
+// <datalist>, introduce a new "type" without anyone touching a spreadsheet).
+function AddItemModal({ onClose, onSave }) {
+  const [name,       setName]       = useState('');
+  const [category,   setCategory]   = useState('');
+  const [department, setDepartment] = useState('');
+  const [location,   setLocation]   = useState('');
+  const [totalQty,   setTotalQty]   = useState('1');
+  const [saving,     setSaving]     = useState(false);
+  const [error,      setError]      = useState('');
+
+  useEscapeKey(onClose);
+
+  function submit() {
+    const trimmed = name.trim();
+    if (!trimmed || saving) return;
+    setSaving(true);
+    setError('');
+    Promise.resolve(onSave({
+      name: trimmed,
+      category: category.trim(),
+      department: department.trim(),
+      location: location.trim(),
+      total_qty: Math.max(parseInt(totalQty, 10) || 0, 0),
+    }))
+      .then(onClose)
+      .catch(err => setError(err?.message || 'Couldn’t add this item — please try again.'))
+      .finally(() => setSaving(false));
+  }
+
+  return (
+    <div role="dialog" aria-modal="true" aria-labelledby="add-item-title"
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+        <h3 id="add-item-title" style={{ fontSize:'16px', fontWeight:700, marginBottom:6 }}>Add Item</h3>
+        <p style={{ fontSize:'12.5px', color:'var(--muted)', marginBottom:18 }}>
+          Add a new catalogue item by hand — no spreadsheet needed. Type a new category or department to introduce one that doesn’t exist yet.
+        </p>
+
+        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+          <div>
+            <label style={FIELD_LABEL_SM}>NAME</label>
+            <input className="form-input" style={{ width:'100%' }} placeholder="e.g. Tape Measure (5m)"
+              value={name} onChange={e => setName(e.target.value)} autoFocus />
+          </div>
+          <div style={{ display:'flex', gap:12 }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <label style={FIELD_LABEL_SM}>CATEGORY / TYPE</label>
+              <input className="form-input" style={{ width:'100%' }} list="add-item-categories"
+                placeholder="e.g. Tools" value={category} onChange={e => setCategory(e.target.value)} />
+              <datalist id="add-item-categories">{KNOWN_CATEGORIES.map(c => <option key={c} value={c} />)}</datalist>
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <label style={FIELD_LABEL_SM}>DEPARTMENT</label>
+              <input className="form-input" style={{ width:'100%' }} list="add-item-departments"
+                placeholder="e.g. Construction" value={department} onChange={e => setDepartment(e.target.value)} />
+              <datalist id="add-item-departments">{KNOWN_DEPARTMENTS.map(d => <option key={d} value={d} />)}</datalist>
+            </div>
+          </div>
+          <div style={{ display:'flex', gap:12 }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <label style={FIELD_LABEL_SM}>LOCATION</label>
+              <input className="form-input" style={{ width:'100%' }} placeholder="e.g. GSVC, GSE"
+                value={location} onChange={e => setLocation(e.target.value)} />
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <label style={FIELD_LABEL_SM}>TOTAL QUANTITY</label>
+              <input type="number" min="0" className="form-input" style={{ width:'100%' }}
+                value={totalQty} onChange={e => setTotalQty(e.target.value)} />
+            </div>
+          </div>
+        </div>
+
+        {error && (
+          <p style={{ display:'flex', alignItems:'center', gap:6, fontSize:'12.5px', color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:8, padding:'9px 12px', margin:'14px 0 0' }}>
+            <AlertCircle size={14} style={{ flexShrink:0 }} /> {error}
+          </p>
+        )}
+
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:22 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="primary-btn" disabled={!name.trim() || saving}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:120, justifyContent:'center' }}
+            onClick={submit}>
+            {saving ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Adding…</> : <><Plus size={14} /> Add Item</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const FIELD_LABEL_SM = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em' };
+
+// ── Report Modal ──────────────────────────────────────────────────────────────
+function ReportModal({ onClose }) {
+  const [userEmail,  setUserEmail]  = useState('');
+  const [location,   setLocation]   = useState('');
+  const [department, setDepartment] = useState('All');
+  const [category,   setCategory]   = useState('All');
+  const [status,     setStatus]     = useState('All');
+  const [exporting,  setExporting]  = useState(null); // 'excel' | 'pdf' | null
+  const [error,      setError]      = useState('');
+
+  useEscapeKey(onClose);
+
+  function buildParams() {
+    const params = {};
+    if (userEmail.trim())        params.user_email  = userEmail.trim();
+    if (location.trim())         params.location    = location.trim();
+    if (department !== 'All')    params.department  = department;
+    if (category !== 'All')      params.category    = category;
+    if (status !== 'All')        params.status      = status;
+    return params;
+  }
+
+  function exportAs(format) {
+    if (exporting) return;
+    setExporting(format);
+    setError('');
+    api.getInventoryReport({ ...buildParams(), format })
+      .then(({ blob, filename }) => triggerBlobDownload(filename, blob))
+      .then(onClose)
+      .catch(err => setError(err?.message || 'Couldn’t generate this report — please try again.'))
+      .finally(() => setExporting(null));
+  }
+
+  return (
+    <div role="dialog" aria-modal="true" aria-labelledby="report-modal-title"
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:460, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+        <h3 id="report-modal-title" style={{ fontSize:'16px', fontWeight:700, marginBottom:6 }}>Export Asset Status Report</h3>
+        <p style={{ fontSize:'12.5px', color:'var(--muted)', marginBottom:18 }}>
+          Filter requests by user, location, department, or type, then export as an Excel workbook or PDF.
+        </p>
+
+        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+          <div>
+            <label style={FIELD_LABEL_SM}>USER EMAIL</label>
+            <input className="form-input" style={{ width:'100%' }} placeholder="e.g. jane.doe@greensglobal.com"
+              value={userEmail} onChange={e => setUserEmail(e.target.value)} />
+          </div>
+          <div style={{ display:'flex', gap:12 }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <label style={FIELD_LABEL_SM}>LOCATION</label>
+              <input className="form-input" style={{ width:'100%' }} placeholder="e.g. GSVC"
+                value={location} onChange={e => setLocation(e.target.value)} />
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <label style={FIELD_LABEL_SM}>DEPARTMENT</label>
+              <select className="form-input" style={{ width:'100%' }} value={department} onChange={e => setDepartment(e.target.value)}>
+                {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{ display:'flex', gap:12 }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <label style={FIELD_LABEL_SM}>TYPE / CATEGORY</label>
+              <select className="form-input" style={{ width:'100%' }} value={category} onChange={e => setCategory(e.target.value)}>
+                {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <label style={FIELD_LABEL_SM}>STATUS</label>
+              <select className="form-input" style={{ width:'100%' }} value={status} onChange={e => setStatus(e.target.value)}>
+                {REQ_STATUS_FILTERS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {error && (
+          <p style={{ display:'flex', alignItems:'center', gap:6, fontSize:'12.5px', color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:8, padding:'9px 12px', margin:'14px 0 0' }}>
+            <AlertCircle size={14} style={{ flexShrink:0 }} /> {error}
+          </p>
+        )}
+
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:22 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={!!exporting}>Cancel</button>
+          <button className="secondary-btn" disabled={!!exporting}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:130, justifyContent:'center' }}
+            onClick={() => exportAs('pdf')}>
+            {exporting === 'pdf' ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Exporting…</> : <><Download size={14} /> Export as PDF</>}
+          </button>
+          <button className="primary-btn" disabled={!!exporting}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:140, justifyContent:'center' }}
+            onClick={() => exportAs('excel')}>
+            {exporting === 'excel' ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Exporting…</> : <><Download size={14} /> Export as Excel</>}
           </button>
         </div>
       </div>
@@ -517,7 +728,7 @@ function ImportItemsModal({ onClose, onImport }) {
     setSubmitting(true);
     setSubmitError('');
     Promise.resolve(onImport(validRows.map(r => ({
-      name: r.name, category: r.category, department: r.department, total_qty: r.total_qty,
+      name: r.name, category: r.category, department: r.department, location: r.location, total_qty: r.total_qty,
     }))))
       .then(res => setResult(res))
       .catch(err => setSubmitError(err?.message || 'Import failed — please try again.'))
@@ -567,7 +778,7 @@ function ImportItemsModal({ onClose, onImport }) {
                 onMouseLeave={e => e.currentTarget.style.borderColor='var(--line)'}>
                 <UploadCloud size={28} style={{ color:'var(--muted)', marginBottom:8 }} />
                 <div style={{ fontSize:'13px', fontWeight:600, color:'var(--ink)' }}>Click to browse or drop a CSV file</div>
-                <div style={{ fontSize:'12px', color:'var(--muted)', marginTop:4 }}>Columns: Name, Category, Department, Total Qty</div>
+                <div style={{ fontSize:'12px', color:'var(--muted)', marginTop:4 }}>Columns: Name, Category, Department, Location, Total Qty</div>
               </div>
             ) : (
               <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', border:'1px solid var(--line)', borderRadius:10 }}>
@@ -612,6 +823,7 @@ function ImportItemsModal({ onClose, onImport }) {
                         <th style={{ textAlign:'left',  padding:'8px 12px', fontWeight:700, color:'var(--muted)' }}>Name</th>
                         <th style={{ textAlign:'left',  padding:'8px 12px', fontWeight:700, color:'var(--muted)' }}>Category</th>
                         <th style={{ textAlign:'left',  padding:'8px 12px', fontWeight:700, color:'var(--muted)' }}>Department</th>
+                        <th style={{ textAlign:'left',  padding:'8px 12px', fontWeight:700, color:'var(--muted)' }}>Location</th>
                         <th style={{ textAlign:'right', padding:'8px 12px', fontWeight:700, color:'var(--muted)' }}>Total Qty</th>
                       </tr>
                     </thead>
@@ -627,6 +839,7 @@ function ImportItemsModal({ onClose, onImport }) {
                           <td style={{ padding:'7px 12px', color: r._unknownDepartment ? 'hsl(var(--color-orange))' : 'var(--muted)', fontWeight: r._unknownDepartment ? 700 : 400 }}>
                             {r.department || '—'}{r._unknownDepartment && ' ⚠'}
                           </td>
+                          <td style={{ padding:'7px 12px', color:'var(--muted)' }}>{r.location || '—'}</td>
                           <td style={{ padding:'7px 12px', textAlign:'right' }}>{r.total_qty}</td>
                         </tr>
                       ))}
@@ -1160,6 +1373,168 @@ function MyRequestsDrawer({
   );
 }
 
+// ── Manage Items Panel ────────────────────────────────────────────────────────
+function ManageItemsPanel({ items, itemsLoading, itemsError, onRetry, onAdd, onEdit, onDelete, canDelete }) {
+  const [search, setSearch] = useState('');
+
+  const filtered = items.filter(item => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return [item.name, item.category, item.department, item.location]
+      .some(v => (v || '').toLowerCase().includes(q));
+  });
+
+  return (
+    <div>
+      <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap', alignItems:'center' }}>
+        <div className="search-bar" style={{ width:260 }}>
+          <Search size={14} style={{ flexShrink:0 }} />
+          <input placeholder="Search by name, category, department, location…" value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+        <span style={{ fontSize:'13px', color:'var(--muted)' }}>
+          {filtered.length} item{filtered.length !== 1 ? 's' : ''}
+        </span>
+        <button onClick={onAdd} className="primary-btn" style={{ marginLeft:'auto', display:'inline-flex', alignItems:'center', gap:8 }}>
+          <Plus size={15} /> Add Item
+        </button>
+      </div>
+
+      {itemsError ? (
+        <ErrorBanner message="Couldn't load inventory items right now — this is usually temporary." onRetry={onRetry} />
+      ) : itemsLoading ? (
+        <SkeletonBlocks count={5} height={44} borderRadius={8} />
+      ) : filtered.length === 0 ? (
+        <div style={{ textAlign:'center', padding:'48px 20px', color:'var(--muted)', fontSize:'13px' }}>
+          <Package size={32} style={{ margin:'0 auto 10px', opacity:0.35, display:'block' }} />
+          {search ? 'No items match your search.' : 'No inventory items found.'}
+        </div>
+      ) : (
+        <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12.5px' }}>
+            <thead>
+              <tr style={{ background:'var(--mist)' }}>
+                <th style={{ textAlign:'left',  padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>Name</th>
+                <th style={{ textAlign:'left',  padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>Category</th>
+                <th style={{ textAlign:'left',  padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>Department</th>
+                <th style={{ textAlign:'left',  padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>Location</th>
+                <th style={{ textAlign:'right', padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>Available / Total</th>
+                <th style={{ textAlign:'right', padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(item => (
+                <tr key={item.id} style={{ borderTop:'1px solid var(--line)' }}>
+                  <td style={{ padding:'9px 14px', fontWeight:600 }}>{item.name}</td>
+                  <td style={{ padding:'9px 14px', color:'var(--muted)' }}>{item.category || '—'}</td>
+                  <td style={{ padding:'9px 14px', color:'var(--muted)' }}>{item.department || '—'}</td>
+                  <td style={{ padding:'9px 14px', color:'var(--muted)' }}>{item.location || '—'}</td>
+                  <td style={{ padding:'9px 14px', textAlign:'right' }}>{item.available} / {item.total}</td>
+                  <td style={{ padding:'9px 14px', textAlign:'right' }}>
+                    <div style={{ display:'inline-flex', gap:6 }}>
+                      <button onClick={() => onEdit(item)} className="icon-btn" title={`Edit ${item.name}`} aria-label={`Edit ${item.name}`}
+                        style={{ padding:6, borderRadius:7, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', display:'inline-flex' }}>
+                        <Pencil size={13} />
+                      </button>
+                      {canDelete && (
+                        <button onClick={() => onDelete(item)} className="icon-btn" title={`Delete ${item.name}`} aria-label={`Delete ${item.name}`}
+                          style={{ padding:6, borderRadius:7, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', display:'inline-flex', color:'hsl(var(--color-red))' }}>
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Inventory Audit Log Panel ─────────────────────────────────────────────────
+function InventoryAuditLogPanel() {
+  const [query,    setQuery]    = useState('');
+  const [logs,     setLogs]     = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const handle = setTimeout(() => {
+      if (cancelled) return;
+      setLoading(true);
+      setError(null);
+      api.getInventoryAuditLog(query.trim() ? { q: query.trim() } : {})
+        .then(data => { if (!cancelled) setLogs(Array.isArray(data) ? data : data?.rows || []); })
+        .catch(err => { if (!cancelled) setError(err?.message || 'Failed to load audit log'); })
+        .finally(() => { if (!cancelled) setLoading(false); });
+    }, 300);
+    return () => { cancelled = true; clearTimeout(handle); };
+  }, [query]);
+
+  function describeDetails(details) {
+    if (!details) return '—';
+    try {
+      const obj = JSON.parse(details);
+      const entries = Object.entries(obj).filter(([, v]) => v !== null && v !== undefined && v !== '');
+      if (!entries.length) return '—';
+      return entries.map(([k, v]) => `${k}: ${v}`).join(', ');
+    } catch {
+      return details;
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap', alignItems:'center' }}>
+        <div className="search-bar" style={{ width:280 }}>
+          <Search size={14} style={{ flexShrink:0 }} />
+          <input placeholder="Search by item, user, or action…" value={query} onChange={e => setQuery(e.target.value)} />
+        </div>
+        <span style={{ fontSize:'13px', color:'var(--muted)' }}>
+          {logs.length} entr{logs.length !== 1 ? 'ies' : 'y'}
+        </span>
+      </div>
+
+      {error ? (
+        <ErrorBanner message="Couldn't load the audit log right now — this is usually temporary." onRetry={() => setQuery(q => q)} />
+      ) : loading ? (
+        <SkeletonBlocks count={5} height={44} borderRadius={8} />
+      ) : logs.length === 0 ? (
+        <div style={{ textAlign:'center', padding:'48px 20px', color:'var(--muted)', fontSize:'13px' }}>
+          <History size={32} style={{ margin:'0 auto 10px', opacity:0.35, display:'block' }} />
+          {query ? 'No audit entries match your search.' : 'No audit entries yet.'}
+        </div>
+      ) : (
+        <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12.5px' }}>
+            <thead>
+              <tr style={{ background:'var(--mist)' }}>
+                <th style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>Timestamp</th>
+                <th style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>User</th>
+                <th style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>Action</th>
+                <th style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map(log => (
+                <tr key={log.id} style={{ borderTop:'1px solid var(--line)' }}>
+                  <td style={{ padding:'9px 14px', color:'var(--muted)', whiteSpace:'nowrap' }}>{new Date(log.timestamp).toLocaleString()}</td>
+                  <td style={{ padding:'9px 14px' }}>{log.user_email}</td>
+                  <td style={{ padding:'9px 14px', fontWeight:600 }}>{log.action}</td>
+                  <td style={{ padding:'9px 14px', color:'var(--muted)' }}>{describeDetails(log.details)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main View ─────────────────────────────────────────────────────────────────
 export default function InventoryManagement({ activeSub, onSubChange }) {
   const {
@@ -1178,8 +1553,11 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
   const [catFilter,    setCatFilter]    = useState('All');
   const [deptTab,      setDeptTab]      = useState('All');
   const [tab,          setTab]          = useState(activeSub === 'my-requests' ? 'my-requests' : 'inventory');
+  const [mainView,     setMainView]     = useState('catalogue'); // catalogue | manage | audit
   const [showModal,    setShowModal]    = useState(false);
   const [showImport,   setShowImport]   = useState(false);
+  const [showAddItem,  setShowAddItem]  = useState(false);
+  const [showReport,   setShowReport]   = useState(false);
   const [editingItem,  setEditingItem]  = useState(null);
   const [deletingItem, setDeletingItem] = useState(null);
   const [prefillItem,  setPrefillItem]  = useState(null); // item card clicked → opens Raise Request pre-selected
@@ -1306,6 +1684,12 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
     setPrefillItem(null);
   }
 
+  function handleAddItem(data) {
+    return api.createInventoryItem(data)
+      .then(() => { refreshItems(); toast(`Added "${data.name}" to the catalogue.`); })
+      .catch(err => { toast(err?.message || 'Couldn’t add this item — please try again.', 'error'); throw err; });
+  }
+
   function handleEditItem(item, data) {
     return api.updateInventoryItem(item.id, data)
       .then(() => { refreshItems(); toast(`Updated "${data.name}".`); })
@@ -1420,6 +1804,13 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
             style={{ display:'inline-flex', alignItems:'center', gap:8 }}>
             <UploadCloud size={15} /> Import
           </button>
+          {can('manager') && (
+            <button onClick={() => setShowReport(true)} className="secondary-btn"
+              style={{ display:'inline-flex', alignItems:'center', gap:8 }}
+              title="Generate a filterable asset-status report (PDF or Excel)">
+              <FileBarChart size={15} /> Export Report
+            </button>
+          )}
           <button onClick={() => { setPrefillItem(null); setShowModal(true); }} className="primary-btn"
             style={{ display:'inline-flex', alignItems:'center', gap:8 }}>
             <Plus size={15} /> Raise Request
@@ -1427,6 +1818,35 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
         </div>
       </div>
 
+      {/* ── Main view switcher (Catalogue / Manage / Audit Log) ── */}
+      {can('manager') && (
+        <div style={{ display:'flex', gap:8, marginBottom:20, borderBottom:'1px solid var(--line)' }}>
+          {[
+            { id: 'catalogue', label: 'Catalogue',  Icon: Package },
+            { id: 'manage',    label: 'Manage',     Icon: ClipboardList },
+            { id: 'audit',     label: 'Audit Log',  Icon: History },
+          ].map(({ id, label, Icon }) => (
+            <button key={id} onClick={() => setMainView(id)}
+              style={{
+                display:'inline-flex', alignItems:'center', gap:7, padding:'10px 16px',
+                background:'none', border:'none', borderBottom: mainView === id ? '2px solid var(--pine)' : '2px solid transparent',
+                color: mainView === id ? 'var(--ink)' : 'var(--muted)', fontWeight: mainView === id ? 700 : 600,
+                fontSize:'13px', cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-1,
+              }}>
+              <Icon size={14} /> {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {mainView === 'manage' ? (
+        <ManageItemsPanel items={items} itemsLoading={itemsLoading} itemsError={itemsError}
+          onRetry={() => refreshItems()} onAdd={() => setShowAddItem(true)}
+          onEdit={setEditingItem} onDelete={setDeletingItem} canDelete={can('owner')} />
+      ) : mainView === 'audit' ? (
+        <InventoryAuditLogPanel />
+      ) : (
+      <>
       {/* ── KPI row ── */}
       <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4,1fr)', marginBottom:24 }}>
         {[
@@ -1570,6 +1990,11 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
                     <div style={{ fontSize:'11px', marginTop:2, color: dm ? `hsl(${dm.color})` : 'var(--muted)', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                       {item.department}
                     </div>
+                    {item.location && (
+                      <div style={{ display:'flex', alignItems:'center', gap:3, fontSize:'10.5px', marginTop:1, color:'var(--muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        <MapPin size={10} style={{ flexShrink:0 }} /> {item.location}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <span style={{ padding:'3px 8px', borderRadius:20, fontSize:'10.5px', fontWeight:600, background:cat.bg, color:cat.fg, whiteSpace:'nowrap', flexShrink:0 }}>
@@ -1636,6 +2061,8 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
           {search || catFilter !== 'All' ? `No items match your filters.` : 'No inventory items found.'}
         </div>
       )}
+      </>
+      )}
 
       {showModal && (
         <RaiseRequestModal items={items} currentUser={userName} canRaiseOnBehalf={can('supervisor')}
@@ -1647,6 +2074,12 @@ export default function InventoryManagement({ activeSub, onSubChange }) {
       )}
       {showImport && (
         <ImportItemsModal onClose={() => setShowImport(false)} onImport={handleImport} />
+      )}
+      {showAddItem && (
+        <AddItemModal onClose={() => setShowAddItem(false)} onSave={handleAddItem} />
+      )}
+      {showReport && (
+        <ReportModal onClose={() => setShowReport(false)} />
       )}
       {editingItem && (
         <EditItemModal item={editingItem} onClose={() => setEditingItem(null)}

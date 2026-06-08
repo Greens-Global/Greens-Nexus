@@ -40,6 +40,8 @@ def _run_migrations():
         "ALTER TABLE inventory_requests ADD COLUMN IF NOT EXISTS assigned_allocator_name VARCHAR DEFAULT ''",
         # nexus_roles: display name captured from Microsoft Graph at assignment time
         "ALTER TABLE nexus_roles ADD COLUMN IF NOT EXISTS display_name VARCHAR DEFAULT ''",
+        # inventory_items: physical site/storage location (e.g. "GSVC", "GSE")
+        "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS location VARCHAR DEFAULT ''",
     ]
     with engine.connect() as conn:
         for sql in migrations:

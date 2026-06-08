@@ -69,6 +69,30 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   return res.json();
 }
 
+// Like req(), but for endpoints that return a file (Excel/PDF export) rather
+// than JSON — returns the blob plus the filename the server suggested via
+// Content-Disposition, so the caller can trigger a download.
+async function reqBlob(path, options = {}, tokenRefreshed = false) {
+  const authHeader = await getAuthHeader(tokenRefreshed);
+  const res = await fetch(`${BASE}${path}`, {
+    ...options,
+    headers: { ...authHeader, ...(options.headers ?? {}) },
+  });
+  if (res.status === 401 && !tokenRefreshed) {
+    return reqBlob(path, options, true);
+  }
+  if (!res.ok) {
+    let detail;
+    try { detail = (await res.json())?.detail; } catch { /* not JSON */ }
+    const err = new Error(detail || `API error ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  const disposition = res.headers.get('content-disposition') || '';
+  const match = disposition.match(/filename="?([^";]+)"?/);
+  return { blob: await res.blob(), filename: match?.[1] || 'download' };
+}
+
 export const api = {
   // Dashboard
   getDashboardSummary: () => req("/dashboard/summary"),
@@ -136,9 +160,12 @@ export const api = {
 
   // Inventory Requests (persisted in Supabase)
   getInventoryItems:       ()          => req('/inventory-requests/items'),
+  createInventoryItem:     (data)       => req('/inventory-requests/items', { method: 'POST', body: JSON.stringify(data) }),
   importInventoryItems:    (items)      => req('/inventory-requests/items/import', { method: 'POST', body: JSON.stringify({ items }) }),
   updateInventoryItem:     (id, data)   => req(`/inventory-requests/items/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteInventoryItem:     (id)         => req(`/inventory-requests/items/${id}`, { method: 'DELETE' }),
+  getInventoryReport:      (params)     => reqBlob(`/inventory-requests/report?${new URLSearchParams(params)}`),
+  getInventoryAuditLog:    (params)     => req(`/inventory-requests/audit-log?${new URLSearchParams(params)}`),
   getInventoryAllocators:  ()          => req('/inventory-requests/allocators'),
   getInventoryRequests:    ()          => req('/inventory-requests'),
   createInventoryRequest:  (data)      => req('/inventory-requests', { method: 'POST', body: JSON.stringify(data) }),

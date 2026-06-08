@@ -271,6 +271,7 @@ class InventoryItem(Base):
     name          = Column(String, nullable=False)
     category      = Column(String, default="")
     department    = Column(String, default="")
+    location      = Column(String, default="")   # physical site/storage location, e.g. "GSVC", "GSE"
     total_qty     = Column(Integer, default=0)
     available_qty = Column(Integer, default=0)
     last_updated  = Column(String, default="")

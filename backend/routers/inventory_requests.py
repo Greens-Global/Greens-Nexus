@@ -1,8 +1,10 @@
+import io
 import os
 import threading
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy import text, or_, func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -10,7 +12,7 @@ from typing import Optional
 import httpx
 from database import get_db
 from auth import get_current_user, require_manager, require_owner
-from models import InventoryRequest, InventoryItem, NexusRole
+from models import InventoryRequest, InventoryItem, NexusRole, AuditLog
 
 # Valid predecessor statuses for each target status — guards against illegal
 # jumps like pending -> allocated or re-approving an already-resolved request.
@@ -169,6 +171,7 @@ def _item_to_dict(i: InventoryItem) -> dict:
         "name":       i.name,
         "category":   i.category,
         "department": i.department,
+        "location":   i.location,
         "available":  i.available_qty,
         "total":      i.total_qty,
     }
@@ -186,6 +189,7 @@ class ItemImportRow(BaseModel):
     name:       str
     category:   Optional[str] = ""
     department: Optional[str] = ""
+    location:   Optional[str] = ""
     total_qty:  int = 0
 
 
@@ -211,6 +215,7 @@ def import_items(body: ItemImportRequest, user: dict = Depends(get_current_user)
         total = max(row.total_qty, 0)
         category   = (row.category or "").strip()
         department = (row.department or "").strip()
+        location   = (row.location or "").strip()
 
         existing = db.query(InventoryItem).filter(func.lower(InventoryItem.name) == name.lower()).first()
         if existing:
@@ -219,6 +224,7 @@ def import_items(body: ItemImportRequest, user: dict = Depends(get_current_user)
             existing.available_qty = min(max(existing.available_qty + delta, 0), total)
             if category:   existing.category   = category
             if department: existing.department = department
+            if location:   existing.location   = location
             existing.last_updated  = now
             updated += 1
         else:
@@ -227,6 +233,7 @@ def import_items(body: ItemImportRequest, user: dict = Depends(get_current_user)
                 name=name,
                 category=category,
                 department=department,
+                location=location,
                 total_qty=total,
                 available_qty=total,
                 last_updated=now,
@@ -241,15 +248,55 @@ class ItemUpdate(BaseModel):
     name:       Optional[str] = None
     category:   Optional[str] = None
     department: Optional[str] = None
+    location:   Optional[str] = None
     total_qty:  Optional[int] = None
+
+
+class ItemCreate(BaseModel):
+    name:       str
+    category:   Optional[str] = ""
+    department: Optional[str] = ""
+    location:   Optional[str] = ""
+    total_qty:  int = 0
+
+
+@router.post("/items", status_code=201)
+def create_item(body: ItemCreate, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    """Manually add a new catalogue item — the friendly counterpart to bulk CSV
+    import, for managers who just need to add one or two new things. Same
+    duplicate-name guard as update_item so the catalogue can't end up with two
+    entries for the same thing via the two different creation paths."""
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "Name cannot be empty")
+    dupe = db.query(InventoryItem).filter(func.lower(InventoryItem.name) == name.lower()).first()
+    if dupe:
+        raise HTTPException(409, f"An item named '{name}' already exists")
+
+    total = max(body.total_qty, 0)
+    now = datetime.now(timezone.utc).isoformat()
+    item = InventoryItem(
+        id=str(uuid.uuid4()),
+        name=name,
+        category=(body.category or "").strip(),
+        department=(body.department or "").strip(),
+        location=(body.location or "").strip(),
+        total_qty=total,
+        available_qty=total,
+        last_updated=now,
+    )
+    db.add(item)
+    db.commit()
+    return _item_to_dict(item)
 
 
 @router.patch("/items/{item_id}")
 def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
-    """Edit a catalogue item's name/category/department/stock total. Manager and
-    above — same bar as approving requests, since this affects what the whole
-    org sees and can request. Changing total_qty shifts available_qty by the
-    same delta, mirroring the bulk-import logic so units on loan stay accounted for."""
+    """Edit a catalogue item's name/category/department/location/stock total.
+    Manager and above — same bar as approving requests, since this affects what
+    the whole org sees and can request. Changing total_qty shifts available_qty
+    by the same delta, mirroring the bulk-import logic so units on loan stay
+    accounted for."""
     item = db.query(InventoryItem).filter(InventoryItem.id == item_id).first()
     if not item:
         raise HTTPException(404, "Item not found")
@@ -268,6 +315,8 @@ def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(require_man
         item.category = body.category.strip()
     if body.department is not None:
         item.department = body.department.strip()
+    if body.location is not None:
+        item.location = body.location.strip()
     if body.total_qty is not None:
         total = max(body.total_qty, 0)
         delta = total - item.total_qty
@@ -422,3 +471,158 @@ def update_request(req_id: str, body: StatusUpdate, user: dict = Depends(get_cur
     db.commit()
     _fire_inventory_event(req_id, row.status, row.requested_by_email or "")
     return _to_dict(row)
+
+
+_REPORT_HEADERS = [
+    "Item", "Category", "Department", "Location", "Requested By", "Requested By Email",
+    "Quantity", "Status", "Requested Date", "Allocated Date", "Allocated By",
+    "Returned Date", "Condition Note",
+]
+
+
+def _report_rows(db: Session, *, user_email, location, department, category, status):
+    """Joins requests to their catalogue item (loose string-key coupling, same as
+    elsewhere in this router) so location/category — which only live on the item —
+    can be filtered and displayed alongside per-request details."""
+    q = db.query(InventoryRequest, InventoryItem).outerjoin(
+        InventoryItem, InventoryRequest.item_id == InventoryItem.id
+    ).order_by(InventoryRequest.created_at.desc())
+
+    if user_email:
+        q = q.filter(InventoryRequest.requested_by_email == user_email.lower().strip())
+    if department:
+        q = q.filter(InventoryRequest.department == department)
+    if status:
+        q = q.filter(InventoryRequest.status == status)
+    if location:
+        q = q.filter(func.lower(InventoryItem.location) == location.lower().strip())
+    if category:
+        q = q.filter(InventoryItem.category == category)
+
+    rows = []
+    for r, item in q.all():
+        rows.append([
+            r.item_name, item.category if item else "", r.department, item.location if item else "",
+            r.requested_by, r.requested_by_email, r.quantity, r.status,
+            r.created_at[:10] if r.created_at else "",
+            r.allocated_at[:10] if r.allocated_at else "", r.allocated_by or "",
+            r.returned_at[:10] if r.returned_at else "", r.condition_note or "",
+        ])
+    return rows
+
+
+@router.get("/report")
+def export_inventory_report(
+    format: str = "excel",
+    user_email: Optional[str] = None,
+    location: Optional[str] = None,
+    department: Optional[str] = None,
+    category: Optional[str] = None,
+    status: Optional[str] = None,
+    user: dict = Depends(require_manager),
+    db: Session = Depends(get_db),
+):
+    """Filterable asset-status report, exportable as Excel or PDF — manager and
+    above, matching the bar for the catalogue-wide CSV export."""
+    rows = _report_rows(db, user_email=user_email, location=location, department=department,
+                        category=category, status=status)
+    stamp = datetime.utcnow().strftime("%Y%m%d")
+
+    if format == "pdf":
+        try:
+            from reportlab.lib import colors
+            from reportlab.lib.pagesizes import landscape, A4
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
+        except ImportError:
+            raise HTTPException(500, "reportlab not installed — run: pip install reportlab")
+
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=landscape(A4), title="Inventory Asset Status Report")
+        table = Table([_REPORT_HEADERS] + rows, repeatRows=1)
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1A1A2E")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTSIZE", (0, 0), (-1, -1), 6.5),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#DDDDDD")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F5F5FA")]),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        doc.build([table])
+        buf.seek(0)
+        filename = f"inventory_report_{stamp}.pdf"
+        return StreamingResponse(buf, media_type="application/pdf",
+                                 headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+    except ImportError:
+        raise HTTPException(500, "openpyxl not installed — run: pip install openpyxl")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Asset Status Report"
+
+    header_fill = PatternFill(start_color="1A1A2E", end_color="1A1A2E", fill_type="solid")
+    header_font = Font(bold=True, color="FFFFFF")
+    for col, h in enumerate(_REPORT_HEADERS, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+    for row in rows:
+        ws.append(row)
+    for col in ws.columns:
+        max_len = max((len(str(cell.value or "")) for cell in col), default=0)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 40)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f"inventory_report_{stamp}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.get("/audit-log")
+def inventory_audit_log(
+    q: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    user: dict = Depends(require_manager),
+    db: Session = Depends(get_db),
+):
+    """Manager-accessible, inventory-scoped slice of the audit log — searchable
+    by item name/id, user, or action. Deliberately separate from the admin-only
+    system-wide GET /audit-logs (level >= 4) so managers can see catalogue
+    history without exposing other modules' audit data."""
+    query = db.query(AuditLog).filter(AuditLog.resource_type == "inventory-requests")
+    if q:
+        needle = q.strip()
+        query = query.filter(or_(
+            AuditLog.details.contains(needle),
+            AuditLog.user_email.contains(needle.lower()),
+            AuditLog.action.contains(needle),
+            AuditLog.resource_id.contains(needle),
+        ))
+    total = query.count()
+    rows = query.order_by(AuditLog.timestamp.desc()).offset(offset).limit(limit).all()
+    return {
+        "total": total,
+        "rows": [
+            {
+                "id":            r.id,
+                "timestamp":     r.timestamp,
+                "user_email":    r.user_email,
+                "user_role":     r.user_role,
+                "action":        r.action,
+                "resource_id":   r.resource_id,
+                "details":       r.details,
+            }
+            for r in rows
+        ],
+    }
