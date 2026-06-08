@@ -33,6 +33,8 @@ jobs:
         env:
           VITE_API_BASE: ${{ secrets.VITE_API_BASE }}
           VITE_REDIRECT_URI: ${{ vars.VITE_REDIRECT_URI }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend/dist
