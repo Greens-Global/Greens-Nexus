@@ -1,5 +1,4 @@
 import os
-import ssl
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -11,34 +10,23 @@ DATABASE_URL = os.environ.get(
 if DATABASE_URL.startswith("sqlite"):
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 else:
-    # Force pg8000 driver (pure Python, no C extensions needed)
-    url = DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+pg8000://")
-    if not url.startswith("postgresql+"):
-        url = url.replace("postgresql://", "postgresql+pg8000://")
-    # Supabase requires SSL — pg8000 needs it passed explicitly via ssl_context.
-    # CERT_NONE is intentional: Supabase uses a self-signed intermediate CA that is
-    # not in Azure App Service's trust store (sslmode=require, not verify-full).
-    # The connection is still TLS-encrypted; only certificate chain verification is skipped.
-    ssl_ctx = ssl.create_default_context()
-    ssl_ctx.check_hostname = False
-    ssl_ctx.verify_mode = ssl.CERT_NONE
+    # psycopg2-binary bundles its own libpq — no system dependencies needed on
+    # Azure App Service. sslmode=require encrypts without verifying the cert chain;
+    # Supabase's intermediate CA isn't in Azure's trust store so verify-full fails.
+    url = DATABASE_URL
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+    elif url.startswith("postgresql+pg8000://"):
+        url = url.replace("postgresql+pg8000://", "postgresql+psycopg2://", 1)
     engine = create_engine(
         url,
-        connect_args={"ssl_context": ssl_ctx, "options": "-c statement_timeout=25000"},
-        # Routes are sync (`def`, not `async def`), so each request borrows a
-        # connection from this pool while running in FastAPI's threadpool.
-        # SQLAlchemy's defaults (5 + 10 = 15 per worker) became the limiting
-        # factor once CPU was no longer the bottleneck. Modest bump — stay
-        # mindful this multiplies by gunicorn worker count against whatever
-        # connection ceiling the Supabase pooler enforces on the dev project.
-        # 8 workers × (pool_size + max_overflow) must stay under Supabase's
-        # connection ceiling. 8 × (3 + 5) = 64 — safe on any paid plan.
+        connect_args={"sslmode": "require", "options": "-c statement_timeout=25000"},
+        # 8 workers × (pool_size + max_overflow) = 64 max connections — safe on
+        # Supabase Pro. pool_pre_ping replaces stale connections transparently;
+        # pool_recycle retires them before Supabase's pooler drops them.
         pool_size=3,
         max_overflow=5,
         pool_timeout=10,
-        # Supabase's pooler drops idle connections; pre_ping detects and replaces
-        # dead ones transparently instead of surfacing "connection closed" errors,
-        # and recycle proactively retires connections before they go stale.
         pool_pre_ping=True,
         pool_recycle=300,
     )
