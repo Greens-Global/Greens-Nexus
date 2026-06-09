@@ -462,7 +462,7 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
     )
     db.add(row)
     if initial_status == "pending":
-        _notify(db, type="req_pending", recipient="",
+        _notify(db, type="checkout_pending", recipient="",
                 title=f"Checkout request: {body.item_name}",
                 body=f"{body.requested_by} needs {body.item_name} for {body.days} day(s) — \"{body.reason}\"",
                 ref_id=body.id, item_name=body.item_name, requested_by=body.requested_by)

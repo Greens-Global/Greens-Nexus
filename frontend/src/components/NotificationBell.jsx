@@ -25,13 +25,15 @@ function timeAgo(iso) {
 }
 
 const TYPE_META = {
-  inv_request:     { icon: Package,      label: 'Inventory Request',    color: 'var(--color-blue)'   },
-  req_pending:     { icon: ShoppingCart, label: 'Purchase Requisition', color: 'var(--color-orange)' },
-  item_returned:   { icon: RotateCcw,    label: 'Item Returned',        color: 'var(--color-green)'  },
-  allocate_request:{ icon: Package,      label: 'Allocation Needed',    color: 'var(--color-orange)' },
-  allocated:       { icon: CheckCircle,  label: 'Item Allocated',       color: 'var(--color-green)'  },
-  approved:        { icon: CheckCircle,  label: 'Request Approved',     color: 'var(--color-green)'  },
-  rejected:        { icon: XCircle,      label: 'Request Rejected',     color: 'var(--color-red)'    },
+  inv_request:      { icon: Package,      label: 'Inventory Request',    color: 'var(--color-blue)'   },
+  req_pending:      { icon: ShoppingCart, label: 'Purchase Requisition', color: 'var(--color-orange)' },
+  checkout_pending: { icon: ShoppingCart, label: 'Checkout Request',     color: 'var(--color-orange)' },
+  item_returned:    { icon: RotateCcw,    label: 'Item Returned',        color: 'var(--color-green)'  },
+  allocate_request: { icon: Package,      label: 'Allocation Needed',    color: 'var(--color-orange)' },
+  allocated:        { icon: CheckCircle,  label: 'Item Allocated',       color: 'var(--color-green)'  },
+  approved:         { icon: CheckCircle,  label: 'Request Approved',     color: 'var(--color-green)'  },
+  rejected:         { icon: XCircle,      label: 'Request Rejected',     color: 'var(--color-red)'    },
+  custom_alert:     { icon: AlertCircle,  label: 'Alert',                color: 'var(--color-orange)' },
 };
 
 // Short stage labels/colors for chips on cards and the lifecycle "trail" strip
@@ -39,9 +41,10 @@ const TYPE_META = {
 const STAGE_META = {
   inv_request:      { label: 'Requested',  color: 'var(--color-blue)'   },
   req_pending:      { label: 'Requested',  color: 'var(--color-orange)' },
+  checkout_pending: { label: 'Pending',    color: 'var(--color-orange)' },
   approved:         { label: 'Approved',   color: 'var(--color-green)'  },
   allocate_request: { label: 'Allocating', color: 'var(--color-orange)' },
-  allocated:        { label: 'Allocated',  color: 'var(--color-green)'  },
+  allocated:        { label: 'In Use',     color: 'var(--color-green)'  },
   item_returned:    { label: 'Returned',   color: 'var(--color-blue)'   },
   rejected:         { label: 'Rejected',   color: 'var(--color-red)'    },
 };
@@ -152,34 +155,32 @@ export default function NotificationBell({ onNavigate }) {
     }, 950);
   }
 
+  function clearActionError(id) {
+    setActionError(prev => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev }; delete next[id]; return next;
+    });
+  }
+
   function handleAction(n, action) {
     const refId       = n.refId       ?? '';
     const itemName    = n.itemName    ?? 'the item';
     const requestedBy = n.requestedBy ?? '';
 
-    if (n.type === 'inv_request') {
+    // New Items checkout pending — needs allocator picker before approving
+    if (n.type === 'checkout_pending' || n.type === 'inv_request') {
       if (action === 'approve') {
-        // Approving now requires picking who'll physically hand the item over —
-        // open the inline allocator picker instead of approving outright.
         setApprovingId(n.id);
         setPickedAllocator('');
         setRejectingId(null);
-        setActionError(prev => {
-          if (!(n.id in prev)) return prev;
-          const next = { ...prev };
-          delete next[n.id];
-          return next;
-        });
+        clearActionError(n.id);
       } else {
-        setRejectingId(n.id); setApprovingId(null);
-        setActionError(prev => {
-          if (!(n.id in prev)) return prev;
-          const next = { ...prev };
-          delete next[n.id];
-          return next;
-        });
+        setRejectingId(n.id);
+        setApprovingId(null);
+        clearActionError(n.id);
       }
     } else if (n.type === 'req_pending') {
+      // Purchase requisition
       if (action === 'approve') {
         approveRequisition(refId, myName);
         markActioned(n.id);
@@ -192,8 +193,9 @@ export default function NotificationBell({ onNavigate }) {
     }
   }
 
-  // Confirms an inventory approval once a name has been picked from the
-  // allocator dropdown — assigns the request to them and notifies both sides.
+  // Confirms approval once an allocator has been picked.
+  // checkout_pending: backend fires approved/allocate_request notifications automatically.
+  // inv_request (old system): we fire them manually via addNotification.
   function submitApprove(n) {
     const chosen = allocators.find(a => a.email === pickedAllocator);
     if (!chosen) return;
@@ -204,34 +206,28 @@ export default function NotificationBell({ onNavigate }) {
     const recipientEmail = n.action?.requestedByEmail ?? invReq?.requestedByEmail ?? '';
 
     setApprovingBusy(true);
-    setActionError(prev => {
-      if (!(n.id in prev)) return prev;
-      const next = { ...prev };
-      delete next[n.id];
-      return next;
-    });
+    clearActionError(n.id);
     approveRequest(refId, myName, chosen.email, chosen.name)
       .then(() => {
         markActioned(n.id);
         resolveAndDismiss(n, 'approved');
-        addNotification({
-          type:        'approved',
-          recipient:   recipientEmail || requestedBy,
-          requestedBy, itemName,
-          title: 'Request Approved ✓',
-          body:  `Your request for ${itemName} has been approved by ${myName}. It will be assigned to you by your supervisor shortly.`,
-          action: { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
-        });
-        addNotification({
-          type:        'allocate_request',
-          recipient:   chosen.email,
-          refId,
-          itemName,
-          requestedBy,
-          title:       'Allocate an Item',
-          body:        `${myName} approved ${requestedBy}'s request for ${itemName} and assigned it to you to hand over.`,
-          action:      { label: 'Allocate Now →', kind: 'allocate' },
-        });
+        // Old inventory system: manually push notifications (backend doesn't do it)
+        if (n.type === 'inv_request') {
+          addNotification({
+            type: 'approved', recipient: recipientEmail || requestedBy,
+            requestedBy, itemName,
+            title: 'Request Approved ✓',
+            body:  `Your request for ${itemName} has been approved by ${myName}. It will be assigned to you by your supervisor shortly.`,
+            action: { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
+          });
+          addNotification({
+            type: 'allocate_request', recipient: chosen.email, refId, itemName, requestedBy,
+            title: 'Allocate an Item',
+            body:  `${myName} approved ${requestedBy}'s request for ${itemName} and assigned it to you to hand over.`,
+            action: { label: 'Allocate Now →', kind: 'allocate' },
+          });
+        }
+        // checkout_pending: backend already creates approved notification for the employee
         setApprovingId(null);
         setPickedAllocator('');
       })
@@ -245,20 +241,21 @@ export default function NotificationBell({ onNavigate }) {
     const itemName    = n.itemName    ?? 'the item';
     const requestedBy = n.requestedBy ?? '';
 
-    if (n.type === 'inv_request') {
+    if (n.type === 'checkout_pending') {
+      // Backend creates rejected notification for the employee automatically
+      rejectRequest(refId, myName, rejectReason.trim());
+    } else if (n.type === 'inv_request') {
       rejectRequest(refId, myName, rejectReason.trim());
       const invReq = invRequests.find(r => r.id === refId);
       const recipientEmail = n.action?.requestedByEmail ?? invReq?.requestedByEmail ?? '';
       addNotification({
-        type:        'rejected',
-        recipient:   recipientEmail || requestedBy,
+        type: 'rejected', recipient: recipientEmail || requestedBy,
         requestedBy, itemName,
         title: 'Request Rejected',
         body:  `Your request for ${itemName} was not approved. Reason: "${rejectReason.trim()}"`,
         action: { label: 'View Request →', view: 'inventory', sub: 'my-requests' },
       });
-    }
-    if (n.type === 'req_pending') {
+    } else if (n.type === 'req_pending') {
       rejectRequisition(refId, myName, rejectReason.trim());
       addNotification({ type: 'rejected', recipient: requestedBy, requestedBy, itemName,
         title: 'Requisition Rejected',
@@ -305,9 +302,11 @@ export default function NotificationBell({ onNavigate }) {
     }, AUTO_DISMISS_MS);
   }
 
-  // Needs Action: only visible to managers+ (they have approve/reject capability)
+  // Needs Action: only visible to managers+
+  // checkout_pending = new Items module; inv_request/req_pending = older systems
+  const ACTIONABLE_TYPES = new Set(['inv_request', 'req_pending', 'checkout_pending']);
   const actionable = can('manager') ? notifications.filter(n =>
-    (n.type === 'inv_request' || n.type === 'req_pending') && !n.recipient && !n.actioned
+    ACTIONABLE_TYPES.has(n.type) && !n.recipient && !n.actioned
   ) : [];
 
   // A toast click set this to a notification id — open the panel straight into
@@ -324,9 +323,9 @@ export default function NotificationBell({ onNavigate }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingApprovalId]);
 
-  // Updates: no recipient (global) OR addressed to my email or my display name
+  // Updates: everything that isn't an actionable type, scoped to me or broadcast
   const updates = notifications.filter(n =>
-    n.type !== 'inv_request' && n.type !== 'req_pending' &&
+    !ACTIONABLE_TYPES.has(n.type) &&
     (!n.recipient || n.recipient === myEmail || n.recipient === myName)
   );
 
