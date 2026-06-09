@@ -24,7 +24,7 @@ export const MODULES = [
   { id: 'hr',                  label: 'HR' },
   { id: 'marketing',           label: 'Marketing' },
   { id: 'external-links',      label: 'External Links' },
-  { id: 'inventory',           label: 'Inventory Management' },
+  { id: 'inventory',           label: 'Item Management' },
   { id: 'admin',               label: 'Nexus Access Manager' },
   { id: 'support',             label: 'Support' },
 ];
