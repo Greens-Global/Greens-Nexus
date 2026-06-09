@@ -16,7 +16,6 @@ const NAV = [
   { view: "dashboard",         label: "Dashboard",          icon: LayoutDashboard },
   { view: "manager-dashboard", label: "Manager Dashboard",  icon: UserCheck,    minRole: 'supervisor' },
   { divider: true },
-  { view: "purchase",          label: "Purchase Requisition", icon: ShoppingCart, minRole: 'supervisor' },
   { view: "tasks",             label: "Tasks",               icon: CheckSquare,  minRole: 'supervisor' },
   {
     view: "sop", label: "Knowledge Base", icon: BookOpen, minRole: 'supervisor',

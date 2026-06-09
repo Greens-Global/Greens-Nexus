@@ -41,7 +41,6 @@ const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // Views absent from this map are accessible to everyone (dashboard, inventory, support).
 const VIEW_MIN_ROLES = {
   'manager-dashboard':  'supervisor',
-  'purchase':           'supervisor',
   'tasks':              'supervisor',
   'sop':                'supervisor',
   'it':                 'supervisor',

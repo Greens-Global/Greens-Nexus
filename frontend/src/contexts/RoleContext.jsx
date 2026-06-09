@@ -11,7 +11,6 @@ const RoleCtx = createContext(null);
 export const MODULES = [
   { id: 'dashboard',           label: 'Dashboard' },
   { id: 'manager-dashboard',   label: 'Manager Dashboard' },
-  { id: 'purchase',            label: 'Purchase Requisition' },
   { id: 'tasks',               label: 'Tasks' },
   { id: 'sop',                 label: 'Knowledge Base' },
   { id: 'it',                  label: 'IT' },
