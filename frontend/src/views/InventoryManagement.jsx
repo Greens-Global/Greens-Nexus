@@ -3,7 +3,7 @@ import {
   Package, Plus, Search, CheckCircle, Clock, XCircle, RotateCcw, Camera,
   AlertCircle, X, Loader2, ChevronDown, UploadCloud, FileSpreadsheet,
   Download, Pencil, Trash2, MapPin, ClipboardList, History, FileBarChart,
-  ShoppingCart, Filter, ZoomIn, Car, Wrench, Key, Monitor, Box,
+  ShoppingCart, Filter, ZoomIn, Car, Wrench, Key, Monitor, Box, FileText,
   ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image, LayoutGrid, User,
 } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
@@ -44,12 +44,13 @@ const STATUS_META = {
 };
 
 const CHECKOUT_STATUS_META = {
-  pending:   { label: 'Pending',          bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))', Icon: Clock },
-  approved:  { label: 'To Be Allocated',  bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))',   Icon: Package },
-  allocated: { label: 'In Use',           bg: 'hsla(var(--color-green),0.12)',  fg: 'hsl(var(--color-green))',  Icon: CheckCircle },
-  rejected:  { label: 'Rejected',         bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
-  returned:  { label: 'Returned',         bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))',   Icon: RotateCcw },
-  cancelled: { label: 'Cancelled',        bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
+  pending:         { label: 'Pending',            bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))', Icon: Clock },
+  approved:        { label: 'Awaiting Handover',  bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))',   Icon: Package },
+  pending_receipt: { label: 'Confirm Receipt',    bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))', Icon: Camera },
+  allocated:       { label: 'In Use',             bg: 'hsla(var(--color-green),0.12)',  fg: 'hsl(var(--color-green))',  Icon: CheckCircle },
+  rejected:        { label: 'Rejected',           bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
+  returned:        { label: 'Returned',           bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))',   Icon: RotateCcw },
+  cancelled:       { label: 'Cancelled',          bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
 };
 
 const DEPARTMENTS = ['All', 'IT', 'Construction', 'Operations', 'Accounting', 'Fleet', 'Facilities', 'Marketing', 'HR'];
@@ -926,14 +927,20 @@ function AuditLogPanel() {
 
 // ── Stage Tracker ─────────────────────────────────────────────────────────────
 const STAGES = [
-  { key:'pending',   label:'Submitted' },
-  { key:'approved',  label:'Approved'  },
-  { key:'allocated', label:'In Use'    },
-  { key:'returned',  label:'Returned'  },
+  { key:'pending',         label:'Submitted'   },
+  { key:'approved',        label:'Approved'    },
+  { key:'pending_receipt', label:'Handed Over' },
+  { key:'allocated',       label:'In Use'      },
+  { key:'returned',        label:'Returned'    },
 ];
 function StageTracker({ checkout }) {
-  const ORDER = ['pending','approved','allocated','returned'];
-  const idx   = ORDER.indexOf(checkout.status);
+  const ORDER = ['pending','approved','pending_receipt','allocated','returned'];
+  // Treat 'allocated' reached directly (no pending_receipt) as if pending_receipt was passed
+  let status = checkout.status;
+  if (status === 'allocated' && !checkout.handedOverAt && checkout.handoverPhotoBy !== 'employee') {
+    // allocator-direct path: skip the pending_receipt dot visually by treating it as done
+  }
+  const idx = ORDER.indexOf(status);
   const isRejected  = checkout.status === 'rejected';
   const isCancelled = checkout.status === 'cancelled';
 
@@ -1084,7 +1091,7 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
 }
 
 // ── My Checkouts Panel ────────────────────────────────────────────────────────
-function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept, onReRequest }) {
+function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept, onConfirmReceipt, onReRequest }) {
   const mine = checkouts.filter(c =>
     (c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) ||
     c.requestedBy === userName
@@ -1094,9 +1101,10 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
   const [reRequestId,     setReRequestId]     = useState(null);
   const [reRequestReason, setReRequestReason] = useState('');
   const [reRequestBusy,   setReRequestBusy]   = useState(false);
+  const [confirmingCo,    setConfirmingCo]    = useState(null);
 
   const active    = mine.filter(c =>
-    ['pending','approved','allocated'].includes(c.status) ||
+    ['pending','approved','pending_receipt','allocated'].includes(c.status) ||
     (c.status === 'rejected' && !dismissedIds.has(c.id))
   );
   const completed = mine.filter(c =>
@@ -1139,6 +1147,8 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
         const firstItem = groupItems[0];
         const groupKey = firstItem.orderId || firstItem.id;
         const cancellableItems = groupItems.filter(c => ['pending','approved'].includes(c.status));
+        const pendingReceiptItems = groupItems.filter(c => c.status === 'pending_receipt');
+        const allPendingReceipt = isMulti && pendingReceiptItems.length === groupItems.length;
         return (
           <div key={groupKey} style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', marginBottom:12, background:'var(--card)', boxShadow:'var(--shadow-sm)' }}>
             {isMulti && (
@@ -1147,7 +1157,15 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
                 <span style={{ fontSize:12.5, fontWeight:700, color:'hsl(var(--color-blue))' }}>Order · {groupItems.length} items</span>
                 <span style={{ fontSize:12, color:'var(--muted)', marginLeft:4 }}>· {fmtDateShort(firstItem.createdAt)}</span>
                 {firstItem.reason && <span style={{ fontSize:12, color:'var(--muted)', fontStyle:'italic', marginLeft:4 }}>"{firstItem.reason}"</span>}
-                {cancellableItems.length > 1 && cancelAllKey !== groupKey && (
+                {/* Group-level confirm receipt button when all items are pending_receipt */}
+                {allPendingReceipt && onConfirmReceipt && (
+                  <button className="primary-btn"
+                    style={{ marginLeft:'auto', fontSize:11.5, padding:'4px 12px', display:'inline-flex', alignItems:'center', gap:4 }}
+                    onClick={() => setConfirmingCo(pendingReceiptItems)}>
+                    <Camera size={12} /> Confirm Receipt for All
+                  </button>
+                )}
+                {cancellableItems.length > 1 && !allPendingReceipt && cancelAllKey !== groupKey && (
                   <button onClick={() => setCancelAllKey(groupKey)}
                     style={{ marginLeft:'auto', background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:7, padding:'3px 10px', fontSize:11.5, cursor:'pointer', color:'hsl(var(--color-red))', display:'inline-flex', alignItems:'center', gap:4, fontFamily:'Inter,sans-serif', fontWeight:600 }}>
                     <XCircle size={11} /> Cancel All
@@ -1234,10 +1252,16 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
                         <RotateCcw size={13} /> Return Item
                       </button>
                     )}
+                    {c.status === 'pending_receipt' && onConfirmReceipt && (
+                      <button className="primary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5 }}
+                        onClick={() => setConfirmingCo(c)}>
+                        <Camera size={13} /> Confirm Receipt &amp; Upload Photo
+                      </button>
+                    )}
                     {c.status === 'approved' && (onEmployeeAccept || onSelfAllocate) && (
                       <button className="primary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5, background:'hsl(var(--color-green))' }}
                         onClick={() => onEmployeeAccept ? setAcceptingCo(c) : onSelfAllocate(c)}>
-                        <Camera size={13} /> Accept & Upload Photo
+                        <Camera size={13} /> Accept &amp; Upload Photo
                       </button>
                     )}
                     {['pending','approved'].includes(c.status) && cancelId !== c.id && (
@@ -1308,6 +1332,20 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
           onConfirm={(url, name) => onEmployeeAccept(acceptingCo, url, name).then(() => setAcceptingCo(null))}
         />
       )}
+      {confirmingCo && onConfirmReceipt && (() => {
+        const isArr = Array.isArray(confirmingCo);
+        const coList = isArr ? confirmingCo : [confirmingCo];
+        return (
+          <ReceiptConfirmModal
+            checkouts={coList}
+            onClose={() => setConfirmingCo(null)}
+            onConfirm={({ batch, photoMap }) => {
+              const calls = coList.map(co => onConfirmReceipt(co, batch, photoMap));
+              return Promise.all(calls).then(() => setConfirmingCo(null));
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }
@@ -1446,7 +1484,7 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
 }
 
 // ── Employee View ─────────────────────────────────────────────────────────────
-function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, refreshCheckouts, submitCartCheckouts, cancelRequest, allocateItem, toast }) {
+function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, refreshCheckouts, submitCartCheckouts, cancelRequest, allocateItem, confirmReceipt, toast }) {
   const [tab,            setTab]            = useState('catalog');
   const [mode,           setMode]           = useState('home');
   const [viewMode,       setViewMode]       = useState('tile');
@@ -1467,7 +1505,7 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
   const myCheckouts     = checkouts.filter(c =>
     (c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) || c.requestedBy === userName
   );
-  const activeCheckouts = myCheckouts.filter(c => ['pending','approved','allocated'].includes(c.status));
+  const activeCheckouts = myCheckouts.filter(c => ['pending','approved','pending_receipt','allocated'].includes(c.status));
   const allTransient    = items.filter(i => i.ownershipType === 'transient');
   const availableItems  = allTransient.filter(i => i.status === 'available');
   const inCart          = new Set(cart.map(c => c.item.id));
@@ -1782,6 +1820,10 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
                 allocateItem(co.id, userName, photoUrl)
                   .then(() => toast(`Confirmed — ${co.itemName} is with you.`))
                   .catch(() => toast('Could not confirm receipt — please try again.', 'error'))
+              : undefined}
+              onConfirmReceipt={confirmReceipt ? (co, batch, photoMap) =>
+                confirmReceipt(co.id, userName, photoMap[co.id]?.url || '', photoMap[co.id]?.name || '')
+                  .catch(() => { throw new Error(`Could not confirm receipt for ${co.itemName}.`); })
               : undefined}
             />
           )}
@@ -2484,86 +2526,331 @@ function EmployeeAcceptModal({ checkout, onClose, onConfirm }) {
 }
 
 // ── Allocate Modal (manager/allocator takes checkout photo here) ───────────────
-function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm }) {
-  const coItems  = checkoutBatch || (checkout ? [checkout] : []);
-  const first    = coItems[0] || {};
-  const isMulti  = coItems.length > 1;
-
-  const [file,       setFile]       = useState(null);
-  const [preview,    setPreview]    = useState('');
-  const [uploading,  setUploading]  = useState(false);
-  const [error,      setError]      = useState('');
-  const fileRef = useRef(null);
-  useEscapeKey(onClose);
-
+// ── Photo upload slot used inside AllocateModal and ReceiptConfirmModal ────────
+function PhotoSlot({ label, slotKey, photos, onChange }) {
+  const ref = useRef(null);
+  const entry = photos[slotKey] || {};
   function handleFile(f) {
     if (!f) return;
-    setFile(f);
     const reader = new FileReader();
-    reader.onload = e => setPreview(e.target.result);
+    reader.onload = e => onChange(slotKey, { file: f, preview: e.target.result, name: f.name });
     reader.readAsDataURL(f);
   }
+  return (
+    <div style={{ marginBottom:12 }}>
+      {label && <div style={{ fontSize:11.5, fontWeight:600, color:'var(--muted)', marginBottom:5, textTransform:'uppercase', letterSpacing:'.04em' }}>{label}</div>}
+      <input ref={ref} type="file" accept="image/*" style={{ display:'none' }} onChange={e => handleFile(e.target.files?.[0])} />
+      {entry.preview ? (
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <img src={entry.preview} alt="" style={{ width:64, height:64, objectFit:'cover', borderRadius:8, border:'1px solid var(--line)', flexShrink:0 }} />
+          <div>
+            <div style={{ fontSize:12, fontWeight:600, marginBottom:4 }}>{entry.name}</div>
+            <button type="button" className="secondary-btn" style={{ fontSize:11.5, padding:'3px 10px' }} onClick={() => ref.current?.click()}>Replace</button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" onClick={() => ref.current?.click()}
+          style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', borderRadius:9, border:'2px dashed var(--line)', background:'var(--mist)', cursor:'pointer', fontSize:13, color:'var(--muted)', fontFamily:'Inter,sans-serif' }}>
+          <Camera size={15} /> Upload Photo <span style={{ fontSize:11, marginLeft:4, opacity:.6 }}>(optional)</span>
+        </button>
+      )}
+    </div>
+  );
+}
 
-  async function submit() {
-    if (uploading) return;
-    setUploading(true); setError('');
-    let url = '';
-    let name = '';
-    if (file) {
-      const path = `checkout-photos/${first.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-      const { url: uploadedUrl, error: upErr } = await uploadToSupabase(file, 'checkout-photos', path);
-      if (upErr) { setError(upErr); setUploading(false); return; }
-      url = uploadedUrl;
-      name = file.name;
-    }
-    Promise.resolve(onConfirm(url, name))
-      .then(onClose)
-      .catch(err => { setError(err?.message || 'Could not mark as allocated.'); setUploading(false); });
+// ── Handover modal for the assigned allocator ──────────────────────────────────
+// onConfirm receives: { photoBy:'allocator'|'employee', batch:bool, photoMap:{[id]:{url,name}} }
+function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm }) {
+  const coItems = checkoutBatch || (checkout ? [checkout] : []);
+  const first   = coItems[0] || {};
+  const isMulti = coItems.length > 1;
+
+  const [step,      setStep]      = useState('who');   // 'who' | 'mode' | 'upload' | 'employee'
+  const [photoMode, setPhotoMode] = useState('batch'); // 'batch' | 'individual'
+  const [photos,    setPhotos]    = useState({});       // { [coId|'batch']: { file, preview, name } }
+  const [uploading, setUploading] = useState(false);
+  const [error,     setError]     = useState('');
+  useEscapeKey(onClose);
+
+  function handlePhotoChange(key, val) { setPhotos(prev => ({ ...prev, [key]: val })); }
+
+  async function uploadPhotoEntry(entry, checkoutId) {
+    if (!entry?.file) return { url: '', name: '' };
+    const path = `checkout-photos/${checkoutId}/${Date.now()}-${entry.file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const { url, error: upErr } = await uploadToSupabase(entry.file, 'checkout-photos', path);
+    if (upErr) throw new Error(upErr);
+    return { url, name: entry.file.name };
   }
+
+  async function submitAllocator() {
+    setUploading(true); setError('');
+    try {
+      const photoMap = {};
+      if (photoMode === 'batch') {
+        const { url, name } = await uploadPhotoEntry(photos['batch'], first.id);
+        coItems.forEach(co => { photoMap[co.id] = { url, name }; });
+      } else {
+        for (const co of coItems) {
+          const { url, name } = await uploadPhotoEntry(photos[co.id], co.id);
+          photoMap[co.id] = { url, name };
+        }
+      }
+      await Promise.resolve(onConfirm({ photoBy: 'allocator', batch: photoMode === 'batch', photoMap }));
+      onClose();
+    } catch (err) {
+      setError(err?.message || 'Upload failed — please try again.');
+      setUploading(false);
+    }
+  }
+
+  async function submitEmployee() {
+    setUploading(true); setError('');
+    try {
+      await Promise.resolve(onConfirm({ photoBy: 'employee', batch: false, photoMap: {} }));
+      onClose();
+    } catch (err) {
+      setError(err?.message || 'Could not initiate handover.');
+      setUploading(false);
+    }
+  }
+
+  const CARD = { background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:460, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'90vh', overflowY:'auto' };
 
   return (
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Hand Over Item{isMulti ? 's' : ''}</h3>
-        {isMulti ? (
+      <div style={CARD}>
+
+        {/* Step: who takes photos */}
+        {step === 'who' && (
           <>
-            <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:8 }}>
-              Handing over <strong>{coItems.length} items</strong> to <strong>{first.requestedBy}</strong>. One photo covers all.
+            <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Hand Over {isMulti ? `${coItems.length} Items` : first.itemName}</h3>
+            <p style={{ fontSize:13, color:'var(--muted)', marginBottom:20 }}>
+              To <strong>{first.requestedBy}</strong> — who will upload the handover photo?
             </p>
-            <div style={{ background:'var(--mist)', borderRadius:8, padding:'8px 12px', marginBottom:16, maxHeight:100, overflowY:'auto' }}>
-              {coItems.map(co => <div key={co.id} style={{ fontSize:12, color:'var(--fg)', padding:'1px 0' }}>· {co.itemName}</div>)}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
+              {[
+                { id:'you',      icon:'📷', title:'Photos by You',      sub:'You upload now — individual items or a batch shot.' },
+                { id:'employee', icon:'📱', title:'Photos by Employee', sub:'Employee confirms receipt and uploads on their side.' },
+              ].map(opt => (
+                <button key={opt.id} onClick={() => opt.id === 'you' ? setStep(isMulti ? 'mode' : 'upload') || setPhotoMode('batch') : setStep('employee')}
+                  style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:6, padding:'14px 16px', borderRadius:12, border:'1.5px solid var(--line)', background:'var(--mist)', cursor:'pointer', textAlign:'left', fontFamily:'Inter,sans-serif', transition:'border-color .15s, box-shadow .15s' }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor='var(--pine)'; e.currentTarget.style.boxShadow='0 2px 12px rgba(0,0,0,.08)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor='var(--line)'; e.currentTarget.style.boxShadow='none'; }}>
+                  <span style={{ fontSize:22 }}>{opt.icon}</span>
+                  <span style={{ fontWeight:700, fontSize:13.5 }}>{opt.title}</span>
+                  <span style={{ fontSize:12, color:'var(--muted)', lineHeight:1.4 }}>{opt.sub}</span>
+                </button>
+              ))}
+            </div>
+            <div style={{ display:'flex', justifyContent:'flex-end' }}>
+              <button className="secondary-btn" onClick={onClose}>Cancel</button>
             </div>
           </>
-        ) : (
-          <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:20 }}>
-            Allocating <strong>{first.itemName}</strong> to <strong>{first.requestedBy}</strong>. Take a clear photo before handing over.
-          </p>
         )}
-        <div>
-          <label style={FL}>CHECKOUT PHOTO <span style={{ fontSize:11, fontWeight:400, color:'var(--muted)' }}>(optional — employee can take one on their side)</span></label>
-          <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={e => handleFile(e.target.files?.[0])} />
-          {preview ? (
-            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-              <img src={preview} alt="Checkout photo" style={{ width:72, height:72, objectFit:'cover', borderRadius:8, border:'1px solid var(--line)' }} />
-              <button type="button" className="secondary-btn" style={{ fontSize:12 }} onClick={() => fileRef.current?.click()}>Replace</button>
+
+        {/* Step: individual or batch (only for multi-item orders) */}
+        {step === 'mode' && (
+          <>
+            <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Photo Style</h3>
+            <p style={{ fontSize:13, color:'var(--muted)', marginBottom:20 }}>
+              Handing over <strong>{coItems.length} items</strong> to <strong>{first.requestedBy}</strong>.
+            </p>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
+              {[
+                { id:'individual', icon:'🖼️', title:'Individual Photos', sub:'One photo per item — best for high-value assets.' },
+                { id:'batch',      icon:'📦', title:'Batch Photo',       sub:'One photo of all items together — quick for groups.' },
+              ].map(opt => (
+                <button key={opt.id} onClick={() => { setPhotoMode(opt.id); setStep('upload'); }}
+                  style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:6, padding:'14px 16px', borderRadius:12, border:'1.5px solid var(--line)', background:'var(--mist)', cursor:'pointer', textAlign:'left', fontFamily:'Inter,sans-serif', transition:'border-color .15s' }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor='var(--pine)'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor='var(--line)'}>
+                  <span style={{ fontSize:22 }}>{opt.icon}</span>
+                  <span style={{ fontWeight:700, fontSize:13.5 }}>{opt.title}</span>
+                  <span style={{ fontSize:12, color:'var(--muted)', lineHeight:1.4 }}>{opt.sub}</span>
+                </button>
+              ))}
             </div>
-          ) : (
-            <button type="button" onClick={() => fileRef.current?.click()}
-              style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', borderRadius:9, border:'2px dashed var(--line)', background:'var(--mist)', cursor:'pointer', fontSize:13, color:'var(--muted)' }}>
-              <Camera size={15} /> Upload Photo (optional)
-            </button>
-          )}
-        </div>
-        {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginTop:10 }}>{error}</p>}
-        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
-          <button className="secondary-btn" onClick={onClose} disabled={uploading}>Cancel</button>
-          <button className="primary-btn" disabled={uploading}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:140, justifyContent:'center' }} onClick={submit}>
-            {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><CheckCircle size={14} /> Confirm Handover</>}
-          </button>
-        </div>
+            <div style={{ display:'flex', justifyContent:'space-between' }}>
+              <button className="secondary-btn" style={{ fontSize:12 }} onClick={() => setStep('who')}>← Back</button>
+              <button className="secondary-btn" onClick={onClose}>Cancel</button>
+            </div>
+          </>
+        )}
+
+        {/* Step: upload photos */}
+        {step === 'upload' && (
+          <>
+            <h3 style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>
+              {photoMode === 'batch' ? 'Batch Photo' : 'Individual Photos'}
+            </h3>
+            <p style={{ fontSize:13, color:'var(--muted)', marginBottom:16 }}>
+              {photoMode === 'batch'
+                ? `One photo covering all ${isMulti ? coItems.length + ' items' : first.itemName} for ${first.requestedBy}.`
+                : `Upload a photo for each item being handed to ${first.requestedBy}.`}
+            </p>
+            {photoMode === 'batch' ? (
+              <PhotoSlot label={isMulti ? `All ${coItems.length} items together` : first.itemName} slotKey="batch" photos={photos} onChange={handlePhotoChange} />
+            ) : (
+              coItems.map(co => <PhotoSlot key={co.id} label={co.itemName} slotKey={co.id} photos={photos} onChange={handlePhotoChange} />)
+            )}
+            {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginTop:8 }}>{error}</p>}
+            <div style={{ display:'flex', gap:10, justifyContent:'space-between', marginTop:16 }}>
+              <button className="secondary-btn" style={{ fontSize:12 }} onClick={() => setStep(isMulti ? 'mode' : 'who')}>← Back</button>
+              <div style={{ display:'flex', gap:8 }}>
+                <button className="secondary-btn" onClick={onClose} disabled={uploading}>Cancel</button>
+                <button className="primary-btn" disabled={uploading}
+                  style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:150, justifyContent:'center' }}
+                  onClick={submitAllocator}>
+                  {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><CheckCircle size={14} /> Confirm Handover</>}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Step: employee-photo confirmation */}
+        {step === 'employee' && (
+          <>
+            <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Confirm Handover</h3>
+            <div style={{ background:'hsla(var(--color-blue),0.07)', border:'1px solid hsla(var(--color-blue),0.2)', borderRadius:10, padding:'14px 16px', marginBottom:20 }}>
+              <div style={{ fontWeight:600, fontSize:13.5, marginBottom:4 }}>
+                {isMulti ? `${coItems.length} items` : first.itemName} → {first.requestedBy}
+              </div>
+              {isMulti && (
+                <div style={{ marginTop:6, display:'flex', flexDirection:'column', gap:2 }}>
+                  {coItems.map(co => <div key={co.id} style={{ fontSize:12, color:'var(--muted)' }}>· {co.itemName}</div>)}
+                </div>
+              )}
+              <div style={{ fontSize:12.5, color:'var(--muted)', marginTop:8, lineHeight:1.5 }}>
+                The employee will be prompted on their side to confirm receipt and upload a photo. The checkout won't complete until they do.
+              </div>
+            </div>
+            {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginTop:8 }}>{error}</p>}
+            <div style={{ display:'flex', gap:10, justifyContent:'space-between' }}>
+              <button className="secondary-btn" style={{ fontSize:12 }} onClick={() => setStep('who')}>← Back</button>
+              <div style={{ display:'flex', gap:8 }}>
+                <button className="secondary-btn" onClick={onClose} disabled={uploading}>Cancel</button>
+                <button className="primary-btn" disabled={uploading}
+                  style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:160, justifyContent:'center' }}
+                  onClick={submitEmployee}>
+                  {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Please wait…</> : <><CheckCircle size={14} /> Handed Over — Notify Employee</>}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Receipt confirmation modal for the employee ────────────────────────────────
+// onConfirm receives: { batch:bool, photoMap:{[id]:{url,name}} }
+function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm }) {
+  const coItems = checkoutBatch || (checkout ? [checkout] : []);
+  const first   = coItems[0] || {};
+  const isMulti = coItems.length > 1;
+
+  const [step,      setStep]      = useState(isMulti ? 'mode' : 'upload');
+  const [photoMode, setPhotoMode] = useState('batch');
+  const [photos,    setPhotos]    = useState({});
+  const [uploading, setUploading] = useState(false);
+  const [error,     setError]     = useState('');
+  useEscapeKey(onClose);
+
+  function handlePhotoChange(key, val) { setPhotos(prev => ({ ...prev, [key]: val })); }
+
+  async function uploadPhotoEntry(entry, checkoutId) {
+    if (!entry?.file) return { url: '', name: '' };
+    const path = `receipt-photos/${checkoutId}/${Date.now()}-${entry.file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const { url, error: upErr } = await uploadToSupabase(entry.file, 'checkout-photos', path);
+    if (upErr) throw new Error(upErr);
+    return { url, name: entry.file.name };
+  }
+
+  async function submit() {
+    setUploading(true); setError('');
+    try {
+      const photoMap = {};
+      if (photoMode === 'batch') {
+        const { url, name } = await uploadPhotoEntry(photos['batch'], first.id);
+        coItems.forEach(co => { photoMap[co.id] = { url, name }; });
+      } else {
+        for (const co of coItems) {
+          const { url, name } = await uploadPhotoEntry(photos[co.id], co.id);
+          photoMap[co.id] = { url, name };
+        }
+      }
+      await Promise.resolve(onConfirm({ batch: photoMode === 'batch', photoMap }));
+      onClose();
+    } catch (err) {
+      setError(err?.message || 'Upload failed — please try again.');
+      setUploading(false);
+    }
+  }
+
+  const CARD = { background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:460, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'90vh', overflowY:'auto' };
+
+  return (
+    <div role="dialog" aria-modal="true"
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={CARD}>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>Confirm Receipt</h3>
+        <p style={{ fontSize:13, color:'var(--muted)', marginBottom:16 }}>
+          {isMulti
+            ? `${first.assignedAllocatorName || 'Your allocator'} has handed over ${coItems.length} items to you.`
+            : `${first.assignedAllocatorName || 'Your allocator'} has handed over ${first.itemName} to you.`}
+        </p>
+
+        {step === 'mode' && (
+          <>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
+              {[
+                { id:'individual', icon:'🖼️', title:'Individual Photos', sub:'One photo per item.' },
+                { id:'batch',      icon:'📦', title:'Batch Photo',       sub:'One photo of all items together.' },
+              ].map(opt => (
+                <button key={opt.id} onClick={() => { setPhotoMode(opt.id); setStep('upload'); }}
+                  style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:6, padding:'14px 16px', borderRadius:12, border:'1.5px solid var(--line)', background:'var(--mist)', cursor:'pointer', textAlign:'left', fontFamily:'Inter,sans-serif', transition:'border-color .15s' }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor='var(--pine)'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor='var(--line)'}>
+                  <span style={{ fontSize:22 }}>{opt.icon}</span>
+                  <span style={{ fontWeight:700, fontSize:13.5 }}>{opt.title}</span>
+                  <span style={{ fontSize:12, color:'var(--muted)', lineHeight:1.4 }}>{opt.sub}</span>
+                </button>
+              ))}
+            </div>
+            <div style={{ display:'flex', justifyContent:'flex-end' }}>
+              <button className="secondary-btn" onClick={onClose}>Cancel</button>
+            </div>
+          </>
+        )}
+
+        {step === 'upload' && (
+          <>
+            {photoMode === 'batch' ? (
+              <PhotoSlot label={isMulti ? `All ${coItems.length} items` : first.itemName} slotKey="batch" photos={photos} onChange={handlePhotoChange} />
+            ) : (
+              coItems.map(co => <PhotoSlot key={co.id} label={co.itemName} slotKey={co.id} photos={photos} onChange={handlePhotoChange} />)
+            )}
+            {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginTop:8 }}>{error}</p>}
+            <div style={{ display:'flex', gap:10, justifyContent:'space-between', marginTop:16 }}>
+              {isMulti ? (
+                <button className="secondary-btn" style={{ fontSize:12 }} onClick={() => setStep('mode')}>← Back</button>
+              ) : <span />}
+              <div style={{ display:'flex', gap:8 }}>
+                <button className="secondary-btn" onClick={onClose} disabled={uploading}>Cancel</button>
+                <button className="primary-btn" disabled={uploading}
+                  style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:150, justifyContent:'center' }}
+                  onClick={submit}>
+                  {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><CheckCircle size={14} /> Confirm Receipt</>}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -2694,7 +2981,7 @@ function RejectCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onCo
 }
 
 // ── Manager Checkouts Tab ─────────────────────────────────────────────────────
-function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveRequest, rejectRequest, allocateItem, refreshCheckouts, refreshItems, toast }) {
+function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveRequest, rejectRequest, allocateItem, initiateHandover, refreshCheckouts, refreshItems, toast }) {
   const { can } = useRole();
   const isManager = can('manager');
   const [statusFilter,   setStatusFilter]   = useState('active');
@@ -2768,16 +3055,33 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
     refreshCheckouts();
   }
 
-  function handleAllocate(co, photoUrl) {
-    return allocateItem(co.id, userName, photoUrl)
-      .then(() => { toast(`Item handed over to ${co.requestedBy} — checkout confirmed.`); refreshCheckouts(); refreshItems(); });
+  function handleAllocate(co, { photoBy, batch, photoMap }) {
+    const p = photoBy === 'employee'
+      ? initiateHandover(co.id, userName)
+      : allocateItem(co.id, userName, photoMap[co.id]?.url || '', photoMap[co.id]?.name || '', { handoverPhotoBy: 'allocator', handoverBatch: batch });
+    return p.then(() => {
+      if (photoBy === 'employee') {
+        toast(`${co.requestedBy} has been notified to confirm receipt.`);
+      } else {
+        toast(`Item handed over to ${co.requestedBy} — checkout confirmed.`);
+        refreshItems();
+      }
+      refreshCheckouts();
+    });
   }
 
-  async function handleAllocateOrder(orderItems, photoUrl) {
-    await Promise.allSettled(orderItems.map(co => allocateItem(co.id, userName, photoUrl)));
-    toast(`${orderItems.length} item${orderItems.length > 1 ? 's' : ''} handed over to ${orderItems[0]?.requestedBy}.`);
+  async function handleAllocateOrder(orderItems, { photoBy, batch, photoMap }) {
+    if (photoBy === 'employee') {
+      await Promise.allSettled(orderItems.map(co => initiateHandover(co.id, userName)));
+      toast(`${orderItems[0]?.requestedBy} has been notified to confirm receipt of ${orderItems.length} item${orderItems.length > 1 ? 's' : ''}.`);
+    } else {
+      await Promise.allSettled(orderItems.map(co =>
+        allocateItem(co.id, userName, photoMap[co.id]?.url || '', photoMap[co.id]?.name || '', { handoverPhotoBy: 'allocator', handoverBatch: batch })
+      ));
+      toast(`${orderItems.length} item${orderItems.length > 1 ? 's' : ''} handed over to ${orderItems[0]?.requestedBy}.`);
+      refreshItems();
+    }
     refreshCheckouts();
-    refreshItems();
   }
 
   const fmtDate = iso => new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric' });
@@ -2975,11 +3279,11 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
       )}
       {allocatingCo && (
         <AllocateModal checkout={allocatingCo} onClose={() => setAllocatingCo(null)}
-          onConfirm={(url, name) => handleAllocate(allocatingCo, url, name)} />
+          onConfirm={payload => handleAllocate(allocatingCo, payload)} />
       )}
       {allocatingOrder && (
         <AllocateModal checkouts={allocatingOrder} onClose={() => setAllocatingOrder(null)}
-          onConfirm={(url) => handleAllocateOrder(allocatingOrder, url)} />
+          onConfirm={payload => handleAllocateOrder(allocatingOrder, payload)} />
       )}
       {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
     </div>
@@ -2992,7 +3296,7 @@ export default function InventoryManagement({ activeSub }) {
     items, itemsLoading, itemsError,
     checkouts, checkoutsLoading, checkoutsError,
     submitCartCheckouts, approveRequest, rejectRequest,
-    allocateItem, returnItem, cancelRequest,
+    allocateItem, initiateHandover, confirmReceipt, returnItem, cancelRequest,
     refreshItems, refreshCheckouts,
   } = useInventory();
   const { addNotification } = useNotifications();
@@ -3007,7 +3311,7 @@ export default function InventoryManagement({ activeSub }) {
   const pendingCount   = checkouts.filter(c => c.status === 'pending').length;
   const approvedCount  = checkouts.filter(c => c.status === 'approved').length;
   const myActiveCount  = checkouts.filter(c =>
-    ['pending','approved','allocated'].includes(c.status) &&
+    ['pending','approved','pending_receipt','allocated'].includes(c.status) &&
     ((c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) || c.requestedBy === userName)
   ).length;
 
@@ -3120,6 +3424,7 @@ export default function InventoryManagement({ activeSub }) {
           submitCartCheckouts={submitCartCheckouts}
           cancelRequest={cancelRequest}
           allocateItem={allocateItem}
+          confirmReceipt={confirmReceipt}
           addNotification={addNotification}
           toast={toast}
         />
@@ -3196,11 +3501,12 @@ export default function InventoryManagement({ activeSub }) {
       {/* Tab strip */}
       <div style={{ display:'flex', gap:0, marginBottom:20, borderBottom:'1px solid var(--line)', flexWrap:'wrap' }}>
         {[
-          { id:'catalog',   label:'Catalog',    Icon: Package                                     },
-          { id:'checkouts', label:'Checkouts',  Icon: ShoppingCart, badge: pendingCount + approvedCount },
-          { id:'myitems',   label:'My Items',   Icon: User,         badge: myActiveCount           },
-          { id:'manage',    label:'Manage',     Icon: ClipboardList                                },
-          { id:'audit',     label:'Audit Log',  Icon: History                                      },
+          { id:'catalog',      label:'Catalog',           Icon: Package                                     },
+          { id:'manage',       label:'Manage',            Icon: ClipboardList                               },
+          { id:'checkouts',    label:'Checkouts',         Icon: ShoppingCart, badge: pendingCount + approvedCount },
+          { id:'purchasereqs', label:'Purchase Requests', Icon: FileText                                    },
+          { id:'myitems',      label:'My Items',          Icon: User,         badge: myActiveCount          },
+          { id:'audit',        label:'Audit Log',         Icon: History                                     },
         ].map(({ id, label, Icon, badge }) => (
           <button key={id} onClick={() => setMainTab(id)}
             style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 16px', background:'none', border:'none', borderBottom: mainTab === id ? '2px solid var(--pine)' : '2px solid transparent', color: mainTab === id ? 'var(--ink)' : 'var(--muted)', fontWeight: mainTab === id ? 700 : 600, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-1 }}>
@@ -3244,6 +3550,10 @@ export default function InventoryManagement({ activeSub }) {
             checkouts={checkouts} userEmail={userEmail} userName={userName}
             onReturn={co => setReturningCo(co)} onCancel={cancelCo}
             onSelfAllocate={co => allocateItem(co.id, userName).then(() => toast(`Confirmed — ${co.itemName} is with you.`)).catch(() => toast('Could not confirm.', 'error'))}
+            onConfirmReceipt={(co, batch, photoMap) =>
+              confirmReceipt(co.id, userName, photoMap[co.id]?.url || '', photoMap[co.id]?.name || '')
+                .catch(() => { throw new Error(`Could not confirm receipt for ${co.itemName}.`); })
+            }
             onReRequest={async (co, newReason) => {
               await api.createItemCheckout({
                 id: crypto.randomUUID(),
@@ -3270,9 +3580,19 @@ export default function InventoryManagement({ activeSub }) {
           checkouts={checkouts} items={items}
           userName={userName} userEmail={userEmail}
           approveRequest={approveRequest} rejectRequest={rejectRequest}
-          allocateItem={allocateItem} refreshCheckouts={refreshCheckouts}
-          refreshItems={refreshItems} toast={toast}
+          allocateItem={allocateItem} initiateHandover={initiateHandover}
+          refreshCheckouts={refreshCheckouts} refreshItems={refreshItems} toast={toast}
         />
+      )}
+      {mainTab === 'purchasereqs' && (
+        <div style={{ padding:'48px 0', textAlign:'center', color:'var(--muted)' }}>
+          <FileText size={40} style={{ opacity:.15, display:'block', margin:'0 auto 16px' }} />
+          <div style={{ fontWeight:700, fontSize:16, marginBottom:8 }}>Purchase Requests</div>
+          <div style={{ fontSize:13, maxWidth:360, margin:'0 auto' }}>
+            Submit and track requests for items that aren't in the current catalog.
+            This feature is coming soon.
+          </div>
+        </div>
       )}
       {mainTab === 'audit' && <AuditLogPanel />}
 
