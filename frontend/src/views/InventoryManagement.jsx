@@ -1083,19 +1083,19 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel }
 }
 
 // ── Employee View ─────────────────────────────────────────────────────────────
-const CART_KEY = 'nexus_items_cart';
-function loadCart() { try { return JSON.parse(localStorage.getItem(CART_KEY)) || []; } catch { return []; } }
-function saveCart(c) { try { localStorage.setItem(CART_KEY, JSON.stringify(c)); } catch {} }
+function cartKey(email) { return `nexus_items_cart:${(email || 'anon').toLowerCase()}`; }
+function loadCart(email) { try { return JSON.parse(localStorage.getItem(cartKey(email))) || []; } catch { return []; } }
+function saveCart(email, c) { try { localStorage.setItem(cartKey(email), JSON.stringify(c)); } catch {} }
 
 function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, itemsError, checkoutsError, onReturn, refreshItems, submitCartCheckouts, cancelRequest, addNotification, toast }) {
   const [search,      setSearch]      = useState('');
   const [typeFilter,  setTypeFilter]  = useState('All');
   const [cartOpen,    setCartOpen]    = useState(false);
-  const [cart,        setCart]        = useState(loadCart);
+  const [cart,        setCart]        = useState(() => loadCart(userEmail));
   const [returningCo, setReturningCo] = useState(null);
   const [submitting,  setSubmitting]  = useState(false);
 
-  useEffect(() => { saveCart(cart); }, [cart]);
+  useEffect(() => { saveCart(userEmail, cart); }, [cart, userEmail]);
 
   const availableItems = items.filter(i => i.ownershipType === 'transient' && i.status === 'available');
   const filtered = availableItems.filter(i => {
@@ -1759,13 +1759,13 @@ export default function InventoryManagement({ activeSub }) {
   const pendingCount  = checkouts.filter(c => c.status === 'pending').length;
   const approvedCount = checkouts.filter(c => c.status === 'approved').length;
 
-  // Cart — available to everyone, persisted in localStorage
-  const [cart,        setCart]        = useState(loadCart);
+  // Cart — available to everyone, persisted per-user in localStorage
+  const [cart,        setCart]        = useState(() => loadCart(userEmail));
   const [cartOpen,    setCartOpen]    = useState(false);
   const [cartBusy,    setCartBusy]    = useState(false);
   const [returningCo, setReturningCo] = useState(null);
 
-  useEffect(() => { saveCart(cart); }, [cart]);
+  useEffect(() => { saveCart(userEmail, cart); }, [cart, userEmail]);
 
   const inCart = new Set(cart.map(c => c.item.id));
   function addToCart(item) {
