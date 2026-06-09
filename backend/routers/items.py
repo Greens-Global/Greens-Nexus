@@ -255,6 +255,49 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
     return {"created": created, "skipped": skipped}
 
 
+# ── Persistent cart (must be before /{item_id} wildcards) ────────────────────
+
+class CartAddBody(BaseModel):
+    item_id:   str
+    item_name: str
+    item_type: str = "Other"
+
+@router.get("/cart")
+def get_cart(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    email = (user.get("preferred_username") or user.get("email") or "").lower()
+    rows = db.query(ItemCartEntry).filter(ItemCartEntry.user_email == email).order_by(ItemCartEntry.added_at).all()
+    return [{"id": r.id, "itemId": r.item_id, "itemName": r.item_name, "itemType": r.item_type, "addedAt": r.added_at} for r in rows]
+
+@router.post("/cart")
+def add_to_cart(body: CartAddBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    email = (user.get("preferred_username") or user.get("email") or "").lower()
+    existing = db.query(ItemCartEntry).filter(ItemCartEntry.user_email == email, ItemCartEntry.item_id == body.item_id).first()
+    if existing:
+        return {"id": existing.id, "itemId": existing.item_id, "itemName": existing.item_name, "itemType": existing.item_type, "addedAt": existing.added_at}
+    entry = ItemCartEntry(
+        id=str(uuid.uuid4()), user_email=email,
+        item_id=body.item_id, item_name=body.item_name, item_type=body.item_type,
+        added_at=datetime.now(timezone.utc).isoformat(),
+    )
+    db.add(entry)
+    db.commit()
+    return {"id": entry.id, "itemId": entry.item_id, "itemName": entry.item_name, "itemType": entry.item_type, "addedAt": entry.added_at}
+
+@router.delete("/cart/{item_id}")
+def remove_from_cart(item_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    email = (user.get("preferred_username") or user.get("email") or "").lower()
+    db.query(ItemCartEntry).filter(ItemCartEntry.user_email == email, ItemCartEntry.item_id == item_id).delete()
+    db.commit()
+    return {"ok": True}
+
+@router.delete("/cart")
+def clear_cart(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    email = (user.get("preferred_username") or user.get("email") or "").lower()
+    db.query(ItemCartEntry).filter(ItemCartEntry.user_email == email).delete()
+    db.commit()
+    return {"ok": True}
+
+
 @router.patch("/{item_id}")
 def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
     item = db.query(Item).filter(Item.id == item_id).first()
@@ -580,45 +623,3 @@ def items_audit_log(
         ],
     }
 
-
-# ── Persistent cart ───────────────────────────────────────────────────────────
-
-class CartAddBody(BaseModel):
-    item_id:   str
-    item_name: str
-    item_type: str = "Other"
-
-@router.get("/cart")
-def get_cart(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    email = (user.get("preferred_username") or user.get("email") or "").lower()
-    rows = db.query(ItemCartEntry).filter(ItemCartEntry.user_email == email).order_by(ItemCartEntry.added_at).all()
-    return [{"id": r.id, "itemId": r.item_id, "itemName": r.item_name, "itemType": r.item_type, "addedAt": r.added_at} for r in rows]
-
-@router.post("/cart")
-def add_to_cart(body: CartAddBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    email = (user.get("preferred_username") or user.get("email") or "").lower()
-    existing = db.query(ItemCartEntry).filter(ItemCartEntry.user_email == email, ItemCartEntry.item_id == body.item_id).first()
-    if existing:
-        return {"id": existing.id, "itemId": existing.item_id, "itemName": existing.item_name, "itemType": existing.item_type, "addedAt": existing.added_at}
-    entry = ItemCartEntry(
-        id=str(uuid.uuid4()), user_email=email,
-        item_id=body.item_id, item_name=body.item_name, item_type=body.item_type,
-        added_at=datetime.now(timezone.utc).isoformat(),
-    )
-    db.add(entry)
-    db.commit()
-    return {"id": entry.id, "itemId": entry.item_id, "itemName": entry.item_name, "itemType": entry.item_type, "addedAt": entry.added_at}
-
-@router.delete("/cart/{item_id}")
-def remove_from_cart(item_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    email = (user.get("preferred_username") or user.get("email") or "").lower()
-    db.query(ItemCartEntry).filter(ItemCartEntry.user_email == email, ItemCartEntry.item_id == item_id).delete()
-    db.commit()
-    return {"ok": True}
-
-@router.delete("/cart")
-def clear_cart(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    email = (user.get("preferred_username") or user.get("email") or "").lower()
-    db.query(ItemCartEntry).filter(ItemCartEntry.user_email == email).delete()
-    db.commit()
-    return {"ok": True}
