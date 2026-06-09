@@ -106,9 +106,18 @@ class GroupRoleAssignment(BaseModel):
 # ── Routes ───────────────────────────────────────────────────────────────────
 
 @router.get("")
-def list_groups(user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
-    _seed_if_empty(db)
-    groups = db.query(NexusGroup).order_by(NexusGroup.created_at).all()
+def list_groups(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if user["level"] >= 4:
+        # Administrators see all groups for management in the Access Manager
+        _seed_if_empty(db)
+        groups = db.query(NexusGroup).order_by(NexusGroup.created_at).all()
+    else:
+        # All other users only receive the groups they belong to — enough for the
+        # frontend to compute myGrantedModules without exposing org-wide group data
+        member_ids = [r.group_id for r in db.query(NexusGroupMember.group_id).filter(
+            NexusGroupMember.email == user["email"]
+        ).all()]
+        groups = db.query(NexusGroup).filter(NexusGroup.id.in_(member_ids)).order_by(NexusGroup.created_at).all() if member_ids else []
     return [_serialize(g, db) for g in groups]
 
 
