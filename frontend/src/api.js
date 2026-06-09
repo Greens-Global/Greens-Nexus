@@ -22,7 +22,11 @@ async function getAuthHeader(forceRefresh = false) {
   }
 }
 
-const MAX_ATTEMPTS = 3;
+// Azure App Service on the free/basic tier can take 5-15 seconds to cold-start.
+// Network errors (CORS preflight timeout) get 3 attempts with 500ms/1s backoff.
+// 5xx errors get 4 attempts with 1s/2s/4s exponential backoff — covers warm-up.
+const MAX_NET_ATTEMPTS = 3;
+const MAX_5XX_ATTEMPTS = 4;
 
 async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   const authHeader = await getAuthHeader(tokenRefreshed);
@@ -37,11 +41,8 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
       },
     });
   } catch (err) {
-    // fetch() itself threw — offline, dropped connection, or a cold-start
-    // timing out the CORS preflight. These show up as "Failed to fetch" and
-    // are usually transient (a reload "fixes" them), so retry with backoff
-    // instead of surfacing a scary permanent error to the user.
-    if (attempt < MAX_ATTEMPTS) {
+    // fetch() itself threw — offline, CORS preflight dropped, or cold-start.
+    if (attempt < MAX_NET_ATTEMPTS) {
       await new Promise(r => setTimeout(r, 500 * attempt));
       return req(path, options, attempt + 1, tokenRefreshed);
     }
@@ -52,9 +53,10 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   if (res.status === 401 && !tokenRefreshed) {
     return req(path, options, attempt, true);
   }
-  // Retry on 5xx — handles Azure cold-start transient failures
-  if (res.status >= 500 && attempt < MAX_ATTEMPTS) {
-    await new Promise(r => setTimeout(r, 800));
+  // Exponential backoff for 5xx — 1s, 2s, 4s — total ~7s before giving up.
+  // Covers typical Azure cold-start without burning too many attempts on real errors.
+  if (res.status >= 500 && attempt < MAX_5XX_ATTEMPTS) {
+    await new Promise(r => setTimeout(r, Math.min(1000 * 2 ** (attempt - 1), 4000)));
     return req(path, options, attempt + 1, tokenRefreshed);
   }
   if (!res.ok) {
@@ -72,14 +74,27 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
 // Like req(), but for endpoints that return a file (Excel/PDF export) rather
 // than JSON — returns the blob plus the filename the server suggested via
 // Content-Disposition, so the caller can trigger a download.
-async function reqBlob(path, options = {}, tokenRefreshed = false) {
+async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) {
   const authHeader = await getAuthHeader(tokenRefreshed);
-  const res = await fetch(`${BASE}${path}`, {
-    ...options,
-    headers: { ...authHeader, ...(options.headers ?? {}) },
-  });
+  let res;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      ...options,
+      headers: { ...authHeader, ...(options.headers ?? {}) },
+    });
+  } catch (err) {
+    if (attempt < MAX_NET_ATTEMPTS) {
+      await new Promise(r => setTimeout(r, 500 * attempt));
+      return reqBlob(path, options, attempt + 1, tokenRefreshed);
+    }
+    throw err;
+  }
   if (res.status === 401 && !tokenRefreshed) {
-    return reqBlob(path, options, true);
+    return reqBlob(path, options, attempt, true);
+  }
+  if (res.status >= 500 && attempt < MAX_5XX_ATTEMPTS) {
+    await new Promise(r => setTimeout(r, Math.min(1000 * 2 ** (attempt - 1), 4000)));
+    return reqBlob(path, options, attempt + 1, tokenRefreshed);
   }
   if (!res.ok) {
     let detail;

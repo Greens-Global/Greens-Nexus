@@ -28,19 +28,30 @@ export function InventoryProvider({ children }) {
 
   useEffect(() => { checkoutsRef.current = checkouts; }, [checkouts]);
 
+  // Retry helper — the api layer already handles transient 5xx/network errors,
+  // but if even that exhausts (truly down), we do one more quiet 3s wait here
+  // before surfacing an error banner so a single click still works post-cold-start.
+  async function withQuietRetry(fn) {
+    try { return await fn(); }
+    catch {
+      await new Promise(r => setTimeout(r, 3000));
+      return fn(); // let this one throw if it also fails
+    }
+  }
+
   const fetchItems = useCallback(() =>
-    api.getItems()
+    withQuietRetry(() => api.getItems())
       .then(rows => { setItems(rows); setItemsError(null); })
       .catch(err => setItemsError(err?.message || 'Failed to load items'))
       .finally(() => setItemsLoading(false))
-  , []);
+  , []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchCheckouts = useCallback(() =>
-    api.getItemCheckouts()
+    withQuietRetry(() => api.getItemCheckouts())
       .then(rows => { setCheckouts(rows); setCheckoutsError(null); })
       .catch(err => setCheckoutsError(err?.message || 'Failed to load checkouts'))
       .finally(() => setCheckoutsLoading(false))
-  , []);
+  , []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function rowToCheckout(r) {
     return {
