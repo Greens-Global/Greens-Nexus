@@ -1256,7 +1256,6 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
 
 // ── Manager Catalog Tab ───────────────────────────────────────────────────────
 function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, refreshItems, onAddToCart, inCart }) {
-  const [photoPreview, setPhotoPreview] = useState(null);
   const filtered = items.filter(i => {
     const mS = !search || i.name.toLowerCase().includes(search.toLowerCase()) || (i.make||'').toLowerCase().includes(search.toLowerCase()) || (i.model||'').toLowerCase().includes(search.toLowerCase());
     const mD = deptFilter === 'All' || i.department === deptFilter;
@@ -1265,7 +1264,7 @@ function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFi
   });
 
   if (itemsError) return <ErrorBanner message="Could not load items." onRetry={refreshItems} />;
-  if (itemsLoading && !items.length) return <SkeletonBlocks count={10} height={52} borderRadius={8} />;
+  if (itemsLoading && !items.length) return <SkeletonBlocks count={8} height={64} borderRadius={10} />;
   if (!filtered.length) return (
     <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)' }}>
       <Package size={32} style={{ opacity:.25, display:'block', margin:'0 auto 10px' }} />
@@ -1275,55 +1274,57 @@ function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFi
 
   return (
     <>
-      <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto' }}>
-        <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
-          <thead>
-            <tr style={{ background:'var(--mist)' }}>
-              {['Photo','Name','Type','Make / Model','Dept','Location','Owner','Ownership','Status',''].map(h =>
-                <th key={h} style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', whiteSpace:'nowrap', fontSize:11.5 }}>{h}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(item => {
-              const canRequest = item.ownershipType === 'transient' && item.status === 'available' && onAddToCart;
-              const alreadyInCart = inCart?.has(item.id);
-              return (
-                <tr key={item.id} style={{ borderTop:'1px solid var(--line)' }}>
-                  <td style={{ padding:'10px 14px' }}>
-                    <PhotoThumb url={item.photoUrl} size={40} onPreview={url => setPhotoPreview(url)} />
-                  </td>
-                  <td style={{ padding:'10px 14px', fontWeight:600, whiteSpace:'nowrap' }}>{item.name}</td>
-                  <td style={{ padding:'10px 14px' }}><TypeBadge type={item.itemType} /></td>
-                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{[item.make, item.model, item.year].filter(Boolean).join(' ') || '—'}</td>
-                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.department || '—'}</td>
-                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.location || '—'}</td>
-                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.defaultOwner || '—'}</td>
-                  <td style={{ padding:'10px 14px' }}>
-                    <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:20, background: item.ownershipType === 'permanent' ? 'hsla(var(--color-purple),0.1)' : 'hsla(var(--color-blue),0.1)', color: item.ownershipType === 'permanent' ? 'hsl(var(--color-purple))' : 'hsl(var(--color-blue))' }}>
-                      {item.ownershipType === 'permanent' ? 'Permanent' : 'Transient'}
+      <div style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden' }}>
+        {filtered.map((item, i) => {
+          const tm = TYPE_META[item.itemType] || TYPE_META.Other;
+          const canRequest = item.ownershipType === 'transient' && item.status === 'available' && onAddToCart;
+          const alreadyInCart = inCart?.has(item.id);
+          return (
+            <div key={item.id}
+              style={{ display:'flex', alignItems:'center', gap:14, padding:'12px 16px', borderTop: i > 0 ? '1px solid var(--line)' : 'none', background:'var(--card)' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'var(--card)'}>
+              {/* Photo */}
+              <div style={{ width:44, height:44, borderRadius:8, overflow:'hidden', flexShrink:0, border:'1px solid var(--line)', background: item.photoUrl ? 'transparent' : tm.bg, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                {item.photoUrl
+                  ? <img src={item.photoUrl} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                  : <tm.Icon size={20} color={tm.color} />}
+              </div>
+              {/* Info */}
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:3, flexWrap:'wrap' }}>
+                  <TypeBadge type={item.itemType} />
+                  {(item.make || item.model) && (
+                    <span style={{ fontSize:11.5, color:'var(--muted)' }}>{[item.make, item.model, item.year].filter(Boolean).join(' ')}</span>
+                  )}
+                  {item.location && (
+                    <span style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:11.5, color:'var(--muted)' }}>
+                      <MapPin size={10} /> {item.location}
                     </span>
-                  </td>
-                  <td style={{ padding:'10px 14px' }}><StatusBadge status={item.status} /></td>
-                  <td style={{ padding:'10px 14px' }}>
-                    {canRequest && (
-                      <button
-                        className={alreadyInCart ? 'secondary-btn' : 'primary-btn'}
-                        style={{ fontSize:11, padding:'4px 10px', display:'inline-flex', alignItems:'center', gap:5, opacity: alreadyInCart ? 0.6 : 1 }}
-                        disabled={alreadyInCart}
-                        onClick={() => onAddToCart(item)}>
-                        <ShoppingCart size={11} />
-                        {alreadyInCart ? 'In Cart' : 'Request'}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                  )}
+                  {item.department && (
+                    <span style={{ fontSize:11.5, color:'var(--muted)', opacity:.7 }}>{item.department}</span>
+                  )}
+                </div>
+              </div>
+              {/* Status for non-requestable items */}
+              {!canRequest && <StatusBadge status={item.status} />}
+              {/* Add to Cart */}
+              {canRequest && (
+                <button
+                  onClick={() => onAddToCart(item)}
+                  disabled={alreadyInCart}
+                  className={alreadyInCart ? 'secondary-btn' : 'primary-btn'}
+                  style={{ fontSize:12.5, padding:'6px 14px', display:'inline-flex', alignItems:'center', gap:6, flexShrink:0 }}>
+                  {alreadyInCart ? <><CheckCircle size={13} /> In Cart</> : <><Plus size={13} /> Add to Cart</>}
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
       <p style={{ fontSize:12, color:'var(--muted)', marginTop:10 }}>{filtered.length} item{filtered.length !== 1 ? 's' : ''}</p>
-      {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
     </>
   );
 }
