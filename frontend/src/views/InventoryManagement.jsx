@@ -1105,7 +1105,6 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
   function addToCart(item) {
     if (inCart.has(item.id)) return;
     setCart(prev => [...prev, { id: `cart-${Date.now()}`, item }]);
-    setCartOpen(true);
   }
 
   function removeFromCart(cartId) {
@@ -1764,7 +1763,6 @@ export default function InventoryManagement({ activeSub }) {
   function addToCart(item) {
     if (inCart.has(item.id)) return;
     setCart(prev => [...prev, { id: `cart-${Date.now()}`, item }]);
-    setCartOpen(true);
   }
   async function handleSubmitCart({ days, reason }) {
     setCartBusy(true);
