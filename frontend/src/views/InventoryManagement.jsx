@@ -875,21 +875,13 @@ function StageTracker({ checkout, onViewPhoto }) {
 }
 
 // ── Cart Drawer ────────────────────────────────────────────────────────────────
-function CartDrawer({ open, cart, onClose, onRemove, onPhotoChange, onSubmit, submitting }) {
+function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting }) {
   const [days,   setDays]   = useState(1);
   const [reason, setReason] = useState('');
   useEffect(() => { if (!open) return; const h = e => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [open, onClose]);
   useEffect(() => { document.body.style.overflow = open ? 'hidden' : ''; return () => { document.body.style.overflow = ''; }; }, [open]);
 
-  const allHavePhotos = cart.every(c => c.photoUrl);
-  const canSubmit     = cart.length > 0 && allHavePhotos && reason.trim() && !submitting;
-
-  function handlePhotoFile(cartId, file) {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = e => onPhotoChange(cartId, file, e.target.result);
-    reader.readAsDataURL(file);
-  }
+  const canSubmit = cart.length > 0 && reason.trim() && !submitting;
 
   return (
     <>
@@ -914,14 +906,19 @@ function CartDrawer({ open, cart, onClose, onRemove, onPhotoChange, onSubmit, su
             </div>
           ) : (
             <>
-              <div style={{ display:'flex', flexDirection:'column', gap:12, marginBottom:20 }}>
-                {cart.map(cartItem => (
-                  <div key={cartItem.id} style={{ border:'1px solid var(--line)', borderRadius:12, padding:'14px 16px', background:'var(--card)' }}>
-                    <div style={{ display:'flex', alignItems:'flex-start', gap:12, marginBottom:12 }}>
-                      <PhotoThumb url={cartItem.previewUrl || cartItem.photoUrl || ''} size={44} />
+              <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:20 }}>
+                {cart.map(cartItem => {
+                  const tm = TYPE_META[cartItem.item.itemType] || TYPE_META.Other;
+                  return (
+                    <div key={cartItem.id} style={{ border:'1px solid var(--line)', borderRadius:12, padding:'12px 14px', background:'var(--card)', display:'flex', alignItems:'center', gap:12 }}>
+                      <div style={{ width:40, height:40, borderRadius:8, overflow:'hidden', flexShrink:0, border:'1px solid var(--line)', background: cartItem.item.photoUrl ? 'transparent' : tm.bg, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                        {cartItem.item.photoUrl
+                          ? <img src={cartItem.item.photoUrl} alt={cartItem.item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                          : <tm.Icon size={18} color={tm.color} />}
+                      </div>
                       <div style={{ flex:1, minWidth:0 }}>
                         <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{cartItem.item.name}</div>
-                        <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:4, flexWrap:'wrap' }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:3, flexWrap:'wrap' }}>
                           <TypeBadge type={cartItem.item.itemType} />
                           {cartItem.item.location && (
                             <span style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:11, color:'var(--muted)' }}>
@@ -935,26 +932,15 @@ function CartDrawer({ open, cart, onClose, onRemove, onPhotoChange, onSubmit, su
                         <X size={15} />
                       </button>
                     </div>
+                  );
+                })}
+              </div>
 
-                    {/* Per-item checkout photo */}
-                    <div>
-                      <label style={{ ...FL, marginBottom:4 }}>CHECKOUT PHOTO <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
-                      <input type="file" accept="image/*" id={`cart-photo-${cartItem.id}`} style={{ display:'none' }}
-                        onChange={e => handlePhotoFile(cartItem.id, e.target.files?.[0])} />
-                      {cartItem.previewUrl ? (
-                        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                          <img src={cartItem.previewUrl} alt="Checkout photo" style={{ width:52, height:52, objectFit:'cover', borderRadius:7, border:'1px solid var(--line)' }} />
-                          <label htmlFor={`cart-photo-${cartItem.id}`} style={{ fontSize:12, cursor:'pointer', color:'hsl(var(--color-blue))', fontWeight:600 }}>Replace</label>
-                        </div>
-                      ) : (
-                        <label htmlFor={`cart-photo-${cartItem.id}`}
-                          style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:'9px', borderRadius:8, border:'2px dashed hsla(var(--color-red),0.4)', background:'hsla(var(--color-red),0.04)', cursor:'pointer', fontSize:12.5, color:'var(--muted)', width:'100%' }}>
-                          <Camera size={14} /> Take / upload checkout photo
-                        </label>
-                      )}
-                    </div>
-                  </div>
-                ))}
+              <div style={{ background:'hsla(var(--color-blue),0.06)', border:'1px solid hsla(var(--color-blue),0.2)', borderRadius:9, padding:'10px 14px', marginBottom:16, display:'flex', alignItems:'flex-start', gap:8 }}>
+                <AlertCircle size={14} color="hsl(var(--color-blue))" style={{ flexShrink:0, marginTop:1 }} />
+                <span style={{ fontSize:12.5, color:'hsl(var(--color-blue))', lineHeight:1.4 }}>
+                  A checkout photo will be taken by the allocator when they hand over the item to you.
+                </span>
               </div>
 
               <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
@@ -970,12 +956,6 @@ function CartDrawer({ open, cart, onClose, onRemove, onPhotoChange, onSubmit, su
                     value={reason} onChange={e => setReason(e.target.value)} />
                 </div>
               </div>
-
-              {!allHavePhotos && (
-                <div style={{ marginTop:12, display:'flex', alignItems:'center', gap:6, fontSize:12, color:'hsl(var(--color-orange))', background:'hsla(var(--color-orange),0.08)', borderRadius:8, padding:'8px 12px' }}>
-                  <Camera size={13} /> Add a checkout photo to every item before submitting.
-                </div>
-              )}
             </>
           )}
         </div>
@@ -1124,7 +1104,7 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
 
   function addToCart(item) {
     if (inCart.has(item.id)) return;
-    setCart(prev => [...prev, { id: `cart-${Date.now()}`, item, photoUrl: '', previewUrl: '', file: null, photoName: '' }]);
+    setCart(prev => [...prev, { id: `cart-${Date.now()}`, item }]);
     setCartOpen(true);
   }
 
@@ -1132,25 +1112,9 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
     setCart(prev => prev.filter(c => c.id !== cartId));
   }
 
-  function handlePhotoChange(cartId, file, previewUrl) {
-    setCart(prev => prev.map(c => c.id === cartId ? { ...c, file, previewUrl, photoName: file.name } : c));
-  }
-
   async function handleSubmitCart({ days, reason }) {
     setSubmitting(true);
-    // Upload checkout photos first
-    const enriched = [];
-    for (const cartItem of cart) {
-      let photoUrl = '';
-      if (cartItem.file && supabase) {
-        const path = `checkout-photos/${cartItem.item.id}/${Date.now()}-${cartItem.photoName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-        const { url } = await uploadToSupabase(cartItem.file, 'checkout-photos', path);
-        photoUrl = url;
-      }
-      enriched.push({ ...cartItem, photoUrl });
-    }
-
-    const results = await submitCartCheckouts(enriched, { days, reason, raisedBy: userName, raisedByEmail: userEmail });
+    const results = await submitCartCheckouts(cart, { days, reason, raisedBy: userName, raisedByEmail: userEmail });
     const succeeded = results.filter(r => r.status === 'fulfilled').length;
     const failed    = results.filter(r => r.status === 'rejected').length;
     setSubmitting(false);
@@ -1279,7 +1243,6 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
         cart={cart}
         onClose={() => setCartOpen(false)}
         onRemove={removeFromCart}
-        onPhotoChange={handlePhotoChange}
         onSubmit={handleSubmitCart}
         submitting={submitting}
       />
@@ -1452,6 +1415,307 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
   );
 }
 
+// ── Allocate Modal (manager/allocator takes checkout photo here) ───────────────
+function AllocateModal({ checkout, onClose, onConfirm }) {
+  const [file,       setFile]       = useState(null);
+  const [preview,    setPreview]    = useState('');
+  const [uploading,  setUploading]  = useState(false);
+  const [error,      setError]      = useState('');
+  const fileRef = useRef(null);
+  useEscapeKey(onClose);
+
+  function handleFile(f) {
+    if (!f) return;
+    setFile(f);
+    const reader = new FileReader();
+    reader.onload = e => setPreview(e.target.result);
+    reader.readAsDataURL(f);
+  }
+
+  async function submit() {
+    if (!file || uploading) return;
+    setUploading(true); setError('');
+    const path = `checkout-photos/${checkout.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const { url, error: upErr } = await uploadToSupabase(file, 'checkout-photos', path);
+    if (upErr) { setError(upErr); setUploading(false); return; }
+    Promise.resolve(onConfirm(url, file.name))
+      .then(onClose)
+      .catch(err => { setError(err?.message || 'Could not mark as allocated.'); setUploading(false); });
+  }
+
+  return (
+    <div role="dialog" aria-modal="true"
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Hand Over Item</h3>
+        <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:20 }}>
+          Allocating <strong>{checkout.itemName}</strong> to <strong>{checkout.requestedBy}</strong>. Take a clear photo of the item condition before handing over.
+        </p>
+        <div>
+          <label style={FL}>CHECKOUT PHOTO <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+          <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={e => handleFile(e.target.files?.[0])} />
+          {preview ? (
+            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+              <img src={preview} alt="Checkout photo" style={{ width:72, height:72, objectFit:'cover', borderRadius:8, border:'1px solid var(--line)' }} />
+              <button type="button" className="secondary-btn" style={{ fontSize:12 }} onClick={() => fileRef.current?.click()}>Replace</button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => fileRef.current?.click()}
+              style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', borderRadius:9, border:'2px dashed hsla(var(--color-red),0.4)', background:'hsla(var(--color-red),0.04)', cursor:'pointer', fontSize:13, color:'var(--muted)' }}>
+              <Camera size={15} /> Take / Upload Photo
+            </button>
+          )}
+        </div>
+        {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginTop:10 }}>{error}</p>}
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={uploading}>Cancel</button>
+          <button className="primary-btn" disabled={!file || uploading}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:140, justifyContent:'center' }} onClick={submit}>
+            {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><CheckCircle size={14} /> Confirm Handover</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Approve Modal (manager picks allocator) ───────────────────────────────────
+function ApproveCheckoutModal({ checkout, onClose, onConfirm }) {
+  const [allocators,  setAllocators]  = useState([]);
+  const [pickedEmail, setPickedEmail] = useState('');
+  const [busy,        setBusy]        = useState(false);
+  const [error,       setError]       = useState('');
+  useEscapeKey(onClose);
+
+  useEffect(() => {
+    api.getItemAllocators().then(setAllocators).catch(() => {});
+  }, []);
+
+  function submit() {
+    const chosen = allocators.find(a => a.email === pickedEmail);
+    if (!chosen || busy) return;
+    setBusy(true); setError('');
+    Promise.resolve(onConfirm(chosen.email, chosen.name))
+      .then(onClose)
+      .catch(err => { setError(err?.message || 'Could not approve.'); setBusy(false); });
+  }
+
+  return (
+    <div role="dialog" aria-modal="true"
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:400, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Approve Checkout</h3>
+        <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:20 }}>
+          Approving <strong>{checkout.itemName}</strong> for <strong>{checkout.requestedBy}</strong>. Assign who will physically hand over the item.
+        </p>
+        <div>
+          <label style={FL}>ASSIGN ALLOCATOR <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+          <select className="form-input" style={{ width:'100%' }} value={pickedEmail} onChange={e => setPickedEmail(e.target.value)}>
+            <option value="">— select allocator —</option>
+            {allocators.map(a => <option key={a.email} value={a.email}>{a.name} ({a.role})</option>)}
+          </select>
+        </div>
+        {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginTop:10 }}>{error}</p>}
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="primary-btn" disabled={!pickedEmail || busy}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:120, justifyContent:'center' }} onClick={submit}>
+            {busy ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Approving…</> : <><CheckCircle size={14} /> Approve</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Reject Modal ──────────────────────────────────────────────────────────────
+function RejectCheckoutModal({ checkout, onClose, onConfirm }) {
+  const [reason, setReason] = useState('');
+  const [busy,   setBusy]   = useState(false);
+  useEscapeKey(onClose);
+
+  function submit() {
+    if (!reason.trim() || busy) return;
+    setBusy(true);
+    Promise.resolve(onConfirm(reason.trim()))
+      .then(onClose)
+      .catch(() => setBusy(false));
+  }
+
+  return (
+    <div role="dialog" aria-modal="true"
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:380, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Reject Checkout</h3>
+        <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:16 }}>Rejecting <strong>{checkout.itemName}</strong> for {checkout.requestedBy}. Give a reason.</p>
+        <textarea rows={3} autoFocus className="form-input" style={{ width:'100%', resize:'vertical', fontSize:13, marginBottom:16 }}
+          placeholder="Reason for rejection…" value={reason} onChange={e => setReason(e.target.value)} />
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
+          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button disabled={!reason.trim() || busy}
+            style={{ background:'hsl(var(--color-red))', color:'#fff', border:'none', borderRadius:8, padding:'8px 18px', fontWeight:700, fontSize:13.5, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:7, fontFamily:'Inter,sans-serif' }}
+            onClick={submit}>
+            {busy ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <XCircle size={14} />} Reject
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Manager Checkouts Tab ─────────────────────────────────────────────────────
+function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveRequest, rejectRequest, allocateItem, refreshCheckouts, refreshItems, toast }) {
+  const [statusFilter, setStatusFilter] = useState('active');
+  const [approvingCo,  setApprovingCo]  = useState(null);
+  const [rejectingCo,  setRejectingCo]  = useState(null);
+  const [allocatingCo, setAllocatingCo] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
+
+  const filtered = checkouts.filter(c => {
+    if (statusFilter === 'active')    return ['pending','approved','allocated'].includes(c.status);
+    if (statusFilter === 'completed') return ['returned','rejected','cancelled'].includes(c.status);
+    return c.status === statusFilter;
+  }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  const pending  = checkouts.filter(c => c.status === 'pending').length;
+  const approved = checkouts.filter(c => c.status === 'approved').length;
+
+  function handleApprove(co, allocEmail, allocName) {
+    return approveRequest(co.id, userName, allocEmail, allocName)
+      .then(() => { toast(`Approved checkout for ${co.requestedBy} — assigned to ${allocName}.`); refreshCheckouts(); });
+  }
+
+  function handleReject(co, reason) {
+    rejectRequest(co.id, userName, reason);
+    toast(`Checkout rejected.`);
+    refreshCheckouts();
+  }
+
+  function handleAllocate(co, photoUrl, photoName) {
+    return allocateItem(co.id, userName, photoUrl)
+      .then(() => { toast(`Item handed over to ${co.requestedBy} — checkout confirmed.`); refreshCheckouts(); refreshItems(); });
+  }
+
+  const fmtDate = iso => new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric' });
+
+  return (
+    <div>
+      {/* Summary chips */}
+      <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap', alignItems:'center' }}>
+        {[
+          { key:'active',    label:'Active', count: pending + approved + checkouts.filter(c => c.status === 'allocated').length },
+          { key:'pending',   label:'Pending approval', count: pending },
+          { key:'approved',  label:'Awaiting handover', count: approved },
+          { key:'completed', label:'Completed', count: checkouts.filter(c => ['returned','rejected','cancelled'].includes(c.status)).length },
+        ].map(f => (
+          <button key={f.key} onClick={() => setStatusFilter(f.key)}
+            style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'6px 14px', borderRadius:20, border:`1px solid ${statusFilter === f.key ? 'var(--pine)' : 'var(--line)'}`, background: statusFilter === f.key ? 'hsla(var(--color-green),0.1)' : 'transparent', color: statusFilter === f.key ? 'hsl(var(--color-green))' : 'var(--muted)', fontWeight: statusFilter === f.key ? 700 : 500, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+            {f.label}
+            {f.count > 0 && <span style={{ background: statusFilter === f.key ? 'hsl(var(--color-green))' : 'var(--muted)', color:'#fff', borderRadius:20, fontSize:10, fontWeight:800, padding:'1px 6px', minWidth:18, textAlign:'center' }}>{f.count}</span>}
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
+        <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)' }}>
+          <ShoppingCart size={32} style={{ opacity:.25, display:'block', margin:'0 auto 10px' }} />
+          No checkouts in this filter.
+        </div>
+      ) : (
+        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+          {filtered.map(co => {
+            const sm = CHECKOUT_STATUS_META[co.status] || { label: co.status, bg:'var(--mist)', fg:'var(--muted)', Icon: Package };
+            const item = items.find(i => i.id === co.itemId);
+            const isMyAlloc = co.assignedAllocatorEmail && co.assignedAllocatorEmail.toLowerCase() === userEmail;
+            return (
+              <div key={co.id} style={{ border:'1px solid var(--line)', borderRadius:12, padding:'16px 18px', background:'var(--card)', boxShadow:'var(--shadow-sm)' }}>
+                <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                    {item?.photoUrl
+                      ? <img src={item.photoUrl} alt={co.itemName} style={{ width:44, height:44, borderRadius:8, objectFit:'cover', border:'1px solid var(--line)', flexShrink:0 }} />
+                      : <div style={{ width:44, height:44, borderRadius:8, background:'var(--mist)', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}><Package size={18} style={{ opacity:.4 }} /></div>}
+                    <div>
+                      <div style={{ fontWeight:700, fontSize:14 }}>{co.itemName}</div>
+                      <div style={{ fontSize:12, color:'var(--muted)', marginTop:2 }}>
+                        {co.requestedBy} · {co.department} · {co.days} day{co.days !== 1 ? 's' : ''} · {fmtDate(co.createdAt)}
+                      </div>
+                      {co.reason && <div style={{ fontSize:12, color:'var(--muted)', fontStyle:'italic', marginTop:2 }}>"{co.reason}"</div>}
+                      {co.assignedAllocatorName && co.status === 'approved' && (
+                        <div style={{ fontSize:11.5, color:'hsl(var(--color-blue))', marginTop:3 }}>Allocator: {co.assignedAllocatorName}</div>
+                      )}
+                    </div>
+                  </div>
+                  <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'3px 10px', borderRadius:20, fontSize:11, fontWeight:700, background:sm.bg, color:sm.fg, flexShrink:0 }}>
+                    <sm.Icon size={11} /> {sm.label}
+                  </span>
+                </div>
+
+                {/* Photos row */}
+                {(co.checkoutPhotoUrl || co.returnPhotoUrl) && (
+                  <div style={{ display:'flex', gap:10, marginTop:12 }}>
+                    {co.checkoutPhotoUrl && (
+                      <button onClick={() => setPhotoPreview(co.checkoutPhotoUrl)} style={{ display:'flex', alignItems:'center', gap:5, background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'4px 10px', cursor:'pointer', fontSize:11.5, color:'var(--muted)', fontFamily:'Inter,sans-serif' }}>
+                        <ZoomIn size={12} /> Checkout photo
+                      </button>
+                    )}
+                    {co.returnPhotoUrl && (
+                      <button onClick={() => setPhotoPreview(co.returnPhotoUrl)} style={{ display:'flex', alignItems:'center', gap:5, background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'4px 10px', cursor:'pointer', fontSize:11.5, color:'var(--muted)', fontFamily:'Inter,sans-serif' }}>
+                        <ZoomIn size={12} /> Return photo
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:12, flexWrap:'wrap' }}>
+                  {co.status === 'pending' && (
+                    <>
+                      <button onClick={() => setRejectingCo(co)}
+                        style={{ background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:8, padding:'6px 14px', fontSize:12.5, cursor:'pointer', color:'hsl(var(--color-red))', fontWeight:600, display:'inline-flex', alignItems:'center', gap:5, fontFamily:'Inter,sans-serif' }}>
+                        <XCircle size={13} /> Reject
+                      </button>
+                      <button className="primary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5 }}
+                        onClick={() => setApprovingCo(co)}>
+                        <CheckCircle size={13} /> Approve
+                      </button>
+                    </>
+                  )}
+                  {co.status === 'approved' && (isMyAlloc || true) && (
+                    <button className="primary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5, background:'hsl(var(--color-orange))' }}
+                      onClick={() => setAllocatingCo(co)}>
+                      <Camera size={13} /> Hand Over + Photo
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {approvingCo && (
+        <ApproveCheckoutModal
+          checkout={approvingCo} onClose={() => setApprovingCo(null)}
+          onConfirm={(email, name) => handleApprove(approvingCo, email, name)} />
+      )}
+      {rejectingCo && (
+        <RejectCheckoutModal
+          checkout={rejectingCo} onClose={() => setRejectingCo(null)}
+          onConfirm={reason => handleReject(rejectingCo, reason)} />
+      )}
+      {allocatingCo && (
+        <AllocateModal
+          checkout={allocatingCo} onClose={() => setAllocatingCo(null)}
+          onConfirm={(url, name) => handleAllocate(allocatingCo, url, name)} />
+      )}
+      {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
+    </div>
+  );
+}
+
 // ── Main view ─────────────────────────────────────────────────────────────────
 export default function InventoryManagement({ activeSub }) {
   const {
@@ -1462,16 +1726,18 @@ export default function InventoryManagement({ activeSub }) {
     refreshItems, refreshCheckouts,
   } = useInventory();
   const { addNotification } = useNotifications();
-  const { can, canAccessModule } = useRole();
+  const { can, canAccessModule, loading: roleLoading } = useRole();
   const { accounts } = useMsal();
   const userName  = accounts[0]?.name     ?? 'Employee';
   const userEmail = (accounts[0]?.username ?? '').toLowerCase();
 
-  const canManage = canAccessModule('inventory', 'manager', 'editor');
-  const canDelete = canAccessModule('inventory', 'owner',   'full');
-  const isManager = canManage;
+  const isManager = can('manager');  // level >= 3; checked after role loads
+  const canDelete = canAccessModule('inventory', 'owner', 'full');
 
-  const [mainTab,      setMainTab]      = useState('catalog'); // catalog | manage | audit
+  const pendingCount = checkouts.filter(c => c.status === 'pending').length;
+  const approvedCount = checkouts.filter(c => c.status === 'approved').length;
+
+  const [mainTab,      setMainTab]      = useState('catalog'); // catalog | manage | checkouts | audit
   const [deptFilter,   setDeptFilter]   = useState('All');
   const [typeFilter,   setTypeFilter]   = useState('All');
   const [search,       setSearch]       = useState('');
@@ -1517,6 +1783,8 @@ export default function InventoryManagement({ activeSub }) {
   function handleReturn(id, data) {
     return returnItem(id, data);
   }
+
+  if (roleLoading) return <SkeletonBlocks count={6} height={56} borderRadius={10} />;
 
   if (!isManager) {
     return (
@@ -1583,19 +1851,21 @@ export default function InventoryManagement({ activeSub }) {
       </div>
 
       {/* Tab strip */}
-      <div style={{ display:'flex', gap:8, marginBottom:20, borderBottom:'1px solid var(--line)' }}>
+      <div style={{ display:'flex', gap:0, marginBottom:20, borderBottom:'1px solid var(--line)', flexWrap:'wrap' }}>
         {[
-          { id:'catalog', label:'Catalog',   Icon: Package },
-          { id:'manage',  label:'Manage',    Icon: ClipboardList },
-          { id:'audit',   label:'Audit Log', Icon: History },
-        ].map(({ id, label, Icon }) => (
+          { id:'catalog',   label:'Catalog',   Icon: Package,       badge: 0 },
+          { id:'manage',    label:'Manage',    Icon: ClipboardList, badge: 0 },
+          { id:'checkouts', label:'Checkouts', Icon: ShoppingCart,  badge: pendingCount + approvedCount },
+          { id:'audit',     label:'Audit Log', Icon: History,       badge: 0 },
+        ].map(({ id, label, Icon, badge }) => (
           <button key={id} onClick={() => setMainTab(id)}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 16px', background:'none', border:'none', borderBottom: mainTab === id ? '2px solid var(--pine)' : '2px solid transparent', color: mainTab === id ? 'var(--ink)' : 'var(--muted)', fontWeight: mainTab === id ? 700 : 600, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-1 }}>
+            style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 16px', background:'none', border:'none', borderBottom: mainTab === id ? '2px solid var(--pine)' : '2px solid transparent', color: mainTab === id ? 'var(--ink)' : 'var(--muted)', fontWeight: mainTab === id ? 700 : 600, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-1, position:'relative' }}>
             <Icon size={14} /> {label}
+            {badge > 0 && <span style={{ background:'hsl(var(--color-orange))', color:'#fff', borderRadius:20, fontSize:10, fontWeight:800, padding:'1px 6px', marginLeft:2 }}>{badge}</span>}
           </button>
         ))}
         {/* Search for catalog/manage */}
-        {mainTab !== 'audit' && (
+        {(mainTab === 'catalog' || mainTab === 'manage') && (
           <div className="search-bar" style={{ marginLeft:'auto', width:220, marginBottom:0 }}>
             <Search size={14} style={{ flexShrink:0 }} />
             <input placeholder="Search items…" value={search} onChange={e => setSearch(e.target.value)} />
@@ -1622,6 +1892,15 @@ export default function InventoryManagement({ activeSub }) {
           onImport={() => setImportOpen(true)}
           onExport={() => downloadItemsCsv(items)}
           onReport={() => setReportOpen(true)}
+        />
+      )}
+      {mainTab === 'checkouts' && (
+        <ManagerCheckoutsTab
+          checkouts={checkouts} items={items}
+          userName={userName} userEmail={userEmail}
+          approveRequest={approveRequest} rejectRequest={rejectRequest}
+          allocateItem={allocateItem} refreshCheckouts={refreshCheckouts}
+          refreshItems={refreshItems} toast={toast}
         />
       )}
       {mainTab === 'audit' && <AuditLogPanel />}

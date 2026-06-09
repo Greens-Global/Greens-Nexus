@@ -169,11 +169,11 @@ export function InventoryProvider({ children }) {
       .catch(err => { fetchCheckouts(); throw err; });
   }
 
-  function allocateItem(id, supervisorName) {
+  function allocateItem(id, supervisorName, checkoutPhotoUrl = '') {
     setCheckouts(prev => prev.map(c =>
-      c.id === id ? { ...c, status: 'allocated', allocatedAt: new Date().toISOString(), allocatedBy: supervisorName } : c
+      c.id === id ? { ...c, status: 'allocated', allocatedAt: new Date().toISOString(), allocatedBy: supervisorName, checkoutPhotoUrl: checkoutPhotoUrl || c.checkoutPhotoUrl } : c
     ));
-    return api.updateItemCheckout(id, { status: 'allocated', allocated_by: supervisorName })
+    return api.updateItemCheckout(id, { status: 'allocated', allocated_by: supervisorName, checkout_photo_url: checkoutPhotoUrl })
       .then(saved => { fetchCheckouts(); fetchItems(); return saved; })
       .catch(err => { fetchCheckouts(); throw err; });
   }
