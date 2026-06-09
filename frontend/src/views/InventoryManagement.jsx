@@ -1305,13 +1305,9 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
 
 // ── Employee View ─────────────────────────────────────────────────────────────
 function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, submitCartCheckouts, cancelRequest, allocateItem, toast }) {
-  // Compute before state so the initializer can set the smart default tab
-  const _initActiveCount = checkouts.filter(c =>
-    ['pending','approved','allocated'].includes(c.status) &&
-    ((c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) || c.requestedBy === userName)
-  ).length;
-
-  const [tab,            setTab]            = useState(() => _initActiveCount > 0 ? 'checkouts' : 'catalog');
+  const [tab,            setTab]            = useState('catalog');
+  const [mode,           setMode]           = useState('home');
+  const [viewMode,       setViewMode]       = useState('tile');
   const [search,         setSearch]         = useState('');
   const [typeFilter,     setTypeFilter]     = useState('All');
   const [locationFilter, setLocationFilter] = useState('All');
@@ -1396,14 +1392,60 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
     return cancelRequest(co.id, userName).then(() => toast('Checkout cancelled.')).catch(() => toast('Could not cancel.', 'error'));
   }
 
-  // ── Tab-based view ──────────────────────────────────────────────────────────
+  // ── Home screen ─────────────────────────────────────────────────────────────
+  if (mode === 'home') {
+    return (
+      <div style={{ animation:'fadeIn var(--transition-normal) ease-in-out' }}>
+        <div style={{ marginBottom:32 }}>
+          <h2 style={{ fontSize:20, fontWeight:700, margin:'0 0 4px' }}>Item Management</h2>
+          <p style={{ fontSize:13, color:'var(--muted)', margin:0 }}>What would you like to do today?</p>
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))', gap:16, maxWidth:820, marginBottom:cart.length ? 28 : 0 }}>
+          {[
+            { Icon:ShoppingCart,  colorVar:'color-green',  title:'Checkout an Item',      sub:'Browse available equipment and raise a checkout request.',                                                                          go:() => { setMode('catalog'); setTab('catalog'); },   badge:null },
+            { Icon:RotateCcw,     colorVar:'color-blue',   title:'Return an Item',         sub:activeCheckouts.length > 0 ? `${activeCheckouts.length} item${activeCheckouts.length!==1?'s':''} currently checked out.` : 'Return equipment you currently have with you.', go:() => { setMode('catalog'); setTab('checkouts'); }, badge:activeCheckouts.length||null },
+            { Icon:ClipboardList, colorVar:'color-orange', title:'Raise Purchase Request', sub:'Need something not in the catalog? Submit a formal purchase request.',                                                              go:() => window.dispatchEvent(new CustomEvent('nexus:navigate',{detail:{view:'purchase'}})),                      badge:null },
+          ].map(({ Icon, colorVar, title, sub, go, badge }) => (
+            <button key={title} onClick={go}
+              style={{ display:'flex', alignItems:'flex-start', gap:16, padding:'20px 20px', borderRadius:14, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', textAlign:'left', fontFamily:'Inter,sans-serif', transition:'box-shadow 0.15s', boxShadow:'var(--shadow-sm)', position:'relative' }}
+              onMouseEnter={e => e.currentTarget.style.boxShadow='var(--shadow-md)'}
+              onMouseLeave={e => e.currentTarget.style.boxShadow='var(--shadow-sm)'}>
+              <div style={{ width:46, height:46, borderRadius:12, background:`hsla(var(--${colorVar}),0.12)`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                <Icon size={22} color={`hsl(var(--${colorVar}))`} />
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontWeight:700, fontSize:15, color:'var(--ink)', marginBottom:4 }}>
+                  {title}
+                  {badge > 0 && <span style={{ marginLeft:8, padding:'1px 8px', borderRadius:20, fontSize:11, fontWeight:700, background:`hsla(var(--${colorVar}),0.12)`, color:`hsl(var(--${colorVar}))` }}>{badge} active</span>}
+                </div>
+                <div style={{ fontSize:12.5, color:'var(--muted)', lineHeight:1.5 }}>{sub}</div>
+              </div>
+              <ChevronRight size={16} color="var(--muted)" style={{ flexShrink:0, alignSelf:'center' }} />
+            </button>
+          ))}
+        </div>
+        {cart.length > 0 && (
+          <div style={{ padding:'14px 18px', borderRadius:12, border:'1px solid hsla(var(--color-green),0.3)', background:'hsla(var(--color-green),0.06)', display:'flex', alignItems:'center', gap:12, maxWidth:520, marginTop:24 }}>
+            <ShoppingCart size={16} color="hsl(var(--color-green))" style={{ flexShrink:0 }} />
+            <span style={{ fontSize:13, fontWeight:600, color:'var(--ink)', flex:1 }}>{cart.length} item{cart.length!==1?'s':''} waiting in your cart</span>
+            <button className="primary-btn" onClick={() => setCartOpen(true)} style={{ fontSize:12, padding:'6px 14px', flexShrink:0 }}>View Cart</button>
+          </div>
+        )}
+        <CartDrawer open={cartOpen} cart={cart} onClose={() => setCartOpen(false)} onRemove={removeFromCart} onSubmit={handleSubmitCart} submitting={submitting} onDaysChange={handleDaysChange} />
+      </div>
+    );
+  }
+
+  // ── Catalog / Checkouts view ─────────────────────────────────────────────────
   return (
     <div style={{ animation:'fadeIn var(--transition-normal) ease-in-out' }}>
-      {/* Page header */}
-      <div style={{ marginBottom:20 }}>
-        <h2 style={{ fontSize:20, fontWeight:700, margin:'0 0 4px' }}>Item Management</h2>
-        <p style={{ fontSize:13, color:'var(--muted)', margin:0 }}>Check out company equipment for your shift or job.</p>
-      </div>
+      {/* Back to home */}
+      <button onClick={() => setMode('home')}
+        style={{ display:'inline-flex', alignItems:'center', gap:6, marginBottom:18, background:'none', border:'none', cursor:'pointer', color:'var(--muted)', fontSize:13, fontFamily:'Inter,sans-serif', padding:'4px 0', transition:'color 0.15s' }}
+        onMouseEnter={e => e.currentTarget.style.color='var(--ink)'}
+        onMouseLeave={e => e.currentTarget.style.color='var(--muted)'}>
+        <ArrowLeft size={14} /> Back to Home
+      </button>
 
       {/* Tab strip */}
       <div style={{ display:'flex', alignItems:'center', borderBottom:'2px solid var(--line)', marginBottom:24 }}>
@@ -1436,19 +1478,31 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
               <Search size={14} style={{ flexShrink:0 }} />
               <input placeholder="Search by name, make, or model…" value={search} onChange={e => setSearch(e.target.value)} autoFocus />
             </div>
-            <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
-              {['All', ...ITEM_TYPES].map(t => {
-                const active = typeFilter === t;
-                return (
-                  <button key={t} onClick={() => setTypeFilter(t)}
-                    style={{ padding:'5px 14px', borderRadius:20, border:`1px solid ${active ? 'var(--pine)' : 'var(--line)'}`, background: active ? 'var(--pine)' : 'var(--card)', color: active ? '#fff' : 'var(--ink)', fontSize:12.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif', transition:'all 0.15s' }}>
-                    {t}
-                  </button>
-                );
-              })}
-              <span style={{ fontSize:12.5, color:'var(--muted)', alignSelf:'center', marginLeft:4 }}>
-                {filteredItems.filter(i => i.status === 'available').length} available · {filteredItems.length} total
-              </span>
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', justifyContent:'space-between' }}>
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+                {['All', ...ITEM_TYPES].map(t => {
+                  const active = typeFilter === t;
+                  return (
+                    <button key={t} onClick={() => setTypeFilter(t)}
+                      style={{ padding:'5px 14px', borderRadius:20, border:`1px solid ${active ? 'var(--pine)' : 'var(--line)'}`, background: active ? 'var(--pine)' : 'var(--card)', color: active ? '#fff' : 'var(--ink)', fontSize:12.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif', transition:'all 0.15s' }}>
+                      {t}
+                    </button>
+                  );
+                })}
+                <span style={{ fontSize:12.5, color:'var(--muted)', alignSelf:'center', marginLeft:4 }}>
+                  {filteredItems.filter(i => i.status === 'available').length} available · {filteredItems.length} total
+                </span>
+              </div>
+              <div style={{ display:'flex', gap:4, flexShrink:0 }}>
+                <button onClick={() => setViewMode('tile')}
+                  style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:8, border:`1px solid ${viewMode==='tile' ? 'var(--pine)' : 'var(--line)'}`, background: viewMode==='tile' ? 'hsla(var(--color-green),0.1)' : 'transparent', color: viewMode==='tile' ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+                  <LayoutGrid size={13} /> Tile
+                </button>
+                <button onClick={() => setViewMode('list')}
+                  style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:8, border:`1px solid ${viewMode==='list' ? 'var(--pine)' : 'var(--line)'}`, background: viewMode==='list' ? 'hsla(var(--color-green),0.1)' : 'transparent', color: viewMode==='list' ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+                  <ClipboardList size={13} /> List
+                </button>
+              </div>
             </div>
             {locations.length > 2 && (
               <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
@@ -1465,16 +1519,74 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
               </div>
             )}
           </div>
-          <ItemPhotoGrid
-            items={filteredItems} checkouts={checkouts}
-            itemsLoading={itemsLoading} itemsError={itemsError}
-            refreshItems={refreshItems} onAddToCart={addToCart} inCart={inCart}
-            emptyLabel={search || typeFilter !== 'All' || locationFilter !== 'All' ? 'No items match your search.' : 'No items available.'}
-          />
+
+          {viewMode === 'tile' ? (
+            <ItemPhotoGrid
+              items={filteredItems} checkouts={checkouts}
+              itemsLoading={itemsLoading} itemsError={itemsError}
+              refreshItems={refreshItems} onAddToCart={addToCart} inCart={inCart}
+              emptyLabel={search || typeFilter !== 'All' || locationFilter !== 'All' ? 'No items match your search.' : 'No items available.'}
+            />
+          ) : (
+            itemsError ? <ErrorBanner message="Could not load items." onRetry={refreshItems} /> :
+            itemsLoading && !filteredItems.length ? <SkeletonBlocks count={6} height={48} borderRadius={8} /> :
+            filteredItems.length === 0 ? (
+              <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)' }}>
+                <Package size={32} style={{ opacity:.25, display:'block', margin:'0 auto 10px' }} />
+                {search || typeFilter !== 'All' || locationFilter !== 'All' ? 'No items match your search.' : 'No items available.'}
+              </div>
+            ) : (
+              <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto', marginBottom:20 }}>
+                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+                  <thead>
+                    <tr style={{ background:'var(--mist)' }}>
+                      {['Photo','Name','Type','Make / Model','Location','Status',''].map(h =>
+                        <th key={h} style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5, whiteSpace:'nowrap' }}>{h}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...filteredItems].sort((a,b) => {
+                      const aA = a.status==='available' ? 0 : 1, bA = b.status==='available' ? 0 : 1;
+                      if (aA!==bA) return aA-bA; return a.name.localeCompare(b.name);
+                    }).map(item => {
+                      const tm = TYPE_META[item.itemType] || TYPE_META.Other;
+                      const alreadyInCart = inCart.has(item.id);
+                      const hasPending = item.status==='available' && checkouts.some(c => ['pending','approved'].includes(c.status) && c.itemId===item.id);
+                      const canAdd = item.status==='available' && !hasPending && item.ownershipType==='transient';
+                      return (
+                        <tr key={item.id} style={{ borderTop:'1px solid var(--line)', opacity: item.status==='available'&&!hasPending ? 1 : 0.65 }}>
+                          <td style={{ padding:'8px 14px' }}>
+                            {item.photoUrl
+                              ? <img src={item.photoUrl} alt={item.name} style={{ width:36, height:36, borderRadius:7, objectFit:'cover', border:'1px solid var(--line)' }} />
+                              : <div style={{ width:36, height:36, borderRadius:7, background:tm.bg, display:'flex', alignItems:'center', justifyContent:'center' }}><tm.Icon size={16} color={tm.color} /></div>}
+                          </td>
+                          <td style={{ padding:'8px 14px', fontWeight:600 }}>{item.name}</td>
+                          <td style={{ padding:'8px 14px' }}><TypeBadge type={item.itemType} /></td>
+                          <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{[item.make,item.model].filter(Boolean).join(' · ')||'—'}</td>
+                          <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.location||'—'}</td>
+                          <td style={{ padding:'8px 14px' }}><StatusBadge status={hasPending ? 'checked_out' : item.status} /></td>
+                          <td style={{ padding:'8px 14px' }}>
+                            {canAdd && (
+                              <button onClick={() => addToCart(item)} disabled={alreadyInCart}
+                                className={alreadyInCart ? 'secondary-btn' : 'primary-btn'}
+                                style={{ fontSize:12, padding:'5px 12px', display:'inline-flex', alignItems:'center', gap:5 }}>
+                                {alreadyInCart ? <><CheckCircle size={11} /> In Cart</> : <><Plus size={11} /> Add</>}
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+
           {cart.length > 0 && (
             <div style={{ position:'fixed', bottom:0, left:0, right:0, background:'var(--pine)', padding:'14px 24px', zIndex:200, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, boxShadow:'0 -4px 24px rgba(0,0,0,0.18)' }}>
               <div style={{ color:'#fff' }}>
-                <span style={{ fontWeight:700, fontSize:15 }}>{cart.length} item{cart.length !== 1 ? 's' : ''} in cart</span>
+                <span style={{ fontWeight:700, fontSize:15 }}>{cart.length} item{cart.length!==1?'s':''} in cart</span>
                 <div style={{ fontSize:12, opacity:.8, marginTop:1 }}>Ready to submit your request</div>
               </div>
               <button onClick={() => setCartOpen(true)}
