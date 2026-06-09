@@ -34,7 +34,21 @@ class NotificationIn(BaseModel):
 
 
 @router.post("")
-def create_notification(n: NotificationIn, db: Session = Depends(get_db)):
+def create_notification(n: NotificationIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Only supervisors and above can create notifications via the API.
+    # System notifications (from backend workflows) are written directly via
+    # the internal _notify() helper in items.py, not this endpoint.
+    if user["level"] < 2:
+        raise HTTPException(403, "Supervisor or above required to create notifications")
+    # Non-managers may only send personal notifications (to a specific recipient),
+    # never broadcasts (recipient="") which go to every manager's bell.
+    if user["level"] < 3 and not (n.recipient or "").strip():
+        raise HTTPException(403, "Broadcast notifications require manager access")
+    # Enforce field length limits to prevent storage abuse
+    if len(n.title) > 200:
+        raise HTTPException(400, "Title too long (max 200 chars)")
+    if len(n.body) > 1000:
+        raise HTTPException(400, "Body too long (max 1000 chars)")
     row = NexusNotification(
         id           = n.id,
         type         = n.type,
@@ -61,29 +75,36 @@ def get_notifications(user: dict = Depends(get_current_user), db: Session = Depe
     - recipient IS NULL/empty  → broadcast to all managers (caller filters by role client-side)
     - recipient == email       → personal notification for this user
     Identity comes from the verified token — never from a query parameter.
+    Filter is applied at the SQL level so the DB only sends relevant rows.
     """
     email = user["email"]
-    rows = db.query(NexusNotification).order_by(NexusNotification.created_at.desc()).limit(100).all()
+    # SQL-level filter: personal notifications for this user OR broadcasts (recipient="")
+    from sqlalchemy import or_
+    rows = (
+        db.query(NexusNotification)
+        .filter(or_(NexusNotification.recipient == "", NexusNotification.recipient == email))
+        .order_by(NexusNotification.created_at.desc())
+        .limit(100)
+        .all()
+    )
 
     result = []
     for r in rows:
-        rec = (r.recipient or "").lower()
-        if rec == "" or rec == email:
-            read_list = [x for x in (r.read_by or "").split(",") if x]
-            result.append({
-                "id":           r.id,
-                "type":         r.type,
-                "recipient":    r.recipient,
-                "title":        r.title,
-                "body":         r.body,
-                "ref_id":       r.ref_id,
-                "item_name":    r.item_name,
-                "requested_by": r.requested_by,
-                "action":       json.loads(r.action) if r.action else None,
-                "actioned":     r.actioned,
-                "read":         email in read_list,
-                "created_at":   r.created_at,
-            })
+        read_list = [x for x in (r.read_by or "").split(",") if x]
+        result.append({
+            "id":           r.id,
+            "type":         r.type,
+            "recipient":    r.recipient,
+            "title":        r.title,
+            "body":         r.body,
+            "ref_id":       r.ref_id,
+            "item_name":    r.item_name,
+            "requested_by": r.requested_by,
+            "action":       json.loads(r.action) if r.action else None,
+            "actioned":     r.actioned,
+            "read":         email in read_list,
+            "created_at":   r.created_at,
+        })
     return result
 
 
@@ -109,20 +130,36 @@ def mark_read(nid: str, user: dict = Depends(get_current_user), db: Session = De
 
 
 @router.patch("/{nid}/action")
-def mark_actioned(nid: str, db: Session = Depends(get_db)):
+def mark_actioned(nid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     row = db.query(NexusNotification).filter(NexusNotification.id == nid).first()
-    if row:
-        row.actioned = True
-        try:
-            db.commit()
-        except StaleDataError:
-            db.rollback()
+    if not row:
+        return {"ok": False}
+    rec = (row.recipient or "").lower()
+    # Only the intended recipient (or a manager for broadcast notifications) may action a notification.
+    if rec != "" and rec != user["email"]:
+        raise HTTPException(403, "You can only action your own notifications")
+    if rec == "" and user["level"] < 3:
+        raise HTTPException(403, "Manager or above required to action broadcast notifications")
+    row.actioned = True
+    try:
+        db.commit()
+    except StaleDataError:
+        db.rollback()
     return {"ok": True}
 
 
 @router.delete("/{nid}")
-def delete_notification(nid: str, db: Session = Depends(get_db)):
-    db.query(NexusNotification).filter(NexusNotification.id == nid).delete()
+def delete_notification(nid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    row = db.query(NexusNotification).filter(NexusNotification.id == nid).first()
+    if not row:
+        return {"ok": True}
+    rec = (row.recipient or "").lower()
+    # Only the intended recipient (or a manager for broadcast notifications) may delete a notification.
+    if rec != "" and rec != user["email"]:
+        raise HTTPException(403, "You can only delete your own notifications")
+    if rec == "" and user["level"] < 3:
+        raise HTTPException(403, "Manager or above required to delete broadcast notifications")
+    db.delete(row)
     db.commit()
     return {"ok": True}
 

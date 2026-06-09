@@ -15,16 +15,18 @@ from auth import get_current_user, require_level_or_module
 from models import Item, ItemCheckout, ItemCartEntry, NexusRole, NexusNotification, AuditLog
 
 _VALID_TRANSITIONS = {
-    "approved":  {"pending"},
-    "rejected":  {"pending", "approved"},
-    "allocated": {"approved"},
-    "returned":  {"allocated"},
-    "cancelled": {"pending", "approved"},
+    "approved":         {"pending"},
+    "rejected":         {"pending", "approved"},
+    "pending_receipt":  {"approved"},
+    "allocated":        {"approved", "pending_receipt"},
+    "returned":         {"allocated"},
+    "cancelled":        {"pending", "approved"},
 }
 
 _ROLE_LEVEL = {"employee": 1, "supervisor": 2, "manager": 3, "administrator": 4, "owner": 5}
 
-_ITEM_TYPES = ["Devices", "Tools", "Vehicles", "Equipment", "Keys", "Other"]
+_ITEM_TYPES    = ["Devices", "Tools", "Vehicles", "Equipment", "Keys", "Other"]
+_ITEM_STATUSES = ["available", "checked_out", "permanently_assigned", "retired"]
 
 _TYPE_DEFAULT_OWNER = {
     "Devices":   "IT",
@@ -147,6 +149,11 @@ def _checkout_to_dict(c: ItemCheckout) -> dict:
         "returnPhotoName":         c.return_photo_name        or None,
         "conditionNote":           c.condition_note           or None,
         "orderId":                 c.order_id                 or "",
+        "handoverPhotoBy":         c.handover_photo_by        or "",
+        "handoverBatch":           bool(c.handover_batch)     if c.handover_batch is not None else False,
+        "receiptPhotoUrl":         c.receipt_photo_url        or None,
+        "receiptPhotoName":        c.receipt_photo_name       or None,
+        "handedOverAt":            c.handed_over_at           or None,
     }
 
 
@@ -336,16 +343,28 @@ def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(require_ite
         if not n:
             raise HTTPException(400, "Name cannot be empty")
         item.name = n
-    if body.item_type  is not None: item.item_type      = body.item_type.strip()
-    if body.make       is not None: item.make           = body.make.strip()
-    if body.model      is not None: item.model          = body.model.strip()
-    if body.year       is not None: item.year           = body.year.strip()
-    if body.department is not None: item.department     = body.department.strip()
+    if body.item_type  is not None:
+        t = body.item_type.strip()
+        if t and t not in _ITEM_TYPES:
+            raise HTTPException(400, f"Invalid item_type. Must be one of: {', '.join(_ITEM_TYPES)}")
+        item.item_type = t
+    if body.make           is not None: item.make           = body.make.strip()
+    if body.model          is not None: item.model          = body.model.strip()
+    if body.year           is not None: item.year           = body.year.strip()
+    if body.department     is not None: item.department     = body.department.strip()
     if body.default_owner  is not None: item.default_owner  = body.default_owner.strip()
-    if body.ownership_type is not None: item.ownership_type = body.ownership_type.strip()
-    if body.status     is not None: item.status         = body.status.strip()
-    if body.location   is not None: item.location       = body.location.strip()
-    if body.photo_url  is not None: item.photo_url      = body.photo_url.strip()
+    if body.ownership_type is not None:
+        ot = body.ownership_type.strip().lower()
+        if ot and ot not in ("permanent", "transient"):
+            raise HTTPException(400, "ownership_type must be 'permanent' or 'transient'")
+        item.ownership_type = ot
+    if body.status is not None:
+        s = body.status.strip()
+        if s and s not in _ITEM_STATUSES:
+            raise HTTPException(400, f"Invalid status. Must be one of: {', '.join(_ITEM_STATUSES)}")
+        item.status = s
+    if body.location  is not None: item.location  = body.location.strip()
+    if body.photo_url is not None: item.photo_url = body.photo_url.strip()
     db.commit()
     return _item_to_dict(item)
 
@@ -357,7 +376,7 @@ def delete_item(item_id: str, user: dict = Depends(require_items_delete), db: Se
         raise HTTPException(404, "Item not found")
     active = db.query(ItemCheckout).filter(
         ItemCheckout.item_id == item_id,
-        ItemCheckout.status.in_(["pending", "approved", "allocated"]),
+        ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"]),
     ).count()
     if active:
         raise HTTPException(409, "Cannot delete an item with an active checkout against it")
@@ -387,6 +406,14 @@ class CheckoutIn(BaseModel):
         if not (1 <= self.days <= 90):
             raise HTTPException(400, "days must be between 1 and 90")
 
+    def validate_lengths(self):
+        if len(self.id) > 120:
+            raise HTTPException(400, "id too long")
+        if len(self.reason) > 1000:
+            raise HTTPException(400, "reason too long (max 1000 chars)")
+        if len(self.requested_by) > 200:
+            raise HTTPException(400, "requested_by too long")
+
 
 class CheckoutStatusUpdate(BaseModel):
     status:                    str
@@ -395,9 +422,16 @@ class CheckoutStatusUpdate(BaseModel):
     assigned_allocator_email:  Optional[str] = ""
     assigned_allocator_name:   Optional[str] = ""
     allocated_by:              Optional[str] = ""
+    checkout_photo_url:        Optional[str] = ""
+    checkout_photo_name:       Optional[str] = ""
     return_photo_name:         Optional[str] = ""
     return_photo_url:          Optional[str] = ""
     condition_note:            Optional[str] = ""
+    handover_photo_by:         Optional[str] = ""   # 'allocator' | 'employee'
+    handover_batch:            Optional[bool] = False
+    receipt_photo_url:         Optional[str] = ""
+    receipt_photo_name:        Optional[str] = ""
+    handed_over_at:            Optional[str] = ""
 
 
 @router.get("/checkouts")
@@ -408,12 +442,13 @@ def list_checkouts(user: dict = Depends(get_current_user), db: Session = Depends
             ItemCheckout.requested_by_email == user["email"],
             ItemCheckout.assigned_allocator_email == user["email"],
         ))
-    return [_checkout_to_dict(c) for c in q.all()]
+    return [_checkout_to_dict(c) for c in q.limit(2000).all()]
 
 
 @router.post("/checkouts", status_code=201)
 def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     body.validate_days()
+    body.validate_lengths()
     if not body.reason.strip():
         raise HTTPException(400, "Reason for checkout is required")
 
@@ -493,11 +528,15 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
         raise HTTPException(403, "Manager or above required to approve or reject checkouts")
     if body.status == "approved" and not (body.assigned_allocator_email or "").strip():
         raise HTTPException(400, "Pick who should allocate this item before approving")
+    if body.status == "pending_receipt":
+        is_assignee = row.assigned_allocator_email and row.assigned_allocator_email.lower() == user["email"]
+        if not is_assignee and user["level"] < 3:
+            raise HTTPException(403, "Only the assigned allocator or a manager can initiate handover")
     if body.status == "allocated":
         is_assignee  = row.assigned_allocator_email and row.assigned_allocator_email.lower() == user["email"]
         is_requester = row.requested_by_email and row.requested_by_email.lower() == user["email"]
         if not is_assignee and not is_requester and user["level"] < 3:
-            raise HTTPException(403, "Only the assigned allocator, the requester, or a manager can mark this as allocated")
+            raise HTTPException(403, "Only the assigned allocator, the requester, or a manager can confirm handover")
     if body.status == "returned" and user["level"] < 2 and row.requested_by_email.lower() != user["email"]:
         raise HTTPException(403, "You can only return your own items")
     if body.status == "cancelled" and row.requested_by_email.lower() != user["email"]:
@@ -523,11 +562,34 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
         row.resolved_at = now
         row.resolved_by = body.resolved_by or ""
 
-    elif body.status == "allocated":
-        if item and item.status != "available":
-            raise HTTPException(409, "Item is no longer available to allocate")
-        row.allocated_at = now
+    elif body.status == "pending_receipt":
+        # Supervisor confirmed physical handover; employee will upload receipt photo
+        row.handed_over_at    = now
+        row.handover_photo_by = "employee"
+        row.handover_batch    = bool(body.handover_batch)
+        if body.checkout_photo_url:
+            row.checkout_photo_url  = body.checkout_photo_url
+            row.checkout_photo_name = body.checkout_photo_name or ""
         row.allocated_by = body.allocated_by or ""
+
+    elif body.status == "allocated":
+        coming_from_pending_receipt = row.status == "pending_receipt"
+        if not coming_from_pending_receipt:
+            # Direct allocator-photo handover: item must still be available
+            if item and item.status != "available":
+                raise HTTPException(409, "Item is no longer available to allocate")
+            row.handed_over_at    = now
+            row.handover_photo_by = body.handover_photo_by or "allocator"
+            row.handover_batch    = bool(body.handover_batch)
+            if body.checkout_photo_url:
+                row.checkout_photo_url  = body.checkout_photo_url
+                row.checkout_photo_name = body.checkout_photo_name or ""
+        else:
+            # Employee confirming receipt after supervisor initiated handover
+            row.receipt_photo_url  = body.receipt_photo_url  or ""
+            row.receipt_photo_name = body.receipt_photo_name or ""
+        row.allocated_at = now
+        row.allocated_by = body.allocated_by or row.allocated_by or ""
         if item:
             item.status = "checked_out"
 
@@ -572,10 +634,15 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
                 title=f"Checkout rejected: {row.item_name}",
                 body=f"Your request for {row.item_name} was not approved. Reason: {row.reject_reason or 'No reason given.'}",
                 ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+    elif body.status == "pending_receipt":
+        _notify(db, type="allocated", recipient=row.requested_by_email,
+                title=f"Confirm receipt: {row.item_name}",
+                body=f"{row.item_name} has been handed over to you. Please confirm receipt and upload a photo.",
+                ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
     elif body.status == "allocated":
         _notify(db, type="allocated", recipient=row.requested_by_email,
-                title=f"Item ready: {row.item_name}",
-                body=f"{row.item_name} has been handed over to you. Please return it within {row.days} day(s).",
+                title=f"Item confirmed: {row.item_name}",
+                body=f"{row.item_name} checkout is complete. Please return it within {row.days} day(s).",
                 ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
     elif body.status == "returned":
         # Only notify the allocator — skip if unset to avoid broadcasting to all users

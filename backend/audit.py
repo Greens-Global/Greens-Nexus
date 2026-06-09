@@ -210,12 +210,16 @@ class AuditMiddleware(BaseHTTPMiddleware):
             action, resource_id = _describe(method, path)
             user_email = _extract_email(request)
 
-            forwarded  = request.headers.get("x-forwarded-for")
-            ip = (
-                forwarded.split(",")[0].strip()
-                if forwarded
-                else (request.client.host if request.client else "")
-            )
+            # Azure App Service sets X-Forwarded-For reliably; take the LAST
+            # IP in the chain (closest trusted hop) to prevent client spoofing
+            # of the header. Falls back to the direct connection IP.
+            forwarded = request.headers.get("x-forwarded-for", "")
+            if forwarded:
+                # The rightmost IP is appended by the nearest trusted proxy
+                hops = [h.strip() for h in forwarded.split(",") if h.strip()]
+                ip = hops[-1] if hops else ""
+            else:
+                ip = request.client.host if request.client else ""
 
             details = {"path": path, "status": response.status_code}
             details.update(body_fields)
