@@ -1,10 +1,10 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Package, Plus, Search, CheckCircle, Clock, XCircle, RotateCcw, Camera,
   AlertCircle, X, Loader2, ChevronDown, UploadCloud, FileSpreadsheet,
   Download, Pencil, Trash2, MapPin, ClipboardList, History, FileBarChart,
   ShoppingCart, Filter, ZoomIn, Car, Wrench, Key, Monitor, Box,
-  ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image, LayoutGrid,
+  ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image, LayoutGrid, User,
 } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import { useInventory }     from '../contexts/InventoryContext';
@@ -842,35 +842,41 @@ const STAGES = [
   { key:'allocated', label:'In Use'    },
   { key:'returned',  label:'Returned'  },
 ];
-function StageTracker({ checkout, onViewPhoto }) {
+function StageTracker({ checkout }) {
   const ORDER = ['pending','approved','allocated','returned'];
   const idx   = ORDER.indexOf(checkout.status);
-  const isDone = ['returned','rejected','cancelled'].includes(checkout.status);
+  const isRejected  = checkout.status === 'rejected';
+  const isCancelled = checkout.status === 'cancelled';
+
+  if (isRejected || isCancelled) return (
+    <div style={{ marginTop:8, fontSize:12, color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:6, padding:'4px 10px', display:'inline-block' }}>
+      {isRejected ? `Rejected${checkout.rejectReason ? ` — "${checkout.rejectReason}"` : ''}` : 'Cancelled'}
+    </div>
+  );
+
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:0, margin:'12px 0 4px', flexWrap:'wrap' }}>
+    <div style={{ display:'flex', alignItems:'center', margin:'10px 0 6px' }}>
       {STAGES.map((stage, i) => {
-        const active  = i <= idx && !['rejected','cancelled'].includes(checkout.status);
-        const current = ORDER[idx] === stage.key;
+        const done    = i < idx;
+        const current = i === idx;
         return (
-          <div key={stage.key} style={{ display:'flex', alignItems:'center', flex: i < STAGES.length - 1 ? '1 1 auto' : undefined }}>
-            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
-              <div style={{ width:22, height:22, borderRadius:'50%', border:`2px solid ${active ? 'hsl(var(--color-green))' : 'var(--line)'}`, background: active ? 'hsl(var(--color-green))' : 'transparent', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                {active && <CheckCircle size={12} color="#fff" />}
-              </div>
-              <span style={{ fontSize:10, fontWeight: current ? 700 : 500, color: active ? 'hsl(var(--color-green))' : 'var(--muted)', whiteSpace:'nowrap' }}>{stage.label}</span>
+          <React.Fragment key={stage.key}>
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
+              <div style={{ width:10, height:10, borderRadius:'50%', transition:'background 0.2s',
+                background: done ? 'hsl(var(--color-green))' : current ? 'hsl(var(--color-blue))' : 'var(--line)',
+                outline: current ? '2px solid hsla(var(--color-blue),0.3)' : 'none', outlineOffset:2 }} />
+              <span style={{ fontSize:9.5, fontWeight: current ? 700 : 400, whiteSpace:'nowrap',
+                color: done ? 'hsl(var(--color-green))' : current ? 'hsl(var(--color-blue))' : 'var(--muted)' }}>
+                {stage.label}
+              </span>
             </div>
             {i < STAGES.length - 1 && (
-              <div style={{ flex:1, height:2, background: i < idx && !['rejected','cancelled'].includes(checkout.status) ? 'hsl(var(--color-green))' : 'var(--line)', margin:'0 4px', marginBottom:16 }} />
+              <div style={{ flex:1, height:2, marginBottom:13, marginLeft:4, marginRight:4, transition:'background 0.2s',
+                background: done ? 'hsl(var(--color-green))' : 'var(--line)' }} />
             )}
-          </div>
+          </React.Fragment>
         );
       })}
-      {checkout.status === 'rejected' && (
-        <div style={{ marginLeft:8, padding:'2px 8px', borderRadius:20, background:'hsla(var(--color-red),0.1)', color:'hsl(var(--color-red))', fontSize:11, fontWeight:700 }}>Rejected{checkout.rejectReason ? ` — "${checkout.rejectReason}"` : ''}</div>
-      )}
-      {checkout.status === 'cancelled' && (
-        <div style={{ marginLeft:8, padding:'2px 8px', borderRadius:20, background:'hsla(var(--color-red),0.1)', color:'hsl(var(--color-red))', fontSize:11, fontWeight:700 }}>Cancelled</div>
-      )}
     </div>
   );
 }
@@ -1299,7 +1305,13 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
 
 // ── Employee View ─────────────────────────────────────────────────────────────
 function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, submitCartCheckouts, cancelRequest, allocateItem, toast }) {
-  const [mode,           setMode]           = useState('home'); // 'home' | 'browse'
+  // Compute before state so the initializer can set the smart default tab
+  const _initActiveCount = checkouts.filter(c =>
+    ['pending','approved','allocated'].includes(c.status) &&
+    ((c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) || c.requestedBy === userName)
+  ).length;
+
+  const [tab,            setTab]            = useState(() => _initActiveCount > 0 ? 'checkouts' : 'catalog');
   const [search,         setSearch]         = useState('');
   const [typeFilter,     setTypeFilter]     = useState('All');
   const [locationFilter, setLocationFilter] = useState('All');
@@ -1307,7 +1319,6 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
   const [cart,           setCart]           = useState([]);
   const [returningCo,    setReturningCo]    = useState(null);
   const [submitting,     setSubmitting]     = useState(false);
-  const activeRef                           = useRef(null);
 
   useEffect(() => {
     api.getItemCart().then(rows => {
@@ -1366,7 +1377,7 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
     setSubmitting(false);
     setCartOpen(false);
     setCart(failedItems);
-    if (failedItems.length === 0) setMode('home');
+    if (failedItems.length === 0) setTab('checkouts');
     if (succeededItems.length > 0) toast(`${succeededItems.length} checkout request${succeededItems.length !== 1 ? 's' : ''} submitted.`);
     if (failedItems.length > 0) {
       const reasons = [...new Set(results.filter(r => r.status === 'rejected').map(r => r.reason?.message).filter(Boolean))];
@@ -1385,168 +1396,136 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
     return cancelRequest(co.id, userName).then(() => toast('Checkout cancelled.')).catch(() => toast('Could not cancel.', 'error'));
   }
 
-  // ── Browse mode ────────────────────────────────────────────────────────────
-  if (mode === 'browse') {
-    return (
-      <div style={{ paddingBottom: cart.length ? 80 : 0 }}>
-        {/* Header */}
-        <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:20 }}>
-          <button onClick={() => setMode('home')}
-            style={{ background:'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:6, color:'var(--muted)', fontSize:13, fontWeight:600, padding:'6px 0', fontFamily:'Inter,sans-serif' }}>
-            <ArrowLeft size={15} /> Back
-          </button>
-          <h2 style={{ fontSize:17, fontWeight:700, margin:0 }}>Select Items to Check Out</h2>
-        </div>
-
-        {/* Search + type + location filters */}
-        <div style={{ display:'flex', flexDirection:'column', gap:12, marginBottom:20 }}>
-          <div className="search-bar" style={{ width:'100%' }}>
-            <Search size={14} style={{ flexShrink:0 }} />
-            <input placeholder="Search by name, make, or model…" value={search} onChange={e => setSearch(e.target.value)} autoFocus />
-          </div>
-          <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
-            {['All', ...ITEM_TYPES].map(t => {
-              const active = typeFilter === t;
-              return (
-                <button key={t} onClick={() => setTypeFilter(t)}
-                  style={{ padding:'5px 14px', borderRadius:20, border:`1px solid ${active ? 'var(--pine)' : 'var(--line)'}`, background: active ? 'var(--pine)' : 'var(--card)', color: active ? '#fff' : 'var(--ink)', fontSize:12.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif', transition:'all 0.15s' }}>
-                  {t}
-                </button>
-              );
-            })}
-            <span style={{ fontSize:12.5, color:'var(--muted)', alignSelf:'center', marginLeft:4 }}>
-              {filteredItems.filter(i => i.status === 'available').length} available · {filteredItems.length} total
-            </span>
-          </div>
-          {locations.length > 2 && (
-            <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
-              <MapPin size={13} style={{ color:'var(--muted)', flexShrink:0 }} />
-              {locations.map(loc => {
-                const active = locationFilter === loc;
-                return (
-                  <button key={loc} onClick={() => setLocationFilter(loc)}
-                    style={{ padding:'4px 12px', borderRadius:20, border:`1px solid ${active ? 'hsl(var(--color-blue))' : 'var(--line)'}`, background: active ? 'hsla(var(--color-blue),0.1)' : 'transparent', color: active ? 'hsl(var(--color-blue))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif', transition:'all 0.15s' }}>
-                    {loc}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        <ItemPhotoGrid
-          items={filteredItems}
-          checkouts={checkouts}
-          itemsLoading={itemsLoading}
-          itemsError={itemsError}
-          refreshItems={refreshItems}
-          onAddToCart={addToCart}
-          inCart={inCart}
-          emptyLabel={search || typeFilter !== 'All' || locationFilter !== 'All' ? 'No items match your search.' : 'No items here yet.'}
-        />
-
-        {/* Sticky cart bar */}
-        {cart.length > 0 && (
-          <div style={{ position:'fixed', bottom:0, left:0, right:0, background:'var(--pine)', padding:'14px 24px', zIndex:200, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, boxShadow:'0 -4px 24px rgba(0,0,0,0.18)' }}>
-            <div style={{ color:'#fff' }}>
-              <span style={{ fontWeight:700, fontSize:15 }}>{cart.length} item{cart.length !== 1 ? 's' : ''} selected</span>
-              <div style={{ fontSize:12, opacity:.8, marginTop:1 }}>Ready to submit your request</div>
-            </div>
-            <button onClick={() => setCartOpen(true)}
-              style={{ background:'#fff', color:'var(--pine)', border:'none', borderRadius:10, padding:'10px 20px', fontWeight:700, fontSize:14, cursor:'pointer', display:'flex', alignItems:'center', gap:8, fontFamily:'Inter,sans-serif', flexShrink:0 }}>
-              Review & Submit <ChevronRight size={15} />
-            </button>
-          </div>
-        )}
-
-        <CartDrawer
-          open={cartOpen} cart={cart}
-          onClose={() => setCartOpen(false)}
-          onRemove={removeFromCart}
-          onSubmit={handleSubmitCart}
-          submitting={submitting}
-          onDaysChange={handleDaysChange}
-        />
-        {returningCo && <ReturnModal checkout={returningCo} onClose={() => setReturningCo(null)} onSubmit={handleReturnSubmit} />}
-      </div>
-    );
-  }
-
-  // ── Home mode ──────────────────────────────────────────────────────────────
+  // ── Tab-based view ──────────────────────────────────────────────────────────
   return (
-    <div>
-      <div style={{ marginBottom:28 }}>
-        <h2 style={{ fontSize:18, fontWeight:700, margin:'0 0 4px' }}>Item Management</h2>
+    <div style={{ animation:'fadeIn var(--transition-normal) ease-in-out' }}>
+      {/* Page header */}
+      <div style={{ marginBottom:20 }}>
+        <h2 style={{ fontSize:20, fontWeight:700, margin:'0 0 4px' }}>Item Management</h2>
         <p style={{ fontSize:13, color:'var(--muted)', margin:0 }}>Check out company equipment for your shift or job.</p>
       </div>
 
-      {/* Resume cart banner */}
-      {cart.length > 0 && (
-        <div onClick={() => setMode('browse')}
-          style={{ background:'hsla(var(--color-green),0.08)', border:'1px solid hsla(var(--color-green),0.3)', borderRadius:12, padding:'12px 16px', marginBottom:20, display:'flex', alignItems:'center', gap:12, cursor:'pointer' }}>
-          <ShoppingCart size={18} color="hsl(var(--color-green))" style={{ flexShrink:0 }} />
-          <div style={{ flex:1 }}>
-            <div style={{ fontWeight:700, fontSize:13.5 }}>You have {cart.length} item{cart.length !== 1 ? 's' : ''} in your cart</div>
-            <div style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>Tap to continue your request</div>
+      {/* Tab strip */}
+      <div style={{ display:'flex', alignItems:'center', borderBottom:'2px solid var(--line)', marginBottom:24 }}>
+        {[
+          { id:'catalog',   label:'Browse Catalog', Icon: Package,       badge: null },
+          { id:'checkouts', label:'My Checkouts',   Icon: ClipboardList, badge: activeCheckouts.length || null },
+        ].map(({ id, label, Icon, badge }) => (
+          <button key={id} onClick={() => setTab(id)}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 18px', background:'none', border:'none',
+              borderBottom: tab === id ? '2px solid var(--pine)' : '2px solid transparent',
+              color: tab === id ? 'var(--ink)' : 'var(--muted)', fontWeight: tab === id ? 700 : 500,
+              fontSize:14, cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-2, transition:'color 0.15s' }}>
+            <Icon size={15} /> {label}
+            {badge > 0 && <span style={{ background:'hsl(var(--color-blue))', color:'#fff', borderRadius:20, fontSize:10.5, fontWeight:800, padding:'1px 7px', marginLeft:3 }}>{badge}</span>}
+          </button>
+        ))}
+        <button onClick={() => setCartOpen(true)}
+          className={cart.length ? 'primary-btn' : 'secondary-btn'}
+          style={{ marginLeft:'auto', display:'inline-flex', alignItems:'center', gap:6, position:'relative', fontSize:13, padding:'7px 14px' }}>
+          <ShoppingCart size={14} /> Cart
+          {cart.length > 0 && <span style={{ position:'absolute', top:-7, right:-7, background:'hsl(var(--color-red))', color:'#fff', borderRadius:'50%', width:17, height:17, fontSize:10, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>{cart.length}</span>}
+        </button>
+      </div>
+
+      {/* ── CATALOG TAB ── */}
+      {tab === 'catalog' && (
+        <div style={{ paddingBottom: cart.length ? 80 : 0 }}>
+          <div style={{ display:'flex', flexDirection:'column', gap:12, marginBottom:20 }}>
+            <div className="search-bar" style={{ width:'100%' }}>
+              <Search size={14} style={{ flexShrink:0 }} />
+              <input placeholder="Search by name, make, or model…" value={search} onChange={e => setSearch(e.target.value)} autoFocus />
+            </div>
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+              {['All', ...ITEM_TYPES].map(t => {
+                const active = typeFilter === t;
+                return (
+                  <button key={t} onClick={() => setTypeFilter(t)}
+                    style={{ padding:'5px 14px', borderRadius:20, border:`1px solid ${active ? 'var(--pine)' : 'var(--line)'}`, background: active ? 'var(--pine)' : 'var(--card)', color: active ? '#fff' : 'var(--ink)', fontSize:12.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif', transition:'all 0.15s' }}>
+                    {t}
+                  </button>
+                );
+              })}
+              <span style={{ fontSize:12.5, color:'var(--muted)', alignSelf:'center', marginLeft:4 }}>
+                {filteredItems.filter(i => i.status === 'available').length} available · {filteredItems.length} total
+              </span>
+            </div>
+            {locations.length > 2 && (
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+                <MapPin size={13} style={{ color:'var(--muted)', flexShrink:0 }} />
+                {locations.map(loc => {
+                  const active = locationFilter === loc;
+                  return (
+                    <button key={loc} onClick={() => setLocationFilter(loc)}
+                      style={{ padding:'4px 12px', borderRadius:20, border:`1px solid ${active ? 'hsl(var(--color-blue))' : 'var(--line)'}`, background: active ? 'hsla(var(--color-blue),0.1)' : 'transparent', color: active ? 'hsl(var(--color-blue))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif', transition:'all 0.15s' }}>
+                      {loc}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
-          <ChevronRight size={16} style={{ color:'var(--muted)' }} />
+          <ItemPhotoGrid
+            items={filteredItems} checkouts={checkouts}
+            itemsLoading={itemsLoading} itemsError={itemsError}
+            refreshItems={refreshItems} onAddToCart={addToCart} inCart={inCart}
+            emptyLabel={search || typeFilter !== 'All' || locationFilter !== 'All' ? 'No items match your search.' : 'No items available.'}
+          />
+          {cart.length > 0 && (
+            <div style={{ position:'fixed', bottom:0, left:0, right:0, background:'var(--pine)', padding:'14px 24px', zIndex:200, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, boxShadow:'0 -4px 24px rgba(0,0,0,0.18)' }}>
+              <div style={{ color:'#fff' }}>
+                <span style={{ fontWeight:700, fontSize:15 }}>{cart.length} item{cart.length !== 1 ? 's' : ''} in cart</span>
+                <div style={{ fontSize:12, opacity:.8, marginTop:1 }}>Ready to submit your request</div>
+              </div>
+              <button onClick={() => setCartOpen(true)}
+                style={{ background:'#fff', color:'var(--pine)', border:'none', borderRadius:10, padding:'10px 20px', fontWeight:700, fontSize:14, cursor:'pointer', display:'flex', alignItems:'center', gap:8, fontFamily:'Inter,sans-serif', flexShrink:0 }}>
+                Review & Submit <ChevronRight size={15} />
+              </button>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Action cards */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))', gap:16, marginBottom:32 }}>
-        <div onClick={() => setMode('browse')}
-          style={{ border:'1px solid var(--line)', borderRadius:14, padding:'24px 20px', background:'var(--card)', cursor:'pointer', transition:'box-shadow 0.15s, border-color 0.15s', boxShadow:'var(--shadow-sm)' }}
-          onMouseEnter={e => { e.currentTarget.style.boxShadow='var(--shadow-md)'; e.currentTarget.style.borderColor='var(--pine)'; }}
-          onMouseLeave={e => { e.currentTarget.style.boxShadow='var(--shadow-sm)'; e.currentTarget.style.borderColor='var(--line)'; }}>
-          <div style={{ width:44, height:44, borderRadius:12, background:'hsla(var(--color-green),0.12)', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:14 }}>
-            <ShoppingCart size={22} color="hsl(var(--color-green))" />
+      {/* ── MY CHECKOUTS TAB ── */}
+      {tab === 'checkouts' && (
+        <div>
+          {myCheckouts.length === 0 ? (
+            <div style={{ textAlign:'center', padding:'64px 20px', color:'var(--muted)' }}>
+              <Package size={36} style={{ opacity:.15, display:'block', margin:'0 auto 14px' }} />
+              <div style={{ fontWeight:600, fontSize:15, marginBottom:6 }}>No checkouts yet</div>
+              <div style={{ fontSize:13, marginBottom:20 }}>Browse the catalog to check out equipment.</div>
+              <button className="primary-btn" onClick={() => setTab('catalog')} style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+                <Package size={14} /> Browse Catalog
+              </button>
+            </div>
+          ) : (
+            <MyCheckoutsPanel
+              checkouts={checkouts} userEmail={userEmail} userName={userName}
+              onReturn={handleReturn} onCancel={handleCancel}
+              onEmployeeAccept={allocateItem ? (co, photoUrl) =>
+                allocateItem(co.id, userName, photoUrl)
+                  .then(() => toast(`Confirmed — ${co.itemName} is with you.`))
+                  .catch(() => toast('Could not confirm receipt — please try again.', 'error'))
+              : undefined}
+            />
+          )}
+          <div style={{ marginTop:28, paddingTop:20, borderTop:'1px solid var(--line)', display:'flex', justifyContent:'center' }}>
+            <button onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view:'purchase' } }))}
+              style={{ background:'none', border:'1px solid var(--line)', borderRadius:10, padding:'10px 20px', cursor:'pointer', fontFamily:'Inter,sans-serif', fontSize:13, color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:8 }}>
+              <ClipboardList size={14} /> Need something not in the catalog? Raise a purchase requisition
+            </button>
           </div>
-          <div style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>Check Out Items</div>
-          <div style={{ fontSize:12.5, color:'var(--muted)' }}>{availableItems.length} item{availableItems.length !== 1 ? 's' : ''} available</div>
         </div>
+      )}
 
-        <div onClick={() => activeRef.current?.scrollIntoView({ behavior:'smooth', block:'start' })}
-          style={{ border:'1px solid var(--line)', borderRadius:14, padding:'24px 20px', background:'var(--card)', cursor:'pointer', transition:'box-shadow 0.15s, border-color 0.15s', boxShadow:'var(--shadow-sm)' }}
-          onMouseEnter={e => { e.currentTarget.style.boxShadow='var(--shadow-md)'; e.currentTarget.style.borderColor='var(--pine)'; }}
-          onMouseLeave={e => { e.currentTarget.style.boxShadow='var(--shadow-sm)'; e.currentTarget.style.borderColor='var(--line)'; }}>
-          <div style={{ width:44, height:44, borderRadius:12, background:'hsla(var(--color-blue),0.12)', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:14 }}>
-            <RotateCcw size={22} color="hsl(var(--color-blue))" />
-          </div>
-          <div style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>Return an Item</div>
-          <div style={{ fontSize:12.5, color:'var(--muted)' }}>
-            {activeCheckouts.length > 0 ? `${activeCheckouts.length} active checkout${activeCheckouts.length !== 1 ? 's' : ''}` : 'No active checkouts'}
-          </div>
-        </div>
-
-        <div onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'purchase' } }))}
-          style={{ border:'1px solid var(--line)', borderRadius:14, padding:'24px 20px', background:'var(--card)', cursor:'pointer', transition:'box-shadow 0.15s, border-color 0.15s', boxShadow:'var(--shadow-sm)' }}
-          onMouseEnter={e => { e.currentTarget.style.boxShadow='var(--shadow-md)'; e.currentTarget.style.borderColor='var(--pine)'; }}
-          onMouseLeave={e => { e.currentTarget.style.boxShadow='var(--shadow-sm)'; e.currentTarget.style.borderColor='var(--line)'; }}>
-          <div style={{ width:44, height:44, borderRadius:12, background:'hsla(var(--color-purple),0.12)', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:14 }}>
-            <ClipboardList size={22} color="hsl(var(--color-purple))" />
-          </div>
-          <div style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>Request an Item</div>
-          <div style={{ fontSize:12.5, color:'var(--muted)' }}>Raise a purchase requisition</div>
-        </div>
-      </div>
-
-      {/* Active checkouts */}
-      <div ref={activeRef}>
-        <MyCheckoutsPanel
-          checkouts={checkouts}
-          userEmail={userEmail}
-          userName={userName}
-          onReturn={handleReturn}
-          onCancel={handleCancel}
-          onEmployeeAccept={allocateItem ? (co, photoUrl) =>
-            allocateItem(co.id, userName, photoUrl)
-              .then(() => toast(`Confirmed — ${co.itemName} is with you.`))
-              .catch(() => toast('Could not confirm receipt — please try again.', 'error'))
-          : undefined}
-        />
-      </div>
-
+      <CartDrawer
+        open={cartOpen} cart={cart}
+        onClose={() => setCartOpen(false)}
+        onRemove={removeFromCart}
+        onSubmit={handleSubmitCart}
+        submitting={submitting}
+        onDaysChange={handleDaysChange}
+      />
       {returningCo && <ReturnModal checkout={returningCo} onClose={() => setReturningCo(null)} onSubmit={handleReturnSubmit} />}
     </div>
   );
@@ -1659,15 +1638,6 @@ function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFi
         )
       )}
 
-      {/* Manager's own checkouts */}
-      <MyCheckoutsPanel
-        checkouts={checkouts}
-        userEmail={userEmail}
-        userName={userName}
-        onReturn={onReturn}
-        onCancel={onCancel}
-        onSelfAllocate={onSelfAllocate}
-      />
     </>
   );
 }
@@ -2750,8 +2720,12 @@ export default function InventoryManagement({ activeSub }) {
   const isManager = can('manager');  // level >= 3; checked after role loads
   const canDelete = canAccessModule('inventory', 'owner', 'full');
 
-  const pendingCount  = checkouts.filter(c => c.status === 'pending').length;
-  const approvedCount = checkouts.filter(c => c.status === 'approved').length;
+  const pendingCount   = checkouts.filter(c => c.status === 'pending').length;
+  const approvedCount  = checkouts.filter(c => c.status === 'approved').length;
+  const myActiveCount  = checkouts.filter(c =>
+    ['pending','approved','allocated'].includes(c.status) &&
+    ((c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) || c.requestedBy === userName)
+  ).length;
 
   // Cart — DB-backed, survives logout and device switches
   const [cart,        setCart]        = useState([]);
@@ -2927,10 +2901,11 @@ export default function InventoryManagement({ activeSub }) {
       {/* Tab strip */}
       <div style={{ display:'flex', gap:0, marginBottom:20, borderBottom:'1px solid var(--line)', flexWrap:'wrap' }}>
         {[
-          { id:'catalog',   label:'Catalog',   Icon: Package       },
-          { id:'checkouts', label:'Checkouts', Icon: ShoppingCart, badge: pendingCount + approvedCount },
-          { id:'manage',    label:'Manage',    Icon: ClipboardList },
-          { id:'audit',     label:'Audit Log', Icon: History       },
+          { id:'catalog',   label:'Catalog',    Icon: Package                                     },
+          { id:'checkouts', label:'Checkouts',  Icon: ShoppingCart, badge: pendingCount + approvedCount },
+          { id:'myitems',   label:'My Items',   Icon: User,         badge: myActiveCount           },
+          { id:'manage',    label:'Manage',     Icon: ClipboardList                                },
+          { id:'audit',     label:'Audit Log',  Icon: History                                      },
         ].map(({ id, label, Icon, badge }) => (
           <button key={id} onClick={() => setMainTab(id)}
             style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 16px', background:'none', border:'none', borderBottom: mainTab === id ? '2px solid var(--pine)' : '2px solid transparent', color: mainTab === id ? 'var(--ink)' : 'var(--muted)', fontWeight: mainTab === id ? 700 : 600, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-1 }}>
@@ -2967,6 +2942,22 @@ export default function InventoryManagement({ activeSub }) {
           onExport={() => downloadItemsCsv(items)} onReport={() => setReportOpen(true)}
           checkouts={checkouts} toast={toast}
         />
+      )}
+      {mainTab === 'myitems' && (
+        <div>
+          <MyCheckoutsPanel
+            checkouts={checkouts} userEmail={userEmail} userName={userName}
+            onReturn={co => setReturningCo(co)} onCancel={cancelCo}
+            onSelfAllocate={co => allocateItem(co.id, userName).then(() => toast(`Confirmed — ${co.itemName} is with you.`)).catch(() => toast('Could not confirm.', 'error'))}
+          />
+          {myActiveCount === 0 && (
+            <div style={{ textAlign:'center', padding:'64px 20px', color:'var(--muted)' }}>
+              <Package size={36} style={{ opacity:.15, display:'block', margin:'0 auto 14px' }} />
+              <div style={{ fontWeight:600, fontSize:15, marginBottom:6 }}>No active checkouts</div>
+              <div style={{ fontSize:13 }}>Your personal item checkouts will appear here.</div>
+            </div>
+          )}
+        </div>
       )}
       {mainTab === 'checkouts' && (
         <ManagerCheckoutsTab
