@@ -494,9 +494,10 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
     if body.status == "approved" and not (body.assigned_allocator_email or "").strip():
         raise HTTPException(400, "Pick who should allocate this item before approving")
     if body.status == "allocated":
-        is_assignee = row.assigned_allocator_email and row.assigned_allocator_email.lower() == user["email"]
-        if not is_assignee and user["level"] < 3:
-            raise HTTPException(403, "Only the assigned allocator (or a manager) can mark this as allocated")
+        is_assignee  = row.assigned_allocator_email and row.assigned_allocator_email.lower() == user["email"]
+        is_requester = row.requested_by_email and row.requested_by_email.lower() == user["email"]
+        if not is_assignee and not is_requester and user["level"] < 3:
+            raise HTTPException(403, "Only the assigned allocator, the requester, or a manager can mark this as allocated")
     if body.status == "returned" and user["level"] < 2 and row.requested_by_email.lower() != user["email"]:
         raise HTTPException(403, "You can only return your own items")
     if body.status == "cancelled" and row.requested_by_email.lower() != user["email"]:

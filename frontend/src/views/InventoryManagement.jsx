@@ -13,6 +13,7 @@ import { useRole }          from '../contexts/RoleContext';
 import { api }              from '../api';
 import { supabase }         from '../lib/supabase';
 import { useMsal }          from '@azure/msal-react';
+import { cleanName }        from '../lib/utils';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const ITEM_TYPES = ['Devices', 'Tools', 'Vehicles', 'Equipment', 'Keys', 'Other'];
@@ -2087,7 +2088,7 @@ function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
 function SendAlertModal({ onClose, toast }) {
   useEscapeKey(onClose);
   const { accounts } = useMsal();
-  const senderName  = accounts[0]?.name ?? 'Manager';
+  const senderName  = cleanName(accounts[0]?.name ?? 'Manager');
 
   const [users,      setUsers]      = useState([]);
   const [usersLoading, setUsersLoading] = useState(true);
@@ -2997,7 +2998,7 @@ export default function InventoryManagement({ activeSub }) {
   const { addNotification } = useNotifications();
   const { can, canAccessModule, loading: roleLoading } = useRole();
   const { accounts } = useMsal();
-  const userName  = accounts[0]?.name     ?? 'Employee';
+  const userName  = cleanName(accounts[0]?.name ?? 'Employee');
   const userEmail = (accounts[0]?.username ?? '').toLowerCase();
 
   const isManager = can('manager');  // level >= 3; checked after role loads
