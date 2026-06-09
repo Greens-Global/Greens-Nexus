@@ -1083,13 +1083,19 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel }
 }
 
 // ── Employee View ─────────────────────────────────────────────────────────────
+const CART_KEY = 'nexus_items_cart';
+function loadCart() { try { return JSON.parse(localStorage.getItem(CART_KEY)) || []; } catch { return []; } }
+function saveCart(c) { try { localStorage.setItem(CART_KEY, JSON.stringify(c)); } catch {} }
+
 function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, itemsError, checkoutsError, onReturn, refreshItems, submitCartCheckouts, cancelRequest, addNotification, toast }) {
   const [search,      setSearch]      = useState('');
   const [typeFilter,  setTypeFilter]  = useState('All');
   const [cartOpen,    setCartOpen]    = useState(false);
-  const [cart,        setCart]        = useState([]);
+  const [cart,        setCart]        = useState(loadCart);
   const [returningCo, setReturningCo] = useState(null);
   const [submitting,  setSubmitting]  = useState(false);
+
+  useEffect(() => { saveCart(cart); }, [cart]);
 
   const availableItems = items.filter(i => i.ownershipType === 'transient' && i.status === 'available');
   const filtered = availableItems.filter(i => {
@@ -1753,11 +1759,13 @@ export default function InventoryManagement({ activeSub }) {
   const pendingCount  = checkouts.filter(c => c.status === 'pending').length;
   const approvedCount = checkouts.filter(c => c.status === 'approved').length;
 
-  // Cart — available to everyone
-  const [cart,        setCart]        = useState([]);
+  // Cart — available to everyone, persisted in localStorage
+  const [cart,        setCart]        = useState(loadCart);
   const [cartOpen,    setCartOpen]    = useState(false);
   const [cartBusy,    setCartBusy]    = useState(false);
   const [returningCo, setReturningCo] = useState(null);
+
+  useEffect(() => { saveCart(cart); }, [cart]);
 
   const inCart = new Set(cart.map(c => c.item.id));
   function addToCart(item) {
