@@ -1,116 +1,96 @@
-﻿import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  Package, Plus, Search, CheckCircle, Clock, XCircle,
-  RotateCcw, Camera, Monitor, Wrench, Building2, Calculator,
-  AlertCircle, Filter, X, Loader2, ZoomIn, ChevronDown, ChevronRight,
-  UploadCloud, FileSpreadsheet, Download, Pencil, Trash2,
-  MapPin, ClipboardList, History, FileBarChart,
+  Package, Plus, Search, CheckCircle, Clock, XCircle, RotateCcw, Camera,
+  AlertCircle, X, Loader2, ChevronDown, UploadCloud, FileSpreadsheet,
+  Download, Pencil, Trash2, MapPin, ClipboardList, History, FileBarChart,
+  ShoppingCart, Filter, ZoomIn, Car, Wrench, Key, Monitor, Box,
 } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
-import { useInventory }       from '../contexts/InventoryContext';
-import { useNotifications }   from '../contexts/NotificationContext';
-import { useRole }            from '../contexts/RoleContext';
-import { api }                from '../api';
-import { useMsal } from '@azure/msal-react';
+import { useInventory }     from '../contexts/InventoryContext';
+import { useNotifications } from '../contexts/NotificationContext';
+import { useRole }          from '../contexts/RoleContext';
+import { api }              from '../api';
+import { supabase }         from '../lib/supabase';
+import { useMsal }          from '@azure/msal-react';
 
-// ── Config ────────────────────────────────────────────────────────────────────
-const DEPARTMENTS = ['All', 'IT', 'Construction', 'Operations', 'Accounting'];
+// ── Constants ─────────────────────────────────────────────────────────────────
+const ITEM_TYPES = ['Devices', 'Tools', 'Vehicles', 'Equipment', 'Keys', 'Other'];
 
-const DEPT_META = {
-  IT:           { icon: Monitor,    color: 'var(--color-blue)',   bg: 'hsla(var(--color-blue),0.10)'   },
-  Construction: { icon: Wrench,     color: 'var(--color-orange)', bg: 'hsla(var(--color-orange),0.10)' },
-  Operations:   { icon: Building2,  color: 'var(--color-green)',  bg: 'hsla(var(--color-green),0.10)'  },
-  Accounting:   { icon: Calculator, color: 'var(--color-purple)', bg: 'hsla(var(--color-purple),0.10)' },
+const TYPE_DEFAULT_OWNER = {
+  Devices:   'IT',
+  Tools:     'Construction (MCD)',
+  Vehicles:  'Fleet / Operations',
+  Equipment: '',
+  Keys:      'Operations (Oversite)',
+  Other:     '',
 };
 
-const CATEGORIES = ['All', 'Tools', 'IT Supplies', 'Office Supplies', 'Furniture', 'Safety Equipment', 'Electrical'];
-
-const CAT_COLORS = {
-  'Tools':            { bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
-  'IT Supplies':      { bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))' },
-  'Office Supplies':  { bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))' },
-  'Furniture':        { bg: 'hsla(var(--color-green),0.12)',  fg: 'hsl(var(--color-green))' },
-  'Safety Equipment': { bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))' },
-  'Electrical':       { bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
+const TYPE_META = {
+  Devices:   { Icon: Monitor,  color: 'hsl(var(--color-blue))',   bg: 'hsla(var(--color-blue),0.12)'   },
+  Tools:     { Icon: Wrench,   color: 'hsl(var(--color-orange))', bg: 'hsla(var(--color-orange),0.12)' },
+  Vehicles:  { Icon: Car,      color: 'hsl(var(--color-green))',  bg: 'hsla(var(--color-green),0.12)'  },
+  Equipment: { Icon: Box,      color: 'hsl(var(--color-purple))', bg: 'hsla(var(--color-purple),0.12)' },
+  Keys:      { Icon: Key,      color: 'hsl(var(--color-red))',    bg: 'hsla(var(--color-red),0.12)'    },
+  Other:     { Icon: Package,  color: 'var(--muted)',             bg: 'var(--mist)'                    },
 };
 
 const STATUS_META = {
-  pending:   { label: 'Pending',         bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))', Icon: Clock },
-  approved:  { label: 'To Be Allocated', bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))',   Icon: Package },
-  allocated: { label: 'In Use',          bg: 'hsla(var(--color-green),0.12)',  fg: 'hsl(var(--color-green))',  Icon: CheckCircle },
-  rejected:  { label: 'Rejected',        bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
-  returned:  { label: 'Returned',        bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))',   Icon: RotateCcw },
-  cancelled: { label: 'Cancelled',       bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
+  available:            { label: 'Available',          bg: 'hsla(var(--color-green),0.12)',  fg: 'hsl(var(--color-green))'  },
+  checked_out:          { label: 'Checked Out',        bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
+  permanently_assigned: { label: 'Perm. Assigned',    bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))'   },
+  retired:              { label: 'Retired',             bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))'    },
 };
 
-// Requests that still need someone to act on them — kept visible/expanded.
-// Everything else (returned, rejected, cancelled) is "done" and gets tucked
-// into a collapsed history list so the active view stays short and scannable.
-const ACTIVE_STATUSES    = ['pending', 'approved', 'allocated'];
-const COMPLETED_STATUSES = ['returned', 'rejected', 'cancelled'];
+const CHECKOUT_STATUS_META = {
+  pending:   { label: 'Pending',          bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))', Icon: Clock },
+  approved:  { label: 'To Be Allocated',  bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))',   Icon: Package },
+  allocated: { label: 'In Use',           bg: 'hsla(var(--color-green),0.12)',  fg: 'hsl(var(--color-green))',  Icon: CheckCircle },
+  rejected:  { label: 'Rejected',         bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
+  returned:  { label: 'Returned',         bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))',   Icon: RotateCcw },
+  cancelled: { label: 'Cancelled',        bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
+};
 
-// A request can only be cancelled by its requester before someone has
-// physically handed the item over — once allocated, returning it is the
-// correct path instead.
-const CANCELLABLE_STATUSES = ['pending', 'approved'];
+const DEPARTMENTS = ['All', 'IT', 'Construction', 'Operations', 'Accounting', 'Fleet', 'Facilities', 'Marketing', 'HR'];
+const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em' };
 
-const REQ_STATUS_FILTERS = [
-  { value: 'All',       label: 'All statuses' },
-  { value: 'pending',   label: 'Pending' },
-  { value: 'approved',  label: 'To Be Allocated' },
-  { value: 'allocated', label: 'In Use / To Be Returned' },
-  { value: 'returned',  label: 'Returned' },
-  { value: 'rejected',  label: 'Rejected' },
-  { value: 'cancelled', label: 'Cancelled' },
-];
-
-// ── Shared modal helpers ──────────────────────────────────────────────────────
-// Escape-to-close — every modal in this file wires this in so keyboard users
-// (and anyone used to standard dialog behavior) aren't stuck clicking the backdrop.
-function useEscapeKey(onEscape) {
+// ── Shared helpers ─────────────────────────────────────────────────────────────
+function useEscapeKey(fn) {
   useEffect(() => {
-    function handler(e) { if (e.key === 'Escape') onEscape(); }
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onEscape]);
+    const h = e => { if (e.key === 'Escape') fn(); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [fn]);
 }
 
-// Full-size photo viewer — opened by clicking any return-photo thumbnail.
 function ImageLightbox({ src, alt, onClose }) {
   useEscapeKey(onClose);
   return (
-    <div role="dialog" aria-modal="true" aria-label={alt || 'Photo preview'}
-      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.8)', zIndex:1100, display:'flex', alignItems:'center', justifyContent:'center', padding:32 }}
+    <div role="dialog" aria-modal="true"
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:1300, display:'flex', alignItems:'center', justifyContent:'center', padding:32 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <img src={src} alt={alt || 'Photo preview'} style={{ maxWidth:'100%', maxHeight:'100%', borderRadius:10, boxShadow:'0 20px 80px rgba(0,0,0,0.5)' }} />
-      <button onClick={onClose} aria-label="Close photo preview"
-        style={{ position:'absolute', top:20, right:24, background:'rgba(255,255,255,0.12)', border:'none', borderRadius:8, padding:8, color:'#fff', cursor:'pointer', display:'flex' }}>
+      <img src={src} alt={alt || 'Photo'} style={{ maxWidth:'100%', maxHeight:'100%', borderRadius:10, boxShadow:'0 20px 80px rgba(0,0,0,0.5)' }} />
+      <button onClick={onClose} style={{ position:'absolute', top:20, right:24, background:'rgba(255,255,255,0.12)', border:'none', borderRadius:8, padding:8, color:'#fff', cursor:'pointer', display:'flex' }}>
         <X size={20} />
       </button>
     </div>
   );
 }
 
-// Lightweight toast/snackbar — the app has no app-wide system, and this view
-// is the one place we currently swallow async errors silently. Self-contained
-// so it doesn't force a wider refactor; can be promoted to NotificationContext later.
 function Toast({ toasts, onDismiss }) {
-  if (toasts.length === 0) return null;
+  if (!toasts.length) return null;
   return (
     <div style={{ position:'fixed', bottom:24, right:24, zIndex:1200, display:'flex', flexDirection:'column', gap:8, maxWidth:340 }}>
       {toasts.map(t => (
-        <div key={t.id} role="status"
-          style={{
-            display:'flex', alignItems:'flex-start', gap:10, padding:'12px 14px', borderRadius:10,
-            background: 'var(--card)', border: `1px solid ${t.kind === 'error' ? 'hsla(var(--color-red),0.35)' : 'hsla(var(--color-green),0.35)'}`,
-            boxShadow:'0 8px 28px rgba(0,0,0,0.18)', animation:'fadeIn 0.2s ease-out',
-          }}>
+        <div key={t.id} role="status" style={{
+          display:'flex', alignItems:'flex-start', gap:10, padding:'12px 14px', borderRadius:10,
+          background:'var(--card)', border:`1px solid ${t.kind === 'error' ? 'hsla(var(--color-red),0.35)' : 'hsla(var(--color-green),0.35)'}`,
+          boxShadow:'0 8px 28px rgba(0,0,0,0.18)',
+        }}>
           {t.kind === 'error'
             ? <XCircle size={16} color="hsl(var(--color-red))" style={{ flexShrink:0, marginTop:1 }} />
             : <CheckCircle size={16} color="hsl(var(--color-green))" style={{ flexShrink:0, marginTop:1 }} />}
           <span style={{ fontSize:13, color:'var(--ink)', lineHeight:1.4, flex:1 }}>{t.message}</span>
-          <button onClick={() => onDismiss(t.id)} aria-label="Dismiss notification"
-            style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', flexShrink:0 }}>
+          <button onClick={() => onDismiss(t.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', flexShrink:0 }}>
             <X size={14} />
           </button>
         </div>
@@ -119,138 +99,206 @@ function Toast({ toasts, onDismiss }) {
   );
 }
 
-// ── Raise Request Modal ───────────────────────────────────────────────────────
-function RaiseRequestModal({ items, onClose, onSubmit, currentUser, canRaiseOnBehalf, initialItem }) {
-  const [itemSearch,  setItemSearch]  = useState(initialItem?.name ?? '');
-  const [selected,    setSelected]    = useState(initialItem ?? null);
-  const [qty,         setQty]         = useState(1);
-  const [days,        setDays]        = useState(1);
-  const [reason,      setReason]      = useState('');
-  const [showList,    setShowList]    = useState(false);
-  const [requestFor,  setRequestFor]  = useState(''); // optional: on behalf of
-  const [qtyClamped,  setQtyClamped]  = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  useEscapeKey(onClose);
-
-  const filtered = items.filter(i =>
-    i.available > 0 && i.name.toLowerCase().includes(itemSearch.toLowerCase())
+function TypeBadge({ type }) {
+  const m = TYPE_META[type] || TYPE_META.Other;
+  return (
+    <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:20, fontSize:'11px', fontWeight:600, background:m.bg, color:m.color, whiteSpace:'nowrap' }}>
+      <m.Icon size={10} /> {type}
+    </span>
   );
+}
 
-  function selectItem(item) {
-    setSelected(item); setItemSearch(item.name); setShowList(false); setQty(1); setQtyClamped(false);
-  }
+function StatusBadge({ status }) {
+  const m = STATUS_META[status] || { label: status, bg:'var(--mist)', fg:'var(--muted)' };
+  return (
+    <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:20, fontSize:'11px', fontWeight:600, background:m.bg, color:m.fg, whiteSpace:'nowrap' }}>
+      {m.label}
+    </span>
+  );
+}
 
-  function changeQty(raw) {
-    const max = selected?.available ?? 1;
-    const clamped = Math.max(1, Math.min(max, Number(raw) || 1));
-    setQtyClamped(Number(raw) > max);
-    setQty(clamped);
-  }
+function PhotoThumb({ url, name, onPreview, size = 44 }) {
+  if (!url) return (
+    <div style={{ width:size, height:size, borderRadius:8, background:'hsla(var(--color-red),0.08)', border:'1px dashed hsla(var(--color-red),0.4)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}
+      title="No photo — required">
+      <Camera size={size * 0.38} color="hsl(var(--color-red))" />
+    </div>
+  );
+  return (
+    <div onClick={onPreview ? () => onPreview(url, name) : undefined}
+      style={{ width:size, height:size, borderRadius:8, overflow:'hidden', cursor:onPreview ? 'pointer' : 'default', flexShrink:0, border:'1px solid var(--line)' }}>
+      <img src={url} alt={name || 'Item photo'} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+    </div>
+  );
+}
 
-  function submit() {
-    if (!selected || !reason.trim() || isSubmitting) return;
-    setIsSubmitting(true);
-    Promise.resolve(onSubmit({ item: selected, qty, days, reason: reason.trim(), requestFor: requestFor.trim() || null }))
-      .finally(() => setIsSubmitting(false));
+async function uploadToSupabase(file, bucket, path) {
+  if (!supabase) return { url: '', error: 'Supabase not configured' };
+  const ALLOWED = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+  if (!ALLOWED.includes(file.type)) return { url: '', error: 'Only JPEG, PNG, GIF, or WebP images allowed' };
+  if (file.size > 10 * 1024 * 1024) return { url: '', error: 'Photo must be under 10 MB' };
+  const { data: uploaded, error } = await supabase.storage.from(bucket).upload(path, file, { contentType: file.type, upsert: false });
+  if (error || !uploaded) return { url: '', error: error?.message || 'Upload failed' };
+  const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(uploaded.path);
+  return { url: urlData.publicUrl, error: null };
+}
+
+// ── Photo upload widget ────────────────────────────────────────────────────────
+function PhotoUpload({ value, onChange, label = 'PHOTO', required = false, hint }) {
+  const fileRef = useRef(null);
+  const [preview, setPreview] = useState(value || null);
+  const [uploading, setUploading] = useState(false);
+  const [err, setErr] = useState('');
+
+  useEffect(() => { setPreview(value || null); }, [value]);
+
+  async function handleFile(file) {
+    if (!file) return;
+    setUploading(true); setErr('');
+    const path = `item-photos/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const { url, error } = await uploadToSupabase(file, 'item-photos', path);
+    if (error) { setErr(error); setUploading(false); return; }
+    setPreview(url);
+    onChange(url);
+    setUploading(false);
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="raise-request-title"
-      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+    <div>
+      <label style={FL}>{label}{required && <span style={{ color:'hsl(var(--color-red))' }}> *</span>}</label>
+      {hint && <p style={{ fontSize:11.5, color:'var(--muted)', marginBottom:8, marginTop:-2 }}>{hint}</p>}
+      <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }}
+        onChange={e => handleFile(e.target.files?.[0])} />
+      {preview ? (
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <img src={preview} alt="Preview" style={{ width:72, height:72, objectFit:'cover', borderRadius:8, border:'1px solid var(--line)' }} />
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            <button type="button" className="secondary-btn" style={{ fontSize:12, padding:'5px 12px' }}
+              onClick={() => fileRef.current?.click()} disabled={uploading}>
+              {uploading ? 'Uploading…' : 'Replace Photo'}
+            </button>
+            <button type="button" style={{ background:'none', border:'none', cursor:'pointer', fontSize:11.5, color:'hsl(var(--color-red))' }}
+              onClick={() => { setPreview(null); onChange(''); }}>Remove</button>
+          </div>
+        </div>
+      ) : (
+        <button type="button"
+          onClick={() => fileRef.current?.click()} disabled={uploading}
+          style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 16px', borderRadius:9, border:`2px dashed ${required ? 'hsla(var(--color-red),0.4)' : 'var(--line)'}`, background: required ? 'hsla(var(--color-red),0.04)' : 'var(--mist)', cursor:'pointer', fontSize:13, color:'var(--muted)', width:'100%', justifyContent:'center' }}>
+          {uploading ? <><Loader2 size={15} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><Camera size={15} /> {required ? 'Upload Photo (required)' : 'Upload Photo'}</>}
+        </button>
+      )}
+      {err && <p style={{ fontSize:11.5, color:'hsl(var(--color-red))', marginTop:5 }}>{err}</p>}
+    </div>
+  );
+}
+
+// ── Add Item Modal ─────────────────────────────────────────────────────────────
+function AddItemModal({ onClose, onSave }) {
+  const [name,          setName]          = useState('');
+  const [itemType,      setItemType]      = useState('Tools');
+  const [make,          setMake]          = useState('');
+  const [model,         setModel]         = useState('');
+  const [year,          setYear]          = useState('');
+  const [department,    setDepartment]    = useState('');
+  const [defaultOwner,  setDefaultOwner]  = useState(TYPE_DEFAULT_OWNER['Tools']);
+  const [ownershipType, setOwnershipType] = useState('transient');
+  const [location,      setLocation]      = useState('');
+  const [photoUrl,      setPhotoUrl]      = useState('');
+  const [saving,        setSaving]        = useState(false);
+  const [error,         setError]         = useState('');
+  useEscapeKey(onClose);
+
+  function handleTypeChange(t) {
+    setItemType(t);
+    setDefaultOwner(TYPE_DEFAULT_OWNER[t] || '');
+  }
+
+  function submit() {
+    if (!name.trim() || !photoUrl || saving) return;
+    setSaving(true); setError('');
+    Promise.resolve(onSave({
+      name: name.trim(), item_type: itemType, make: make.trim(), model: model.trim(),
+      year: year.trim(), department: department.trim(), default_owner: defaultOwner.trim(),
+      ownership_type: ownershipType, location: location.trim(), photo_url: photoUrl,
+    }))
+      .then(onClose)
+      .catch(err => setError(err?.message || 'Could not add item — please try again.'))
+      .finally(() => setSaving(false));
+  }
+
+  return (
+    <div role="dialog" aria-modal="true"
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:16, overflowY:'auto' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:460, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 id="raise-request-title" style={{ fontSize:'16px', fontWeight:700, marginBottom:4 }}>Raise Inventory Request</h3>
-        <p style={{ fontSize:'13px', color:'var(--muted)', marginBottom:24 }}>Search for an item and submit a request.</p>
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:500, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', margin:'auto' }}>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:20 }}>Add Item</h3>
 
-        <div style={{ marginBottom:14, position:'relative' }}>
-          <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>ITEM</label>
-          <div style={{ position:'relative' }}>
-            <Search size={14} style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'var(--muted)', pointerEvents:'none' }} />
-            <input className="form-input" style={{ width:'100%', paddingLeft:32 }}
-              placeholder="Search available items…" value={itemSearch} autoFocus
-              onChange={e => { setItemSearch(e.target.value); setSelected(null); setShowList(true); }}
-              onFocus={() => setShowList(true)} />
-          </div>
-          {showList && itemSearch && filtered.length > 0 && (
-            <div style={{ position:'absolute', top:'100%', left:0, right:0, background:'var(--card)', border:'1px solid var(--line)', borderRadius:8, boxShadow:'0 8px 24px rgba(0,0,0,0.15)', zIndex:10, maxHeight:200, overflowY:'auto', marginTop:4 }}>
-              {filtered.map(item => {
-                const dm = DEPT_META[item.department];
-                return (
-                  <div key={item.id} onClick={() => selectItem(item)}
-                    style={{ padding:'10px 14px', cursor:'pointer', display:'flex', justifyContent:'space-between', alignItems:'center', gap:10 }}
-                    onMouseEnter={e => e.currentTarget.style.background='var(--mist)'}
-                    onMouseLeave={e => e.currentTarget.style.background='transparent'}>
-                    <div>
-                      <div style={{ fontWeight:600, fontSize:'13px' }}>{item.name}</div>
-                      <div style={{ fontSize:'11px', color: dm ? `hsl(${dm.color})` : 'var(--muted)' }}>{item.department}</div>
-                    </div>
-                    <span style={{ fontSize:'11px', color:'hsl(var(--color-green))', fontWeight:600, flexShrink:0 }}>{item.available} avail.</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {showList && itemSearch && filtered.length === 0 && (
-            <div style={{ position:'absolute', top:'100%', left:0, right:0, background:'var(--card)', border:'1px solid var(--line)', borderRadius:8, padding:'12px 14px', fontSize:'13px', color:'var(--muted)', zIndex:10, marginTop:4 }}>
-              No available items match "{itemSearch}"
-            </div>
-          )}
-        </div>
-
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:14 }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
           <div>
-            <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>QUANTITY</label>
-            <input type="number" min={1} max={selected?.available ?? 1} value={qty} className="form-input" style={{ width:'100%' }}
-              onChange={e => changeQty(e.target.value)} disabled={!selected} />
-            {qtyClamped && (
-              <div style={{ fontSize:11, color:'hsl(var(--color-orange))', marginTop:4 }}>
-                Only {selected?.available} available — capped at {selected?.available}
-              </div>
-            )}
+            <label style={FL}>NAME <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+            <input className="form-input" style={{ width:'100%' }} autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="e.g. DeWalt 20V Cordless Drill" />
           </div>
+
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+            <div>
+              <label style={FL}>TYPE <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+              <select className="form-input" style={{ width:'100%' }} value={itemType} onChange={e => handleTypeChange(e.target.value)}>
+                {ITEM_TYPES.map(t => <option key={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={FL}>OWNERSHIP</label>
+              <select className="form-input" style={{ width:'100%' }} value={ownershipType} onChange={e => setOwnershipType(e.target.value)}>
+                <option value="transient">Transient (check-out/return)</option>
+                <option value="permanent">Permanent (stays assigned)</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 80px', gap:12 }}>
+            <div>
+              <label style={FL}>MAKE</label>
+              <input className="form-input" style={{ width:'100%' }} value={make} onChange={e => setMake(e.target.value)} placeholder="e.g. DeWalt" />
+            </div>
+            <div>
+              <label style={FL}>MODEL</label>
+              <input className="form-input" style={{ width:'100%' }} value={model} onChange={e => setModel(e.target.value)} placeholder="e.g. DCD777C2" />
+            </div>
+            <div>
+              <label style={FL}>YEAR</label>
+              <input className="form-input" style={{ width:'100%' }} value={year} onChange={e => setYear(e.target.value)} placeholder="2023" />
+            </div>
+          </div>
+
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+            <div>
+              <label style={FL}>DEPARTMENT <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+              <input className="form-input" style={{ width:'100%' }} list="add-item-depts" value={department} onChange={e => setDepartment(e.target.value)} placeholder="e.g. Construction" />
+              <datalist id="add-item-depts">{DEPARTMENTS.filter(d => d !== 'All').map(d => <option key={d} value={d} />)}</datalist>
+            </div>
+            <div>
+              <label style={FL}>DEFAULT OWNER</label>
+              <input className="form-input" style={{ width:'100%' }} value={defaultOwner} onChange={e => setDefaultOwner(e.target.value)} placeholder="e.g. Tool Crib" />
+            </div>
+          </div>
+
           <div>
-            <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>DAYS NEEDED</label>
-            <input type="number" min={1} max={90} value={days} className="form-input" style={{ width:'100%' }}
-              onChange={e => setDays(Math.max(1, Math.min(90, Number(e.target.value) || 1)))} disabled={!selected} />
-            {days >= 90 && (
-              <div style={{ fontSize:11, color:'hsl(var(--color-orange))', marginTop:4 }}>Maximum 90 days per request</div>
-            )}
+            <label style={FL}>LOCATION <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+            <input className="form-input" style={{ width:'100%' }} value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. GSVC, GSE, Site Office" />
           </div>
+
+          <PhotoUpload value={photoUrl} onChange={setPhotoUrl} required hint="Required — upload a clear photo that distinguishes this specific item." />
         </div>
 
-        {/* Request on behalf — supervisors and above only */}
-        {canRaiseOnBehalf && (
-          <div style={{ marginBottom:14 }}>
-            <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>
-              REQUESTING FOR <span style={{ fontWeight:400, textTransform:'none' }}>(optional — leave blank if for yourself)</span>
-            </label>
-            <input className="form-input" style={{ width:'100%' }}
-              placeholder={`e.g. Sarah Johnson  (you are: ${currentUser})`}
-              value={requestFor}
-              onChange={e => setRequestFor(e.target.value)} />
-          </div>
-        )}
+        {error && <p style={{ display:'flex', alignItems:'center', gap:6, fontSize:12.5, color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:8, padding:'9px 12px', marginTop:14 }}><AlertCircle size={14} style={{ flexShrink:0 }} /> {error}</p>}
 
-        <div style={{ marginBottom:24 }}>
-          <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>REASON FOR REQUEST</label>
-          <textarea rows={3} className="form-input" style={{ width:'100%', resize:'vertical', fontSize:'13px' }}
-            placeholder="Briefly explain why you need this item…" value={reason}
-            onChange={e => setReason(e.target.value)} disabled={!selected} />
-        </div>
-
-        {requestFor.trim() && (
-          <div style={{ marginBottom:14, padding:'8px 12px', borderRadius:8, background:'hsla(var(--color-blue),0.08)', border:'1px solid hsla(var(--color-blue),0.2)', fontSize:12, color:'hsl(var(--color-blue))' }}>
-            This request will be raised by <strong>{currentUser}</strong> on behalf of <strong>{requestFor.trim()}</strong>
-          </div>
-        )}
-
-        <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
-          <button className="secondary-btn" onClick={onClose} disabled={isSubmitting}>Cancel</button>
-          <button className="primary-btn" disabled={!selected || !reason.trim() || isSubmitting}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:140, justifyContent:'center' }}
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:22 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="primary-btn" disabled={!name.trim() || !photoUrl || !department.trim() || !location.trim() || saving}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:120, justifyContent:'center' }}
             onClick={submit}>
-            {isSubmitting ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Submitting…</> : 'Submit Request'}
+            {saving ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Saving…</> : <><Plus size={14} /> Add Item</>}
           </button>
         </div>
       </div>
@@ -258,184 +306,112 @@ function RaiseRequestModal({ items, onClose, onSubmit, currentUser, canRaiseOnBe
   );
 }
 
-// ── CSV parsing (no library installed — small quote-aware hand-roll) ─────────
-function parseCsvLine(line) {
-  const out = [];
-  let cur = '';
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (inQuotes) {
-      if (c === '"') {
-        if (line[i + 1] === '"') { cur += '"'; i++; }
-        else inQuotes = false;
-      } else cur += c;
-    } else if (c === '"') inQuotes = true;
-    else if (c === ',') { out.push(cur); cur = ''; }
-    else cur += c;
-  }
-  out.push(cur);
-  return out;
-}
-
-// Item cards are filtered by these exact category/department tabs — a value
-// outside either list will still import fine but will never surface under any
-// filter tab (only "All"), so we flag mismatches in the preview before commit.
-const KNOWN_CATEGORIES   = CATEGORIES.filter(c => c !== 'All');
-const KNOWN_DEPARTMENTS  = DEPARTMENTS.filter(d => d !== 'All');
-
-function parseInventoryCsv(text) {
-  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
-  if (lines.length < 2) return { rows: [], error: 'That file looks empty — it needs a header row plus at least one item.' };
-
-  const header = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
-  const idx = {
-    name:       header.findIndex(h => ['name', 'item', 'item name'].includes(h)),
-    category:   header.findIndex(h => h === 'category'),
-    department: header.findIndex(h => ['department', 'dept'].includes(h)),
-    location:   header.findIndex(h => ['location', 'site'].includes(h)),
-    qty:        header.findIndex(h => ['total_qty', 'total', 'quantity', 'qty', 'total qty'].includes(h)),
-  };
-  if (idx.name === -1) return { rows: [], error: 'Couldn’t find a "Name" column in the header row — check your file and try again.' };
-
-  const rows = lines.slice(1).map(line => {
-    const cells = parseCsvLine(line);
-    const name       = (cells[idx.name] || '').trim();
-    const category   = idx.category   > -1 ? (cells[idx.category]   || '').trim() : '';
-    const department = idx.department > -1 ? (cells[idx.department] || '').trim() : '';
-    const location   = idx.location   > -1 ? (cells[idx.location]   || '').trim() : '';
-    const qtyRaw = idx.qty > -1 ? (cells[idx.qty] || '').trim() : '';
-    const qty    = qtyRaw ? parseInt(qtyRaw, 10) : 0;
-    return {
-      name, category, department, location,
-      total_qty:          Number.isFinite(qty) ? qty : 0,
-      _valid:             !!name,
-      _unknownCategory:   !!category   && !KNOWN_CATEGORIES.includes(category),
-      _unknownDepartment: !!department && !KNOWN_DEPARTMENTS.includes(department),
-    };
-  });
-  return { rows, error: null };
-}
-
-function triggerCsvDownload(filename, csv) {
-  triggerBlobDownload(filename, new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-}
-
-function triggerBlobDownload(filename, blob) {
-  const url = URL.createObjectURL(blob);
-  const a   = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-// Hands people a starter file with the headers the parser recognizes plus a
-// couple of filled-in example rows — saves them guessing column names/order.
-function downloadImportTemplate() {
-  triggerCsvDownload('inventory-import-template.csv', [
-    'Name,Category,Department,Location,Total Qty',
-    'Dell Monitor 24 inch,IT Supplies,IT,GSE,15',
-    'Cordless Drill,Tools,Construction,GSVC,8',
-  ].join('\r\n'));
-}
-
-function csvField(value) {
-  const s = String(value ?? '');
-  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
-// Round-trips with the import — pulls the live catalogue (already loaded in
-// the view) into the same column shape the importer expects, so people can
-// export, edit in bulk, and re-upload instead of building rows from scratch.
-function downloadInventoryCsv(items) {
-  const lines = ['Name,Category,Department,Location,Total Qty,Available Qty'];
-  for (const item of items) {
-    lines.push([item.name, item.category, item.department, item.location, item.total, item.available].map(csvField).join(','));
-  }
-  triggerCsvDownload(`inventory-catalogue-${new Date().toISOString().slice(0, 10)}.csv`, lines.join('\r\n'));
-}
-
-// ── Edit Item Modal ───────────────────────────────────────────────────────────
+// ── Edit Item Modal ────────────────────────────────────────────────────────────
 function EditItemModal({ item, onClose, onSave }) {
-  const [name,       setName]       = useState(item.name);
-  const [category,   setCategory]   = useState(item.category);
-  const [department, setDepartment] = useState(item.department);
-  const [location,   setLocation]   = useState(item.location ?? '');
-  const [totalQty,   setTotalQty]   = useState(String(item.total));
-  const [saving,     setSaving]     = useState(false);
-  const [error,      setError]      = useState('');
-
+  const [name,          setName]          = useState(item.name);
+  const [itemType,      setItemType]      = useState(item.itemType || 'Other');
+  const [make,          setMake]          = useState(item.make || '');
+  const [model,         setModel]         = useState(item.model || '');
+  const [year,          setYear]          = useState(item.year || '');
+  const [department,    setDepartment]    = useState(item.department || '');
+  const [defaultOwner,  setDefaultOwner]  = useState(item.defaultOwner || '');
+  const [ownershipType, setOwnershipType] = useState(item.ownershipType || 'transient');
+  const [status,        setStatus]        = useState(item.status || 'available');
+  const [location,      setLocation]      = useState(item.location || '');
+  const [photoUrl,      setPhotoUrl]      = useState(item.photoUrl || '');
+  const [saving,        setSaving]        = useState(false);
+  const [error,         setError]         = useState('');
   useEscapeKey(onClose);
 
   function submit() {
-    const trimmed = name.trim();
-    if (!trimmed || saving) return;
-    setSaving(true);
-    setError('');
+    if (!name.trim() || saving) return;
+    setSaving(true); setError('');
     Promise.resolve(onSave({
-      name: trimmed, category, department, location: location.trim(),
-      total_qty: Math.max(parseInt(totalQty, 10) || 0, 0),
+      name: name.trim(), item_type: itemType, make: make.trim(), model: model.trim(),
+      year: year.trim(), department: department.trim(), default_owner: defaultOwner.trim(),
+      ownership_type: ownershipType, status, location: location.trim(), photo_url: photoUrl,
     }))
       .then(onClose)
-      .catch(err => setError(err?.message || 'Couldn’t save changes — please try again.'))
+      .catch(err => setError(err?.message || 'Could not save changes.'))
       .finally(() => setSaving(false));
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="edit-item-title"
-      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+    <div role="dialog" aria-modal="true"
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:16, overflowY:'auto' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 id="edit-item-title" style={{ fontSize:'16px', fontWeight:700, marginBottom:20 }}>Edit Item</h3>
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:500, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', margin:'auto' }}>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:20 }}>Edit Item</h3>
 
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
           <div>
-            <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>NAME</label>
+            <label style={FL}>NAME <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
             <input className="form-input" style={{ width:'100%' }} value={name} onChange={e => setName(e.target.value)} />
           </div>
-          <div style={{ display:'flex', gap:12 }}>
-            <div style={{ flex:1, minWidth:0 }}>
-              <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>CATEGORY</label>
-              <select className="form-input" style={{ width:'100%' }} value={category} onChange={e => setCategory(e.target.value)}>
-                {KNOWN_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+            <div>
+              <label style={FL}>TYPE</label>
+              <select className="form-input" style={{ width:'100%' }} value={itemType} onChange={e => setItemType(e.target.value)}>
+                {ITEM_TYPES.map(t => <option key={t}>{t}</option>)}
               </select>
             </div>
-            <div style={{ flex:1, minWidth:0 }}>
-              <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>DEPARTMENT</label>
-              <select className="form-input" style={{ width:'100%' }} value={department} onChange={e => setDepartment(e.target.value)}>
-                {KNOWN_DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
+            <div>
+              <label style={FL}>OWNERSHIP</label>
+              <select className="form-input" style={{ width:'100%' }} value={ownershipType} onChange={e => setOwnershipType(e.target.value)}>
+                <option value="transient">Transient</option>
+                <option value="permanent">Permanent</option>
               </select>
             </div>
           </div>
-          <div>
-            <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>LOCATION</label>
-            <input className="form-input" style={{ width:'100%' }} placeholder="e.g. GSVC, GSE"
-              value={location} onChange={e => setLocation(e.target.value)} />
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 80px', gap:12 }}>
+            <div>
+              <label style={FL}>MAKE</label>
+              <input className="form-input" style={{ width:'100%' }} value={make} onChange={e => setMake(e.target.value)} />
+            </div>
+            <div>
+              <label style={FL}>MODEL</label>
+              <input className="form-input" style={{ width:'100%' }} value={model} onChange={e => setModel(e.target.value)} />
+            </div>
+            <div>
+              <label style={FL}>YEAR</label>
+              <input className="form-input" style={{ width:'100%' }} value={year} onChange={e => setYear(e.target.value)} />
+            </div>
           </div>
-          <div>
-            <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>TOTAL QUANTITY</label>
-            <input type="number" min="0" className="form-input" style={{ width:'100%' }}
-              value={totalQty} onChange={e => setTotalQty(e.target.value)} />
-            <p style={{ fontSize:'11.5px', color:'var(--muted)', marginTop:6 }}>
-              Currently {item.available} of {item.total} available — changing the total shifts availability by the same amount.
-            </p>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+            <div>
+              <label style={FL}>DEPARTMENT</label>
+              <input className="form-input" style={{ width:'100%' }} list="edit-item-depts" value={department} onChange={e => setDepartment(e.target.value)} />
+              <datalist id="edit-item-depts">{DEPARTMENTS.filter(d => d !== 'All').map(d => <option key={d} value={d} />)}</datalist>
+            </div>
+            <div>
+              <label style={FL}>DEFAULT OWNER</label>
+              <input className="form-input" style={{ width:'100%' }} value={defaultOwner} onChange={e => setDefaultOwner(e.target.value)} />
+            </div>
           </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+            <div>
+              <label style={FL}>LOCATION</label>
+              <input className="form-input" style={{ width:'100%' }} value={location} onChange={e => setLocation(e.target.value)} />
+            </div>
+            <div>
+              <label style={FL}>STATUS</label>
+              <select className="form-input" style={{ width:'100%' }} value={status} onChange={e => setStatus(e.target.value)}>
+                <option value="available">Available</option>
+                <option value="checked_out">Checked Out</option>
+                <option value="permanently_assigned">Permanently Assigned</option>
+                <option value="retired">Retired</option>
+              </select>
+            </div>
+          </div>
+          <PhotoUpload value={photoUrl} onChange={setPhotoUrl} hint="Replace photo if needed — must clearly identify this specific unit." />
         </div>
 
-        {error && (
-          <p style={{ display:'flex', alignItems:'center', gap:6, fontSize:'12.5px', color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:8, padding:'9px 12px', margin:'14px 0 0' }}>
-            <AlertCircle size={14} style={{ flexShrink:0 }} /> {error}
-          </p>
-        )}
+        {error && <p style={{ display:'flex', alignItems:'center', gap:6, fontSize:12.5, color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:8, padding:'9px 12px', marginTop:14 }}><AlertCircle size={14} style={{ flexShrink:0 }} /> {error}</p>}
 
         <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:22 }}>
           <button className="secondary-btn" onClick={onClose} disabled={saving}>Cancel</button>
           <button className="primary-btn" disabled={!name.trim() || saving}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:130, justifyContent:'center' }}
-            onClick={submit}>
+            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:120, justifyContent:'center' }} onClick={submit}>
             {saving ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Saving…</> : 'Save Changes'}
           </button>
         </div>
@@ -444,241 +420,28 @@ function EditItemModal({ item, onClose, onSave }) {
   );
 }
 
-// ── Add Item Modal ────────────────────────────────────────────────────────────
-// The friendly counterpart to CSV import — lets a manager add a single new
-// catalogue item (and, via free-text category/department fields backed by a
-// <datalist>, introduce a new "type" without anyone touching a spreadsheet).
-function AddItemModal({ onClose, onSave }) {
-  const [name,       setName]       = useState('');
-  const [category,   setCategory]   = useState('');
-  const [department, setDepartment] = useState('');
-  const [location,   setLocation]   = useState('');
-  const [totalQty,   setTotalQty]   = useState('1');
-  const [saving,     setSaving]     = useState(false);
-  const [error,      setError]      = useState('');
-
-  useEscapeKey(onClose);
-
-  function submit() {
-    const trimmed = name.trim();
-    if (!trimmed || saving) return;
-    setSaving(true);
-    setError('');
-    Promise.resolve(onSave({
-      name: trimmed,
-      category: category.trim(),
-      department: department.trim(),
-      location: location.trim(),
-      total_qty: Math.max(parseInt(totalQty, 10) || 0, 0),
-    }))
-      .then(onClose)
-      .catch(err => setError(err?.message || 'Couldn’t add this item — please try again.'))
-      .finally(() => setSaving(false));
-  }
-
-  return (
-    <div role="dialog" aria-modal="true" aria-labelledby="add-item-title"
-      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 id="add-item-title" style={{ fontSize:'16px', fontWeight:700, marginBottom:6 }}>Add Item</h3>
-        <p style={{ fontSize:'12.5px', color:'var(--muted)', marginBottom:18 }}>
-          Add a new catalogue item by hand — no spreadsheet needed. Type a new category or department to introduce one that doesn’t exist yet.
-        </p>
-
-        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-          <div>
-            <label style={FIELD_LABEL_SM}>NAME</label>
-            <input className="form-input" style={{ width:'100%' }} placeholder="e.g. Tape Measure (5m)"
-              value={name} onChange={e => setName(e.target.value)} autoFocus />
-          </div>
-          <div style={{ display:'flex', gap:12 }}>
-            <div style={{ flex:1, minWidth:0 }}>
-              <label style={FIELD_LABEL_SM}>CATEGORY / TYPE</label>
-              <input className="form-input" style={{ width:'100%' }} list="add-item-categories"
-                placeholder="e.g. Tools" value={category} onChange={e => setCategory(e.target.value)} />
-              <datalist id="add-item-categories">{KNOWN_CATEGORIES.map(c => <option key={c} value={c} />)}</datalist>
-            </div>
-            <div style={{ flex:1, minWidth:0 }}>
-              <label style={FIELD_LABEL_SM}>DEPARTMENT</label>
-              <input className="form-input" style={{ width:'100%' }} list="add-item-departments"
-                placeholder="e.g. Construction" value={department} onChange={e => setDepartment(e.target.value)} />
-              <datalist id="add-item-departments">{KNOWN_DEPARTMENTS.map(d => <option key={d} value={d} />)}</datalist>
-            </div>
-          </div>
-          <div style={{ display:'flex', gap:12 }}>
-            <div style={{ flex:1, minWidth:0 }}>
-              <label style={FIELD_LABEL_SM}>LOCATION</label>
-              <input className="form-input" style={{ width:'100%' }} placeholder="e.g. GSVC, GSE"
-                value={location} onChange={e => setLocation(e.target.value)} />
-            </div>
-            <div style={{ flex:1, minWidth:0 }}>
-              <label style={FIELD_LABEL_SM}>TOTAL QUANTITY</label>
-              <input type="number" min="0" className="form-input" style={{ width:'100%' }}
-                value={totalQty} onChange={e => setTotalQty(e.target.value)} />
-            </div>
-          </div>
-        </div>
-
-        {error && (
-          <p style={{ display:'flex', alignItems:'center', gap:6, fontSize:'12.5px', color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:8, padding:'9px 12px', margin:'14px 0 0' }}>
-            <AlertCircle size={14} style={{ flexShrink:0 }} /> {error}
-          </p>
-        )}
-
-        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:22 }}>
-          <button className="secondary-btn" onClick={onClose} disabled={saving}>Cancel</button>
-          <button className="primary-btn" disabled={!name.trim() || saving}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:120, justifyContent:'center' }}
-            onClick={submit}>
-            {saving ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Adding…</> : <><Plus size={14} /> Add Item</>}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const FIELD_LABEL_SM = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em' };
-
-// ── Report Modal ──────────────────────────────────────────────────────────────
-function ReportModal({ onClose }) {
-  const [userEmail,  setUserEmail]  = useState('');
-  const [location,   setLocation]   = useState('');
-  const [department, setDepartment] = useState('All');
-  const [category,   setCategory]   = useState('All');
-  const [status,     setStatus]     = useState('All');
-  const [exporting,  setExporting]  = useState(null); // 'excel' | 'pdf' | null
-  const [error,      setError]      = useState('');
-
-  useEscapeKey(onClose);
-
-  function buildParams() {
-    const params = {};
-    if (userEmail.trim())        params.user_email  = userEmail.trim();
-    if (location.trim())         params.location    = location.trim();
-    if (department !== 'All')    params.department  = department;
-    if (category !== 'All')      params.category    = category;
-    if (status !== 'All')        params.status      = status;
-    return params;
-  }
-
-  function exportAs(format) {
-    if (exporting) return;
-    setExporting(format);
-    setError('');
-    api.getInventoryReport({ ...buildParams(), format })
-      .then(({ blob, filename }) => triggerBlobDownload(filename, blob))
-      .then(onClose)
-      .catch(err => setError(err?.message || 'Couldn’t generate this report — please try again.'))
-      .finally(() => setExporting(null));
-  }
-
-  return (
-    <div role="dialog" aria-modal="true" aria-labelledby="report-modal-title"
-      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:460, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 id="report-modal-title" style={{ fontSize:'16px', fontWeight:700, marginBottom:6 }}>Export Asset Status Report</h3>
-        <p style={{ fontSize:'12.5px', color:'var(--muted)', marginBottom:18 }}>
-          Filter requests by user, location, department, or type, then export as an Excel workbook or PDF.
-        </p>
-
-        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-          <div>
-            <label style={FIELD_LABEL_SM}>USER EMAIL</label>
-            <input className="form-input" style={{ width:'100%' }} placeholder="e.g. jane.doe@greensglobal.com"
-              value={userEmail} onChange={e => setUserEmail(e.target.value)} />
-          </div>
-          <div style={{ display:'flex', gap:12 }}>
-            <div style={{ flex:1, minWidth:0 }}>
-              <label style={FIELD_LABEL_SM}>LOCATION</label>
-              <input className="form-input" style={{ width:'100%' }} placeholder="e.g. GSVC"
-                value={location} onChange={e => setLocation(e.target.value)} />
-            </div>
-            <div style={{ flex:1, minWidth:0 }}>
-              <label style={FIELD_LABEL_SM}>DEPARTMENT</label>
-              <select className="form-input" style={{ width:'100%' }} value={department} onChange={e => setDepartment(e.target.value)}>
-                {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
-              </select>
-            </div>
-          </div>
-          <div style={{ display:'flex', gap:12 }}>
-            <div style={{ flex:1, minWidth:0 }}>
-              <label style={FIELD_LABEL_SM}>TYPE / CATEGORY</label>
-              <select className="form-input" style={{ width:'100%' }} value={category} onChange={e => setCategory(e.target.value)}>
-                {CATEGORIES.map(c => <option key={c}>{c}</option>)}
-              </select>
-            </div>
-            <div style={{ flex:1, minWidth:0 }}>
-              <label style={FIELD_LABEL_SM}>STATUS</label>
-              <select className="form-input" style={{ width:'100%' }} value={status} onChange={e => setStatus(e.target.value)}>
-                {REQ_STATUS_FILTERS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {error && (
-          <p style={{ display:'flex', alignItems:'center', gap:6, fontSize:'12.5px', color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:8, padding:'9px 12px', margin:'14px 0 0' }}>
-            <AlertCircle size={14} style={{ flexShrink:0 }} /> {error}
-          </p>
-        )}
-
-        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:22 }}>
-          <button className="secondary-btn" onClick={onClose} disabled={!!exporting}>Cancel</button>
-          <button className="secondary-btn" disabled={!!exporting}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:130, justifyContent:'center' }}
-            onClick={() => exportAs('pdf')}>
-            {exporting === 'pdf' ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Exporting…</> : <><Download size={14} /> Export as PDF</>}
-          </button>
-          <button className="primary-btn" disabled={!!exporting}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:140, justifyContent:'center' }}
-            onClick={() => exportAs('excel')}>
-            {exporting === 'excel' ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Exporting…</> : <><Download size={14} /> Export as Excel</>}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Delete Item Modal ─────────────────────────────────────────────────────────
+// ── Delete Confirm Modal ───────────────────────────────────────────────────────
 function DeleteItemModal({ item, onClose, onConfirm }) {
-  const [busy,  setBusy]  = useState(false);
-  const [error, setError] = useState('');
-
+  const [busy, setBusy] = useState(false);
   useEscapeKey(onClose);
-
   function confirm() {
-    if (busy) return;
     setBusy(true);
-    setError('');
-    Promise.resolve(onConfirm())
-      .then(onClose)
-      .catch(err => setError(err?.message || 'Couldn’t delete this item — please try again.'))
-      .finally(() => setBusy(false));
+    Promise.resolve(onConfirm()).catch(() => {}).finally(() => setBusy(false));
   }
-
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="delete-item-title"
+    <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:400, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 id="delete-item-title" style={{ fontSize:'16px', fontWeight:700, marginBottom:8 }}>Delete “{item.name}”?</h3>
-        <p style={{ fontSize:'13px', color:'var(--muted)' }}>
-          This permanently removes the item from the catalogue and can’t be undone. It only works while there’s no pending, approved, or active request against it.
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:380, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:8 }}>Delete Item?</h3>
+        <p style={{ fontSize:13.5, color:'var(--muted)', marginBottom:20 }}>
+          Permanently remove <strong>{item.name}</strong>? This cannot be undone and will fail if the item has an active checkout.
         </p>
-        {error && (
-          <p style={{ display:'flex', alignItems:'center', gap:6, fontSize:'12.5px', color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:8, padding:'9px 12px', marginTop:14 }}>
-            <AlertCircle size={14} style={{ flexShrink:0 }} /> {error}
-          </p>
-        )}
-        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:22 }}>
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button disabled={busy} onClick={confirm}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:130, justifyContent:'center', background:'hsl(var(--color-red))', color:'#fff', border:'none', borderRadius:8, padding:'9px 18px', fontSize:'13px', fontWeight:600, cursor: busy ? 'default' : 'pointer', fontFamily:'Inter,sans-serif' }}>
-            {busy ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Deleting…</> : <><Trash2 size={14} /> Delete Item</>}
+          <button onClick={confirm} disabled={busy}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 18px', borderRadius:8, border:'none', background:'hsl(var(--color-red))', color:'#fff', fontWeight:700, fontSize:13.5, cursor:'pointer' }}>
+            {busy ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Deleting…</> : <><Trash2 size={14} /> Delete</>}
           </button>
         </div>
       </div>
@@ -686,185 +449,182 @@ function DeleteItemModal({ item, onClose, onConfirm }) {
   );
 }
 
-// ── Import Items Modal ────────────────────────────────────────────────────────
-function ImportItemsModal({ onClose, onImport }) {
-  const [fileName,    setFileName]    = useState('');
-  const [rows,        setRows]        = useState([]);
-  const [parseError,  setParseError]  = useState('');
-  const [submitting,  setSubmitting]  = useState(false);
-  const [submitError, setSubmitError] = useState('');
-  const [result,      setResult]      = useState(null); // { created, updated, skipped }
-  const fileRef = useRef(null);
+// ── CSV helpers ────────────────────────────────────────────────────────────────
+function parseCsvLine(line) {
+  const out = []; let cur = ''; let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQ) { if (c === '"') { if (line[i+1] === '"') { cur += '"'; i++; } else inQ = false; } else cur += c; }
+    else if (c === '"') inQ = true;
+    else if (c === ',') { out.push(cur); cur = ''; }
+    else cur += c;
+  }
+  out.push(cur); return out;
+}
 
+function parseItemsCsv(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return { rows: [], error: 'File looks empty — needs a header row plus at least one item.' };
+  const header = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
+  const idx = {
+    name:          header.findIndex(h => ['name','item','item name'].includes(h)),
+    item_type:     header.findIndex(h => ['type','item_type','item type'].includes(h)),
+    make:          header.findIndex(h => h === 'make'),
+    model:         header.findIndex(h => h === 'model'),
+    year:          header.findIndex(h => h === 'year'),
+    department:    header.findIndex(h => ['department','dept'].includes(h)),
+    default_owner: header.findIndex(h => ['owner','default_owner','default owner'].includes(h)),
+    ownership_type:header.findIndex(h => ['ownership','ownership_type','ownership type'].includes(h)),
+    location:      header.findIndex(h => ['location','site'].includes(h)),
+  };
+  if (idx.name === -1) return { rows: [], error: 'Could not find a "Name" column in the header.' };
+  const rows = lines.slice(1).map(line => {
+    const cells = parseCsvLine(line);
+    const get = i => (i > -1 ? (cells[i] || '').trim() : '');
+    const name = get(idx.name);
+    const item_type = get(idx.item_type) || 'Other';
+    const ownership_type = get(idx.ownership_type) || 'transient';
+    return {
+      name, item_type, make: get(idx.make), model: get(idx.model), year: get(idx.year),
+      department: get(idx.department), default_owner: get(idx.default_owner),
+      ownership_type: ownership_type.toLowerCase(),
+      location: get(idx.location),
+      _valid: !!name,
+      _unknownType: !!item_type && !ITEM_TYPES.includes(item_type),
+    };
+  });
+  return { rows, error: null };
+}
+
+function csvField(v) { const s = String(v ?? ''); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
+
+function triggerDownload(filename, blob) {
+  const url = URL.createObjectURL(blob); const a = document.createElement('a');
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+
+function downloadItemsCsv(items) {
+  const lines = ['Name,Type,Make,Model,Year,Department,Owner,Ownership,Location,Status'];
+  for (const i of items)
+    lines.push([i.name,i.itemType,i.make,i.model,i.year,i.department,i.defaultOwner,i.ownershipType,i.location,i.status].map(csvField).join(','));
+  triggerDownload(`items-catalog-${new Date().toISOString().slice(0,10)}.csv`, new Blob([lines.join('\r\n')], { type:'text/csv;charset=utf-8;' }));
+}
+
+function downloadImportTemplate() {
+  triggerDownload('items-import-template.csv', new Blob([[
+    'Name,Type,Make,Model,Year,Department,Owner,Ownership,Location',
+    'Dell XPS 15 Laptop,Devices,Dell,XPS 15,2023,IT,IT Department,permanent,GSE',
+    'DeWalt Cordless Drill,Tools,DeWalt,DCD777C2,,Construction,Tool Crib,transient,GSVC',
+    'Ford F-150 Pickup,Vehicles,Ford,F-150,2022,Fleet,Fleet Team,permanent,Yard',
+  ].join('\r\n')], { type:'text/csv;charset=utf-8;' }));
+}
+
+// ── Import Modal ───────────────────────────────────────────────────────────────
+function ImportItemsModal({ onClose, onImport }) {
+  const [rows,      setRows]      = useState(null);
+  const [parseErr,  setParseErr]  = useState('');
+  const [importing, setImporting] = useState(false);
+  const [done,      setDone]      = useState(null);
+  const fileRef = useRef(null);
   useEscapeKey(onClose);
 
-  function handleFile(e) {
-    const file = e.target.files?.[0];
+  function handleFile(file) {
     if (!file) return;
-    setFileName(file.name);
-    setResult(null);
-    setSubmitError('');
     const reader = new FileReader();
-    reader.onload = () => {
-      const { rows: parsed, error } = parseInventoryCsv(String(reader.result || ''));
-      if (error) { setParseError(error); setRows([]); }
-      else { setParseError(''); setRows(parsed); }
+    reader.onload = e => {
+      const { rows, error } = parseItemsCsv(e.target.result);
+      if (error) { setParseErr(error); setRows(null); }
+      else { setRows(rows); setParseErr(''); }
     };
-    reader.onerror = () => setParseError('Couldn’t read that file — please try again.');
     reader.readAsText(file);
   }
 
-  function reset() {
-    setFileName(''); setRows([]); setParseError(''); setResult(null); setSubmitError('');
-    if (fileRef.current) fileRef.current.value = '';
+  function doImport() {
+    const valid = rows.filter(r => r._valid);
+    if (!valid.length || importing) return;
+    setImporting(true);
+    Promise.resolve(onImport(valid))
+      .then(res => setDone(res))
+      .finally(() => setImporting(false));
   }
 
-  const validRows    = rows.filter(r => r._valid);
-  const invalidRows  = rows.length - validRows.length;
-  const unknownRows  = validRows.filter(r => r._unknownCategory || r._unknownDepartment).length;
-
-  function submit() {
-    if (!validRows.length || submitting) return;
-    setSubmitting(true);
-    setSubmitError('');
-    Promise.resolve(onImport(validRows.map(r => ({
-      name: r.name, category: r.category, department: r.department, location: r.location, total_qty: r.total_qty,
-    }))))
-      .then(res => setResult(res))
-      .catch(err => setSubmitError(err?.message || 'Import failed — please try again.'))
-      .finally(() => setSubmitting(false));
-  }
+  const valid   = rows?.filter(r => r._valid) ?? [];
+  const invalid = rows?.filter(r => !r._valid) ?? [];
+  const warned  = rows?.filter(r => r._unknownType) ?? [];
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="import-items-title"
+    <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:640, maxHeight:'88vh', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:4 }}>
-          <h3 id="import-items-title" style={{ fontSize:'16px', fontWeight:700 }}>Import Inventory Items</h3>
-          <button onClick={onClose} aria-label="Close" style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', padding:4 }}><X size={18} /></button>
-        </div>
-        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:14, marginBottom:20 }}>
-          <p style={{ fontSize:'13px', color:'var(--muted)', flex:1 }}>
-            Upload a CSV to bulk-create items or update stock counts for existing ones (matched by name).
-          </p>
-          <button onClick={downloadImportTemplate}
-            style={{ display:'inline-flex', alignItems:'center', gap:6, flexShrink:0, background:'none', border:'1px solid var(--line)', borderRadius:8, padding:'6px 12px', color:'var(--ink)', fontSize:'12.5px', fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-            <Download size={14} /> Download Template
-          </button>
-        </div>
-
-        {result ? (
-          <div style={{ textAlign:'center', padding:'28px 12px' }}>
-            <div style={{ width:48, height:48, borderRadius:'50%', background:'hsla(var(--color-green),0.12)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 14px' }}>
-              <CheckCircle size={24} color="hsl(var(--color-green))" />
-            </div>
-            <p style={{ fontSize:'15px', fontWeight:700, marginBottom:6 }}>Import complete</p>
-            <p style={{ fontSize:'13px', color:'var(--muted)' }}>
-              {result.created} item{result.created !== 1 ? 's' : ''} created · {result.updated} updated
-              {result.skipped > 0 && ` · ${result.skipped} skipped`}
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:520, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'90vh', overflowY:'auto' }}>
+        {done ? (
+          <>
+            <h3 style={{ fontSize:16, fontWeight:700, marginBottom:10 }}>Import Complete</h3>
+            <p style={{ fontSize:13.5, color:'var(--muted)', marginBottom:20 }}>
+              <strong>{done.created}</strong> items added. <strong>{done.skipped}</strong> rows skipped.
+              Photos must be added manually in the Manage tab — one item at a time.
             </p>
-            <div style={{ display:'flex', gap:10, justifyContent:'center', marginTop:22 }}>
-              <button className="secondary-btn" onClick={reset}>Import Another File</button>
-              <button className="primary-btn" onClick={onClose}>Done</button>
-            </div>
-          </div>
+            <div style={{ display:'flex', justifyContent:'flex-end' }}><button className="primary-btn" onClick={onClose}>Done</button></div>
+          </>
         ) : (
           <>
-            {!fileName ? (
-              <div onClick={() => fileRef.current?.click()}
-                style={{ border:'2px dashed var(--line)', borderRadius:10, padding:'34px 20px', textAlign:'center', cursor:'pointer' }}
-                onMouseEnter={e => e.currentTarget.style.borderColor='var(--pine)'}
-                onMouseLeave={e => e.currentTarget.style.borderColor='var(--line)'}>
-                <UploadCloud size={28} style={{ color:'var(--muted)', marginBottom:8 }} />
-                <div style={{ fontSize:'13px', fontWeight:600, color:'var(--ink)' }}>Click to browse or drop a CSV file</div>
-                <div style={{ fontSize:'12px', color:'var(--muted)', marginTop:4 }}>Columns: Name, Category, Department, Location, Total Qty</div>
-              </div>
-            ) : (
-              <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', border:'1px solid var(--line)', borderRadius:10 }}>
-                <FileSpreadsheet size={18} style={{ color:'var(--muted)', flexShrink:0 }} />
-                <span style={{ fontSize:'13px', fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{fileName}</span>
-                <button onClick={reset} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', fontSize:'12px', fontFamily:'Inter,sans-serif' }}>Change file</button>
-              </div>
-            )}
-            <input ref={fileRef} type="file" accept=".csv,text/csv" style={{ display:'none' }} onChange={handleFile} />
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
+              <h3 style={{ fontSize:16, fontWeight:700 }}>Import Items from CSV</h3>
+              <button onClick={() => downloadImportTemplate()} className="secondary-btn" style={{ fontSize:12, padding:'5px 12px', display:'inline-flex', alignItems:'center', gap:5 }}>
+                <Download size={13} /> Template
+              </button>
+            </div>
+            <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:16 }}>
+              Each row = one physical item. Photos are always added manually after import. Required columns: <strong>Name</strong>.
+            </p>
 
-            {parseError && (
-              <p style={{ display:'flex', alignItems:'center', gap:6, fontSize:'12.5px', color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:8, padding:'9px 12px', margin:'14px 0 0' }}>
-                <AlertCircle size={14} style={{ flexShrink:0 }} /> {parseError}
-              </p>
-            )}
+            <input ref={fileRef} type="file" accept=".csv" style={{ display:'none' }} onChange={e => handleFile(e.target.files?.[0])} />
+            <button onClick={() => fileRef.current?.click()} className="secondary-btn" style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', marginBottom:14 }}>
+              <UploadCloud size={16} /> Choose CSV file
+            </button>
 
-            {rows.length > 0 && !parseError && (
+            {parseErr && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginBottom:12 }}>{parseErr}</p>}
+
+            {rows && (
               <>
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', margin:'16px 0 8px', flexWrap:'wrap', rowGap:4 }}>
-                  <span style={{ fontSize:'12px', fontWeight:700, color:'var(--muted)', letterSpacing:'.04em', textTransform:'uppercase' }}>
-                    Preview — {validRows.length} item{validRows.length !== 1 ? 's' : ''}
-                  </span>
-                  <span style={{ display:'flex', gap:14 }}>
-                    {invalidRows > 0 && (
-                      <span style={{ fontSize:'12px', color:'hsl(var(--color-orange))', fontWeight:600 }}>{invalidRows} row{invalidRows !== 1 ? 's' : ''} skipped (no name)</span>
-                    )}
-                    {unknownRows > 0 && (
-                      <span style={{ fontSize:'12px', color:'hsl(var(--color-orange))', fontWeight:600 }}>{unknownRows} with an unrecognized category/department</span>
-                    )}
-                  </span>
+                <div style={{ fontSize:12.5, color:'var(--muted)', marginBottom:10 }}>
+                  <strong style={{ color:'hsl(var(--color-green))' }}>{valid.length} valid</strong>
+                  {invalid.length > 0 && <>, <strong style={{ color:'hsl(var(--color-red))' }}>{invalid.length} missing name (skipped)</strong></>}
+                  {warned.length > 0 && <>, <strong style={{ color:'hsl(var(--color-orange))' }}>{warned.length} unknown type (will save as-is)</strong></>}
                 </div>
-                {unknownRows > 0 && (
-                  <p style={{ display:'flex', alignItems:'center', gap:6, fontSize:'12px', color:'hsl(var(--color-orange))', background:'hsla(var(--color-orange),0.08)', borderRadius:8, padding:'8px 12px', marginBottom:8 }}>
-                    <AlertCircle size={13} style={{ flexShrink:0 }} />
-                    Highlighted values below aren’t one of the catalogue’s known categories/departments — those items will still import, but won’t appear under any filter tab until corrected.
-                  </p>
-                )}
-                <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto', flex:1, minHeight:0 }}>
-                  <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12.5px' }}>
+                <div style={{ border:'1px solid var(--line)', borderRadius:8, overflow:'auto', maxHeight:200, marginBottom:16 }}>
+                  <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
                     <thead>
                       <tr style={{ background:'var(--mist)' }}>
-                        <th style={{ textAlign:'left',  padding:'8px 12px', fontWeight:700, color:'var(--muted)' }}>Name</th>
-                        <th style={{ textAlign:'left',  padding:'8px 12px', fontWeight:700, color:'var(--muted)' }}>Category</th>
-                        <th style={{ textAlign:'left',  padding:'8px 12px', fontWeight:700, color:'var(--muted)' }}>Department</th>
-                        <th style={{ textAlign:'left',  padding:'8px 12px', fontWeight:700, color:'var(--muted)' }}>Location</th>
-                        <th style={{ textAlign:'right', padding:'8px 12px', fontWeight:700, color:'var(--muted)' }}>Total Qty</th>
+                        {['Name','Type','Make','Model','Dept','Ownership','Location'].map(h =>
+                          <th key={h} style={{ padding:'7px 10px', textAlign:'left', fontWeight:700, color:'var(--muted)', whiteSpace:'nowrap' }}>{h}</th>)}
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.slice(0, 200).map((r, i) => (
-                        <tr key={i} style={{ borderTop:'1px solid var(--line)', opacity: r._valid ? 1 : 0.4 }}>
-                          <td style={{ padding:'7px 12px', fontWeight:600 }}>
-                            {r.name || <em style={{ color:'hsl(var(--color-red))', fontWeight:400 }}>missing name</em>}
-                          </td>
-                          <td style={{ padding:'7px 12px', color: r._unknownCategory ? 'hsl(var(--color-orange))' : 'var(--muted)', fontWeight: r._unknownCategory ? 700 : 400 }}>
-                            {r.category || '—'}{r._unknownCategory && ' ⚠'}
-                          </td>
-                          <td style={{ padding:'7px 12px', color: r._unknownDepartment ? 'hsl(var(--color-orange))' : 'var(--muted)', fontWeight: r._unknownDepartment ? 700 : 400 }}>
-                            {r.department || '—'}{r._unknownDepartment && ' ⚠'}
-                          </td>
-                          <td style={{ padding:'7px 12px', color:'var(--muted)' }}>{r.location || '—'}</td>
-                          <td style={{ padding:'7px 12px', textAlign:'right' }}>{r.total_qty}</td>
+                      {rows.slice(0,50).map((r, i) => (
+                        <tr key={i} style={{ borderTop:'1px solid var(--line)', background: !r._valid ? 'hsla(var(--color-red),0.04)' : 'transparent' }}>
+                          <td style={{ padding:'6px 10px', fontWeight:600 }}>{r.name || <em style={{ color:'hsl(var(--color-red))' }}>missing</em>}</td>
+                          <td style={{ padding:'6px 10px', color: r._unknownType ? 'hsl(var(--color-orange))' : 'var(--muted)' }}>{r.item_type}</td>
+                          <td style={{ padding:'6px 10px', color:'var(--muted)' }}>{r.make}</td>
+                          <td style={{ padding:'6px 10px', color:'var(--muted)' }}>{r.model}</td>
+                          <td style={{ padding:'6px 10px', color:'var(--muted)' }}>{r.department}</td>
+                          <td style={{ padding:'6px 10px', color:'var(--muted)' }}>{r.ownership_type}</td>
+                          <td style={{ padding:'6px 10px', color:'var(--muted)' }}>{r.location}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
+                <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
+                  <button className="secondary-btn" onClick={onClose}>Cancel</button>
+                  <button className="primary-btn" disabled={!valid.length || importing}
+                    style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={doImport}>
+                    {importing ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Importing…</> : `Import ${valid.length} Items`}
+                  </button>
+                </div>
               </>
             )}
-
-            {submitError && (
-              <p style={{ display:'flex', alignItems:'center', gap:6, fontSize:'12.5px', color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:8, padding:'9px 12px', margin:'14px 0 0' }}>
-                <AlertCircle size={14} style={{ flexShrink:0 }} /> {submitError}
-              </p>
-            )}
-
-            <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
-              <button className="secondary-btn" onClick={onClose} disabled={submitting}>Cancel</button>
-              <button className="primary-btn" disabled={!validRows.length || submitting}
-                style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:160, justifyContent:'center' }}
-                onClick={submit}>
-                {submitting
-                  ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Importing…</>
-                  : `Import ${validRows.length || ''} Item${validRows.length !== 1 ? 's' : ''}`}
-              </button>
-            </div>
+            {!rows && <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}><button className="secondary-btn" onClick={onClose}>Cancel</button></div>}
           </>
         )}
       </div>
@@ -872,573 +632,808 @@ function ImportItemsModal({ onClose, onImport }) {
   );
 }
 
-// ── Return Modal ──────────────────────────────────────────────────────────────
-function ReturnModal({ request, onClose, onSubmit }) {
-  const [photo,         setPhoto]         = useState(null);
-  const [conditionNote, setConditionNote] = useState('');
-  const [isSubmitting,  setIsSubmitting]  = useState(false);
-  const [preview,       setPreview]       = useState(null); // lightbox src, or null
-  const fileRef = useRef(null);
-
+// ── Report Modal ───────────────────────────────────────────────────────────────
+function ReportModal({ onClose }) {
+  const [dept,      setDept]      = useState('All');
+  const [itemType,  setItemType]  = useState('All');
+  const [status,    setStatus]    = useState('All');
+  const [exporting, setExporting] = useState(null);
+  const [error,     setError]     = useState('');
   useEscapeKey(onClose);
 
-  function handleFile(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setPhoto({ url: URL.createObjectURL(file), name: file.name, file });
-  }
-
-  function submit() {
-    if (!photo || isSubmitting) return;
-    setIsSubmitting(true);
-    Promise.resolve(onSubmit({ file: photo?.file, photoName: photo?.name, conditionNote: conditionNote.trim() }))
-      .finally(() => setIsSubmitting(false));
+  function exportAs(format) {
+    if (exporting) return;
+    setExporting(format); setError('');
+    const params = { format };
+    if (dept !== 'All')     params.department = dept;
+    if (itemType !== 'All') params.item_type  = itemType;
+    if (status !== 'All')   params.status     = status;
+    api.getItemsReport(params)
+      .then(({ blob, filename }) => triggerDownload(filename, blob))
+      .then(onClose)
+      .catch(err => setError(err?.message || 'Could not generate report.'))
+      .finally(() => setExporting(null));
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="return-item-title"
+    <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:440, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 id="return-item-title" style={{ fontSize:'16px', fontWeight:700, marginBottom:4 }}>Return Item</h3>
-        <p style={{ fontSize:'13px', color:'var(--muted)', marginBottom:24 }}>
-          <strong>{request.itemName}</strong> — {request.quantity} unit{request.quantity > 1 ? 's' : ''}
-        </p>
-
-        <div style={{ marginBottom:18 }}>
-          <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:8, letterSpacing:'.04em' }}>PHOTO OF ITEM</label>
-          {photo ? (
-            <div style={{ position:'relative', borderRadius:10, overflow:'hidden', border:'1px solid var(--line)' }}>
-              <img src={photo.url} alt="Return preview" onClick={() => setPreview(photo.url)}
-                style={{ width:'100%', maxHeight:200, objectFit:'cover', display:'block', cursor:'zoom-in' }} />
-              <button onClick={() => setPreview(photo.url)} aria-label="View full-size photo"
-                style={{ position:'absolute', bottom:8, left:8, background:'rgba(0,0,0,0.6)', border:'none', borderRadius:6, padding:'4px 8px', color:'#fff', cursor:'pointer', display:'flex', alignItems:'center', gap:5, fontSize:'11px', fontFamily:'Inter,sans-serif' }}>
-                <ZoomIn size={12} /> View full size
-              </button>
-              <button onClick={() => { setPhoto(null); fileRef.current.value=''; }} aria-label="Remove photo"
-                style={{ position:'absolute', top:8, right:8, background:'rgba(0,0,0,0.6)', border:'none', borderRadius:6, padding:'4px 10px', color:'#fff', fontSize:'12px', cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-                Remove
-              </button>
-            </div>
-          ) : (
-            <div onClick={() => fileRef.current.click()}
-              style={{ border:'2px dashed var(--line)', borderRadius:10, padding:'28px 20px', textAlign:'center', cursor:'pointer' }}
-              onMouseEnter={e => e.currentTarget.style.borderColor='var(--pine)'}
-              onMouseLeave={e => e.currentTarget.style.borderColor='var(--line)'}>
-              <Camera size={28} style={{ color:'var(--muted)', marginBottom:8 }} />
-              <div style={{ fontSize:'13px', fontWeight:600, color:'var(--ink)' }}>Take a photo or upload</div>
-              <div style={{ fontSize:'12px', color:'var(--muted)', marginTop:4 }}>On mobile, opens your camera</div>
-            </div>
-          )}
-          <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={handleFile} />
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:16 }}>Export Checkout Report</h3>
+        <div style={{ display:'flex', flexDirection:'column', gap:14, marginBottom:20 }}>
+          <div>
+            <label style={FL}>DEPARTMENT</label>
+            <select className="form-input" style={{ width:'100%' }} value={dept} onChange={e => setDept(e.target.value)}>
+              {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={FL}>ITEM TYPE</label>
+            <select className="form-input" style={{ width:'100%' }} value={itemType} onChange={e => setItemType(e.target.value)}>
+              <option>All</option>
+              {ITEM_TYPES.map(t => <option key={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={FL}>STATUS</label>
+            <select className="form-input" style={{ width:'100%' }} value={status} onChange={e => setStatus(e.target.value)}>
+              {['All','pending','approved','allocated','returned','rejected','cancelled'].map(s =>
+                <option key={s} value={s}>{s === 'All' ? 'All statuses' : CHECKOUT_STATUS_META[s]?.label || s}</option>)}
+            </select>
+          </div>
         </div>
-
-        <div style={{ marginBottom:24 }}>
-          <label style={{ fontSize:'12px', fontWeight:600, color:'var(--muted)', display:'block', marginBottom:6, letterSpacing:'.04em' }}>
-            CONDITION NOTE <span style={{ fontWeight:400 }}>(optional)</span>
-          </label>
-          <textarea rows={2} className="form-input" style={{ width:'100%', resize:'vertical', fontSize:'13px' }}
-            placeholder="e.g. Good condition, minor scratch on handle…"
-            value={conditionNote} onChange={e => setConditionNote(e.target.value)} />
-        </div>
-
+        {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginBottom:12 }}>{error}</p>}
         <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
-          <button className="secondary-btn" onClick={onClose} disabled={isSubmitting}>Cancel</button>
-          <button className="primary-btn" disabled={!photo || isSubmitting}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:140, justifyContent:'center' }}
-            onClick={submit}>
-            {isSubmitting ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Submitting…</> : 'Confirm Return'}
+          <button className="secondary-btn" onClick={onClose} disabled={!!exporting}>Cancel</button>
+          <button className="secondary-btn" disabled={!!exporting} style={{ display:'inline-flex', alignItems:'center', gap:6 }}
+            onClick={() => exportAs('pdf')}>
+            {exporting === 'pdf' ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <FileBarChart size={14} />} PDF
+          </button>
+          <button className="primary-btn" disabled={!!exporting} style={{ display:'inline-flex', alignItems:'center', gap:6 }}
+            onClick={() => exportAs('excel')}>
+            {exporting === 'excel' ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <FileSpreadsheet size={14} />} Excel
           </button>
         </div>
-        {!photo && <p style={{ textAlign:'right', fontSize:'11px', color:'hsl(var(--color-red))', marginTop:8 }}>A photo is required to confirm return.</p>}
       </div>
-      {preview && <ImageLightbox src={preview} alt="Return photo preview" onClose={() => setPreview(null)} />}
     </div>
   );
 }
 
-// ── Request Stage Tracker ─────────────────────────────────────────────────────
-function StageTracker({ request, onViewPhoto }) {
-  const fmt = iso => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+// ── Return Modal ───────────────────────────────────────────────────────────────
+function ReturnModal({ checkout, onClose, onSubmit }) {
+  const [file,          setFile]          = useState(null);
+  const [preview,       setPreview]       = useState('');
+  const [conditionNote, setConditionNote] = useState('');
+  const [submitting,    setSubmitting]    = useState(false);
+  const fileRef = useRef(null);
+  useEscapeKey(onClose);
 
-  // Due date counted from allocation (not creation) since that's when the clock starts
-  const startDate = request.allocatedAt ?? request.createdAt;
-  const dueDate   = request.days
-    ? new Date(new Date(startDate).getTime() + request.days * 86400000)
-    : null;
-  const isOverdue = request.status === 'allocated' && dueDate && dueDate < new Date();
-  const daysLeft  = dueDate ? Math.ceil((dueDate - new Date()) / 86400000) : null;
-  const isRejected  = request.status === 'rejected';
-  const isCancelled = request.status === 'cancelled';
+  function handleFile(f) {
+    if (!f) return;
+    setFile(f);
+    const reader = new FileReader();
+    reader.onload = e => setPreview(e.target.result);
+    reader.readAsDataURL(f);
+  }
 
-  // Status rank for easy comparison
-  const rank = { pending: 0, approved: 1, allocated: 2, returned: 3, rejected: -1, cancelled: -1 };
-  const cur  = rank[request.status] ?? 0;
-
-  const stages = isRejected ? [
-    { label: 'Submitted',    detail: fmt(request.createdAt), state: 'done'    },
-    { label: 'Under Review', detail: 'Manager notified',     state: 'done'    },
-    { label: 'Rejected',     detail: request.rejectReason ? `"${request.rejectReason}"` : 'Not approved', state: 'error' },
-  ] : isCancelled ? [
-    { label: 'Submitted', detail: fmt(request.createdAt), state: 'done' },
-    { label: 'Cancelled', detail: `By ${request.resolvedBy ?? 'requester'} · ${fmt(request.resolvedAt)}`, state: 'error' },
-  ] : [
-    {
-      label: 'Submitted',
-      detail: fmt(request.createdAt),
-      state: 'done',
-    },
-    {
-      label: 'Under Review',
-      detail: cur > 0 ? 'Reviewed' : 'Awaiting manager',
-      state: cur === 0 ? 'active' : 'done',
-    },
-    {
-      label: 'Approved',
-      detail: cur >= 1 ? `By ${request.resolvedBy ?? 'manager'}` : null,
-      state: cur === 0 ? 'upcoming' : 'done',
-    },
-    {
-      label: 'To Be Allocated',
-      detail: cur >= 2
-        ? `By ${request.allocatedBy ?? 'supervisor'} · ${fmt(request.allocatedAt)}`
-        : (cur === 1 && request.assignedAllocatorName
-            ? `Waiting for ${request.assignedAllocatorName}`
-            : 'Waiting for supervisor'),
-      state: cur === 1 ? 'active' : cur >= 2 ? 'done' : 'upcoming',
-    },
-    {
-      label: 'In Use',
-      detail: cur >= 2
-        ? (isOverdue
-            ? `⚠ Overdue since ${fmt(dueDate?.toISOString())}`
-            : daysLeft != null && daysLeft > 0
-              ? `Due ${fmt(dueDate?.toISOString())} · ${daysLeft}d left`
-              : daysLeft === 0 ? 'Due today' : null)
-        : null,
-      state: cur === 2 ? 'active' : cur >= 3 ? 'done' : 'upcoming',
-      isOverdue,
-    },
-    {
-      label: 'Returned',
-      detail: request.returnedAt ? fmt(request.returnedAt) : null,
-      state: cur >= 3 ? 'done' : 'upcoming',
-    },
-  ];
-
-  const stateStyle = {
-    done:    { bg: 'hsl(var(--color-green))',  text: '#fff', border: 'none' },
-    active:  { bg: 'hsl(var(--color-blue))',   text: '#fff', border: 'none' },
-    error:   { bg: 'hsl(var(--color-red))',    text: '#fff', border: 'none' },
-    upcoming:{ bg: 'var(--card)',              text: 'var(--muted)', border: '2px solid var(--line)' },
-  };
-  const lineColor = s => s === 'done' ? 'hsl(var(--color-green))' : 'var(--line)';
-  const icon = s => s === 'done' ? '✓' : s === 'error' ? '✕' : s === 'active' ? '●' : '';
+  function submit() {
+    if (!file || submitting) return;
+    setSubmitting(true);
+    Promise.resolve(onSubmit({ file, photoName: file.name, conditionNote }))
+      .catch(() => {})
+      .finally(() => setSubmitting(false));
+  }
 
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', marginTop: 16, overflowX: 'auto', paddingBottom: 4 }}>
-      {stages.map((stage, i) => {
-        const ss = stateStyle[stage.state];
+    <div role="dialog" aria-modal="true"
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Return Item</h3>
+        <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:20 }}>
+          Returning <strong>{checkout.itemName}</strong>. A photo of the item is required.
+        </p>
+
+        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+          <div>
+            <label style={FL}>RETURN PHOTO <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+            <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={e => handleFile(e.target.files?.[0])} />
+            {preview ? (
+              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                <img src={preview} alt="Return photo" style={{ width:72, height:72, objectFit:'cover', borderRadius:8, border:'1px solid var(--line)' }} />
+                <button type="button" className="secondary-btn" style={{ fontSize:12 }} onClick={() => fileRef.current?.click()}>Replace</button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => fileRef.current?.click()}
+                style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', borderRadius:9, border:'2px dashed hsla(var(--color-red),0.4)', background:'hsla(var(--color-red),0.04)', cursor:'pointer', fontSize:13, color:'var(--muted)' }}>
+                <Camera size={15} /> Take / Upload Photo
+              </button>
+            )}
+          </div>
+          <div>
+            <label style={FL}>CONDITION NOTES <span style={{ fontSize:11, fontWeight:400 }}>(optional — note any damage)</span></label>
+            <textarea rows={3} className="form-input" style={{ width:'100%', resize:'vertical', fontSize:13 }}
+              placeholder="e.g. Minor scuff on handle, otherwise good condition"
+              value={conditionNote} onChange={e => setConditionNote(e.target.value)} />
+          </div>
+        </div>
+
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={submitting}>Cancel</button>
+          <button className="primary-btn" disabled={!file || submitting}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:130, justifyContent:'center' }} onClick={submit}>
+            {submitting ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Returning…</> : <><RotateCcw size={14} /> Confirm Return</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Audit Log Panel ───────────────────────────────────────────────────────────
+function AuditLogPanel() {
+  const [query,   setQuery]   = useState('');
+  const [logs,    setLogs]    = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState('');
+
+  const load = useCallback(() => {
+    setLoading(true);
+    api.getItemsAuditLog({ limit: 200, q: query || undefined })
+      .then(res => { setLogs(res.rows || []); setError(''); })
+      .catch(() => setError('Could not load audit log.'))
+      .finally(() => setLoading(false));
+  }, [query]);
+
+  useEffect(() => { const t = setTimeout(load, query ? 350 : 0); return () => clearTimeout(t); }, [load, query]);
+
+  return (
+    <div>
+      <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap', alignItems:'center' }}>
+        <div className="search-bar" style={{ width:300 }}>
+          <Search size={14} style={{ flexShrink:0 }} />
+          <input placeholder="Search by item, user, or action…" value={query} onChange={e => setQuery(e.target.value)} />
+        </div>
+        <span style={{ fontSize:13, color:'var(--muted)' }}>{logs.length} entr{logs.length !== 1 ? 'ies' : 'y'}</span>
+      </div>
+      {error ? (
+        <ErrorBanner message="Could not load the audit log." onRetry={load} />
+      ) : loading ? (
+        <SkeletonBlocks count={5} height={44} borderRadius={8} />
+      ) : logs.length === 0 ? (
+        <div style={{ textAlign:'center', padding:'48px 0', color:'var(--muted)', fontSize:13 }}>
+          <History size={28} style={{ opacity:.3, display:'block', margin:'0 auto 8px' }} />
+          {query ? 'No entries match your search.' : 'No audit entries yet.'}
+        </div>
+      ) : (
+        <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12.5 }}>
+            <thead>
+              <tr style={{ background:'var(--mist)' }}>
+                {['Timestamp','User','Action','Details'].map(h =>
+                  <th key={h} style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map(log => (
+                <tr key={log.id} style={{ borderTop:'1px solid var(--line)' }}>
+                  <td style={{ padding:'9px 14px', color:'var(--muted)', whiteSpace:'nowrap' }}>{new Date(log.timestamp).toLocaleString()}</td>
+                  <td style={{ padding:'9px 14px' }}>{log.user_email}</td>
+                  <td style={{ padding:'9px 14px', fontWeight:600 }}>{log.action}</td>
+                  <td style={{ padding:'9px 14px', color:'var(--muted)' }}>{log.details}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Stage Tracker ─────────────────────────────────────────────────────────────
+const STAGES = [
+  { key:'pending',   label:'Submitted' },
+  { key:'approved',  label:'Approved'  },
+  { key:'allocated', label:'In Use'    },
+  { key:'returned',  label:'Returned'  },
+];
+function StageTracker({ checkout, onViewPhoto }) {
+  const ORDER = ['pending','approved','allocated','returned'];
+  const idx   = ORDER.indexOf(checkout.status);
+  const isDone = ['returned','rejected','cancelled'].includes(checkout.status);
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:0, margin:'12px 0 4px', flexWrap:'wrap' }}>
+      {STAGES.map((stage, i) => {
+        const active  = i <= idx && !['rejected','cancelled'].includes(checkout.status);
+        const current = ORDER[idx] === stage.key;
         return (
-          <div key={stage.label} style={{ display: 'flex', alignItems: 'flex-start', flex: i < stages.length - 1 ? '1 1 0' : 'none' }}>
-            {/* Stage node */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 68 }}>
-              <div style={{
-                width: 28, height: 28, borderRadius: '50%',
-                background: ss.bg, color: ss.text, border: ss.border,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 12, fontWeight: 700, flexShrink: 0,
-                boxShadow: stage.state === 'active' ? `0 0 0 4px hsla(var(--color-blue),0.15)` : 'none',
-              }}>
-                {icon(stage.state)}
+          <div key={stage.key} style={{ display:'flex', alignItems:'center', flex: i < STAGES.length - 1 ? '1 1 auto' : undefined }}>
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
+              <div style={{ width:22, height:22, borderRadius:'50%', border:`2px solid ${active ? 'hsl(var(--color-green))' : 'var(--line)'}`, background: active ? 'hsl(var(--color-green))' : 'transparent', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                {active && <CheckCircle size={12} color="#fff" />}
               </div>
-              <div style={{ fontSize: 10.5, fontWeight: 600, marginTop: 5, textAlign: 'center', whiteSpace: 'nowrap', color: stage.state === 'upcoming' ? 'var(--muted)' : 'var(--ink)' }}>
-                {stage.label}
-              </div>
-              {stage.detail && (
-                <div style={{ fontSize: 10, color: stage.isOverdue ? 'hsl(var(--color-red))' : 'var(--muted)', textAlign: 'center', marginTop: 2, lineHeight: 1.3, maxWidth: 80 }}>
-                  {stage.detail}
-                </div>
-              )}
-              {/* Condition photo, tied directly to the Returned step it belongs to */}
-              {stage.label === 'Returned' && request.returnPhotoUrl && (
-                <button onClick={() => onViewPhoto?.(request.returnPhotoUrl)}
-                  aria-label={`View return photo for ${request.itemName}`}
-                  title="View return photo"
-                  style={{ marginTop: 6, padding: 0, border: '1px solid var(--line)', borderRadius: 7, cursor: 'zoom-in', background: 'var(--card)', overflow: 'hidden', width: 36, height: 36, flexShrink: 0, lineHeight: 0 }}>
-                  <img src={request.returnPhotoUrl} alt="" style={{ width: 36, height: 36, objectFit: 'cover', display: 'block' }} />
-                </button>
-              )}
+              <span style={{ fontSize:10, fontWeight: current ? 700 : 500, color: active ? 'hsl(var(--color-green))' : 'var(--muted)', whiteSpace:'nowrap' }}>{stage.label}</span>
             </div>
-            {/* Connector line */}
-            {i < stages.length - 1 && (
-              <div style={{ flex: 1, height: 2, marginTop: 13, background: lineColor(stage.state), minWidth: 16, transition: 'background 0.3s' }} />
+            {i < STAGES.length - 1 && (
+              <div style={{ flex:1, height:2, background: i < idx && !['rejected','cancelled'].includes(checkout.status) ? 'hsl(var(--color-green))' : 'var(--line)', margin:'0 4px', marginBottom:16 }} />
             )}
           </div>
         );
       })}
+      {checkout.status === 'rejected' && (
+        <div style={{ marginLeft:8, padding:'2px 8px', borderRadius:20, background:'hsla(var(--color-red),0.1)', color:'hsl(var(--color-red))', fontSize:11, fontWeight:700 }}>Rejected{checkout.rejectReason ? ` — "${checkout.rejectReason}"` : ''}</div>
+      )}
+      {checkout.status === 'cancelled' && (
+        <div style={{ marginLeft:8, padding:'2px 8px', borderRadius:20, background:'hsla(var(--color-red),0.1)', color:'hsl(var(--color-red))', fontSize:11, fontWeight:700 }}>Cancelled</div>
+      )}
     </div>
   );
 }
 
-// ── My Requests drawer ────────────────────────────────────────────────────────
-// Slides in from the right and overlays the inventory grid rather than
-// replacing it — same pattern as the Access Manager panel (AdminPanel.jsx),
-// so "My Requests" never takes over the whole screen.
-function MyRequestsDrawer({
-  open, onClose,
-  myReqs, myReqsFiltered, activeReqs, completedReqs, assignedToMe,
-  reqSearch, setReqSearch, reqStatusFilter, setReqStatusFilter,
-  requestsLoading, requestsError, onRetry,
-  historyOpen, setHistoryOpen, expandedReqs, toggleExpanded,
-  cancellingId, setCancellingId, cancelBusyId, onCancelRequest,
-  onReturnClick, onAllocate, allocatingId,
-  onPhotoPreview, fmtDate,
-}) {
-  // Close on ESC
-  useEffect(() => {
-    if (!open) return;
-    const handler = e => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [open, onClose]);
+// ── Cart Drawer ────────────────────────────────────────────────────────────────
+function CartDrawer({ open, cart, onClose, onRemove, onPhotoChange, onSubmit, submitting }) {
+  const [days,   setDays]   = useState(1);
+  const [reason, setReason] = useState('');
+  useEffect(() => { if (!open) return; const h = e => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [open, onClose]);
+  useEffect(() => { document.body.style.overflow = open ? 'hidden' : ''; return () => { document.body.style.overflow = ''; }; }, [open]);
 
-  // Lock body scroll while open
-  useEffect(() => {
-    document.body.style.overflow = open ? 'hidden' : '';
-    return () => { document.body.style.overflow = ''; };
-  }, [open]);
+  const allHavePhotos = cart.every(c => c.photoUrl);
+  const canSubmit     = cart.length > 0 && allHavePhotos && reason.trim() && !submitting;
+
+  function handlePhotoFile(cartId, file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => onPhotoChange(cartId, file, e.target.result);
+    reader.readAsDataURL(file);
+  }
 
   return (
     <>
-      {/* Backdrop */}
-      <div onClick={onClose} style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
-        zIndex: 1200, opacity: open ? 1 : 0, pointerEvents: open ? 'auto' : 'none',
-        transition: 'opacity 0.25s ease',
-      }} />
-
-      {/* Drawer */}
-      <div style={{
-        position: 'fixed', top: 0, right: 0, height: '100vh',
-        width: 'min(720px, 94vw)',
-        background: 'var(--card)',
-        boxShadow: '-12px 0 48px rgba(0,0,0,0.22)',
-        zIndex: 1201,
-        display: 'flex', flexDirection: 'column',
-        transform: open ? 'translateX(0)' : 'translateX(100%)',
-        transition: 'transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)',
-      }}>
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', padding: '18px 24px', borderBottom: '1px solid var(--line)', gap: 12, flexShrink: 0 }}>
-          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Clock size={17} style={{ color: 'hsl(var(--color-blue))' }} />
+      <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:1100, opacity: open ? 1 : 0, pointerEvents: open ? 'auto' : 'none', transition:'opacity 0.25s ease' }} />
+      <div style={{ position:'fixed', top:0, right:0, height:'100vh', width:'min(460px,96vw)', background:'var(--card)', boxShadow:'-12px 0 48px rgba(0,0,0,0.22)', zIndex:1101, display:'flex', flexDirection:'column', transform: open ? 'translateX(0)' : 'translateX(100%)', transition:'transform 0.28s cubic-bezier(0.4,0,0.2,1)' }}>
+        <div style={{ display:'flex', alignItems:'center', padding:'18px 22px', borderBottom:'1px solid var(--line)', gap:12, flexShrink:0 }}>
+          <div style={{ width:34, height:34, borderRadius:10, background:'hsla(var(--color-green),0.12)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+            <ShoppingCart size={17} color="hsl(var(--color-green))" />
           </div>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>My Requests</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{myReqs.length} request{myReqs.length !== 1 ? 's' : ''} raised</div>
+            <div style={{ fontWeight:700, fontSize:15 }}>Checkout Cart</div>
+            <div style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>{cart.length} item{cart.length !== 1 ? 's' : ''}</div>
           </div>
-          <button onClick={onClose} aria-label="Close"
-            style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 6, borderRadius: 8, display: 'flex', flexShrink: 0 }}
-            title="Close">
-            <X size={18} />
-          </button>
+          <button onClick={onClose} style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:'var(--muted)', padding:6, borderRadius:8, display:'flex' }}><X size={18} /></button>
         </div>
 
-        {/* Scrollable content */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
-
-          {/* Search + filter */}
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 18 }}>
-            <div className="search-bar" style={{ flex: '1 1 200px', minWidth: 180 }}>
-              <Search size={14} style={{ flexShrink: 0 }} />
-              <input placeholder="Search by item, ID, or reason…" value={reqSearch} onChange={e => setReqSearch(e.target.value)} />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Filter size={13} style={{ color: 'var(--muted)' }} />
-              <select value={reqStatusFilter} onChange={e => setReqStatusFilter(e.target.value)} className="form-input"
-                style={{ padding: '6px 10px', fontSize: '13px', height: 34 }}>
-                {REQ_STATUS_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-              </select>
-            </div>
-          </div>
-
-          {/* Assigned to You — requests a manager has handed this person to physically
-              allocate; surfaced up top so it's not buried in the requester-centric list below. */}
-          {assignedToMe.length > 0 && (
-            <div style={{ marginBottom: 18, padding: '12px 14px', background: 'hsla(var(--color-orange),0.07)', borderRadius: 12, border: '1px solid hsla(var(--color-orange),0.22)' }}>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'hsl(var(--color-orange))', marginBottom: 9, display: 'flex', alignItems: 'center', gap: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                <Package size={13} /> Assigned to You — {assignedToMe.length} to allocate
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {assignedToMe.map(r => (
-                  <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '10px 12px', background: 'var(--card)', borderRadius: 10, border: '1px solid var(--line)' }}>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: '13.5px' }}>{r.itemName} <span style={{ fontWeight: 500, color: 'var(--muted)' }}>×{r.quantity}</span></div>
-                      <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: 2 }}>For {r.requestedBy} · {r.department}</div>
-                    </div>
-                    <button onClick={() => onAllocate(r)} className="primary-btn"
-                      disabled={allocatingId === r.id}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 14px', fontSize: '13px' }}>
-                      {allocatingId === r.id ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />}
-                      {allocatingId === r.id ? 'Allocating…' : 'Allocate'}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {requestsError ? (
-            <ErrorBanner message="Couldn't load your requests right now — this is usually temporary." onRetry={onRetry} />
-          ) : requestsLoading ? (
-            <SkeletonBlocks count={3} height={120} />
-          ) : myReqsFiltered.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '56px 0', color: 'var(--muted)', fontSize: '14px' }}>
-              <Package size={32} style={{ opacity: .2, marginBottom: 10, display: 'block', margin: '0 auto 10px' }} />
-              {reqSearch || reqStatusFilter !== 'All'
-                ? 'No requests match your search or filter.'
-                : "You haven't raised any requests yet."}
+        <div style={{ flex:1, overflowY:'auto', padding:'20px 22px' }}>
+          {cart.length === 0 ? (
+            <div style={{ textAlign:'center', padding:'48px 0', color:'var(--muted)' }}>
+              <ShoppingCart size={32} style={{ opacity:.2, display:'block', margin:'0 auto 10px' }} />
+              Your cart is empty. Add items from the list.
             </div>
           ) : (
             <>
-              {/* Needs action — pending approval, awaiting allocation, or out and due back */}
-              {activeReqs.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: completedReqs.length > 0 ? 22 : 0 }}>
-                  {activeReqs.map(r => {
-                    const s  = STATUS_META[r.status];
-                    const dm = DEPT_META[r.department];
-                    return (
-                      <div key={r.id} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 20px', boxShadow: 'var(--shadow-sm)' }}>
-
-                        {/* Top row */}
-                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <div style={{ width: 38, height: 38, borderRadius: 10, background: dm ? `hsl(${dm.color})` + '22' : 'var(--mist)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                              <Package size={18} color={dm ? `hsl(${dm.color})` : 'var(--muted)'} />
-                            </div>
-                            <div>
-                              <div style={{ fontWeight: 700, fontSize: '14.5px' }}>{r.itemName}</div>
-                              <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: 2 }}>
-                                {r.department} · ×{r.quantity} · {r.days} day{r.days > 1 ? 's' : ''}
-                                {r.raisedBy && r.raisedBy !== r.requestedBy && (
-                                  <span style={{ marginLeft: 6, color: 'hsl(var(--color-blue))', fontWeight: 500 }}>via {r.raisedBy}</span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                            <span style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--muted)', background: 'var(--mist)', padding: '2px 7px', borderRadius: 5 }}>{r.id}</span>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: '11px', fontWeight: 700, background: s.bg, color: s.fg }}>
-                              <s.Icon size={11} /> {s.label}
+              <div style={{ display:'flex', flexDirection:'column', gap:12, marginBottom:20 }}>
+                {cart.map(cartItem => (
+                  <div key={cartItem.id} style={{ border:'1px solid var(--line)', borderRadius:12, padding:'14px 16px', background:'var(--card)' }}>
+                    <div style={{ display:'flex', alignItems:'flex-start', gap:12, marginBottom:12 }}>
+                      <PhotoThumb url={cartItem.previewUrl || cartItem.photoUrl || ''} size={44} />
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{cartItem.item.name}</div>
+                        <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:4, flexWrap:'wrap' }}>
+                          <TypeBadge type={cartItem.item.itemType} />
+                          {cartItem.item.location && (
+                            <span style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:11, color:'var(--muted)' }}>
+                              <MapPin size={10} /> {cartItem.item.location}
                             </span>
-                          </div>
+                          )}
                         </div>
-
-                        {/* Reason */}
-                        {r.reason && (
-                          <div style={{ fontSize: '12.5px', color: 'var(--muted)', background: 'var(--mist)', borderRadius: 8, padding: '7px 12px', marginBottom: 4, borderLeft: `3px solid ${dm ? `hsl(${dm.color})` : 'var(--line)'}` }}>
-                            "{r.reason}"
-                          </div>
-                        )}
-
-                        {/* Stage tracker — return photo (if any) shows inline on the Returned step */}
-                        <StageTracker request={r} onViewPhoto={onPhotoPreview} />
-
-                        {/* Actions */}
-                        {r.status === 'allocated' && (
-                          <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                            <button onClick={() => onReturnClick(r)} className="secondary-btn"
-                              style={{ padding: '6px 14px', fontSize: '12.5px', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                              <RotateCcw size={13} /> Return Item
-                            </button>
-                          </div>
-                        )}
-
-                        {CANCELLABLE_STATUSES.includes(r.status) && cancellingId !== r.id && (
-                          <div style={{ marginTop: 14, display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                            <button onClick={() => setCancellingId(r.id)} className="secondary-btn"
-                              style={{ padding: '6px 14px', fontSize: '12.5px', display: 'inline-flex', alignItems: 'center', gap: 5, color: 'hsl(var(--color-red))', borderColor: 'hsl(var(--color-red))' }}>
-                              <XCircle size={13} /> Cancel Request
-                            </button>
-                          </div>
-                        )}
-                        {cancellingId === r.id && (
-                          <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', background: 'hsla(var(--color-red),0.05)', border: '1px solid hsla(var(--color-red),0.2)', borderRadius: 8, padding: '10px 14px' }}>
-                            <span style={{ fontSize: '12.5px', color: 'var(--text)', marginRight: 'auto' }}>Cancel this request? This can't be undone.</span>
-                            <button onClick={() => setCancellingId(null)} className="secondary-btn"
-                              disabled={cancelBusyId === r.id}
-                              style={{ padding: '5px 12px', fontSize: '12.5px' }}>
-                              Keep It
-                            </button>
-                            <button onClick={() => onCancelRequest(r)} className="primary-btn"
-                              disabled={cancelBusyId === r.id}
-                              style={{ padding: '5px 14px', fontSize: '12.5px', background: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                              {cancelBusyId === r.id
-                                ? <><Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> Cancelling…</>
-                                : <>Yes, Cancel It</>}
-                            </button>
-                          </div>
-                        )}
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {activeReqs.length === 0 && completedReqs.length > 0 && (
-                <div style={{ textAlign: 'center', padding: '28px 0', color: 'var(--muted)', fontSize: 13 }}>
-                  <CheckCircle size={20} style={{ opacity: .25, marginBottom: 6 }} /><br />
-                  Nothing needs your attention right now.
-                </div>
-              )}
-
-              {/* Completed / history — collapsed by default to keep this view short */}
-              {completedReqs.length > 0 && (
-                <div style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
-                  <button onClick={() => setHistoryOpen(o => !o)}
-                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--mist)', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {historyOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                      Completed ({completedReqs.length})
-                    </span>
-                    <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)' }}>
-                      {historyOpen ? 'Click to collapse' : 'Returned & rejected — click to view'}
-                    </span>
-                  </button>
-                  {historyOpen && (
-                    <div>
-                      {completedReqs.map(r => {
-                        const s      = STATUS_META[r.status];
-                        const dm     = DEPT_META[r.department];
-                        const isOpen = expandedReqs.has(r.id);
-                        return (
-                          <div key={r.id} style={{ borderTop: '1px solid var(--line)' }}>
-                            <button onClick={() => toggleExpanded(r.id)}
-                              style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', background: 'var(--card)', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
-                              {isOpen ? <ChevronDown size={14} style={{ flexShrink: 0, color: 'var(--muted)' }} /> : <ChevronRight size={14} style={{ flexShrink: 0, color: 'var(--muted)' }} />}
-                              <div style={{ width: 30, height: 30, borderRadius: 8, background: dm ? `hsl(${dm.color})` + '22' : 'var(--mist)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                <Package size={14} color={dm ? `hsl(${dm.color})` : 'var(--muted)'} />
-                              </div>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.itemName}</div>
-                                <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                                  {r.department} · ×{r.quantity} · {fmtDate(r.returnedAt || r.resolvedAt || r.createdAt)}
-                                </div>
-                              </div>
-                              {r.status === 'returned' && r.returnPhotoUrl && (
-                                <span role="button" tabIndex={0} aria-label={`View return photo for ${r.itemName}`}
-                                  onClick={e => { e.stopPropagation(); onPhotoPreview(r.returnPhotoUrl); }}
-                                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); onPhotoPreview(r.returnPhotoUrl); } }}
-                                  style={{ display: 'inline-block', cursor: 'zoom-in', lineHeight: 0, flexShrink: 0 }}>
-                                  <img src={r.returnPhotoUrl} alt="" style={{ width: 28, height: 28, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--line)', display: 'block' }} />
-                                </span>
-                              )}
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: '11px', fontWeight: 700, background: s.bg, color: s.fg, flexShrink: 0 }}>
-                                <s.Icon size={11} /> {s.label}
-                              </span>
-                            </button>
-                            {isOpen && (
-                              <div style={{ padding: '2px 16px 16px 58px' }}>
-                                {r.reason && (
-                                  <div style={{ fontSize: '12px', color: 'var(--muted)', background: 'var(--mist)', borderRadius: 8, padding: '7px 12px', marginBottom: 8, borderLeft: `3px solid ${dm ? `hsl(${dm.color})` : 'var(--line)'}` }}>
-                                    "{r.reason}"
-                                  </div>
-                                )}
-                                {r.status === 'rejected' && r.rejectReason && (
-                                  <div style={{ fontSize: '12px', color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.07)', padding: '5px 10px', borderRadius: 7, marginBottom: 8 }}>
-                                    Rejection reason: {r.rejectReason}
-                                  </div>
-                                )}
-                                {r.status === 'returned' && r.conditionNote && (
-                                  <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: 8 }}>
-                                    Condition note: {r.conditionNote}
-                                  </div>
-                                )}
-                                <StageTracker request={r} onViewPhoto={onPhotoPreview} />
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                      <button onClick={() => onRemove(cartItem.id)}
+                        style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', padding:4, borderRadius:6, display:'flex', flexShrink:0 }}>
+                        <X size={15} />
+                      </button>
                     </div>
-                  )}
+
+                    {/* Per-item checkout photo */}
+                    <div>
+                      <label style={{ ...FL, marginBottom:4 }}>CHECKOUT PHOTO <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+                      <input type="file" accept="image/*" id={`cart-photo-${cartItem.id}`} style={{ display:'none' }}
+                        onChange={e => handlePhotoFile(cartItem.id, e.target.files?.[0])} />
+                      {cartItem.previewUrl ? (
+                        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                          <img src={cartItem.previewUrl} alt="Checkout photo" style={{ width:52, height:52, objectFit:'cover', borderRadius:7, border:'1px solid var(--line)' }} />
+                          <label htmlFor={`cart-photo-${cartItem.id}`} style={{ fontSize:12, cursor:'pointer', color:'hsl(var(--color-blue))', fontWeight:600 }}>Replace</label>
+                        </div>
+                      ) : (
+                        <label htmlFor={`cart-photo-${cartItem.id}`}
+                          style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:7, padding:'9px', borderRadius:8, border:'2px dashed hsla(var(--color-red),0.4)', background:'hsla(var(--color-red),0.04)', cursor:'pointer', fontSize:12.5, color:'var(--muted)', width:'100%' }}>
+                          <Camera size={14} /> Take / upload checkout photo
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+                <div>
+                  <label style={FL}>DAYS NEEDED</label>
+                  <input type="number" min={1} max={90} className="form-input" style={{ width:'100%' }}
+                    value={days} onChange={e => setDays(Math.max(1, Math.min(90, Number(e.target.value) || 1)))} />
+                </div>
+                <div>
+                  <label style={FL}>REASON FOR CHECKOUT <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+                  <textarea rows={3} className="form-input" style={{ width:'100%', resize:'vertical', fontSize:13 }}
+                    placeholder="Briefly explain why you need these items…"
+                    value={reason} onChange={e => setReason(e.target.value)} />
+                </div>
+              </div>
+
+              {!allHavePhotos && (
+                <div style={{ marginTop:12, display:'flex', alignItems:'center', gap:6, fontSize:12, color:'hsl(var(--color-orange))', background:'hsla(var(--color-orange),0.08)', borderRadius:8, padding:'8px 12px' }}>
+                  <Camera size={13} /> Add a checkout photo to every item before submitting.
                 </div>
               )}
             </>
           )}
         </div>
+
+        {cart.length > 0 && (
+          <div style={{ padding:'16px 22px', borderTop:'1px solid var(--line)', flexShrink:0 }}>
+            <button className="primary-btn" disabled={!canSubmit}
+              style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
+              onClick={() => onSubmit({ days, reason })}>
+              {submitting ? <><Loader2 size={15} style={{ animation:'spin 1s linear infinite' }} /> Submitting…</> : <><CheckCircle size={15} /> Submit {cart.length} Checkout{cart.length !== 1 ? 's' : ''}</>}
+            </button>
+          </div>
+        )}
       </div>
     </>
   );
 }
 
-// ── Manage Items Panel ────────────────────────────────────────────────────────
-function ManageItemsPanel({ items, itemsLoading, itemsError, onRetry, onAdd, onEdit, onDelete, canDelete }) {
-  const [search, setSearch] = useState('');
+// ── My Checkouts Panel ────────────────────────────────────────────────────────
+function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel }) {
+  const mine = checkouts.filter(c =>
+    (c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) ||
+    c.requestedBy === userName
+  );
+  const active    = mine.filter(c => ['pending','approved','allocated'].includes(c.status));
+  const completed = mine.filter(c => ['returned','rejected','cancelled'].includes(c.status));
+  const [histOpen, setHistOpen] = useState(false);
+  const [cancelId, setCancelId] = useState(null);
+  const [cancelBusy, setCancelBusy] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
+  const fmtDate = iso => new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
 
-  const filtered = items.filter(item => {
-    const q = search.trim().toLowerCase();
-    if (!q) return true;
-    return [item.name, item.category, item.department, item.location]
-      .some(v => (v || '').toLowerCase().includes(q));
+  if (!mine.length) return null;
+
+  return (
+    <div style={{ marginTop:32 }}>
+      <h3 style={{ fontSize:14, fontWeight:700, marginBottom:14, display:'flex', alignItems:'center', gap:8 }}>
+        <Clock size={15} color="hsl(var(--color-blue))" /> My Active Checkouts
+        {active.length > 0 && <span style={{ padding:'1px 8px', borderRadius:20, fontSize:11, fontWeight:700, background:'hsla(var(--color-blue),0.12)', color:'hsl(var(--color-blue))' }}>{active.length}</span>}
+      </h3>
+
+      {active.map(c => {
+        const sm = CHECKOUT_STATUS_META[c.status];
+        return (
+          <div key={c.id} style={{ border:'1px solid var(--line)', borderRadius:12, padding:'16px 18px', marginBottom:12, background:'var(--card)', boxShadow:'var(--shadow-sm)' }}>
+            <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:10, flexWrap:'wrap', marginBottom:8 }}>
+              <div>
+                <div style={{ fontWeight:700, fontSize:14 }}>{c.itemName}</div>
+                <div style={{ fontSize:12, color:'var(--muted)', marginTop:2 }}>
+                  {c.itemType} · {c.department} · {c.days} day{c.days !== 1 ? 's' : ''}
+                  {c.raisedBy && c.raisedBy !== c.requestedBy && <span style={{ color:'hsl(var(--color-blue))', marginLeft:6 }}>via {c.raisedBy}</span>}
+                </div>
+              </div>
+              <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'3px 10px', borderRadius:20, fontSize:11, fontWeight:700, background:sm.bg, color:sm.fg }}>
+                <sm.Icon size={11} /> {sm.label}
+              </span>
+            </div>
+            {c.reason && (
+              <div style={{ fontSize:12, color:'var(--muted)', background:'var(--mist)', borderRadius:7, padding:'6px 10px', marginBottom:4 }}>"{c.reason}"</div>
+            )}
+            <StageTracker checkout={c} onViewPhoto={url => setPhotoPreview(url)} />
+            <div style={{ display:'flex', gap:8, justifyContent:'flex-end', flexWrap:'wrap', marginTop:8 }}>
+              {c.status === 'allocated' && (
+                <button className="secondary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5 }}
+                  onClick={() => onReturn(c)}>
+                  <RotateCcw size={13} /> Return Item
+                </button>
+              )}
+              {['pending','approved'].includes(c.status) && cancelId !== c.id && (
+                <button onClick={() => setCancelId(c.id)}
+                  style={{ background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:8, padding:'5px 12px', fontSize:12, cursor:'pointer', color:'hsl(var(--color-red))', display:'inline-flex', alignItems:'center', gap:5, fontFamily:'Inter,sans-serif', fontWeight:600 }}>
+                  <XCircle size={13} /> Cancel
+                </button>
+              )}
+              {cancelId === c.id && (
+                <div style={{ display:'flex', alignItems:'center', gap:8, background:'hsla(var(--color-red),0.05)', border:'1px solid hsla(var(--color-red),0.2)', borderRadius:8, padding:'8px 12px', flex:1 }}>
+                  <span style={{ fontSize:12.5, flex:1 }}>Cancel this checkout?</span>
+                  <button onClick={() => setCancelId(null)} className="secondary-btn" style={{ fontSize:12, padding:'4px 10px' }}>Keep</button>
+                  <button disabled={cancelBusy === c.id}
+                    style={{ background:'hsl(var(--color-red))', color:'#fff', border:'none', borderRadius:7, padding:'4px 12px', fontSize:12, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:5, fontWeight:700 }}
+                    onClick={() => {
+                      setCancelBusy(c.id);
+                      onCancel(c).finally(() => { setCancelBusy(null); setCancelId(null); });
+                    }}>
+                    {cancelBusy === c.id ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : null} Yes, Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+
+      {completed.length > 0 && (
+        <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'hidden', marginTop:4 }}>
+          <button onClick={() => setHistOpen(o => !o)}
+            style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'11px 16px', background:'var(--mist)', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600, fontSize:13, color:'var(--muted)' }}>
+            <History size={13} /> Past Checkouts ({completed.length}) <ChevronDown size={13} style={{ marginLeft:'auto', transform: histOpen ? 'rotate(180deg)' : 'none', transition:'transform 0.2s' }} />
+          </button>
+          {histOpen && completed.slice(0, 20).map(c => {
+            const sm = CHECKOUT_STATUS_META[c.status];
+            return (
+              <div key={c.id} style={{ borderTop:'1px solid var(--line)', padding:'10px 16px', display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:600, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.itemName}</div>
+                  <div style={{ fontSize:11.5, color:'var(--muted)' }}>{fmtDate(c.createdAt)}</div>
+                </div>
+                <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:20, fontSize:11, fontWeight:700, background:sm.bg, color:sm.fg }}>
+                  <sm.Icon size={10} /> {sm.label}
+                </span>
+                {c.returnPhotoUrl && (
+                  <button onClick={() => setPhotoPreview(c.returnPhotoUrl)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }} title="View return photo">
+                    <ZoomIn size={14} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
+    </div>
+  );
+}
+
+// ── Employee View ─────────────────────────────────────────────────────────────
+function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, itemsError, checkoutsError, onReturn, refreshItems, submitCartCheckouts, cancelRequest, addNotification, toast }) {
+  const [search,      setSearch]      = useState('');
+  const [typeFilter,  setTypeFilter]  = useState('All');
+  const [cartOpen,    setCartOpen]    = useState(false);
+  const [cart,        setCart]        = useState([]);
+  const [returningCo, setReturningCo] = useState(null);
+  const [submitting,  setSubmitting]  = useState(false);
+
+  const availableItems = items.filter(i => i.ownershipType === 'transient' && i.status === 'available');
+  const filtered = availableItems.filter(i => {
+    const matchSearch = !search || i.name.toLowerCase().includes(search.toLowerCase()) ||
+      (i.make || '').toLowerCase().includes(search.toLowerCase()) ||
+      (i.model || '').toLowerCase().includes(search.toLowerCase());
+    const matchType = typeFilter === 'All' || i.itemType === typeFilter;
+    return matchSearch && matchType;
   });
+
+  const inCart = new Set(cart.map(c => c.item.id));
+
+  function addToCart(item) {
+    if (inCart.has(item.id)) return;
+    setCart(prev => [...prev, { id: `cart-${Date.now()}`, item, photoUrl: '', previewUrl: '', file: null, photoName: '' }]);
+    setCartOpen(true);
+  }
+
+  function removeFromCart(cartId) {
+    setCart(prev => prev.filter(c => c.id !== cartId));
+  }
+
+  function handlePhotoChange(cartId, file, previewUrl) {
+    setCart(prev => prev.map(c => c.id === cartId ? { ...c, file, previewUrl, photoName: file.name } : c));
+  }
+
+  async function handleSubmitCart({ days, reason }) {
+    setSubmitting(true);
+    // Upload checkout photos first
+    const enriched = [];
+    for (const cartItem of cart) {
+      let photoUrl = '';
+      if (cartItem.file && supabase) {
+        const path = `checkout-photos/${cartItem.item.id}/${Date.now()}-${cartItem.photoName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const { url } = await uploadToSupabase(cartItem.file, 'checkout-photos', path);
+        photoUrl = url;
+      }
+      enriched.push({ ...cartItem, photoUrl });
+    }
+
+    const results = await submitCartCheckouts(enriched, { days, reason, raisedBy: userName, raisedByEmail: userEmail });
+    const succeeded = results.filter(r => r.status === 'fulfilled').length;
+    const failed    = results.filter(r => r.status === 'rejected').length;
+    setSubmitting(false);
+    setCartOpen(false);
+    setCart([]);
+    if (succeeded > 0) toast(`${succeeded} checkout${succeeded !== 1 ? 's' : ''} submitted successfully.`);
+    if (failed > 0) toast(`${failed} item${failed !== 1 ? 's' : ''} could not be checked out — please try again.`, 'error');
+  }
+
+  function handleReturn(co) { setReturningCo(co); }
+
+  function handleReturnSubmit(data) {
+    return onReturn(returningCo.id, data).then(() => {
+      toast(`Return confirmed — ${returningCo.itemName}`);
+      setReturningCo(null);
+    }).catch(() => toast(`Could not confirm return — please try again.`, 'error'));
+  }
+
+  function handleCancel(co) {
+    return cancelRequest(co.id, userName).then(() => toast(`Checkout cancelled.`)).catch(() => toast('Could not cancel.', 'error'));
+  }
 
   return (
     <div>
-      <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap', alignItems:'center' }}>
-        <div className="search-bar" style={{ width:260 }}>
-          <Search size={14} style={{ flexShrink:0 }} />
-          <input placeholder="Search by name, category, department, location…" value={search} onChange={e => setSearch(e.target.value)} />
+      {/* Header */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, marginBottom:20, flexWrap:'wrap' }}>
+        <div>
+          <h2 style={{ fontSize:18, fontWeight:700, margin:0 }}>Items</h2>
+          <p style={{ fontSize:13, color:'var(--muted)', margin:'2px 0 0' }}>Browse available items and check them out for a job or shift.</p>
         </div>
-        <span style={{ fontSize:'13px', color:'var(--muted)' }}>
-          {filtered.length} item{filtered.length !== 1 ? 's' : ''}
-        </span>
-        <button onClick={onAdd} className="primary-btn" style={{ marginLeft:'auto', display:'inline-flex', alignItems:'center', gap:8 }}>
-          <Plus size={15} /> Add Item
+        <button className={cart.length ? 'primary-btn' : 'secondary-btn'}
+          style={{ display:'inline-flex', alignItems:'center', gap:8, position:'relative' }}
+          onClick={() => setCartOpen(true)}>
+          <ShoppingCart size={15} /> Cart
+          {cart.length > 0 && (
+            <span style={{ position:'absolute', top:-7, right:-7, background:'hsl(var(--color-red))', color:'#fff', borderRadius:'50%', width:18, height:18, fontSize:11, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>
+              {cart.length}
+            </span>
+          )}
         </button>
       </div>
 
+      {/* Search + filter */}
+      <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap', alignItems:'center' }}>
+        <div className="search-bar" style={{ flex:'1 1 220px', minWidth:180 }}>
+          <Search size={14} style={{ flexShrink:0 }} />
+          <input placeholder="Search by name, make, or model…" value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+          <Filter size={13} style={{ color:'var(--muted)' }} />
+          <select className="form-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34 }}>
+            <option value="All">All types</option>
+            {ITEM_TYPES.map(t => <option key={t}>{t}</option>)}
+          </select>
+        </div>
+        <span style={{ fontSize:13, color:'var(--muted)' }}>{filtered.length} available</span>
+      </div>
+
+      {/* Item list */}
       {itemsError ? (
-        <ErrorBanner message="Couldn't load inventory items right now — this is usually temporary." onRetry={onRetry} />
-      ) : itemsLoading ? (
-        <SkeletonBlocks count={5} height={44} borderRadius={8} />
+        <ErrorBanner message="Could not load items right now." onRetry={refreshItems} />
+      ) : itemsLoading && !filtered.length ? (
+        <SkeletonBlocks count={8} height={64} borderRadius={10} />
       ) : filtered.length === 0 ? (
-        <div style={{ textAlign:'center', padding:'48px 20px', color:'var(--muted)', fontSize:'13px' }}>
-          <Package size={32} style={{ margin:'0 auto 10px', opacity:0.35, display:'block' }} />
-          {search ? 'No items match your search.' : 'No inventory items found.'}
+        <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)' }}>
+          <Package size={32} style={{ opacity:.25, display:'block', margin:'0 auto 10px' }} />
+          {search || typeFilter !== 'All' ? 'No items match your search.' : 'No items available right now.'}
+        </div>
+      ) : (
+        <div style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden' }}>
+          {filtered.map((item, i) => {
+            const tm = TYPE_META[item.itemType] || TYPE_META.Other;
+            const alreadyInCart = inCart.has(item.id);
+            return (
+              <div key={item.id} style={{ display:'flex', alignItems:'center', gap:14, padding:'12px 16px', borderTop: i > 0 ? '1px solid var(--line)' : 'none', background:'var(--card)' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'var(--card)'}>
+                {/* Photo */}
+                <div style={{ width:44, height:44, borderRadius:8, overflow:'hidden', flexShrink:0, border:'1px solid var(--line)', background: item.photoUrl ? 'transparent' : tm.bg, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  {item.photoUrl
+                    ? <img src={item.photoUrl} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                    : <tm.Icon size={20} color={tm.color} />}
+                </div>
+                {/* Info */}
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
+                  <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:3, flexWrap:'wrap' }}>
+                    <TypeBadge type={item.itemType} />
+                    {(item.make || item.model) && (
+                      <span style={{ fontSize:11.5, color:'var(--muted)' }}>{[item.make, item.model, item.year].filter(Boolean).join(' ')}</span>
+                    )}
+                    {item.location && (
+                      <span style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:11.5, color:'var(--muted)' }}>
+                        <MapPin size={10} /> {item.location}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {/* Dept */}
+                <span style={{ fontSize:12, color:'var(--muted)', flexShrink:0, display:'none' }}>{item.department}</span>
+                {/* Action */}
+                <button
+                  onClick={() => addToCart(item)}
+                  disabled={alreadyInCart}
+                  className={alreadyInCart ? 'secondary-btn' : 'primary-btn'}
+                  style={{ fontSize:12.5, padding:'6px 14px', display:'inline-flex', alignItems:'center', gap:6, flexShrink:0 }}>
+                  {alreadyInCart ? <><CheckCircle size={13} /> In Cart</> : <><Plus size={13} /> Add to Cart</>}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* My checkouts */}
+      <MyCheckoutsPanel
+        checkouts={checkouts}
+        userEmail={userEmail}
+        userName={userName}
+        onReturn={handleReturn}
+        onCancel={handleCancel}
+      />
+
+      <CartDrawer
+        open={cartOpen}
+        cart={cart}
+        onClose={() => setCartOpen(false)}
+        onRemove={removeFromCart}
+        onPhotoChange={handlePhotoChange}
+        onSubmit={handleSubmitCart}
+        submitting={submitting}
+      />
+
+      {returningCo && (
+        <ReturnModal checkout={returningCo} onClose={() => setReturningCo(null)} onSubmit={handleReturnSubmit} />
+      )}
+    </div>
+  );
+}
+
+// ── Manager Catalog Tab ───────────────────────────────────────────────────────
+function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, refreshItems }) {
+  const [photoPreview, setPhotoPreview] = useState(null);
+  const filtered = items.filter(i => {
+    const mS = !search || i.name.toLowerCase().includes(search.toLowerCase()) || (i.make||'').toLowerCase().includes(search.toLowerCase()) || (i.model||'').toLowerCase().includes(search.toLowerCase());
+    const mD = deptFilter === 'All' || i.department === deptFilter;
+    const mT = typeFilter === 'All' || i.itemType === typeFilter;
+    return mS && mD && mT;
+  });
+
+  if (itemsError) return <ErrorBanner message="Could not load items." onRetry={refreshItems} />;
+  if (itemsLoading && !items.length) return <SkeletonBlocks count={10} height={52} borderRadius={8} />;
+  if (!filtered.length) return (
+    <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)' }}>
+      <Package size={32} style={{ opacity:.25, display:'block', margin:'0 auto 10px' }} />
+      No items match your filters.
+    </div>
+  );
+
+  return (
+    <>
+      <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto' }}>
+        <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+          <thead>
+            <tr style={{ background:'var(--mist)' }}>
+              {['Photo','Name','Type','Make / Model','Dept','Location','Owner','Ownership','Status'].map(h =>
+                <th key={h} style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', whiteSpace:'nowrap', fontSize:11.5 }}>{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(item => (
+              <tr key={item.id} style={{ borderTop:'1px solid var(--line)' }}>
+                <td style={{ padding:'10px 14px' }}>
+                  <PhotoThumb url={item.photoUrl} size={40} onPreview={url => setPhotoPreview(url)} />
+                </td>
+                <td style={{ padding:'10px 14px', fontWeight:600, whiteSpace:'nowrap' }}>{item.name}</td>
+                <td style={{ padding:'10px 14px' }}><TypeBadge type={item.itemType} /></td>
+                <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{[item.make, item.model, item.year].filter(Boolean).join(' ') || '—'}</td>
+                <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.department || '—'}</td>
+                <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.location || '—'}</td>
+                <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.defaultOwner || '—'}</td>
+                <td style={{ padding:'10px 14px' }}>
+                  <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:20, background: item.ownershipType === 'permanent' ? 'hsla(var(--color-purple),0.1)' : 'hsla(var(--color-blue),0.1)', color: item.ownershipType === 'permanent' ? 'hsl(var(--color-purple))' : 'hsl(var(--color-blue))' }}>
+                    {item.ownershipType === 'permanent' ? 'Permanent' : 'Transient'}
+                  </span>
+                </td>
+                <td style={{ padding:'10px 14px' }}><StatusBadge status={item.status} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p style={{ fontSize:12, color:'var(--muted)', marginTop:10 }}>{filtered.length} item{filtered.length !== 1 ? 's' : ''}</p>
+      {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
+    </>
+  );
+}
+
+// ── Manager Manage Tab ────────────────────────────────────────────────────────
+function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport }) {
+  const [photoPreview, setPhotoPreview] = useState(null);
+  const filtered = items.filter(i => {
+    const mS = !search || i.name.toLowerCase().includes(search.toLowerCase()) || (i.make||'').toLowerCase().includes(search.toLowerCase());
+    const mD = deptFilter === 'All' || i.department === deptFilter;
+    const mT = typeFilter === 'All' || i.itemType === typeFilter;
+    return mS && mD && mT;
+  });
+
+  const missingPhotos = items.filter(i => !i.photoUrl).length;
+
+  if (itemsError) return <ErrorBanner message="Could not load items." onRetry={refreshItems} />;
+
+  return (
+    <>
+      {/* Action bar */}
+      <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap', alignItems:'center' }}>
+        <button className="primary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onAdd}>
+          <Plus size={14} /> Add Item
+        </button>
+        <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onImport}>
+          <UploadCloud size={14} /> Import CSV
+        </button>
+        <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onExport} disabled={!items.length}>
+          <Download size={14} /> Export CSV
+        </button>
+        <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onReport}>
+          <FileBarChart size={14} /> Export Report
+        </button>
+        {missingPhotos > 0 && (
+          <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:6, fontSize:12.5, color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:8, padding:'6px 12px', border:'1px solid hsla(var(--color-red),0.25)' }}>
+            <AlertCircle size={14} /> {missingPhotos} item{missingPhotos !== 1 ? 's' : ''} missing photo
+          </div>
+        )}
+      </div>
+
+      {itemsLoading && !items.length ? (
+        <SkeletonBlocks count={8} height={52} borderRadius={8} />
+      ) : filtered.length === 0 ? (
+        <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)' }}>
+          <Package size={32} style={{ opacity:.25, display:'block', margin:'0 auto 10px' }} />
+          {items.length ? 'No items match your filters.' : 'No items yet. Add one above or import a CSV.'}
         </div>
       ) : (
         <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto' }}>
-          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12.5px' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
             <thead>
               <tr style={{ background:'var(--mist)' }}>
-                <th style={{ textAlign:'left',  padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>Name</th>
-                <th style={{ textAlign:'left',  padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>Category</th>
-                <th style={{ textAlign:'left',  padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>Department</th>
-                <th style={{ textAlign:'left',  padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>Location</th>
-                <th style={{ textAlign:'right', padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>Available / Total</th>
-                <th style={{ textAlign:'right', padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>Actions</th>
+                {['Photo','Name','Type','Make / Model','Dept','Location','Ownership','Status',''].map(h =>
+                  <th key={h} style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', whiteSpace:'nowrap', fontSize:11.5 }}>{h}</th>)}
               </tr>
             </thead>
             <tbody>
               {filtered.map(item => (
                 <tr key={item.id} style={{ borderTop:'1px solid var(--line)' }}>
-                  <td style={{ padding:'9px 14px', fontWeight:600 }}>{item.name}</td>
-                  <td style={{ padding:'9px 14px', color:'var(--muted)' }}>{item.category || '—'}</td>
-                  <td style={{ padding:'9px 14px', color:'var(--muted)' }}>{item.department || '—'}</td>
-                  <td style={{ padding:'9px 14px', color:'var(--muted)' }}>{item.location || '—'}</td>
-                  <td style={{ padding:'9px 14px', textAlign:'right' }}>{item.available} / {item.total}</td>
-                  <td style={{ padding:'9px 14px', textAlign:'right' }}>
-                    <div style={{ display:'inline-flex', gap:6 }}>
-                      <button onClick={() => onEdit(item)} className="icon-btn" title={`Edit ${item.name}`} aria-label={`Edit ${item.name}`}
-                        style={{ padding:6, borderRadius:7, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', display:'inline-flex' }}>
-                        <Pencil size={13} />
+                  <td style={{ padding:'10px 14px' }}>
+                    {item.photoUrl
+                      ? <PhotoThumb url={item.photoUrl} size={40} onPreview={url => setPhotoPreview(url)} />
+                      : (
+                        <div style={{ width:40, height:40, borderRadius:8, background:'hsla(var(--color-red),0.08)', border:'1px dashed hsla(var(--color-red),0.4)', display:'flex', alignItems:'center', justifyContent:'center' }} title="Missing photo — required">
+                          <Camera size={16} color="hsl(var(--color-red))" />
+                        </div>
+                      )
+                    }
+                  </td>
+                  <td style={{ padding:'10px 14px', fontWeight:600 }}>{item.name}</td>
+                  <td style={{ padding:'10px 14px' }}><TypeBadge type={item.itemType} /></td>
+                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{[item.make, item.model, item.year].filter(Boolean).join(' ') || '—'}</td>
+                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.department || '—'}</td>
+                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.location || '—'}</td>
+                  <td style={{ padding:'10px 14px' }}>
+                    <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:20, background: item.ownershipType === 'permanent' ? 'hsla(var(--color-purple),0.1)' : 'hsla(var(--color-blue),0.1)', color: item.ownershipType === 'permanent' ? 'hsl(var(--color-purple))' : 'hsl(var(--color-blue))' }}>
+                      {item.ownershipType === 'permanent' ? 'Permanent' : 'Transient'}
+                    </span>
+                  </td>
+                  <td style={{ padding:'10px 14px' }}><StatusBadge status={item.status} /></td>
+                  <td style={{ padding:'10px 14px' }}>
+                    <div style={{ display:'flex', gap:6 }}>
+                      <button onClick={() => onEdit(item)} title={`Edit ${item.name}`}
+                        style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+                        <Pencil size={12} /> Edit
                       </button>
                       {canDelete && (
-                        <button onClick={() => onDelete(item)} className="icon-btn" title={`Delete ${item.name}`} aria-label={`Delete ${item.name}`}
-                          style={{ padding:6, borderRadius:7, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', display:'inline-flex', color:'hsl(var(--color-red))' }}>
-                          <Trash2 size={13} />
+                        <button onClick={() => onDelete(item)} title={`Delete ${item.name}`}
+                          style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-red))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+                          <Trash2 size={12} /> Delete
                         </button>
                       )}
                     </div>
@@ -1449,656 +1444,193 @@ function ManageItemsPanel({ items, itemsLoading, itemsError, onRetry, onAdd, onE
           </table>
         </div>
       )}
-    </div>
+      <p style={{ fontSize:12, color:'var(--muted)', marginTop:10 }}>{filtered.length} item{filtered.length !== 1 ? 's' : ''} shown · {items.length} total</p>
+      {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
+    </>
   );
 }
 
-// ── Inventory Audit Log Panel ─────────────────────────────────────────────────
-function InventoryAuditLogPanel() {
-  const [query,    setQuery]    = useState('');
-  const [logs,     setLogs]     = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const handle = setTimeout(() => {
-      if (cancelled) return;
-      setLoading(true);
-      setError(null);
-      api.getInventoryAuditLog(query.trim() ? { q: query.trim() } : {})
-        .then(data => { if (!cancelled) setLogs(Array.isArray(data) ? data : data?.rows || []); })
-        .catch(err => { if (!cancelled) setError(err?.message || 'Failed to load audit log'); })
-        .finally(() => { if (!cancelled) setLoading(false); });
-    }, 300);
-    return () => { cancelled = true; clearTimeout(handle); };
-  }, [query]);
-
-  function describeDetails(details) {
-    if (!details) return '—';
-    try {
-      const obj = JSON.parse(details);
-      const entries = Object.entries(obj).filter(([, v]) => v !== null && v !== undefined && v !== '');
-      if (!entries.length) return '—';
-      return entries.map(([k, v]) => `${k}: ${v}`).join(', ');
-    } catch {
-      return details;
-    }
-  }
-
-  return (
-    <div>
-      <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap', alignItems:'center' }}>
-        <div className="search-bar" style={{ width:280 }}>
-          <Search size={14} style={{ flexShrink:0 }} />
-          <input placeholder="Search by item, user, or action…" value={query} onChange={e => setQuery(e.target.value)} />
-        </div>
-        <span style={{ fontSize:'13px', color:'var(--muted)' }}>
-          {logs.length} entr{logs.length !== 1 ? 'ies' : 'y'}
-        </span>
-      </div>
-
-      {error ? (
-        <ErrorBanner message="Couldn't load the audit log right now — this is usually temporary." onRetry={() => setQuery(q => q)} />
-      ) : loading ? (
-        <SkeletonBlocks count={5} height={44} borderRadius={8} />
-      ) : logs.length === 0 ? (
-        <div style={{ textAlign:'center', padding:'48px 20px', color:'var(--muted)', fontSize:'13px' }}>
-          <History size={32} style={{ margin:'0 auto 10px', opacity:0.35, display:'block' }} />
-          {query ? 'No audit entries match your search.' : 'No audit entries yet.'}
-        </div>
-      ) : (
-        <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto' }}>
-          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12.5px' }}>
-            <thead>
-              <tr style={{ background:'var(--mist)' }}>
-                <th style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>Timestamp</th>
-                <th style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>User</th>
-                <th style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>Action</th>
-                <th style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>Details</th>
-              </tr>
-            </thead>
-            <tbody>
-              {logs.map(log => (
-                <tr key={log.id} style={{ borderTop:'1px solid var(--line)' }}>
-                  <td style={{ padding:'9px 14px', color:'var(--muted)', whiteSpace:'nowrap' }}>{new Date(log.timestamp).toLocaleString()}</td>
-                  <td style={{ padding:'9px 14px' }}>{log.user_email}</td>
-                  <td style={{ padding:'9px 14px', fontWeight:600 }}>{log.action}</td>
-                  <td style={{ padding:'9px 14px', color:'var(--muted)' }}>{describeDetails(log.details)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Main View ─────────────────────────────────────────────────────────────────
-export default function InventoryManagement({ activeSub, onSubChange }) {
+// ── Main view ─────────────────────────────────────────────────────────────────
+export default function InventoryManagement({ activeSub }) {
   const {
     items, itemsLoading, itemsError,
-    requests, requestsLoading, requestsError,
-    raiseRequest, returnItem, cancelRequest, allocateItem,
-    refreshRequests, refreshItems,
+    checkouts, checkoutsLoading, checkoutsError,
+    submitCartCheckouts, approveRequest, rejectRequest,
+    allocateItem, returnItem, cancelRequest,
+    refreshItems, refreshCheckouts,
   } = useInventory();
   const { addNotification } = useNotifications();
   const { can, canAccessModule } = useRole();
-  // Catalogue management, report export, and the audit log: Manager+ always
-  // gets these; an Access Group granting "inventory" at Editor level or above
-  // also unlocks them for its members, without making anyone a Manager
-  // anywhere else (mirrors require_inventory_admin / require_inventory_delete
-  // in inventory_requests.py — Editor = create/edit, Full/Owner = also delete).
-  const canManageInventory  = canAccessModule('inventory', 'manager', 'editor');
-  const canDeleteInventory  = canAccessModule('inventory', 'owner',   'full');
-  const { accounts }        = useMsal();
-  const userName            = accounts[0]?.name     ?? 'Employee';
-  const userEmail           = (accounts[0]?.username ?? '').toLowerCase();
+  const { accounts } = useMsal();
+  const userName  = accounts[0]?.name     ?? 'Employee';
+  const userEmail = (accounts[0]?.username ?? '').toLowerCase();
 
+  const canManage = canAccessModule('inventory', 'manager', 'editor');
+  const canDelete = canAccessModule('inventory', 'owner',   'full');
+  const isManager = canManage;
+
+  const [mainTab,      setMainTab]      = useState('catalog'); // catalog | manage | audit
+  const [deptFilter,   setDeptFilter]   = useState('All');
+  const [typeFilter,   setTypeFilter]   = useState('All');
   const [search,       setSearch]       = useState('');
-  const [catFilter,    setCatFilter]    = useState('All');
-  const [deptTab,      setDeptTab]      = useState('All');
-  const [tab,          setTab]          = useState(activeSub === 'my-requests' ? 'my-requests' : 'inventory');
-  const [mainView,     setMainView]     = useState('catalogue'); // catalogue | manage | audit
-  const [showModal,    setShowModal]    = useState(false);
-  const [showImport,   setShowImport]   = useState(false);
-  const [showAddItem,  setShowAddItem]  = useState(false);
-  const [showReport,   setShowReport]   = useState(false);
+  const [addItemOpen,  setAddItemOpen]  = useState(false);
   const [editingItem,  setEditingItem]  = useState(null);
   const [deletingItem, setDeletingItem] = useState(null);
-  const [prefillItem,  setPrefillItem]  = useState(null); // item card clicked → opens Raise Request pre-selected
-  const [returningReq, setReturningReq] = useState(null);
-  const [reqSearch,    setReqSearch]    = useState('');
-  const [reqStatusFilter, setReqStatusFilter] = useState('All');
-  const [historyOpen,  setHistoryOpen]  = useState(false);
-  const [expandedReqs, setExpandedReqs] = useState(() => new Set());
-  const [photoPreview, setPhotoPreview] = useState(null); // lightbox src, or null
-  const [cancellingId, setCancellingId] = useState(null);  // request awaiting cancel confirmation
-  const [cancelBusyId, setCancelBusyId] = useState(null);
-  const [allocatingId, setAllocatingId] = useState(null);  // request being allocated from "Assigned to Me"
+  const [importOpen,   setImportOpen]   = useState(false);
+  const [reportOpen,   setReportOpen]   = useState(false);
 
-  // Minimal local toast/feedback system — see <Toast> for rationale.
   const [toasts, setToasts] = useState([]);
-  const toast = (message, kind = 'success') => {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const toast = useCallback((message, kind = 'success') => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setToasts(prev => [...prev, { id, message, kind }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), kind === 'error' ? 6000 : 4000);
-  };
+  }, []);
   const dismissToast = id => setToasts(prev => prev.filter(t => t.id !== id));
 
-  useEffect(() => {
-    if (activeSub === 'my-requests') setTab('my-requests');
-  }, [activeSub]);
-
-  const myReqs = requests
-    .filter(r =>
-      (r.requestedByEmail && r.requestedByEmail.toLowerCase() === userEmail) ||
-      r.requestedBy === userName);
-
-  const myReqsFiltered = myReqs
-    .filter(r => reqStatusFilter === 'All' || r.status === reqStatusFilter)
-    .filter(r => {
-      const q = reqSearch.trim().toLowerCase();
-      if (!q) return true;
-      return r.itemName.toLowerCase().includes(q)
-        || r.id.toLowerCase().includes(q)
-        || (r.reason || '').toLowerCase().includes(q);
-    });
-
-  // Needs-action items stay visible & expanded — these are the ones a person
-  // is actually waiting on (to be allocated, or currently out and due back).
-  const activeReqs    = myReqsFiltered.filter(r => ACTIVE_STATUSES.includes(r.status));
-  const completedReqs = myReqsFiltered.filter(r => COMPLETED_STATUSES.includes(r.status));
-
-  // Requests the manager has specifically handed to this person to physically
-  // allocate — distinct from "My Requests" (which is what I asked for, not
-  // what I owe someone else). The backend now includes these in `requests`
-  // for non-managers too (see GET /inventory-requests's assigned_allocator_email check).
-  const assignedToMe = requests.filter(r =>
-    r.status === 'approved' && (r.assignedAllocatorEmail || '').toLowerCase() === userEmail);
-
-  function toggleExpanded(id) {
-    setExpandedReqs(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }
-
-  const filtered = items.filter(item => {
-    const matchSearch = item.name.toLowerCase().includes(search.toLowerCase());
-    const matchCat    = catFilter === 'All' || item.category   === catFilter;
-    const matchDept   = deptTab   === 'All' || item.department === deptTab;
-    return matchSearch && matchCat && matchDept;
-  });
-
-  // Dept summary stats
-  const deptStats = DEPARTMENTS.filter(d => d !== 'All').map(dept => {
-    const deptItems = items.filter(i => i.department === dept);
-    const available = deptItems.reduce((s, i) => s + i.available, 0);
-    const total     = deptItems.reduce((s, i) => s + i.total, 0);
-    const outOfStock = deptItems.filter(i => i.available === 0).length;
-    return { dept, total: deptItems.length, available, totalUnits: total, outOfStock };
-  });
-
-  const totalItems     = items.length;
-  const totalAvailable = items.reduce((s, i) => s + i.available, 0);
-  const totalCheckedOut = items.reduce((s, i) => s + (i.total - i.available), 0);
-  const pendingReqs    = requests.filter(r => r.status === 'pending').length;
-
-  function handleSubmit({ item, qty, days, reason, requestFor }) {
-    const forPerson      = requestFor || userName;
-    const forPersonEmail = requestFor ? '' : userEmail; // email only known when requesting for self
-    return raiseRequest({
-      itemId:            item.id,
-      itemName:          item.name,
-      requestedBy:       forPerson,
-      requestedByEmail:  forPersonEmail,
-      raisedBy:          userName,
-      department:        item.department,
-      quantity: qty, days, reason,
-    }).then(saved => {
-      const byLine = requestFor ? `${userName} on behalf of ${requestFor}` : userName;
-      addNotification({
-        type:        'inv_request',
-        refId:       saved.id,
-        title:       'New Inventory Request',
-        body:        `${byLine} requested ${qty}× ${item.name} for ${days} day${days > 1 ? 's' : ''} — "${reason}"`,
-        requestedBy: forPerson,
-        itemName:    item.name,
-        // Store the requester's email inside action so the bell can target the approval notification
-        action:      forPersonEmail ? { requestedByEmail: forPersonEmail } : null,
-      });
-      toast(`Request submitted — ${qty}× ${item.name}`);
-      setShowModal(false);
-      setPrefillItem(null);
-    }).catch(() => {
-      toast(`Couldn't submit your request for ${item.name} — please try again`, 'error');
-    });
-  }
-
-  // Clicking an item card raises a request for it directly — no need to open
-  // the modal and search for the item all over again.
-  function openRaiseRequestFor(item) {
-    if (item.available <= 0) return;
-    setPrefillItem(item);
-    setShowModal(true);
-  }
-
-  function closeRaiseRequestModal() {
-    setShowModal(false);
-    setPrefillItem(null);
-  }
-
   function handleAddItem(data) {
-    return api.createInventoryItem(data)
-      .then(() => { refreshItems(); toast(`Added "${data.name}" to the catalogue.`); })
-      .catch(err => { toast(err?.message || 'Couldn’t add this item — please try again.', 'error'); throw err; });
+    return api.createItem(data)
+      .then(() => { refreshItems(); toast(`Added "${data.name}" to the catalog.`); })
+      .catch(err => { toast(err?.message || 'Could not add item.', 'error'); throw err; });
   }
 
   function handleEditItem(item, data) {
-    return api.updateInventoryItem(item.id, data)
+    return api.updateItem(item.id, data)
       .then(() => { refreshItems(); toast(`Updated "${data.name}".`); })
-      .catch(err => { toast(err?.message || 'Couldn’t save changes — please try again.', 'error'); throw err; });
+      .catch(err => { toast(err?.message || 'Could not save changes.', 'error'); throw err; });
   }
 
   function handleDeleteItem(item) {
-    return api.deleteInventoryItem(item.id)
-      .then(() => { refreshItems(); toast(`Deleted "${item.name}" from the catalogue.`); })
-      .catch(err => { toast(err?.message || 'Couldn’t delete this item — please try again.', 'error'); throw err; });
+    return api.deleteItem(item.id)
+      .then(() => { refreshItems(); toast(`Deleted "${item.name}".`); setDeletingItem(null); })
+      .catch(err => { toast(err?.message || 'Could not delete item.', 'error'); throw err; });
   }
 
-  function handleImport(items) {
-    return api.importInventoryItems(items)
-      .then(res => {
-        refreshItems();
-        toast(`Imported ${res.created} new and updated ${res.updated} existing item${res.created + res.updated !== 1 ? 's' : ''}.`);
-        return res;
-      })
-      .catch(err => {
-        toast(err?.message || 'Import failed — please try again.', 'error');
-        throw err;
-      });
+  function handleImport(rows) {
+    return api.importItems(rows)
+      .then(res => { refreshItems(); toast(`Imported ${res.created} item${res.created !== 1 ? 's' : ''}.`); return res; })
+      .catch(err => { toast(err?.message || 'Import failed.', 'error'); throw err; });
   }
 
-  function handleReturnSubmit(req, data) {
-    return returnItem(req.id, data).then(saved => {
-      // Tell whoever physically handed the item out that it's back — they're
-      // the one who needs to inspect it and return it to circulation. Targeted
-      // by name (allocatedBy only stores a display name, not an email) the
-      // same way 'approved'/'rejected' notifications already are.
-      if (req.allocatedBy) {
-        addNotification({
-          type:        'item_returned',
-          recipient:   req.allocatedBy,
-          refId:       req.id,
-          title:       'Item Returned',
-          body:        `${req.requestedBy} returned ${req.itemName}${data?.conditionNote ? ` — "${data.conditionNote}"` : ''}.`,
-          itemName:    req.itemName,
-          requestedBy: req.requestedBy,
-        });
-      }
-      toast(`Return confirmed — ${req.itemName}`);
-      // The return itself succeeded even if the photo upload failed — don't
-      // make that look like a hard error, but the requester does need to know
-      // their condition photo didn't attach (it used to fail silently here).
-      if (data?.file && saved?.photoUploadError) {
-        toast(`Photo couldn't be saved with this return — ${saved.photoUploadError}`, 'error');
-      }
-      setReturningReq(null);
-    }).catch(() => {
-      toast(`Couldn't confirm the return of ${req.itemName} — please try again`, 'error');
-    });
+  // Employee checkout return
+  function handleReturn(id, data) {
+    return returnItem(id, data);
   }
 
-  function handleCancelRequest(req) {
-    setCancelBusyId(req.id);
-    cancelRequest(req.id, userName).then(() => {
-      toast(`Request cancelled — ${req.itemName}`);
-      setCancellingId(null);
-    }).catch(() => {
-      toast(`Couldn't cancel your request for ${req.itemName} — please try again`, 'error');
-    }).finally(() => setCancelBusyId(null));
+  if (!isManager) {
+    return (
+      <>
+        <EmployeeView
+          items={items}
+          checkouts={checkouts}
+          userName={userName}
+          userEmail={userEmail}
+          itemsLoading={itemsLoading}
+          itemsError={itemsError}
+          checkoutsError={checkoutsError}
+          onReturn={handleReturn}
+          refreshItems={refreshItems}
+          submitCartCheckouts={submitCartCheckouts}
+          cancelRequest={cancelRequest}
+          addNotification={addNotification}
+          toast={toast}
+        />
+        <Toast toasts={toasts} onDismiss={dismissToast} />
+      </>
+    );
   }
 
-  function handleAllocateFromInventory(req) {
-    setAllocatingId(req.id);
-    allocateItem(req.id, userName).then(() => {
-      addNotification({
-        type:        'allocated',
-        recipient:   req.requestedByEmail || req.requestedBy,
-        refId:       req.id,
-        itemName:    req.itemName,
-        requestedBy: req.requestedBy,
-        title:       'Item Allocated ✓',
-        body:        `Your ${req.itemName} has been allocated and is ready for collection. Please pick it up from your supervisor.`,
-        action:      { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
-      });
-      toast(`Marked as allocated — ${req.itemName}`);
-    }).catch(err => {
-      const msg = /409|stock/i.test(err?.message || '')
-        ? `Not enough ${req.itemName} in stock to allocate right now.`
-        : `Couldn't allocate ${req.itemName} — please try again.`;
-      toast(msg, 'error');
-    }).finally(() => setAllocatingId(null));
-  }
-
-  const fmtDate = iso => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-
+  // Manager experience
   return (
-    <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-
-      {/* ── Header ── */}
-      <div className="view-header">
+    <div style={{ animation:'fadeIn var(--transition-normal) ease-in-out' }}>
+      {/* Header */}
+      <div className="view-header" style={{ marginBottom:0 }}>
         <div className="view-title-group">
-          <h2>Inventory Management</h2>
-          <p>Company assets and supplies across all departments</p>
+          <h2>Items</h2>
+          <p>Company assets across all departments and locations</p>
         </div>
-        <div style={{ display:'flex', gap:10 }}>
-          <button onClick={() => setTab(t => t === 'my-requests' ? 'inventory' : 'my-requests')}
-            className={tab === 'my-requests' ? 'primary-btn' : 'secondary-btn'}
-            style={{ display:'inline-flex', alignItems:'center', gap:8 }}>
-            <Clock size={15} /> My Requests {myReqs.length > 0 && `(${myReqs.length})`}
-          </button>
-          <button onClick={() => downloadInventoryCsv(items)} className="secondary-btn"
-            disabled={!items.length}
-            style={{ display:'inline-flex', alignItems:'center', gap:8 }}
-            title="Download the current catalogue as CSV">
-            <Download size={15} /> Export
-          </button>
-          <button onClick={() => setShowImport(true)} className="secondary-btn"
-            style={{ display:'inline-flex', alignItems:'center', gap:8 }}>
-            <UploadCloud size={15} /> Import
-          </button>
-          {canManageInventory && (
-            <button onClick={() => setShowReport(true)} className="secondary-btn"
-              style={{ display:'inline-flex', alignItems:'center', gap:8 }}
-              title="Generate a filterable asset-status report (PDF or Excel)">
-              <FileBarChart size={15} /> Export Report
-            </button>
-          )}
-          <button onClick={() => { setPrefillItem(null); setShowModal(true); }} className="primary-btn"
-            style={{ display:'inline-flex', alignItems:'center', gap:8 }}>
-            <Plus size={15} /> Raise Request
-          </button>
+        {/* Department filter — top right per spec */}
+        <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <Filter size={13} style={{ color:'var(--muted)' }} />
+            <select className="form-input" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34 }}>
+              {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
+            </select>
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <select className="form-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34 }}>
+              <option value="All">All types</option>
+              {ITEM_TYPES.map(t => <option key={t}>{t}</option>)}
+            </select>
+          </div>
         </div>
       </div>
 
-      {/* ── Main view switcher (Catalogue / Manage / Audit Log) ── */}
-      {canManageInventory && (
-        <div style={{ display:'flex', gap:8, marginBottom:20, borderBottom:'1px solid var(--line)' }}>
-          {[
-            { id: 'catalogue', label: 'Catalogue',  Icon: Package },
-            { id: 'manage',    label: 'Manage',     Icon: ClipboardList },
-            { id: 'audit',     label: 'Audit Log',  Icon: History },
-          ].map(({ id, label, Icon }) => (
-            <button key={id} onClick={() => setMainView(id)}
-              style={{
-                display:'inline-flex', alignItems:'center', gap:7, padding:'10px 16px',
-                background:'none', border:'none', borderBottom: mainView === id ? '2px solid var(--pine)' : '2px solid transparent',
-                color: mainView === id ? 'var(--ink)' : 'var(--muted)', fontWeight: mainView === id ? 700 : 600,
-                fontSize:'13px', cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-1,
-              }}>
-              <Icon size={14} /> {label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {mainView === 'manage' ? (
-        <ManageItemsPanel items={items} itemsLoading={itemsLoading} itemsError={itemsError}
-          onRetry={() => refreshItems()} onAdd={() => setShowAddItem(true)}
-          onEdit={setEditingItem} onDelete={setDeletingItem} canDelete={canDeleteInventory} />
-      ) : mainView === 'audit' ? (
-        <InventoryAuditLogPanel />
-      ) : (
-      <>
-      {/* ── KPI row ── */}
-      <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4,1fr)', marginBottom:24 }}>
+      {/* KPI strip */}
+      <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(4,1fr)', margin:'16px 0 20px' }}>
         {[
-          { label: 'Total Items',   value: totalItems,      sub: 'across all depts',       color: 'card-blue'   },
-          { label: 'Available',     value: totalAvailable,  sub: 'units ready to request', color: 'card-green'  },
-          { label: 'Checked Out',   value: totalCheckedOut, sub: 'units currently in use', color: 'card-orange' },
-          { label: 'Pending Reqs',  value: pendingReqs,     sub: 'awaiting approval',      color: pendingReqs > 0 ? 'card-red' : '' },
-        ].map(({ label, value, sub, color }) => (
+          { label:'Total Items',    value: items.length,                                                color:'card-blue'   },
+          { label:'Available',      value: items.filter(i => i.status === 'available').length,         color:'card-green'  },
+          { label:'Checked Out',    value: items.filter(i => i.status === 'checked_out').length,       color:'card-orange' },
+          { label:'Missing Photos', value: items.filter(i => !i.photoUrl).length,                      color: items.filter(i => !i.photoUrl).length > 0 ? 'card-red' : '' },
+        ].map(({ label, value, color }) => (
           <div key={label} className={`kpi-card ${color}`}>
             <div className="kpi-label">{label}</div>
             <div className="kpi-value">{value}</div>
-            <div className="kpi-delta">{sub}</div>
           </div>
         ))}
       </div>
 
-      <MyRequestsDrawer
-        open={tab === 'my-requests'}
-        onClose={() => setTab('inventory')}
-        myReqs={myReqs}
-        myReqsFiltered={myReqsFiltered}
-        activeReqs={activeReqs}
-        completedReqs={completedReqs}
-        assignedToMe={assignedToMe}
-        reqSearch={reqSearch}
-        setReqSearch={setReqSearch}
-        reqStatusFilter={reqStatusFilter}
-        setReqStatusFilter={setReqStatusFilter}
-        requestsLoading={requestsLoading}
-        requestsError={requestsError}
-        onRetry={() => refreshRequests()}
-        historyOpen={historyOpen}
-        setHistoryOpen={setHistoryOpen}
-        expandedReqs={expandedReqs}
-        toggleExpanded={toggleExpanded}
-        cancellingId={cancellingId}
-        setCancellingId={setCancellingId}
-        cancelBusyId={cancelBusyId}
-        onCancelRequest={handleCancelRequest}
-        onReturnClick={r => { setReturningReq(r); setTab('inventory'); }}
-        onAllocate={handleAllocateFromInventory}
-        allocatingId={allocatingId}
-        onPhotoPreview={setPhotoPreview}
-        fmtDate={fmtDate}
-      />
-
-      {/* ── Department tab strip ── */}
-      <div style={{ display:'flex', gap:8, marginBottom:16, flexWrap:'wrap' }}>
-        {DEPARTMENTS.map(dept => {
-          const dm  = DEPT_META[dept];
-          const active = deptTab === dept;
-          return (
-            <button key={dept}
-              onClick={() => setDeptTab(dept)}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 7,
-                padding: '7px 16px', borderRadius: 20, border: 'none',
-                fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: '13px',
-                cursor: 'pointer', transition: 'all 0.15s',
-                background: active
-                  ? (dm ? `hsl(${dm.color})` : 'var(--pine)')
-                  : 'var(--mist)',
-                color: active ? '#fff' : 'var(--muted)',
-                boxShadow: active ? `0 2px 10px hsla(${dm?.color ?? '0,0%,0%'},0.3)` : 'none',
-              }}>
-              {dm && <dm.icon size={13} />}
-              {dept}
-              {dept !== 'All' && (() => {
-                const ds = deptStats.find(s => s.dept === dept);
-                return <span style={{ opacity: active ? 0.75 : 0.5, fontSize:'11px', fontWeight:500 }}>({ds?.total})</span>;
-              })()}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* ── Department summary (when a dept is selected) ── */}
-      {deptTab !== 'All' && (() => {
-        const ds = deptStats.find(s => s.dept === deptTab);
-        const dm = DEPT_META[deptTab];
-        return ds ? (
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:20 }}>
-            {[
-              { label:'Items',         value: ds.total },
-              { label:'Available',     value: ds.available },
-              { label:'Total Units',   value: ds.totalUnits },
-              { label:'Out of Stock',  value: ds.outOfStock },
-            ].map(({ label, value }) => (
-              <div key={label} style={{ background:'var(--card)', border:'1px solid var(--line)', borderRadius:12, padding:'14px 18px', boxShadow:'var(--shadow-sm)' }}>
-                <div style={{ fontSize:'11px', fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.04em', marginBottom:6 }}>{label}</div>
-                <div style={{ fontSize:'22px', fontWeight:700, color:'var(--ink)' }}>{value}</div>
-              </div>
-            ))}
+      {/* Tab strip */}
+      <div style={{ display:'flex', gap:8, marginBottom:20, borderBottom:'1px solid var(--line)' }}>
+        {[
+          { id:'catalog', label:'Catalog',   Icon: Package },
+          { id:'manage',  label:'Manage',    Icon: ClipboardList },
+          { id:'audit',   label:'Audit Log', Icon: History },
+        ].map(({ id, label, Icon }) => (
+          <button key={id} onClick={() => setMainTab(id)}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 16px', background:'none', border:'none', borderBottom: mainTab === id ? '2px solid var(--pine)' : '2px solid transparent', color: mainTab === id ? 'var(--ink)' : 'var(--muted)', fontWeight: mainTab === id ? 700 : 600, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-1 }}>
+            <Icon size={14} /> {label}
+          </button>
+        ))}
+        {/* Search for catalog/manage */}
+        {mainTab !== 'audit' && (
+          <div className="search-bar" style={{ marginLeft:'auto', width:220, marginBottom:0 }}>
+            <Search size={14} style={{ flexShrink:0 }} />
+            <input placeholder="Search items…" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
-        ) : null;
-      })()}
-
-      {/* ── Search + Category filter ── */}
-      <div style={{ display:'flex', gap:10, marginBottom:20, flexWrap:'wrap', alignItems:'center' }}>
-        <div className="search-bar" style={{ width:240 }}>
-          <Search size={14} style={{ flexShrink:0 }} />
-          <input placeholder="Search items…" value={search} onChange={e => setSearch(e.target.value)} />
-        </div>
-        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-          <Filter size={13} style={{ color:'var(--muted)' }} />
-          <select value={catFilter} onChange={e => setCatFilter(e.target.value)} className="form-input"
-            style={{ padding:'6px 10px', fontSize:'13px', height:34 }}>
-            {CATEGORIES.map(c => <option key={c}>{c}</option>)}
-          </select>
-        </div>
-        <span style={{ marginLeft:'auto', fontSize:'13px', color:'var(--muted)' }}>
-          {filtered.length} item{filtered.length !== 1 ? 's' : ''}
-        </span>
+        )}
       </div>
 
-      {/* ── Item Grid ── */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(230px,1fr))', gap:14 }}>
-        {filtered.map(item => {
-          const cat   = CAT_COLORS[item.category] ?? { bg:'var(--mist)', fg:'var(--ink)' };
-          const dm    = DEPT_META[item.department];
-          const avail = item.available > 0;
-          const pct   = Math.round((item.available / item.total) * 100);
-          return (
-            <div key={item.id} className="motion-card"
-              role={avail ? 'button' : undefined}
-              tabIndex={avail ? 0 : undefined}
-              onClick={avail ? () => openRaiseRequestFor(item) : undefined}
-              onKeyDown={avail ? (e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openRaiseRequestFor(item); } }) : undefined}
-              title={avail ? `Raise a request for ${item.name}` : undefined}
-              aria-label={avail ? `Raise a request for ${item.name}` : undefined}
-              style={{ border:'1px solid var(--line)', borderRadius:12, padding:16, background:'var(--card)', display:'flex', flexDirection:'column', gap:10, cursor: avail ? 'pointer' : 'default' }}>
+      {/* Tab content */}
+      {mainTab === 'catalog' && (
+        <ManagerCatalogTab
+          items={items} itemsLoading={itemsLoading} itemsError={itemsError}
+          deptFilter={deptFilter} typeFilter={typeFilter} search={search}
+          refreshItems={refreshItems}
+        />
+      )}
+      {mainTab === 'manage' && (
+        <ManagerManageTab
+          items={items} itemsLoading={itemsLoading} itemsError={itemsError}
+          deptFilter={deptFilter} typeFilter={typeFilter} search={search}
+          refreshItems={refreshItems} canDelete={canDelete}
+          onAdd={() => setAddItemOpen(true)}
+          onEdit={setEditingItem}
+          onDelete={setDeletingItem}
+          onImport={() => setImportOpen(true)}
+          onExport={() => downloadItemsCsv(items)}
+          onReport={() => setReportOpen(true)}
+        />
+      )}
+      {mainTab === 'audit' && <AuditLogPanel />}
 
-              {/* Header row */}
-              <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8, flexWrap:'wrap', rowGap:6 }}>
-                <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0, flex:'1 1 auto' }}>
-                  <div style={{ width:36, height:36, borderRadius:9, background:cat.bg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                    <Package size={17} color={cat.fg} />
-                  </div>
-                  <div style={{ minWidth:0 }}>
-                    <div style={{ fontWeight:700, fontSize:'13.5px', lineHeight:1.2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
-                    <div style={{ fontSize:'11px', marginTop:2, color: dm ? `hsl(${dm.color})` : 'var(--muted)', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                      {item.department}
-                    </div>
-                    {item.location && (
-                      <div style={{ display:'flex', alignItems:'center', gap:3, fontSize:'10.5px', marginTop:1, color:'var(--muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                        <MapPin size={10} style={{ flexShrink:0 }} /> {item.location}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <span style={{ padding:'3px 8px', borderRadius:20, fontSize:'10.5px', fontWeight:600, background:cat.bg, color:cat.fg, whiteSpace:'nowrap', flexShrink:0 }}>
-                  {item.category}
-                </span>
-              </div>
+      {/* Modals */}
+      {addItemOpen  && <AddItemModal   onClose={() => setAddItemOpen(false)}  onSave={handleAddItem} />}
+      {editingItem  && <EditItemModal  item={editingItem} onClose={() => setEditingItem(null)}  onSave={data => handleEditItem(editingItem, data)} />}
+      {deletingItem && <DeleteItemModal item={deletingItem} onClose={() => setDeletingItem(null)} onConfirm={() => handleDeleteItem(deletingItem)} />}
+      {importOpen   && <ImportItemsModal onClose={() => setImportOpen(false)} onImport={handleImport} />}
+      {reportOpen   && <ReportModal onClose={() => setReportOpen(false)} />}
 
-              {/* Availability bar */}
-              <div>
-                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5, fontSize:'12px' }}>
-                  <span style={{ fontWeight:600, color: avail ? 'hsl(var(--color-green))' : 'hsl(var(--color-red))' }}>
-                    {avail ? `${item.available} available` : 'Out of stock'}
-                  </span>
-                  <span style={{ color:'var(--muted)' }}>{item.total} total</span>
-                </div>
-                <div style={{ height:5, borderRadius:3, background:'var(--line)', overflow:'hidden' }}>
-                  <div style={{
-                    height:'100%', borderRadius:3,
-                    width: `${pct}%`,
-                    background: pct > 50 ? 'hsl(var(--color-green))' : pct > 20 ? 'hsl(var(--color-orange))' : 'hsl(var(--color-red))',
-                    transition: 'width 0.4s ease',
-                  }} />
-                </div>
-              </div>
-
-              {/* Out of stock warning */}
-              {!avail && (
-                <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:'11.5px', color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', padding:'5px 10px', borderRadius:7 }}>
-                  <AlertCircle size={12} /> All units currently checked out
-                </div>
-              )}
-
-              {/* Catalogue management — manager+ (or group-granted inventory access) can edit, Owner can also delete */}
-              {canManageInventory && (
-                <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
-                  <button onClick={e => { e.stopPropagation(); setEditingItem(item); }}
-                    title={`Edit ${item.name}`} aria-label={`Edit ${item.name}`}
-                    style={{ display:'inline-flex', alignItems:'center', gap:5, background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:'11.5px', fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-                    <Pencil size={12} /> Edit
-                  </button>
-                  {canDeleteInventory && (
-                    <button onClick={e => { e.stopPropagation(); setDeletingItem(item); }}
-                      title={`Delete ${item.name}`} aria-label={`Delete ${item.name}`}
-                      style={{ display:'inline-flex', alignItems:'center', gap:5, background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-red))', fontSize:'11.5px', fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-                      <Trash2 size={12} /> Delete
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {itemsError ? (
-        <ErrorBanner message="Couldn't load inventory items right now — this is usually temporary." onRetry={() => refreshItems()} />
-      ) : itemsLoading && filtered.length === 0 && (
-        <SkeletonBlocks count={6} height={138} borderRadius={12} gridTemplateColumns="repeat(auto-fill, minmax(230px,1fr))" />
-      )}
-
-      {!itemsLoading && !itemsError && filtered.length === 0 && (
-        <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)', fontSize:'14px' }}>
-          <Package size={32} style={{ margin:'0 auto 10px', opacity:0.35, display:'block' }} />
-          {search || catFilter !== 'All' ? `No items match your filters.` : 'No inventory items found.'}
-        </div>
-      )}
-      </>
-      )}
-
-      {showModal && (
-        <RaiseRequestModal items={items} currentUser={userName} canRaiseOnBehalf={can('supervisor')}
-          initialItem={prefillItem} onClose={closeRaiseRequestModal} onSubmit={handleSubmit} />
-      )}
-      {returningReq && (
-        <ReturnModal request={returningReq} onClose={() => setReturningReq(null)}
-          onSubmit={data => handleReturnSubmit(returningReq, data)} />
-      )}
-      {showImport && (
-        <ImportItemsModal onClose={() => setShowImport(false)} onImport={handleImport} />
-      )}
-      {showAddItem && (
-        <AddItemModal onClose={() => setShowAddItem(false)} onSave={handleAddItem} />
-      )}
-      {showReport && (
-        <ReportModal onClose={() => setShowReport(false)} />
-      )}
-      {editingItem && (
-        <EditItemModal item={editingItem} onClose={() => setEditingItem(null)}
-          onSave={data => handleEditItem(editingItem, data)} />
-      )}
-      {deletingItem && (
-        <DeleteItemModal item={deletingItem} onClose={() => setDeletingItem(null)}
-          onConfirm={() => handleDeleteItem(deletingItem)} />
-      )}
-      {photoPreview && (
-        <ImageLightbox src={photoPreview} alt="Return photo" onClose={() => setPhotoPreview(null)} />
-      )}
       <Toast toasts={toasts} onDismiss={dismissToast} />
     </div>
   );

@@ -158,7 +158,7 @@ export const api = {
   markNotifActioned:(id)             => req(`/notifications/${id}/action`, { method: 'PATCH' }),
   deleteNotif:      (id)             => req(`/notifications/${id}`, { method: 'DELETE' }),
 
-  // Inventory Requests (persisted in Supabase)
+  // Inventory Requests (legacy — kept for backward compat with existing data)
   getInventoryItems:       ()          => req('/inventory-requests/items'),
   createInventoryItem:     (data)       => req('/inventory-requests/items', { method: 'POST', body: JSON.stringify(data) }),
   importInventoryItems:    (items)      => req('/inventory-requests/items/import', { method: 'POST', body: JSON.stringify({ items }) }),
@@ -170,6 +170,19 @@ export const api = {
   getInventoryRequests:    ()          => req('/inventory-requests'),
   createInventoryRequest:  (data)      => req('/inventory-requests', { method: 'POST', body: JSON.stringify(data) }),
   updateInventoryRequest:  (id, data)  => req(`/inventory-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // Items — new individual-unit system
+  getItems:            (params = {})  => req(`/items?${new URLSearchParams(params)}`),
+  createItem:          (data)         => req('/items', { method: 'POST', body: JSON.stringify(data) }),
+  importItems:         (items)        => req('/items/import', { method: 'POST', body: JSON.stringify({ items }) }),
+  updateItem:          (id, data)     => req(`/items/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteItem:          (id)           => req(`/items/${id}`, { method: 'DELETE' }),
+  getItemsReport:      (params)       => reqBlob(`/items/report?${new URLSearchParams(params)}`),
+  getItemsAuditLog:    (params)       => req(`/items/audit-log?${new URLSearchParams(params)}`),
+  getItemAllocators:   ()             => req('/items/allocators'),
+  getItemCheckouts:    ()             => req('/items/checkouts'),
+  createItemCheckout:  (data)         => req('/items/checkouts', { method: 'POST', body: JSON.stringify(data) }),
+  updateItemCheckout:  (id, data)     => req(`/items/checkouts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   // Requisitions (persisted in Supabase)
   getRequisitions:           ()              => req('/requisitions'),

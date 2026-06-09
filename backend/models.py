@@ -277,6 +277,55 @@ class InventoryItem(Base):
     last_updated  = Column(String, default="")
 
 
+class Item(Base):
+    """Individual physical item. Each unit gets its own row; status flips replace qty counters."""
+    __tablename__ = "items"
+    id             = Column(String, primary_key=True)
+    name           = Column(String, nullable=False)
+    item_type      = Column(String, default="Other")          # Devices|Tools|Vehicles|Equipment|Keys|Other
+    make           = Column(String, default="")
+    model          = Column(String, default="")
+    year           = Column(String, default="")
+    department     = Column(String, default="")
+    default_owner  = Column(String, default="")
+    ownership_type = Column(String, default="transient")      # permanent|transient
+    status         = Column(String, default="available")      # available|checked_out|permanently_assigned|retired
+    location       = Column(String, default="")
+    photo_url      = Column(String, default="")
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+
+
+class ItemCheckout(Base):
+    """Checkout record for one transient item. One active checkout per physical item enforced on creation."""
+    __tablename__ = "item_checkouts"
+    id                       = Column(String, primary_key=True)
+    item_id                  = Column(String, nullable=False)
+    item_name                = Column(String, nullable=False)
+    item_type                = Column(String, default="")
+    requested_by             = Column(String, nullable=False)
+    requested_by_email       = Column(String, default="")
+    raised_by                = Column(String, nullable=False)
+    department               = Column(String, default="")
+    days                     = Column(Integer, default=1)
+    reason                   = Column(String, default="")
+    status                   = Column(String, default="pending")
+    created_at               = Column(String, nullable=False)
+    resolved_at              = Column(String, default="")
+    resolved_by              = Column(String, default="")
+    reject_reason            = Column(String, default="")
+    assigned_allocator_email = Column(String, default="")
+    assigned_allocator_name  = Column(String, default="")
+    allocated_at             = Column(String, default="")
+    allocated_by             = Column(String, default="")
+    checkout_photo_url       = Column(String, default="")
+    checkout_photo_name      = Column(String, default="")
+    returned_at              = Column(String, default="")
+    return_photo_url         = Column(String, default="")
+    return_photo_name        = Column(String, default="")
+    condition_note           = Column(String, default="")
+
+
 class NexusRole(Base):
     __tablename__ = "nexus_roles"
     email        = Column(String, primary_key=True)   # Azure AD UPN / email
