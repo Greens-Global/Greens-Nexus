@@ -358,10 +358,13 @@ export default function NotificationBell({ onNavigate }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingApprovalId]);
 
-  // Updates: everything that isn't an actionable type, scoped to me or broadcast
+  // Updates: everything that isn't an actionable type, scoped to me or broadcast.
+  // item_returned with no recipient is manager-only — skip for employees to avoid
+  // broadcasting someone else's return into every user's bell.
   const updates = notifications.filter(n =>
     !ACTIONABLE_TYPES.has(n.type) &&
-    (!n.recipient || n.recipient === myEmail || n.recipient === myName)
+    (!n.recipient || n.recipient === myEmail || n.recipient === myName) &&
+    !(n.type === 'item_returned' && !n.recipient && !can('manager'))
   );
 
   // Unread count scoped to what I can see

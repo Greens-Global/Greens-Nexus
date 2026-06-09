@@ -40,8 +40,10 @@ export default function NotificationToasts({ onNavigate }) {
     const fresh = notifications.filter(n => {
       if (seenIds.current.has(n.id)) return false;
       seenIds.current.add(n.id);
-      const isActionable = (n.type === 'inv_request' || n.type === 'req_pending');
+      const isActionable = (n.type === 'inv_request' || n.type === 'req_pending' || n.type === 'checkout_pending');
       if (isActionable) return can('manager') && !n.recipient;
+      // item_returned with no recipient must not toast for non-managers (avoids broadcasting returns to all employees)
+      if (n.type === 'item_returned' && !n.recipient) return can('manager');
       return !n.recipient || n.recipient === myEmail || n.recipient === myName;
     });
     if (fresh.length === 0) return;
@@ -66,7 +68,7 @@ export default function NotificationToasts({ onNavigate }) {
   }
 
   function handleClick(n) {
-    const isActionable = (n.type === 'inv_request' || n.type === 'req_pending') && !n.recipient;
+    const isActionable = (n.type === 'inv_request' || n.type === 'req_pending' || n.type === 'checkout_pending') && !n.recipient;
     if (isActionable && can('manager')) {
       // Jump straight into the approval workflow (allocator picker / reject
       // reason) in the bell panel — no extra navigation or hunting required.
