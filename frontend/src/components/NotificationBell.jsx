@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, Loader2, AlertCircle, User, Clock } from 'lucide-react';
+import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, Loader2, AlertCircle, User, Clock, ClipboardList } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useInventory }      from '../contexts/InventoryContext';
 import { useRequisitions }   from '../contexts/RequisitionContext';
@@ -305,9 +305,17 @@ export default function NotificationBell({ onNavigate }) {
   // Needs Action: only visible to managers+
   // checkout_pending = new Items module; inv_request/req_pending = older systems
   const ACTIONABLE_TYPES = new Set(['inv_request', 'req_pending', 'checkout_pending']);
-  const actionable = can('manager') ? notifications.filter(n =>
+  const actionableRaw = can('manager') ? notifications.filter(n =>
     ACTIONABLE_TYPES.has(n.type) && !n.recipient && !n.actioned
   ) : [];
+  // Deduplicate by refId — parallel cart submissions can create N notifications for one order
+  const seenRefs = new Set();
+  const actionable = actionableRaw.filter(n => {
+    const key = n.refId || n.id;
+    if (seenRefs.has(key)) return false;
+    seenRefs.add(key);
+    return true;
+  });
 
   // A toast click set this to a notification id — open the panel straight into
   // its approval workflow (allocator picker for inv_request, reject reason for
@@ -490,7 +498,12 @@ export default function NotificationBell({ onNavigate }) {
                         </div>
                         <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '4px 0 14px', lineHeight: 1.45 }}>{n.body}</p>
 
-                        {!isRejecting && !isApproving ? (
+                        {n.type === 'checkout_pending' ? (
+                          <button onClick={e => { e.stopPropagation(); markActioned(n.id); setOpen(false); onNavigate?.('items', 'checkouts'); }}
+                            style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'9px 20px', borderRadius:9, border:'none', background:'hsla(var(--color-blue),0.12)', color:'hsl(var(--color-blue))', fontSize:13.5, fontWeight:700, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+                            <ClipboardList size={15} /> Review in Checkouts
+                          </button>
+                        ) : !isRejecting && !isApproving ? (
                           <div style={{ display: 'flex', gap: 10 }}>
                             <button onClick={e => { e.stopPropagation(); handleAction(n, 'approve'); }}
                               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 20px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>

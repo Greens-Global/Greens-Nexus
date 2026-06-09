@@ -49,7 +49,17 @@ export function InventoryProvider({ children }) {
 
   const fetchCheckouts = useCallback(() =>
     withQuietRetry(() => api.getItemCheckouts())
-      .then(rows => { setCheckouts(rows); setCheckoutsError(null); })
+      .then(rows => {
+        setCheckouts(rows.map(r => ({
+          ...r,
+          requestedBy:           cleanName(r.requestedBy),
+          raisedBy:              cleanName(r.raisedBy),
+          resolvedBy:            cleanName(r.resolvedBy),
+          assignedAllocatorName: cleanName(r.assignedAllocatorName),
+          allocatedBy:           cleanName(r.allocatedBy),
+        })));
+        setCheckoutsError(null);
+      })
       .catch(err => setCheckoutsError(err?.message || 'Failed to load checkouts'))
       .finally(() => setCheckoutsLoading(false))
   , []); // eslint-disable-line react-hooks/exhaustive-deps

@@ -999,6 +999,8 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
   const [histOpen, setHistOpen] = useState(false);
   const [cancelId, setCancelId] = useState(null);
   const [cancelBusy, setCancelBusy] = useState(null);
+  const [cancelAllKey, setCancelAllKey] = useState(null);
+  const [cancelAllBusy, setCancelAllBusy] = useState(false);
   const [photoPreview, setPhotoPreview] = useState(null);
   const fmtDate = iso => new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
 
@@ -1027,14 +1029,37 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
       {activeGroups.map(groupItems => {
         const isMulti = groupItems.length > 1;
         const firstItem = groupItems[0];
+        const groupKey = firstItem.orderId || firstItem.id;
+        const cancellableItems = groupItems.filter(c => ['pending','approved'].includes(c.status));
         return (
-          <div key={firstItem.orderId || firstItem.id} style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', marginBottom:12, background:'var(--card)', boxShadow:'var(--shadow-sm)' }}>
+          <div key={groupKey} style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', marginBottom:12, background:'var(--card)', boxShadow:'var(--shadow-sm)' }}>
             {isMulti && (
-              <div style={{ padding:'10px 16px', background:'var(--mist)', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', gap:8 }}>
+              <div style={{ padding:'10px 16px', background:'var(--mist)', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
                 <ShoppingCart size={13} color="hsl(var(--color-blue))" />
                 <span style={{ fontSize:12.5, fontWeight:700, color:'hsl(var(--color-blue))' }}>Order · {groupItems.length} items</span>
                 <span style={{ fontSize:12, color:'var(--muted)', marginLeft:4 }}>· {fmtDateShort(firstItem.createdAt)}</span>
                 {firstItem.reason && <span style={{ fontSize:12, color:'var(--muted)', fontStyle:'italic', marginLeft:4 }}>"{firstItem.reason}"</span>}
+                {cancellableItems.length > 1 && cancelAllKey !== groupKey && (
+                  <button onClick={() => setCancelAllKey(groupKey)}
+                    style={{ marginLeft:'auto', background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:7, padding:'3px 10px', fontSize:11.5, cursor:'pointer', color:'hsl(var(--color-red))', display:'inline-flex', alignItems:'center', gap:4, fontFamily:'Inter,sans-serif', fontWeight:600 }}>
+                    <XCircle size={11} /> Cancel All
+                  </button>
+                )}
+                {cancelAllKey === groupKey && (
+                  <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:6, background:'hsla(var(--color-red),0.05)', border:'1px solid hsla(var(--color-red),0.2)', borderRadius:8, padding:'5px 10px' }}>
+                    <span style={{ fontSize:12, color:'var(--ink)' }}>Cancel all {cancellableItems.length} items?</span>
+                    <button onClick={() => setCancelAllKey(null)} className="secondary-btn" style={{ fontSize:11.5, padding:'3px 8px' }}>Keep</button>
+                    <button disabled={cancelAllBusy}
+                      style={{ background:'hsl(var(--color-red))', color:'#fff', border:'none', borderRadius:6, padding:'3px 10px', fontSize:11.5, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:4, fontWeight:700, fontFamily:'Inter,sans-serif' }}
+                      onClick={() => {
+                        setCancelAllBusy(true);
+                        Promise.allSettled(cancellableItems.map(c => onCancel(c)))
+                          .finally(() => { setCancelAllBusy(false); setCancelAllKey(null); });
+                      }}>
+                      {cancelAllBusy ? <Loader2 size={11} style={{ animation:'spin 1s linear infinite' }} /> : null} Yes, Cancel All
+                    </button>
+                  </div>
+                )}
               </div>
             )}
             {groupItems.map((c, idx) => {
@@ -1149,6 +1174,11 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
     </div>
   );
 
+  // Items with active (pending/approved) checkout requests — greyed out BookMyShow style
+  const pendingCheckoutIds = new Set(
+    (checkouts || []).filter(c => ['pending','approved'].includes(c.status)).map(c => c.itemId)
+  );
+
   // Available items first, then unavailable, alpha within each group
   const sorted = [...items].sort((a, b) => {
     const aAvail = a.status === 'available' ? 0 : 1;
@@ -1164,7 +1194,8 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
           const tm = TYPE_META[item.itemType] || TYPE_META.Other;
           const alreadyInCart = inCart?.has(item.id);
           const isAvailable = item.status === 'available';
-          const canAdd = onAddToCart && isAvailable && item.ownershipType === 'transient';
+          const hasPending  = isAvailable && pendingCheckoutIds.has(item.id);
+          const canAdd = onAddToCart && isAvailable && !hasPending && item.ownershipType === 'transient';
 
           // For checked-out items, show who has it and when it's due
           let checkedOutBy = null, dueDate = null;
@@ -1180,16 +1211,16 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
 
           return (
             <div key={item.id}
-              style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', background:'var(--card)', display:'flex', flexDirection:'column', transition:'box-shadow 0.15s', boxShadow:'var(--shadow-sm)', opacity: isAvailable ? 1 : 0.62 }}
+              style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', background:'var(--card)', display:'flex', flexDirection:'column', transition:'box-shadow 0.15s', boxShadow:'var(--shadow-sm)', opacity: (isAvailable && !hasPending) ? 1 : 0.62 }}
               onMouseEnter={e => e.currentTarget.style.boxShadow = 'var(--shadow-md)'}
               onMouseLeave={e => e.currentTarget.style.boxShadow = 'var(--shadow-sm)'}>
               {/* Photo */}
-              <div onClick={() => item.photoUrl && isAvailable && setLightbox({ src: item.photoUrl, alt: item.name })}
-                style={{ height:140, background: item.photoUrl ? 'transparent' : tm.bg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, cursor: item.photoUrl && isAvailable ? 'zoom-in' : 'default', position:'relative', overflow:'hidden' }}>
+              <div onClick={() => item.photoUrl && isAvailable && !hasPending && setLightbox({ src: item.photoUrl, alt: item.name })}
+                style={{ height:140, background: item.photoUrl ? 'transparent' : tm.bg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, cursor: item.photoUrl && isAvailable && !hasPending ? 'zoom-in' : 'default', position:'relative', overflow:'hidden' }}>
                 {item.photoUrl
-                  ? <img src={item.photoUrl} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover', filter: isAvailable ? 'none' : 'grayscale(35%)' }} />
+                  ? <img src={item.photoUrl} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover', filter: (isAvailable && !hasPending) ? 'none' : 'grayscale(35%)' }} />
                   : <tm.Icon size={40} color={tm.color} />}
-                {item.photoUrl && isAvailable && (
+                {item.photoUrl && isAvailable && !hasPending && (
                   <div style={{ position:'absolute', top:6, right:6, background:'rgba(0,0,0,0.45)', borderRadius:6, padding:'2px 5px', display:'flex', alignItems:'center', gap:3 }}>
                     <ZoomIn size={11} color="#fff" />
                   </div>
@@ -1198,6 +1229,13 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
                   <div style={{ position:'absolute', top:6, left:6, background:'hsl(var(--color-green))', borderRadius:6, padding:'2px 7px', display:'flex', alignItems:'center', gap:3 }}>
                     <CheckCircle size={10} color="#fff" />
                     <span style={{ fontSize:10, color:'#fff', fontWeight:700 }}>In Cart</span>
+                  </div>
+                )}
+                {hasPending && (
+                  <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.18)', display:'flex', alignItems:'flex-end', justifyContent:'center', padding:'0 0 8px' }}>
+                    <span style={{ background:'rgba(220,120,0,0.85)', color:'#fff', fontSize:10.5, fontWeight:700, borderRadius:6, padding:'2px 8px' }}>
+                      Pending Request
+                    </span>
                   </div>
                 )}
                 {!isAvailable && (
@@ -1236,6 +1274,8 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
                     style={{ width:'100%', fontSize:12.5, padding:'7px 0', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
                     {alreadyInCart ? <><CheckCircle size={12} /> In Cart</> : <><Plus size={12} /> Add to Cart</>}
                   </button>
+                ) : hasPending ? (
+                  <div style={{ textAlign:'center', fontSize:11.5, color:'hsl(var(--color-orange))', fontWeight:600 }}>Under Review</div>
                 ) : !isAvailable ? (
                   <div style={{ textAlign:'center', fontSize:11.5, color:'var(--muted)', fontWeight:600 }}>Unavailable</div>
                 ) : null}
@@ -2024,7 +2064,11 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
 }
 
 // ── Allocate Modal (manager/allocator takes checkout photo here) ───────────────
-function AllocateModal({ checkout, onClose, onConfirm }) {
+function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm }) {
+  const coItems  = checkoutBatch || (checkout ? [checkout] : []);
+  const first    = coItems[0] || {};
+  const isMulti  = coItems.length > 1;
+
   const [file,       setFile]       = useState(null);
   const [preview,    setPreview]    = useState('');
   const [uploading,  setUploading]  = useState(false);
@@ -2043,7 +2087,7 @@ function AllocateModal({ checkout, onClose, onConfirm }) {
   async function submit() {
     if (!file || uploading) return;
     setUploading(true); setError('');
-    const path = `checkout-photos/${checkout.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const path = `checkout-photos/${first.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
     const { url, error: upErr } = await uploadToSupabase(file, 'checkout-photos', path);
     if (upErr) { setError(upErr); setUploading(false); return; }
     Promise.resolve(onConfirm(url, file.name))
@@ -2056,10 +2100,21 @@ function AllocateModal({ checkout, onClose, onConfirm }) {
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Hand Over Item</h3>
-        <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:20 }}>
-          Allocating <strong>{checkout.itemName}</strong> to <strong>{checkout.requestedBy}</strong>. Take a clear photo of the item condition before handing over.
-        </p>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Hand Over Item{isMulti ? 's' : ''}</h3>
+        {isMulti ? (
+          <>
+            <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:8 }}>
+              Handing over <strong>{coItems.length} items</strong> to <strong>{first.requestedBy}</strong>. One photo covers all.
+            </p>
+            <div style={{ background:'var(--mist)', borderRadius:8, padding:'8px 12px', marginBottom:16, maxHeight:100, overflowY:'auto' }}>
+              {coItems.map(co => <div key={co.id} style={{ fontSize:12, color:'var(--fg)', padding:'1px 0' }}>· {co.itemName}</div>)}
+            </div>
+          </>
+        ) : (
+          <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:20 }}>
+            Allocating <strong>{first.itemName}</strong> to <strong>{first.requestedBy}</strong>. Take a clear photo before handing over.
+          </p>
+        )}
         <div>
           <label style={FL}>CHECKOUT PHOTO <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
           <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={e => handleFile(e.target.files?.[0])} />
@@ -2222,24 +2277,27 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
   const [approvingOrder, setApprovingOrder] = useState(null);
   const [rejectingOrder, setRejectingOrder] = useState(null);
   const [allocatingCo,   setAllocatingCo]   = useState(null);
+  const [allocatingOrder, setAllocatingOrder] = useState(null);
   const [photoPreview,   setPhotoPreview]   = useState(null);
+  // IDs of completed items dismissed from the active-order view via X button
+  const [dismissedIds,   setDismissedIds]   = useState(new Set());
 
-  const filtered = checkouts.filter(c => {
-    if (statusFilter === 'active')    return ['pending','approved','allocated'].includes(c.status);
-    if (statusFilter === 'completed') return ['returned','rejected','cancelled'].includes(c.status);
-    return c.status === statusFilter;
-  }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-  // Group by orderId — items from the same cart submit share one key
-  const groupedOrders = (() => {
+  // Group ALL checkouts by orderId first, then filter groups
+  const allGrouped = (() => {
     const map = new Map();
-    for (const co of filtered) {
+    for (const co of [...checkouts].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))) {
       const key = co.orderId || co.id;
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(co);
     }
     return Array.from(map.values());
   })();
+
+  const groupedOrders = allGrouped.filter(groupItems => {
+    if (statusFilter === 'active')    return groupItems.some(c => ['pending','approved','allocated'].includes(c.status));
+    if (statusFilter === 'completed') return groupItems.every(c => ['returned','rejected','cancelled'].includes(c.status));
+    return groupItems.some(c => c.status === statusFilter);
+  });
 
   const pending  = checkouts.filter(c => c.status === 'pending').length;
   const approved = checkouts.filter(c => c.status === 'approved').length;
@@ -2272,6 +2330,13 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
       .then(() => { toast(`Item handed over to ${co.requestedBy} — checkout confirmed.`); refreshCheckouts(); refreshItems(); });
   }
 
+  async function handleAllocateOrder(orderItems, photoUrl) {
+    await Promise.allSettled(orderItems.map(co => allocateItem(co.id, userName, photoUrl)));
+    toast(`${orderItems.length} item${orderItems.length > 1 ? 's' : ''} handed over to ${orderItems[0]?.requestedBy}.`);
+    refreshCheckouts();
+    refreshItems();
+  }
+
   const fmtDate = iso => new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric' });
 
   return (
@@ -2300,9 +2365,13 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
       ) : (
         <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
           {groupedOrders.map(orderItems => {
-            const first      = orderItems[0];
-            const isMulti    = orderItems.length > 1;
-            const pendingItems = orderItems.filter(c => c.status === 'pending');
+            const first         = orderItems[0];
+            const isMulti       = orderItems.length > 1;
+            const pendingItems  = orderItems.filter(c => c.status === 'pending');
+            const approvedItems = orderItems.filter(c => c.status === 'approved');
+            const visibleItems  = statusFilter === 'active'
+              ? orderItems.filter(c => !(['returned','rejected','cancelled'].includes(c.status) && dismissedIds.has(c.id)))
+              : orderItems;
 
             return (
               <div key={first.orderId || first.id} style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', background:'var(--card)', boxShadow:'var(--shadow-sm)' }}>
@@ -2315,32 +2384,41 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
                     </div>
                     {first.reason && <div style={{ fontSize:12, color:'var(--muted)', fontStyle:'italic', marginTop:3 }}>"{first.reason}"</div>}
                   </div>
-                  {pendingItems.length > 1 && (
-                    <div style={{ display:'flex', gap:6, flexShrink:0, alignItems:'center' }}>
-                      <button onClick={() => setRejectingOrder(pendingItems)}
-                        style={{ background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:8, padding:'5px 12px', fontSize:12, cursor:'pointer', color:'hsl(var(--color-red))', fontWeight:600, display:'inline-flex', alignItems:'center', gap:5, fontFamily:'Inter,sans-serif' }}>
-                        <XCircle size={12} /> Reject All
+                  <div style={{ display:'flex', gap:6, flexShrink:0, alignItems:'center', flexWrap:'wrap' }}>
+                    {pendingItems.length > 1 && (
+                      <>
+                        <button onClick={() => setRejectingOrder(pendingItems)}
+                          style={{ background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:8, padding:'5px 12px', fontSize:12, cursor:'pointer', color:'hsl(var(--color-red))', fontWeight:600, display:'inline-flex', alignItems:'center', gap:5, fontFamily:'Inter,sans-serif' }}>
+                          <XCircle size={12} /> Reject All
+                        </button>
+                        <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, padding:'6px 14px' }}
+                          onClick={() => setApprovingOrder(pendingItems)}>
+                          <CheckCircle size={12} /> Approve All ({pendingItems.length})
+                        </button>
+                      </>
+                    )}
+                    {approvedItems.length > 1 && (
+                      <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, padding:'6px 14px', background:'hsl(var(--color-orange))' }}
+                        onClick={() => setAllocatingOrder(approvedItems)}>
+                        <Camera size={12} /> Hand Over All ({approvedItems.length})
                       </button>
-                      <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, padding:'6px 14px' }}
-                        onClick={() => setApprovingOrder(pendingItems)}>
-                        <CheckCircle size={12} /> Approve All ({pendingItems.length})
-                      </button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
 
                 {/* Item rows */}
                 <div>
-                  {orderItems.map((co, idx) => {
+                  {visibleItems.map((co, idx) => {
                     const sm = CHECKOUT_STATUS_META[co.status] || { label: co.status, bg:'var(--mist)', fg:'var(--muted)', Icon: Package };
                     const item = items.find(i => i.id === co.itemId);
                     const isMyAlloc = co.assignedAllocatorEmail && co.assignedAllocatorEmail.toLowerCase() === userEmail;
                     const due = new Date(co.createdAt);
                     due.setDate(due.getDate() + (co.days || 1));
                     const isOverdue = co.status === 'allocated' && due < new Date();
+                    const isCompleted = ['returned','rejected','cancelled'].includes(co.status);
 
                     return (
-                      <div key={co.id} style={{ padding:'12px 18px', borderTop: idx > 0 ? '1px solid var(--line)' : 'none', display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+                      <div key={co.id} style={{ padding:'12px 18px', borderTop: idx > 0 ? '1px solid var(--line)' : 'none', display:'flex', alignItems:'center', gap:12, flexWrap:'wrap', opacity: isCompleted ? 0.7 : 1 }}>
                         {item?.photoUrl
                           ? <img src={item.photoUrl} alt={co.itemName} style={{ width:38, height:38, borderRadius:7, objectFit:'cover', border:'1px solid var(--line)', flexShrink:0 }} />
                           : <div style={{ width:38, height:38, borderRadius:7, background:'var(--mist)', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}><Package size={15} style={{ opacity:.4 }} /></div>}
@@ -2364,7 +2442,7 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
                             <sm.Icon size={11} /> {sm.label}
                           </span>
                           {(co.checkoutPhotoUrl || co.returnPhotoUrl) && (
-                            <button onClick={() => setPhotoPreview(co.checkoutPhotoUrl || co.returnPhotoUrl)}
+                            <button onClick={() => setPhotoPreview(co.returnPhotoUrl || co.checkoutPhotoUrl)}
                               style={{ background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'4px 8px', cursor:'pointer', color:'var(--muted)', display:'flex', alignItems:'center' }}>
                               <ZoomIn size={12} />
                             </button>
@@ -2385,6 +2463,12 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
                             <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:4, background:'hsl(var(--color-orange))', padding:'6px 12px' }}
                               onClick={() => setAllocatingCo(co)}>
                               <Camera size={12} /> Hand Over
+                            </button>
+                          )}
+                          {isCompleted && statusFilter === 'active' && (
+                            <button onClick={() => setDismissedIds(prev => new Set([...prev, co.id]))} title="Dismiss"
+                              style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', padding:4, display:'flex', alignItems:'center', borderRadius:6 }}>
+                              <X size={14} />
                             </button>
                           )}
                         </div>
@@ -2419,6 +2503,10 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
       {allocatingCo && (
         <AllocateModal checkout={allocatingCo} onClose={() => setAllocatingCo(null)}
           onConfirm={(url, name) => handleAllocate(allocatingCo, url, name)} />
+      )}
+      {allocatingOrder && (
+        <AllocateModal checkouts={allocatingOrder} onClose={() => setAllocatingOrder(null)}
+          onConfirm={(url) => handleAllocateOrder(allocatingOrder, url)} />
       )}
       {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
     </div>
