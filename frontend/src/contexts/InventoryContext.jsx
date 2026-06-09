@@ -6,7 +6,9 @@ import { supabase } from '../lib/supabase';
 
 const InventoryContext = createContext(null);
 
-function genCheckoutId() { return `ICHK-${Date.now().toString(36).toUpperCase()}`; }
+function genCheckoutId() {
+  return `ICHK-${Date.now().toString(36).toUpperCase()}-${crypto.randomUUID().replace(/-/g,'').slice(0,8).toUpperCase()}`;
+}
 
 export function InventoryProvider({ children }) {
   const { accounts } = useMsal();

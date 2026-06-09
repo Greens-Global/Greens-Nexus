@@ -1219,17 +1219,18 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
   async function handleSubmitCart({ days, reason }) {
     setSubmitting(true);
     const results = await submitCartCheckouts(cart, { days, reason, raisedBy: userName, raisedByEmail: userEmail });
-    const succeeded = results.filter(r => r.status === 'fulfilled').length;
-    const failed    = results.filter(r => r.status === 'rejected').length;
-    if (succeeded > 0) await api.clearItemCart().catch(() => {});
+    const succeededItems = cart.filter((_, i) => results[i].status === 'fulfilled');
+    const failedItems    = cart.filter((_, i) => results[i].status === 'rejected');
+    // Remove only the successfully checked-out items from DB cart
+    await Promise.all(succeededItems.map(c => api.removeItemFromCart(c.item.id).catch(() => {})));
     setSubmitting(false);
     setCartOpen(false);
-    setCart([]);
-    setMode('home');
-    if (succeeded > 0) toast(`${succeeded} checkout request${succeeded !== 1 ? 's' : ''} submitted.`);
-    if (failed > 0) {
-      const reasons = results.filter(r => r.status === 'rejected').map(r => r.reason?.message).filter(Boolean);
-      toast(reasons[0] || `${failed} item${failed !== 1 ? 's' : ''} could not be checked out.`, 'error');
+    setCart(failedItems);
+    if (failedItems.length === 0) setMode('home');
+    if (succeededItems.length > 0) toast(`${succeededItems.length} checkout request${succeededItems.length !== 1 ? 's' : ''} submitted.`);
+    if (failedItems.length > 0) {
+      const reasons = [...new Set(results.filter(r => r.status === 'rejected').map(r => r.reason?.message).filter(Boolean))];
+      toast(reasons.join(' · ') || `${failedItems.length} item${failedItems.length !== 1 ? 's' : ''} could not be checked out.`, 'error');
     }
   }
 
@@ -1866,12 +1867,15 @@ export default function InventoryManagement({ activeSub }) {
   async function handleSubmitCart({ days, reason }) {
     setCartBusy(true);
     const results = await submitCartCheckouts(cart, { days, reason, raisedBy: userName, raisedByEmail: userEmail });
-    const succeeded = results.filter(r => r.status === 'fulfilled').length;
-    const failed    = results.filter(r => r.status === 'rejected').length;
-    if (succeeded > 0) await api.clearItemCart().catch(() => {});
-    setCartBusy(false); setCartOpen(false); setCart([]);
-    if (succeeded > 0) toast(`${succeeded} checkout${succeeded !== 1 ? 's' : ''} submitted.`);
-    if (failed > 0)    toast(`${failed} checkout${failed !== 1 ? 's' : ''} failed — please retry.`, 'error');
+    const succeededItems = cart.filter((_, i) => results[i].status === 'fulfilled');
+    const failedItems    = cart.filter((_, i) => results[i].status === 'rejected');
+    await Promise.all(succeededItems.map(c => api.removeItemFromCart(c.item.id).catch(() => {})));
+    setCartBusy(false); setCartOpen(false); setCart(failedItems);
+    if (succeededItems.length > 0) toast(`${succeededItems.length} checkout${succeededItems.length !== 1 ? 's' : ''} submitted.`);
+    if (failedItems.length > 0) {
+      const reasons = [...new Set(results.filter(r => r.status === 'rejected').map(r => r.reason?.message).filter(Boolean))];
+      toast(reasons.join(' · ') || `${failedItems.length} checkout${failedItems.length !== 1 ? 's' : ''} failed — please retry.`, 'error');
+    }
   }
 
   // Manager-only tab/modal state
