@@ -1255,7 +1255,7 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
 }
 
 // ── Manager Catalog Tab ───────────────────────────────────────────────────────
-function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, refreshItems }) {
+function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, refreshItems, onAddToCart, inCart }) {
   const [photoPreview, setPhotoPreview] = useState(null);
   const filtered = items.filter(i => {
     const mS = !search || i.name.toLowerCase().includes(search.toLowerCase()) || (i.make||'').toLowerCase().includes(search.toLowerCase()) || (i.model||'').toLowerCase().includes(search.toLowerCase());
@@ -1279,30 +1279,46 @@ function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFi
         <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
           <thead>
             <tr style={{ background:'var(--mist)' }}>
-              {['Photo','Name','Type','Make / Model','Dept','Location','Owner','Ownership','Status'].map(h =>
+              {['Photo','Name','Type','Make / Model','Dept','Location','Owner','Ownership','Status',''].map(h =>
                 <th key={h} style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', whiteSpace:'nowrap', fontSize:11.5 }}>{h}</th>)}
             </tr>
           </thead>
           <tbody>
-            {filtered.map(item => (
-              <tr key={item.id} style={{ borderTop:'1px solid var(--line)' }}>
-                <td style={{ padding:'10px 14px' }}>
-                  <PhotoThumb url={item.photoUrl} size={40} onPreview={url => setPhotoPreview(url)} />
-                </td>
-                <td style={{ padding:'10px 14px', fontWeight:600, whiteSpace:'nowrap' }}>{item.name}</td>
-                <td style={{ padding:'10px 14px' }}><TypeBadge type={item.itemType} /></td>
-                <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{[item.make, item.model, item.year].filter(Boolean).join(' ') || '—'}</td>
-                <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.department || '—'}</td>
-                <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.location || '—'}</td>
-                <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.defaultOwner || '—'}</td>
-                <td style={{ padding:'10px 14px' }}>
-                  <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:20, background: item.ownershipType === 'permanent' ? 'hsla(var(--color-purple),0.1)' : 'hsla(var(--color-blue),0.1)', color: item.ownershipType === 'permanent' ? 'hsl(var(--color-purple))' : 'hsl(var(--color-blue))' }}>
-                    {item.ownershipType === 'permanent' ? 'Permanent' : 'Transient'}
-                  </span>
-                </td>
-                <td style={{ padding:'10px 14px' }}><StatusBadge status={item.status} /></td>
-              </tr>
-            ))}
+            {filtered.map(item => {
+              const canRequest = item.ownershipType === 'transient' && item.status === 'available' && onAddToCart;
+              const alreadyInCart = inCart?.has(item.id);
+              return (
+                <tr key={item.id} style={{ borderTop:'1px solid var(--line)' }}>
+                  <td style={{ padding:'10px 14px' }}>
+                    <PhotoThumb url={item.photoUrl} size={40} onPreview={url => setPhotoPreview(url)} />
+                  </td>
+                  <td style={{ padding:'10px 14px', fontWeight:600, whiteSpace:'nowrap' }}>{item.name}</td>
+                  <td style={{ padding:'10px 14px' }}><TypeBadge type={item.itemType} /></td>
+                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{[item.make, item.model, item.year].filter(Boolean).join(' ') || '—'}</td>
+                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.department || '—'}</td>
+                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.location || '—'}</td>
+                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.defaultOwner || '—'}</td>
+                  <td style={{ padding:'10px 14px' }}>
+                    <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:20, background: item.ownershipType === 'permanent' ? 'hsla(var(--color-purple),0.1)' : 'hsla(var(--color-blue),0.1)', color: item.ownershipType === 'permanent' ? 'hsl(var(--color-purple))' : 'hsl(var(--color-blue))' }}>
+                      {item.ownershipType === 'permanent' ? 'Permanent' : 'Transient'}
+                    </span>
+                  </td>
+                  <td style={{ padding:'10px 14px' }}><StatusBadge status={item.status} /></td>
+                  <td style={{ padding:'10px 14px' }}>
+                    {canRequest && (
+                      <button
+                        className={alreadyInCart ? 'secondary-btn' : 'primary-btn'}
+                        style={{ fontSize:11, padding:'4px 10px', display:'inline-flex', alignItems:'center', gap:5, opacity: alreadyInCart ? 0.6 : 1 }}
+                        disabled={alreadyInCart}
+                        onClick={() => onAddToCart(item)}>
+                        <ShoppingCart size={11} />
+                        {alreadyInCart ? 'In Cart' : 'Request'}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -1734,10 +1750,33 @@ export default function InventoryManagement({ activeSub }) {
   const isManager = can('manager');  // level >= 3; checked after role loads
   const canDelete = canAccessModule('inventory', 'owner', 'full');
 
-  const pendingCount = checkouts.filter(c => c.status === 'pending').length;
+  const pendingCount  = checkouts.filter(c => c.status === 'pending').length;
   const approvedCount = checkouts.filter(c => c.status === 'approved').length;
 
-  const [mainTab,      setMainTab]      = useState('catalog'); // catalog | manage | checkouts | audit
+  // Cart — available to everyone
+  const [cart,        setCart]        = useState([]);
+  const [cartOpen,    setCartOpen]    = useState(false);
+  const [cartBusy,    setCartBusy]    = useState(false);
+  const [returningCo, setReturningCo] = useState(null);
+
+  const inCart = new Set(cart.map(c => c.item.id));
+  function addToCart(item) {
+    if (inCart.has(item.id)) return;
+    setCart(prev => [...prev, { id: `cart-${Date.now()}`, item }]);
+    setCartOpen(true);
+  }
+  async function handleSubmitCart({ days, reason }) {
+    setCartBusy(true);
+    const results = await submitCartCheckouts(cart, { days, reason, raisedBy: userName, raisedByEmail: userEmail });
+    const succeeded = results.filter(r => r.status === 'fulfilled').length;
+    const failed    = results.filter(r => r.status === 'rejected').length;
+    setCartBusy(false); setCartOpen(false); setCart([]);
+    if (succeeded > 0) toast(`${succeeded} checkout${succeeded !== 1 ? 's' : ''} submitted.`);
+    if (failed > 0)    toast(`${failed} checkout${failed !== 1 ? 's' : ''} failed — please retry.`, 'error');
+  }
+
+  // Manager-only tab/modal state
+  const [mainTab,      setMainTab]      = useState('catalog');
   const [deptFilter,   setDeptFilter]   = useState('All');
   const [typeFilter,   setTypeFilter]   = useState('All');
   const [search,       setSearch]       = useState('');
@@ -1760,44 +1799,35 @@ export default function InventoryManagement({ activeSub }) {
       .then(() => { refreshItems(); toast(`Added "${data.name}" to the catalog.`); })
       .catch(err => { toast(err?.message || 'Could not add item.', 'error'); throw err; });
   }
-
   function handleEditItem(item, data) {
     return api.updateItem(item.id, data)
       .then(() => { refreshItems(); toast(`Updated "${data.name}".`); })
       .catch(err => { toast(err?.message || 'Could not save changes.', 'error'); throw err; });
   }
-
   function handleDeleteItem(item) {
     return api.deleteItem(item.id)
       .then(() => { refreshItems(); toast(`Deleted "${item.name}".`); setDeletingItem(null); })
       .catch(err => { toast(err?.message || 'Could not delete item.', 'error'); throw err; });
   }
-
   function handleImport(rows) {
     return api.importItems(rows)
       .then(res => { refreshItems(); toast(`Imported ${res.created} item${res.created !== 1 ? 's' : ''}.`); return res; })
       .catch(err => { toast(err?.message || 'Import failed.', 'error'); throw err; });
   }
 
-  // Employee checkout return
-  function handleReturn(id, data) {
-    return returnItem(id, data);
-  }
-
   if (roleLoading) return <SkeletonBlocks count={6} height={56} borderRadius={10} />;
 
+  // ── Unified view for all roles ────────────────────────────────────────────────
+  // Non-managers see Catalog (with cart) + My Checkouts only.
+  // Managers see all tabs + the same cart.
   if (!isManager) {
     return (
       <>
         <EmployeeView
-          items={items}
-          checkouts={checkouts}
-          userName={userName}
-          userEmail={userEmail}
-          itemsLoading={itemsLoading}
-          itemsError={itemsError}
-          checkoutsError={checkoutsError}
-          onReturn={handleReturn}
+          items={items} checkouts={checkouts}
+          userName={userName} userEmail={userEmail}
+          itemsLoading={itemsLoading} itemsError={itemsError}
+          onReturn={(id, data) => returnItem(id, data)}
           refreshItems={refreshItems}
           submitCartCheckouts={submitCartCheckouts}
           cancelRequest={cancelRequest}
@@ -1809,7 +1839,7 @@ export default function InventoryManagement({ activeSub }) {
     );
   }
 
-  // Manager experience
+  // Manager view — same cart available via button in header
   return (
     <div style={{ animation:'fadeIn var(--transition-normal) ease-in-out' }}>
       {/* Header */}
@@ -1818,30 +1848,38 @@ export default function InventoryManagement({ activeSub }) {
           <h2>Items</h2>
           <p>Company assets across all departments and locations</p>
         </div>
-        {/* Department filter — top right per spec */}
         <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+          {/* Cart button — managers can also check out items */}
+          <button className={cart.length ? 'primary-btn' : 'secondary-btn'}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, position:'relative' }}
+            onClick={() => setCartOpen(true)}>
+            <ShoppingCart size={14} /> Cart
+            {cart.length > 0 && (
+              <span style={{ position:'absolute', top:-7, right:-7, background:'hsl(var(--color-red))', color:'#fff', borderRadius:'50%', width:17, height:17, fontSize:10, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                {cart.length}
+              </span>
+            )}
+          </button>
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
             <Filter size={13} style={{ color:'var(--muted)' }} />
             <select className="form-input" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34 }}>
               {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
             </select>
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-            <select className="form-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34 }}>
-              <option value="All">All types</option>
-              {ITEM_TYPES.map(t => <option key={t}>{t}</option>)}
-            </select>
-          </div>
+          <select className="form-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34 }}>
+            <option value="All">All types</option>
+            {ITEM_TYPES.map(t => <option key={t}>{t}</option>)}
+          </select>
         </div>
       </div>
 
       {/* KPI strip */}
       <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(4,1fr)', margin:'16px 0 20px' }}>
         {[
-          { label:'Total Items',    value: items.length,                                                color:'card-blue'   },
-          { label:'Available',      value: items.filter(i => i.status === 'available').length,         color:'card-green'  },
-          { label:'Checked Out',    value: items.filter(i => i.status === 'checked_out').length,       color:'card-orange' },
-          { label:'Missing Photos', value: items.filter(i => !i.photoUrl).length,                      color: items.filter(i => !i.photoUrl).length > 0 ? 'card-red' : '' },
+          { label:'Total Items',    value: items.length,                                          color:'card-blue'   },
+          { label:'Available',      value: items.filter(i => i.status === 'available').length,    color:'card-green'  },
+          { label:'Checked Out',    value: items.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
+          { label:'Missing Photos', value: items.filter(i => !i.photoUrl).length,                 color: items.filter(i => !i.photoUrl).length > 0 ? 'card-red' : '' },
         ].map(({ label, value, color }) => (
           <div key={label} className={`kpi-card ${color}`}>
             <div className="kpi-label">{label}</div>
@@ -1859,12 +1897,11 @@ export default function InventoryManagement({ activeSub }) {
           { id:'audit',     label:'Audit Log', Icon: History,       badge: 0 },
         ].map(({ id, label, Icon, badge }) => (
           <button key={id} onClick={() => setMainTab(id)}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 16px', background:'none', border:'none', borderBottom: mainTab === id ? '2px solid var(--pine)' : '2px solid transparent', color: mainTab === id ? 'var(--ink)' : 'var(--muted)', fontWeight: mainTab === id ? 700 : 600, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-1, position:'relative' }}>
+            style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 16px', background:'none', border:'none', borderBottom: mainTab === id ? '2px solid var(--pine)' : '2px solid transparent', color: mainTab === id ? 'var(--ink)' : 'var(--muted)', fontWeight: mainTab === id ? 700 : 600, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-1 }}>
             <Icon size={14} /> {label}
             {badge > 0 && <span style={{ background:'hsl(var(--color-orange))', color:'#fff', borderRadius:20, fontSize:10, fontWeight:800, padding:'1px 6px', marginLeft:2 }}>{badge}</span>}
           </button>
         ))}
-        {/* Search for catalog/manage */}
         {(mainTab === 'catalog' || mainTab === 'manage') && (
           <div className="search-bar" style={{ marginLeft:'auto', width:220, marginBottom:0 }}>
             <Search size={14} style={{ flexShrink:0 }} />
@@ -1879,6 +1916,7 @@ export default function InventoryManagement({ activeSub }) {
           items={items} itemsLoading={itemsLoading} itemsError={itemsError}
           deptFilter={deptFilter} typeFilter={typeFilter} search={search}
           refreshItems={refreshItems}
+          onAddToCart={addToCart} inCart={inCart}
         />
       )}
       {mainTab === 'manage' && (
@@ -1905,12 +1943,33 @@ export default function InventoryManagement({ activeSub }) {
       )}
       {mainTab === 'audit' && <AuditLogPanel />}
 
+      {/* My checkouts — visible to managers too */}
+      {mainTab === 'catalog' && (
+        <MyCheckoutsPanel
+          checkouts={checkouts} userEmail={userEmail} userName={userName}
+          onReturn={co => setReturningCo(co)}
+          onCancel={co => cancelRequest(co.id, userName).then(() => toast('Checkout cancelled.')).catch(() => toast('Could not cancel.', 'error'))}
+        />
+      )}
+
       {/* Modals */}
       {addItemOpen  && <AddItemModal   onClose={() => setAddItemOpen(false)}  onSave={handleAddItem} />}
-      {editingItem  && <EditItemModal  item={editingItem} onClose={() => setEditingItem(null)}  onSave={data => handleEditItem(editingItem, data)} />}
+      {editingItem  && <EditItemModal  item={editingItem} onClose={() => setEditingItem(null)} onSave={data => handleEditItem(editingItem, data)} />}
       {deletingItem && <DeleteItemModal item={deletingItem} onClose={() => setDeletingItem(null)} onConfirm={() => handleDeleteItem(deletingItem)} />}
       {importOpen   && <ImportItemsModal onClose={() => setImportOpen(false)} onImport={handleImport} />}
       {reportOpen   && <ReportModal onClose={() => setReportOpen(false)} />}
+      {returningCo  && (
+        <ReturnModal checkout={returningCo} onClose={() => setReturningCo(null)}
+          onSubmit={data => returnItem(returningCo.id, data).then(() => { toast(`Return confirmed — ${returningCo.itemName}`); setReturningCo(null); })} />
+      )}
+
+      <CartDrawer
+        open={cartOpen} cart={cart}
+        onClose={() => setCartOpen(false)}
+        onRemove={id => setCart(prev => prev.filter(c => c.id !== id))}
+        onSubmit={handleSubmitCart}
+        submitting={cartBusy}
+      />
 
       <Toast toasts={toasts} onDismiss={dismissToast} />
     </div>
