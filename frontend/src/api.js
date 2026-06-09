@@ -157,6 +157,7 @@ export const api = {
   markNotifRead:    (id)             => req(`/notifications/${id}/read`, { method: 'PATCH' }),
   markNotifActioned:(id)             => req(`/notifications/${id}/action`, { method: 'PATCH' }),
   deleteNotif:      (id)             => req(`/notifications/${id}`, { method: 'DELETE' }),
+  sendAlert:        (data)           => req('/notifications/send-alert', { method: 'POST', body: JSON.stringify(data) }),
 
   // Inventory Requests (legacy — kept for backward compat with existing data)
   getInventoryItems:       ()          => req('/inventory-requests/items'),

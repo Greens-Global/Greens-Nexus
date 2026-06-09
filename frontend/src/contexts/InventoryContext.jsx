@@ -105,14 +105,15 @@ export function InventoryProvider({ children }) {
 
   // ── Checkout actions ──────────────────────────────────────────────────────
 
-  function submitCartCheckouts(cartItems, { days, reason, raisedBy, raisedByEmail }) {
+  function submitCartCheckouts(cartItems, { reason, raisedBy, raisedByEmail }) {
     const promises = cartItems.map(cartItem => {
       const id = genCheckoutId();
+      const itemDays = cartItem.days ?? 1;
       const optimistic = {
         id, itemId: cartItem.item.id, itemName: cartItem.item.name,
         itemType: cartItem.item.itemType, requestedBy: raisedBy,
         requestedByEmail: raisedByEmail, raisedBy, department: cartItem.item.department,
-        days, reason, status: 'pending', createdAt: new Date().toISOString(),
+        days: itemDays, reason, status: 'pending', createdAt: new Date().toISOString(),
         checkoutPhotoUrl: cartItem.photoUrl || null,
       };
       setCheckouts(prev => [optimistic, ...prev]);
@@ -120,7 +121,7 @@ export function InventoryProvider({ children }) {
         id, item_id: cartItem.item.id, item_name: cartItem.item.name,
         item_type: cartItem.item.itemType, requested_by: raisedBy,
         requested_by_email: raisedByEmail, raised_by: raisedBy,
-        department: cartItem.item.department, days, reason,
+        department: cartItem.item.department, days: itemDays, reason,
         checkout_photo_url: cartItem.photoUrl || '',
         checkout_photo_name: cartItem.photoName || '',
       }).then(saved => {

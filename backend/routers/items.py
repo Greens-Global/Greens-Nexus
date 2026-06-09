@@ -12,7 +12,7 @@ from typing import Optional
 import httpx
 from database import get_db
 from auth import get_current_user, require_level_or_module
-from models import Item, ItemCheckout, ItemCartEntry, NexusRole, AuditLog
+from models import Item, ItemCheckout, ItemCartEntry, NexusRole, NexusNotification, AuditLog
 
 _VALID_TRANSITIONS = {
     "approved":  {"pending"},
@@ -42,6 +42,25 @@ require_items_delete = require_level_or_module(_ROLE_LEVEL["owner"],   "inventor
 
 _SUPABASE_URL         = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+
+
+def _notify(db: Session, *, type: str, recipient: str, title: str, body: str,
+            ref_id: str = "", item_name: str = "", requested_by: str = "") -> None:
+    row = NexusNotification(
+        id=str(uuid.uuid4()),
+        type=type,
+        recipient=recipient.lower() if recipient else "",
+        title=title,
+        body=body,
+        ref_id=ref_id,
+        item_name=item_name,
+        requested_by=requested_by,
+        action="",
+        actioned=False,
+        read_by="",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    db.add(row)
 
 
 def _title_case_email(email: str) -> str:
@@ -442,6 +461,11 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
         checkout_photo_name=body.checkout_photo_name or "",
     )
     db.add(row)
+    if initial_status == "pending":
+        _notify(db, type="req_pending", recipient="",
+                title=f"Checkout request: {body.item_name}",
+                body=f"{body.requested_by} needs {body.item_name} for {body.days} day(s) — \"{body.reason}\"",
+                ref_id=body.id, item_name=body.item_name, requested_by=body.requested_by)
     db.commit()
     _fire_item_event(row.id, initial_status, row.requested_by_email or "")
     return _checkout_to_dict(row)
@@ -505,6 +529,28 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
             item.status = "retired" if damaged else "available"
 
     row.status = body.status
+
+    if body.status == "approved":
+        _notify(db, type="approved", recipient=row.requested_by_email,
+                title=f"Checkout approved: {row.item_name}",
+                body=f"Your request for {row.item_name} was approved. {row.assigned_allocator_name or 'Someone'} will hand it over to you.",
+                ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+    elif body.status == "rejected":
+        _notify(db, type="rejected", recipient=row.requested_by_email,
+                title=f"Checkout rejected: {row.item_name}",
+                body=f"Your request for {row.item_name} was not approved. Reason: {row.reject_reason or 'No reason given.'}",
+                ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+    elif body.status == "allocated":
+        _notify(db, type="allocated", recipient=row.requested_by_email,
+                title=f"Item ready: {row.item_name}",
+                body=f"{row.item_name} has been handed over to you. Please return it within {row.days} day(s).",
+                ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+    elif body.status == "returned":
+        _notify(db, type="item_returned", recipient="",
+                title=f"Item returned: {row.item_name}",
+                body=f"{row.requested_by} returned {row.item_name}. Condition: {row.condition_note or 'No notes.'}",
+                ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+
     db.commit()
     _fire_item_event(checkout_id, row.status, row.requested_by_email or "")
     return _checkout_to_dict(row)

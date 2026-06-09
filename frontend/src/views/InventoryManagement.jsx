@@ -4,7 +4,7 @@ import {
   AlertCircle, X, Loader2, ChevronDown, UploadCloud, FileSpreadsheet,
   Download, Pencil, Trash2, MapPin, ClipboardList, History, FileBarChart,
   ShoppingCart, Filter, ZoomIn, Car, Wrench, Key, Monitor, Box,
-  ArrowLeft, ChevronRight,
+  ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image,
 } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import { useInventory }     from '../contexts/InventoryContext';
@@ -876,13 +876,16 @@ function StageTracker({ checkout, onViewPhoto }) {
 }
 
 // ── Cart Drawer ────────────────────────────────────────────────────────────────
-function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting }) {
-  const [days,   setDays]   = useState(1);
+function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDaysChange }) {
   const [reason, setReason] = useState('');
   useEffect(() => { if (!open) return; const h = e => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [open, onClose]);
   useEffect(() => { document.body.style.overflow = open ? 'hidden' : ''; return () => { document.body.style.overflow = ''; }; }, [open]);
 
   const canSubmit = cart.length > 0 && reason.trim() && !submitting;
+
+  function applyDaysToAll(days) {
+    cart.forEach(c => onDaysChange(c.id, days));
+  }
 
   return (
     <>
@@ -907,55 +910,65 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting }) {
             </div>
           ) : (
             <>
-              <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:20 }}>
-                {cart.map(cartItem => {
-                  const tm = TYPE_META[cartItem.item.itemType] || TYPE_META.Other;
-                  return (
-                    <div key={cartItem.id} style={{ border:'1px solid var(--line)', borderRadius:12, padding:'12px 14px', background:'var(--card)', display:'flex', alignItems:'center', gap:12 }}>
-                      <div style={{ width:40, height:40, borderRadius:8, overflow:'hidden', flexShrink:0, border:'1px solid var(--line)', background: cartItem.item.photoUrl ? 'transparent' : tm.bg, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                        {cartItem.item.photoUrl
-                          ? <img src={cartItem.item.photoUrl} alt={cartItem.item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-                          : <tm.Icon size={18} color={tm.color} />}
-                      </div>
-                      <div style={{ flex:1, minWidth:0 }}>
-                        <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{cartItem.item.name}</div>
-                        <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:3, flexWrap:'wrap' }}>
-                          <TypeBadge type={cartItem.item.itemType} />
-                          {cartItem.item.location && (
-                            <span style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:11, color:'var(--muted)' }}>
-                              <MapPin size={10} /> {cartItem.item.location}
-                            </span>
-                          )}
+              {/* Per-item days */}
+              <div style={{ marginBottom:6 }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+                  <label style={{ ...FL, marginBottom:0 }}>DAYS NEEDED PER ITEM</label>
+                  <button onClick={() => applyDaysToAll(cart[0]?.days ?? 1)}
+                    style={{ fontSize:11, color:'hsl(var(--color-blue))', background:'none', border:'none', cursor:'pointer', padding:'2px 6px', fontFamily:'Inter,sans-serif' }}>
+                    Apply first to all
+                  </button>
+                </div>
+                <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:20 }}>
+                  {cart.map(cartItem => {
+                    const tm = TYPE_META[cartItem.item.itemType] || TYPE_META.Other;
+                    const itemDays = cartItem.days ?? 1;
+                    return (
+                      <div key={cartItem.id} style={{ border:'1px solid var(--line)', borderRadius:12, padding:'10px 14px', background:'var(--card)', display:'flex', alignItems:'center', gap:10 }}>
+                        <div style={{ width:36, height:36, borderRadius:7, overflow:'hidden', flexShrink:0, border:'1px solid var(--line)', background: cartItem.item.photoUrl ? 'transparent' : tm.bg, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                          {cartItem.item.photoUrl
+                            ? <img src={cartItem.item.photoUrl} alt={cartItem.item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                            : <tm.Icon size={16} color={tm.color} />}
                         </div>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontWeight:700, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{cartItem.item.name}</div>
+                          <div style={{ display:'flex', alignItems:'center', gap:5, marginTop:2 }}>
+                            <TypeBadge type={cartItem.item.itemType} />
+                            {cartItem.item.location && <span style={{ fontSize:10.5, color:'var(--muted)' }}><MapPin size={9} style={{ display:'inline', marginRight:2 }} />{cartItem.item.location}</span>}
+                          </div>
+                        </div>
+                        {/* Days stepper */}
+                        <div style={{ display:'flex', alignItems:'center', gap:4, flexShrink:0 }}>
+                          <button onClick={() => onDaysChange(cartItem.id, Math.max(1, itemDays - 1))}
+                            style={{ width:26, height:26, borderRadius:6, border:'1px solid var(--line)', background:'var(--mist)', cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Inter,sans-serif' }}>−</button>
+                          <input type="number" min={1} max={90} value={itemDays}
+                            onChange={e => onDaysChange(cartItem.id, Math.max(1, Math.min(90, Number(e.target.value) || 1)))}
+                            style={{ width:38, textAlign:'center', padding:'4px 2px', border:'1px solid var(--line)', borderRadius:6, fontSize:13, fontWeight:700, fontFamily:'Inter,sans-serif', background:'var(--card)' }} />
+                          <button onClick={() => onDaysChange(cartItem.id, Math.min(90, itemDays + 1))}
+                            style={{ width:26, height:26, borderRadius:6, border:'1px solid var(--line)', background:'var(--mist)', cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Inter,sans-serif' }}>+</button>
+                        </div>
+                        <button onClick={() => onRemove(cartItem.id)}
+                          style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', padding:4, borderRadius:6, display:'flex', flexShrink:0 }}>
+                          <X size={15} />
+                        </button>
                       </div>
-                      <button onClick={() => onRemove(cartItem.id)}
-                        style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', padding:4, borderRadius:6, display:'flex', flexShrink:0 }}>
-                        <X size={15} />
-                      </button>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
 
               <div style={{ background:'hsla(var(--color-blue),0.06)', border:'1px solid hsla(var(--color-blue),0.2)', borderRadius:9, padding:'10px 14px', marginBottom:16, display:'flex', alignItems:'flex-start', gap:8 }}>
                 <AlertCircle size={14} color="hsl(var(--color-blue))" style={{ flexShrink:0, marginTop:1 }} />
                 <span style={{ fontSize:12.5, color:'hsl(var(--color-blue))', lineHeight:1.4 }}>
-                  A checkout photo will be taken by the allocator when they hand over the item to you.
+                  A checkout photo will be taken by the allocator when they hand over each item.
                 </span>
               </div>
 
-              <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-                <div>
-                  <label style={FL}>DAYS NEEDED</label>
-                  <input type="number" min={1} max={90} className="form-input" style={{ width:'100%' }}
-                    value={days} onChange={e => setDays(Math.max(1, Math.min(90, Number(e.target.value) || 1)))} />
-                </div>
-                <div>
-                  <label style={FL}>REASON FOR CHECKOUT <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
-                  <textarea rows={3} className="form-input" style={{ width:'100%', resize:'vertical', fontSize:13 }}
-                    placeholder="Briefly explain why you need these items…"
-                    value={reason} onChange={e => setReason(e.target.value)} />
-                </div>
+              <div>
+                <label style={FL}>REASON FOR CHECKOUT <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+                <textarea rows={3} className="form-input" style={{ width:'100%', resize:'vertical', fontSize:13 }}
+                  placeholder="Briefly explain why you need these items…"
+                  value={reason} onChange={e => setReason(e.target.value)} />
               </div>
             </>
           )}
@@ -965,7 +978,7 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting }) {
           <div style={{ padding:'16px 22px', borderTop:'1px solid var(--line)', flexShrink:0 }}>
             <button className="primary-btn" disabled={!canSubmit}
               style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
-              onClick={() => onSubmit({ days, reason })}>
+              onClick={() => onSubmit({ reason })}>
               {submitting ? <><Loader2 size={15} style={{ animation:'spin 1s linear infinite' }} /> Submitting…</> : <><CheckCircle size={15} /> Submit {cart.length} Checkout{cart.length !== 1 ? 's' : ''}</>}
             </button>
           </div>
@@ -1091,7 +1104,7 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
 
 // ── Employee View ─────────────────────────────────────────────────────────────
 // ── Item Photo Grid (shared by employee + manager catalog) ────────────────────
-function ItemPhotoGrid({ items, itemsLoading, itemsError, refreshItems, onAddToCart, inCart, emptyLabel }) {
+function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItems, onAddToCart, inCart, emptyLabel }) {
   const [lightbox, setLightbox] = useState(null);
 
   if (itemsError) return <ErrorBanner message="Could not load items right now." onRetry={refreshItems} />;
@@ -1107,24 +1120,47 @@ function ItemPhotoGrid({ items, itemsLoading, itemsError, refreshItems, onAddToC
     </div>
   );
 
+  // Available items first, then unavailable, alpha within each group
+  const sorted = [...items].sort((a, b) => {
+    const aAvail = a.status === 'available' ? 0 : 1;
+    const bAvail = b.status === 'available' ? 0 : 1;
+    if (aAvail !== bAvail) return aAvail - bAvail;
+    return a.name.localeCompare(b.name);
+  });
+
   return (
     <>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))', gap:14 }}>
-        {items.map(item => {
+        {sorted.map(item => {
           const tm = TYPE_META[item.itemType] || TYPE_META.Other;
           const alreadyInCart = inCart?.has(item.id);
-          const canAdd = onAddToCart && item.status === 'available' && item.ownershipType === 'transient';
+          const isAvailable = item.status === 'available';
+          const canAdd = onAddToCart && isAvailable && item.ownershipType === 'transient';
+
+          // For checked-out items, show who has it and when it's due
+          let checkedOutBy = null, dueDate = null;
+          if (!isAvailable && checkouts) {
+            const co = checkouts.find(c => c.itemId === item.id && ['approved','allocated'].includes(c.status));
+            if (co) {
+              checkedOutBy = co.requestedBy;
+              const due = new Date(co.createdAt);
+              due.setDate(due.getDate() + (co.days || 1));
+              dueDate = due.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+            }
+          }
+
           return (
-            <div key={item.id} style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', background:'var(--card)', display:'flex', flexDirection:'column', transition:'box-shadow 0.15s', boxShadow:'var(--shadow-sm)' }}
+            <div key={item.id}
+              style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', background:'var(--card)', display:'flex', flexDirection:'column', transition:'box-shadow 0.15s', boxShadow:'var(--shadow-sm)', opacity: isAvailable ? 1 : 0.62 }}
               onMouseEnter={e => e.currentTarget.style.boxShadow = 'var(--shadow-md)'}
               onMouseLeave={e => e.currentTarget.style.boxShadow = 'var(--shadow-sm)'}>
-              {/* Photo — click to expand */}
-              <div onClick={() => item.photoUrl && setLightbox({ src: item.photoUrl, alt: item.name })}
-                style={{ height:140, background: item.photoUrl ? 'transparent' : tm.bg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, cursor: item.photoUrl ? 'zoom-in' : 'default', position:'relative', overflow:'hidden' }}>
+              {/* Photo */}
+              <div onClick={() => item.photoUrl && isAvailable && setLightbox({ src: item.photoUrl, alt: item.name })}
+                style={{ height:140, background: item.photoUrl ? 'transparent' : tm.bg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, cursor: item.photoUrl && isAvailable ? 'zoom-in' : 'default', position:'relative', overflow:'hidden' }}>
                 {item.photoUrl
-                  ? <img src={item.photoUrl} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                  ? <img src={item.photoUrl} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover', filter: isAvailable ? 'none' : 'grayscale(35%)' }} />
                   : <tm.Icon size={40} color={tm.color} />}
-                {item.photoUrl && (
+                {item.photoUrl && isAvailable && (
                   <div style={{ position:'absolute', top:6, right:6, background:'rgba(0,0,0,0.45)', borderRadius:6, padding:'2px 5px', display:'flex', alignItems:'center', gap:3 }}>
                     <ZoomIn size={11} color="#fff" />
                   </div>
@@ -1133,6 +1169,13 @@ function ItemPhotoGrid({ items, itemsLoading, itemsError, refreshItems, onAddToC
                   <div style={{ position:'absolute', top:6, left:6, background:'hsl(var(--color-green))', borderRadius:6, padding:'2px 7px', display:'flex', alignItems:'center', gap:3 }}>
                     <CheckCircle size={10} color="#fff" />
                     <span style={{ fontSize:10, color:'#fff', fontWeight:700 }}>In Cart</span>
+                  </div>
+                )}
+                {!isAvailable && (
+                  <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.15)', display:'flex', alignItems:'flex-end', justifyContent:'center', padding:'0 0 8px' }}>
+                    <span style={{ background:'rgba(0,0,0,0.65)', color:'#fff', fontSize:10.5, fontWeight:700, borderRadius:6, padding:'2px 8px' }}>
+                      {STATUS_META[item.status]?.label || item.status}
+                    </span>
                   </div>
                 )}
               </div>
@@ -1150,6 +1193,11 @@ function ItemPhotoGrid({ items, itemsLoading, itemsError, refreshItems, onAddToC
                     <MapPin size={10} /> {item.location}
                   </div>
                 )}
+                {checkedOutBy && (
+                  <div style={{ fontSize:11, color:'hsl(var(--color-orange))', fontWeight:600 }}>
+                    With {checkedOutBy}{dueDate ? ` · due ${dueDate}` : ''}
+                  </div>
+                )}
               </div>
               {/* Action */}
               <div style={{ padding:'0 12px 12px' }}>
@@ -1159,8 +1207,8 @@ function ItemPhotoGrid({ items, itemsLoading, itemsError, refreshItems, onAddToC
                     style={{ width:'100%', fontSize:12.5, padding:'7px 0', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
                     {alreadyInCart ? <><CheckCircle size={12} /> In Cart</> : <><Plus size={12} /> Add to Cart</>}
                   </button>
-                ) : !canAdd && item.status !== 'available' ? (
-                  <div style={{ textAlign:'center' }}><StatusBadge status={item.status} /></div>
+                ) : !isAvailable ? (
+                  <div style={{ textAlign:'center', fontSize:11.5, color:'var(--muted)', fontWeight:600 }}>Unavailable</div>
                 ) : null}
               </div>
             </div>
@@ -1174,42 +1222,48 @@ function ItemPhotoGrid({ items, itemsLoading, itemsError, refreshItems, onAddToC
 
 // ── Employee View ─────────────────────────────────────────────────────────────
 function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, submitCartCheckouts, cancelRequest, toast }) {
-  const [mode,        setMode]        = useState('home'); // 'home' | 'browse'
-  const [search,      setSearch]      = useState('');
-  const [typeFilter,  setTypeFilter]  = useState('All');
-  const [cartOpen,    setCartOpen]    = useState(false);
-  const [cart,        setCart]        = useState([]);
-  const [returningCo, setReturningCo] = useState(null);
-  const [submitting,  setSubmitting]  = useState(false);
-  const activeRef                     = useRef(null);
+  const [mode,           setMode]           = useState('home'); // 'home' | 'browse'
+  const [search,         setSearch]         = useState('');
+  const [typeFilter,     setTypeFilter]     = useState('All');
+  const [locationFilter, setLocationFilter] = useState('All');
+  const [cartOpen,       setCartOpen]       = useState(false);
+  const [cart,           setCart]           = useState([]);
+  const [returningCo,    setReturningCo]    = useState(null);
+  const [submitting,     setSubmitting]     = useState(false);
+  const activeRef                           = useRef(null);
 
   useEffect(() => {
     api.getItemCart().then(rows => {
-      setCart(rows.map(r => ({ id: r.id, item: { id: r.itemId, name: r.itemName, itemType: r.itemType } })));
+      setCart(rows.map(r => ({ id: r.id, item: { id: r.itemId, name: r.itemName, itemType: r.itemType }, days: 1 })));
     }).catch(() => {});
   }, []);
 
-  const myCheckouts = checkouts.filter(c =>
+  const myCheckouts     = checkouts.filter(c =>
     (c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) || c.requestedBy === userName
   );
-  const activeCheckouts    = myCheckouts.filter(c => ['pending','approved','allocated'].includes(c.status));
-  const availableItems     = items.filter(i => i.ownershipType === 'transient' && i.status === 'available');
-  const inCart             = new Set(cart.map(c => c.item.id));
+  const activeCheckouts = myCheckouts.filter(c => ['pending','approved','allocated'].includes(c.status));
+  const allTransient    = items.filter(i => i.ownershipType === 'transient');
+  const availableItems  = allTransient.filter(i => i.status === 'available');
+  const inCart          = new Set(cart.map(c => c.item.id));
 
-  const filteredItems = availableItems.filter(i => {
+  // Derive location list from all transient items (not just available)
+  const locations = ['All', ...Array.from(new Set(allTransient.map(i => i.location).filter(Boolean))).sort()];
+
+  const filteredItems = allTransient.filter(i => {
     const ms = !search || i.name.toLowerCase().includes(search.toLowerCase()) ||
       (i.make||'').toLowerCase().includes(search.toLowerCase()) ||
       (i.model||'').toLowerCase().includes(search.toLowerCase());
-    const mt = typeFilter === 'All' || i.itemType === typeFilter;
-    return ms && mt;
+    const mt = typeFilter     === 'All' || i.itemType === typeFilter;
+    const ml = locationFilter === 'All' || i.location === locationFilter;
+    return ms && mt && ml;
   });
 
   function addToCart(item) {
     if (inCart.has(item.id)) return;
     const optimisticId = `cart-${Date.now()}`;
-    setCart(prev => [...prev, { id: optimisticId, item }]);
+    setCart(prev => [...prev, { id: optimisticId, item, days: 1 }]);
     api.addItemToCart({ item_id: item.id, item_name: item.name, item_type: item.itemType })
-      .then(saved => setCart(prev => prev.map(c => c.id === optimisticId ? { id: saved.id, item } : c)))
+      .then(saved => setCart(prev => prev.map(c => c.id === optimisticId ? { id: saved.id, item, days: 1 } : c)))
       .catch(err => {
         setCart(prev => prev.filter(c => c.id !== optimisticId));
         toast(err?.message || 'Could not add item to cart.', 'error');
@@ -1222,12 +1276,15 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
     if (entry) api.removeItemFromCart(entry.item.id).catch(() => {});
   }
 
-  async function handleSubmitCart({ days, reason }) {
+  function handleDaysChange(cartId, days) {
+    setCart(prev => prev.map(c => c.id === cartId ? { ...c, days } : c));
+  }
+
+  async function handleSubmitCart({ reason }) {
     setSubmitting(true);
-    const results = await submitCartCheckouts(cart, { days, reason, raisedBy: userName, raisedByEmail: userEmail });
+    const results = await submitCartCheckouts(cart, { reason, raisedBy: userName, raisedByEmail: userEmail });
     const succeededItems = cart.filter((_, i) => results[i].status === 'fulfilled');
     const failedItems    = cart.filter((_, i) => results[i].status === 'rejected');
-    // Remove only the successfully checked-out items from DB cart
     await Promise.all(succeededItems.map(c => api.removeItemFromCart(c.item.id).catch(() => {})));
     setSubmitting(false);
     setCartOpen(false);
@@ -1264,13 +1321,13 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
           <h2 style={{ fontSize:17, fontWeight:700, margin:0 }}>Select Items to Check Out</h2>
         </div>
 
-        {/* Search + type filter chips */}
+        {/* Search + type + location filters */}
         <div style={{ display:'flex', flexDirection:'column', gap:12, marginBottom:20 }}>
           <div className="search-bar" style={{ width:'100%' }}>
             <Search size={14} style={{ flexShrink:0 }} />
             <input placeholder="Search by name, make, or model…" value={search} onChange={e => setSearch(e.target.value)} autoFocus />
           </div>
-          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
             {['All', ...ITEM_TYPES].map(t => {
               const active = typeFilter === t;
               return (
@@ -1281,19 +1338,34 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
               );
             })}
             <span style={{ fontSize:12.5, color:'var(--muted)', alignSelf:'center', marginLeft:4 }}>
-              {filteredItems.length} available
+              {filteredItems.filter(i => i.status === 'available').length} available · {filteredItems.length} total
             </span>
           </div>
+          {locations.length > 2 && (
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+              <MapPin size={13} style={{ color:'var(--muted)', flexShrink:0 }} />
+              {locations.map(loc => {
+                const active = locationFilter === loc;
+                return (
+                  <button key={loc} onClick={() => setLocationFilter(loc)}
+                    style={{ padding:'4px 12px', borderRadius:20, border:`1px solid ${active ? 'hsl(var(--color-blue))' : 'var(--line)'}`, background: active ? 'hsla(var(--color-blue),0.1)' : 'transparent', color: active ? 'hsl(var(--color-blue))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif', transition:'all 0.15s' }}>
+                    {loc}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <ItemPhotoGrid
           items={filteredItems}
+          checkouts={checkouts}
           itemsLoading={itemsLoading}
           itemsError={itemsError}
           refreshItems={refreshItems}
           onAddToCart={addToCart}
           inCart={inCart}
-          emptyLabel={search || typeFilter !== 'All' ? 'No items match your search.' : 'No items available right now.'}
+          emptyLabel={search || typeFilter !== 'All' || locationFilter !== 'All' ? 'No items match your search.' : 'No items here yet.'}
         />
 
         {/* Sticky cart bar */}
@@ -1316,6 +1388,7 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
           onRemove={removeFromCart}
           onSubmit={handleSubmitCart}
           submitting={submitting}
+          onDaysChange={handleDaysChange}
         />
         {returningCo && <ReturnModal checkout={returningCo} onClose={() => setReturningCo(null)} onSubmit={handleReturnSubmit} />}
       </div>
@@ -1400,6 +1473,7 @@ function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFi
       <p style={{ fontSize:12, color:'var(--muted)', marginBottom:14 }}>{filtered.length} item{filtered.length !== 1 ? 's' : ''}</p>
       <ItemPhotoGrid
         items={filtered}
+        checkouts={checkouts}
         itemsLoading={itemsLoading}
         itemsError={itemsError}
         refreshItems={refreshItems}
@@ -1420,9 +1494,305 @@ function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFi
   );
 }
 
+// ── Batch Delete Confirm Modal ────────────────────────────────────────────────
+function BatchDeleteConfirmModal({ selectedItems, blockedItems, onClose, onConfirm, deleting }) {
+  useEscapeKey(onClose);
+  const deletable = selectedItems.filter(i => !blockedItems.find(b => b.id === i.id));
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:16, padding:28, width:'100%', maxWidth:460, boxShadow:'var(--shadow-lg)' }}>
+        <h3 style={{ margin:'0 0 6px', fontSize:16, fontWeight:700 }}>Delete {selectedItems.length} item{selectedItems.length !== 1 ? 's' : ''}?</h3>
+        <p style={{ margin:'0 0 16px', fontSize:13, color:'var(--muted)' }}>This cannot be undone.</p>
+        {blockedItems.length > 0 && (
+          <div style={{ background:'hsla(var(--color-orange),0.1)', border:'1px solid hsla(var(--color-orange),0.3)', borderRadius:10, padding:'10px 14px', marginBottom:14 }}>
+            <div style={{ fontWeight:700, fontSize:12.5, color:'hsl(var(--color-orange))', marginBottom:6 }}>
+              <AlertCircle size={13} style={{ verticalAlign:'middle', marginRight:4 }} />
+              {blockedItems.length} item{blockedItems.length !== 1 ? 's' : ''} cannot be deleted (active checkout)
+            </div>
+            {blockedItems.map(i => <div key={i.id} style={{ fontSize:12, color:'var(--muted)', paddingLeft:4 }}>· {i.name}</div>)}
+          </div>
+        )}
+        {deletable.length > 0 && (
+          <div style={{ background:'var(--mist)', borderRadius:10, padding:'10px 14px', marginBottom:18 }}>
+            <div style={{ fontWeight:700, fontSize:12.5, marginBottom:6 }}>Will be deleted:</div>
+            {deletable.map(i => <div key={i.id} style={{ fontSize:12, color:'var(--muted)', paddingLeft:4 }}>· {i.name}</div>)}
+          </div>
+        )}
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
+          <button className="secondary-btn" onClick={onClose} disabled={deleting}>Cancel</button>
+          {deletable.length > 0 && (
+            <button onClick={onConfirm} disabled={deleting}
+              style={{ display:'inline-flex', alignItems:'center', gap:6, background:'hsl(var(--color-red))', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: deleting ? 0.6 : 1 }}>
+              {deleting ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <Trash2 size={14} />}
+              Delete {deletable.length} item{deletable.length !== 1 ? 's' : ''}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Batch Photo Modal ─────────────────────────────────────────────────────────
+const PHOTO_TYPE_ORDER = ['Vehicles', 'Devices', 'Tools', 'Equipment', 'Keys', 'Other'];
+
+function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
+  useEscapeKey(onClose);
+  const [urlInputs,  setUrlInputs]  = useState({});
+  const [saving,     setSaving]     = useState({});
+  const [uploading,  setUploading]  = useState({});
+  const [localUrls,  setLocalUrls]  = useState({});
+  const fileRefs = useRef({});
+
+  // Sort: missing photos first, then by type hierarchy, then alpha
+  const sortedItems = [...items].sort((a, b) => {
+    const aHas = (localUrls[a.id] ?? a.photoUrl) ? 1 : 0;
+    const bHas = (localUrls[b.id] ?? b.photoUrl) ? 1 : 0;
+    if (aHas !== bHas) return aHas - bHas;
+    const at = PHOTO_TYPE_ORDER.indexOf(a.itemType);
+    const bt = PHOTO_TYPE_ORDER.indexOf(b.itemType);
+    if (at !== bt) return at - bt;
+    return a.name.localeCompare(b.name);
+  });
+
+  const withPhotos = items.filter(i => localUrls[i.id] ?? i.photoUrl).length;
+
+  async function saveUrl(item) {
+    const url = (urlInputs[item.id] || '').trim();
+    if (!url.startsWith('https://') && !url.startsWith('http://')) {
+      toast?.('URL must start with https://', 'error'); return;
+    }
+    setSaving(p => ({ ...p, [item.id]: true }));
+    try {
+      await api.updateItem(item.id, { photo_url: url });
+      setLocalUrls(p => ({ ...p, [item.id]: url }));
+      setUrlInputs(p => ({ ...p, [item.id]: '' }));
+      onUpdate?.();
+    } catch {
+      toast?.('Could not save photo URL.', 'error');
+    } finally {
+      setSaving(p => ({ ...p, [item.id]: false }));
+    }
+  }
+
+  async function handleFile(item, file) {
+    if (!file) return;
+    setUploading(p => ({ ...p, [item.id]: true }));
+    const path = `items/${item.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const { url, error } = await uploadToSupabase(file, 'item-photos', path);
+    if (error) { toast?.(error, 'error'); setUploading(p => ({ ...p, [item.id]: false })); return; }
+    try {
+      await api.updateItem(item.id, { photo_url: url });
+      setLocalUrls(p => ({ ...p, [item.id]: url }));
+      onUpdate?.();
+    } catch {
+      toast?.('Photo uploaded but could not save to item.', 'error');
+    } finally {
+      setUploading(p => ({ ...p, [item.id]: false }));
+    }
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:680, maxHeight:'90vh', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)' }}>
+        {/* Header */}
+        <div style={{ padding:'20px 24px 16px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+          <div>
+            <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>Assign Photos</h3>
+            <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>{withPhotos} / {items.length} items have photos</p>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
+        </div>
+        {/* Scrollable list */}
+        <div style={{ overflowY:'auto', flex:1, padding:'12px 24px' }}>
+          {sortedItems.map(item => {
+            const currentUrl = localUrls[item.id] ?? item.photoUrl;
+            const tm = TYPE_META[item.itemType] || TYPE_META.Other;
+            const isSaving   = saving[item.id];
+            const isUploading = uploading[item.id];
+            return (
+              <div key={item.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 0', borderBottom:'1px solid var(--line)' }}>
+                {/* Thumb */}
+                <div style={{ width:44, height:44, borderRadius:8, flexShrink:0, overflow:'hidden', background: currentUrl ? 'transparent' : tm.bg, border:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  {currentUrl
+                    ? <img src={currentUrl} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                    : <tm.Icon size={20} color={tm.color} />}
+                </div>
+                {/* Name + location */}
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:600, fontSize:13, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{item.name}</div>
+                  <div style={{ display:'flex', gap:6, alignItems:'center', marginTop:2 }}>
+                    <TypeBadge type={item.itemType} />
+                    {item.location && <span style={{ fontSize:11, color:'var(--muted)' }}>{item.location}</span>}
+                    {currentUrl && <CheckCircle size={12} color="hsl(var(--color-green))" />}
+                  </div>
+                </div>
+                {/* URL input + upload */}
+                <div style={{ display:'flex', gap:6, alignItems:'center', flexShrink:0 }}>
+                  <input
+                    value={urlInputs[item.id] || ''}
+                    onChange={e => setUrlInputs(p => ({ ...p, [item.id]: e.target.value }))}
+                    onKeyDown={e => e.key === 'Enter' && saveUrl(item)}
+                    placeholder="Paste URL…"
+                    className="form-input"
+                    style={{ width:160, fontSize:12, padding:'5px 8px', height:30 }}
+                  />
+                  <button onClick={() => saveUrl(item)} disabled={!urlInputs[item.id] || isSaving}
+                    style={{ height:30, padding:'0 10px', fontSize:12, fontWeight:600, background:'var(--pine)', color:'#fff', border:'none', borderRadius:7, cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: (!urlInputs[item.id] || isSaving) ? 0.5 : 1, display:'flex', alignItems:'center', gap:4 }}>
+                    {isSaving ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : 'Save'}
+                  </button>
+                  <input type="file" accept="image/*" style={{ display:'none' }} ref={el => fileRefs.current[item.id] = el}
+                    onChange={e => e.target.files[0] && handleFile(item, e.target.files[0])} />
+                  <button onClick={() => fileRefs.current[item.id]?.click()} disabled={isUploading}
+                    style={{ height:30, padding:'0 10px', fontSize:12, fontWeight:600, background:'none', border:'1px solid var(--line)', borderRadius:7, cursor:'pointer', fontFamily:'Inter,sans-serif', display:'flex', alignItems:'center', gap:4, color:'var(--muted)', opacity: isUploading ? 0.5 : 1 }}>
+                    {isUploading ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : <><UploadCloud size={12} /> Upload</>}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ padding:'14px 24px', borderTop:'1px solid var(--line)', display:'flex', justifyContent:'flex-end', flexShrink:0 }}>
+          <button className="secondary-btn" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Send Alert Modal ──────────────────────────────────────────────────────────
+function SendAlertModal({ onClose, toast }) {
+  useEscapeKey(onClose);
+  const { accounts } = useMsal();
+  const senderName  = accounts[0]?.name ?? 'Manager';
+
+  const [users,      setUsers]      = useState([]);
+  const [usersLoading, setUsersLoading] = useState(true);
+  const [search,     setSearch]     = useState('');
+  const [selected,   setSelected]   = useState(new Set());
+  const [subject,    setSubject]    = useState('');
+  const [message,    setMessage]    = useState('');
+  const [sending,    setSending]    = useState(false);
+
+  useEffect(() => {
+    api.getAllRoles()
+      .then(rows => setUsers(rows))
+      .catch(() => setUsers([]))
+      .finally(() => setUsersLoading(false));
+  }, []);
+
+  const filteredUsers = users.filter(u => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (u.display_name || '').toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
+  });
+
+  function toggleUser(email) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(email)) next.delete(email); else next.add(email);
+      return next;
+    });
+  }
+
+  async function handleSend() {
+    if (!selected.size) { toast?.('Select at least one recipient.', 'error'); return; }
+    if (!subject.trim()) { toast?.('Subject is required.', 'error'); return; }
+    if (!message.trim()) { toast?.('Message is required.', 'error'); return; }
+    setSending(true);
+    try {
+      const res = await api.sendAlert({ to: [...selected], subject: subject.trim(), message: message.trim() });
+      toast?.(res.email_sent
+        ? `Alert sent to ${selected.size} recipient${selected.size !== 1 ? 's' : ''}.`
+        : `Notification sent (email delivery failed — check Azure config).`, res.email_sent ? 'success' : 'error');
+      onClose();
+    } catch (err) {
+      toast?.(err?.message || 'Could not send alert.', 'error');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:560, maxHeight:'90vh', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)' }}>
+        {/* Header */}
+        <div style={{ padding:'20px 24px 16px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{ width:36, height:36, borderRadius:10, background:'hsla(var(--color-orange),0.12)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <Megaphone size={18} color="hsl(var(--color-orange))" />
+            </div>
+            <div>
+              <h3 style={{ margin:0, fontSize:15, fontWeight:700 }}>Send Alert</h3>
+              <p style={{ margin:0, fontSize:12, color:'var(--muted)' }}>Bell notification + email to selected users</p>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
+        </div>
+        <div style={{ overflowY:'auto', flex:1, padding:'16px 24px', display:'flex', flexDirection:'column', gap:16 }}>
+          {/* Recipients */}
+          <div>
+            <label style={FL}>Recipients{selected.size > 0 ? ` (${selected.size} selected)` : ''}</label>
+            <div className="search-bar" style={{ marginBottom:8 }}>
+              <Users size={13} style={{ flexShrink:0 }} />
+              <input placeholder="Search by name or email…" value={search} onChange={e => setSearch(e.target.value)} />
+            </div>
+            <div style={{ border:'1px solid var(--line)', borderRadius:10, maxHeight:180, overflowY:'auto' }}>
+              {usersLoading ? (
+                <div style={{ padding:'20px', textAlign:'center', color:'var(--muted)', fontSize:13 }}>Loading users…</div>
+              ) : filteredUsers.length === 0 ? (
+                <div style={{ padding:'16px', textAlign:'center', color:'var(--muted)', fontSize:13 }}>No users found.</div>
+              ) : filteredUsers.map(u => {
+                const checked = selected.has(u.email);
+                return (
+                  <label key={u.email} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 14px', cursor:'pointer', borderBottom:'1px solid var(--line)', background: checked ? 'hsla(var(--color-green),0.06)' : 'transparent' }}>
+                    <input type="checkbox" checked={checked} onChange={() => toggleUser(u.email)} style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontWeight:600, fontSize:13 }}>{u.display_name || u.email}</div>
+                      <div style={{ fontSize:11.5, color:'var(--muted)' }}>{u.email}</div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+          {/* Subject */}
+          <div>
+            <label style={FL}>Subject</label>
+            <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Alert subject…" className="form-input" style={{ width:'100%' }} />
+          </div>
+          {/* Message */}
+          <div>
+            <label style={FL}>Message</label>
+            <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder={`Write your message…\n\n— ${senderName}`} rows={4}
+              className="form-input" style={{ width:'100%', resize:'vertical', fontFamily:'Inter,sans-serif', fontSize:13 }} />
+          </div>
+        </div>
+        <div style={{ padding:'14px 24px', borderTop:'1px solid var(--line)', display:'flex', gap:10, justifyContent:'flex-end', flexShrink:0 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={sending}>Cancel</button>
+          <button onClick={handleSend} disabled={sending || !selected.size || !subject.trim() || !message.trim()}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, background:'hsl(var(--color-orange))', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: (sending || !selected.size || !subject.trim() || !message.trim()) ? 0.55 : 1 }}>
+            {sending ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <Send size={14} />}
+            Send Alert
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Manager Manage Tab ────────────────────────────────────────────────────────
-function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport }) {
-  const [photoPreview, setPhotoPreview] = useState(null);
+function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast }) {
+  const [photoPreview,       setPhotoPreview]       = useState(null);
+  const [selected,           setSelected]           = useState(new Set());
+  const [sortCol,            setSortCol]            = useState('name');
+  const [sortDir,            setSortDir]            = useState('asc');
+  const [batchPhotoOpen,     setBatchPhotoOpen]     = useState(false);
+  const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false);
+  const [batchDeleting,      setBatchDeleting]      = useState(false);
+
+  const TYPE_ORDER = ['Vehicles', 'Devices', 'Tools', 'Equipment', 'Keys', 'Other'];
+
   const filtered = items.filter(i => {
     const mS = !search || i.name.toLowerCase().includes(search.toLowerCase()) || (i.make||'').toLowerCase().includes(search.toLowerCase());
     const mD = deptFilter === 'All' || i.department === deptFilter;
@@ -1430,7 +1800,61 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
     return mS && mD && mT;
   });
 
+  const sorted = [...filtered].sort((a, b) => {
+    let av, bv;
+    if (sortCol === 'name')     { av = a.name.toLowerCase();                          bv = b.name.toLowerCase(); }
+    if (sortCol === 'type')     { av = TYPE_ORDER.indexOf(a.itemType);                bv = TYPE_ORDER.indexOf(b.itemType); }
+    if (sortCol === 'location') { av = (a.location || '').toLowerCase();              bv = (b.location || '').toLowerCase(); }
+    if (sortCol === 'status')   { av = a.status;                                      bv = b.status; }
+    if (av === bv) return 0;
+    const cmp = av < bv ? -1 : 1;
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+
   const missingPhotos = items.filter(i => !i.photoUrl).length;
+  const selItems      = filtered.filter(i => selected.has(i.id));
+  const blockedItems  = selItems.filter(i =>
+    (checkouts || []).some(c => c.itemId === i.id && ['pending','approved','allocated'].includes(c.status))
+  );
+
+  function toggleSelect(id) {
+    setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+  function toggleAll() {
+    setSelected(selected.size === filtered.length && filtered.length > 0 ? new Set() : new Set(filtered.map(i => i.id)));
+  }
+  function toggleSort(col) {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortCol(col); setSortDir('asc'); }
+  }
+
+  async function executeBatchDelete() {
+    setBatchDeleting(true);
+    const deletable = selItems.filter(i => !blockedItems.find(b => b.id === i.id));
+    let failed = 0;
+    for (const item of deletable) {
+      try { await api.deleteItem(item.id); } catch { failed++; }
+    }
+    await refreshItems();
+    setSelected(new Set());
+    setBatchDeleteConfirm(false);
+    setBatchDeleting(false);
+    if (failed === 0) toast?.(`Deleted ${deletable.length} item${deletable.length !== 1 ? 's' : ''}.`);
+    else toast?.(`Deleted ${deletable.length - failed} items · ${failed} failed.`, 'error');
+  }
+
+  const SortTh = ({ col, label }) => {
+    const active = sortCol === col;
+    return (
+      <th onClick={() => toggleSort(col)}
+        style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color: active ? 'var(--ink)' : 'var(--muted)', whiteSpace:'nowrap', fontSize:11.5, cursor:'pointer', userSelect:'none' }}>
+        <span style={{ display:'inline-flex', alignItems:'center', gap:3 }}>
+          {label}
+          <ArrowUpDown size={11} style={{ opacity: active ? 1 : 0.35, color: active ? 'var(--pine)' : 'inherit', transform: active && sortDir === 'desc' ? 'scaleY(-1)' : 'none' }} />
+        </span>
+      </th>
+    );
+  };
 
   if (itemsError) return <ErrorBanner message="Could not load items." onRetry={refreshItems} />;
 
@@ -1450,7 +1874,23 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
         <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onReport}>
           <FileBarChart size={14} /> Export Report
         </button>
-        {missingPhotos > 0 && (
+        {/* Assign Photos */}
+        <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7, position:'relative' }} onClick={() => setBatchPhotoOpen(true)}>
+          <Image size={14} /> Assign Photos
+          {missingPhotos > 0 && (
+            <span style={{ position:'absolute', top:-6, right:-6, background:'hsl(var(--color-red))', color:'#fff', borderRadius:'50%', width:16, height:16, fontSize:9.5, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>
+              {missingPhotos > 99 ? '99+' : missingPhotos}
+            </span>
+          )}
+        </button>
+        {/* Batch delete */}
+        {canDelete && selected.size > 0 && (
+          <button onClick={() => setBatchDeleteConfirm(true)}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, background:'hsl(var(--color-red))', color:'#fff', border:'none', borderRadius:9, padding:'7px 14px', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+            <Trash2 size={13} /> Delete {selected.size}
+          </button>
+        )}
+        {missingPhotos > 0 && selected.size === 0 && (
           <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:6, fontSize:12.5, color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:8, padding:'6px 12px', border:'1px solid hsla(var(--color-red),0.25)' }}>
             <AlertCircle size={14} /> {missingPhotos} item{missingPhotos !== 1 ? 's' : ''} missing photo
           </div>
@@ -1459,7 +1899,7 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
 
       {itemsLoading && !items.length ? (
         <SkeletonBlocks count={8} height={52} borderRadius={8} />
-      ) : filtered.length === 0 ? (
+      ) : sorted.length === 0 ? (
         <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)' }}>
           <Package size={32} style={{ opacity:.25, display:'block', margin:'0 auto 10px' }} />
           {items.length ? 'No items match your filters.' : 'No items yet. Add one above or import a CSV.'}
@@ -1469,18 +1909,36 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
             <thead>
               <tr style={{ background:'var(--mist)' }}>
-                {['Photo','Name','Type','Make / Model','Dept','Location','Ownership','Status',''].map(h =>
-                  <th key={h} style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', whiteSpace:'nowrap', fontSize:11.5 }}>{h}</th>)}
+                <th style={{ padding:'10px 14px', width:36 }}>
+                  <input type="checkbox"
+                    checked={selected.size === filtered.length && filtered.length > 0}
+                    ref={el => { if (el) el.indeterminate = selected.size > 0 && selected.size < filtered.length; }}
+                    onChange={toggleAll}
+                    style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
+                </th>
+                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5 }}>Photo</th>
+                <SortTh col="name" label="Name" />
+                <SortTh col="type" label="Type" />
+                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5, whiteSpace:'nowrap' }}>Make / Model</th>
+                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5 }}>Dept</th>
+                <SortTh col="location" label="Location" />
+                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5 }}>Ownership</th>
+                <SortTh col="status" label="Status" />
+                <th style={{ padding:'10px 14px' }}></th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map(item => (
-                <tr key={item.id} style={{ borderTop:'1px solid var(--line)' }}>
+              {sorted.map(item => (
+                <tr key={item.id} style={{ borderTop:'1px solid var(--line)', background: selected.has(item.id) ? 'hsla(var(--color-blue),0.05)' : 'transparent' }}>
+                  <td style={{ padding:'10px 14px' }}>
+                    <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)}
+                      style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
+                  </td>
                   <td style={{ padding:'10px 14px' }}>
                     {item.photoUrl
                       ? <PhotoThumb url={item.photoUrl} size={40} onPreview={url => setPhotoPreview(url)} />
                       : (
-                        <div style={{ width:40, height:40, borderRadius:8, background:'hsla(var(--color-red),0.08)', border:'1px dashed hsla(var(--color-red),0.4)', display:'flex', alignItems:'center', justifyContent:'center' }} title="Missing photo — required">
+                        <div style={{ width:40, height:40, borderRadius:8, background:'hsla(var(--color-red),0.08)', border:'1px dashed hsla(var(--color-red),0.4)', display:'flex', alignItems:'center', justifyContent:'center' }} title="Missing photo">
                           <Camera size={16} color="hsl(var(--color-red))" />
                         </div>
                       )
@@ -1499,12 +1957,12 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
                   <td style={{ padding:'10px 14px' }}><StatusBadge status={item.status} /></td>
                   <td style={{ padding:'10px 14px' }}>
                     <div style={{ display:'flex', gap:6 }}>
-                      <button onClick={() => onEdit(item)} title={`Edit ${item.name}`}
+                      <button onClick={() => onEdit(item)}
                         style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
                         <Pencil size={12} /> Edit
                       </button>
                       {canDelete && (
-                        <button onClick={() => onDelete(item)} title={`Delete ${item.name}`}
+                        <button onClick={() => onDelete(item)}
                           style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-red))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
                           <Trash2 size={12} /> Delete
                         </button>
@@ -1517,8 +1975,21 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
           </table>
         </div>
       )}
-      <p style={{ fontSize:12, color:'var(--muted)', marginTop:10 }}>{filtered.length} item{filtered.length !== 1 ? 's' : ''} shown · {items.length} total</p>
+      <p style={{ fontSize:12, color:'var(--muted)', marginTop:10 }}>
+        {sorted.length} item{sorted.length !== 1 ? 's' : ''} shown · {items.length} total
+        {selected.size > 0 && <> · <strong>{selected.size} selected</strong></>}
+      </p>
+
       {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
+      {batchPhotoOpen && (
+        <BatchPhotoModal items={items} onClose={() => setBatchPhotoOpen(false)} onUpdate={refreshItems} toast={toast} />
+      )}
+      {batchDeleteConfirm && (
+        <BatchDeleteConfirmModal
+          selectedItems={selItems} blockedItems={blockedItems}
+          onClose={() => setBatchDeleteConfirm(false)}
+          onConfirm={executeBatchDelete} deleting={batchDeleting} />
+      )}
     </>
   );
 }
@@ -1589,7 +2060,7 @@ function AllocateModal({ checkout, onClose, onConfirm }) {
 }
 
 // ── Approve Modal (manager picks allocator) ───────────────────────────────────
-function ApproveCheckoutModal({ checkout, onClose, onConfirm }) {
+function ApproveCheckoutModal({ checkout, onClose, onConfirm, currentUserEmail, currentUserName }) {
   const [allocators,  setAllocators]  = useState([]);
   const [pickedEmail, setPickedEmail] = useState('');
   const [busy,        setBusy]        = useState(false);
@@ -1601,7 +2072,8 @@ function ApproveCheckoutModal({ checkout, onClose, onConfirm }) {
   }, []);
 
   function submit() {
-    const chosen = allocators.find(a => a.email === pickedEmail);
+    const chosen = allocators.find(a => a.email === pickedEmail)
+      || (pickedEmail === currentUserEmail ? { email: currentUserEmail, name: currentUserName } : null);
     if (!chosen || busy) return;
     setBusy(true); setError('');
     Promise.resolve(onConfirm(chosen.email, chosen.name))
@@ -1619,7 +2091,15 @@ function ApproveCheckoutModal({ checkout, onClose, onConfirm }) {
           Approving <strong>{checkout.itemName}</strong> for <strong>{checkout.requestedBy}</strong>. Assign who will physically hand over the item.
         </p>
         <div>
-          <label style={FL}>ASSIGN ALLOCATOR <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+            <label style={{ ...FL, marginBottom:0 }}>ASSIGN ALLOCATOR <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+            {currentUserEmail && (
+              <button onClick={() => setPickedEmail(currentUserEmail)}
+                style={{ fontSize:11.5, color:'hsl(var(--color-blue))', background:'none', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif', padding:'2px 6px' }}>
+                Assign to me
+              </button>
+            )}
+          </div>
           <select className="form-input" style={{ width:'100%' }} value={pickedEmail} onChange={e => setPickedEmail(e.target.value)}>
             <option value="">— select allocator —</option>
             {allocators.map(a => <option key={a.email} value={a.email}>{a.name} ({a.role})</option>)}
@@ -1676,6 +2156,8 @@ function RejectCheckoutModal({ checkout, onClose, onConfirm }) {
 
 // ── Manager Checkouts Tab ─────────────────────────────────────────────────────
 function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveRequest, rejectRequest, allocateItem, refreshCheckouts, refreshItems, toast }) {
+  const { can } = useRole();
+  const isManager = can('manager');
   const [statusFilter, setStatusFilter] = useState('active');
   const [approvingCo,  setApprovingCo]  = useState(null);
   const [rejectingCo,  setRejectingCo]  = useState(null);
@@ -1756,9 +2238,20 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
                       )}
                     </div>
                   </div>
-                  <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'3px 10px', borderRadius:20, fontSize:11, fontWeight:700, background:sm.bg, color:sm.fg, flexShrink:0 }}>
-                    <sm.Icon size={11} /> {sm.label}
-                  </span>
+                  <div style={{ display:'flex', gap:6, alignItems:'center', flexShrink:0 }}>
+                    {co.status === 'allocated' && (() => {
+                      const due = new Date(co.createdAt);
+                      due.setDate(due.getDate() + (co.days || 1));
+                      return due < new Date() ? (
+                        <span style={{ display:'inline-flex', alignItems:'center', gap:3, padding:'2px 8px', borderRadius:20, fontSize:10.5, fontWeight:800, background:'hsla(var(--color-orange),0.15)', color:'hsl(var(--color-orange))' }}>
+                          <AlertCircle size={10} /> Overdue
+                        </span>
+                      ) : null;
+                    })()}
+                    <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'3px 10px', borderRadius:20, fontSize:11, fontWeight:700, background:sm.bg, color:sm.fg }}>
+                      <sm.Icon size={11} /> {sm.label}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Photos row */}
@@ -1791,7 +2284,7 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
                       </button>
                     </>
                   )}
-                  {co.status === 'approved' && (isMyAlloc || true) && (
+                  {co.status === 'approved' && (isMyAlloc || isManager) && (
                     <button className="primary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5, background:'hsl(var(--color-orange))' }}
                       onClick={() => setAllocatingCo(co)}>
                       <Camera size={13} /> Hand Over + Photo
@@ -1807,7 +2300,8 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
       {approvingCo && (
         <ApproveCheckoutModal
           checkout={approvingCo} onClose={() => setApprovingCo(null)}
-          onConfirm={(email, name) => handleApprove(approvingCo, email, name)} />
+          onConfirm={(email, name) => handleApprove(approvingCo, email, name)}
+          currentUserEmail={userEmail} currentUserName={userName} />
       )}
       {rejectingCo && (
         <RejectCheckoutModal
@@ -1853,7 +2347,7 @@ export default function InventoryManagement({ activeSub }) {
 
   useEffect(() => {
     api.getItemCart().then(rows => {
-      setCart(rows.map(r => ({ id: r.id, item: { id: r.itemId, name: r.itemName, itemType: r.itemType } })));
+      setCart(rows.map(r => ({ id: r.id, item: { id: r.itemId, name: r.itemName, itemType: r.itemType }, days: 1 })));
     }).catch(() => {});
   }, []);
 
@@ -1861,9 +2355,9 @@ export default function InventoryManagement({ activeSub }) {
   function addToCart(item) {
     if (inCart.has(item.id)) return;
     const optimisticId = `cart-${Date.now()}`;
-    setCart(prev => [...prev, { id: optimisticId, item }]);
+    setCart(prev => [...prev, { id: optimisticId, item, days: 1 }]);
     api.addItemToCart({ item_id: item.id, item_name: item.name, item_type: item.itemType })
-      .then(saved => setCart(prev => prev.map(c => c.id === optimisticId ? { id: saved.id, item } : c)))
+      .then(saved => setCart(prev => prev.map(c => c.id === optimisticId ? { id: saved.id, item, days: 1 } : c)))
       .catch(() => setCart(prev => prev.filter(c => c.id !== optimisticId)));
   }
   function removeFromCart(cartId) {
@@ -1871,9 +2365,12 @@ export default function InventoryManagement({ activeSub }) {
     setCart(prev => prev.filter(c => c.id !== cartId));
     if (entry) api.removeItemFromCart(entry.item.id).catch(() => {});
   }
-  async function handleSubmitCart({ days, reason }) {
+  function handleDaysChange(cartId, days) {
+    setCart(prev => prev.map(c => c.id === cartId ? { ...c, days } : c));
+  }
+  async function handleSubmitCart({ reason }) {
     setCartBusy(true);
-    const results = await submitCartCheckouts(cart, { days, reason, raisedBy: userName, raisedByEmail: userEmail });
+    const results = await submitCartCheckouts(cart, { reason, raisedBy: userName, raisedByEmail: userEmail });
     const succeededItems = cart.filter((_, i) => results[i].status === 'fulfilled');
     const failedItems    = cart.filter((_, i) => results[i].status === 'rejected');
     await Promise.all(succeededItems.map(c => api.removeItemFromCart(c.item.id).catch(() => {})));
@@ -1886,15 +2383,16 @@ export default function InventoryManagement({ activeSub }) {
   }
 
   // Manager-only tab/modal state
-  const [mainTab,      setMainTab]      = useState('catalog');
-  const [deptFilter,   setDeptFilter]   = useState('All');
-  const [typeFilter,   setTypeFilter]   = useState('All');
-  const [search,       setSearch]       = useState('');
-  const [addItemOpen,  setAddItemOpen]  = useState(false);
-  const [editingItem,  setEditingItem]  = useState(null);
-  const [deletingItem, setDeletingItem] = useState(null);
-  const [importOpen,   setImportOpen]   = useState(false);
-  const [reportOpen,   setReportOpen]   = useState(false);
+  const [mainTab,       setMainTab]       = useState('catalog');
+  const [deptFilter,    setDeptFilter]    = useState('All');
+  const [typeFilter,    setTypeFilter]    = useState('All');
+  const [search,        setSearch]        = useState('');
+  const [addItemOpen,   setAddItemOpen]   = useState(false);
+  const [editingItem,   setEditingItem]   = useState(null);
+  const [deletingItem,  setDeletingItem]  = useState(null);
+  const [importOpen,    setImportOpen]    = useState(false);
+  const [reportOpen,    setReportOpen]    = useState(false);
+  const [sendAlertOpen, setSendAlertOpen] = useState(false);
 
   const [toasts, setToasts] = useState([]);
   const toast = useCallback((message, kind = 'success') => {
@@ -1957,6 +2455,9 @@ export default function InventoryManagement({ activeSub }) {
           <p>Company assets across all departments and locations</p>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+          <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7, color:'hsl(var(--color-orange))' }} onClick={() => setSendAlertOpen(true)} title="Send alert to team members">
+            <Megaphone size={14} /> Send Alert
+          </button>
           <button className={cart.length ? 'primary-btn' : 'secondary-btn'}
             style={{ display:'inline-flex', alignItems:'center', gap:7, position:'relative' }}
             onClick={() => setCartOpen(true)}>
@@ -2049,6 +2550,7 @@ export default function InventoryManagement({ activeSub }) {
           onAdd={() => setAddItemOpen(true)} onEdit={setEditingItem}
           onDelete={setDeletingItem} onImport={() => setImportOpen(true)}
           onExport={() => downloadItemsCsv(items)} onReport={() => setReportOpen(true)}
+          checkouts={checkouts} toast={toast}
         />
       )}
       {mainTab === 'checkouts' && (
@@ -2062,6 +2564,7 @@ export default function InventoryManagement({ activeSub }) {
       )}
       {mainTab === 'audit' && <AuditLogPanel />}
 
+      {sendAlertOpen && <SendAlertModal onClose={() => setSendAlertOpen(false)} toast={toast} />}
       {addItemOpen  && <AddItemModal   onClose={() => setAddItemOpen(false)}  onSave={handleAddItem} />}
       {editingItem  && <EditItemModal  item={editingItem} onClose={() => setEditingItem(null)} onSave={data => handleEditItem(editingItem, data)} />}
       {deletingItem && <DeleteItemModal item={deletingItem} onClose={() => setDeletingItem(null)} onConfirm={() => handleDeleteItem(deletingItem)} />}
@@ -2073,7 +2576,8 @@ export default function InventoryManagement({ activeSub }) {
       )}
 
       <CartDrawer open={cartOpen} cart={cart} onClose={() => setCartOpen(false)}
-        onRemove={removeFromCart} onSubmit={handleSubmitCart} submitting={cartBusy} />
+        onRemove={removeFromCart} onSubmit={handleSubmitCart} submitting={cartBusy}
+        onDaysChange={handleDaysChange} />
 
       <Toast toasts={toasts} onDismiss={dismissToast} />
     </div>

@@ -1,13 +1,21 @@
 import json
+import os
+import uuid
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
+import httpx
 from database import get_db
 from auth import get_current_user
-from models import NexusNotification
+from models import NexusNotification, NexusRole
+
+_AZURE_TENANT_ID    = os.getenv("AZURE_TENANT_ID", "")
+_AZURE_CLIENT_ID    = os.getenv("AZURE_CLIENT_ID", "")
+_AZURE_CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET", "")
+_NEXUS_FROM_EMAIL   = os.getenv("NEXUS_FROM_EMAIL", "")
 
 router = APIRouter(prefix="/notifications", tags=["notifications"], dependencies=[Depends(get_current_user)])
 
@@ -117,3 +125,89 @@ def delete_notification(nid: str, db: Session = Depends(get_db)):
     db.query(NexusNotification).filter(NexusNotification.id == nid).delete()
     db.commit()
     return {"ok": True}
+
+
+# ── Send Alert ────────────────────────────────────────────────────────────────
+
+class AlertIn(BaseModel):
+    to:      List[str]
+    subject: str
+    message: str
+
+
+def _graph_token() -> str:
+    if not all([_AZURE_TENANT_ID, _AZURE_CLIENT_ID, _AZURE_CLIENT_SECRET]):
+        raise HTTPException(503, "Email not configured — set AZURE_CLIENT_SECRET and NEXUS_FROM_EMAIL in env vars")
+    resp = httpx.post(
+        f"https://login.microsoftonline.com/{_AZURE_TENANT_ID}/oauth2/v2.0/token",
+        data={
+            "grant_type":    "client_credentials",
+            "client_id":     _AZURE_CLIENT_ID,
+            "client_secret": _AZURE_CLIENT_SECRET,
+            "scope":         "https://graph.microsoft.com/.default",
+        },
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return resp.json()["access_token"]
+
+
+@router.post("/send-alert")
+def send_alert(body: AlertIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if user["level"] < 3:
+        raise HTTPException(403, "Manager or above required to send alerts")
+    if not body.to:
+        raise HTTPException(400, "At least one recipient required")
+    if not body.subject.strip():
+        raise HTTPException(400, "Subject is required")
+    if not body.message.strip():
+        raise HTTPException(400, "Message is required")
+
+    # Resolve display names for recipients
+    role_rows = db.query(NexusRole).filter(NexusRole.email.in_([e.lower() for e in body.to])).all()
+    name_map  = {r.email.lower(): (r.display_name or r.email) for r in role_rows}
+
+    email_errors = []
+    if _NEXUS_FROM_EMAIL and _AZURE_CLIENT_SECRET:
+        try:
+            token = _graph_token()
+            html_body = f"<p>{body.message.replace(chr(10), '<br>')}</p><hr><p style='font-size:12px;color:#666'>Sent via Greens Nexus by {user.get('name', user['email'])}</p>"
+            resp = httpx.post(
+                f"https://graph.microsoft.com/v1.0/users/{_NEXUS_FROM_EMAIL}/sendMail",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json={
+                    "message": {
+                        "subject": body.subject,
+                        "body":    {"contentType": "HTML", "content": html_body},
+                        "toRecipients": [{"emailAddress": {"address": e}} for e in body.to],
+                    },
+                    "saveToSentItems": False,
+                },
+                timeout=15,
+            )
+            if not resp.is_success:
+                email_errors.append(resp.text)
+        except Exception as e:
+            email_errors.append(str(e))
+
+    # Always create Nexus bell notifications regardless of email outcome
+    now = datetime.now(timezone.utc).isoformat()
+    sender_name = user.get("name") or user["email"]
+    for recipient_email in body.to:
+        db.add(NexusNotification(
+            id=str(uuid.uuid4()),
+            type="custom_alert",
+            recipient=recipient_email.lower(),
+            title=body.subject,
+            body=f"{body.message}\n\n— {sender_name}",
+            ref_id="",
+            item_name="",
+            requested_by=sender_name,
+            action="",
+            actioned=False,
+            read_by="",
+            created_at=now,
+        ))
+    db.commit()
+
+    return {"ok": True, "email_sent": not email_errors, "email_errors": email_errors}
