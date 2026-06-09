@@ -81,6 +81,7 @@ export function InventoryProvider({ children }) {
       returnPhotoUrl:         r.return_photo_url         || null,
       returnPhotoName:        r.return_photo_name        || null,
       conditionNote:          r.condition_note           || null,
+      orderId:                r.orderId                  || r.order_id || '',
     };
   }
 
@@ -95,18 +96,16 @@ export function InventoryProvider({ children }) {
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'inventory_events' },
           payload => {
-            const { affected_email, request_id, status } = payload.new ?? {};
-            const isMe = affected_email && myEmail && affected_email.toLowerCase() === myEmail;
-            const involved = isMe || checkoutsRef.current.some(c => c.id === request_id);
-            if (involved) fetchCheckouts();
+            const { status } = payload.new ?? {};
+            fetchCheckouts();
             if (status === 'allocated' || status === 'returned') fetchItems();
           }
         )
         .subscribe();
 
-      pollRef.current = setInterval(() => { fetchItems(); fetchCheckouts(); }, 30000);
+      pollRef.current = setInterval(() => { fetchItems(); fetchCheckouts(); }, 10000);
     } else {
-      pollRef.current = setInterval(() => { fetchItems(); fetchCheckouts(); }, 30000);
+      pollRef.current = setInterval(() => { fetchItems(); fetchCheckouts(); }, 10000);
     }
 
     return () => {
@@ -118,6 +117,7 @@ export function InventoryProvider({ children }) {
   // ── Checkout actions ──────────────────────────────────────────────────────
 
   function submitCartCheckouts(cartItems, { reason, raisedBy, raisedByEmail }) {
+    const orderId = crypto.randomUUID();
     const promises = cartItems.map(cartItem => {
       const id = genCheckoutId();
       const itemDays = cartItem.days ?? 1;
@@ -126,7 +126,7 @@ export function InventoryProvider({ children }) {
         itemType: cartItem.item.itemType, requestedBy: raisedBy,
         requestedByEmail: raisedByEmail, raisedBy, department: cartItem.item.department,
         days: itemDays, reason, status: 'pending', createdAt: new Date().toISOString(),
-        checkoutPhotoUrl: cartItem.photoUrl || null,
+        checkoutPhotoUrl: cartItem.photoUrl || null, orderId,
       };
       setCheckouts(prev => [optimistic, ...prev]);
       return api.createItemCheckout({
@@ -136,6 +136,7 @@ export function InventoryProvider({ children }) {
         department: cartItem.item.department, days: itemDays, reason,
         checkout_photo_url: cartItem.photoUrl || '',
         checkout_photo_name: cartItem.photoName || '',
+        order_id: orderId,
       }).then(saved => {
         setCheckouts(prev => prev.map(c => c.id === id ? saved : c));
         // mark item as pending in local state

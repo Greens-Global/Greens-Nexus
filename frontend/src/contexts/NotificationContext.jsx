@@ -39,15 +39,18 @@ export function NotificationProvider({ children }) {
   // the bell panel to open itself straight into that item's approval workflow
   // (allocator picker / reject reason) instead of just opening the list.
   const [pendingApprovalId, setPendingApprovalId] = useState(null);
-  const pollRef    = useRef(null);
-  const channelRef = useRef(null);
+  const pollRef     = useRef(null);
+  const channelRef  = useRef(null);
+  const fetchingRef = useRef(false);
 
   // ── Full fetch from backend ───────────────────────────────────────────────
   const fetchNotifications = useCallback(() => {
-    if (!myEmail) return;
+    if (!myEmail || fetchingRef.current) return;
+    fetchingRef.current = true;
     api.getNotifications()
       .then(rows => setNotifications(rows.map(rowToNotif)))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => { fetchingRef.current = false; });
   }, [myEmail]);
 
   // ── Supabase Realtime subscription ────────────────────────────────────────

@@ -146,6 +146,7 @@ def _checkout_to_dict(c: ItemCheckout) -> dict:
         "returnPhotoUrl":          c.return_photo_url         or None,
         "returnPhotoName":         c.return_photo_name        or None,
         "conditionNote":           c.condition_note           or None,
+        "orderId":                 c.order_id                 or "",
     }
 
 
@@ -380,6 +381,7 @@ class CheckoutIn(BaseModel):
     reason:              str = ""
     checkout_photo_url:  Optional[str] = ""
     checkout_photo_name: Optional[str] = ""
+    order_id:            Optional[str] = ""
 
     def validate_days(self):
         if not (1 <= self.days <= 90):
@@ -442,6 +444,7 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
     self_checkout = is_manager and requester_email == user_email
     initial_status = "approved" if self_checkout else "pending"
 
+    order_id = (body.order_id or "").strip()
     row = ItemCheckout(
         id=body.id,
         item_id=body.item_id,
@@ -459,13 +462,22 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
         resolved_by=body.requested_by if self_checkout else "",
         checkout_photo_url=body.checkout_photo_url or "",
         checkout_photo_name=body.checkout_photo_name or "",
+        order_id=order_id,
     )
     db.add(row)
     if initial_status == "pending":
-        _notify(db, type="checkout_pending", recipient="",
-                title=f"Checkout request: {body.item_name}",
-                body=f"{body.requested_by} needs {body.item_name} for {body.days} day(s) — \"{body.reason}\"",
-                ref_id=body.id, item_name=body.item_name, requested_by=body.requested_by)
+        # One notification per order — if this order_id already has a checkout_pending
+        # notification, skip to avoid spamming managers with N alerts for one cart.
+        ref_for_notif = order_id if order_id else body.id
+        already_notified = order_id and db.query(NexusNotification).filter(
+            NexusNotification.ref_id == order_id,
+            NexusNotification.type == "checkout_pending",
+        ).first()
+        if not already_notified:
+            _notify(db, type="checkout_pending", recipient="",
+                    title=f"Checkout request from {body.requested_by}",
+                    body=f"{body.requested_by} submitted a checkout — \"{body.reason}\"",
+                    ref_id=ref_for_notif, item_name=body.item_name, requested_by=body.requested_by)
     db.commit()
     _fire_item_event(row.id, initial_status, row.requested_by_email or "")
     return _checkout_to_dict(row)

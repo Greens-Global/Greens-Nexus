@@ -324,6 +324,7 @@ class ItemCheckout(Base):
     return_photo_url         = Column(String, default="")
     return_photo_name        = Column(String, default="")
     condition_note           = Column(String, default="")
+    order_id                 = Column(String, default="")
 
 
 class ItemCartEntry(Base):
