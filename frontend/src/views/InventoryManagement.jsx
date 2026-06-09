@@ -90,7 +90,7 @@ function Toast({ toasts, onDismiss }) {
           {t.kind === 'error'
             ? <XCircle size={16} color="hsl(var(--color-red))" style={{ flexShrink:0, marginTop:1 }} />
             : <CheckCircle size={16} color="hsl(var(--color-green))" style={{ flexShrink:0, marginTop:1 }} />}
-          <span style={{ fontSize:13, color:'var(--ink)', lineHeight:1.4, flex:1 }}>{t.message}</span>
+          <div style={{ fontSize:13, color:'var(--ink)', lineHeight:1.4, flex:1 }}>{t.message}</div>
           <button onClick={() => onDismiss(t.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', flexShrink:0 }}>
             <X size={14} />
           </button>
@@ -772,6 +772,94 @@ function ReturnModal({ checkout, onClose, onSubmit }) {
   );
 }
 
+// ── Audit helpers ─────────────────────────────────────────────────────────────
+function formatAuditDetails(action, rawDetails) {
+  let d = {};
+  try { d = JSON.parse(rawDetails || '{}'); } catch { return rawDetails || '—'; }
+  const a = (action || '').toLowerCase();
+  const skip = new Set(['path', 'status']);
+
+  if (a.includes('checkout') || a.includes('checked out')) {
+    const parts = [];
+    if (d.item_name) parts.push(d.item_name);
+    if (d.item_type) parts.push(`(${d.item_type})`);
+    if (d.days)      parts.push(`for ${d.days} day${d.days !== 1 ? 's' : ''}`);
+    if (d.reason)    parts.push(`— "${d.reason}"`);
+    if (d.department) parts.push(`[${d.department}]`);
+    return parts.length ? parts.join(' ') : '—';
+  }
+  if (a.includes('deleted item cart') || (a.includes('cart') && a.includes('delet'))) {
+    return 'Removed item from cart';
+  }
+  if (a.includes('approved')) {
+    const parts = [];
+    if (d.item_name) parts.push(d.item_name);
+    if (d.allocator_name) parts.push(`→ assigned to ${d.allocator_name}`);
+    return parts.length ? parts.join(' ') : '—';
+  }
+  if (a.includes('rejected')) {
+    const parts = [];
+    if (d.item_name) parts.push(d.item_name);
+    if (d.reason)    parts.push(`Reason: "${d.reason}"`);
+    return parts.join(' — ') || '—';
+  }
+  if (a.includes('return')) {
+    return d.item_name ? `${d.item_name} returned` : '—';
+  }
+  if (a.includes('allocated') || a.includes('hand over')) {
+    return d.item_name ? `${d.item_name} handed over${d.requested_by ? ` to ${d.requested_by}` : ''}` : '—';
+  }
+
+  // Generic fallback — drop path/status, render remaining keys in plain English
+  const entries = Object.entries(d).filter(([k, v]) => !skip.has(k) && v !== null && v !== undefined && v !== '');
+  return entries.length ? entries.map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join(' · ') : '—';
+}
+
+function orderActivitySummary(orderItems) {
+  const first = orderItems[0];
+  const returned  = orderItems.filter(c => c.status === 'returned');
+  const rejected  = orderItems.filter(c => c.status === 'rejected');
+  const cancelled = orderItems.filter(c => c.status === 'cancelled');
+
+  const fmtFull = iso => {
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-US', { month:'numeric', day:'numeric', year:'numeric' })
+      + ' at ' + d.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+  };
+  const duration = (fromIso, toIso) => {
+    const ms = new Date(toIso) - new Date(fromIso);
+    if (ms <= 0) return null;
+    const totalMins = Math.round(ms / 60000);
+    const days  = Math.floor(totalMins / 1440);
+    const hours = Math.floor((totalMins % 1440) / 60);
+    const mins  = totalMins % 60;
+    const parts = [];
+    if (days)  parts.push(`${days} day${days  !== 1 ? 's' : ''}`);
+    if (hours) parts.push(`${hours} hour${hours !== 1 ? 's' : ''}`);
+    if (!days && !hours && mins) parts.push(`${mins} minute${mins !== 1 ? 's' : ''}`);
+    return parts.join(' and ') || null;
+  };
+
+  const who    = first.requestedBy;
+  const items  = orderItems.length > 1 ? `${orderItems.length} items` : first.itemName;
+  const them   = orderItems.length > 1 ? 'them' : 'it';
+
+  if (cancelled.length === orderItems.length) {
+    return `${who} cancelled their request for ${items} on ${fmtFull(first.createdAt)}.`;
+  }
+  if (rejected.length === orderItems.length) {
+    const reason = rejected[0].rejectReason;
+    return `${who} requested ${items} on ${fmtFull(first.createdAt)} — request was rejected${reason ? ` ("${reason}")` : ''}.`;
+  }
+  if (returned.length > 0) {
+    const allocator = returned[0].assignedAllocatorName || 'the allocator';
+    const returnTs  = returned[0].returnedAt;
+    const dur       = returnTs ? duration(first.createdAt, returnTs) : null;
+    return `${who} checked out ${items} on ${fmtFull(first.createdAt)} and returned ${them} to ${allocator}${returnTs ? ` on ${fmtFull(returnTs)}` : ''}${dur ? ` for a total of ${dur}` : ''}.`;
+  }
+  return null;
+}
+
 // ── Audit Log Panel ───────────────────────────────────────────────────────────
 function AuditLogPanel() {
   const [query,   setQuery]   = useState('');
@@ -824,7 +912,7 @@ function AuditLogPanel() {
                   <td style={{ padding:'9px 14px', color:'var(--muted)', whiteSpace:'nowrap' }}>{new Date(log.timestamp).toLocaleString()}</td>
                   <td style={{ padding:'9px 14px' }}>{log.user_email}</td>
                   <td style={{ padding:'9px 14px', fontWeight:600 }}>{log.action}</td>
-                  <td style={{ padding:'9px 14px', color:'var(--muted)' }}>{log.details}</td>
+                  <td style={{ padding:'9px 14px', color:'var(--muted)' }}>{formatAuditDetails(log.action, log.details)}</td>
                 </tr>
               ))}
             </tbody>
@@ -995,13 +1083,25 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
 }
 
 // ── My Checkouts Panel ────────────────────────────────────────────────────────
-function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept }) {
+function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept, onReRequest }) {
   const mine = checkouts.filter(c =>
     (c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) ||
     c.requestedBy === userName
   );
-  const active    = mine.filter(c => ['pending','approved','allocated'].includes(c.status));
-  const completed = mine.filter(c => ['returned','rejected','cancelled'].includes(c.status));
+  // Rejected items stay visible until the employee explicitly discards them
+  const [dismissedIds,    setDismissedIds]    = useState(new Set());
+  const [reRequestId,     setReRequestId]     = useState(null);
+  const [reRequestReason, setReRequestReason] = useState('');
+  const [reRequestBusy,   setReRequestBusy]   = useState(false);
+
+  const active    = mine.filter(c =>
+    ['pending','approved','allocated'].includes(c.status) ||
+    (c.status === 'rejected' && !dismissedIds.has(c.id))
+  );
+  const completed = mine.filter(c =>
+    c.status === 'returned' || c.status === 'cancelled' ||
+    (c.status === 'rejected' && dismissedIds.has(c.id))
+  );
   const [histOpen, setHistOpen] = useState(false);
   const [cancelId, setCancelId] = useState(null);
   const [cancelBusy, setCancelBusy] = useState(null);
@@ -1089,6 +1189,43 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
                     <div style={{ fontSize:12, color:'var(--muted)', background:'var(--mist)', borderRadius:7, padding:'6px 10px', marginBottom:4 }}>"{c.reason}"</div>
                   )}
                   <StageTracker checkout={c} onViewPhoto={url => setPhotoPreview(url)} />
+                  {c.status === 'rejected' ? (
+                    reRequestId === c.id ? (
+                      <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:8, background:'hsla(var(--color-blue),0.05)', border:'1px solid hsla(var(--color-blue),0.2)', borderRadius:9, padding:'10px 12px' }}>
+                        <label style={{ fontSize:12, fontWeight:600, color:'var(--muted)' }}>NEW COMMENT (required)</label>
+                        <textarea rows={2} className="form-input" style={{ width:'100%', resize:'vertical', fontSize:13 }}
+                          placeholder="Add context for your re-request…"
+                          value={reRequestReason} onChange={e => setReRequestReason(e.target.value)} />
+                        <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
+                          <button className="secondary-btn" style={{ fontSize:12 }} onClick={() => { setReRequestId(null); setReRequestReason(''); }}>Cancel</button>
+                          <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
+                            disabled={!reRequestReason.trim() || reRequestBusy}
+                            onClick={() => {
+                              setReRequestBusy(true);
+                              onReRequest(c, reRequestReason.trim())
+                                .then(() => { setReRequestId(null); setReRequestReason(''); })
+                                .finally(() => setReRequestBusy(false));
+                            }}>
+                            {reRequestBusy ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : <RotateCcw size={12} />}
+                            Submit Again
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display:'flex', gap:8, justifyContent:'flex-end', flexWrap:'wrap', marginTop:10 }}>
+                        <button onClick={() => setDismissedIds(prev => new Set([...prev, c.id]))}
+                          style={{ background:'none', border:'1px solid var(--line)', borderRadius:8, padding:'5px 12px', fontSize:12, cursor:'pointer', color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:5, fontFamily:'Inter,sans-serif', fontWeight:600 }}>
+                          <X size={12} /> Discard
+                        </button>
+                        {onReRequest && (
+                          <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
+                            onClick={() => { setReRequestId(c.id); setReRequestReason(''); }}>
+                            <RotateCcw size={12} /> Request Again
+                          </button>
+                        )}
+                      </div>
+                    )
+                  ) : (
                   <div style={{ display:'flex', gap:8, justifyContent:'flex-end', flexWrap:'wrap', marginTop:8 }}>
                     {c.status === 'allocated' && (
                       <button className="secondary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5 }}
@@ -1123,6 +1260,7 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
                       </div>
                     )}
                   </div>
+                  )}
                 </div>
               );
             })}
@@ -1139,12 +1277,15 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
           {histOpen && completed.slice(0, 20).map(c => {
             const sm = CHECKOUT_STATUS_META[c.status];
             return (
-              <div key={c.id} style={{ borderTop:'1px solid var(--line)', padding:'10px 16px', display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+              <div key={c.id} style={{ borderTop:'1px solid var(--line)', padding:'10px 16px', display:'flex', alignItems:'flex-start', gap:10, flexWrap:'wrap' }}>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontWeight:600, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.itemName}</div>
                   <div style={{ fontSize:11.5, color:'var(--muted)' }}>{fmtDate(c.createdAt)}</div>
+                  {c.status === 'rejected' && c.rejectReason && (
+                    <div style={{ fontSize:11.5, color:'hsl(var(--color-red))', marginTop:3 }}>Rejected: "{c.rejectReason}"</div>
+                  )}
                 </div>
-                <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:20, fontSize:11, fontWeight:700, background:sm.bg, color:sm.fg }}>
+                <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:20, fontSize:11, fontWeight:700, background:sm.bg, color:sm.fg, flexShrink:0 }}>
                   <sm.Icon size={10} /> {sm.label}
                 </span>
                 {c.returnPhotoUrl && (
@@ -1304,7 +1445,7 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
 }
 
 // ── Employee View ─────────────────────────────────────────────────────────────
-function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, submitCartCheckouts, cancelRequest, allocateItem, toast }) {
+function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, refreshCheckouts, submitCartCheckouts, cancelRequest, allocateItem, toast }) {
   const [tab,            setTab]            = useState('catalog');
   const [mode,           setMode]           = useState('home');
   const [viewMode,       setViewMode]       = useState('tile');
@@ -1376,8 +1517,19 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
     if (failedItems.length === 0) setTab('checkouts');
     if (succeededItems.length > 0) toast(`${succeededItems.length} checkout request${succeededItems.length !== 1 ? 's' : ''} submitted.`);
     if (failedItems.length > 0) {
-      const reasons = [...new Set(results.filter(r => r.status === 'rejected').map(r => r.reason?.message).filter(Boolean))];
-      toast(reasons.join(' · ') || `${failedItems.length} item${failedItems.length !== 1 ? 's' : ''} could not be checked out.`, 'error');
+      const allConflict = results.filter(r => r.status === 'rejected').every(r => r.reason?.message?.includes('active checkout'));
+      toast(
+        <div>
+          <div style={{ fontWeight:700, marginBottom:5 }}>
+            {failedItems.length} item{failedItems.length !== 1 ? 's' : ''} couldn't be submitted
+          </div>
+          <ul style={{ margin:0, paddingLeft:16, display:'flex', flexDirection:'column', gap:2 }}>
+            {failedItems.map((c, i) => <li key={i} style={{ fontSize:12 }}>{c.item.name}</li>)}
+          </ul>
+          {allConflict && <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:5 }}>Each already has an active checkout request.</div>}
+        </div>,
+        'error'
+      );
     }
   }
 
@@ -1390,6 +1542,17 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
   }
   function handleCancel(co) {
     return cancelRequest(co.id, userName).then(() => toast('Checkout cancelled.')).catch(() => toast('Could not cancel.', 'error'));
+  }
+  async function handleReRequest(co, newReason) {
+    await api.createItemCheckout({
+      id: crypto.randomUUID(),
+      item_id: co.itemId, item_name: co.itemName, item_type: co.itemType,
+      requested_by: co.requestedBy, requested_by_email: co.requestedByEmail || userEmail,
+      raised_by: userName, department: co.department, days: co.days || 1,
+      reason: newReason, order_id: null,
+    });
+    toast(`Re-submitted request for ${co.itemName}.`);
+    if (refreshCheckouts) refreshCheckouts();
   }
 
   // ── Home screen ─────────────────────────────────────────────────────────────
@@ -1613,7 +1776,7 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
           ) : (
             <MyCheckoutsPanel
               checkouts={checkouts} userEmail={userEmail} userName={userName}
-              onReturn={handleReturn} onCancel={handleCancel}
+              onReturn={handleReturn} onCancel={handleCancel} onReRequest={handleReRequest}
               onEmployeeAccept={allocateItem ? (co, photoUrl) =>
                 allocateItem(co.id, userName, photoUrl)
                   .then(() => toast(`Confirmed — ${co.itemName} is with you.`))
@@ -2678,6 +2841,14 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
                       {first.department} · {fmtDate(first.createdAt)}{isMulti && ` · ${orderItems.length} items`}
                     </div>
                     {first.reason && <div style={{ fontSize:12, color:'var(--muted)', fontStyle:'italic', marginTop:3 }}>"{first.reason}"</div>}
+                    {statusFilter === 'completed' && (() => {
+                      const summary = orderActivitySummary(orderItems);
+                      return summary ? (
+                        <div style={{ marginTop:8, fontSize:12.5, color:'var(--ink)', background:'hsla(var(--color-green),0.07)', border:'1px solid hsla(var(--color-green),0.18)', borderRadius:7, padding:'7px 11px', lineHeight:1.55, maxWidth:540 }}>
+                          {summary}
+                        </div>
+                      ) : null;
+                    })()}
                   </div>
                   <div style={{ display:'flex', gap:6, flexShrink:0, alignItems:'center', flexWrap:'wrap' }}>
                     {pendingItems.length > 1 && (
@@ -2877,8 +3048,19 @@ export default function InventoryManagement({ activeSub }) {
     setCartBusy(false); setCartOpen(false); setCart(failedItems);
     if (succeededItems.length > 0) toast(`${succeededItems.length} checkout${succeededItems.length !== 1 ? 's' : ''} submitted.`);
     if (failedItems.length > 0) {
-      const reasons = [...new Set(results.filter(r => r.status === 'rejected').map(r => r.reason?.message).filter(Boolean))];
-      toast(reasons.join(' · ') || `${failedItems.length} checkout${failedItems.length !== 1 ? 's' : ''} failed — please retry.`, 'error');
+      const allConflict = results.filter(r => r.status === 'rejected').every(r => r.reason?.message?.includes('active checkout'));
+      toast(
+        <div>
+          <div style={{ fontWeight:700, marginBottom:5 }}>
+            {failedItems.length} item{failedItems.length !== 1 ? 's' : ''} couldn't be submitted
+          </div>
+          <ul style={{ margin:0, paddingLeft:16, display:'flex', flexDirection:'column', gap:2 }}>
+            {failedItems.map((c, i) => <li key={i} style={{ fontSize:12 }}>{c.item.name}</li>)}
+          </ul>
+          {allConflict && <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:5 }}>Each already has an active checkout request.</div>}
+        </div>,
+        'error'
+      );
     }
   }
 
@@ -2933,7 +3115,7 @@ export default function InventoryManagement({ activeSub }) {
           userName={userName} userEmail={userEmail}
           itemsLoading={itemsLoading} itemsError={itemsError}
           onReturn={(id, data) => returnItem(id, data)}
-          refreshItems={refreshItems}
+          refreshItems={refreshItems} refreshCheckouts={refreshCheckouts}
           submitCartCheckouts={submitCartCheckouts}
           cancelRequest={cancelRequest}
           allocateItem={allocateItem}
@@ -2995,8 +3177,8 @@ export default function InventoryManagement({ activeSub }) {
         </div>
       )}
 
-      {/* KPI strip */}
-      <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(4,1fr)', margin:'16px 0 20px' }}>
+      {/* KPI strip — only relevant when browsing or managing items */}
+      {(mainTab === 'catalog' || mainTab === 'manage') && <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(4,1fr)', margin:'16px 0 20px' }}>
         {[
           { label:'Available',      value: items.filter(i => i.status === 'available').length,    color:'card-green'  },
           { label:'Total Items',    value: items.length,                                          color:'card-blue'   },
@@ -3008,7 +3190,7 @@ export default function InventoryManagement({ activeSub }) {
             <div className="kpi-value">{value}</div>
           </div>
         ))}
-      </div>
+      </div>}
 
       {/* Tab strip */}
       <div style={{ display:'flex', gap:0, marginBottom:20, borderBottom:'1px solid var(--line)', flexWrap:'wrap' }}>
@@ -3026,7 +3208,7 @@ export default function InventoryManagement({ activeSub }) {
           </button>
         ))}
         {(mainTab === 'catalog' || mainTab === 'manage') && (
-          <div className="search-bar" style={{ marginLeft:'auto', width:220, marginBottom:0 }}>
+          <div className="search-bar" style={{ marginLeft:'auto', flex:1, maxWidth:480, minWidth:220, marginBottom:0 }}>
             <Search size={14} style={{ flexShrink:0 }} />
             <input placeholder="Search items…" value={search} onChange={e => setSearch(e.target.value)} />
           </div>
@@ -3061,6 +3243,17 @@ export default function InventoryManagement({ activeSub }) {
             checkouts={checkouts} userEmail={userEmail} userName={userName}
             onReturn={co => setReturningCo(co)} onCancel={cancelCo}
             onSelfAllocate={co => allocateItem(co.id, userName).then(() => toast(`Confirmed — ${co.itemName} is with you.`)).catch(() => toast('Could not confirm.', 'error'))}
+            onReRequest={async (co, newReason) => {
+              await api.createItemCheckout({
+                id: crypto.randomUUID(),
+                item_id: co.itemId, item_name: co.itemName, item_type: co.itemType,
+                requested_by: co.requestedBy, requested_by_email: co.requestedByEmail || userEmail,
+                raised_by: userName, department: co.department, days: co.days || 1,
+                reason: newReason, order_id: null,
+              });
+              toast(`Re-submitted request for ${co.itemName}.`);
+              refreshCheckouts();
+            }}
           />
           {myActiveCount === 0 && (
             <div style={{ textAlign:'center', padding:'64px 20px', color:'var(--muted)' }}>

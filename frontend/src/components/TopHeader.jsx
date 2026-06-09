@@ -1,12 +1,12 @@
-import { useState, useRef, useEffect } from "react";
-import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, ChevronDown } from "lucide-react";
+import { useState, useRef, useEffect, useMemo } from "react";
+import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, ChevronDown, LayoutDashboard } from "lucide-react";
 import NotificationBell from "./NotificationBell";
 import { useMsal }        from "@azure/msal-react";
-import { useRole, ROLES } from "../contexts/RoleContext";
+import { useRole, ROLES, MODULES } from "../contexts/RoleContext";
 
 export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, onOpenAdmin }) {
   const { instance, accounts } = useMsal();
-  const { myRole, can }        = useRole();
+  const { myRole, can, myGrantedModules } = useRole();
   const account  = accounts[0];
   const name     = account?.name ?? "User";
   const email    = account?.username ?? "";
@@ -14,16 +14,49 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
   const roleMeta = ROLES[myRole] ?? ROLES.employee;
   const isAdmin  = can?.('administrator') ?? false;
 
-  const [open, setOpen] = useState(false);
-  const dropRef = useRef(null);
+  const [open,         setOpen]         = useState(false);
+  const [searchQuery,  setSearchQuery]  = useState('');
+  const [searchOpen,   setSearchOpen]   = useState(false);
+  const dropRef   = useRef(null);
+  const searchRef = useRef(null);
+
+  // Restricted view IDs that need at minimum supervisor role
+  const RESTRICTED_MIN_SUPERVISOR = new Set([
+    'manager-dashboard','tasks','sop','it','ops','operations','development',
+    'property-asset','accounting','investor-relations','hr','marketing','external-links',
+  ]);
+
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return MODULES.filter(m => {
+      if (m.id === 'admin' && !can?.('administrator')) return false;
+      if (RESTRICTED_MIN_SUPERVISOR.has(m.id) && !can?.('supervisor') && !myGrantedModules?.has(m.id)) return false;
+      return m.label.toLowerCase().includes(q) || m.id.toLowerCase().includes(q);
+    }).slice(0, 6);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, myRole, myGrantedModules]);
 
   useEffect(() => {
     function handleClick(e) {
       if (dropRef.current && !dropRef.current.contains(e.target)) setOpen(false);
+      if (searchRef.current && !searchRef.current.contains(e.target)) setSearchOpen(false);
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
+
+  function handleSearchKey(e) {
+    if (e.key === 'Escape') { setSearchQuery(''); setSearchOpen(false); }
+    if (e.key === 'Enter' && searchResults.length > 0) {
+      onNavigate(searchResults[0].id);
+      setSearchQuery(''); setSearchOpen(false);
+    }
+  }
+  function goTo(id) {
+    onNavigate(id);
+    setSearchQuery(''); setSearchOpen(false);
+  }
 
   function handleSignOut() {
     instance.logoutRedirect({
@@ -55,9 +88,48 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
       </div>
 
       <div className="header-center">
-        <div className="search-bar">
-          <Search style={{ width: 14, height: 14, flexShrink: 0 }} />
-          <input placeholder="Search Nexus…" />
+        <div style={{ position: 'relative' }} ref={searchRef}>
+          <div className="search-bar">
+            <Search style={{ width: 14, height: 14, flexShrink: 0 }} />
+            <input
+              placeholder="Search Nexus…"
+              value={searchQuery}
+              onChange={e => { setSearchQuery(e.target.value); setSearchOpen(true); }}
+              onFocus={() => setSearchOpen(true)}
+              onKeyDown={handleSearchKey}
+            />
+          </div>
+          {searchOpen && searchResults.length > 0 && (
+            <div style={{
+              position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
+              background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
+              boxShadow: '0 8px 28px rgba(0,0,0,0.15)', zIndex: 500, overflow: 'hidden',
+            }}>
+              {searchResults.map((m, i) => (
+                <button key={m.id} onClick={() => goTo(m.id)}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '9px 14px', background: i === 0 ? 'var(--mist)' : 'transparent',
+                    border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                    fontSize: 13, color: 'var(--ink)', textAlign: 'left',
+                    borderTop: i > 0 ? '1px solid var(--line)' : 'none',
+                  }}>
+                  <LayoutDashboard size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                  <span style={{ fontWeight: 500 }}>{m.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {searchOpen && searchQuery.trim() && searchResults.length === 0 && (
+            <div style={{
+              position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
+              background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
+              boxShadow: '0 8px 28px rgba(0,0,0,0.15)', zIndex: 500, padding: '12px 14px',
+              fontSize: 13, color: 'var(--muted)', textAlign: 'center',
+            }}>
+              No results for "{searchQuery}"
+            </div>
+          )}
         </div>
       </div>
 

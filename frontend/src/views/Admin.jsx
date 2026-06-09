@@ -4,6 +4,7 @@ import { useRole, ROLES, MODULES, MODULE_LEVELS } from '../contexts/RoleContext'
 import { useGraphUsers }  from '../hooks/useGraphUsers';
 import { useMsal }        from '@azure/msal-react';
 import { api }            from '../api';
+import { cleanName }      from '../lib/utils';
 
 const ROLE_ORDER = ['owner', 'administrator', 'manager', 'supervisor', 'employee'];
 
@@ -519,7 +520,7 @@ export default function Admin() {
   const displayUsers = useMemo(() => {
     const fromGraph = users.map(u => ({
       id:    u.id,
-      name:  u.displayName,
+      name:  cleanName(u.displayName),
       email: (u.mail ?? u.userPrincipalName ?? '').toLowerCase(),
       title: u.jobTitle   ?? '—',
       dept:  u.department ?? '—',
@@ -528,7 +529,7 @@ export default function Admin() {
     // Include manually added users not in Graph
     const fromManual = manualUsers
       .filter(u => !graphEmails.has(u.email))
-      .map(u => ({ ...u, role: getRole(u.email) }));
+      .map(u => ({ ...u, name: cleanName(u.name || ''), role: getRole(u.email) }));
     const combined = [...fromGraph, ...fromManual];
 
     return combined.filter(u => {
