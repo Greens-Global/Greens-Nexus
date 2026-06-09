@@ -3,6 +3,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef } f
 import { useMsal } from '@azure/msal-react';
 import { api } from '../api';
 import { supabase } from '../lib/supabase';
+import { cleanName } from '../lib/utils';
 
 const InventoryContext = createContext(null);
 
@@ -59,21 +60,21 @@ export function InventoryProvider({ children }) {
       itemId:                 r.item_id,
       itemName:               r.item_name,
       itemType:               r.item_type,
-      requestedBy:            r.requested_by,
+      requestedBy:            cleanName(r.requested_by),
       requestedByEmail:       r.requested_by_email,
-      raisedBy:               r.raised_by,
+      raisedBy:               cleanName(r.raised_by),
       department:             r.department,
       days:                   r.days,
       reason:                 r.reason,
       status:                 r.status,
       createdAt:              r.created_at,
       resolvedAt:             r.resolved_at              || null,
-      resolvedBy:             r.resolved_by              || null,
+      resolvedBy:             cleanName(r.resolved_by)   || null,
       rejectReason:           r.reject_reason            || null,
       assignedAllocatorEmail: r.assigned_allocator_email || null,
-      assignedAllocatorName:  r.assigned_allocator_name  || null,
+      assignedAllocatorName:  cleanName(r.assigned_allocator_name) || null,
       allocatedAt:            r.allocated_at             || null,
-      allocatedBy:            r.allocated_by             || null,
+      allocatedBy:            cleanName(r.allocated_by)  || null,
       checkoutPhotoUrl:       r.checkout_photo_url       || null,
       checkoutPhotoName:      r.checkout_photo_name      || null,
       returnedAt:             r.returned_at              || null,

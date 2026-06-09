@@ -3,6 +3,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef } f
 import { useMsal } from '@azure/msal-react';
 import { api }     from '../api';
 import { supabase } from '../lib/supabase';
+import { cleanName } from '../lib/utils';
 
 const NotificationCtx = createContext(null);
 
@@ -20,7 +21,7 @@ function rowToNotif(r) {
     body:        r.body,
     refId:       r.ref_id,
     itemName:    r.item_name,
-    requestedBy: r.requested_by,
+    requestedBy: cleanName(r.requested_by),
     action:      r.action,
     actioned:    r.actioned,
     read:        r.read,
