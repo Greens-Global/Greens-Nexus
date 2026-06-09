@@ -40,6 +40,17 @@ def _describe(method: str, path: str) -> tuple[str, str]:
         if sub == "confirm-return":             return _fmt("Confirmed return"), display_id
         if sub == "mark-lost":                  return _fmt("Marked asset lost"), display_id
 
+    # ── Items (individual-unit system) ───────────────────────────────────────
+    if resource == "items":
+        if rid == "checkouts":
+            checkout_id = sub if sub else ""
+            if method == "POST":   return "Checked out item", ""
+            if method == "PATCH":  return f"Updated checkout {checkout_id}".strip(), checkout_id
+        if rid == "import":        return "Imported items (CSV)", ""
+        if method == "POST":       return "Added item", ""
+        if method == "PATCH":      return f"Updated item {rid}".strip(), rid
+        if method == "DELETE":     return f"Deleted item {rid}".strip(), rid
+
     # ── Inventory requests ────────────────────────────────────────────────────
     if resource == "inventory-requests":
         if rid == "items":
@@ -140,6 +151,11 @@ def _extract_email(request: Request) -> str:
 # These fields, when present in the JSON body, are copied into `details` so an
 # auditor can see *what* changed, not just that *something* changed.
 _BODY_FIELDS_BY_RESOURCE = {
+    "items": (
+        "name", "item_type", "make", "model", "department", "location",
+        "ownership_type", "status", "item_name", "reason", "days",
+        "requested_by", "condition_note", "return_photo_name",
+    ),
     "inventory-requests": (
         "status", "item_id", "item_name", "quantity", "days", "reason",
         "resolved_by", "reject_reason", "allocated_by", "condition_note",

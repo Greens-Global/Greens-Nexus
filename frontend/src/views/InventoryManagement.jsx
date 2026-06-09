@@ -780,7 +780,9 @@ function AuditLogPanel() {
 
   const load = useCallback(() => {
     setLoading(true);
-    api.getItemsAuditLog({ limit: 200, q: query || undefined })
+    const params = { limit: 200 };
+    if (query.trim()) params.q = query.trim();
+    api.getItemsAuditLog(params)
       .then(res => { setLogs(res.rows || []); setError(''); })
       .catch(() => setError('Could not load audit log.'))
       .finally(() => setLoading(false));
