@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, Loader2, AlertCircle, User, Clock, ClipboardList } from 'lucide-react';
+import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, Loader2, AlertCircle, User, Clock } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useInventory }      from '../contexts/InventoryContext';
 import { useRequisitions }   from '../contexts/RequisitionContext';
@@ -194,7 +194,7 @@ export default function NotificationBell({ onNavigate }) {
   }
 
   // Confirms approval once an allocator has been picked.
-  // checkout_pending: backend fires approved/allocate_request notifications automatically.
+  // checkout_pending: backend fires approved + allocate_request notifications automatically.
   // inv_request (old system): we fire them manually via addNotification.
   function submitApprove(n) {
     const chosen = allocators.find(a => a.email === pickedAllocator);
@@ -202,36 +202,58 @@ export default function NotificationBell({ onNavigate }) {
     const refId       = n.refId       ?? '';
     const itemName    = n.itemName    ?? 'the item';
     const requestedBy = n.requestedBy ?? '';
-    const invReq      = invRequests.find(r => r.id === refId);
-    const recipientEmail = n.action?.requestedByEmail ?? invReq?.requestedByEmail ?? '';
+
+    // For checkout_pending: ref_id may be an order_id (cart) or single checkout_id.
+    // Find all pending checkouts that share this ref so cart orders all get approved.
+    const targets = (n.type === 'checkout_pending')
+      ? invRequests.filter(c => c.status === 'pending' && (c.orderId === refId || c.id === refId))
+      : null;
+
+    if (n.type === 'checkout_pending' && (!targets || !targets.length)) {
+      setActionError(prev => ({ ...prev, [n.id]: 'Request not found — it may have already been processed. Refresh to see the latest state.' }));
+      return;
+    }
 
     setApprovingBusy(true);
     clearActionError(n.id);
-    approveRequest(refId, myName, chosen.email, chosen.name)
-      .then(() => {
-        markActioned(n.id);
-        resolveAndDismiss(n, 'approved');
-        // Old inventory system: manually push notifications (backend doesn't do it)
-        if (n.type === 'inv_request') {
-          addNotification({
-            type: 'approved', recipient: recipientEmail || requestedBy,
-            requestedBy, itemName,
-            title: 'Request Approved ✓',
-            body:  `Your request for ${itemName} has been approved by ${myName}. It will be assigned to you by your supervisor shortly.`,
-            action: { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
-          });
-          addNotification({
-            type: 'allocate_request', recipient: chosen.email, refId, itemName, requestedBy,
-            title: 'Allocate an Item',
-            body:  `${myName} approved ${requestedBy}'s request for ${itemName} and assigned it to you to hand over.`,
-            action: { label: 'Allocate Now →', kind: 'allocate' },
-          });
+
+    const approveAll = targets
+      ? Promise.allSettled(targets.map(c => approveRequest(c.id, myName, chosen.email, chosen.name)))
+      : approveRequest(refId, myName, chosen.email, chosen.name).then(r => [{ status: 'fulfilled', value: r }]).catch(e => [{ status: 'rejected', reason: e }]);
+
+    approveAll
+      .then(results => {
+        const anySucceeded = results.some(r => r.status === 'fulfilled');
+        const firstFailure = results.find(r => r.status === 'rejected');
+
+        if (anySucceeded) {
+          markActioned(n.id);
+          resolveAndDismiss(n, 'approved');
+          // Old inventory system: manually push notifications (backend doesn't do it)
+          if (n.type === 'inv_request') {
+            const invReq = invRequests.find(r => r.id === refId);
+            const recipientEmail = n.action?.requestedByEmail ?? invReq?.requestedByEmail ?? '';
+            addNotification({
+              type: 'approved', recipient: recipientEmail || requestedBy,
+              requestedBy, itemName,
+              title: 'Request Approved ✓',
+              body:  `Your request for ${itemName} has been approved by ${myName}. It will be assigned to you by your supervisor shortly.`,
+              action: { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
+            });
+            addNotification({
+              type: 'allocate_request', recipient: chosen.email, refId, itemName, requestedBy,
+              title: 'Allocate an Item',
+              body:  `${myName} approved ${requestedBy}'s request for ${itemName} and assigned it to you to hand over.`,
+              action: { label: 'Allocate Now →', kind: 'allocate' },
+            });
+          }
+          setApprovingId(null);
+          setPickedAllocator('');
         }
-        // checkout_pending: backend already creates approved notification for the employee
-        setApprovingId(null);
-        setPickedAllocator('');
+        if (!anySucceeded && firstFailure) {
+          setActionError(prev => ({ ...prev, [n.id]: friendlyActionError(firstFailure.reason) }));
+        }
       })
-      .catch(err => setActionError(prev => ({ ...prev, [n.id]: friendlyActionError(err) })))
       .finally(() => setApprovingBusy(false));
   }
 
@@ -242,8 +264,13 @@ export default function NotificationBell({ onNavigate }) {
     const requestedBy = n.requestedBy ?? '';
 
     if (n.type === 'checkout_pending') {
-      // Backend creates rejected notification for the employee automatically
-      rejectRequest(refId, myName, rejectReason.trim());
+      // For cart orders, ref_id = order_id; find all pending checkouts under it.
+      const targets = invRequests.filter(c =>
+        c.status === 'pending' && (c.orderId === refId || c.id === refId)
+      );
+      (targets.length ? targets : [{ id: refId }]).forEach(c =>
+        rejectRequest(c.id, myName, rejectReason.trim())
+      );
     } else if (n.type === 'inv_request') {
       rejectRequest(refId, myName, rejectReason.trim());
       const invReq = invRequests.find(r => r.id === refId);
@@ -498,12 +525,7 @@ export default function NotificationBell({ onNavigate }) {
                         </div>
                         <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '4px 0 14px', lineHeight: 1.45 }}>{n.body}</p>
 
-                        {n.type === 'checkout_pending' ? (
-                          <button onClick={e => { e.stopPropagation(); markActioned(n.id); setOpen(false); onNavigate?.('items', 'checkouts'); }}
-                            style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'9px 20px', borderRadius:9, border:'none', background:'hsla(var(--color-blue),0.12)', color:'hsl(var(--color-blue))', fontSize:13.5, fontWeight:700, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-                            <ClipboardList size={15} /> Review in Checkouts
-                          </button>
-                        ) : !isRejecting && !isApproving ? (
+                        {!isRejecting && !isApproving ? (
                           <div style={{ display: 'flex', gap: 10 }}>
                             <button onClick={e => { e.stopPropagation(); handleAction(n, 'approve'); }}
                               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 20px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
@@ -516,9 +538,9 @@ export default function NotificationBell({ onNavigate }) {
                           </div>
                         ) : isApproving ? (
                           <div onClick={e => e.stopPropagation()}>
-                            {n.type === 'inv_request' ? (
+                            {(n.type === 'inv_request' || n.type === 'checkout_pending') ? (
                               <>
-                                <p style={{ fontSize: 13, color: 'hsl(var(--color-green))', fontWeight: 700, margin: '0 0 8px' }}>Who should hand this item over to {n.requestedBy}?</p>
+                                <p style={{ fontSize: 13, color: 'hsl(var(--color-green))', fontWeight: 700, margin: '0 0 8px' }}>Who should hand this over to {n.requestedBy}?</p>
                                 {actionError[n.id] && (
                                   <p style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.08)', borderRadius: 8, padding: '8px 12px', margin: '0 0 8px', lineHeight: 1.4 }}>
                                     <AlertCircle size={14} style={{ flexShrink: 0 }} /> {actionError[n.id]}

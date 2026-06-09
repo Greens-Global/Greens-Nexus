@@ -542,11 +542,30 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
 
     row.status = body.status
 
+    # Auto-mark the checkout_pending notification as actioned so it clears from
+    # all managers' bells even when the approval happens via the Checkouts tab.
+    if body.status in ("approved", "rejected", "cancelled"):
+        ref_ids = [checkout_id]
+        if row.order_id:
+            ref_ids.append(row.order_id)
+        pending_notif = db.query(NexusNotification).filter(
+            NexusNotification.type == "checkout_pending",
+            NexusNotification.actioned == False,
+            NexusNotification.ref_id.in_(ref_ids),
+        ).first()
+        if pending_notif:
+            pending_notif.actioned = True
+
     if body.status == "approved":
         _notify(db, type="approved", recipient=row.requested_by_email,
                 title=f"Checkout approved: {row.item_name}",
                 body=f"Your request for {row.item_name} was approved. {row.assigned_allocator_name or 'Someone'} will hand it over to you.",
                 ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+        if row.assigned_allocator_email:
+            _notify(db, type="allocate_request", recipient=row.assigned_allocator_email,
+                    title=f"Hand over: {row.item_name}",
+                    body=f"Please hand {row.item_name} over to {row.requested_by}.",
+                    ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
     elif body.status == "rejected":
         _notify(db, type="rejected", recipient=row.requested_by_email,
                 title=f"Checkout rejected: {row.item_name}",
