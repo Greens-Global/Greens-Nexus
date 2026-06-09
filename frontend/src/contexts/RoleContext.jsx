@@ -57,9 +57,10 @@ export function RoleProvider({ children }) {
   const [loading,   setLoading]   = useState(true);
   const [groups,    setGroups]    = useState([]);   // [{ id, name, department, allowed_modules, members, ... }]
 
-  // Fetch current user's role on mount / account change.
-  // Retries up to 3 times with backoff — guards against the MSAL token
-  // not being ready on the very first render.
+  // Fetch current user's role and group memberships on mount / account change.
+  // Groups must be loaded here (not just in Admin) so that myGrantedModules is
+  // populated for all users — otherwise group-granted sidebar items never appear.
+  // Role fetch retries up to 3× with backoff; groups fail silently.
   useEffect(() => {
     if (!myEmail) { setLoading(false); return; }
     let cancelled = false;
@@ -83,6 +84,9 @@ export function RoleProvider({ children }) {
     };
 
     tryFetch();
+    // Load groups so myGrantedModules is accurate for every user on every page
+    api.getGroups().then(data => { if (!cancelled) setGroups(data); }).catch(() => {});
+
     return () => { cancelled = true; };
   }, [myEmail]);
 

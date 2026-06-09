@@ -36,6 +36,27 @@ const Placeholder         = lazy(() => import("./views/Placeholder"));
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 
+// Minimum role required to access each restricted view — mirrors the minRole
+// values in Sidebar's NAV array. Keep both in sync when adding new views.
+// Views absent from this map are accessible to everyone (dashboard, inventory, support).
+const VIEW_MIN_ROLES = {
+  'manager-dashboard':  'supervisor',
+  'purchase':           'supervisor',
+  'tasks':              'supervisor',
+  'sop':                'supervisor',
+  'it':                 'supervisor',
+  'ops':                'supervisor',
+  'operations':         'supervisor',
+  'development':        'supervisor',
+  'property-asset':     'supervisor',
+  'accounting':         'supervisor',
+  'investor-relations': 'supervisor',
+  'hr':                 'supervisor',
+  'marketing':          'supervisor',
+  'external-links':     'supervisor',
+  'admin':              'administrator',
+};
+
 // Waits for role to load so the UI never flashes with wrong access level
 function RoleGate({ children }) {
   const { loading } = useRole();
@@ -45,6 +66,60 @@ function RoleGate({ children }) {
     </div>
   );
   return children;
+}
+
+// Enforces access at render time — sits inside RoleProvider so it can call
+// useRole(). Even if navigate() is called externally (nexus:navigate event,
+// notification links, dev tools), the actual view content is never shown
+// without the correct role or a group grant.
+function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
+  const { can, myGrantedModules } = useRole();
+  const minRole = VIEW_MIN_ROLES[activeView];
+
+  // Access granted if: no restriction, OR user's role meets minRole,
+  // OR a Group has explicitly granted this module to the user.
+  // Groups complement roles additively — they can never grant admin/owner
+  // screens (those require role level, not a module grant).
+  const hasAccess = !minRole || can(minRole) || (minRole !== 'administrator' && myGrantedModules.has(activeView));
+
+  if (!hasAccess) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: 16, textAlign: 'center', padding: '0 24px' }}>
+        <div style={{ width: 52, height: 52, borderRadius: 14, background: 'hsla(var(--color-red),0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--color-red))" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 17, color: 'var(--ink)', marginBottom: 6 }}>Access Restricted</div>
+          <div style={{ fontSize: 14, color: 'var(--muted)', maxWidth: 320, lineHeight: 1.5 }}>You don't have permission to view this page. Contact your administrator if you need access.</div>
+        </div>
+        <button onClick={() => onNavigate('dashboard')} style={{ marginTop: 4, padding: '9px 24px', borderRadius: 9, border: 'none', background: 'var(--ink)', color: 'var(--paper)', fontSize: 13.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+          Go to Dashboard
+        </button>
+      </div>
+    );
+  }
+
+  switch (activeView) {
+    case "dashboard":          return <Dashboard onNavigate={onNavigate} />;
+    case "manager-dashboard":  return <ManagerDashboard />;
+    case "tasks":              return <Tasks />;
+    case "purchase":           return <Purchase />;
+    case "sop":                return <SOP activeSub={activeSub} onSubChange={onSubChange} />;
+    case "it":                 return <IT activeSub={activeSub} onSubChange={onSubChange} />;
+    case "ops":                return <Operations activeSub={activeSub} onSubChange={onSubChange} />;
+    case "operations":         return <FacilityOperations activeSub={activeSub} onSubChange={onSubChange} />;
+    case "development":        return <Development activeSub={activeSub} onSubChange={onSubChange} />;
+    case "property-asset":     return <PropertyAsset activeSub={activeSub} onSubChange={onSubChange} />;
+    case "accounting":         return <Accounting activeSub={activeSub} onSubChange={onSubChange} />;
+    case "investor-relations": return <InvestorRelations activeSub={activeSub} onSubChange={onSubChange} />;
+    case "hr":                 return <HR activeSub={activeSub} onSubChange={onSubChange} />;
+    case "marketing":          return <Marketing activeSub={activeSub} onSubChange={onSubChange} />;
+    case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
+    case "admin":              return <Admin />;
+    case "external-links":     return <ExternalLinks />;
+    case "support":            return <Support />;
+    default:                   return <Placeholder viewName={activeView} onBack={() => onNavigate("dashboard")} />;
+  }
 }
 
 export default function App() {
@@ -119,30 +194,6 @@ export default function App() {
     return defaults[view] ?? null;
   }
 
-  function renderView() {
-    switch (activeView) {
-      case "dashboard":          return <Dashboard onNavigate={navigate} />;
-      case "manager-dashboard":  return <ManagerDashboard />;
-      case "tasks":              return <Tasks />;
-      case "purchase":           return <Purchase />;
-      case "sop":                return <SOP activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
-      case "it":                 return <IT activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
-      case "ops":                return <Operations activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
-      case "operations":         return <FacilityOperations activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
-      case "development":        return <Development activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
-      case "property-asset":     return <PropertyAsset activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
-      case "accounting":         return <Accounting activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
-      case "investor-relations": return <InvestorRelations activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
-      case "hr":                 return <HR activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
-      case "marketing":          return <Marketing activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
-      case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={s => setActiveSub(s)} />;
-      case "admin":              return <Admin />;
-      case "external-links":     return <ExternalLinks />;
-      case "support":            return <Support />;
-      default:                   return <Placeholder viewName={activeView} onBack={() => navigate("dashboard")} />;
-    }
-  }
-
   return (
     <>
       <AuthenticatedTemplate>
@@ -193,7 +244,12 @@ export default function App() {
                   <div style={{ width: 28, height: 28, borderRadius: '50%', border: '3px solid var(--border-color)', borderTopColor: 'var(--text-primary)', animation: 'spin 0.7s linear infinite' }} />
                 </div>
               }>
-                {renderView()}
+                <ProtectedView
+                  activeView={activeView}
+                  activeSub={activeSub}
+                  onSubChange={s => setActiveSub(s)}
+                  onNavigate={navigate}
+                />
               </Suspense>
             </div>
           </main>
