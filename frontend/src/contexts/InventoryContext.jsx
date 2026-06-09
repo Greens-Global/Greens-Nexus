@@ -96,9 +96,10 @@ export function InventoryProvider({ children }) {
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'inventory_events' },
           payload => {
-            const { status } = payload.new ?? {};
-            fetchCheckouts();
-            if (status === 'allocated' || status === 'returned') fetchItems();
+            const { request_id, status } = payload.new ?? {};
+            const involved = checkoutsRef.current.some(c => c.id === request_id);
+            if (involved) fetchCheckouts();
+            if (involved && (status === 'allocated' || status === 'returned')) fetchItems();
           }
         )
         .subscribe();
