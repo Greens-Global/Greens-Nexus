@@ -22,33 +22,31 @@ export function InventoryProvider({ children }) {
   const [checkoutsLoading, setCheckoutsLoading] = useState(true);
   const [checkoutsError,   setCheckoutsError]   = useState(null);
 
-  const channelRef  = useRef(null);
-  const eventsRef   = useRef(null);
-  const pollRef     = useRef(null);
-  const checkoutsRef = useRef([]);
+  const channelRef    = useRef(null);
+  const eventsRef     = useRef(null);
+  const pollRef       = useRef(null);
+  const checkoutsRef  = useRef([]);
+  const itemsInFlight = useRef(false);
+  const cosInFlight   = useRef(false);
+  // Consecutive error counts for backoff
+  const itemsErrCount = useRef(0);
+  const cosErrCount   = useRef(0);
 
   useEffect(() => { checkoutsRef.current = checkouts; }, [checkouts]);
 
-  // Retry helper — the api layer already handles transient 5xx/network errors,
-  // but if even that exhausts (truly down), we do one more quiet 3s wait here
-  // before surfacing an error banner so a single click still works post-cold-start.
-  async function withQuietRetry(fn) {
-    try { return await fn(); }
-    catch {
-      await new Promise(r => setTimeout(r, 3000));
-      return fn(); // let this one throw if it also fails
-    }
-  }
+  const fetchItems = useCallback(() => {
+    if (itemsInFlight.current) return Promise.resolve(); // deduplicate
+    itemsInFlight.current = true;
+    return api.getItems()
+      .then(rows => { setItems(rows); setItemsError(null); itemsErrCount.current = 0; })
+      .catch(err => { setItemsError(err?.message || 'Failed to load items'); itemsErrCount.current += 1; })
+      .finally(() => { setItemsLoading(false); itemsInFlight.current = false; });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const fetchItems = useCallback(() =>
-    withQuietRetry(() => api.getItems())
-      .then(rows => { setItems(rows); setItemsError(null); })
-      .catch(err => setItemsError(err?.message || 'Failed to load items'))
-      .finally(() => setItemsLoading(false))
-  , []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const fetchCheckouts = useCallback(() =>
-    withQuietRetry(() => api.getItemCheckouts())
+  const fetchCheckouts = useCallback(() => {
+    if (cosInFlight.current) return Promise.resolve(); // deduplicate
+    cosInFlight.current = true;
+    return api.getItemCheckouts()
       .then(rows => {
         setCheckouts(rows.map(r => ({
           ...r,
@@ -59,10 +57,11 @@ export function InventoryProvider({ children }) {
           allocatedBy:           cleanName(r.allocatedBy),
         })));
         setCheckoutsError(null);
+        cosErrCount.current = 0;
       })
-      .catch(err => setCheckoutsError(err?.message || 'Failed to load checkouts'))
-      .finally(() => setCheckoutsLoading(false))
-  , []); // eslint-disable-line react-hooks/exhaustive-deps
+      .catch(err => { setCheckoutsError(err?.message || 'Failed to load checkouts'); cosErrCount.current += 1; })
+      .finally(() => { setCheckoutsLoading(false); cosInFlight.current = false; });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function rowToCheckout(r) {
     return {
@@ -95,8 +94,24 @@ export function InventoryProvider({ children }) {
     };
   }
 
+  // Adaptive polling: backs off from 10s to 60s when errors accumulate,
+  // then ramps back down on the first successful response.
+  const scheduleNext = useCallback(() => {
+    clearTimeout(pollRef.current);
+    const errCount = Math.max(itemsErrCount.current, cosErrCount.current);
+    const delay = errCount === 0 ? 10_000
+                : errCount === 1 ? 20_000
+                : errCount === 2 ? 40_000
+                : 60_000;
+    pollRef.current = setTimeout(() => {
+      fetchItems();
+      fetchCheckouts();
+      scheduleNext();
+    }, delay);
+  }, [fetchItems, fetchCheckouts]);
+
   useEffect(() => {
-    fetchItems();
+    fetchItems().then(scheduleNext);
     fetchCheckouts();
 
     if (supabase) {
@@ -113,17 +128,13 @@ export function InventoryProvider({ children }) {
           }
         )
         .subscribe();
-
-      pollRef.current = setInterval(() => { fetchItems(); fetchCheckouts(); }, 10000);
-    } else {
-      pollRef.current = setInterval(() => { fetchItems(); fetchCheckouts(); }, 10000);
     }
 
     return () => {
       if (eventsRef.current) supabase?.removeChannel(eventsRef.current);
-      clearInterval(pollRef.current);
+      clearTimeout(pollRef.current);
     };
-  }, [fetchItems, fetchCheckouts, myEmail]);
+  }, [fetchItems, fetchCheckouts, scheduleNext, myEmail]);
 
   // ── Checkout actions ──────────────────────────────────────────────────────
 

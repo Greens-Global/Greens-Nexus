@@ -4,7 +4,7 @@ import {
   AlertCircle, X, Loader2, ChevronDown, UploadCloud, FileSpreadsheet,
   Download, Pencil, Trash2, MapPin, ClipboardList, History, FileBarChart,
   ShoppingCart, Filter, ZoomIn, Car, Wrench, Key, Monitor, Box,
-  ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image,
+  ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image, LayoutGrid,
 } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import { useInventory }     from '../contexts/InventoryContext';
@@ -960,7 +960,7 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
               <div style={{ background:'hsla(var(--color-blue),0.06)', border:'1px solid hsla(var(--color-blue),0.2)', borderRadius:9, padding:'10px 14px', marginBottom:16, display:'flex', alignItems:'flex-start', gap:8 }}>
                 <AlertCircle size={14} color="hsl(var(--color-blue))" style={{ flexShrink:0, marginTop:1 }} />
                 <span style={{ fontSize:12.5, color:'hsl(var(--color-blue))', lineHeight:1.4 }}>
-                  A checkout photo will be taken by the allocator when they hand over each item.
+                  Once approved, you'll be prompted to upload a photo confirming you received each item.
                 </span>
               </div>
 
@@ -989,7 +989,7 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
 }
 
 // ── My Checkouts Panel ────────────────────────────────────────────────────────
-function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate }) {
+function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept }) {
   const mine = checkouts.filter(c =>
     (c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) ||
     c.requestedBy === userName
@@ -1002,6 +1002,7 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
   const [cancelAllKey, setCancelAllKey] = useState(null);
   const [cancelAllBusy, setCancelAllBusy] = useState(false);
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [acceptingCo, setAcceptingCo] = useState(null);
   const fmtDate = iso => new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
 
   // Group active checkouts by orderId so cart submissions appear as one block
@@ -1089,10 +1090,10 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
                         <RotateCcw size={13} /> Return Item
                       </button>
                     )}
-                    {c.status === 'approved' && onSelfAllocate && (
+                    {c.status === 'approved' && (onEmployeeAccept || onSelfAllocate) && (
                       <button className="primary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5, background:'hsl(var(--color-green))' }}
-                        onClick={() => onSelfAllocate(c)}>
-                        <CheckCircle size={13} /> Confirm I Have It
+                        onClick={() => onEmployeeAccept ? setAcceptingCo(c) : onSelfAllocate(c)}>
+                        <Camera size={13} /> Accept & Upload Photo
                       </button>
                     )}
                     {['pending','approved'].includes(c.status) && cancelId !== c.id && (
@@ -1152,6 +1153,13 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
       )}
 
       {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
+      {acceptingCo && onEmployeeAccept && (
+        <EmployeeAcceptModal
+          checkout={acceptingCo}
+          onClose={() => setAcceptingCo(null)}
+          onConfirm={(url, name) => onEmployeeAccept(acceptingCo, url, name).then(() => setAcceptingCo(null))}
+        />
+      )}
     </div>
   );
 }
@@ -1290,7 +1298,7 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
 }
 
 // ── Employee View ─────────────────────────────────────────────────────────────
-function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, submitCartCheckouts, cancelRequest, toast }) {
+function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, submitCartCheckouts, cancelRequest, allocateItem, toast }) {
   const [mode,           setMode]           = useState('home'); // 'home' | 'browse'
   const [search,         setSearch]         = useState('');
   const [typeFilter,     setTypeFilter]     = useState('All');
@@ -1468,7 +1476,7 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
   return (
     <div>
       <div style={{ marginBottom:28 }}>
-        <h2 style={{ fontSize:18, fontWeight:700, margin:'0 0 4px' }}>Items</h2>
+        <h2 style={{ fontSize:18, fontWeight:700, margin:'0 0 4px' }}>Item Management</h2>
         <p style={{ fontSize:13, color:'var(--muted)', margin:0 }}>Check out company equipment for your shift or job.</p>
       </div>
 
@@ -1485,8 +1493,8 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
         </div>
       )}
 
-      {/* Two action cards */}
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:32 }}>
+      {/* Action cards */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))', gap:16, marginBottom:32 }}>
         <div onClick={() => setMode('browse')}
           style={{ border:'1px solid var(--line)', borderRadius:14, padding:'24px 20px', background:'var(--card)', cursor:'pointer', transition:'box-shadow 0.15s, border-color 0.15s', boxShadow:'var(--shadow-sm)' }}
           onMouseEnter={e => { e.currentTarget.style.boxShadow='var(--shadow-md)'; e.currentTarget.style.borderColor='var(--pine)'; }}
@@ -1510,6 +1518,17 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
             {activeCheckouts.length > 0 ? `${activeCheckouts.length} active checkout${activeCheckouts.length !== 1 ? 's' : ''}` : 'No active checkouts'}
           </div>
         </div>
+
+        <div onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'purchase' } }))}
+          style={{ border:'1px solid var(--line)', borderRadius:14, padding:'24px 20px', background:'var(--card)', cursor:'pointer', transition:'box-shadow 0.15s, border-color 0.15s', boxShadow:'var(--shadow-sm)' }}
+          onMouseEnter={e => { e.currentTarget.style.boxShadow='var(--shadow-md)'; e.currentTarget.style.borderColor='var(--pine)'; }}
+          onMouseLeave={e => { e.currentTarget.style.boxShadow='var(--shadow-sm)'; e.currentTarget.style.borderColor='var(--line)'; }}>
+          <div style={{ width:44, height:44, borderRadius:12, background:'hsla(var(--color-purple),0.12)', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:14 }}>
+            <ClipboardList size={22} color="hsl(var(--color-purple))" />
+          </div>
+          <div style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>Request an Item</div>
+          <div style={{ fontSize:12.5, color:'var(--muted)' }}>Raise a purchase requisition</div>
+        </div>
       </div>
 
       {/* Active checkouts */}
@@ -1520,6 +1539,11 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
           userName={userName}
           onReturn={handleReturn}
           onCancel={handleCancel}
+          onEmployeeAccept={allocateItem ? (co, photoUrl) =>
+            allocateItem(co.id, userName, photoUrl)
+              .then(() => toast(`Confirmed — ${co.itemName} is with you.`))
+              .catch(() => toast('Could not confirm receipt — please try again.', 'error'))
+          : undefined}
         />
       </div>
 
@@ -1530,6 +1554,8 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
 
 // ── Manager Catalog Tab ───────────────────────────────────────────────────────
 function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate }) {
+  const [viewMode, setViewMode] = useState('tile'); // 'tile' | 'list'
+
   const filtered = items.filter(i => {
     const mS = !search || i.name.toLowerCase().includes(search.toLowerCase()) || (i.make||'').toLowerCase().includes(search.toLowerCase()) || (i.model||'').toLowerCase().includes(search.toLowerCase());
     const mD = deptFilter === 'All' || i.department === deptFilter;
@@ -1537,19 +1563,102 @@ function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFi
     return mS && mD && mT;
   });
 
+  // Sorted for list view: available first, then alpha
+  const sortedForList = [...filtered].sort((a, b) => {
+    const aAvail = a.status === 'available' ? 0 : 1;
+    const bAvail = b.status === 'available' ? 0 : 1;
+    if (aAvail !== bAvail) return aAvail - bAvail;
+    return a.name.localeCompare(b.name);
+  });
+
+  const pendingCheckoutIds = new Set(
+    (checkouts || []).filter(c => ['pending','approved','allocated'].includes(c.status)).map(c => c.itemId)
+  );
+
   return (
     <>
-      <p style={{ fontSize:12, color:'var(--muted)', marginBottom:14 }}>{filtered.length} item{filtered.length !== 1 ? 's' : ''}</p>
-      <ItemPhotoGrid
-        items={filtered}
-        checkouts={checkouts}
-        itemsLoading={itemsLoading}
-        itemsError={itemsError}
-        refreshItems={refreshItems}
-        onAddToCart={onAddToCart}
-        inCart={inCart}
-        emptyLabel="No items match your filters."
-      />
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
+        <p style={{ fontSize:12, color:'var(--muted)', margin:0 }}>{filtered.length} item{filtered.length !== 1 ? 's' : ''}</p>
+        <div style={{ display:'flex', gap:4 }}>
+          <button onClick={() => setViewMode('tile')}
+            style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:8, border:`1px solid ${viewMode === 'tile' ? 'var(--pine)' : 'var(--line)'}`, background: viewMode === 'tile' ? 'hsla(var(--color-green),0.1)' : 'transparent', color: viewMode === 'tile' ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+            <LayoutGrid size={13} /> Tile
+          </button>
+          <button onClick={() => setViewMode('list')}
+            style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:8, border:`1px solid ${viewMode === 'list' ? 'var(--pine)' : 'var(--line)'}`, background: viewMode === 'list' ? 'hsla(var(--color-green),0.1)' : 'transparent', color: viewMode === 'list' ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+            <ClipboardList size={13} /> List
+          </button>
+        </div>
+      </div>
+
+      {viewMode === 'tile' ? (
+        <ItemPhotoGrid
+          items={filtered}
+          checkouts={checkouts}
+          itemsLoading={itemsLoading}
+          itemsError={itemsError}
+          refreshItems={refreshItems}
+          onAddToCart={onAddToCart}
+          inCart={inCart}
+          emptyLabel="No items match your filters."
+        />
+      ) : (
+        itemsError ? <ErrorBanner message="Could not load items." onRetry={refreshItems} /> :
+        itemsLoading && !filtered.length ? <SkeletonBlocks count={6} height={48} borderRadius={8} /> :
+        sortedForList.length === 0 ? (
+          <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)' }}>
+            <Package size={32} style={{ opacity:.25, display:'block', margin:'0 auto 10px' }} />
+            No items match your filters.
+          </div>
+        ) : (
+          <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto', marginBottom:20 }}>
+            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+              <thead>
+                <tr style={{ background:'var(--mist)' }}>
+                  {['Photo','Name','Type','Make / Model','Location','Status',''].map(h =>
+                    <th key={h} style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5, whiteSpace:'nowrap' }}>{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {sortedForList.map(item => {
+                  const tm = TYPE_META[item.itemType] || TYPE_META.Other;
+                  const alreadyInCart = inCart?.has(item.id);
+                  const hasPending = pendingCheckoutIds.has(item.id);
+                  const canAdd = onAddToCart && item.status === 'available' && !hasPending && item.ownershipType === 'transient';
+                  const co = checkouts?.find(c => c.itemId === item.id && ['approved','allocated'].includes(c.status));
+                  return (
+                    <tr key={item.id} style={{ borderTop:'1px solid var(--line)', opacity: item.status === 'available' && !hasPending ? 1 : 0.65 }}>
+                      <td style={{ padding:'8px 14px' }}>
+                        {item.photoUrl
+                          ? <img src={item.photoUrl} alt={item.name} style={{ width:36, height:36, borderRadius:7, objectFit:'cover', border:'1px solid var(--line)' }} />
+                          : <div style={{ width:36, height:36, borderRadius:7, background:tm.bg, display:'flex', alignItems:'center', justifyContent:'center' }}><tm.Icon size={16} color={tm.color} /></div>}
+                      </td>
+                      <td style={{ padding:'8px 14px', fontWeight:600 }}>
+                        {item.name}
+                        {co && <div style={{ fontSize:11, color:'hsl(var(--color-orange))', marginTop:1 }}>With {co.requestedBy}</div>}
+                      </td>
+                      <td style={{ padding:'8px 14px' }}><TypeBadge type={item.itemType} /></td>
+                      <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{[item.make, item.model].filter(Boolean).join(' · ') || '—'}</td>
+                      <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.location || '—'}</td>
+                      <td style={{ padding:'8px 14px' }}><StatusBadge status={hasPending ? 'checked_out' : item.status} /></td>
+                      <td style={{ padding:'8px 14px' }}>
+                        {canAdd && (
+                          <button onClick={() => onAddToCart(item)} disabled={alreadyInCart}
+                            className={alreadyInCart ? 'secondary-btn' : 'primary-btn'}
+                            style={{ fontSize:12, padding:'5px 12px', display:'inline-flex', alignItems:'center', gap:5 }}>
+                            {alreadyInCart ? <><CheckCircle size={11} /> In Cart</> : <><Plus size={11} /> Add</>}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )
+      )}
+
       {/* Manager's own checkouts */}
       <MyCheckoutsPanel
         checkouts={checkouts}
@@ -2063,6 +2172,71 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
   );
 }
 
+// ── Employee Accept Modal (employee takes checkout photo to confirm receipt) ───
+function EmployeeAcceptModal({ checkout, onClose, onConfirm }) {
+  const [file,       setFile]       = useState(null);
+  const [preview,    setPreview]    = useState('');
+  const [uploading,  setUploading]  = useState(false);
+  const [error,      setError]      = useState('');
+  const fileRef = useRef(null);
+  useEscapeKey(onClose);
+
+  function handleFile(f) {
+    if (!f) return;
+    setFile(f);
+    const reader = new FileReader();
+    reader.onload = e => setPreview(e.target.result);
+    reader.readAsDataURL(f);
+  }
+
+  async function submit() {
+    if (!file || uploading) return;
+    setUploading(true); setError('');
+    const path = `checkout-photos/${checkout.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const { url, error: upErr } = await uploadToSupabase(file, 'checkout-photos', path);
+    if (upErr) { setError(upErr); setUploading(false); return; }
+    Promise.resolve(onConfirm(url, file.name))
+      .then(onClose)
+      .catch(err => { setError(err?.message || 'Could not confirm receipt.'); setUploading(false); });
+  }
+
+  return (
+    <div role="dialog" aria-modal="true"
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Confirm You Have It</h3>
+        <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:20 }}>
+          Take a photo of <strong>{checkout.itemName}</strong> to confirm you received it. This creates a condition record for the handover.
+        </p>
+        <div>
+          <label style={FL}>HANDOVER PHOTO <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+          <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={e => handleFile(e.target.files?.[0])} />
+          {preview ? (
+            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+              <img src={preview} alt="Handover photo" style={{ width:72, height:72, objectFit:'cover', borderRadius:8, border:'1px solid var(--line)' }} />
+              <button type="button" className="secondary-btn" style={{ fontSize:12 }} onClick={() => fileRef.current?.click()}>Replace</button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => fileRef.current?.click()}
+              style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', borderRadius:9, border:'2px dashed hsla(var(--color-red),0.4)', background:'hsla(var(--color-red),0.04)', cursor:'pointer', fontSize:13, color:'var(--muted)' }}>
+              <Camera size={15} /> Take / Upload Photo
+            </button>
+          )}
+        </div>
+        {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginTop:10 }}>{error}</p>}
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={uploading}>Cancel</button>
+          <button className="primary-btn" disabled={!file || uploading}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:160, justifyContent:'center' }} onClick={submit}>
+            {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><CheckCircle size={14} /> Confirm Receipt</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Allocate Modal (manager/allocator takes checkout photo here) ───────────────
 function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm }) {
   const coItems  = checkoutBatch || (checkout ? [checkout] : []);
@@ -2085,12 +2259,18 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm 
   }
 
   async function submit() {
-    if (!file || uploading) return;
+    if (uploading) return;
     setUploading(true); setError('');
-    const path = `checkout-photos/${first.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-    const { url, error: upErr } = await uploadToSupabase(file, 'checkout-photos', path);
-    if (upErr) { setError(upErr); setUploading(false); return; }
-    Promise.resolve(onConfirm(url, file.name))
+    let url = '';
+    let name = '';
+    if (file) {
+      const path = `checkout-photos/${first.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+      const { url: uploadedUrl, error: upErr } = await uploadToSupabase(file, 'checkout-photos', path);
+      if (upErr) { setError(upErr); setUploading(false); return; }
+      url = uploadedUrl;
+      name = file.name;
+    }
+    Promise.resolve(onConfirm(url, name))
       .then(onClose)
       .catch(err => { setError(err?.message || 'Could not mark as allocated.'); setUploading(false); });
   }
@@ -2116,7 +2296,7 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm 
           </p>
         )}
         <div>
-          <label style={FL}>CHECKOUT PHOTO <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+          <label style={FL}>CHECKOUT PHOTO <span style={{ fontSize:11, fontWeight:400, color:'var(--muted)' }}>(optional — employee can take one on their side)</span></label>
           <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={e => handleFile(e.target.files?.[0])} />
           {preview ? (
             <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -2125,15 +2305,15 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm 
             </div>
           ) : (
             <button type="button" onClick={() => fileRef.current?.click()}
-              style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', borderRadius:9, border:'2px dashed hsla(var(--color-red),0.4)', background:'hsla(var(--color-red),0.04)', cursor:'pointer', fontSize:13, color:'var(--muted)' }}>
-              <Camera size={15} /> Take / Upload Photo
+              style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', borderRadius:9, border:'2px dashed var(--line)', background:'var(--mist)', cursor:'pointer', fontSize:13, color:'var(--muted)' }}>
+              <Camera size={15} /> Upload Photo (optional)
             </button>
           )}
         </div>
         {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginTop:10 }}>{error}</p>}
         <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
           <button className="secondary-btn" onClick={onClose} disabled={uploading}>Cancel</button>
-          <button className="primary-btn" disabled={!file || uploading}
+          <button className="primary-btn" disabled={uploading}
             style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:140, justifyContent:'center' }} onClick={submit}>
             {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><CheckCircle size={14} /> Confirm Handover</>}
           </button>
@@ -2272,6 +2452,7 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
   const { can } = useRole();
   const isManager = can('manager');
   const [statusFilter,   setStatusFilter]   = useState('active');
+  const [heldByFilter,   setHeldByFilter]   = useState('All');
   const [approvingCo,    setApprovingCo]    = useState(null);
   const [rejectingCo,    setRejectingCo]    = useState(null);
   const [approvingOrder, setApprovingOrder] = useState(null);
@@ -2281,6 +2462,17 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
   const [photoPreview,   setPhotoPreview]   = useState(null);
   // IDs of completed items dismissed from the active-order view via X button
   const [dismissedIds,   setDismissedIds]   = useState(new Set());
+
+  // Build list of people who currently hold items (active checkouts)
+  const holdersMap = (() => {
+    const map = new Map();
+    for (const c of checkouts) {
+      if (['pending','approved','allocated'].includes(c.status) && c.requestedBy) {
+        map.set(c.requestedByEmail || c.requestedBy, c.requestedBy);
+      }
+    }
+    return map;
+  })();
 
   // Group ALL checkouts by orderId first, then filter groups
   const allGrouped = (() => {
@@ -2294,6 +2486,11 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
   })();
 
   const groupedOrders = allGrouped.filter(groupItems => {
+    const first = groupItems[0];
+    if (heldByFilter !== 'All') {
+      const holderKey = first.requestedByEmail || first.requestedBy;
+      if (holderKey !== heldByFilter) return false;
+    }
     if (statusFilter === 'active')    return groupItems.some(c => ['pending','approved','allocated'].includes(c.status));
     if (statusFilter === 'completed') return groupItems.every(c => ['returned','rejected','cancelled'].includes(c.status));
     return groupItems.some(c => c.status === statusFilter);
@@ -2342,7 +2539,7 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
   return (
     <div>
       {/* Summary chips */}
-      <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap', alignItems:'center' }}>
+      <div style={{ display:'flex', gap:10, marginBottom:12, flexWrap:'wrap', alignItems:'center' }}>
         {[
           { key:'active',    label:'Active',            count: pending + approved + checkouts.filter(c => c.status === 'allocated').length },
           { key:'pending',   label:'Pending approval',  count: pending },
@@ -2356,6 +2553,22 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
           </button>
         ))}
       </div>
+      {/* Who has what filter */}
+      {holdersMap.size > 0 && (
+        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:18, flexWrap:'wrap' }}>
+          <span style={{ fontSize:12, color:'var(--muted)', display:'flex', alignItems:'center', gap:4 }}><Users size={13} /> Who has it:</span>
+          <button onClick={() => setHeldByFilter('All')}
+            style={{ padding:'4px 12px', borderRadius:20, border:`1px solid ${heldByFilter === 'All' ? 'var(--pine)' : 'var(--line)'}`, background: heldByFilter === 'All' ? 'hsla(var(--color-green),0.1)' : 'transparent', color: heldByFilter === 'All' ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+            All
+          </button>
+          {[...holdersMap.entries()].map(([key, name]) => (
+            <button key={key} onClick={() => setHeldByFilter(key)}
+              style={{ padding:'4px 12px', borderRadius:20, border:`1px solid ${heldByFilter === key ? 'var(--pine)' : 'var(--line)'}`, background: heldByFilter === key ? 'hsla(var(--color-green),0.1)' : 'transparent', color: heldByFilter === key ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+              {name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {groupedOrders.length === 0 ? (
         <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)' }}>
@@ -2458,6 +2671,12 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
                                 <CheckCircle size={12} /> Approve
                               </button>
                             </>
+                          )}
+                          {co.status === 'approved' && isManager && (
+                            <button onClick={() => setRejectingCo(co)}
+                              style={{ background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:8, padding:'5px 11px', fontSize:12, cursor:'pointer', color:'hsl(var(--color-red))', fontWeight:600, display:'inline-flex', alignItems:'center', gap:4, fontFamily:'Inter,sans-serif' }}>
+                              <XCircle size={12} /> Reject
+                            </button>
                           )}
                           {co.status === 'approved' && (isMyAlloc || isManager) && (
                             <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:4, background:'hsl(var(--color-orange))', padding:'6px 12px' }}
@@ -2631,6 +2850,7 @@ export default function InventoryManagement({ activeSub }) {
           refreshItems={refreshItems}
           submitCartCheckouts={submitCartCheckouts}
           cancelRequest={cancelRequest}
+          allocateItem={allocateItem}
           addNotification={addNotification}
           toast={toast}
         />
@@ -2646,7 +2866,7 @@ export default function InventoryManagement({ activeSub }) {
       {/* Header */}
       <div className="view-header" style={{ marginBottom:0 }}>
         <div className="view-title-group">
-          <h2>Items</h2>
+          <h2>Item Management</h2>
           <p>Company assets across all departments and locations</p>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>

@@ -134,6 +134,14 @@ async def lifespan(app: FastAPI):
             print("[startup] JWKS keys cached")
     except Exception as e:
         print(f"[startup] JWKS prefetch skipped: {e}")
+    # Pre-warm the DB connection pool so the first user request doesn't pay
+    # the cold-start cost of establishing the initial Postgres connection.
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        print("[startup] DB connection pool warmed")
+    except Exception as e:
+        print(f"[startup] DB pool warm-up skipped: {e}")
     yield
 
 
@@ -155,7 +163,13 @@ app.add_middleware(
 
 
 @app.get("/")
+def root():
+    return {"status": "ok"}
+
+
+@app.get("/health")
 def health():
+    """No-auth liveness probe — used by frontend to detect outages without burning a token."""
     return {"status": "ok"}
 
 

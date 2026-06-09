@@ -8,6 +8,7 @@ import Sidebar from "./components/Sidebar";
 import TopHeader from "./components/TopHeader";
 import AdminPanel from "./components/AdminPanel";
 import NotificationToasts from "./components/NotificationToasts";
+import { onBackendHealth } from "./api";
 
 // Always loaded — critical path
 import LoginPage from "./views/LoginPage";
@@ -55,7 +56,10 @@ export default function App() {
   const [navHistory,       setNavHistory]       = useState([]);
   const [adminPanelOpen,   setAdminPanelOpen]   = useState(false);
   const [adminPanelTab,    setAdminPanelTab]    = useState('access');
+  const [backendDown,      setBackendDown]      = useState(false);
   const sidebarRef = useRef(null);
+
+  useEffect(() => onBackendHealth(setBackendDown), []);
 
   // Collapse sidebar when clicking outside it — lets clicks pass through to content
   useEffect(() => {
@@ -84,6 +88,12 @@ export default function App() {
     setActiveSub(sub ?? getDefaultSub(view));
     setSidebarOpen(false);
   }
+
+  useEffect(() => {
+    const handler = e => navigate(e.detail.view, e.detail.sub ?? null);
+    window.addEventListener('nexus:navigate', handler);
+    return () => window.removeEventListener('nexus:navigate', handler);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function goBack() {
     if (!navHistory.length) return;
@@ -142,7 +152,19 @@ export default function App() {
         <RequisitionProvider>
         <InventoryProvider>
         <NotificationToasts onNavigate={navigate} />
-        <div className="app-container">
+        {backendDown && (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,
+            background: '#b91c1c', color: '#fff',
+            padding: '7px 16px', fontSize: '13px', fontWeight: 500,
+            display: 'flex', alignItems: 'center', gap: 8,
+            boxShadow: '0 2px 8px rgba(0,0,0,.25)',
+          }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#fca5a5', display: 'inline-block', animation: 'pulse 1.4s ease-in-out infinite' }} />
+            Service is reconnecting — data may be delayed. Retrying automatically…
+          </div>
+        )}
+        <div className="app-container" style={backendDown ? { paddingTop: 34 } : undefined}>
           <Sidebar
             ref={sidebarRef}
             activeView={activeView}

@@ -23,29 +23,59 @@ async function getAuthHeader(forceRefresh = false) {
 }
 
 // Azure App Service on the free/basic tier can take 5-15 seconds to cold-start.
-// Network errors (CORS preflight timeout) get 3 attempts with 500ms/1s backoff.
+// Network errors (CORS preflight timeout) get 3 attempts with 800ms/1.6s backoff.
 // 5xx errors get 4 attempts with 1s/2s/4s exponential backoff — covers warm-up.
 const MAX_NET_ATTEMPTS = 3;
 const MAX_5XX_ATTEMPTS = 4;
+// Each individual fetch is capped at 18s. Without this, a hung backend means
+// the browser never resolves the request and the UI appears frozen indefinitely.
+const FETCH_TIMEOUT_MS = 18_000;
+
+// Global health state — broadcast to the rest of the app when the backend goes
+// down or comes back so a single reconnecting banner can appear rather than
+// every module showing its own error independently.
+let _backendDown = false;
+let _downCount   = 0;
+const _healthListeners = new Set();
+function _setBackendDown(down) {
+  if (down === _backendDown) return;
+  _backendDown = down;
+  _downCount   = down ? _downCount + 1 : 0;
+  _healthListeners.forEach(fn => fn(down));
+}
+export function onBackendHealth(fn) {
+  _healthListeners.add(fn);
+  fn(_backendDown); // fire immediately with current state
+  return () => _healthListeners.delete(fn);
+}
+export function isBackendDown() { return _backendDown; }
 
 async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   const authHeader = await getAuthHeader(tokenRefreshed);
   let res;
   try {
-    res = await fetch(`${BASE}${path}`, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...authHeader,
-        ...(options.headers ?? {}),
-      },
-    });
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+      res = await fetch(`${BASE}${path}`, {
+        ...options,
+        signal: controller.signal,
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeader,
+          ...(options.headers ?? {}),
+        },
+      });
+    } finally {
+      clearTimeout(tid);
+    }
   } catch (err) {
-    // fetch() itself threw — offline, CORS preflight dropped, or cold-start.
+    // fetch() itself threw — offline, CORS preflight dropped, cold-start, or timeout.
     if (attempt < MAX_NET_ATTEMPTS) {
-      await new Promise(r => setTimeout(r, 500 * attempt));
+      await new Promise(r => setTimeout(r, 800 * attempt));
       return req(path, options, attempt + 1, tokenRefreshed);
     }
+    _setBackendDown(true);
     throw err;
   }
 
@@ -65,8 +95,12 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
     const err = new Error(detail || `API error ${res.status}`);
     err.status = res.status;
     err.detail = detail;
+    if (res.status >= 500) _setBackendDown(true);
     throw err;
   }
+
+  // Successful response — backend is up
+  _setBackendDown(false);
   if (res.status === 204) return null;
   return res.json();
 }
@@ -78,13 +112,20 @@ async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) 
   const authHeader = await getAuthHeader(tokenRefreshed);
   let res;
   try {
-    res = await fetch(`${BASE}${path}`, {
-      ...options,
-      headers: { ...authHeader, ...(options.headers ?? {}) },
-    });
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+      res = await fetch(`${BASE}${path}`, {
+        ...options,
+        signal: controller.signal,
+        headers: { ...authHeader, ...(options.headers ?? {}) },
+      });
+    } finally {
+      clearTimeout(tid);
+    }
   } catch (err) {
     if (attempt < MAX_NET_ATTEMPTS) {
-      await new Promise(r => setTimeout(r, 500 * attempt));
+      await new Promise(r => setTimeout(r, 800 * attempt));
       return reqBlob(path, options, attempt + 1, tokenRefreshed);
     }
     throw err;

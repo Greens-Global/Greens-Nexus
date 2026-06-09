@@ -10,7 +10,8 @@ const NotificationCtx = createContext(null);
 let counter = 1;
 const genId = () => `N${Date.now()}-${counter++}`;
 
-const FALLBACK_POLL = 8000; // 8s fallback in case realtime misses anything
+const FALLBACK_POLL_OK  = 30_000; // 30s when everything's fine — realtime handles the rest
+const FALLBACK_POLL_ERR = 60_000; // 60s backoff when backend is struggling
 
 function rowToNotif(r) {
   return {
@@ -42,14 +43,15 @@ export function NotificationProvider({ children }) {
   const pollRef     = useRef(null);
   const channelRef  = useRef(null);
   const fetchingRef = useRef(false);
+  const errCountRef = useRef(0);
 
   // ── Full fetch from backend ───────────────────────────────────────────────
   const fetchNotifications = useCallback(() => {
     if (!myEmail || fetchingRef.current) return;
     fetchingRef.current = true;
     api.getNotifications()
-      .then(rows => setNotifications(rows.map(rowToNotif)))
-      .catch(() => {})
+      .then(rows => { setNotifications(rows.map(rowToNotif)); errCountRef.current = 0; })
+      .catch(() => { errCountRef.current += 1; })
       .finally(() => { fetchingRef.current = false; });
   }, [myEmail]);
 
@@ -59,6 +61,16 @@ export function NotificationProvider({ children }) {
 
     // Initial load
     fetchNotifications();
+
+    // Adaptive fallback poll — backs off when backend errors accumulate
+    function scheduleNotifPoll() {
+      clearTimeout(pollRef.current);
+      const delay = errCountRef.current > 0 ? FALLBACK_POLL_ERR : FALLBACK_POLL_OK;
+      pollRef.current = setTimeout(() => {
+        fetchNotifications();
+        scheduleNotifPoll();
+      }, delay);
+    }
 
     if (supabase) {
       // Subscribe to new inserts on nexus_notifications
@@ -94,17 +106,13 @@ export function NotificationProvider({ children }) {
           }
         )
         .subscribe();
-
-      // 60s fallback poll to catch anything realtime missed
-      pollRef.current = setInterval(fetchNotifications, FALLBACK_POLL);
-    } else {
-      // No Supabase client — fall back to 5s polling
-      pollRef.current = setInterval(fetchNotifications, 5000);
     }
+
+    scheduleNotifPoll();
 
     return () => {
       if (channelRef.current) supabase?.removeChannel(channelRef.current);
-      clearInterval(pollRef.current);
+      clearTimeout(pollRef.current);
     };
   }, [myEmail, fetchNotifications]);
 

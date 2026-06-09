@@ -60,7 +60,7 @@ const NAV = [
       { subview: "dev-details", label: "Property Details", icon: FileText },
     ],
   },
-  { view: "inventory", label: "Items", icon: Package },
+  { view: "inventory", label: "Item Management", icon: Package },
   {
     view: "property-asset", label: "Asset Management", icon: Home, minRole: 'supervisor',
     sub: [

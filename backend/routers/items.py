@@ -16,7 +16,7 @@ from models import Item, ItemCheckout, ItemCartEntry, NexusRole, NexusNotificati
 
 _VALID_TRANSITIONS = {
     "approved":  {"pending"},
-    "rejected":  {"pending"},
+    "rejected":  {"pending", "approved"},
     "allocated": {"approved"},
     "returned":  {"allocated"},
     "cancelled": {"pending", "approved"},
@@ -558,7 +558,9 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
                 body=f"{row.item_name} has been handed over to you. Please return it within {row.days} day(s).",
                 ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
     elif body.status == "returned":
-        _notify(db, type="item_returned", recipient="",
+        # Notify only the allocator (supervisor/manager who handed it over), not all employees
+        return_recipient = (row.assigned_allocator_email or "").lower().strip()
+        _notify(db, type="item_returned", recipient=return_recipient,
                 title=f"Item returned: {row.item_name}",
                 body=f"{row.requested_by} returned {row.item_name}. Condition: {row.condition_note or 'No notes.'}",
                 ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)

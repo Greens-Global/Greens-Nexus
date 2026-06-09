@@ -24,18 +24,17 @@ else:
     ssl_ctx.verify_mode = ssl.CERT_NONE
     engine = create_engine(
         url,
-        connect_args={"ssl_context": ssl_ctx},
+        connect_args={"ssl_context": ssl_ctx, "options": "-c statement_timeout=25000"},
         # Routes are sync (`def`, not `async def`), so each request borrows a
         # connection from this pool while running in FastAPI's threadpool.
         # SQLAlchemy's defaults (5 + 10 = 15 per worker) became the limiting
         # factor once CPU was no longer the bottleneck. Modest bump — stay
         # mindful this multiplies by gunicorn worker count against whatever
         # connection ceiling the Supabase pooler enforces on the dev project.
-        pool_size=10,
-        max_overflow=15,
-        # Under load, the default pool_timeout (30s) made starved requests hang
-        # for up to 30s before failing — fail fast instead so the tail latency
-        # stays bounded and the caller gets a prompt error to retry.
+        # 8 workers × (pool_size + max_overflow) must stay under Supabase's
+        # connection ceiling. 8 × (3 + 5) = 64 — safe on any paid plan.
+        pool_size=3,
+        max_overflow=5,
         pool_timeout=10,
         # Supabase's pooler drops idle connections; pre_ping detects and replaces
         # dead ones transparently instead of surfacing "connection closed" errors,
