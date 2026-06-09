@@ -976,7 +976,7 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting }) {
 }
 
 // ── My Checkouts Panel ────────────────────────────────────────────────────────
-function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel }) {
+function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate }) {
   const mine = checkouts.filter(c =>
     (c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) ||
     c.requestedBy === userName
@@ -1023,6 +1023,12 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel }
                 <button className="secondary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5 }}
                   onClick={() => onReturn(c)}>
                   <RotateCcw size={13} /> Return Item
+                </button>
+              )}
+              {c.status === 'approved' && onSelfAllocate && (
+                <button className="primary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5, background:'hsl(var(--color-green))' }}
+                  onClick={() => onSelfAllocate(c)}>
+                  <CheckCircle size={13} /> Confirm I Have It
                 </button>
               )}
               {['pending','approved'].includes(c.status) && cancelId !== c.id && (
@@ -1381,7 +1387,7 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
 }
 
 // ── Manager Catalog Tab ───────────────────────────────────────────────────────
-function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel }) {
+function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate }) {
   const filtered = items.filter(i => {
     const mS = !search || i.name.toLowerCase().includes(search.toLowerCase()) || (i.make||'').toLowerCase().includes(search.toLowerCase()) || (i.model||'').toLowerCase().includes(search.toLowerCase());
     const mD = deptFilter === 'All' || i.department === deptFilter;
@@ -1408,6 +1414,7 @@ function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFi
         userName={userName}
         onReturn={onReturn}
         onCancel={onCancel}
+        onSelfAllocate={onSelfAllocate}
       />
     </>
   );
@@ -2031,6 +2038,7 @@ export default function InventoryManagement({ activeSub }) {
           refreshItems={refreshItems} onAddToCart={addToCart} inCart={inCart}
           checkouts={checkouts} userEmail={userEmail} userName={userName}
           onReturn={co => setReturningCo(co)} onCancel={cancelCo}
+          onSelfAllocate={co => allocateItem(co.id, userName).then(() => toast(`Confirmed — ${co.itemName} is with you.`)).catch(() => toast('Could not confirm.', 'error'))}
         />
       )}
       {mainTab === 'manage' && (

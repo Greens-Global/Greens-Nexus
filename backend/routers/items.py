@@ -271,6 +271,14 @@ def get_cart(user: dict = Depends(get_current_user), db: Session = Depends(get_d
 @router.post("/cart")
 def add_to_cart(body: CartAddBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     email = (user.get("preferred_username") or user.get("email") or "").lower()
+    # Validate item exists and is requestable
+    item = db.query(Item).filter(Item.id == body.item_id).first()
+    if not item:
+        raise HTTPException(404, "Item not found")
+    if item.ownership_type != "transient":
+        raise HTTPException(400, "Only transient items can be added to cart")
+    if item.status != "available":
+        raise HTTPException(409, f'"{item.name}" is not currently available')
     existing = db.query(ItemCartEntry).filter(ItemCartEntry.user_email == email, ItemCartEntry.item_id == body.item_id).first()
     if existing:
         return {"id": existing.id, "itemId": existing.item_id, "itemName": existing.item_name, "itemType": existing.item_type, "addedAt": existing.added_at}
@@ -354,6 +362,10 @@ class CheckoutIn(BaseModel):
     checkout_photo_url:  Optional[str] = ""
     checkout_photo_name: Optional[str] = ""
 
+    def validate_days(self):
+        if not (1 <= self.days <= 90):
+            raise HTTPException(400, "days must be between 1 and 90")
+
 
 class CheckoutStatusUpdate(BaseModel):
     status:                    str
@@ -380,6 +392,10 @@ def list_checkouts(user: dict = Depends(get_current_user), db: Session = Depends
 
 @router.post("/checkouts", status_code=201)
 def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    body.validate_days()
+    if not body.reason.strip():
+        raise HTTPException(400, "Reason for checkout is required")
+
     if db.query(ItemCheckout).filter(ItemCheckout.id == body.id).first():
         raise HTTPException(409, "A checkout with this id already exists")
 
@@ -389,28 +405,45 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
     if item.ownership_type != "transient":
         raise HTTPException(400, "Only transient items can be checked out")
     if item.status != "available":
-        raise HTTPException(409, "Item is not currently available for checkout")
+        raise HTTPException(409, f'"{item.name}" is no longer available — it may have just been taken by someone else')
+
+    # Verify no active checkout exists for this item (race condition guard)
+    active = db.query(ItemCheckout).filter(
+        ItemCheckout.item_id == body.item_id,
+        ItemCheckout.status.in_(["pending", "approved", "allocated"]),
+    ).first()
+    if active:
+        raise HTTPException(409, f'"{item.name}" already has an active checkout request')
 
     now = datetime.now(timezone.utc).isoformat()
+    # Managers and above don't need a separate approval for their own checkouts
+    is_manager = user.get("level", 1) >= 3
+    requester_email = body.requested_by_email.lower()
+    user_email = user.get("email", "").lower()
+    self_checkout = is_manager and requester_email == user_email
+    initial_status = "approved" if self_checkout else "pending"
+
     row = ItemCheckout(
         id=body.id,
         item_id=body.item_id,
         item_name=body.item_name,
         item_type=body.item_type or "",
         requested_by=body.requested_by,
-        requested_by_email=body.requested_by_email.lower(),
+        requested_by_email=requester_email,
         raised_by=body.raised_by,
         department=body.department,
         days=body.days,
         reason=body.reason,
-        status="pending",
+        status=initial_status,
         created_at=now,
+        resolved_at=now if self_checkout else "",
+        resolved_by=body.requested_by if self_checkout else "",
         checkout_photo_url=body.checkout_photo_url or "",
         checkout_photo_name=body.checkout_photo_name or "",
     )
     db.add(row)
     db.commit()
-    _fire_item_event(row.id, "pending", row.requested_by_email or "")
+    _fire_item_event(row.id, initial_status, row.requested_by_email or "")
     return _checkout_to_dict(row)
 
 
