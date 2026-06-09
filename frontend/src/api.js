@@ -183,6 +183,10 @@ export const api = {
   getItemCheckouts:    ()             => req('/items/checkouts'),
   createItemCheckout:  (data)         => req('/items/checkouts', { method: 'POST', body: JSON.stringify(data) }),
   updateItemCheckout:  (id, data)     => req(`/items/checkouts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getItemCart:         ()             => req('/items/cart'),
+  addItemToCart:       (data)         => req('/items/cart', { method: 'POST', body: JSON.stringify(data) }),
+  removeItemFromCart:  (itemId)       => req(`/items/cart/${encodeURIComponent(itemId)}`, { method: 'DELETE' }),
+  clearItemCart:       ()             => req('/items/cart', { method: 'DELETE' }),
 
   // Requisitions (persisted in Supabase)
   getRequisitions:           ()              => req('/requisitions'),

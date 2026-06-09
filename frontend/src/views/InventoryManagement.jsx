@@ -1083,19 +1083,22 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel }
 }
 
 // ── Employee View ─────────────────────────────────────────────────────────────
-function cartKey(email) { return `nexus_items_cart:${(email || 'anon').toLowerCase()}`; }
-function loadCart(email) { try { return JSON.parse(localStorage.getItem(cartKey(email))) || []; } catch { return []; } }
-function saveCart(email, c) { try { localStorage.setItem(cartKey(email), JSON.stringify(c)); } catch {} }
-
 function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, itemsError, checkoutsError, onReturn, refreshItems, submitCartCheckouts, cancelRequest, addNotification, toast }) {
   const [search,      setSearch]      = useState('');
   const [typeFilter,  setTypeFilter]  = useState('All');
   const [cartOpen,    setCartOpen]    = useState(false);
-  const [cart,        setCart]        = useState(() => loadCart(userEmail));
+  const [cart,        setCart]        = useState([]);
+  const [cartLoaded,  setCartLoaded]  = useState(false);
   const [returningCo, setReturningCo] = useState(null);
   const [submitting,  setSubmitting]  = useState(false);
 
-  useEffect(() => { saveCart(userEmail, cart); }, [cart, userEmail]);
+  // Load cart from DB on mount
+  useEffect(() => {
+    api.getItemCart().then(rows => {
+      setCart(rows.map(r => ({ id: r.id, item: { id: r.itemId, name: r.itemName, itemType: r.itemType } })));
+      setCartLoaded(true);
+    }).catch(() => setCartLoaded(true));
+  }, []);
 
   const availableItems = items.filter(i => i.ownershipType === 'transient' && i.status === 'available');
   const filtered = availableItems.filter(i => {
@@ -1110,11 +1113,17 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
 
   function addToCart(item) {
     if (inCart.has(item.id)) return;
-    setCart(prev => [...prev, { id: `cart-${Date.now()}`, item }]);
+    const optimisticId = `cart-${Date.now()}`;
+    setCart(prev => [...prev, { id: optimisticId, item }]);
+    api.addItemToCart({ item_id: item.id, item_name: item.name, item_type: item.itemType })
+      .then(saved => setCart(prev => prev.map(c => c.id === optimisticId ? { id: saved.id, item } : c)))
+      .catch(() => setCart(prev => prev.filter(c => c.id !== optimisticId)));
   }
 
   function removeFromCart(cartId) {
+    const entry = cart.find(c => c.id === cartId);
     setCart(prev => prev.filter(c => c.id !== cartId));
+    if (entry) api.removeItemFromCart(entry.item.id).catch(() => {});
   }
 
   async function handleSubmitCart({ days, reason }) {
@@ -1122,6 +1131,7 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
     const results = await submitCartCheckouts(cart, { days, reason, raisedBy: userName, raisedByEmail: userEmail });
     const succeeded = results.filter(r => r.status === 'fulfilled').length;
     const failed    = results.filter(r => r.status === 'rejected').length;
+    if (succeeded > 0) await api.clearItemCart().catch(() => {});
     setSubmitting(false);
     setCartOpen(false);
     setCart([]);
@@ -1759,24 +1769,38 @@ export default function InventoryManagement({ activeSub }) {
   const pendingCount  = checkouts.filter(c => c.status === 'pending').length;
   const approvedCount = checkouts.filter(c => c.status === 'approved').length;
 
-  // Cart — available to everyone, persisted per-user in localStorage
-  const [cart,        setCart]        = useState(() => loadCart(userEmail));
+  // Cart — DB-backed, survives logout and device switches
+  const [cart,        setCart]        = useState([]);
   const [cartOpen,    setCartOpen]    = useState(false);
   const [cartBusy,    setCartBusy]    = useState(false);
   const [returningCo, setReturningCo] = useState(null);
 
-  useEffect(() => { saveCart(userEmail, cart); }, [cart, userEmail]);
+  useEffect(() => {
+    api.getItemCart().then(rows => {
+      setCart(rows.map(r => ({ id: r.id, item: { id: r.itemId, name: r.itemName, itemType: r.itemType } })));
+    }).catch(() => {});
+  }, []);
 
   const inCart = new Set(cart.map(c => c.item.id));
   function addToCart(item) {
     if (inCart.has(item.id)) return;
-    setCart(prev => [...prev, { id: `cart-${Date.now()}`, item }]);
+    const optimisticId = `cart-${Date.now()}`;
+    setCart(prev => [...prev, { id: optimisticId, item }]);
+    api.addItemToCart({ item_id: item.id, item_name: item.name, item_type: item.itemType })
+      .then(saved => setCart(prev => prev.map(c => c.id === optimisticId ? { id: saved.id, item } : c)))
+      .catch(() => setCart(prev => prev.filter(c => c.id !== optimisticId)));
+  }
+  function removeFromCart(cartId) {
+    const entry = cart.find(c => c.id === cartId);
+    setCart(prev => prev.filter(c => c.id !== cartId));
+    if (entry) api.removeItemFromCart(entry.item.id).catch(() => {});
   }
   async function handleSubmitCart({ days, reason }) {
     setCartBusy(true);
     const results = await submitCartCheckouts(cart, { days, reason, raisedBy: userName, raisedByEmail: userEmail });
     const succeeded = results.filter(r => r.status === 'fulfilled').length;
     const failed    = results.filter(r => r.status === 'rejected').length;
+    if (succeeded > 0) await api.clearItemCart().catch(() => {});
     setCartBusy(false); setCartOpen(false); setCart([]);
     if (succeeded > 0) toast(`${succeeded} checkout${succeeded !== 1 ? 's' : ''} submitted.`);
     if (failed > 0)    toast(`${failed} checkout${failed !== 1 ? 's' : ''} failed — please retry.`, 'error');
@@ -1973,7 +1997,7 @@ export default function InventoryManagement({ activeSub }) {
       <CartDrawer
         open={cartOpen} cart={cart}
         onClose={() => setCartOpen(false)}
-        onRemove={id => setCart(prev => prev.filter(c => c.id !== id))}
+        onRemove={removeFromCart}
         onSubmit={handleSubmitCart}
         submitting={cartBusy}
       />

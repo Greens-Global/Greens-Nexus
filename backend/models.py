@@ -326,6 +326,17 @@ class ItemCheckout(Base):
     condition_note           = Column(String, default="")
 
 
+class ItemCartEntry(Base):
+    """Persisted cart entry — one row per (user, item). Survives logout and device switches."""
+    __tablename__ = "item_cart"
+    id         = Column(String, primary_key=True)   # uuid
+    user_email = Column(String, nullable=False)
+    item_id    = Column(String, nullable=False)
+    item_name  = Column(String, nullable=False)
+    item_type  = Column(String, default="Other")
+    added_at   = Column(String, default="")
+
+
 class NexusRole(Base):
     __tablename__ = "nexus_roles"
     email        = Column(String, primary_key=True)   # Azure AD UPN / email
