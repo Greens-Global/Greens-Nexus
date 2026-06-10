@@ -283,7 +283,7 @@ export function InventoryProvider({ children }) {
       const path = `${id}/${Date.now()}.${ext}`;
       const { data: uploaded, error } = await supabase.storage
         .from('return-photos')
-        .upload(path, file, { contentType: file.type, upsert: false });
+        .upload(path, file, { contentType: file.type, upsert: false, cacheControl: '31536000' });
       if (!error && uploaded) {
         const { data: urlData } = supabase.storage.from('return-photos').getPublicUrl(uploaded.path);
         permanentUrl = urlData.publicUrl;

@@ -965,6 +965,8 @@ def request_extension(checkout_id: str, body: ExtensionRequest, user: dict = Dep
         raise HTTPException(403, "Only the person holding the item can request an extension")
     if row.extension_status == "pending":
         raise HTTPException(400, "An extension request is already awaiting approval")
+    if not (body.reason or "").strip():
+        raise HTTPException(400, "A reason is required to request an extension")
     days = max(1, min(90, int(body.days or 1)))
 
     row.extension_days   = days
@@ -1002,12 +1004,12 @@ def resolve_extension(checkout_id: str, body: ExtensionResolve, user: dict = Dep
     ext_days = row.extension_days or 0
     if action == "approve":
         row.days = (row.days or 1) + ext_days
-        _notify(db, type="extension_resolved", recipient=row.requested_by_email,
+        _notify(db, type="extension_approved", recipient=row.requested_by_email,
                 title=f"Extension approved: {row.item_name}",
                 body=f"Your extension of {ext_days} day{'s' if ext_days != 1 else ''} for {row.item_name} was approved. New checkout period: {row.days} days.",
                 ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
     else:
-        _notify(db, type="extension_resolved", recipient=row.requested_by_email,
+        _notify(db, type="extension_declined", recipient=row.requested_by_email,
                 title=f"Extension declined: {row.item_name}",
                 body=f"Your extension request for {row.item_name} was declined."
                      + (f" Note: {body.note.strip()}" if (body.note or "").strip() else "")
@@ -1215,6 +1217,7 @@ def _fetch_image_to_storage(img_url: str, item_id: str, _depth: int = 0) -> str:
                 "apikey": _SUPABASE_SERVICE_KEY,
                 "Content-Type": ctype,
                 "x-upsert": "true",
+                "cache-control": "max-age=31536000",  # unique paths — browsers cache immutably
             },
             content=content,
         )

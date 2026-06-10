@@ -34,9 +34,13 @@ const TYPE_META = {
   approved:         { icon: CheckCircle,  label: 'Request Approved',     color: 'var(--color-green)'  },
   rejected:         { icon: XCircle,      label: 'Request Rejected',     color: 'var(--color-red)'    },
   custom_alert:     { icon: AlertCircle,  label: 'Alert',                color: 'var(--color-orange)' },
-  extension_pending:  { icon: Clock,       label: 'Extension Request',    color: 'var(--color-blue)'   },
-  extension_resolved: { icon: CheckCircle, label: 'Extension Update',     color: 'var(--color-green)'  },
-  req_update:         { icon: ShoppingCart, label: 'Requisition Update',  color: 'var(--color-blue)'   },
+  extension_pending:  { icon: Clock,        label: 'Extension Request',    color: 'var(--color-blue)'   },
+  extension_resolved: { icon: CheckCircle,  label: 'Extension Update',     color: 'var(--color-green)'  },
+  extension_approved: { icon: CheckCircle,  label: 'Extension Approved',   color: 'var(--color-green)'  },
+  extension_declined: { icon: XCircle,      label: 'Extension Declined',   color: 'var(--color-red)'    },
+  req_update:         { icon: ShoppingCart, label: 'Requisition Update',   color: 'var(--color-blue)'   },
+  req_approved:       { icon: CheckCircle,  label: 'Requisition Approved', color: 'var(--color-green)'  },
+  req_rejected:       { icon: XCircle,      label: 'Requisition Rejected', color: 'var(--color-red)'    },
 };
 
 // Short stage labels/colors for chips on cards and the lifecycle "trail" strip
@@ -386,9 +390,13 @@ export default function NotificationBell({ onNavigate }) {
       case 'rejected':
       case 'allocated':
       case 'extension_resolved':
+      case 'extension_approved':
+      case 'extension_declined':
         return ['inventory', 'myitems'];     // the requester's own items
       case 'req_pending':
       case 'req_update':
+      case 'req_approved':
+      case 'req_rejected':
         return ['purchase', null];
       default:
         return n.action?.view ? [n.action.view, n.action.sub] : null;

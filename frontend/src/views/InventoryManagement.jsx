@@ -165,7 +165,9 @@ async function uploadToSupabase(file, bucket, path) {
   const ALLOWED = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
   if (!ALLOWED.includes(file.type)) return { url: '', error: 'Only JPEG, PNG, GIF, or WebP images allowed' };
   if (file.size > 10 * 1024 * 1024) return { url: '', error: 'Photo must be under 10 MB' };
-  const { data: uploaded, error } = await supabase.storage.from(bucket).upload(path, file, { contentType: file.type, upsert: false });
+  // cacheControl 1 year: paths are unique and files never change, so browsers
+  // should cache them immutably instead of revalidating every page visit
+  const { data: uploaded, error } = await supabase.storage.from(bucket).upload(path, file, { contentType: file.type, upsert: false, cacheControl: '31536000' });
   if (error || !uploaded) return { url: '', error: error?.message || 'Upload failed' };
   const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(uploaded.path);
   return { url: urlData.publicUrl, error: null };
@@ -830,7 +832,7 @@ function ExtendRequestModal({ checkout, onClose, onSubmit }) {
   useEscapeKey(onClose);
 
   function submit() {
-    if (busy) return;
+    if (busy || !reason.trim()) return;
     setBusy(true); setError('');
     Promise.resolve(onSubmit({ days, reason: reason.trim() }))
       .then(onClose)
@@ -862,7 +864,7 @@ function ExtendRequestModal({ checkout, onClose, onSubmit }) {
             </div>
           </div>
           <div>
-            <label style={FL}>WHY DO YOU NEED MORE TIME? <span style={{ fontSize:11, fontWeight:400 }}>(optional)</span></label>
+            <label style={FL}>WHY DO YOU NEED MORE TIME? <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
             <textarea rows={2} className="form-input" style={{ width:'100%', resize:'vertical', fontSize:13 }}
               placeholder="e.g. Site work running longer than planned"
               value={reason} onChange={e => setReason(e.target.value)} />
@@ -873,8 +875,8 @@ function ExtendRequestModal({ checkout, onClose, onSubmit }) {
 
         <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" disabled={busy}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:150, justifyContent:'center' }} onClick={submit}>
+          <button className="primary-btn" disabled={busy || !reason.trim()}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:150, justifyContent:'center', opacity: (!reason.trim() && !busy) ? 0.5 : 1 }} onClick={submit}>
             {busy ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Sending…</> : <><Clock size={14} /> Request Extension</>}
           </button>
         </div>
@@ -1310,6 +1312,11 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
   const [returnAllGroup,  setReturnAllGroup]  = useState(null);
   const [extendingCo,     setExtendingCo]     = useState(null);
   const [panelTab,        setPanelTab]        = useState('active');
+  // Filters — type/dept apply to both tabs, status + sort to Past
+  const [fStatus,         setFStatus]         = useState('All');
+  const [fType,           setFType]           = useState('All');
+  const [fDept,           setFDept]           = useState('All');
+  const [sortOldest,      setSortOldest]      = useState(false);
 
   // Find order groups where ALL items are rejected → auto-move to past, no manual discard needed
   const _orderMap = (() => {
@@ -1353,10 +1360,23 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
   const [acceptingCo, setAcceptingCo] = useState(null);
   const fmtDate = iso => new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
 
+  // Type/dept filters apply per item; status + date sort only matter for Past
+  const matchesFilters = c =>
+    (fType === 'All' || c.itemType === fType) &&
+    (fDept === 'All' || c.department === fDept);
+  const activeFiltered = active.filter(matchesFilters);
+  const completedView  = completed
+    .filter(c => matchesFilters(c) && (fStatus === 'All' || c.status === fStatus))
+    .sort((a, b) => sortOldest
+      ? new Date(a.createdAt) - new Date(b.createdAt)
+      : new Date(b.createdAt) - new Date(a.createdAt));
+  const myDepts = ['All', ...Array.from(new Set(mine.map(c => c.department).filter(Boolean))).sort()];
+  const myTypes = ['All', ...Array.from(new Set(mine.map(c => c.itemType).filter(Boolean))).sort()];
+
   // Group active checkouts by orderId so cart submissions appear as one block
   const activeGroups = (() => {
     const map = new Map();
-    for (const c of active) {
+    for (const c of activeFiltered) {
       const key = c.orderId || c.id;
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(c);
@@ -1392,6 +1412,37 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
           );
         })}
       </div>
+
+      {/* Filters — type/dept on both tabs; status chips + date sort on Past */}
+      {(mine.length > 3) && (
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', marginBottom:14 }}>
+          {panelTab === 'past' && [
+            { v:'All', label:'All' }, { v:'returned', label:'Returned' },
+            { v:'rejected', label:'Rejected' }, { v:'cancelled', label:'Cancelled' },
+          ].map(({ v, label }) => (
+            <button key={v} onClick={() => setFStatus(v)}
+              style={{ padding:'4px 12px', borderRadius:20, border:`1px solid ${fStatus === v ? 'var(--pine)' : 'var(--line)'}`, background: fStatus === v ? 'hsla(var(--color-green),0.1)' : 'transparent', color: fStatus === v ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+              {label}
+            </button>
+          ))}
+          {myTypes.length > 2 && (
+            <select className="form-input" value={fType} onChange={e => setFType(e.target.value)} style={{ padding:'4px 10px', fontSize:12, height:30 }}>
+              {myTypes.map(t => <option key={t} value={t}>{t === 'All' ? 'All types' : t}</option>)}
+            </select>
+          )}
+          {myDepts.length > 2 && (
+            <select className="form-input" value={fDept} onChange={e => setFDept(e.target.value)} style={{ padding:'4px 10px', fontSize:12, height:30 }}>
+              {myDepts.map(d => <option key={d} value={d}>{d === 'All' ? 'All departments' : d}</option>)}
+            </select>
+          )}
+          {panelTab === 'past' && (
+            <button onClick={() => setSortOldest(o => !o)}
+              style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 12px', borderRadius:20, border:'1px solid var(--line)', background:'transparent', color:'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+              <ArrowUpDown size={11} /> {sortOldest ? 'Oldest first' : 'Newest first'}
+            </button>
+          )}
+        </div>
+      )}
 
       {panelTab === 'active' && active.length === 0 && (
         <div style={{ textAlign:'center', padding:'40px 20px', color:'var(--muted)', border:'1px dashed var(--line)', borderRadius:12 }}>
@@ -1593,9 +1644,14 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
           <div style={{ fontSize:13.5 }}>No past checkouts yet.</div>
         </div>
       )}
-      {panelTab === 'past' && completed.length > 0 && (
+      {panelTab === 'past' && completed.length > 0 && completedView.length === 0 && (
+        <div style={{ textAlign:'center', padding:'32px 20px', color:'var(--muted)', border:'1px dashed var(--line)', borderRadius:12, fontSize:13 }}>
+          No past checkouts match these filters.
+        </div>
+      )}
+      {panelTab === 'past' && completedView.length > 0 && (
         <div style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', background:'var(--card)', boxShadow:'var(--shadow-sm)' }}>
-          {completed.slice(0, 50).map((c, idx) => {
+          {completedView.slice(0, 50).map((c, idx) => {
             const sm = CHECKOUT_STATUS_META[c.status];
             return (
               <div key={c.id} style={{ borderTop: idx > 0 ? '1px solid var(--line)' : 'none', padding:'10px 16px', display:'flex', alignItems:'flex-start', gap:10, flexWrap:'wrap' }}>
@@ -3477,6 +3533,13 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
   // IDs of completed items dismissed from the active-order view via X button
   const [dismissedIds,   setDismissedIds]   = useState(new Set());
   const [extBusyId,      setExtBusyId]      = useState(null);
+  // Order cards collapsed via the header chevron — big orders eat the screen
+  const [collapsedKeys,  setCollapsedKeys]  = useState(new Set());
+  const toggleCollapsed = key => setCollapsedKeys(prev => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  });
 
   function handleResolveExtension(co, action) {
     setExtBusyId(co.id);
@@ -3634,15 +3697,21 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
             const visibleItems  = statusFilter === 'active'
               ? orderItems.filter(c => !(['returned','rejected','cancelled'].includes(c.status) && dismissedIds.has(c.id)))
               : orderItems;
+            const groupKey    = first.orderId || first.id;
+            const isCollapsed = collapsedKeys.has(groupKey);
 
             return (
-              <div key={first.orderId || first.id} style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', background:'var(--card)', boxShadow:'var(--shadow-sm)' }}>
-                {/* Order header */}
-                <div style={{ padding:'14px 18px', display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, flexWrap:'wrap', background: isMulti ? 'var(--mist)' : 'transparent', borderBottom:`1px solid var(--line)` }}>
-                  <div>
-                    <div style={{ fontWeight:700, fontSize:14 }}>{first.requestedBy}</div>
-                    <div style={{ fontSize:12, color:'var(--muted)', marginTop:2 }}>
+              <div key={groupKey} style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', background:'var(--card)', boxShadow:'var(--shadow-sm)' }}>
+                {/* Order header — click the chevron (or the name area) to collapse */}
+                <div style={{ padding:'14px 18px', display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, flexWrap:'wrap', background: isMulti ? 'var(--mist)' : 'transparent', borderBottom: isCollapsed ? 'none' : '1px solid var(--line)' }}>
+                  <div onClick={() => toggleCollapsed(groupKey)} style={{ cursor:'pointer', flex:1, minWidth:0 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                      <ChevronDown size={15} style={{ color:'var(--muted)', flexShrink:0, transform: isCollapsed ? 'rotate(-90deg)' : 'none', transition:'transform 0.18s' }} />
+                      <span style={{ fontWeight:700, fontSize:14 }}>{first.requestedBy}</span>
+                    </div>
+                    <div style={{ fontSize:12, color:'var(--muted)', marginTop:2, paddingLeft:22 }}>
                       {fmtDate(first.createdAt)}{isMulti && ` · ${orderItems.length} Items`}
+                      {isCollapsed && ` · ${visibleItems.map(c => c.itemName).slice(0, 3).join(', ')}${visibleItems.length > 3 ? '…' : ''}`}
                     </div>
                     {first.reason && (
                       <div style={{ display:'inline-flex', alignItems:'baseline', gap:6, marginTop:6, background:'var(--mist)', borderRadius:7, padding:'4px 10px' }}>
@@ -3688,7 +3757,7 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
                 </div>
 
                 {/* Item rows */}
-                <div>
+                {!isCollapsed && <div>
                   {visibleItems.map((co, idx) => {
                     const sm = MANAGER_CHECKOUT_STATUS_META[co.status] || { label: co.status, bg:'var(--mist)', fg:'var(--muted)', Icon: Package };
                     const item = items.find(i => i.id === co.itemId);
@@ -3781,7 +3850,7 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
                       </div>
                     );
                   })}
-                </div>
+                </div>}
               </div>
             );
           })}

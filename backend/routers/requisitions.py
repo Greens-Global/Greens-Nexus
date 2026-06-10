@@ -191,7 +191,7 @@ def approve_requisition(req_id: str, body: RequisitionApprove, user: dict = Depe
     _action_req_notification(db, req_id)
     if req.employee_email:
         _req_notify(db,
-            type="req_update",
+            type="req_approved",
             recipient=req.employee_email,
             title=f"Requisition approved: {req.item}",
             body=f"Your purchase request for {req.quantity}× {req.item} was approved by {body.manager_name}.",
@@ -215,7 +215,7 @@ def reject_requisition(req_id: str, body: RequisitionReject, user: dict = Depend
     _action_req_notification(db, req_id)
     if req.employee_email:
         _req_notify(db,
-            type="req_update",
+            type="req_rejected",
             recipient=req.employee_email,
             title=f"Requisition rejected: {req.item}",
             body=f"Your purchase request for {req.quantity}× {req.item} was not approved. Reason: {body.rejection_reason or 'No reason given.'}",
