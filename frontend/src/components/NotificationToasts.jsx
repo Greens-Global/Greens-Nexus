@@ -32,14 +32,22 @@ export default function NotificationToasts({ onNavigate }) {
 
   useEffect(() => {
     // First run: remember everything that already exists so refreshes/logins
-    // don't dump a wall of "new" popups on screen.
+    // don't dump a wall of "new" popups on screen. The context starts with an
+    // empty array before its first fetch — seeding against THAT made the whole
+    // history look "fresh" and toast-bombed managers on every page load.
     if (seenIds.current === null) {
+      if (notifications.length === 0) return;   // wait for the first real payload
       seenIds.current = new Set(notifications.map(n => n.id));
       return;
     }
     const fresh = notifications.filter(n => {
       if (seenIds.current.has(n.id)) return false;
       seenIds.current.add(n.id);
+      // Never toast history: already-handled, already-read, or older than 2
+      // minutes (poll/realtime replays of old rows must stay silent)
+      if (n.actioned || n.read) return false;
+      const ageMs = Date.now() - new Date(n.timestamp).getTime();
+      if (!Number.isFinite(ageMs) || ageMs > 120_000) return false;
       const isActionable = (n.type === 'inv_request' || n.type === 'req_pending' || n.type === 'checkout_pending' || n.type === 'extension_pending');
       // Manager-only: broadcast requests, or ones addressed specifically to me
       if (isActionable) return can('manager') && (!n.recipient || n.recipient === myEmail);
