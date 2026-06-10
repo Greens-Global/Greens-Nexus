@@ -1044,9 +1044,11 @@ _GOOGLE_CSE_CX     = os.getenv("GOOGLE_CSE_CX", "")    # Programmable Search Eng
 _IMG_CTYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
 
 
-def _google_image_candidates(query: str) -> list:
+def _google_image_candidates(query: str, errors: Optional[list] = None) -> list:
     """Direct product-image URLs via the official Google image search API —
-    the most reliable source when configured (retail sites bot-wall scrapers)."""
+    the most reliable source when configured (retail sites bot-wall scrapers).
+    Failures are recorded in `errors` so quota exhaustion is visible instead of
+    masquerading as "no results"."""
     if not _GOOGLE_CSE_KEY or not _GOOGLE_CSE_CX:
         return []
     try:
@@ -1056,9 +1058,17 @@ def _google_image_candidates(query: str) -> list:
                 "q": query, "searchType": "image", "num": 5, "safe": "active",
             })
             if r.status_code != 200:
+                if errors is not None:
+                    try:
+                        msg = r.json().get("error", {}).get("message", "")[:160]
+                    except Exception:
+                        msg = r.text[:160]
+                    errors.append(f"google {r.status_code}: {msg}")
                 return []
             return [it.get("link", "") for it in r.json().get("items", []) if it.get("link")]
-    except Exception:
+    except Exception as e:
+        if errors is not None:
+            errors.append(f"google exc: {str(e)[:120]}")
         return []
 
 
@@ -1242,9 +1252,10 @@ def auto_fill_photos(body: AutoPhotoRequest, user: dict = Depends(require_items_
             # only ever used when no Google key exists at all.
             # Query relaxation: "Make Model Name" can be too specific for the
             # site-restricted index — fall back to the bare item name.
-            sources = _google_image_candidates(desc)
+            src_errors = []
+            sources = _google_image_candidates(desc, src_errors)
             if not sources and desc != item.name:
-                sources = _google_image_candidates(item.name)
+                sources = _google_image_candidates(item.name, src_errors)
             if not sources:
                 sources = _openverse_image_candidates(desc)
             if not sources and desc != item.name:
@@ -1255,7 +1266,8 @@ def auto_fill_photos(body: AutoPhotoRequest, user: dict = Depends(require_items_
                 except Exception:
                     sources = []
             if not sources:
-                results.append({"item_id": item_id, "status": "no_image", "item_name": item.name})
+                results.append({"item_id": item_id, "status": "no_image", "item_name": item.name,
+                                "detail": "; ".join(src_errors[:2]) or "all sources returned zero results"})
                 continue
             public_url = ""
             tried = []
