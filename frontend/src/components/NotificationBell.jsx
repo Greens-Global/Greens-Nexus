@@ -136,6 +136,11 @@ export default function NotificationBell({ onNavigate }) {
       if (n.type !== 'checkout_pending' || (n.recipient && n.recipient !== myEmail) || n.actioned) return;
       const refId = n.refId ?? '';
       if (!refId) return;
+      // Grace period: a fresh notification can arrive (realtime) before the
+      // checkout poll knows about the new order — judging against that stale
+      // list wrongly cleared brand-new requests. Give the data 90s to catch up.
+      const ageMs = Date.now() - new Date(n.timestamp).getTime();
+      if (!Number.isFinite(ageMs) || ageMs < 90_000) return;
       const stillPending = invRequests.some(c =>
         c.status === 'pending' && (c.orderId === refId || c.id === refId)
       );
