@@ -54,6 +54,13 @@ const CHECKOUT_STATUS_META = {
   cancelled:       { label: 'Cancelled',          bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
 };
 
+// Manager-facing variant: at pending_receipt the ball is in the EMPLOYEE's court —
+// "Confirm Receipt" (the employee's call to action) would read as the manager's job.
+const MANAGER_CHECKOUT_STATUS_META = {
+  ...CHECKOUT_STATUS_META,
+  pending_receipt: { label: 'Employee to Confirm', bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))', Icon: Clock },
+};
+
 const DEPARTMENTS = ['All', 'IT', 'Construction', 'Operations', 'Accounting', 'Facilities', 'Marketing', 'HR'];
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em' };
 
@@ -3651,7 +3658,7 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
                 {/* Item rows */}
                 <div>
                   {visibleItems.map((co, idx) => {
-                    const sm = CHECKOUT_STATUS_META[co.status] || { label: co.status, bg:'var(--mist)', fg:'var(--muted)', Icon: Package };
+                    const sm = MANAGER_CHECKOUT_STATUS_META[co.status] || { label: co.status, bg:'var(--mist)', fg:'var(--muted)', Icon: Package };
                     const item = items.find(i => i.id === co.itemId);
                     const isMyAlloc = co.assignedAllocatorEmail && co.assignedAllocatorEmail.toLowerCase() === userEmail;
                     const isOverdue = co.status === 'allocated' && checkoutDueInfo(co).due < new Date();
@@ -3971,7 +3978,7 @@ function WhoHasItTab({ items, checkouts }) {
                             <span style={{ fontSize:11, color: inUse && daysLeft < 0 ? 'hsl(var(--color-red))' : 'var(--muted)', flexShrink:0, fontWeight: inUse && daysLeft < 0 ? 700 : 400 }}>
                               {inUse
                                 ? (daysLeft < 0 ? `overdue ${Math.abs(daysLeft)}d` : daysLeft === 0 ? 'due today' : `${daysLeft}d left`)
-                                : CHECKOUT_STATUS_META[c.status]?.label}
+                                : MANAGER_CHECKOUT_STATUS_META[c.status]?.label}
                             </span>
                             {c.checkoutPhotoUrl && (
                               <button onClick={() => setPhotoPreview(c.checkoutPhotoUrl)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:2 }}>
