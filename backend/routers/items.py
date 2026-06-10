@@ -1150,6 +1150,13 @@ def _fetch_image_to_storage(img_url: str, item_id: str, _depth: int = 0) -> str:
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
                 "Accept": "text/html,image/avif,image/webp,image/*,*/*;q=0.8",
             })
+            if resp.status_code in (403, 429):
+                # Wikimedia (and friends) block fake browser UAs from datacenter
+                # IPs but serve honest, descriptive bot UAs per their policy
+                resp = client.get(img_url, headers={
+                    "User-Agent": "GreensNexusCatalogBot/1.0 (+https://nexus.greensglobal.com; internal asset catalog)",
+                    "Accept": "image/*,text/html;q=0.5",
+                })
         except httpx.HTTPError:
             return ""  # slow/dead host — fail fast, the caller tries the next candidate
         if resp.status_code != 200:
@@ -1253,7 +1260,7 @@ def auto_fill_photos(body: AutoPhotoRequest, user: dict = Depends(require_items_
                     break
             if not public_url:
                 results.append({"item_id": item_id, "status": "download_failed", "item_name": item.name,
-                                "detail": f"no usable image on: {', '.join(t[:60] for t in tried)}"})
+                                "detail": f"no usable image on: {' | '.join(t[:200] for t in tried)}"})
                 continue
             item.photo_url = public_url
             db.commit()
