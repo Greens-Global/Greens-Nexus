@@ -1908,7 +1908,9 @@ function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsL
         item_id: co.itemId, item_name: co.itemName, item_type: co.itemType,
         requested_by: co.requestedBy, requested_by_email: co.requestedByEmail || userEmail,
         raised_by: userName, department: co.department, days: co.days || 1,
-        reason: newReason, order_id: null,
+        reason: newReason,
+        order_id: co.orderId || null,            // rejoin the original order, not a new solo card
+        approver_email: co.approverEmail || '', approver_name: co.approverName || '',
       });
       toast(`Re-submitted request for ${co.itemName}.`);
       if (refreshCheckouts) refreshCheckouts();
@@ -4311,7 +4313,9 @@ export default function InventoryManagement({ activeSub }) {
                   item_id: co.itemId, item_name: co.itemName, item_type: co.itemType,
                   requested_by: co.requestedBy, requested_by_email: co.requestedByEmail || userEmail,
                   raised_by: userName, department: co.department, days: co.days || 1,
-                  reason: newReason, order_id: null,
+                  reason: newReason,
+        order_id: co.orderId || null,            // rejoin the original order, not a new solo card
+        approver_email: co.approverEmail || '', approver_name: co.approverName || '',
                 });
                 toast(`Re-submitted request for ${co.itemName}.`);
                 refreshCheckouts();

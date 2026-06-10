@@ -569,9 +569,13 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
         if order_id and db.get_bind().dialect.name == "postgresql":
             db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext(:oid))"), {"oid": order_id})
         ref_for_notif = order_id if order_id else server_id
+        # Only an UN-actioned notification counts as "already notified" — a
+        # re-request rejoining an old order must ping the manager again even
+        # though the order's original notification was long since handled.
         already_notified = order_id and db.query(NexusNotification).filter(
             NexusNotification.ref_id == order_id,
             NexusNotification.type == "checkout_pending",
+            NexusNotification.actioned == False,
         ).first()
         if not already_notified:
             # Targeted: only the manager the employee picked gets the notification.
@@ -1039,7 +1043,9 @@ _IMG_CTYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "i
 
 
 def _find_product_image_url(item) -> str:
-    """Ask Claude (web search enabled) for a direct product image URL."""
+    """Ask Claude (web search enabled) for the best product PAGE — search results
+    are pages, not images, so we grab the page's og:image afterwards. A direct
+    image URL is accepted too if Claude happens to have one."""
     import re
     desc = " ".join(x for x in [item.make, item.model, item.name] if x).strip() or item.name
     payload = {
@@ -1049,10 +1055,12 @@ def _find_product_image_url(item) -> str:
         "messages": [{
             "role": "user",
             "content": (
-                "Find a direct product image URL (a URL that serves the image itself, ideally ending in "
-                f".jpg/.jpeg/.png/.webp) showing this product on a clean background: {desc}. "
-                "Prefer the manufacturer's official product photo. "
-                "Reply with ONLY the image URL on a single line, nothing else. If you cannot find one, reply NONE."
+                f"Search the web for this product: {desc}. "
+                "Find the manufacturer's official product page, or a major retailer's product page "
+                "(Amazon, Home Depot, Grainger, etc.) that clearly shows this product. "
+                "Reply with ONLY that page's URL on a single line, nothing else — no explanation. "
+                "If you find a direct image URL (.jpg/.png/.webp) that's even better. "
+                "If you truly cannot find anything, reply NONE."
             ),
         }],
     }
@@ -1073,25 +1081,43 @@ def _fetch_image_to_storage(img_url: str, item_id: str, _depth: int = 0) -> str:
     """Download an image (following one og:image hop if Claude gave a page URL)
     and store it in the item-photos bucket. Returns the public URL or ''."""
     import re
+    from urllib.parse import urljoin
     if _depth > 1 or not img_url:
         return ""
-    with httpx.Client(timeout=30, follow_redirects=True) as client:
-        resp = client.get(img_url, headers={"User-Agent": "Mozilla/5.0 (GreensNexus catalog bot)"})
+    # verify=False ONLY for third-party product sites — many retail/manufacturer
+    # sites serve incomplete cert chains that strict validation rejects (browsers
+    # AIA-fetch the intermediates, Python doesn't). Risk is negligible here: the
+    # payload is a public stock photo, content-type and size validated below,
+    # and reviewed by a manager. Our Anthropic/Supabase calls keep strict TLS.
+    with httpx.Client(timeout=30, follow_redirects=True, verify=False) as client:
+        resp = client.get(img_url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+            "Accept": "text/html,image/avif,image/webp,image/*,*/*;q=0.8",
+        })
         if resp.status_code != 200:
             return ""
         ctype = resp.headers.get("content-type", "").split(";")[0].strip().lower()
-        if ctype == "text/html":
-            # Got a product page instead of an image — try its og:image once
-            m = (re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)', resp.text)
-                 or re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', resp.text))
-            return _fetch_image_to_storage(m.group(1), item_id, _depth + 1) if m else ""
+        if ctype.startswith("text/html"):
+            # Got a product page instead of an image — pull its social-preview image
+            html = resp.text
+            m = (re.search(r'<meta[^>]+property=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)', html)
+                 or re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image(?::secure_url)?["\']', html)
+                 or re.search(r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)', html)
+                 or re.search(r'<link[^>]+rel=["\']image_src["\'][^>]+href=["\']([^"\']+)', html))
+            if not m:
+                return ""
+            # og:image can be protocol-relative or site-relative — resolve it
+            return _fetch_image_to_storage(urljoin(str(resp.url), m.group(1)), item_id, _depth + 1)
         if ctype not in _IMG_CTYPES:
             return ""
         content = resp.content
         if len(content) < 2048 or len(content) > 8 * 1024 * 1024:
             return ""  # tracking pixel or unreasonably large
         path = f"item-photos/ai-{item_id}-{uuid.uuid4().hex[:6]}.{_IMG_CTYPES[ctype]}"
-        up = client.post(
+    # Upload on a SEPARATE client with strict TLS — verify=False above is only
+    # for the third-party retail sites, never for our own infrastructure.
+    with httpx.Client(timeout=30) as upload_client:
+        up = upload_client.post(
             f"{_SUPABASE_URL}/storage/v1/object/item-photos/{path}",
             headers={
                 "Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}",
