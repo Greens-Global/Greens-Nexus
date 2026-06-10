@@ -52,7 +52,7 @@ export default function NotificationToasts({ onNavigate }) {
       // Manager-only: broadcast requests, or ones addressed specifically to me
       if (isActionable) return can('manager') && (!n.recipient || n.recipient === myEmail);
       // item_returned with no recipient must not toast for non-managers (avoids broadcasting returns to all employees)
-      if (n.type === 'item_returned' && !n.recipient) return can('manager');
+      if ((n.type === 'item_returned' || n.type === 'perm_return') && !n.recipient) return can('manager');
       return !n.recipient || n.recipient === myEmail || n.recipient === myName;
     });
     if (fresh.length === 0) return;

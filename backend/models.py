@@ -294,6 +294,9 @@ class Item(Base):
     photo_url      = Column(String, default="")
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
+    assigned_to_email = Column(String, default="")   # current permanent assignee
+    assigned_to_name  = Column(String, default="")
+    assigned_at       = Column(String, default="")
 
 
 class ItemCheckout(Base):
@@ -346,6 +349,35 @@ class ItemCartEntry(Base):
     item_name  = Column(String, nullable=False)
     item_type  = Column(String, default="Other")
     added_at   = Column(String, default="")
+
+
+class ItemAssignment(Base):
+    """Permanent assignment lifecycle for one item. One active/pending row per item.
+    pending_acceptance -> active -> return_initiated -> closed | declined | cancelled"""
+    __tablename__ = "item_assignments"
+    id                  = Column(String, primary_key=True)
+    item_id             = Column(String, nullable=False)
+    item_name           = Column(String, default="")
+    assignee_email      = Column(String, nullable=False)
+    assignee_name       = Column(String, default="")
+    assigned_by         = Column(String, default="")
+    assigned_by_email   = Column(String, default="")
+    status              = Column(String, default="pending_acceptance")
+    return_reason       = Column(String, default="")   # '' | normal | dead | lost | reassign
+    accept_photo_url    = Column(String, default="")
+    accept_photo_name   = Column(String, default="")
+    accept_note         = Column(String, default="")
+    accepted_at         = Column(String, default="")
+    return_photo_url    = Column(String, default="")
+    return_photo_name   = Column(String, default="")
+    return_note         = Column(String, default="")
+    return_initiated_at = Column(String, default="")
+    return_accepted_by  = Column(String, default="")
+    return_accepted_at  = Column(String, default="")
+    disposition         = Column(String, default="")   # stock | retired (set when return accepted)
+    next_assignee_email = Column(String, default="")   # reassignment chain target
+    next_assignee_name  = Column(String, default="")
+    created_at          = Column(String, default="")
 
 
 class NexusRole(Base):

@@ -50,6 +50,10 @@ def _run_migrations():
         # item_checkouts: employee picks which manager is notified for approval
         "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS approver_email VARCHAR DEFAULT ''",
         "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS approver_name VARCHAR DEFAULT ''",
+        # items: current permanent assignee pointer (full history in item_assignments)
+        "ALTER TABLE items ADD COLUMN IF NOT EXISTS assigned_to_email VARCHAR DEFAULT ''",
+        "ALTER TABLE items ADD COLUMN IF NOT EXISTS assigned_to_name VARCHAR DEFAULT ''",
+        "ALTER TABLE items ADD COLUMN IF NOT EXISTS assigned_at VARCHAR DEFAULT ''",
         # Fleet department retired — vehicles belong to Construction (Neil, Jun 2026)
         "UPDATE items SET department = 'Construction' WHERE department = 'Fleet'",
     ]

@@ -41,6 +41,9 @@ const TYPE_META = {
   req_update:         { icon: ShoppingCart, label: 'Requisition Update',   color: 'var(--color-blue)'   },
   req_approved:       { icon: CheckCircle,  label: 'Requisition Approved', color: 'var(--color-green)'  },
   req_rejected:       { icon: XCircle,      label: 'Requisition Rejected', color: 'var(--color-red)'    },
+  perm_assign:        { icon: User,         label: 'Item Assignment',      color: 'var(--color-blue)'   },
+  perm_update:        { icon: CheckCircle,  label: 'Assignment Update',    color: 'var(--color-green)'  },
+  perm_return:        { icon: RotateCcw,    label: 'Assignment Return',    color: 'var(--color-orange)' },
 };
 
 // Short stage labels/colors for chips on cards and the lifecycle "trail" strip
@@ -392,7 +395,10 @@ export default function NotificationBell({ onNavigate }) {
       case 'extension_resolved':
       case 'extension_approved':
       case 'extension_declined':
-        return ['inventory', 'myitems'];     // the requester's own items
+      case 'perm_assign':
+        return ['inventory', 'myitems'];
+      case 'perm_return':
+        return ['inventory', 'checkouts'];     // the requester's own items
       case 'req_pending':
       case 'req_update':
       case 'req_approved':
@@ -452,7 +458,8 @@ export default function NotificationBell({ onNavigate }) {
   const updates = notifications.filter(n =>
     !ACTIONABLE_TYPES.has(n.type) &&
     (!n.recipient || n.recipient === myEmail || n.recipient === myName) &&
-    !(n.type === 'item_returned' && !n.recipient && !can('manager'))
+    !(n.type === 'item_returned' && !n.recipient && !can('manager')) &&
+    !(n.type === 'perm_return' && !n.recipient && !can('manager'))
   );
 
   // Unread count scoped to what I can see

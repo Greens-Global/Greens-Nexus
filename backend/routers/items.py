@@ -12,7 +12,7 @@ from typing import Optional
 import httpx
 from database import get_db
 from auth import get_current_user, require_level_or_module
-from models import Item, ItemCheckout, ItemCartEntry, NexusRole, NexusNotification, AuditLog
+from models import Item, ItemCheckout, ItemCartEntry, ItemAssignment, NexusRole, NexusNotification, AuditLog
 
 _VALID_TRANSITIONS = {
     "approved":         {"pending"},
@@ -130,6 +130,9 @@ def _item_to_dict(i: Item) -> dict:
         "photoUrl":      i.photo_url,
         "createdBy":     i.created_by,
         "createdAt":     i.created_at,
+        "assignedToEmail": i.assigned_to_email or "",
+        "assignedToName":  i.assigned_to_name  or "",
+        "assignedAt":      i.assigned_at       or "",
     }
 
 
@@ -528,6 +531,12 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
     ).first()
     if active:
         raise HTTPException(409, f'"{item.name}" already has an active checkout request')
+    live_assignment = db.query(ItemAssignment).filter(
+        ItemAssignment.item_id == body.item_id,
+        ItemAssignment.status.in_(["pending_acceptance", "active", "return_initiated"]),
+    ).first()
+    if live_assignment:
+        raise HTTPException(409, f'"{item.name}" is permanently assigned and cannot be checked out')
 
     now = datetime.now(timezone.utc).isoformat()
     # Managers and above don't need a separate approval for their own checkouts
@@ -1290,6 +1299,268 @@ def auto_fill_photos(body: AutoPhotoRequest, user: dict = Depends(require_items_
             db.rollback()
             results.append({"item_id": item_id, "status": "error", "detail": str(e)[:200], "item_name": item.name})
     return {"results": results}
+
+
+
+# -- Permanent assignments ------------------------------------------------------
+
+def _camel(snake: str) -> str:
+    parts = snake.split("_")
+    return parts[0] + "".join(p.title() for p in parts[1:])
+
+
+def _assignment_to_dict(a: ItemAssignment) -> dict:
+    return {_camel(c.name): (getattr(a, c.name) or "") for c in ItemAssignment.__table__.columns}
+
+
+class AssignmentCreate(BaseModel):
+    assignee_email: str
+    assignee_name:  Optional[str] = ""
+
+
+class AssignmentAccept(BaseModel):
+    photo_url:  Optional[str] = ""
+    photo_name: Optional[str] = ""
+    note:       Optional[str] = ""
+
+
+class AssignmentReturnInit(BaseModel):
+    reason:     str = "normal"     # normal | dead | lost
+    photo_url:  Optional[str] = ""
+    photo_name: Optional[str] = ""
+    note:       Optional[str] = ""
+
+
+class AssignmentReturnAccept(BaseModel):
+    disposition: str = "stock"     # stock | retired
+
+
+_LIVE_ASSIGN = ["pending_acceptance", "active", "return_initiated"]
+
+
+def _now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _action_notif(db: Session, ntype: str, ref_id: str):
+    n = db.query(NexusNotification).filter(
+        NexusNotification.type == ntype,
+        NexusNotification.ref_id == ref_id,
+        NexusNotification.actioned == False,
+    ).first()
+    if n:
+        n.actioned = True
+
+
+@router.get("/assignments")
+def list_assignments(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    q = db.query(ItemAssignment).order_by(ItemAssignment.created_at.desc())
+    if user["level"] < 3:
+        q = q.filter(ItemAssignment.assignee_email == user["email"])
+    return [_assignment_to_dict(a) for a in q.limit(1000).all()]
+
+
+@router.post("/{item_id}/assign", status_code=201)
+def assign_item(item_id: str, body: AssignmentCreate, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    item = db.query(Item).filter(Item.id == item_id).first()
+    if not item:
+        raise HTTPException(404, "Item not found")
+    live = db.query(ItemAssignment).filter(
+        ItemAssignment.item_id == item_id, ItemAssignment.status.in_(_LIVE_ASSIGN)).first()
+    if live:
+        raise HTTPException(409, "Item already has a live assignment - use reassign")
+    co = db.query(ItemCheckout).filter(
+        ItemCheckout.item_id == item_id,
+        ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"])).first()
+    if co:
+        raise HTTPException(409, "Item has an active checkout - recover it first")
+    a = ItemAssignment(
+        id=f"ASG-{uuid.uuid4().hex[:10].upper()}", item_id=item_id, item_name=item.name,
+        assignee_email=body.assignee_email.lower().strip(),
+        assignee_name=(body.assignee_name or "").strip(),
+        assigned_by=user.get("name") or "", assigned_by_email=user["email"],
+        status="pending_acceptance", created_at=_now_iso(),
+    )
+    db.add(a)
+    _notify(db, type="perm_assign", recipient=a.assignee_email,
+            title=f"Item assigned to you: {item.name}",
+            body=f"{a.assigned_by or 'A manager'} assigned {item.name} to you permanently. Please accept it with a photo in My Items.",
+            ref_id=a.id, item_name=item.name, requested_by=a.assignee_name)
+    db.commit()
+    return _assignment_to_dict(a)
+
+
+@router.post("/{item_id}/reassign", status_code=201)
+def reassign_item(item_id: str, body: AssignmentCreate, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    """Start the return flow for the current holder; accepting that return
+    auto-creates the next assignment for the new person."""
+    item = db.query(Item).filter(Item.id == item_id).first()
+    if not item:
+        raise HTTPException(404, "Item not found")
+    cur = db.query(ItemAssignment).filter(
+        ItemAssignment.item_id == item_id, ItemAssignment.status == "active").with_for_update().first()
+    if not cur:
+        raise HTTPException(409, "No active assignment on this item - use assign")
+    cur.status = "return_initiated"
+    cur.return_reason = "reassign"
+    cur.return_initiated_at = _now_iso()
+    cur.next_assignee_email = body.assignee_email.lower().strip()
+    cur.next_assignee_name  = (body.assignee_name or "").strip()
+    _notify(db, type="perm_assign", recipient=cur.assignee_email,
+            title=f"Please return: {item.name}",
+            body=f"{item.name} is being reassigned to {cur.next_assignee_name or cur.next_assignee_email}. Please return it with a photo from My Items.",
+            ref_id=cur.id, item_name=item.name, requested_by=cur.assignee_name)
+    db.commit()
+    return _assignment_to_dict(cur)
+
+
+@router.post("/assignments/{assignment_id}/accept")
+def accept_assignment(assignment_id: str, body: AssignmentAccept, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _validate_photo_url(body.photo_url, "photo_url")
+    a = db.query(ItemAssignment).filter(ItemAssignment.id == assignment_id).with_for_update().first()
+    if not a:
+        raise HTTPException(404, "Assignment not found")
+    if a.assignee_email != user["email"]:
+        raise HTTPException(403, "Only the assignee can accept this assignment")
+    if a.status != "pending_acceptance":
+        raise HTTPException(409, "Assignment is not awaiting acceptance")
+    if not body.photo_url:
+        raise HTTPException(400, "A photo of the received item is required")
+    a.status = "active"
+    a.accept_photo_url, a.accept_photo_name = body.photo_url, body.photo_name or ""
+    a.accept_note, a.accepted_at = (body.note or "").strip(), _now_iso()
+    item = db.query(Item).filter(Item.id == a.item_id).first()
+    if item:
+        item.status = "permanently_assigned"
+        item.ownership_type = "permanent"
+        item.assigned_to_email, item.assigned_to_name, item.assigned_at = a.assignee_email, a.assignee_name, a.accepted_at
+    note_part = f' Condition note: "{a.accept_note}"' if a.accept_note else ""
+    _notify(db, type="perm_update", recipient=a.assigned_by_email,
+            title=f"Assignment accepted: {a.item_name}",
+            body=f"{a.assignee_name or a.assignee_email} accepted {a.item_name}.{note_part}",
+            ref_id=a.id, item_name=a.item_name, requested_by=a.assignee_name)
+    _action_notif(db, "perm_assign", a.id)
+    db.commit()
+    return _assignment_to_dict(a)
+
+
+@router.post("/assignments/{assignment_id}/decline")
+def decline_assignment(assignment_id: str, body: AssignmentReturnInit, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    a = db.query(ItemAssignment).filter(ItemAssignment.id == assignment_id).with_for_update().first()
+    if not a:
+        raise HTTPException(404, "Assignment not found")
+    if a.assignee_email != user["email"]:
+        raise HTTPException(403, "Only the assignee can decline")
+    if a.status != "pending_acceptance":
+        raise HTTPException(409, "Assignment is not awaiting acceptance")
+    a.status = "declined"
+    a.return_note = (body.note or "").strip()
+    _notify(db, type="perm_update", recipient=a.assigned_by_email,
+            title=f"Assignment declined: {a.item_name}",
+            body=f"{a.assignee_name or a.assignee_email} declined {a.item_name}." + (f' Reason: "{a.return_note}"' if a.return_note else ""),
+            ref_id=a.id, item_name=a.item_name, requested_by=a.assignee_name)
+    _action_notif(db, "perm_assign", a.id)
+    db.commit()
+    return _assignment_to_dict(a)
+
+
+@router.post("/assignments/{assignment_id}/initiate-return")
+def initiate_assignment_return(assignment_id: str, body: AssignmentReturnInit, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _validate_photo_url(body.photo_url, "photo_url")
+    a = db.query(ItemAssignment).filter(ItemAssignment.id == assignment_id).with_for_update().first()
+    if not a:
+        raise HTTPException(404, "Assignment not found")
+    if a.assignee_email != user["email"] and user["level"] < 3:
+        raise HTTPException(403, "Only the assignee or a manager can initiate a return")
+    if a.status not in ("active", "return_initiated"):
+        raise HTTPException(409, "Assignment is not active")
+    reason = (body.reason or "normal").lower()
+    if reason not in ("normal", "dead", "lost"):
+        raise HTTPException(400, "reason must be normal, dead or lost")
+    if reason != "lost" and not body.photo_url and a.status == "active":
+        raise HTTPException(400, "A return photo is required (unless the item is lost)")
+    keep_chain = a.return_reason == "reassign"   # reassignment return keeps its target
+    a.status = "return_initiated"
+    if not keep_chain:
+        a.return_reason = reason
+    a.return_photo_url, a.return_photo_name = body.photo_url or "", body.photo_name or ""
+    a.return_note = (body.note or "").strip()
+    a.return_initiated_at = _now_iso()
+    flag = {"dead": "ITEM DEAD - ", "lost": "ITEM LOST - ", "reassign": "Reassignment - "}.get(a.return_reason, "")
+    _notify(db, type="perm_return", recipient="",
+            title=f"{flag}Return to confirm: {a.item_name}",
+            body=f"{a.assignee_name or a.assignee_email} initiated a return of {a.item_name}"
+                 + (f' - "{a.return_note}"' if a.return_note else ".")
+                 + " Verify and accept it in Checkouts > Assignments.",
+            ref_id=a.id, item_name=a.item_name, requested_by=a.assignee_name)
+    db.commit()
+    return _assignment_to_dict(a)
+
+
+@router.post("/assignments/{assignment_id}/accept-return")
+def accept_assignment_return(assignment_id: str, body: AssignmentReturnAccept, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if user["level"] < 2:
+        raise HTTPException(403, "Supervisor or above required to accept returns")
+    a = db.query(ItemAssignment).filter(ItemAssignment.id == assignment_id).with_for_update().first()
+    if not a:
+        raise HTTPException(404, "Assignment not found")
+    if a.status != "return_initiated":
+        raise HTTPException(409, "No return awaiting acceptance")
+    dispo = body.disposition if body.disposition in ("stock", "retired") else "stock"
+    a.status = "closed"
+    a.disposition = dispo
+    a.return_accepted_by, a.return_accepted_at = user.get("name") or user["email"], _now_iso()
+    item = db.query(Item).filter(Item.id == a.item_id).first()
+    if item:
+        item.assigned_to_email = item.assigned_to_name = item.assigned_at = ""
+        item.status = "retired" if dispo == "retired" else "available"
+    _notify(db, type="perm_update", recipient=a.assignee_email,
+            title=f"Return accepted: {a.item_name}",
+            body=f"Your return of {a.item_name} was accepted by {a.return_accepted_by}. You are no longer responsible for it.",
+            ref_id=a.id, item_name=a.item_name, requested_by=a.assignee_name)
+    _action_notif(db, "perm_return", a.id)
+    # Reassignment chain: spawn the next assignment automatically
+    if a.return_reason == "reassign" and a.next_assignee_email and item and item.status == "available":
+        nxt = ItemAssignment(
+            id=f"ASG-{uuid.uuid4().hex[:10].upper()}", item_id=a.item_id, item_name=a.item_name,
+            assignee_email=a.next_assignee_email, assignee_name=a.next_assignee_name,
+            assigned_by=a.return_accepted_by, assigned_by_email=user["email"],
+            status="pending_acceptance", created_at=_now_iso(),
+        )
+        db.add(nxt)
+        _notify(db, type="perm_assign", recipient=nxt.assignee_email,
+                title=f"Item assigned to you: {a.item_name}",
+                body=f"{a.item_name} has been reassigned to you. Please accept it with a photo in My Items.",
+                ref_id=nxt.id, item_name=a.item_name, requested_by=nxt.assignee_name)
+    db.commit()
+    return _assignment_to_dict(a)
+
+
+@router.post("/assignments/{assignment_id}/cancel")
+def cancel_assignment(assignment_id: str, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    """Manager cancel / force-recover. Pending -> cancelled; active/returning -> closed, item back to stock."""
+    a = db.query(ItemAssignment).filter(ItemAssignment.id == assignment_id).with_for_update().first()
+    if not a:
+        raise HTTPException(404, "Assignment not found")
+    if a.status not in _LIVE_ASSIGN:
+        raise HTTPException(409, "Assignment is already closed")
+    was_pending = a.status == "pending_acceptance"
+    a.status = "cancelled" if was_pending else "closed"
+    a.disposition = "" if was_pending else "stock"
+    a.return_accepted_by, a.return_accepted_at = user.get("name") or user["email"], _now_iso()
+    item = db.query(Item).filter(Item.id == a.item_id).first()
+    if item and not was_pending:
+        item.assigned_to_email = item.assigned_to_name = item.assigned_at = ""
+        item.status = "available"
+    _notify(db, type="perm_update", recipient=a.assignee_email,
+            title=f"Assignment {'cancelled' if was_pending else 'closed'}: {a.item_name}",
+            body=f"{a.return_accepted_by} {'cancelled the pending assignment of' if was_pending else 'force-recovered'} {a.item_name}."
+                 + ("" if was_pending else " You are no longer responsible for it."),
+            ref_id=a.id, item_name=a.item_name, requested_by=a.assignee_name)
+    _action_notif(db, "perm_assign", a.id)
+    _action_notif(db, "perm_return", a.id)
+    db.commit()
+    return _assignment_to_dict(a)
 
 
 # ── Allocators / Approvers ────────────────────────────────────────────────────

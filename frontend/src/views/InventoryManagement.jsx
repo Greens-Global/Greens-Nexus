@@ -15,6 +15,7 @@ import { api }              from '../api';
 import { supabase }         from '../lib/supabase';
 import { useMsal }          from '@azure/msal-react';
 import { cleanName }        from '../lib/utils';
+import { useAssignments, MyPermanentPanel, AssignmentsQueue, AssignItemModal } from '../components/Assignments';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const ITEM_TYPES = ['Devices', 'Tools', 'Vehicles', 'Equipment', 'Keys', 'Other'];
@@ -1299,7 +1300,7 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
 }
 
 // ── My Checkouts Panel ────────────────────────────────────────────────────────
-function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept, onConfirmReceipt, onReRequest, onReturnAll, onRequestExtension }) {
+function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept, onConfirmReceipt, onReRequest, onReturnAll, onRequestExtension, assignments = [], refreshAssignments, toast }) {
   const mine = checkouts.filter(c =>
     (c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) ||
     c.requestedBy === userName
@@ -1386,7 +1387,9 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
 
   const fmtDateShort = iso => new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric' });
 
-  if (!mine.length) return null;
+  const myAssignments = assignments.filter(a => a.assigneeEmail === userEmail);
+  const liveAssignCount = myAssignments.filter(a => ['pending_acceptance','active','return_initiated'].includes(a.status)).length;
+  if (!mine.length && !myAssignments.length) return null;
 
   return (
     <div style={{ marginTop:32 }}>
@@ -1395,6 +1398,7 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
         {[
           { key:'active', label:'Active Checkouts', Icon: Clock,   count: active.length    },
           { key:'past',   label:'Past Checkouts',   Icon: History, count: completed.length },
+          { key:'permanent', label:'Permanent', Icon: User, count: liveAssignCount },
         ].map(({ key, label, Icon, count }) => {
           const sel = panelTab === key;
           return (
@@ -1442,6 +1446,10 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
             </button>
           )}
         </div>
+      )}
+
+      {panelTab === 'permanent' && (
+        <MyPermanentPanel assignments={assignments} userEmail={userEmail} refresh={refreshAssignments || (() => {})} toast={toast || (() => {})} />
       )}
 
       {panelTab === 'active' && active.length === 0 && (
@@ -1883,6 +1891,7 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
 
 // ── Employee View ─────────────────────────────────────────────────────────────
 function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, refreshCheckouts, submitCartCheckouts, cancelRequest, allocateItem, confirmReceipt, toast }) {
+  const { assignments, refreshAssignments } = useAssignments();
   const [tab,            setTab]            = useState('catalog');
   const [mode,           setMode]           = useState('home');
 
@@ -2244,6 +2253,7 @@ function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsL
           ) : (
             <MyCheckoutsPanel
               checkouts={checkouts} userEmail={userEmail} userName={userName}
+              assignments={assignments} refreshAssignments={refreshAssignments} toast={toast}
               onReturn={handleReturn} onCancel={handleCancel} onReRequest={handleReRequest}
               onConfirmReceipt={confirmReceipt ? (co, batch, photoMap) =>
                 confirmReceipt(co.id, userName, photoMap[co.id]?.url || '', photoMap[co.id]?.name || '')
@@ -2684,7 +2694,7 @@ function SendAlertModal({ onClose, toast }) {
 }
 
 // ── Manager Manage Tab ────────────────────────────────────────────────────────
-function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast }) {
+function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign }) {
   const [photoPreview,       setPhotoPreview]       = useState(null);
   const [selected,           setSelected]           = useState(new Set());
   const [sortCol,            setSortCol]            = useState('name');
@@ -2913,6 +2923,13 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
                   <td style={{ padding:'10px 14px' }}><StatusBadge status={item.status} /></td>
                   <td style={{ padding:'10px 14px' }}>
                     <div style={{ display:'flex', gap:6 }}>
+                      {item.ownershipType === 'permanent' && onAssign && (
+                        <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
+                          title={item.assignedToEmail ? `Currently with ${item.assignedToName || item.assignedToEmail}` : 'Assign to a person'}
+                          style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+                          <User size={12} /> {item.assignedToEmail ? 'Reassign' : 'Assign'}
+                        </button>
+                      )}
                       <button onClick={() => onEdit(item)}
                         style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
                         <Pencil size={12} /> Edit
@@ -3518,7 +3535,8 @@ function RejectCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onCo
 }
 
 // ── Manager Checkouts Tab ─────────────────────────────────────────────────────
-function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveRequest, rejectRequest, allocateItem, initiateHandover, refreshCheckouts, refreshItems, toast, onSendAlert }) {
+function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveRequest, rejectRequest, allocateItem, initiateHandover, refreshCheckouts, refreshItems, toast, onSendAlert, assignments = [], refreshAssignments }) {
+  const [segment, setSegment] = useState('checkouts'); // 'checkouts' | 'assignments'
   const { can } = useRole();
   const isManager = can('manager');
   const [statusFilter,   setStatusFilter]   = useState('active');
@@ -3645,8 +3663,22 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
 
   const fmtDate = iso => new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric' });
 
+  const liveAssignments = assignments.filter(a => ['pending_acceptance','active','return_initiated'].includes(a.status)).length;
   return (
     <div>
+      {/* Transient vs Permanent — Neil's separation */}
+      <div style={{ display:'flex', gap:8, marginBottom:14 }}>
+        {[['checkouts','Checkouts (Transient)'], ['assignments', `Assignments (Permanent)${liveAssignments ? ` · ${liveAssignments}` : ''}`]].map(([k, l]) => (
+          <button key={k} onClick={() => setSegment(k)}
+            style={{ padding:'7px 16px', borderRadius:10, border:`1px solid ${segment === k ? 'var(--pine)' : 'var(--line)'}`, background: segment === k ? 'hsla(var(--color-green),0.08)' : 'var(--card)', color: segment === k ? 'hsl(var(--color-green))' : 'var(--muted)', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+            {l}
+          </button>
+        ))}
+      </div>
+      {segment === 'assignments' && (
+        <AssignmentsQueue assignments={assignments} refresh={refreshAssignments || (() => {})} toast={toast} />
+      )}
+      {segment === 'checkouts' && (<>
       {/* Tab header with Send Alert */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, flexWrap:'wrap', gap:8 }}>
         {/* Summary chips */}
@@ -3884,6 +3916,7 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
           onConfirm={payload => handleAllocateOrder(allocatingOrder, payload)} />
       )}
       {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
+      </>)}
     </div>
   );
 }
@@ -4036,19 +4069,20 @@ function WhoHasItTab({ items, checkouts }) {
       if (!map.has(key)) map.set(key, { name: c.requestedBy, transient: [], permanent: [] });
       map.get(key).transient.push(c);
     }
-    // Permanent: items assigned to a default owner
+    // Permanent: matched by the assignee EMAIL set through the assignment flow;
+    // legacy items without one fall back to the default-owner text
     for (const i of items) {
       if (i.ownershipType !== 'permanent' && i.status !== 'permanently_assigned') continue;
-      const owner = (i.defaultOwner || '').trim();
-      if (!owner) continue;
-      // Try to merge with an existing holder by name; otherwise the owner gets their own card
-      let entry = [...map.values()].find(h => h.name.toLowerCase() === owner.toLowerCase());
-      if (!entry) {
-        const key = `perm-${owner.toLowerCase()}`;
-        if (!map.has(key)) map.set(key, { name: owner, transient: [], permanent: [] });
-        entry = map.get(key);
+      const email = (i.assignedToEmail || '').toLowerCase();
+      const owner = i.assignedToName || (i.defaultOwner || '').trim();
+      if (!email && !owner) continue;
+      const key = email || `perm-${owner.toLowerCase()}`;
+      if (!map.has(key)) {
+        const existing = [...map.values()].find(h => h.name.toLowerCase() === owner.toLowerCase());
+        if (existing) { existing.permanent.push(i); continue; }
+        map.set(key, { name: owner, transient: [], permanent: [] });
       }
-      entry.permanent.push(i);
+      map.get(key).permanent.push(i);
     }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
   })();
@@ -4176,6 +4210,8 @@ export default function InventoryManagement({ activeSub }) {
   ).length;
 
   // Cart — DB-backed, survives logout and device switches
+  const { assignments, refreshAssignments } = useAssignments();
+  const [assigningItem, setAssigningItem] = useState(null); // {item, mode}
   const [cart,        setCart]        = useState([]);
   const [cartOpen,    setCartOpen]    = useState(false);
   const [cartBusy,    setCartBusy]    = useState(false);
@@ -4422,12 +4458,14 @@ export default function InventoryManagement({ activeSub }) {
           onDelete={setDeletingItem} onImport={() => setImportOpen(true)}
           onExport={() => downloadItemsCsv(items)} onReport={() => setReportOpen(true)}
           checkouts={checkouts} toast={toast}
+          onAssign={(item, mode) => setAssigningItem({ item, mode })}
         />
       )}
       {mainTab === 'myitems' && (
         <div>
           <MyCheckoutsPanel
             checkouts={checkouts} userEmail={userEmail} userName={userName}
+            assignments={assignments} refreshAssignments={refreshAssignments} toast={toast}
             onReturn={co => setReturningCo(co)} onCancel={cancelCo}
             onSelfAllocate={co => allocateItem(co.id, userName).then(() => toast(`Confirmed — ${co.itemName} is with you.`)).catch(() => toast('Could not confirm.', 'error'))}
             onConfirmReceipt={(co, batch, photoMap) =>
@@ -4479,6 +4517,7 @@ export default function InventoryManagement({ activeSub }) {
           approveRequest={approveRequest} rejectRequest={rejectRequest}
           allocateItem={allocateItem} initiateHandover={initiateHandover}
           refreshCheckouts={refreshCheckouts} refreshItems={refreshItems} toast={toast}
+          assignments={assignments} refreshAssignments={() => { refreshAssignments(); refreshItems(); }}
           onSendAlert={() => setSendAlertOpen(true)}
         />
       )}
@@ -4491,6 +4530,11 @@ export default function InventoryManagement({ activeSub }) {
       {mainTab === 'audit' && <AuditLogPanel />}
 
       {sendAlertOpen && <SendAlertModal onClose={() => setSendAlertOpen(false)} toast={toast} />}
+      {assigningItem && (
+        <AssignItemModal item={assigningItem.item} mode={assigningItem.mode} toast={toast}
+          onClose={() => setAssigningItem(null)}
+          onDone={() => { refreshAssignments(); refreshItems(); }} />
+      )}
       {addItemOpen  && <AddItemModal   onClose={() => setAddItemOpen(false)}  onSave={handleAddItem} />}
       {editingItem  && <EditItemModal  item={editingItem} onClose={() => setEditingItem(null)} onSave={data => handleEditItem(editingItem, data)} />}
       {deletingItem && <DeleteItemModal item={deletingItem} onClose={() => setDeletingItem(null)} onConfirm={() => handleDeleteItem(deletingItem)} />}
