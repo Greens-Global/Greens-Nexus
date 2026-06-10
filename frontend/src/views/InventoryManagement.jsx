@@ -788,7 +788,7 @@ function ReturnModal({ checkout, onClose, onSubmit }) {
 
 // ── Extend Request Modal ───────────────────────────────────────────────────────
 function ExtendRequestModal({ checkout, onClose, onSubmit }) {
-  const [days,   setDays]   = useState(checkout.days || 1);
+  const [days,   setDays]   = useState(1);
   const [reason, setReason] = useState('');
   const [busy,   setBusy]   = useState(false);
   const [error,  setError]  = useState('');
@@ -1727,9 +1727,27 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
 }
 
 // ── Employee View ─────────────────────────────────────────────────────────────
-function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, refreshCheckouts, submitCartCheckouts, cancelRequest, allocateItem, confirmReceipt, toast }) {
+function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, refreshCheckouts, submitCartCheckouts, cancelRequest, allocateItem, confirmReceipt, toast }) {
   const [tab,            setTab]            = useState('catalog');
   const [mode,           setMode]           = useState('home');
+
+  // Deep-link from notifications: 'myitems'/'checkouts' lands on My Checkouts,
+  // 'catalog' on the catalog — skipping the home screen.
+  useEffect(() => {
+    if (activeSub === 'myitems' || activeSub === 'checkouts') { setMode('catalog'); setTab('checkouts'); }
+    else if (activeSub === 'catalog')                          { setMode('catalog'); setTab('catalog'); }
+  }, [activeSub]);
+  // Window event covers repeat clicks where activeSub doesn't change value
+  useEffect(() => {
+    const h = e => {
+      const { view, sub } = e.detail || {};
+      if (view !== 'inventory') return;
+      if (sub === 'myitems' || sub === 'checkouts') { setMode('catalog'); setTab('checkouts'); }
+      else if (sub === 'catalog')                    { setMode('catalog'); setTab('catalog'); }
+    };
+    window.addEventListener('nexus:navigate', h);
+    return () => window.removeEventListener('nexus:navigate', h);
+  }, []);
   const [viewMode,       setViewMode]       = useState('tile');
   const [search,         setSearch]         = useState('');
   const [typeFilter,     setTypeFilter]     = useState('All');
@@ -3961,6 +3979,22 @@ export default function InventoryManagement({ activeSub }) {
 
   // Manager-only tab/modal state
   const [mainTab,       setMainTab]       = useState('catalog');
+
+  // Deep-link: NotificationBell navigates with ('inventory', subTab) — land on
+  // that tab instead of the default Catalog so the click shows the relevant info.
+  const VALID_SUBTABS = ['myitems','catalog','manage','checkouts','whohasit','purchasereqs','audit'];
+  useEffect(() => {
+    if (activeSub && VALID_SUBTABS.includes(activeSub)) setMainTab(activeSub);
+  }, [activeSub]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Window event covers repeat clicks where activeSub doesn't change value
+  useEffect(() => {
+    const h = e => {
+      const { view, sub } = e.detail || {};
+      if (view === 'inventory' && sub && VALID_SUBTABS.includes(sub)) setMainTab(sub);
+    };
+    window.addEventListener('nexus:navigate', h);
+    return () => window.removeEventListener('nexus:navigate', h);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [deptFilter,    setDeptFilter]    = useState('All');
   const [typeFilter,    setTypeFilter]    = useState('All');
   const [search,        setSearch]        = useState('');
@@ -4006,7 +4040,7 @@ export default function InventoryManagement({ activeSub }) {
     return (
       <>
         <EmployeeView
-          items={items} checkouts={checkouts}
+          items={items} checkouts={checkouts} activeSub={activeSub}
           userName={userName} userEmail={userEmail}
           itemsLoading={itemsLoading} itemsError={itemsError}
           onReturn={(id, data) => returnItem(id, data)}

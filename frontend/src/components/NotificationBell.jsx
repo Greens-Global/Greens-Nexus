@@ -208,6 +208,23 @@ export default function NotificationBell({ onNavigate }) {
           body:  `Your purchase requisition has been approved by ${myName}. Your supervisor will allocate the asset to you.`,
         });
       } else { setRejectingId(n.id); }
+    } else if (n.type === 'extension_pending') {
+      // Item extension request — no allocator needed; resolve straight away.
+      // Backend adds the days, notifies the employee and actions this notification.
+      if (action === 'approve') {
+        clearActionError(n.id);
+        api.resolveItemExtension(refId, { action: 'approve' })
+          .then(() => {
+            markActioned(n.id);
+            resolveAndDismiss(n, 'approved');
+            refreshInvRequests && refreshInvRequests();
+          })
+          .catch(err => setActionError(prev => ({ ...prev, [n.id]: friendlyActionError(err) })));
+      } else {
+        setRejectingId(n.id);
+        setApprovingId(null);
+        clearActionError(n.id);
+      }
     }
   }
 
@@ -290,7 +307,11 @@ export default function NotificationBell({ onNavigate }) {
     const itemName    = n.itemName    ?? 'the item';
     const requestedBy = n.requestedBy ?? '';
 
-    if (n.type === 'checkout_pending') {
+    if (n.type === 'extension_pending') {
+      api.resolveItemExtension(refId, { action: 'reject', note: rejectReason.trim() })
+        .then(() => refreshInvRequests && refreshInvRequests())
+        .catch(() => {});
+    } else if (n.type === 'checkout_pending') {
       // For cart orders, ref_id = order_id; find all pending checkouts under it.
       // Sequential so the backend batches the order's rejection notifications into one.
       const targets = invRequests.filter(c =>
@@ -349,16 +370,43 @@ export default function NotificationBell({ onNavigate }) {
     }).catch(() => {}).finally(() => setAllocatingId(null));
   }
 
-  // Clicking an update notification reads and immediately dismisses it.
-  // Informational updates don't need to linger — one click = done.
+  // Where each notification type lives in the app — clicking a card marks it
+  // read and takes you there. Cards are never auto-dismissed on click; the
+  // header's "Clear all" (or the per-card ×) is the only way to remove them.
+  function destinationFor(n) {
+    switch (n.type) {
+      case 'checkout_pending':
+      case 'extension_pending':
+      case 'allocate_request':
+      case 'item_returned':
+        return ['inventory', 'checkouts'];   // manager / allocator work queue
+      case 'approved':
+      case 'rejected':
+      case 'allocated':
+      case 'extension_resolved':
+        return ['inventory', 'myitems'];     // the requester's own items
+      case 'req_pending':
+        return ['purchase', null];
+      default:
+        return n.action?.view ? [n.action.view, n.action.sub] : null;
+    }
+  }
+
   function handleUpdateClick(n) {
     markRead(n.id);
-    dismiss(n.id);
+    const dest = destinationFor(n);
+    if (dest) {
+      setOpen(false);
+      // Window event instead of onNavigate: App navigates on it AND the target
+      // view's own listener switches its internal tab even when the app-level
+      // view/sub didn't change (repeat clicks on the same destination).
+      window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: dest[0], sub: dest[1] } }));
+    }
   }
 
   // Needs Action: only visible to managers+
   // checkout_pending = new Items module; inv_request/req_pending = older systems
-  const ACTIONABLE_TYPES = new Set(['inv_request', 'req_pending', 'checkout_pending']);
+  const ACTIONABLE_TYPES = new Set(['inv_request', 'req_pending', 'checkout_pending', 'extension_pending']);
   const actionableRaw = can('manager') ? notifications.filter(n =>
     ACTIONABLE_TYPES.has(n.type) && !n.recipient && !n.actioned
   ) : [];
@@ -457,6 +505,14 @@ export default function NotificationBell({ onNavigate }) {
             </div>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            {myUnread > 0 && (
+              <button onClick={markAllRead}
+                style={{ fontSize: 12.5, color: 'hsl(var(--color-blue))', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600 }}
+                onMouseEnter={e => e.currentTarget.style.background='var(--mist)'}
+                onMouseLeave={e => e.currentTarget.style.background='none'}>
+                Mark all read
+              </button>
+            )}
             {updates.length > 0 && (
               <button onClick={() => { markAllRead(); updates.forEach(n => dismiss(n.id)); }}
                 style={{ fontSize: 12.5, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600 }}
@@ -549,15 +605,13 @@ export default function NotificationBell({ onNavigate }) {
 
                         {!isRejecting && !isApproving ? (
                           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                            {onNavigate && (
-                              <button onClick={e => { e.stopPropagation(); markRead(n.id); setOpen(false); onNavigate('inventory', 'checkouts'); }}
-                                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: '1px solid var(--line)', background: 'none', color: 'var(--ink)', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
-                                Review
-                              </button>
-                            )}
+                            <button onClick={e => { e.stopPropagation(); markRead(n.id); setOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'inventory', sub: 'checkouts' } })); }}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: '1px solid var(--line)', background: 'none', color: 'var(--ink)', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                              Review
+                            </button>
                             <button onClick={e => { e.stopPropagation(); handleAction(n, 'approve'); }}
                               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
-                              <Check size={15} /> Approve All
+                              <Check size={15} /> {n.type === 'extension_pending' ? 'Approve' : 'Approve All'}
                             </button>
                             <button onClick={e => { e.stopPropagation(); setRejectingId(n.id); setRejectReason(''); setApprovingId(null); }}
                               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-red),0.10)', color: 'hsl(var(--color-red))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
