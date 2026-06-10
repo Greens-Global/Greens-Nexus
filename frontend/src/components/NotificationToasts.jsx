@@ -49,7 +49,32 @@ export default function NotificationToasts({ onNavigate }) {
     });
     if (fresh.length === 0) return;
 
-    setPopups(prev => [...fresh.map(n => ({ ...n, _popupId: `pop-${n.id}` })), ...prev].slice(0, 4));
+    // One popup per request/order: a lifecycle update (approved → handed over →
+    // confirmed) REPLACES the previous popup for the same refId instead of
+    // stacking — four toasts for one order buried the rest of the screen.
+    setPopups(prev => {
+      let next = [...prev];
+      // Within this batch too, keep only the newest per refId
+      const seenRefs = new Set();
+      const incoming = [];
+      for (const n of fresh) {                      // notifications arrive newest-first
+        const key = n.refId || n.id;
+        if (seenRefs.has(key)) continue;
+        seenRefs.add(key);
+        incoming.push(n);
+      }
+      for (const n of incoming.reverse()) {         // oldest first so newest ends on top
+        const key = n.refId || n.id;
+        const dup = next.findIndex(p => (p.refId || p.id) === key);
+        if (dup >= 0) {
+          clearTimeout(timersRef.current[next[dup].id]);
+          delete timersRef.current[next[dup].id];
+          next.splice(dup, 1);
+        }
+        next = [{ ...n, _popupId: `pop-${n.id}` }, ...next];
+      }
+      return next.slice(0, 4);
+    });
     fresh.forEach(n => {
       timersRef.current[n.id] = setTimeout(() => {
         setPopups(prev => prev.filter(p => p.id !== n.id));
