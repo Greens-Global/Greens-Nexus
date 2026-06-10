@@ -1536,9 +1536,13 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
           <ReceiptConfirmModal
             checkouts={coList}
             onClose={() => setConfirmingCo(null)}
-            onConfirm={({ batch, photoMap }) => {
-              const calls = coList.map(co => onConfirmReceipt(co, batch, photoMap));
-              return Promise.all(calls).then(() => setConfirmingCo(null));
+            onConfirm={async ({ batch, photoMap }) => {
+              // Sequential so the backend's per-order notification batching
+              // sees each receipt committed in turn (one final notification)
+              for (const co of coList) {
+                await onConfirmReceipt(co, batch, photoMap);
+              }
+              setConfirmingCo(null);
             }}
           />
         );
@@ -2062,11 +2066,12 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
                 confirmReceipt(co.id, userName, photoMap[co.id]?.url || '', photoMap[co.id]?.name || '')
                   .catch(() => { throw new Error(`Could not confirm receipt for ${co.itemName}.`); })
               : undefined}
-              onReturnAll={(items, data) =>
-                Promise.allSettled(items.map(c => onReturn(c.id, data)))
-                  .then(() => toast(`Returned ${items.length} item${items.length !== 1 ? 's' : ''}.`))
-                  .catch(() => toast('Some returns could not be submitted.', 'error'))
-              }
+              onReturnAll={async (items, data) => {
+                for (const c of items) {
+                  try { await onReturn(c.id, data); } catch { /* keep going */ }
+                }
+                toast(`Returned ${items.length} item${items.length !== 1 ? 's' : ''}.`);
+              }}
               onRequestExtension={(co, days, reason) =>
                 api.requestItemExtension(co.id, { days, reason })
                   .then(() => { toast(`Extension requested for ${co.itemName} — awaiting approval.`); refreshCheckouts && refreshCheckouts(); })
@@ -3347,8 +3352,12 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
       .then(() => { toast(`Approved ${co.itemName} — assigned to ${allocName}.`); refreshCheckouts(); });
   }
 
+  // Order-level actions run sequentially (not Promise.all) so the backend's
+  // per-order notification batching sees each update committed in turn.
   async function handleApproveOrder(orderItems, allocEmail, allocName) {
-    await Promise.allSettled(orderItems.map(co => approveRequest(co.id, userName, allocEmail, allocName)));
+    for (const co of orderItems) {
+      try { await approveRequest(co.id, userName, allocEmail, allocName); } catch { /* keep going */ }
+    }
     toast(`${orderItems.length} item${orderItems.length > 1 ? 's' : ''} approved — assigned to ${allocName}.`);
     refreshCheckouts();
   }
@@ -3359,8 +3368,10 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
     refreshCheckouts();
   }
 
-  function handleRejectOrder(orderItems, reason) {
-    orderItems.forEach(co => rejectRequest(co.id, userName, reason));
+  async function handleRejectOrder(orderItems, reason) {
+    for (const co of orderItems) {
+      try { await api.updateItemCheckout(co.id, { status: 'rejected', resolved_by: userName, reject_reason: reason }); } catch { /* keep going */ }
+    }
     toast(`${orderItems.length} item${orderItems.length > 1 ? 's' : ''} rejected.`);
     refreshCheckouts();
   }
@@ -3382,12 +3393,14 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
 
   async function handleAllocateOrder(orderItems, { photoBy, batch, photoMap }) {
     if (photoBy === 'employee') {
-      await Promise.allSettled(orderItems.map(co => initiateHandover(co.id, userName)));
+      for (const co of orderItems) {
+        try { await initiateHandover(co.id, userName); } catch { /* keep going */ }
+      }
       toast(`${orderItems[0]?.requestedBy} has been notified to confirm receipt of ${orderItems.length} item${orderItems.length > 1 ? 's' : ''}.`);
     } else {
-      await Promise.allSettled(orderItems.map(co =>
-        allocateItem(co.id, userName, photoMap[co.id]?.url || '', photoMap[co.id]?.name || '', { handoverPhotoBy: 'allocator', handoverBatch: batch })
-      ));
+      for (const co of orderItems) {
+        try { await allocateItem(co.id, userName, photoMap[co.id]?.url || '', photoMap[co.id]?.name || '', { handoverPhotoBy: 'allocator', handoverBatch: batch }); } catch { /* keep going */ }
+      }
       toast(`${orderItems.length} item${orderItems.length > 1 ? 's' : ''} handed over to ${orderItems[0]?.requestedBy}.`);
       refreshItems();
     }
@@ -4135,11 +4148,12 @@ export default function InventoryManagement({ activeSub }) {
               confirmReceipt(co.id, userName, photoMap[co.id]?.url || '', photoMap[co.id]?.name || '')
                 .catch(() => { throw new Error(`Could not confirm receipt for ${co.itemName}.`); })
             }
-            onReturnAll={(items, data) =>
-              Promise.allSettled(items.map(c => returnItem(c.id, data)))
-                .then(() => toast(`Returned ${items.length} item${items.length !== 1 ? 's' : ''}.`))
-                .catch(() => toast('Some returns could not be submitted.', 'error'))
-            }
+            onReturnAll={async (items, data) => {
+              for (const c of items) {
+                try { await returnItem(c.id, data); } catch { /* keep going */ }
+              }
+              toast(`Returned ${items.length} item${items.length !== 1 ? 's' : ''}.`);
+            }}
             onRequestExtension={(co, days, reason) =>
               api.requestItemExtension(co.id, { days, reason })
                 .then(() => { toast(`Extension requested for ${co.itemName} — awaiting approval.`); refreshCheckouts(); })

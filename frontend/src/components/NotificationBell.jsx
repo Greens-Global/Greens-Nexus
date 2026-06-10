@@ -70,7 +70,7 @@ function groupByRequest(list) {
 
 export default function NotificationBell({ onNavigate }) {
   const { notifications, unreadCount, markRead, markAllRead, dismiss, addNotification, markActioned, pendingApprovalId, clearPendingApproval } = useNotifications();
-  const { approveRequest, rejectRequest, allocateItem, requests: invRequests } = useInventory();
+  const { approveRequest, rejectRequest, allocateItem, requests: invRequests, refreshRequests: refreshInvRequests } = useInventory();
   const { approveRequisition, rejectRequisition }   = useRequisitions();
   const { accounts } = useMsal();
   const { can }      = useRole();
@@ -235,8 +235,17 @@ export default function NotificationBell({ onNavigate }) {
     setApprovingBusy(true);
     clearActionError(n.id);
 
+    // Sequential (not Promise.all) so the backend batches the order's
+    // notifications into one instead of racing into per-item duplicates.
     const approveAll = targets
-      ? Promise.allSettled(targets.map(c => approveRequest(c.id, myName, chosen.email, chosen.name)))
+      ? (async () => {
+          const results = [];
+          for (const c of targets) {
+            try { results.push({ status: 'fulfilled', value: await approveRequest(c.id, myName, chosen.email, chosen.name) }); }
+            catch (e) { results.push({ status: 'rejected', reason: e }); }
+          }
+          return results;
+        })()
       : approveRequest(refId, myName, chosen.email, chosen.name).then(r => [{ status: 'fulfilled', value: r }]).catch(e => [{ status: 'rejected', reason: e }]);
 
     approveAll
@@ -283,12 +292,17 @@ export default function NotificationBell({ onNavigate }) {
 
     if (n.type === 'checkout_pending') {
       // For cart orders, ref_id = order_id; find all pending checkouts under it.
+      // Sequential so the backend batches the order's rejection notifications into one.
       const targets = invRequests.filter(c =>
         c.status === 'pending' && (c.orderId === refId || c.id === refId)
       );
-      (targets.length ? targets : [{ id: refId }]).forEach(c =>
-        rejectRequest(c.id, myName, rejectReason.trim())
-      );
+      (async () => {
+        for (const c of (targets.length ? targets : [{ id: refId }])) {
+          try { await api.updateItemCheckout(c.id, { status: 'rejected', resolved_by: myName, reject_reason: rejectReason.trim() }); }
+          catch { /* keep going */ }
+        }
+        refreshInvRequests && refreshInvRequests();
+      })();
     } else if (n.type === 'inv_request') {
       rejectRequest(refId, myName, rejectReason.trim());
       const invReq = invRequests.find(r => r.id === refId);

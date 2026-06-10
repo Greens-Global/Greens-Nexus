@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, text as sa_text
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -552,6 +552,11 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
     if initial_status == "pending":
         # One notification per order — if this order_id already has a checkout_pending
         # notification, skip to avoid spamming managers with N alerts for one cart.
+        # Cart submits POST all items concurrently, so take an advisory lock on the
+        # order_id first; otherwise every request sees "no notification yet" and
+        # the dedupe check races into N duplicates.
+        if order_id and db.get_bind().dialect.name == "postgresql":
+            db.execute(sa_text("SELECT pg_advisory_xact_lock(hashtext(:oid))"), {"oid": order_id})
         ref_for_notif = order_id if order_id else server_id
         already_notified = order_id and db.query(NexusNotification).filter(
             NexusNotification.ref_id == order_id,
@@ -572,6 +577,18 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
     row = db.query(ItemCheckout).filter(ItemCheckout.id == checkout_id).first()
     if not row:
         return {"ok": False, "error": "not found"}
+
+    if row.order_id:
+        # Serialize concurrent updates within the same order. "Approve All" /
+        # "Hand Over All" / "Return All" fire one PATCH per item in parallel;
+        # without this lock each transaction reads its siblings as unchanged
+        # and the order-level notification batching below double-fires (one
+        # notification per item instead of one per order). FOR UPDATE makes
+        # the transactions queue, so each sees the previous one's commit.
+        db.query(ItemCheckout).filter(
+            ItemCheckout.order_id == row.order_id
+        ).with_for_update().all()
+        db.refresh(row)
 
     # Validate photo URLs to prevent fake evidence from external sources
     _validate_photo_url(body.checkout_photo_url, "checkout_photo_url")
@@ -751,12 +768,33 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
                         title=notif_title, body=notif_body,
                         ref_id=row.order_id, item_name=row.item_name, requested_by=row.requested_by)
 
-            # Allocator notification fires per approved item regardless of batch
+            # Allocator notification — one updating notification per order, listing
+            # every item assigned to them, instead of one ping per item.
             if body.status == "approved" and row.assigned_allocator_email:
-                _notify(db, type="allocate_request", recipient=row.assigned_allocator_email,
-                        title=f"Hand over: {row.item_name}",
-                        body=f"Please hand {row.item_name} over to {row.requested_by}.",
-                        ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+                alloc_email = row.assigned_allocator_email.lower()
+                assigned_names = [s.item_name for s in siblings
+                                  if s.status == "approved" and (s.assigned_allocator_email or "").lower() == alloc_email]
+                assigned_names.append(row.item_name)
+                if len(assigned_names) == 1:
+                    alloc_title = f"Hand over: {row.item_name}"
+                    alloc_body  = f"Please hand {row.item_name} over to {row.requested_by}."
+                else:
+                    alloc_title = f"Hand over {len(assigned_names)} items to {row.requested_by}"
+                    alloc_body  = f"Please hand over: {', '.join(assigned_names)}."
+                existing_alloc = db.query(NexusNotification).filter(
+                    NexusNotification.ref_id == row.order_id,
+                    NexusNotification.recipient == alloc_email,
+                    NexusNotification.type == "allocate_request",
+                    NexusNotification.actioned == False,
+                ).first()
+                if existing_alloc:
+                    existing_alloc.title   = alloc_title
+                    existing_alloc.body    = alloc_body
+                    existing_alloc.read_by = ""
+                else:
+                    _notify(db, type="allocate_request", recipient=row.assigned_allocator_email,
+                            title=alloc_title, body=alloc_body,
+                            ref_id=row.order_id, item_name=row.item_name, requested_by=row.requested_by)
         else:
             # Solo item (no order) — one notification per action
             if body.status == "approved":
@@ -823,10 +861,45 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
     elif body.status == "returned":
         # Only notify the allocator — skip if unset to avoid broadcasting to all users
         if row.assigned_allocator_email:
-            _notify(db, type="item_returned", recipient=row.assigned_allocator_email,
-                    title=f"Item returned: {row.item_name}",
-                    body=f"{row.requested_by} returned {row.item_name}. Condition: {row.condition_note or 'No notes.'}",
-                    ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+            if row.order_id:
+                # One updating notification per order: tally as items come back
+                siblings = db.query(ItemCheckout).filter(
+                    ItemCheckout.order_id == row.order_id,
+                    ItemCheckout.id != checkout_id,
+                ).all()
+                returned_names = [s.item_name for s in siblings if s.status == "returned"] + [row.item_name]
+                still_out      = [s.item_name for s in siblings if s.status in ("approved", "pending_receipt", "allocated")]
+
+                if still_out:
+                    total = len(returned_names) + len(still_out)
+                    notif_title = f"Returns in progress: {len(returned_names)} of {total} items back"
+                    notif_body  = (f"{row.requested_by} returned: {', '.join(returned_names)}. "
+                                   f"Still out: {', '.join(still_out)}.")
+                else:
+                    notif_title = f"Order returned: {len(returned_names)} item{'s' if len(returned_names) != 1 else ''}"
+                    notif_body  = (f"{row.requested_by} returned all {len(returned_names)} items: "
+                                   f"{', '.join(returned_names)}."
+                                   + (f" Condition: {row.condition_note}" if row.condition_note else ""))
+
+                existing = db.query(NexusNotification).filter(
+                    NexusNotification.ref_id == row.order_id,
+                    NexusNotification.recipient == (row.assigned_allocator_email or "").lower(),
+                    NexusNotification.type == "item_returned",
+                    NexusNotification.actioned == False,
+                ).first()
+                if existing:
+                    existing.title   = notif_title
+                    existing.body    = notif_body
+                    existing.read_by = ""  # re-surface as unread
+                else:
+                    _notify(db, type="item_returned", recipient=row.assigned_allocator_email,
+                            title=notif_title, body=notif_body,
+                            ref_id=row.order_id, item_name=row.item_name, requested_by=row.requested_by)
+            else:
+                _notify(db, type="item_returned", recipient=row.assigned_allocator_email,
+                        title=f"Item returned: {row.item_name}",
+                        body=f"{row.requested_by} returned {row.item_name}. Condition: {row.condition_note or 'No notes.'}",
+                        ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
 
     db.commit()
     _fire_item_event(checkout_id, row.status, row.requested_by_email or "")
