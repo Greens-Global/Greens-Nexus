@@ -532,13 +532,19 @@ export default function NotificationBell({ onNavigate }) {
                         <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '4px 0 14px', lineHeight: 1.45 }}>{n.body}</p>
 
                         {!isRejecting && !isApproving ? (
-                          <div style={{ display: 'flex', gap: 10 }}>
+                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            {onNavigate && (
+                              <button onClick={e => { e.stopPropagation(); markRead(n.id); setOpen(false); onNavigate('inventory', 'checkouts'); }}
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: '1px solid var(--line)', background: 'none', color: 'var(--ink)', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                                Review
+                              </button>
+                            )}
                             <button onClick={e => { e.stopPropagation(); handleAction(n, 'approve'); }}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 20px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
-                              <Check size={15} /> Approve
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                              <Check size={15} /> Approve All
                             </button>
                             <button onClick={e => { e.stopPropagation(); setRejectingId(n.id); setRejectReason(''); setApprovingId(null); }}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 20px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-red),0.10)', color: 'hsl(var(--color-red))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-red),0.10)', color: 'hsl(var(--color-red))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
                               <X size={15} /> Reject
                             </button>
                           </div>

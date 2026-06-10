@@ -9,6 +9,7 @@ import {
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import { useInventory }     from '../contexts/InventoryContext';
 import { useNotifications } from '../contexts/NotificationContext';
+import { useRequisitions }  from '../contexts/RequisitionContext';
 import { useRole }          from '../contexts/RoleContext';
 import { api }              from '../api';
 import { supabase }         from '../lib/supabase';
@@ -1015,7 +1016,7 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
               {/* Per-item days */}
               <div style={{ marginBottom:6 }}>
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
-                  <label style={{ ...FL, marginBottom:0 }}>DAYS NEEDED PER ITEM</label>
+                  <label style={{ ...FL, marginBottom:0 }}>HOW MANY DAYS IS IT NEEDED?</label>
                   <button onClick={() => applyDaysToAll(cart[0]?.days ?? 1)}
                     style={{ fontSize:11, color:'hsl(var(--color-blue))', background:'none', border:'none', cursor:'pointer', padding:'2px 6px', fontFamily:'Inter,sans-serif' }}>
                     Apply first to all
@@ -1861,11 +1862,6 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
             <MyCheckoutsPanel
               checkouts={checkouts} userEmail={userEmail} userName={userName}
               onReturn={handleReturn} onCancel={handleCancel} onReRequest={handleReRequest}
-              onEmployeeAccept={allocateItem ? (co, photoUrl) =>
-                allocateItem(co.id, userName, photoUrl)
-                  .then(() => toast(`Confirmed — ${co.itemName} is with you.`))
-                  .catch(() => toast('Could not confirm receipt — please try again.', 'error'))
-              : undefined}
               onConfirmReceipt={confirmReceipt ? (co, batch, photoMap) =>
                 confirmReceipt(co.id, userName, photoMap[co.id]?.url || '', photoMap[co.id]?.name || '')
                   .catch(() => { throw new Error(`Could not confirm receipt for ${co.itemName}.`); })
@@ -1896,7 +1892,7 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
 
 // ── Manager Catalog Tab ───────────────────────────────────────────────────────
 function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate }) {
-  const [viewMode, setViewMode] = useState('tile'); // 'tile' | 'list'
+  const [viewMode, setViewMode] = useState('list'); // 'tile' | 'list'
 
   const filtered = items.filter(i => {
     const mS = !search || i.name.toLowerCase().includes(search.toLowerCase()) || (i.make||'').toLowerCase().includes(search.toLowerCase()) || (i.model||'').toLowerCase().includes(search.toLowerCase());
@@ -2595,8 +2591,8 @@ function PhotoSlot({ label, slotKey, photos, onChange }) {
         </div>
       ) : (
         <button type="button" onClick={() => ref.current?.click()}
-          style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', borderRadius:9, border:'2px dashed var(--line)', background:'var(--mist)', cursor:'pointer', fontSize:13, color:'var(--muted)', fontFamily:'Inter,sans-serif' }}>
-          <Camera size={15} /> Upload Photo <span style={{ fontSize:11, marginLeft:4, opacity:.6 }}>(optional)</span>
+          style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', borderRadius:9, border:'2px dashed hsla(var(--color-red),0.4)', background:'hsla(var(--color-red),0.04)', cursor:'pointer', fontSize:13, color:'var(--muted)', fontFamily:'Inter,sans-serif' }}>
+          <Camera size={15} /> Take / Upload Photo <span style={{ fontSize:11, marginLeft:4, color:'hsl(var(--color-red))' }}>*</span>
         </button>
       )}
     </div>
@@ -2805,6 +2801,10 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
   const [error,     setError]     = useState('');
   useEscapeKey(onClose);
 
+  const hasPhotos = photoMode === 'batch'
+    ? !!photos['batch']?.file
+    : coItems.every(co => !!photos[co.id]?.file);
+
   function handlePhotoChange(key, val) { setPhotos(prev => ({ ...prev, [key]: val })); }
 
   async function uploadPhotoEntry(entry, checkoutId) {
@@ -2816,6 +2816,7 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
   }
 
   async function submit() {
+    if (!hasPhotos) return;
     setUploading(true); setError('');
     try {
       const photoMap = {};
@@ -2887,8 +2888,8 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
               ) : <span />}
               <div style={{ display:'flex', gap:8 }}>
                 <button className="secondary-btn" onClick={onClose} disabled={uploading}>Cancel</button>
-                <button className="primary-btn" disabled={uploading}
-                  style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:150, justifyContent:'center' }}
+                <button className="primary-btn" disabled={uploading || !hasPhotos}
+                  style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:150, justifyContent:'center', opacity: (!hasPhotos && !uploading) ? 0.45 : 1 }}
                   onClick={submit}>
                   {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><CheckCircle size={14} /> Confirm Receipt</>}
                 </button>
@@ -3026,7 +3027,7 @@ function RejectCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onCo
 }
 
 // ── Manager Checkouts Tab ─────────────────────────────────────────────────────
-function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveRequest, rejectRequest, allocateItem, initiateHandover, refreshCheckouts, refreshItems, toast }) {
+function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveRequest, rejectRequest, allocateItem, initiateHandover, refreshCheckouts, refreshItems, toast, onSendAlert }) {
   const { can } = useRole();
   const isManager = can('manager');
   const [statusFilter,   setStatusFilter]   = useState('active');
@@ -3133,12 +3134,14 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
 
   return (
     <div>
-      {/* Summary chips */}
-      <div style={{ display:'flex', gap:10, marginBottom:12, flexWrap:'wrap', alignItems:'center' }}>
+      {/* Tab header with Send Alert */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, flexWrap:'wrap', gap:8 }}>
+        {/* Summary chips */}
+        <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
         {[
           { key:'active',    label:'Active',            count: pending + approved + checkouts.filter(c => c.status === 'allocated').length },
-          { key:'pending',   label:'Pending approval',  count: pending },
-          { key:'approved',  label:'Awaiting handover', count: approved },
+          { key:'pending',   label:'Pending Approval',  count: pending },
+          { key:'approved',  label:'Awaiting Handover', count: approved },
           { key:'completed', label:'Completed',         count: checkouts.filter(c => ['returned','rejected','cancelled'].includes(c.status)).length },
         ].map(f => (
           <button key={f.key} onClick={() => setStatusFilter(f.key)}
@@ -3147,6 +3150,12 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
             {f.count > 0 && <span style={{ background: statusFilter === f.key ? 'hsl(var(--color-green))' : 'var(--muted)', color:'#fff', borderRadius:20, fontSize:10, fontWeight:800, padding:'1px 6px', minWidth:18, textAlign:'center' }}>{f.count}</span>}
           </button>
         ))}
+        </div>
+        {onSendAlert && (
+          <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7, color:'hsl(var(--color-orange))', flexShrink:0 }} onClick={onSendAlert}>
+            <Megaphone size={14} /> Send Alert
+          </button>
+        )}
       </div>
       {/* Who has what filter */}
       {holdersMap.size > 0 && (
@@ -3214,10 +3223,16 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
                       </>
                     )}
                     {approvedItems.length > 1 && (
-                      <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, padding:'6px 14px', background:'hsl(var(--color-orange))' }}
-                        onClick={() => setAllocatingOrder(approvedItems)}>
-                        <Camera size={12} /> Hand Over All ({approvedItems.length})
-                      </button>
+                      <>
+                        <button onClick={() => setRejectingOrder(approvedItems)}
+                          style={{ background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:8, padding:'5px 12px', fontSize:12, cursor:'pointer', color:'hsl(var(--color-red))', fontWeight:600, display:'inline-flex', alignItems:'center', gap:5, fontFamily:'Inter,sans-serif' }}>
+                          <XCircle size={12} /> Reject All ({approvedItems.length})
+                        </button>
+                        <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, padding:'6px 14px', background:'hsl(var(--color-orange))' }}
+                          onClick={() => setAllocatingOrder(approvedItems)}>
+                          <Camera size={12} /> Hand Over All ({approvedItems.length})
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -3331,6 +3346,108 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
           onConfirm={payload => handleAllocateOrder(allocatingOrder, payload)} />
       )}
       {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
+    </div>
+  );
+}
+
+// ── Purchase Requests Tab ─────────────────────────────────────────────────────
+function PurchaseRequestsTab({ userEmail, userName, isManager }) {
+  const { requisitions, approveRequisition, rejectRequisition } = useRequisitions();
+  const [rejectingId, setRejectingId] = useState(null);
+  const [rejectReason, setRejectReason] = useState('');
+
+  const fmtDate = iso => new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+
+  const STATUS_META = {
+    pending_manager: { label:'Pending Approval', bg:'hsla(var(--color-orange),0.12)', fg:'hsl(var(--color-orange))' },
+    approved:        { label:'Approved',          bg:'hsla(var(--color-green),0.12)',  fg:'hsl(var(--color-green))'  },
+    rejected:        { label:'Rejected',          bg:'hsla(var(--color-red),0.12)',    fg:'hsl(var(--color-red))'    },
+    allocated:       { label:'Allocated',         bg:'hsla(var(--color-blue),0.12)',   fg:'hsl(var(--color-blue))'   },
+  };
+
+  const visible = isManager
+    ? requisitions
+    : requisitions.filter(r => r.employeeName === userName || (r.employeeEmail || '').toLowerCase() === userEmail);
+
+  const pending  = visible.filter(r => r.status === 'pending_manager');
+  const resolved = visible.filter(r => r.status !== 'pending_manager');
+
+  function renderCard(r) {
+    const sm = STATUS_META[r.status] || { label: r.status, bg:'var(--mist)', fg:'var(--muted)' };
+    const isRej = rejectingId === r.id;
+    return (
+      <div key={r.id} style={{ border:'1px solid var(--line)', borderRadius:12, padding:'16px 20px', background:'var(--card)', boxShadow:'var(--shadow-sm)', marginBottom:10 }}>
+        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:10, flexWrap:'wrap' }}>
+          <div>
+            <div style={{ fontWeight:700, fontSize:14 }}>{r.item}</div>
+            <div style={{ fontSize:12, color:'var(--muted)', marginTop:2 }}>
+              {r.employeeName} · {r.employeeDept} · Qty: {r.quantity}
+              {r.createdAt && <span style={{ marginLeft:8 }}>{fmtDate(r.createdAt)}</span>}
+            </div>
+            {r.reason && <div style={{ fontSize:12.5, color:'var(--muted)', marginTop:6, fontStyle:'italic' }}>"{r.reason}"</div>}
+            {r.rejectionReason && <div style={{ fontSize:12, color:'hsl(var(--color-red))', marginTop:4 }}>Rejected: "{r.rejectionReason}"</div>}
+          </div>
+          <span style={{ display:'inline-flex', alignItems:'center', padding:'3px 10px', borderRadius:20, fontSize:11, fontWeight:700, background:sm.bg, color:sm.fg, flexShrink:0 }}>
+            {sm.label}
+          </span>
+        </div>
+        {isManager && r.status === 'pending_manager' && (
+          isRej ? (
+            <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:8 }}>
+              <input className="form-input" autoFocus placeholder="Reason for rejection…" value={rejectReason}
+                onChange={e => setRejectReason(e.target.value)}
+                style={{ fontSize:13, padding:'8px 12px' }} />
+              <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
+                <button className="secondary-btn" style={{ fontSize:12 }} onClick={() => { setRejectingId(null); setRejectReason(''); }}>Cancel</button>
+                <button className="primary-btn" style={{ fontSize:12, background:'hsl(var(--color-red))', display:'inline-flex', alignItems:'center', gap:5 }}
+                  disabled={!rejectReason.trim()}
+                  onClick={() => { rejectRequisition(r.id, userName, rejectReason.trim()); setRejectingId(null); setRejectReason(''); }}>
+                  <XCircle size={13} /> Confirm Reject
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:12 }}>
+              <button onClick={() => { setRejectingId(r.id); setRejectReason(''); }}
+                style={{ background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:8, padding:'5px 12px', fontSize:12, cursor:'pointer', color:'hsl(var(--color-red))', fontWeight:600, display:'inline-flex', alignItems:'center', gap:5, fontFamily:'Inter,sans-serif' }}>
+                <XCircle size={12} /> Reject
+              </button>
+              <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, padding:'6px 14px' }}
+                onClick={() => approveRequisition(r.id, userName)}>
+                <CheckCircle size={12} /> Approve
+              </button>
+            </div>
+          )
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {pending.length > 0 && (
+        <>
+          <div style={{ fontSize:11.5, fontWeight:700, letterSpacing:'.07em', color:'var(--muted)', textTransform:'uppercase', marginBottom:10 }}>
+            Pending Approval — {pending.length}
+          </div>
+          {pending.map(renderCard)}
+        </>
+      )}
+      {resolved.length > 0 && (
+        <>
+          <div style={{ fontSize:11.5, fontWeight:700, letterSpacing:'.07em', color:'var(--muted)', textTransform:'uppercase', margin:'20px 0 10px' }}>
+            Past Requests — {resolved.length}
+          </div>
+          {resolved.map(renderCard)}
+        </>
+      )}
+      {visible.length === 0 && (
+        <div style={{ padding:'64px 0', textAlign:'center', color:'var(--muted)' }}>
+          <FileText size={36} style={{ opacity:.15, display:'block', margin:'0 auto 14px' }} />
+          <div style={{ fontWeight:700, fontSize:15, marginBottom:6 }}>No purchase requests yet</div>
+          <div style={{ fontSize:13 }}>Requests submitted via Purchase Requisition will appear here.</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3488,12 +3605,9 @@ export default function InventoryManagement({ activeSub }) {
       <div className="view-header" style={{ marginBottom:0 }}>
         <div className="view-title-group">
           <h2>Item Management</h2>
-          <p>Company assets across all departments and locations</p>
+          <p>View company assets and checkout whatever you require</p>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-          <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7, color:'hsl(var(--color-orange))' }} onClick={() => setSendAlertOpen(true)} title="Send alert to team members">
-            <Megaphone size={14} /> Send Alert
-          </button>
           <button className={cart.length ? 'primary-btn' : 'secondary-btn'}
             style={{ display:'inline-flex', alignItems:'center', gap:7, position:'relative' }}
             onClick={() => setCartOpen(true)}>
@@ -3504,16 +3618,20 @@ export default function InventoryManagement({ activeSub }) {
               </span>
             )}
           </button>
-          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-            <Filter size={13} style={{ color:'var(--muted)' }} />
-            <select className="form-input" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34 }}>
-              {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
-            </select>
-          </div>
-          <select className="form-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34 }}>
-            <option value="All">All types</option>
-            {ITEM_TYPES.map(t => <option key={t}>{t}</option>)}
-          </select>
+          {['catalog','manage','audit'].includes(mainTab) && (
+            <>
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <Filter size={13} style={{ color:'var(--muted)' }} />
+                <select className="form-input" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34 }}>
+                  {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
+                </select>
+              </div>
+              <select className="form-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34 }}>
+                <option value="All">All types</option>
+                {ITEM_TYPES.map(t => <option key={t}>{t}</option>)}
+              </select>
+            </>
+          )}
         </div>
       </div>
 
@@ -3531,7 +3649,7 @@ export default function InventoryManagement({ activeSub }) {
       )}
 
       {/* KPI strip — only relevant when browsing or managing items */}
-      {(mainTab === 'catalog' || mainTab === 'manage') && <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(4,1fr)', margin:'16px 0 20px' }}>
+      {mainTab === 'manage' && <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(4,1fr)', margin:'16px 0 20px' }}>
         {[
           { label:'Available',      value: items.filter(i => i.status === 'available').length,    color:'card-green'  },
           { label:'Total Items',    value: items.length,                                          color:'card-blue'   },
@@ -3548,11 +3666,11 @@ export default function InventoryManagement({ activeSub }) {
       {/* Tab strip */}
       <div style={{ display:'flex', gap:0, marginBottom:20, borderBottom:'1px solid var(--line)', flexWrap:'wrap' }}>
         {[
+          { id:'myitems',      label:'My Items',          Icon: User,         badge: myActiveCount          },
           { id:'catalog',      label:'Catalog',           Icon: Package                                     },
           { id:'manage',       label:'Manage',            Icon: ClipboardList                               },
           { id:'checkouts',    label:'Checkouts',         Icon: ShoppingCart, badge: pendingCount + approvedCount },
           { id:'purchasereqs', label:'Purchase Requests', Icon: FileText                                    },
-          { id:'myitems',      label:'My Items',          Icon: User,         badge: myActiveCount          },
           { id:'audit',        label:'Audit Log',         Icon: History                                     },
         ].map(({ id, label, Icon, badge }) => (
           <button key={id} onClick={() => setMainTab(id)}
@@ -3629,17 +3747,11 @@ export default function InventoryManagement({ activeSub }) {
           approveRequest={approveRequest} rejectRequest={rejectRequest}
           allocateItem={allocateItem} initiateHandover={initiateHandover}
           refreshCheckouts={refreshCheckouts} refreshItems={refreshItems} toast={toast}
+          onSendAlert={() => setSendAlertOpen(true)}
         />
       )}
       {mainTab === 'purchasereqs' && (
-        <div style={{ padding:'48px 0', textAlign:'center', color:'var(--muted)' }}>
-          <FileText size={40} style={{ opacity:.15, display:'block', margin:'0 auto 16px' }} />
-          <div style={{ fontWeight:700, fontSize:16, marginBottom:8 }}>Purchase Requests</div>
-          <div style={{ fontSize:13, maxWidth:360, margin:'0 auto' }}>
-            Submit and track requests for items that aren't in the current catalog.
-            This feature is coming soon.
-          </div>
-        </div>
+        <PurchaseRequestsTab userEmail={userEmail} userName={userName} isManager={isManager} />
       )}
       {mainTab === 'audit' && <AuditLogPanel />}
 

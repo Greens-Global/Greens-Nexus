@@ -556,8 +556,8 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
         ).first()
         if not already_notified:
             _notify(db, type="checkout_pending", recipient="",
-                    title=f"Checkout request — {body.requested_by}",
-                    body=f"{body.requested_by} has submitted a checkout request. Please review and approve or reject.",
+                    title=f"Checkout Request — {body.requested_by}",
+                    body=f"{body.requested_by} has submitted a Checkout Request. Please review, approve or reject.",
                     ref_id=ref_for_notif, item_name=body.item_name, requested_by=body.requested_by)
     db.commit()
     _fire_item_event(server_id, initial_status, row.requested_by_email or "")
@@ -697,15 +697,51 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
                 body=f"Your request for {row.item_name} was not approved. Reason: {row.reject_reason or 'No reason given.'}",
                 ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
     elif body.status == "pending_receipt":
-        _notify(db, type="allocated", recipient=row.requested_by_email,
-                title=f"Confirm receipt: {row.item_name}",
-                body=f"{row.item_name} has been handed over to you. Please confirm receipt and upload a photo.",
-                ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+        # For order batches: only notify once, when the LAST item in the order moves to pending_receipt
+        if row.order_id:
+            sibling_not_yet = db.query(ItemCheckout).filter(
+                ItemCheckout.order_id == row.order_id,
+                ItemCheckout.id != checkout_id,
+                ItemCheckout.status == "approved",  # still awaiting initiation
+            ).count()
+            if sibling_not_yet == 0:
+                # All items now pending_receipt — send one consolidated notification
+                order_count = db.query(ItemCheckout).filter(
+                    ItemCheckout.order_id == row.order_id
+                ).count()
+                _notify(db, type="allocated", recipient=row.requested_by_email,
+                        title=f"Confirm receipt: {order_count} items",
+                        body=f"Your order has been handed over. Please confirm receipt and upload a photo for all {order_count} items.",
+                        ref_id=row.order_id, item_name=row.item_name, requested_by=row.requested_by)
+        else:
+            _notify(db, type="allocated", recipient=row.requested_by_email,
+                    title=f"Confirm receipt: {row.item_name}",
+                    body=f"{row.item_name} has been handed over to you. Please confirm receipt and upload a photo.",
+                    ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
     elif body.status == "allocated":
-        _notify(db, type="allocated", recipient=row.requested_by_email,
-                title=f"Item confirmed: {row.item_name}",
-                body=f"{row.item_name} checkout is complete. Please return it within {row.days} day(s).",
-                ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+        # For order batches: only notify once, when ALL items in the order are allocated
+        if row.order_id:
+            sibling_not_allocated = db.query(ItemCheckout).filter(
+                ItemCheckout.order_id == row.order_id,
+                ItemCheckout.id != checkout_id,
+                ItemCheckout.status.notin_(["allocated", "returned", "cancelled"]),
+            ).count()
+            if sibling_not_allocated == 0:
+                # All items now allocated — send one consolidated notification
+                order_count = db.query(ItemCheckout).filter(
+                    ItemCheckout.order_id == row.order_id,
+                    ItemCheckout.status == "allocated",
+                ).count() + 1  # +1 for current item (not yet committed)
+                _notify(db, type="allocated", recipient=row.requested_by_email,
+                        title=f"Order confirmed: {order_count} item{'' if order_count == 1 else 's'} with you",
+                        body=f"All {order_count} items from your order are confirmed. Please return them within {row.days} day(s).",
+                        ref_id=row.order_id, item_name=row.item_name, requested_by=row.requested_by)
+            # else: don't send individual notifications mid-batch
+        else:
+            _notify(db, type="allocated", recipient=row.requested_by_email,
+                    title=f"Item confirmed: {row.item_name}",
+                    body=f"{row.item_name} checkout is complete. Please return it within {row.days} day(s).",
+                    ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
     elif body.status == "returned":
         # Only notify the allocator — skip if unset to avoid broadcasting to all users
         if row.assigned_allocator_email:
