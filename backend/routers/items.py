@@ -244,6 +244,8 @@ def list_items(
         ItemCheckout.status,
         ItemCheckout.created_at,
         ItemCheckout.days,
+        ItemCheckout.allocated_at,
+        ItemCheckout.handed_over_at,
     ).filter(
         ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"])
     ).all()
@@ -260,9 +262,9 @@ def list_items(
         # request — approval delay must not eat into the employee's checkout days.
         d["activeRequestedBy"] = co.requested_by if co else None
         if co and co.days:
-            start_iso = co.allocated_at or co.handed_over_at or co.created_at
             try:
-                from datetime import datetime, timezone, timedelta
+                from datetime import timedelta
+                start_iso = co.allocated_at or co.handed_over_at or co.created_at
                 start = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
                 due = start + timedelta(days=int(co.days))
                 d["activeDueDate"] = due.isoformat()
