@@ -1846,15 +1846,19 @@ function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsL
       .catch(() => { if (!opts.silent) toast('Could not cancel.', 'error'); });
   }
   async function handleReRequest(co, newReason) {
-    await api.createItemCheckout({
-      id: crypto.randomUUID(),
-      item_id: co.itemId, item_name: co.itemName, item_type: co.itemType,
-      requested_by: co.requestedBy, requested_by_email: co.requestedByEmail || userEmail,
-      raised_by: userName, department: co.department, days: co.days || 1,
-      reason: newReason, order_id: null,
-    });
-    toast(`Re-submitted request for ${co.itemName}.`);
-    if (refreshCheckouts) refreshCheckouts();
+    try {
+      await api.createItemCheckout({
+        id: crypto.randomUUID(),
+        item_id: co.itemId, item_name: co.itemName, item_type: co.itemType,
+        requested_by: co.requestedBy, requested_by_email: co.requestedByEmail || userEmail,
+        raised_by: userName, department: co.department, days: co.days || 1,
+        reason: newReason, order_id: null,
+      });
+      toast(`Re-submitted request for ${co.itemName}.`);
+      if (refreshCheckouts) refreshCheckouts();
+    } catch (err) {
+      toast(err?.message || `Could not re-submit request for ${co.itemName}.`, 'error');
+    }
   }
 
   // ── Home screen ─────────────────────────────────────────────────────────────
@@ -2016,7 +2020,10 @@ function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsL
                     }).map(item => {
                       const tm = TYPE_META[item.itemType] || TYPE_META.Other;
                       const alreadyInCart = inCart.has(item.id);
-                      const hasPending = item.status==='available' && checkouts.some(c => ['pending','approved'].includes(c.status) && c.itemId===item.id);
+                      const hasPending = item.status==='available' && (
+                        checkouts.some(c => ['pending','approved','pending_receipt'].includes(c.status) && c.itemId===item.id) ||
+                        !!item.hasActiveRequest // server flag — covers other users' requests employees can't see
+                      );
                       const canAdd = item.status==='available' && !hasPending && item.ownershipType==='transient';
                       return (
                         <tr key={item.id} style={{ borderTop:'1px solid var(--line)', opacity: item.status==='available'&&!hasPending ? 1 : 0.65 }}>
@@ -2138,7 +2145,7 @@ function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFi
   });
 
   const pendingCheckoutIds = new Set(
-    (checkouts || []).filter(c => ['pending','approved','allocated'].includes(c.status)).map(c => c.itemId)
+    (checkouts || []).filter(c => ['pending','approved','pending_receipt','allocated'].includes(c.status)).map(c => c.itemId)
   );
 
   return (
@@ -2530,7 +2537,8 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
   const TYPE_ORDER = ['Vehicles', 'Devices', 'Tools', 'Equipment', 'Keys', 'Other'];
 
   const filtered = items.filter(i => {
-    const mS = !search || i.name.toLowerCase().includes(search.toLowerCase()) || (i.make||'').toLowerCase().includes(search.toLowerCase());
+    const q = search.toLowerCase();
+    const mS = !search || i.name.toLowerCase().includes(q) || (i.make||'').toLowerCase().includes(q) || (i.model||'').toLowerCase().includes(q);
     const mD = deptFilter === 'All' || i.department === deptFilter;
     const mT = typeFilter === 'All' || i.itemType === typeFilter;
     return mS && mD && mT;
@@ -2550,7 +2558,7 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
   const missingPhotos = items.filter(i => !i.photoUrl).length;
   const selItems      = filtered.filter(i => selected.has(i.id));
   const blockedItems  = selItems.filter(i =>
-    (checkouts || []).some(c => c.itemId === i.id && ['pending','approved','allocated'].includes(c.status))
+    (checkouts || []).some(c => c.itemId === i.id && ['pending','approved','pending_receipt','allocated'].includes(c.status))
   );
 
   function toggleSelect(id) {
@@ -3832,7 +3840,7 @@ function WhoHasItTab({ items, checkouts }) {
                   {initials(h.name)}
                 </div>
                 <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflowEllipsis:'ellipsis', whiteSpace:'nowrap' }}>{h.name}</div>
+                  <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{h.name}</div>
                   <div style={{ fontSize:11.5, color:'var(--muted)' }}>
                     {h.transient.length > 0 && `${h.transient.length} checked out`}
                     {h.transient.length > 0 && h.permanent.length > 0 && ' · '}
@@ -4193,15 +4201,19 @@ export default function InventoryManagement({ activeSub }) {
                 .then(() => { toast(`Extension requested for ${co.itemName} — awaiting approval.`); refreshCheckouts(); })
             }
             onReRequest={async (co, newReason) => {
-              await api.createItemCheckout({
-                id: crypto.randomUUID(),
-                item_id: co.itemId, item_name: co.itemName, item_type: co.itemType,
-                requested_by: co.requestedBy, requested_by_email: co.requestedByEmail || userEmail,
-                raised_by: userName, department: co.department, days: co.days || 1,
-                reason: newReason, order_id: null,
-              });
-              toast(`Re-submitted request for ${co.itemName}.`);
-              refreshCheckouts();
+              try {
+                await api.createItemCheckout({
+                  id: crypto.randomUUID(),
+                  item_id: co.itemId, item_name: co.itemName, item_type: co.itemType,
+                  requested_by: co.requestedBy, requested_by_email: co.requestedByEmail || userEmail,
+                  raised_by: userName, department: co.department, days: co.days || 1,
+                  reason: newReason, order_id: null,
+                });
+                toast(`Re-submitted request for ${co.itemName}.`);
+                refreshCheckouts();
+              } catch (err) {
+                toast(err?.message || `Could not re-submit request for ${co.itemName}.`, 'error');
+              }
             }}
           />
           {myTotalCount === 0 && (

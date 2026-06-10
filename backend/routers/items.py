@@ -673,6 +673,19 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
         row.condition_note   = body.condition_note    or ""
         if item:
             item.status = "retired" if damaged else "available"
+        # A pending extension is moot once the item is back — clear it and
+        # action the managers' extension notification so it leaves their bell.
+        if row.extension_status == "pending":
+            row.extension_days   = 0
+            row.extension_reason = ""
+            row.extension_status = ""
+            stale_ext = db.query(NexusNotification).filter(
+                NexusNotification.type == "extension_pending",
+                NexusNotification.actioned == False,
+                NexusNotification.ref_id == checkout_id,
+            ).first()
+            if stale_ext:
+                stale_ext.actioned = True
 
     row.status = body.status
 
@@ -821,13 +834,16 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
                 ItemCheckout.status == "approved",  # still awaiting initiation
             ).count()
             if sibling_not_yet == 0:
-                # All items now pending_receipt — send one consolidated notification
+                # All initiated items now pending_receipt — one consolidated notification.
+                # Count only items actually handed over (not rejected/cancelled siblings).
                 order_count = db.query(ItemCheckout).filter(
-                    ItemCheckout.order_id == row.order_id
-                ).count()
+                    ItemCheckout.order_id == row.order_id,
+                    ItemCheckout.status == "pending_receipt",
+                ).count() + 1  # +1 for current row (autoflush off — not yet visible)
                 _notify(db, type="allocated", recipient=row.requested_by_email,
-                        title=f"Confirm receipt: {order_count} items",
-                        body=f"Your order has been handed over. Please confirm receipt and upload a photo for all {order_count} items.",
+                        title=f"Confirm receipt: {order_count} item{'s' if order_count != 1 else ''}",
+                        body=f"Your order has been handed over. Please confirm receipt and upload a photo for all {order_count} items." if order_count != 1
+                             else f"{row.item_name} has been handed over. Please confirm receipt and upload a photo.",
                         ref_id=row.order_id, item_name=row.item_name, requested_by=row.requested_by)
         else:
             _notify(db, type="allocated", recipient=row.requested_by_email,
@@ -952,7 +968,9 @@ def resolve_extension(checkout_id: str, body: ExtensionResolve, user: dict = Dep
     """Manager approves or rejects a pending extension request."""
     if user["level"] < _ROLE_LEVEL["manager"]:
         raise HTTPException(403, "Manager or above required to resolve extensions")
-    row = db.query(ItemCheckout).filter(ItemCheckout.id == checkout_id).first()
+    # Row lock: two managers resolving the same extension concurrently must not
+    # both pass the pending check (approve twice = days added twice).
+    row = db.query(ItemCheckout).filter(ItemCheckout.id == checkout_id).with_for_update().first()
     if not row:
         raise HTTPException(404, "Checkout not found")
     if row.extension_status != "pending":

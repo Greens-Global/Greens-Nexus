@@ -70,7 +70,7 @@ function groupByRequest(list) {
 
 export default function NotificationBell({ onNavigate }) {
   const { notifications, unreadCount, markRead, markAllRead, dismiss, addNotification, markActioned, pendingApprovalId, clearPendingApproval } = useNotifications();
-  const { approveRequest, rejectRequest, allocateItem, requests: invRequests, refreshRequests: refreshInvRequests } = useInventory();
+  const { approveRequest, rejectRequest, allocateItem, requests: invRequests, requestsLoading: invRequestsLoading, refreshRequests: refreshInvRequests } = useInventory();
   const { approveRequisition, rejectRequisition }   = useRequisitions();
   const { accounts } = useMsal();
   const { can }      = useRole();
@@ -129,6 +129,9 @@ export default function NotificationBell({ onNavigate }) {
   // so there are no more pending checkouts for that order/id.
   useEffect(() => {
     if (!can('manager')) return;
+    // Never judge from an empty/loading checkout list — on first load invRequests
+    // is [] and every pending notification would be wrongly cleared for good.
+    if (invRequestsLoading || !invRequests.length) return;
     notifications.forEach(n => {
       if (n.type !== 'checkout_pending' || n.recipient || n.actioned) return;
       const refId = n.refId ?? '';
@@ -138,7 +141,7 @@ export default function NotificationBell({ onNavigate }) {
       );
       if (!stillPending) markActioned(n.id);
     });
-  }, [notifications, invRequests]);
+  }, [notifications, invRequests, invRequestsLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleOpen() {
     setOpen(o => !o);
