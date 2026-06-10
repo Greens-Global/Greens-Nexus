@@ -1370,10 +1370,12 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
         const firstItem = groupItems[0];
         const groupKey = firstItem.orderId || firstItem.id;
         const cancellableItems = groupItems.filter(c => ['pending','approved'].includes(c.status));
+        // Batch buttons key off the RELEVANT items, not the whole order — a
+        // rejected/cancelled sibling must not hide "Confirm Receipt for All".
         const pendingReceiptItems = groupItems.filter(c => c.status === 'pending_receipt');
-        const allPendingReceipt = isMulti && pendingReceiptItems.length === groupItems.length;
-        const allocatedItems = groupItems.filter(c => c.status === 'allocated');
-        const allAllocated = isMulti && allocatedItems.length === groupItems.length;
+        const showBatchReceipt    = pendingReceiptItems.length > 1;
+        const allocatedItems      = groupItems.filter(c => c.status === 'allocated');
+        const showBatchReturn     = allocatedItems.length > 1;
         return (
           <div key={groupKey} style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', marginBottom:12, background:'var(--card)', boxShadow:'var(--shadow-sm)' }}>
             {isMulti && (
@@ -1382,21 +1384,21 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
                 <span style={{ fontSize:12.5, fontWeight:700, color:'hsl(var(--color-blue))' }}>Order · {groupItems.length} Items</span>
                 <span style={{ fontSize:12, color:'var(--muted)', marginLeft:4 }}>· {fmtDateShort(firstItem.createdAt)}</span>
                 {firstItem.reason && <span style={{ fontSize:12, color:'var(--muted)', fontStyle:'italic', marginLeft:4 }}>"{firstItem.reason}"</span>}
-                {/* Group-level confirm receipt button when all items are pending_receipt */}
-                {allPendingReceipt && onConfirmReceipt && (
+                {/* Group-level confirm receipt — covers every item awaiting receipt */}
+                {showBatchReceipt && onConfirmReceipt && (
                   <button className="primary-btn"
                     style={{ marginLeft:'auto', fontSize:11.5, padding:'4px 12px', display:'inline-flex', alignItems:'center', gap:4 }}
                     onClick={() => setConfirmingCo(pendingReceiptItems)}>
-                    <Camera size={12} /> Confirm Receipt for All
+                    <Camera size={12} /> Confirm Receipt for All ({pendingReceiptItems.length})
                   </button>
                 )}
-                {allAllocated && onReturnAll && (
+                {showBatchReturn && onReturnAll && (
                   <button onClick={() => setReturnAllGroup(allocatedItems)}
-                    style={{ marginLeft:'auto', background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'3px 10px', fontSize:11.5, cursor:'pointer', color:'var(--ink)', display:'inline-flex', alignItems:'center', gap:4, fontFamily:'Inter,sans-serif', fontWeight:600 }}>
+                    style={{ marginLeft: showBatchReceipt ? 0 : 'auto', background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'3px 10px', fontSize:11.5, cursor:'pointer', color:'var(--ink)', display:'inline-flex', alignItems:'center', gap:4, fontFamily:'Inter,sans-serif', fontWeight:600 }}>
                     <RotateCcw size={11} /> Return All ({allocatedItems.length})
                   </button>
                 )}
-                {cancellableItems.length > 1 && !allPendingReceipt && !allAllocated && cancelAllKey !== groupKey && (
+                {cancellableItems.length > 1 && !showBatchReceipt && !showBatchReturn && cancelAllKey !== groupKey && (
                   <button onClick={() => setCancelAllKey(groupKey)}
                     style={{ marginLeft:'auto', background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:7, padding:'3px 10px', fontSize:11.5, cursor:'pointer', color:'hsl(var(--color-red))', display:'inline-flex', alignItems:'center', gap:4, fontFamily:'Inter,sans-serif', fontWeight:600 }}>
                     <XCircle size={11} /> Cancel All
