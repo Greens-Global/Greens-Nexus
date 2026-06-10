@@ -1395,16 +1395,18 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
           const hasPending  = isAvailable && (pendingCheckoutIds.has(item.id) || !!item.hasActiveRequest);
           const canAdd = onAddToCart && isAvailable && !hasPending && item.ownershipType === 'transient';
 
-          // Show who has the item — use checkouts list if visible, fall back to
-          // server-supplied activeRequestedBy (available even for non-managers).
-          let checkedOutBy = null, dueDate = null;
+          // Show who has the item and when it becomes available.
+          // Use local checkouts list if visible (managers), fall back to server fields.
+          let checkedOutBy = null, daysLeft = null;
           if (!isAvailable || hasPending) {
             const co = checkouts?.find(c => c.itemId === item.id && ['approved','pending_receipt','allocated'].includes(c.status));
             checkedOutBy = co?.requestedBy ?? item.activeRequestedBy ?? null;
-            if (co) {
-              const due = new Date(co.createdAt);
-              due.setDate(due.getDate() + (co.days || 1));
-              dueDate = due.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+            const dueSrc = co
+              ? (() => { const d = new Date(co.createdAt); d.setDate(d.getDate() + (co.days || 1)); return d; })()
+              : item.activeDueDate ? new Date(item.activeDueDate) : null;
+            if (dueSrc) {
+              const diff = Math.ceil((dueSrc - Date.now()) / 86400000);
+              daysLeft = diff > 0 ? diff : 0;
             }
           }
 
@@ -1459,11 +1461,6 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
                     <MapPin size={10} /> {item.location}
                   </div>
                 )}
-                {checkedOutBy && !isAvailable && (
-                  <div style={{ fontSize:11, color:'hsl(var(--color-orange))', fontWeight:600 }}>
-                    With {checkedOutBy}{dueDate ? ` · due ${dueDate}` : ''}
-                  </div>
-                )}
               </div>
               {/* Action */}
               <div style={{ padding:'0 12px 12px' }}>
@@ -1476,10 +1473,17 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
                 ) : hasPending ? (
                   <div style={{ textAlign:'center', fontSize:11.5, color:'hsl(var(--color-orange))', fontWeight:600 }}>Under Review</div>
                 ) : !isAvailable ? (
-                  <div style={{ textAlign:'center', fontSize:11.5, color:'hsl(var(--color-orange))', fontWeight:600 }}>
-                    {item.status === 'checked_out'
-                      ? checkedOutBy ? `In Use — ${checkedOutBy}` : 'In Use'
-                      : item.status === 'permanently_assigned' ? 'Assigned'
+                  <div style={{ textAlign:'center', fontSize:11, color:'hsl(var(--color-orange))', fontWeight:600, lineHeight:1.4 }}>
+                    {item.status === 'checked_out' ? (
+                      <>
+                        {checkedOutBy ? `In Use — ${checkedOutBy}` : 'In Use'}
+                        {daysLeft != null && (
+                          <span style={{ display:'block', fontSize:10.5, fontWeight:500, color:'var(--muted)' }}>
+                            {daysLeft === 0 ? 'due today' : `available in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`}
+                          </span>
+                        )}
+                      </>
+                    ) : item.status === 'permanently_assigned' ? 'Assigned'
                       : item.status === 'retired' ? 'Retired'
                       : 'Unavailable'}
                   </div>
