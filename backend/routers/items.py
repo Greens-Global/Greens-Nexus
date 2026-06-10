@@ -169,6 +169,8 @@ def _checkout_to_dict(c: ItemCheckout) -> dict:
         "extensionDays":           c.extension_days           or 0,
         "extensionReason":         c.extension_reason         or "",
         "extensionStatus":         c.extension_status         or "",
+        "approverEmail":           c.approver_email           or "",
+        "approverName":            c.approver_name            or "",
     }
 
 
@@ -454,6 +456,8 @@ class CheckoutIn(BaseModel):
     checkout_photo_url:  Optional[str] = ""
     checkout_photo_name: Optional[str] = ""
     order_id:            Optional[str] = ""
+    approver_email:      Optional[str] = ""   # manager who should receive the approval notification
+    approver_name:       Optional[str] = ""
 
     def validate_days(self):
         if not (1 <= self.days <= 90):
@@ -550,6 +554,8 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
         checkout_photo_url=body.checkout_photo_url or "",
         checkout_photo_name=body.checkout_photo_name or "",
         order_id=order_id,
+        approver_email=(body.approver_email or "").lower().strip(),
+        approver_name=(body.approver_name or "").strip(),
     )
     db.add(row)
     if initial_status == "pending":
@@ -566,7 +572,11 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
             NexusNotification.type == "checkout_pending",
         ).first()
         if not already_notified:
-            _notify(db, type="checkout_pending", recipient="",
+            # Targeted: only the manager the employee picked gets the notification.
+            # Empty approver (legacy clients / managers raising on behalf) falls back
+            # to the all-managers broadcast. The request itself remains visible in
+            # every manager's Checkouts tab regardless — anyone can still approve.
+            _notify(db, type="checkout_pending", recipient=(body.approver_email or "").lower().strip(),
                     title=f"Checkout Request — {body.requested_by}",
                     body=f"{body.requested_by} has submitted a Checkout Request. Please review, approve or reject.",
                     ref_id=ref_for_notif, item_name=body.item_name, requested_by=body.requested_by)
@@ -1016,7 +1026,20 @@ def resolve_extension(checkout_id: str, body: ExtensionResolve, user: dict = Dep
     return _checkout_to_dict(row)
 
 
-# ── Allocators ────────────────────────────────────────────────────────────────
+# ── Allocators / Approvers ────────────────────────────────────────────────────
+
+@router.get("/approvers")
+def list_approvers(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Manager-level users an employee can address their checkout request to.
+    Open to all authenticated users — only names/emails/roles are exposed."""
+    rows = db.query(NexusRole).filter(NexusRole.role.in_(
+        [role for role, level in _ROLE_LEVEL.items() if level >= _ROLE_LEVEL["manager"]]
+    )).order_by(NexusRole.email).all()
+    return [
+        {"email": r.email, "name": r.display_name or _title_case_email(r.email), "role": r.role}
+        for r in rows
+    ]
+
 
 @router.get("/allocators")
 def list_allocators(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):

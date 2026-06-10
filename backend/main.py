@@ -47,6 +47,9 @@ def _run_migrations():
         "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS extension_days INTEGER DEFAULT 0",
         "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS extension_reason VARCHAR DEFAULT ''",
         "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS extension_status VARCHAR DEFAULT ''",
+        # item_checkouts: employee picks which manager is notified for approval
+        "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS approver_email VARCHAR DEFAULT ''",
+        "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS approver_name VARCHAR DEFAULT ''",
         # Fleet department retired — vehicles belong to Construction (Neil, Jun 2026)
         "UPDATE items SET department = 'Construction' WHERE department = 'Fleet'",
     ]

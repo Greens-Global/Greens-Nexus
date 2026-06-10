@@ -163,7 +163,7 @@ export function InventoryProvider({ children }) {
 
   // ── Checkout actions ──────────────────────────────────────────────────────
 
-  function submitCartCheckouts(cartItems, { reason, raisedBy, raisedByEmail }) {
+  function submitCartCheckouts(cartItems, { reason, raisedBy, raisedByEmail, approverEmail = '', approverName = '' }) {
     const orderId = crypto.randomUUID();
     const promises = cartItems.map(cartItem => {
       const id = genCheckoutId();
@@ -184,6 +184,7 @@ export function InventoryProvider({ children }) {
         checkout_photo_url: cartItem.photoUrl || '',
         checkout_photo_name: cartItem.photoName || '',
         order_id: orderId,
+        approver_email: approverEmail, approver_name: approverName,
       }).then(saved => {
         setCheckouts(prev => prev.map(c => c.id === id ? saved : c));
         // mark item as pending in local state

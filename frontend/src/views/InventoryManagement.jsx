@@ -1100,12 +1100,40 @@ function StageTracker({ checkout }) {
 }
 
 // ── Cart Drawer ────────────────────────────────────────────────────────────────
-function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDaysChange }) {
+// Item type → department fallback for the approver suggestion when a restored
+// cart entry doesn't carry its department.
+const TYPE_DEPT_FALLBACK = {
+  Tools: 'construction', Vehicles: 'construction',
+  Devices: 'it', Keys: 'operations', Equipment: 'operations',
+};
+
+function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDaysChange, showApprover = false }) {
   const [reason, setReason] = useState('');
+  const [approvers,     setApprovers]     = useState([]);
+  const [approverEmail, setApproverEmail] = useState('');
   useEffect(() => { if (!open) return; const h = e => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [open, onClose]);
   useEffect(() => { document.body.style.overflow = open ? 'hidden' : ''; return () => { document.body.style.overflow = ''; }; }, [open]);
 
-  const canSubmit = cart.length > 0 && reason.trim() && !submitting;
+  // Load the manager list once the drawer opens; default the pick to the last
+  // manager this user sent a request to, else the majority department's usual
+  // manager, else leave it for the employee to choose.
+  useEffect(() => {
+    if (!open || !showApprover || approvers.length) return;
+    api.getItemApprovers().then(rows => {
+      setApprovers(rows);
+      setApproverEmail(prev => {
+        if (prev) return prev;
+        const remembered = localStorage.getItem('nexus-approver-email');
+        if (remembered && rows.some(a => a.email === remembered)) return remembered;
+        const pseudoItems = cart.map(c => ({ department: c.item.department || TYPE_DEPT_FALLBACK[c.item.itemType] || '' }));
+        const pick = suggestAllocator(pseudoItems, rows);
+        return pick ? pick.email : '';
+      });
+    }).catch(() => {});
+  }, [open, showApprover]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const approver  = approvers.find(a => a.email === approverEmail) || null;
+  const canSubmit = cart.length > 0 && reason.trim() && !submitting && (!showApprover || !!approver);
 
   function applyDaysToAll(days) {
     cart.forEach(c => onDaysChange(c.id, days));
@@ -1193,6 +1221,19 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
                 </span>
               </div>
 
+              {showApprover && (
+                <div style={{ marginBottom:16 }}>
+                  <label style={FL}>WHO SHOULD APPROVE THIS? <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+                  <select className="form-input" style={{ width:'100%' }} value={approverEmail} onChange={e => setApproverEmail(e.target.value)}>
+                    <option value="">— select a manager —</option>
+                    {approvers.map(a => <option key={a.email} value={a.email}>{a.name}</option>)}
+                  </select>
+                  <p style={{ fontSize:11.5, color:'var(--muted)', margin:'6px 0 0' }}>
+                    Only this manager will be notified of your request.
+                  </p>
+                </div>
+              )}
+
               <div>
                 <label style={FL}>REASON FOR CHECKOUT <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
                 <textarea rows={3} className="form-input" style={{ width:'100%', resize:'vertical', fontSize:13 }}
@@ -1207,7 +1248,10 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
           <div style={{ padding:'16px 22px', borderTop:'1px solid var(--line)', flexShrink:0 }}>
             <button className="primary-btn" disabled={!canSubmit}
               style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
-              onClick={() => onSubmit({ reason })}>
+              onClick={() => {
+                if (approver) localStorage.setItem('nexus-approver-email', approver.email);
+                onSubmit({ reason, approverEmail: approver?.email || '', approverName: approver?.name || '' });
+              }}>
               {submitting ? <><Loader2 size={15} style={{ animation:'spin 1s linear infinite' }} /> Submitting…</> : <><CheckCircle size={15} /> Submit {cart.length} Checkout{cart.length !== 1 ? 's' : ''}</>}
             </button>
           </div>
@@ -1808,9 +1852,9 @@ function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsL
     setCart(prev => prev.map(c => c.id === cartId ? { ...c, days } : c));
   }
 
-  async function handleSubmitCart({ reason }) {
+  async function handleSubmitCart({ reason, approverEmail, approverName }) {
     setSubmitting(true);
-    const results = await submitCartCheckouts(cart, { reason, raisedBy: userName, raisedByEmail: userEmail });
+    const results = await submitCartCheckouts(cart, { reason, raisedBy: userName, raisedByEmail: userEmail, approverEmail, approverName });
     const succeededItems = cart.filter((_, i) => results[i].status === 'fulfilled');
     const failedItems    = cart.filter((_, i) => results[i].status === 'rejected');
     await Promise.all(succeededItems.map(c => api.removeItemFromCart(c.item.id).catch(() => {})));
@@ -1903,7 +1947,7 @@ function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsL
             <button className="primary-btn" onClick={() => setCartOpen(true)} style={{ fontSize:12, padding:'6px 14px', flexShrink:0 }}>View Cart</button>
           </div>
         )}
-        <CartDrawer open={cartOpen} cart={cart} onClose={() => setCartOpen(false)} onRemove={removeFromCart} onSubmit={handleSubmitCart} submitting={submitting} onDaysChange={handleDaysChange} />
+        <CartDrawer open={cartOpen} cart={cart} onClose={() => setCartOpen(false)} onRemove={removeFromCart} onSubmit={handleSubmitCart} submitting={submitting} onDaysChange={handleDaysChange} showApprover />
       </div>
     );
   }
@@ -2122,6 +2166,7 @@ function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsL
         onSubmit={handleSubmitCart}
         submitting={submitting}
         onDaysChange={handleDaysChange}
+        showApprover
       />
       {returningCo && <ReturnModal checkout={returningCo} onClose={() => setReturningCo(null)} onSubmit={handleReturnSubmit} />}
     </div>
@@ -3961,9 +4006,9 @@ export default function InventoryManagement({ activeSub }) {
   function handleDaysChange(cartId, days) {
     setCart(prev => prev.map(c => c.id === cartId ? { ...c, days } : c));
   }
-  async function handleSubmitCart({ reason }) {
+  async function handleSubmitCart({ reason, approverEmail, approverName }) {
     setCartBusy(true);
-    const results = await submitCartCheckouts(cart, { reason, raisedBy: userName, raisedByEmail: userEmail });
+    const results = await submitCartCheckouts(cart, { reason, raisedBy: userName, raisedByEmail: userEmail, approverEmail, approverName });
     const succeededItems = cart.filter((_, i) => results[i].status === 'fulfilled');
     const failedItems    = cart.filter((_, i) => results[i].status === 'rejected');
     await Promise.all(succeededItems.map(c => api.removeItemFromCart(c.item.id).catch(() => {})));

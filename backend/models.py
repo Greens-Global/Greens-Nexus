@@ -333,6 +333,8 @@ class ItemCheckout(Base):
     extension_days           = Column(Integer, default=0)   # extra days requested by employee
     extension_reason         = Column(String, default="")
     extension_status         = Column(String, default="")   # '' | 'pending' (cleared on resolve)
+    approver_email           = Column(String, default="")   # manager picked at checkout — only they get the approval notification
+    approver_name            = Column(String, default="")
 
 
 class ItemCartEntry(Base):

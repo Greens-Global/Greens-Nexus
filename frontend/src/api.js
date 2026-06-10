@@ -237,6 +237,7 @@ export const api = {
   getItemsReport:      (params)       => reqBlob(`/items/report?${new URLSearchParams(params)}`),
   getItemsAuditLog:    (params)       => req(`/items/audit-log?${new URLSearchParams(params)}`),
   getItemAllocators:   ()             => req('/items/allocators'),
+  getItemApprovers:    ()             => req('/items/approvers'),
   getItemCheckouts:    ()             => req('/items/checkouts'),
   createItemCheckout:  (data)         => req('/items/checkouts', { method: 'POST', body: JSON.stringify(data) }),
   updateItemCheckout:  (id, data)     => req(`/items/checkouts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

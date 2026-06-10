@@ -133,7 +133,7 @@ export default function NotificationBell({ onNavigate }) {
     // is [] and every pending notification would be wrongly cleared for good.
     if (invRequestsLoading || !invRequests.length) return;
     notifications.forEach(n => {
-      if (n.type !== 'checkout_pending' || n.recipient || n.actioned) return;
+      if (n.type !== 'checkout_pending' || (n.recipient && n.recipient !== myEmail) || n.actioned) return;
       const refId = n.refId ?? '';
       if (!refId) return;
       const stillPending = invRequests.some(c =>
@@ -410,8 +410,10 @@ export default function NotificationBell({ onNavigate }) {
   // Needs Action: only visible to managers+
   // checkout_pending = new Items module; inv_request/req_pending = older systems
   const ACTIONABLE_TYPES = new Set(['inv_request', 'req_pending', 'checkout_pending', 'extension_pending']);
+  // Broadcast (no recipient) or addressed to me — checkout requests are now
+  // targeted at the manager the employee picked at checkout.
   const actionableRaw = can('manager') ? notifications.filter(n =>
-    ACTIONABLE_TYPES.has(n.type) && !n.recipient && !n.actioned
+    ACTIONABLE_TYPES.has(n.type) && (!n.recipient || n.recipient === myEmail) && !n.actioned
   ) : [];
   // Deduplicate by refId — parallel cart submissions can create N notifications for one order
   const seenRefs = new Set();
