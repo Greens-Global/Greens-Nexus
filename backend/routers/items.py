@@ -253,13 +253,16 @@ def list_items(
         co = active_map.get(i.id)
         # hasActiveRequest: true when a checkout blocks new requests (not yet allocated)
         d["hasActiveRequest"] = co is not None and co.status in ("pending", "approved", "pending_receipt")
-        # activeRequestedBy / activeDueDate: for "In Use — [Name] — available in X days"
+        # activeRequestedBy / activeDueDate: for "In Use — [Name] — available in X days".
+        # The clock starts at physical handover (allocated/handed-over), not at the
+        # request — approval delay must not eat into the employee's checkout days.
         d["activeRequestedBy"] = co.requested_by if co else None
-        if co and co.created_at and co.days:
+        if co and co.days:
+            start_iso = co.allocated_at or co.handed_over_at or co.created_at
             try:
                 from datetime import datetime, timezone, timedelta
-                created = datetime.fromisoformat(co.created_at.replace("Z", "+00:00"))
-                due = created + timedelta(days=int(co.days))
+                start = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+                due = start + timedelta(days=int(co.days))
                 d["activeDueDate"] = due.isoformat()
             except Exception:
                 d["activeDueDate"] = None

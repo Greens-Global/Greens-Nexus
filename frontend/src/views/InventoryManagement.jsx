@@ -851,7 +851,10 @@ function ExtendRequestModal({ checkout, onClose, onSubmit }) {
 // ── In-Use Summary — replaces the full workflow tracker once an item is with the
 //    employee: all they need is how long they have left, plus Extend / Return. ──
 function checkoutDueInfo(checkout) {
-  const due = new Date(checkout.createdAt);
+  // The checkout period starts when the item physically changes hands —
+  // approval delay must not eat into the employee's days.
+  const start = checkout.allocatedAt || checkout.handedOverAt || checkout.createdAt;
+  const due = new Date(start);
   due.setDate(due.getDate() + (checkout.days || 1));
   const msLeft   = due - Date.now();
   const daysLeft = Math.ceil(msLeft / 86400000);
@@ -1619,7 +1622,7 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
             const co = checkouts?.find(c => c.itemId === item.id && ['approved','pending_receipt','allocated'].includes(c.status));
             checkedOutBy = co?.requestedBy ?? item.activeRequestedBy ?? null;
             const dueSrc = co
-              ? (() => { const d = new Date(co.createdAt); d.setDate(d.getDate() + (co.days || 1)); return d; })()
+              ? checkoutDueInfo(co).due
               : item.activeDueDate ? new Date(item.activeDueDate) : null;
             if (dueSrc) {
               const diff = Math.ceil((dueSrc - Date.now()) / 86400000);
@@ -3546,9 +3549,7 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
                     const sm = CHECKOUT_STATUS_META[co.status] || { label: co.status, bg:'var(--mist)', fg:'var(--muted)', Icon: Package };
                     const item = items.find(i => i.id === co.itemId);
                     const isMyAlloc = co.assignedAllocatorEmail && co.assignedAllocatorEmail.toLowerCase() === userEmail;
-                    const due = new Date(co.createdAt);
-                    due.setDate(due.getDate() + (co.days || 1));
-                    const isOverdue = co.status === 'allocated' && due < new Date();
+                    const isOverdue = co.status === 'allocated' && checkoutDueInfo(co).due < new Date();
                     const isCompleted = ['returned','rejected','cancelled'].includes(co.status);
 
                     return (
