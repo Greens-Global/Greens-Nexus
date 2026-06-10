@@ -238,6 +238,7 @@ export const api = {
   getItemsAuditLog:    (params)       => req(`/items/audit-log?${new URLSearchParams(params)}`),
   getItemAllocators:   ()             => req('/items/allocators'),
   getItemApprovers:    ()             => req('/items/approvers'),
+  autoFillItemPhotos:  (item_ids)     => req('/items/auto-photos', { method: 'POST', body: JSON.stringify({ item_ids }) }),
   getItemCheckouts:    ()             => req('/items/checkouts'),
   createItemCheckout:  (data)         => req('/items/checkouts', { method: 'POST', body: JSON.stringify(data) }),
   updateItemCheckout:  (id, data)     => req(`/items/checkouts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

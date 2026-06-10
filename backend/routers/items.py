@@ -1026,6 +1026,122 @@ def resolve_extension(checkout_id: str, body: ExtensionResolve, user: dict = Dep
     return _checkout_to_dict(row)
 
 
+# ── AI photo fill ─────────────────────────────────────────────────────────────
+# Claude (with web search) finds the manufacturer's product image for items
+# missing a photo; we download it into our own Supabase bucket so the catalog
+# never hot-links external URLs. These are stock photos — managers can replace
+# them with real unit photos via Assign Photos at any time.
+
+_ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+_IMG_CTYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
+
+
+def _find_product_image_url(item) -> str:
+    """Ask Claude (web search enabled) for a direct product image URL."""
+    import re
+    desc = " ".join(x for x in [item.make, item.model, item.name] if x).strip() or item.name
+    payload = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 1024,
+        "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
+        "messages": [{
+            "role": "user",
+            "content": (
+                "Find a direct product image URL (a URL that serves the image itself, ideally ending in "
+                f".jpg/.jpeg/.png/.webp) showing this product on a clean background: {desc}. "
+                "Prefer the manufacturer's official product photo. "
+                "Reply with ONLY the image URL on a single line, nothing else. If you cannot find one, reply NONE."
+            ),
+        }],
+    }
+    with httpx.Client(timeout=60) as client:
+        r = client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": _ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+            json=payload,
+        )
+        r.raise_for_status()
+        data = r.json()
+    text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+    urls = re.findall(r"https?://[^\s\"'<>]+", text)
+    return urls[-1].rstrip(").,]") if urls else ""
+
+
+def _fetch_image_to_storage(img_url: str, item_id: str, _depth: int = 0) -> str:
+    """Download an image (following one og:image hop if Claude gave a page URL)
+    and store it in the item-photos bucket. Returns the public URL or ''."""
+    import re
+    if _depth > 1 or not img_url:
+        return ""
+    with httpx.Client(timeout=30, follow_redirects=True) as client:
+        resp = client.get(img_url, headers={"User-Agent": "Mozilla/5.0 (GreensNexus catalog bot)"})
+        if resp.status_code != 200:
+            return ""
+        ctype = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+        if ctype == "text/html":
+            # Got a product page instead of an image — try its og:image once
+            m = (re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)', resp.text)
+                 or re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', resp.text))
+            return _fetch_image_to_storage(m.group(1), item_id, _depth + 1) if m else ""
+        if ctype not in _IMG_CTYPES:
+            return ""
+        content = resp.content
+        if len(content) < 2048 or len(content) > 8 * 1024 * 1024:
+            return ""  # tracking pixel or unreasonably large
+        path = f"item-photos/ai-{item_id}-{uuid.uuid4().hex[:6]}.{_IMG_CTYPES[ctype]}"
+        up = client.post(
+            f"{_SUPABASE_URL}/storage/v1/object/item-photos/{path}",
+            headers={
+                "Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}",
+                "apikey": _SUPABASE_SERVICE_KEY,
+                "Content-Type": ctype,
+                "x-upsert": "true",
+            },
+            content=content,
+        )
+        if up.status_code not in (200, 201):
+            return ""
+        return f"{_SUPABASE_URL}/storage/v1/object/public/item-photos/{path}"
+
+
+class AutoPhotoRequest(BaseModel):
+    item_ids: list[str]
+
+
+@router.post("/auto-photos")
+def auto_fill_photos(body: AutoPhotoRequest, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    if not _ANTHROPIC_API_KEY:
+        raise HTTPException(503, "AI photo fill is not configured — add ANTHROPIC_API_KEY to the backend app settings")
+    if not _SUPABASE_URL or not _SUPABASE_SERVICE_KEY:
+        raise HTTPException(503, "Supabase storage is not configured on the backend")
+
+    results = []
+    for item_id in body.item_ids[:5]:  # cap per call — the client batches
+        item = db.query(Item).filter(Item.id == item_id).first()
+        if not item:
+            results.append({"item_id": item_id, "status": "not_found"})
+            continue
+        if item.photo_url:
+            results.append({"item_id": item_id, "status": "already_has_photo"})
+            continue
+        try:
+            img_url = _find_product_image_url(item)
+            if not img_url or img_url.upper().endswith("NONE"):
+                results.append({"item_id": item_id, "status": "no_image", "item_name": item.name})
+                continue
+            public_url = _fetch_image_to_storage(img_url, item.id)
+            if not public_url:
+                results.append({"item_id": item_id, "status": "download_failed", "item_name": item.name})
+                continue
+            item.photo_url = public_url
+            db.commit()
+            results.append({"item_id": item_id, "status": "ok", "photo_url": public_url, "item_name": item.name})
+        except Exception as e:
+            db.rollback()
+            results.append({"item_id": item_id, "status": "error", "detail": str(e)[:200], "item_name": item.name})
+    return {"results": results}
+
+
 # ── Allocators / Approvers ────────────────────────────────────────────────────
 
 @router.get("/approvers")
