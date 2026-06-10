@@ -36,6 +36,7 @@ const TYPE_META = {
   custom_alert:     { icon: AlertCircle,  label: 'Alert',                color: 'var(--color-orange)' },
   extension_pending:  { icon: Clock,       label: 'Extension Request',    color: 'var(--color-blue)'   },
   extension_resolved: { icon: CheckCircle, label: 'Extension Update',     color: 'var(--color-green)'  },
+  req_update:         { icon: ShoppingCart, label: 'Requisition Update',  color: 'var(--color-blue)'   },
 };
 
 // Short stage labels/colors for chips on cards and the lifecycle "trail" strip
@@ -206,15 +207,11 @@ export default function NotificationBell({ onNavigate }) {
         clearActionError(n.id);
       }
     } else if (n.type === 'req_pending') {
-      // Purchase requisition
+      // Purchase requisition — backend notifies the beneficiary on approval
       if (action === 'approve') {
         approveRequisition(refId, myName);
         markActioned(n.id);
         resolveAndDismiss(n, 'approved');
-        addNotification({ type: 'approved', recipient: requestedBy, requestedBy, itemName,
-          title: 'Requisition Approved ✓',
-          body:  `Your purchase requisition has been approved by ${myName}. Your supervisor will allocate the asset to you.`,
-        });
       } else { setRejectingId(n.id); }
     } else if (n.type === 'extension_pending') {
       // Item extension request — no allocator needed; resolve straight away.
@@ -344,11 +341,8 @@ export default function NotificationBell({ onNavigate }) {
         action: { label: 'View Request →', view: 'inventory', sub: 'my-requests' },
       });
     } else if (n.type === 'req_pending') {
+      // Backend notifies the beneficiary with the rejection reason
       rejectRequisition(refId, myName, rejectReason.trim());
-      addNotification({ type: 'rejected', recipient: requestedBy, requestedBy, itemName,
-        title: 'Requisition Rejected',
-        body:  `Your purchase requisition was not approved. Reason: "${rejectReason.trim()}"`,
-      });
     }
     markActioned(n.id);
     resolveAndDismiss(n, 'rejected');
@@ -394,6 +388,7 @@ export default function NotificationBell({ onNavigate }) {
       case 'extension_resolved':
         return ['inventory', 'myitems'];     // the requester's own items
       case 'req_pending':
+      case 'req_update':
         return ['purchase', null];
       default:
         return n.action?.view ? [n.action.view, n.action.sub] : null;

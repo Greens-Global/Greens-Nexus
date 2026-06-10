@@ -129,28 +129,42 @@ def create_requisition(
     # Notification is created HERE, server-side — employees can't write to the
     # notifications API (level gate), so the old frontend addNotification call
     # silently 403'd and managers never heard about employee requisitions.
-    from datetime import timezone as _tz
-    import uuid as _uuid
     reason_snip = (data.reason or "").strip().split("\n")[0][:120]
-    db.add(models.NexusNotification(
-        id=str(_uuid.uuid4()),
+    _req_notify(db,
         type="req_pending",
         recipient=(data.approver_email or "").lower().strip(),  # targeted; empty = all managers
         title="New Purchase Requisition",
         body=f"{data.employee_name} ({data.employee_dept}) requested {data.quantity}× {data.item}."
              + (f' Reason: "{reason_snip}"' if reason_snip else ""),
-        ref_id=data.id,
-        item_name=data.item,
-        requested_by=data.employee_name,
-        action="",
-        actioned=False,
-        read_by="",
-        created_at=datetime.now(_tz.utc).isoformat(),
-    ))
+        ref_id=data.id, item_name=data.item, requested_by=data.employee_name,
+    )
+    # On-behalf: tell the beneficiary a request was raised for them
+    if payload["employee_email"] and payload["employee_email"] != user["email"].lower():
+        _req_notify(db,
+            type="req_update",
+            recipient=payload["employee_email"],
+            title=f"Purchase request raised for you: {data.item}",
+            body=f"{user.get('name') or 'A colleague'} submitted a purchase request for {data.quantity}× {data.item} on your behalf. It is pending manager approval.",
+            ref_id=data.id, item_name=data.item, requested_by=data.employee_name,
+        )
 
     db.commit()
     db.refresh(req)
     return req
+
+
+def _req_notify(db: Session, *, type: str, recipient: str, title: str, body: str,
+                ref_id: str = "", item_name: str = "", requested_by: str = "") -> None:
+    from datetime import timezone as _tz
+    import uuid as _uuid
+    db.add(models.NexusNotification(
+        id=str(_uuid.uuid4()), type=type,
+        recipient=(recipient or "").lower().strip(),
+        title=title, body=body,
+        ref_id=ref_id, item_name=item_name, requested_by=requested_by,
+        action="", actioned=False, read_by="",
+        created_at=datetime.now(_tz.utc).isoformat(),
+    ))
 
 
 def _action_req_notification(db: Session, req_id: str):
@@ -175,6 +189,14 @@ def approve_requisition(req_id: str, body: RequisitionApprove, user: dict = Depe
     req.updated_at = _ts()
     db.add(models.ApprovalHistory(requisition_id=req_id, action="Approved", action_by=body.manager_name, action_role="Manager", created_at=_ts()))
     _action_req_notification(db, req_id)
+    if req.employee_email:
+        _req_notify(db,
+            type="req_update",
+            recipient=req.employee_email,
+            title=f"Requisition approved: {req.item}",
+            body=f"Your purchase request for {req.quantity}× {req.item} was approved by {body.manager_name}.",
+            ref_id=req_id, item_name=req.item, requested_by=req.employee_name,
+        )
     db.commit()
     db.refresh(req)
     return req
@@ -191,6 +213,14 @@ def reject_requisition(req_id: str, body: RequisitionReject, user: dict = Depend
     req.updated_at = _ts()
     db.add(models.ApprovalHistory(requisition_id=req_id, action="Rejected", action_by=body.manager_name, action_role="Manager", comment=body.rejection_reason, created_at=_ts()))
     _action_req_notification(db, req_id)
+    if req.employee_email:
+        _req_notify(db,
+            type="req_update",
+            recipient=req.employee_email,
+            title=f"Requisition rejected: {req.item}",
+            body=f"Your purchase request for {req.quantity}× {req.item} was not approved. Reason: {body.rejection_reason or 'No reason given.'}",
+            ref_id=req_id, item_name=req.item, requested_by=req.employee_name,
+        )
     db.commit()
     db.refresh(req)
     return req
