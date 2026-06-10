@@ -31,7 +31,7 @@ _ITEM_STATUSES = ["available", "checked_out", "permanently_assigned", "retired"]
 _TYPE_DEFAULT_OWNER = {
     "Devices":   "IT",
     "Tools":     "Construction (MCD)",
-    "Vehicles":  "Fleet / Operations",
+    "Vehicles":  "Construction",
     "Equipment": "",
     "Keys":      "Operations (Oversite)",
     "Other":     "",
@@ -166,6 +166,9 @@ def _checkout_to_dict(c: ItemCheckout) -> dict:
         "receiptPhotoUrl":         c.receipt_photo_url        or None,
         "receiptPhotoName":        c.receipt_photo_name       or None,
         "handedOverAt":            c.handed_over_at           or None,
+        "extensionDays":           c.extension_days           or 0,
+        "extensionReason":         c.extension_reason         or "",
+        "extensionStatus":         c.extension_status         or "",
     }
 
 
@@ -830,6 +833,95 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
     return _checkout_to_dict(row)
 
 
+# ── Extension requests ────────────────────────────────────────────────────────
+
+class ExtensionRequest(BaseModel):
+    days:   int
+    reason: Optional[str] = ""
+
+
+class ExtensionResolve(BaseModel):
+    action: str                      # 'approve' | 'reject'
+    note:   Optional[str] = ""
+
+
+@router.post("/checkouts/{checkout_id}/extension")
+def request_extension(checkout_id: str, body: ExtensionRequest, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Employee asks for more days on an item they currently hold."""
+    row = db.query(ItemCheckout).filter(ItemCheckout.id == checkout_id).first()
+    if not row:
+        raise HTTPException(404, "Checkout not found")
+    if row.status != "allocated":
+        raise HTTPException(400, "Extensions can only be requested for items in use")
+    if (row.requested_by_email or "").lower() != user["email"].lower() and user["level"] < _ROLE_LEVEL["manager"]:
+        raise HTTPException(403, "Only the person holding the item can request an extension")
+    if row.extension_status == "pending":
+        raise HTTPException(400, "An extension request is already awaiting approval")
+    days = max(1, min(90, int(body.days or 1)))
+
+    row.extension_days   = days
+    row.extension_reason = (body.reason or "").strip()
+    row.extension_status = "pending"
+
+    _notify(db, type="extension_pending", recipient="",
+            title=f"Extension Request — {row.requested_by}",
+            body=f"{row.requested_by} requested {days} more day{'s' if days != 1 else ''} for {row.item_name}."
+                 + (f" Reason: {row.extension_reason}" if row.extension_reason else ""),
+            ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+
+    db.commit()
+    _fire_item_event(checkout_id, row.status, row.requested_by_email or "")
+    return _checkout_to_dict(row)
+
+
+@router.post("/checkouts/{checkout_id}/extension/resolve")
+def resolve_extension(checkout_id: str, body: ExtensionResolve, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Manager approves or rejects a pending extension request."""
+    if user["level"] < _ROLE_LEVEL["manager"]:
+        raise HTTPException(403, "Manager or above required to resolve extensions")
+    row = db.query(ItemCheckout).filter(ItemCheckout.id == checkout_id).first()
+    if not row:
+        raise HTTPException(404, "Checkout not found")
+    if row.extension_status != "pending":
+        raise HTTPException(400, "No pending extension request on this checkout")
+
+    action = (body.action or "").lower().strip()
+    if action not in ("approve", "reject"):
+        raise HTTPException(400, "action must be 'approve' or 'reject'")
+
+    ext_days = row.extension_days or 0
+    if action == "approve":
+        row.days = (row.days or 1) + ext_days
+        _notify(db, type="extension_resolved", recipient=row.requested_by_email,
+                title=f"Extension approved: {row.item_name}",
+                body=f"Your extension of {ext_days} day{'s' if ext_days != 1 else ''} for {row.item_name} was approved. New checkout period: {row.days} days.",
+                ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+    else:
+        _notify(db, type="extension_resolved", recipient=row.requested_by_email,
+                title=f"Extension declined: {row.item_name}",
+                body=f"Your extension request for {row.item_name} was declined."
+                     + (f" Note: {body.note.strip()}" if (body.note or "").strip() else "")
+                     + " Please return the item by the original due date.",
+                ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+
+    row.extension_days   = 0
+    row.extension_reason = ""
+    row.extension_status = ""
+
+    # Clear the managers' extension_pending notification
+    pending_notif = db.query(NexusNotification).filter(
+        NexusNotification.type == "extension_pending",
+        NexusNotification.actioned == False,
+        NexusNotification.ref_id == checkout_id,
+    ).first()
+    if pending_notif:
+        pending_notif.actioned = True
+
+    db.commit()
+    _fire_item_event(checkout_id, row.status, row.requested_by_email or "")
+    return _checkout_to_dict(row)
+
+
 # ── Allocators ────────────────────────────────────────────────────────────────
 
 @router.get("/allocators")
@@ -854,7 +946,7 @@ _REPORT_HEADERS = [
 ]
 
 
-def _report_rows(db: Session, *, department, item_type, status):
+def _report_rows(db: Session, *, department, item_type, status, requested_by=None):
     q = db.query(ItemCheckout, Item).outerjoin(
         Item, ItemCheckout.item_id == Item.id
     ).order_by(ItemCheckout.created_at.desc())
@@ -864,6 +956,11 @@ def _report_rows(db: Session, *, department, item_type, status):
         q = q.filter(func.lower(Item.item_type) == item_type.lower().strip())
     if status:
         q = q.filter(ItemCheckout.status == status)
+    if requested_by:
+        # Comma-separated names — match any (case-insensitive substring per name)
+        names = [n.strip() for n in requested_by.split(",") if n.strip()]
+        if names:
+            q = q.filter(or_(*[ItemCheckout.requested_by.ilike(f"%{n}%") for n in names]))
     rows = []
     for c, item in q.all():
         rows.append([
@@ -880,14 +977,15 @@ def _report_rows(db: Session, *, department, item_type, status):
 
 @router.get("/report")
 def export_report(
-    format:     str = "excel",
-    department: Optional[str] = None,
-    item_type:  Optional[str] = None,
-    status:     Optional[str] = None,
+    format:       str = "excel",
+    department:   Optional[str] = None,
+    item_type:    Optional[str] = None,
+    status:       Optional[str] = None,
+    requested_by: Optional[str] = None,
     user: dict = Depends(require_items_admin),
     db: Session = Depends(get_db),
 ):
-    rows  = _report_rows(db, department=department, item_type=item_type, status=status)
+    rows  = _report_rows(db, department=department, item_type=item_type, status=status, requested_by=requested_by)
     stamp = datetime.utcnow().strftime("%Y%m%d")
 
     if format == "pdf":

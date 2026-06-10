@@ -330,6 +330,9 @@ class ItemCheckout(Base):
     receipt_photo_url        = Column(String, default="")
     receipt_photo_name       = Column(String, default="")
     handed_over_at           = Column(String, default="")
+    extension_days           = Column(Integer, default=0)   # extra days requested by employee
+    extension_reason         = Column(String, default="")
+    extension_status         = Column(String, default="")   # '' | 'pending' (cleared on resolve)
 
 
 class ItemCartEntry(Base):

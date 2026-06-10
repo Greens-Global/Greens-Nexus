@@ -22,7 +22,7 @@ const ITEM_TYPES = ['Devices', 'Tools', 'Vehicles', 'Equipment', 'Keys', 'Other'
 const TYPE_DEFAULT_OWNER = {
   Devices:   'IT',
   Tools:     'Construction (MCD)',
-  Vehicles:  'Fleet / Operations',
+  Vehicles:  'Construction',
   Equipment: '',
   Keys:      'Operations (Oversite)',
   Other:     '',
@@ -54,7 +54,7 @@ const CHECKOUT_STATUS_META = {
   cancelled:       { label: 'Cancelled',          bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
 };
 
-const DEPARTMENTS = ['All', 'IT', 'Construction', 'Operations', 'Accounting', 'Fleet', 'Facilities', 'Marketing', 'HR'];
+const DEPARTMENTS = ['All', 'IT', 'Construction', 'Operations', 'Accounting', 'Facilities', 'Marketing', 'HR'];
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em' };
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -637,21 +637,26 @@ function ImportItemsModal({ onClose, onImport }) {
 }
 
 // ── Report Modal ───────────────────────────────────────────────────────────────
-function ReportModal({ onClose }) {
+function ReportModal({ onClose, checkouts }) {
   const [dept,      setDept]      = useState('All');
   const [itemType,  setItemType]  = useState('All');
   const [status,    setStatus]    = useState('All');
+  const [person,    setPerson]    = useState('');
   const [exporting, setExporting] = useState(null);
   const [error,     setError]     = useState('');
   useEscapeKey(onClose);
+
+  // People who appear in checkout history — offered as autocomplete for the person filter
+  const knownPeople = Array.from(new Set((checkouts || []).map(c => c.requestedBy).filter(Boolean))).sort();
 
   function exportAs(format) {
     if (exporting) return;
     setExporting(format); setError('');
     const params = { format };
-    if (dept !== 'All')     params.department = dept;
-    if (itemType !== 'All') params.item_type  = itemType;
-    if (status !== 'All')   params.status     = status;
+    if (dept !== 'All')     params.department   = dept;
+    if (itemType !== 'All') params.item_type    = itemType;
+    if (status !== 'All')   params.status       = status;
+    if (person.trim())      params.requested_by = person.trim();
     api.getItemsReport(params)
       .then(({ blob, filename }) => triggerDownload(filename, blob))
       .then(onClose)
@@ -685,6 +690,12 @@ function ReportModal({ onClose }) {
               {['All','pending','approved','allocated','returned','rejected','cancelled'].map(s =>
                 <option key={s} value={s}>{s === 'All' ? 'All statuses' : CHECKOUT_STATUS_META[s]?.label || s}</option>)}
             </select>
+          </div>
+          <div>
+            <label style={FL}>PERSON <span style={{ fontSize:11, fontWeight:400 }}>(optional — separate multiple names with commas)</span></label>
+            <input className="form-input" style={{ width:'100%' }} list="report-people"
+              placeholder="e.g. Sahil, Valinda" value={person} onChange={e => setPerson(e.target.value)} />
+            <datalist id="report-people">{knownPeople.map(n => <option key={n} value={n} />)}</datalist>
           </div>
         </div>
         {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginBottom:12 }}>{error}</p>}
@@ -771,6 +782,113 @@ function ReturnModal({ checkout, onClose, onSubmit }) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Extend Request Modal ───────────────────────────────────────────────────────
+function ExtendRequestModal({ checkout, onClose, onSubmit }) {
+  const [days,   setDays]   = useState(checkout.days || 1);
+  const [reason, setReason] = useState('');
+  const [busy,   setBusy]   = useState(false);
+  const [error,  setError]  = useState('');
+  useEscapeKey(onClose);
+
+  function submit() {
+    if (busy) return;
+    setBusy(true); setError('');
+    Promise.resolve(onSubmit({ days, reason: reason.trim() }))
+      .then(onClose)
+      .catch(err => { setError(err?.message || 'Could not submit extension request.'); setBusy(false); });
+  }
+
+  return (
+    <div role="dialog" aria-modal="true"
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:400, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Request an Extension</h3>
+        <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:20 }}>
+          Ask for more time with <strong>{checkout.itemName}</strong>. A manager will review your request.
+        </p>
+
+        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+          <div>
+            <label style={FL}>HOW MANY MORE DAYS? <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <button onClick={() => setDays(d => Math.max(1, d - 1))}
+                style={{ width:32, height:32, borderRadius:8, border:'1px solid var(--line)', background:'var(--mist)', cursor:'pointer', fontSize:16, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Inter,sans-serif' }}>−</button>
+              <input type="number" min={1} max={90} value={days}
+                onChange={e => setDays(Math.max(1, Math.min(90, Number(e.target.value) || 1)))}
+                style={{ width:56, textAlign:'center', padding:'7px 4px', border:'1px solid var(--line)', borderRadius:8, fontSize:15, fontWeight:700, fontFamily:'Inter,sans-serif', background:'var(--card)' }} />
+              <button onClick={() => setDays(d => Math.min(90, d + 1))}
+                style={{ width:32, height:32, borderRadius:8, border:'1px solid var(--line)', background:'var(--mist)', cursor:'pointer', fontSize:16, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Inter,sans-serif' }}>+</button>
+              <span style={{ fontSize:13, fontWeight:700, color:'hsl(var(--color-blue))' }}>{days} extra day{days !== 1 ? 's' : ''}</span>
+            </div>
+          </div>
+          <div>
+            <label style={FL}>WHY DO YOU NEED MORE TIME? <span style={{ fontSize:11, fontWeight:400 }}>(optional)</span></label>
+            <textarea rows={2} className="form-input" style={{ width:'100%', resize:'vertical', fontSize:13 }}
+              placeholder="e.g. Site work running longer than planned"
+              value={reason} onChange={e => setReason(e.target.value)} />
+          </div>
+        </div>
+
+        {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginTop:12 }}>{error}</p>}
+
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="primary-btn" disabled={busy}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:150, justifyContent:'center' }} onClick={submit}>
+            {busy ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Sending…</> : <><Clock size={14} /> Request Extension</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── In-Use Summary — replaces the full workflow tracker once an item is with the
+//    employee: all they need is how long they have left, plus Extend / Return. ──
+function checkoutDueInfo(checkout) {
+  const due = new Date(checkout.createdAt);
+  due.setDate(due.getDate() + (checkout.days || 1));
+  const msLeft   = due - Date.now();
+  const daysLeft = Math.ceil(msLeft / 86400000);
+  return { due, daysLeft };
+}
+
+function InUseSummary({ checkout }) {
+  const { due, daysLeft } = checkoutDueInfo(checkout);
+  const totalDays = checkout.days || 1;
+  const elapsed   = Math.min(1, Math.max(0, (totalDays - daysLeft) / totalDays));
+  const overdue   = daysLeft < 0;
+  const dueToday  = daysLeft === 0;
+  const color     = overdue ? 'var(--color-red)' : dueToday || daysLeft <= 1 ? 'var(--color-orange)' : 'var(--color-green)';
+  const fmtDue    = due.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+
+  return (
+    <div style={{ margin:'10px 0 4px', background:`hsla(${color},0.06)`, border:`1px solid hsla(${color},0.25)`, borderRadius:10, padding:'10px 14px' }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, flexWrap:'wrap' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          <Clock size={15} color={`hsl(${color})`} />
+          <span style={{ fontSize:14, fontWeight:800, color:`hsl(${color})` }}>
+            {overdue ? `Overdue by ${Math.abs(daysLeft)} day${Math.abs(daysLeft) !== 1 ? 's' : ''}`
+              : dueToday ? 'Due back today'
+              : `${daysLeft} day${daysLeft !== 1 ? 's' : ''} left`}
+          </span>
+        </div>
+        <span style={{ fontSize:11.5, color:'var(--muted)' }}>Due {fmtDue} · {totalDays}-day checkout</span>
+      </div>
+      <div style={{ height:5, borderRadius:3, background:'var(--line)', marginTop:8, overflow:'hidden' }}>
+        <div style={{ height:'100%', width:`${Math.round((overdue ? 1 : elapsed) * 100)}%`, background:`hsl(${color})`, borderRadius:3, transition:'width 0.3s' }} />
+      </div>
+      {checkout.extensionStatus === 'pending' && (
+        <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:8, fontSize:12, fontWeight:600, color:'hsl(var(--color-blue))' }}>
+          <Loader2 size={12} style={{ animation:'spin 2s linear infinite' }} />
+          Extension requested: +{checkout.extensionDays} day{checkout.extensionDays !== 1 ? 's' : ''} — awaiting manager approval
+        </div>
+      )}
     </div>
   );
 }
@@ -928,7 +1046,7 @@ function AuditLogPanel() {
 
 // ── Stage Tracker ─────────────────────────────────────────────────────────────
 const STAGES = [
-  { key:'pending',         label:'Submitted'   },
+  { key:'pending',         label:'Requested'   },
   { key:'approved',        label:'Approved'    },
   { key:'pending_receipt', label:'Handed Over' },
   { key:'allocated',       label:'In Use'      },
@@ -1040,15 +1158,20 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
                             {cartItem.item.location && <span style={{ fontSize:10.5, color:'var(--muted)' }}><MapPin size={9} style={{ display:'inline', marginRight:2 }} />{cartItem.item.location}</span>}
                           </div>
                         </div>
-                        {/* Days stepper */}
-                        <div style={{ display:'flex', alignItems:'center', gap:4, flexShrink:0 }}>
-                          <button onClick={() => onDaysChange(cartItem.id, Math.max(1, itemDays - 1))}
-                            style={{ width:26, height:26, borderRadius:6, border:'1px solid var(--line)', background:'var(--mist)', cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Inter,sans-serif' }}>−</button>
-                          <input type="number" min={1} max={90} value={itemDays}
-                            onChange={e => onDaysChange(cartItem.id, Math.max(1, Math.min(90, Number(e.target.value) || 1)))}
-                            style={{ width:38, textAlign:'center', padding:'4px 2px', border:'1px solid var(--line)', borderRadius:6, fontSize:13, fontWeight:700, fontFamily:'Inter,sans-serif', background:'var(--card)' }} />
-                          <button onClick={() => onDaysChange(cartItem.id, Math.min(90, itemDays + 1))}
-                            style={{ width:26, height:26, borderRadius:6, border:'1px solid var(--line)', background:'var(--mist)', cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Inter,sans-serif' }}>+</button>
+                        {/* Days stepper — explicit "days" unit so it can't be mistaken for quantity */}
+                        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:2, flexShrink:0 }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                            <button onClick={() => onDaysChange(cartItem.id, Math.max(1, itemDays - 1))}
+                              style={{ width:26, height:26, borderRadius:6, border:'1px solid var(--line)', background:'var(--mist)', cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Inter,sans-serif' }}>−</button>
+                            <input type="number" min={1} max={90} value={itemDays}
+                              onChange={e => onDaysChange(cartItem.id, Math.max(1, Math.min(90, Number(e.target.value) || 1)))}
+                              style={{ width:38, textAlign:'center', padding:'4px 2px', border:'1px solid var(--line)', borderRadius:6, fontSize:13, fontWeight:700, fontFamily:'Inter,sans-serif', background:'var(--card)' }} />
+                            <button onClick={() => onDaysChange(cartItem.id, Math.min(90, itemDays + 1))}
+                              style={{ width:26, height:26, borderRadius:6, border:'1px solid var(--line)', background:'var(--mist)', cursor:'pointer', fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Inter,sans-serif' }}>+</button>
+                          </div>
+                          <span style={{ fontSize:10.5, fontWeight:700, color:'hsl(var(--color-blue))', letterSpacing:'.03em' }}>
+                            {itemDays} day{itemDays !== 1 ? 's' : ''}
+                          </span>
                         </div>
                         <button onClick={() => onRemove(cartItem.id)}
                           style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', padding:4, borderRadius:6, display:'flex', flexShrink:0 }}>
@@ -1092,7 +1215,7 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
 }
 
 // ── My Checkouts Panel ────────────────────────────────────────────────────────
-function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept, onConfirmReceipt, onReRequest, onReturnAll }) {
+function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept, onConfirmReceipt, onReRequest, onReturnAll, onRequestExtension }) {
   const mine = checkouts.filter(c =>
     (c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) ||
     c.requestedBy === userName
@@ -1103,6 +1226,8 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
   const [reRequestBusy,   setReRequestBusy]   = useState(false);
   const [confirmingCo,    setConfirmingCo]    = useState(null);
   const [returnAllGroup,  setReturnAllGroup]  = useState(null);
+  const [extendingCo,     setExtendingCo]     = useState(null);
+  const [panelTab,        setPanelTab]        = useState('active');
 
   // Find order groups where ALL items are rejected → auto-move to past, no manual discard needed
   const _orderMap = (() => {
@@ -1138,7 +1263,6 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
     }
     return false;
   });
-  const [histOpen, setHistOpen] = useState(false);
   const [cancelId, setCancelId] = useState(null);
   const [cancelBusy, setCancelBusy] = useState(null);
   const [cancelAllKey, setCancelAllKey] = useState(null);
@@ -1164,12 +1288,37 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
 
   return (
     <div style={{ marginTop:32 }}>
-      <h3 style={{ fontSize:14, fontWeight:700, marginBottom:14, display:'flex', alignItems:'center', gap:8 }}>
-        <Clock size={15} color="hsl(var(--color-blue))" /> My Active Checkouts
-        {active.length > 0 && <span style={{ padding:'1px 8px', borderRadius:20, fontSize:11, fontWeight:700, background:'hsla(var(--color-blue),0.12)', color:'hsl(var(--color-blue))' }}>{active.length}</span>}
-      </h3>
+      {/* Active / Past side tabs — both always visible, no scrolling to discover history */}
+      <div style={{ display:'flex', gap:8, marginBottom:16 }}>
+        {[
+          { key:'active', label:'Active Checkouts', Icon: Clock,   count: active.length    },
+          { key:'past',   label:'Past Checkouts',   Icon: History, count: completed.length },
+        ].map(({ key, label, Icon, count }) => {
+          const sel = panelTab === key;
+          return (
+            <button key={key} onClick={() => setPanelTab(key)}
+              style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 18px', borderRadius:10,
+                border:`1px solid ${sel ? 'var(--pine)' : 'var(--line)'}`,
+                background: sel ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
+                color: sel ? 'hsl(var(--color-green))' : 'var(--muted)',
+                fontWeight: sel ? 700 : 600, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', transition:'all 0.15s' }}>
+              <Icon size={14} /> {label}
+              <span style={{ padding:'1px 8px', borderRadius:20, fontSize:11, fontWeight:700,
+                background: sel ? 'hsl(var(--color-green))' : 'var(--mist)',
+                color: sel ? '#fff' : 'var(--muted)' }}>{count}</span>
+            </button>
+          );
+        })}
+      </div>
 
-      {activeGroups.map(groupItems => {
+      {panelTab === 'active' && active.length === 0 && (
+        <div style={{ textAlign:'center', padding:'40px 20px', color:'var(--muted)', border:'1px dashed var(--line)', borderRadius:12 }}>
+          <Package size={30} style={{ opacity:.2, display:'block', margin:'0 auto 10px' }} />
+          <div style={{ fontSize:13.5 }}>No active checkouts right now.</div>
+        </div>
+      )}
+
+      {panelTab === 'active' && activeGroups.map(groupItems => {
         const isMulti = groupItems.length > 1;
         const firstItem = groupItems[0];
         const groupKey = firstItem.orderId || firstItem.id;
@@ -1183,7 +1332,7 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
             {isMulti && (
               <div style={{ padding:'10px 16px', background:'var(--mist)', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
                 <ShoppingCart size={13} color="hsl(var(--color-blue))" />
-                <span style={{ fontSize:12.5, fontWeight:700, color:'hsl(var(--color-blue))' }}>Order · {groupItems.length} items</span>
+                <span style={{ fontSize:12.5, fontWeight:700, color:'hsl(var(--color-blue))' }}>Order · {groupItems.length} Items</span>
                 <span style={{ fontSize:12, color:'var(--muted)', marginLeft:4 }}>· {fmtDateShort(firstItem.createdAt)}</span>
                 {firstItem.reason && <span style={{ fontSize:12, color:'var(--muted)', fontStyle:'italic', marginLeft:4 }}>"{firstItem.reason}"</span>}
                 {/* Group-level confirm receipt button when all items are pending_receipt */}
@@ -1242,7 +1391,9 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
                   {!isMulti && c.reason && (
                     <div style={{ fontSize:12, color:'var(--muted)', background:'var(--mist)', borderRadius:7, padding:'6px 10px', marginBottom:4 }}>"{c.reason}"</div>
                   )}
-                  <StageTracker checkout={c} onViewPhoto={url => setPhotoPreview(url)} />
+                  {c.status === 'allocated'
+                    ? <InUseSummary checkout={c} />
+                    : <StageTracker checkout={c} onViewPhoto={url => setPhotoPreview(url)} />}
                   {c.status === 'rejected' ? (
                     reRequestId === c.id ? (
                       <div style={{ marginTop:10, display:'flex', flexDirection:'column', gap:8, background:'hsla(var(--color-blue),0.05)', border:'1px solid hsla(var(--color-blue),0.2)', borderRadius:9, padding:'10px 12px' }}>
@@ -1284,8 +1435,14 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
                     )
                   ) : (
                   <div style={{ display:'flex', gap:8, justifyContent:'flex-end', flexWrap:'wrap', marginTop:8 }}>
+                    {c.status === 'allocated' && onRequestExtension && c.extensionStatus !== 'pending' && (
+                      <button className="secondary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5, color:'hsl(var(--color-blue))' }}
+                        onClick={() => setExtendingCo(c)}>
+                        <Clock size={13} /> Extend
+                      </button>
+                    )}
                     {c.status === 'allocated' && (
-                      <button className="secondary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5 }}
+                      <button className="primary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5 }}
                         onClick={() => onReturn(c)}>
                         <RotateCcw size={13} /> Return Item
                       </button>
@@ -1331,16 +1488,18 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
         );
       })}
 
-      {completed.length > 0 && (
-        <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'hidden', marginTop:4 }}>
-          <button onClick={() => setHistOpen(o => !o)}
-            style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'11px 16px', background:'var(--mist)', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif', fontWeight:600, fontSize:13, color:'var(--muted)' }}>
-            <History size={13} /> Past Checkouts ({completed.length}) <ChevronDown size={13} style={{ marginLeft:'auto', transform: histOpen ? 'rotate(180deg)' : 'none', transition:'transform 0.2s' }} />
-          </button>
-          {histOpen && completed.slice(0, 20).map(c => {
+      {panelTab === 'past' && completed.length === 0 && (
+        <div style={{ textAlign:'center', padding:'40px 20px', color:'var(--muted)', border:'1px dashed var(--line)', borderRadius:12 }}>
+          <History size={30} style={{ opacity:.2, display:'block', margin:'0 auto 10px' }} />
+          <div style={{ fontSize:13.5 }}>No past checkouts yet.</div>
+        </div>
+      )}
+      {panelTab === 'past' && completed.length > 0 && (
+        <div style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', background:'var(--card)', boxShadow:'var(--shadow-sm)' }}>
+          {completed.slice(0, 50).map((c, idx) => {
             const sm = CHECKOUT_STATUS_META[c.status];
             return (
-              <div key={c.id} style={{ borderTop:'1px solid var(--line)', padding:'10px 16px', display:'flex', alignItems:'flex-start', gap:10, flexWrap:'wrap' }}>
+              <div key={c.id} style={{ borderTop: idx > 0 ? '1px solid var(--line)' : 'none', padding:'10px 16px', display:'flex', alignItems:'flex-start', gap:10, flexWrap:'wrap' }}>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontWeight:600, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.itemName}</div>
                   <div style={{ fontSize:11.5, color:'var(--muted)' }}>{fmtDate(c.createdAt)}</div>
@@ -1391,6 +1550,13 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
           onSubmit={data =>
             onReturnAll(returnAllGroup, data).then(() => setReturnAllGroup(null))
           }
+        />
+      )}
+      {extendingCo && onRequestExtension && (
+        <ExtendRequestModal
+          checkout={extendingCo}
+          onClose={() => setExtendingCo(null)}
+          onSubmit={({ days, reason }) => onRequestExtension(extendingCo, days, reason)}
         />
       )}
     </div>
@@ -1459,14 +1625,14 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
 
           return (
             <div key={item.id}
-              style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', background:'var(--card)', display:'flex', flexDirection:'column', transition:'box-shadow 0.15s', boxShadow:'var(--shadow-sm)', opacity: (isAvailable && !hasPending) ? 1 : 0.62 }}
+              style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', background:'var(--card)', display:'flex', flexDirection:'column', transition:'box-shadow 0.15s', boxShadow:'var(--shadow-sm)' }}
               onMouseEnter={e => e.currentTarget.style.boxShadow = 'var(--shadow-md)'}
               onMouseLeave={e => e.currentTarget.style.boxShadow = 'var(--shadow-sm)'}>
-              {/* Photo */}
+              {/* Photo — only this part fades when unavailable; status info below stays full-colour */}
               <div onClick={() => item.photoUrl && isAvailable && !hasPending && setLightbox({ src: item.photoUrl, alt: item.name })}
-                style={{ height:140, background: item.photoUrl ? 'transparent' : tm.bg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, cursor: item.photoUrl && isAvailable && !hasPending ? 'zoom-in' : 'default', position:'relative', overflow:'hidden' }}>
+                style={{ height:140, background: item.photoUrl ? 'transparent' : tm.bg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, cursor: item.photoUrl && isAvailable && !hasPending ? 'zoom-in' : 'default', position:'relative', overflow:'hidden', opacity: (isAvailable && !hasPending) ? 1 : 0.55 }}>
                 {item.photoUrl
-                  ? <img src={item.photoUrl} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover', filter: (isAvailable && !hasPending) ? 'none' : 'grayscale(35%)' }} />
+                  ? <img src={item.photoUrl} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover', filter: (isAvailable && !hasPending) ? 'none' : 'grayscale(60%)' }} />
                   : <tm.Icon size={40} color={tm.color} />}
                 {item.photoUrl && isAvailable && !hasPending && (
                   <div style={{ position:'absolute', top:6, right:6, background:'rgba(0,0,0,0.45)', borderRadius:6, padding:'2px 5px', display:'flex', alignItems:'center', gap:3 }}>
@@ -1501,7 +1667,7 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
                   <TypeBadge type={item.itemType} />
                 </div>
                 {(item.make || item.model) && (
-                  <div style={{ fontSize:11.5, color:'var(--muted)' }}>{[item.make, item.model].filter(Boolean).join(' · ')}</div>
+                  <div style={{ fontSize:11.5, color:'var(--muted)' }}>{item.make}{item.make && item.model ? ' · ' : ''}{item.model && <span style={{ fontWeight:600 }}>{item.model}</span>}</div>
                 )}
                 {item.location && (
                   <div style={{ display:'flex', alignItems:'center', gap:3, fontSize:11.5, color:'var(--muted)' }}>
@@ -1520,19 +1686,30 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
                 ) : hasPending ? (
                   <div style={{ textAlign:'center', fontSize:11.5, color:'hsl(var(--color-orange))', fontWeight:600 }}>Under Review</div>
                 ) : !isAvailable ? (
-                  <div style={{ textAlign:'center', fontSize:11, color:'hsl(var(--color-orange))', fontWeight:600, lineHeight:1.4 }}>
+                  <div style={{ textAlign:'center', fontSize:11, lineHeight:1.5 }}>
                     {item.status === 'checked_out' ? (
                       <>
-                        {checkedOutBy ? `In Use — ${checkedOutBy}` : 'In Use'}
+                        <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 9px', borderRadius:20, fontSize:10.5, fontWeight:800, background:'hsla(var(--color-orange),0.14)', color:'hsl(var(--color-orange))' }}>
+                          In Use
+                        </span>
+                        {checkedOutBy && (
+                          <span style={{ display:'block', fontSize:11, fontWeight:600, color:'var(--ink)', marginTop:3 }}>{checkedOutBy}</span>
+                        )}
                         {daysLeft != null && (
                           <span style={{ display:'block', fontSize:10.5, fontWeight:500, color:'var(--muted)' }}>
-                            {daysLeft === 0 ? 'due today' : `available in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`}
+                            {daysLeft === 0 ? 'due back today' : `available in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`}
                           </span>
                         )}
                       </>
-                    ) : item.status === 'permanently_assigned' ? 'Assigned'
-                      : item.status === 'retired' ? 'Retired'
-                      : 'Unavailable'}
+                    ) : item.status === 'permanently_assigned' ? (
+                      <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 9px', borderRadius:20, fontSize:10.5, fontWeight:800, background:'hsla(var(--color-blue),0.14)', color:'hsl(var(--color-blue))' }}>
+                        Permanently Assigned
+                      </span>
+                    ) : item.status === 'retired' ? (
+                      <span style={{ fontWeight:600, color:'var(--muted)' }}>Retired</span>
+                    ) : (
+                      <span style={{ fontWeight:600, color:'var(--muted)' }}>Unavailable</span>
+                    )}
                   </div>
                 ) : null}
               </div>
@@ -1669,7 +1846,7 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))', gap:16, maxWidth:820, marginBottom:cart.length ? 28 : 0 }}>
           {[
             { Icon:ShoppingCart,  colorVar:'color-green',  title:'Checkout an Item',      sub:'Browse available equipment and raise a checkout request.',                                                                          go:() => { setMode('catalog'); setTab('catalog'); },   badge:null },
-            { Icon:RotateCcw,     colorVar:'color-blue',   title:'Return an Item',         sub:activeCheckouts.length > 0 ? `${activeCheckouts.length} item${activeCheckouts.length!==1?'s':''} currently checked out.` : 'Return equipment you currently have with you.', go:() => { setMode('catalog'); setTab('checkouts'); }, badge:activeCheckouts.length||null },
+            { Icon:RotateCcw,     colorVar:'color-blue',   title:'Return or Extend an Item', sub:activeCheckouts.length > 0 ? `${activeCheckouts.length} item${activeCheckouts.length!==1?'s':''} currently checked out.` : 'Return equipment you have, or ask for more time.', go:() => { setMode('catalog'); setTab('checkouts'); }, badge:activeCheckouts.length||null },
             { Icon:ClipboardList, colorVar:'color-orange', title:'Raise Purchase Request', sub:'Need something not in the catalog? Submit a formal purchase request.',                                                              go:() => window.dispatchEvent(new CustomEvent('nexus:navigate',{detail:{view:'purchase'}})),                      badge:null },
           ].map(({ Icon, colorVar, title, sub, go, badge }) => (
             <button key={title} onClick={go}
@@ -1713,8 +1890,8 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
         <ArrowLeft size={14} /> Back to Home
       </button>
 
-      {/* Tab strip */}
-      <div style={{ display:'flex', alignItems:'center', borderBottom:'2px solid var(--line)', marginBottom:24 }}>
+      {/* Tab strip — scrolls horizontally on phones */}
+      <div style={{ display:'flex', alignItems:'center', borderBottom:'2px solid var(--line)', marginBottom:24, overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
         {[
           { id:'catalog',   label:'Browse Catalog', Icon: Package,       badge: null },
           { id:'checkouts', label:'My Checkouts',   Icon: ClipboardList, badge: activeCheckouts.length || null },
@@ -1723,7 +1900,7 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
             style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 18px', background:'none', border:'none',
               borderBottom: tab === id ? '2px solid var(--pine)' : '2px solid transparent',
               color: tab === id ? 'var(--ink)' : 'var(--muted)', fontWeight: tab === id ? 700 : 500,
-              fontSize:14, cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-2, transition:'color 0.15s' }}>
+              fontSize:14, cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-2, transition:'color 0.15s', whiteSpace:'nowrap', flexShrink:0 }}>
             <Icon size={15} /> {label}
             {badge > 0 && <span style={{ background:'hsl(var(--color-blue))', color:'#fff', borderRadius:20, fontSize:10.5, fontWeight:800, padding:'1px 7px', marginLeft:3 }}>{badge}</span>}
           </button>
@@ -1806,7 +1983,7 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
                 <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
                   <thead>
                     <tr style={{ background:'var(--mist)' }}>
-                      {['Photo','Name','Type','Make / Model','Location','Status',''].map(h =>
+                      {['Photo','Name','Type','Make','Model','Location','Status',''].map(h =>
                         <th key={h} style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5, whiteSpace:'nowrap' }}>{h}</th>)}
                     </tr>
                   </thead>
@@ -1828,7 +2005,8 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
                           </td>
                           <td style={{ padding:'8px 14px', fontWeight:600 }}>{item.name}</td>
                           <td style={{ padding:'8px 14px' }}><TypeBadge type={item.itemType} /></td>
-                          <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{[item.make,item.model].filter(Boolean).join(' · ')||'—'}</td>
+                          <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.make||'—'}</td>
+                          <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.model||'—'}</td>
                           <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.location||'—'}</td>
                           <td style={{ padding:'8px 14px' }}><StatusBadge status={hasPending ? 'checked_out' : item.status} /></td>
                           <td style={{ padding:'8px 14px' }}>
@@ -1888,6 +2066,10 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
                 Promise.allSettled(items.map(c => onReturn(c.id, data)))
                   .then(() => toast(`Returned ${items.length} item${items.length !== 1 ? 's' : ''}.`))
                   .catch(() => toast('Some returns could not be submitted.', 'error'))
+              }
+              onRequestExtension={(co, days, reason) =>
+                api.requestItemExtension(co.id, { days, reason })
+                  .then(() => { toast(`Extension requested for ${co.itemName} — awaiting approval.`); refreshCheckouts && refreshCheckouts(); })
               }
             />
           )}
@@ -1976,7 +2158,7 @@ function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFi
             <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
               <thead>
                 <tr style={{ background:'var(--mist)' }}>
-                  {['Photo','Name','Type','Make / Model','Location','Status',''].map(h =>
+                  {['Photo','Name','Type','Make','Model','Location','Status',''].map(h =>
                     <th key={h} style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5, whiteSpace:'nowrap' }}>{h}</th>)}
                 </tr>
               </thead>
@@ -1999,7 +2181,8 @@ function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFi
                         {co && <div style={{ fontSize:11, color:'hsl(var(--color-orange))', marginTop:1 }}>With {co.requestedBy}</div>}
                       </td>
                       <td style={{ padding:'8px 14px' }}><TypeBadge type={item.itemType} /></td>
-                      <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{[item.make, item.model].filter(Boolean).join(' · ') || '—'}</td>
+                      <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.make || '—'}</td>
+                      <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.model || '—'}</td>
                       <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.location || '—'}</td>
                       <td style={{ padding:'8px 14px' }}><StatusBadge status={hasPending ? 'checked_out' : item.status} /></td>
                       <td style={{ padding:'8px 14px' }}>
@@ -2449,7 +2632,8 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
                 <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5 }}>Photo</th>
                 <SortTh col="name" label="Name" />
                 <SortTh col="type" label="Type" />
-                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5, whiteSpace:'nowrap' }}>Make / Model</th>
+                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5, whiteSpace:'nowrap' }}>Make</th>
+                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5, whiteSpace:'nowrap' }}>Model</th>
                 <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5 }}>Dept</th>
                 <SortTh col="location" label="Location" />
                 <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5 }}>Ownership</th>
@@ -2476,7 +2660,8 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
                   </td>
                   <td style={{ padding:'10px 14px', fontWeight:600 }}>{item.name}</td>
                   <td style={{ padding:'10px 14px' }}><TypeBadge type={item.itemType} /></td>
-                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{[item.make, item.model, item.year].filter(Boolean).join(' ') || '—'}</td>
+                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.make || '—'}</td>
+                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{[item.model, item.year].filter(Boolean).join(' ') || '—'}</td>
                   <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.department || '—'}</td>
                   <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.location || '—'}</td>
                   <td style={{ padding:'10px 14px' }}>
@@ -2926,6 +3111,36 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
 }
 
 // ── Approve Modal (manager picks allocator) — supports single or batch ────────
+// Default allocator by department — the person who usually hands over that
+// department's items (Neil: Construction → Sahil, Operations → Valinda).
+// Matched by first name against the allocators list so it survives email changes.
+const DEPT_ALLOCATOR_HINTS = {
+  construction: ['sahil'],
+  operations:   ['valinda'],
+  it:           ['visesh'],
+};
+
+function suggestAllocator(items, allocators) {
+  if (!items.length || !allocators.length) return null;
+  // Majority department across the cart decides the default
+  const counts = {};
+  for (const co of items) {
+    const d = (co.department || '').toLowerCase().trim();
+    if (d) counts[d] = (counts[d] || 0) + 1;
+  }
+  const majority = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
+  if (!majority) return null;
+  const hints = DEPT_ALLOCATOR_HINTS[majority];
+  if (!hints) return null;
+  for (const hint of hints) {
+    const match = allocators.find(a =>
+      (a.name || '').toLowerCase().includes(hint) || (a.email || '').toLowerCase().includes(hint)
+    );
+    if (match) return { ...match, majorityDept: majority };
+  }
+  return null;
+}
+
 function ApproveCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm, currentUserEmail, currentUserName }) {
   const items  = checkoutBatch || (checkout ? [checkout] : []);
   const first  = items[0] || {};
@@ -2933,13 +3148,19 @@ function ApproveCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onC
 
   const [allocators,  setAllocators]  = useState([]);
   const [pickedEmail, setPickedEmail] = useState('');
+  const [suggested,   setSuggested]   = useState(null);
   const [busy,        setBusy]        = useState(false);
   const [error,       setError]       = useState('');
   useEscapeKey(onClose);
 
   useEffect(() => {
-    api.getItemAllocators().then(setAllocators).catch(() => {});
-  }, []);
+    api.getItemAllocators().then(rows => {
+      setAllocators(rows);
+      // Pre-select the department's usual allocator (user can still change it)
+      const pick = suggestAllocator(items, rows);
+      if (pick) { setSuggested(pick); setPickedEmail(prev => prev || pick.email); }
+    }).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function submit() {
     const chosen = allocators.find(a => a.email === pickedEmail)
@@ -2989,6 +3210,12 @@ function ApproveCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onC
             <option value="">— select allocator —</option>
             {allocators.map(a => <option key={a.email} value={a.email}>{a.name} ({a.role})</option>)}
           </select>
+          {suggested && pickedEmail === suggested.email && (
+            <p style={{ display:'flex', alignItems:'center', gap:5, fontSize:11.5, color:'hsl(var(--color-blue))', margin:'7px 0 0' }}>
+              <CheckCircle size={12} style={{ flexShrink:0 }} />
+              Suggested — {suggested.name} usually handles {suggested.majorityDept.charAt(0).toUpperCase() + suggested.majorityDept.slice(1)} items
+            </p>
+          )}
         </div>
         {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginTop:10 }}>{error}</p>}
         <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
@@ -3064,12 +3291,26 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
   const [photoPreview,   setPhotoPreview]   = useState(null);
   // IDs of completed items dismissed from the active-order view via X button
   const [dismissedIds,   setDismissedIds]   = useState(new Set());
+  const [extBusyId,      setExtBusyId]      = useState(null);
+
+  function handleResolveExtension(co, action) {
+    setExtBusyId(co.id);
+    api.resolveItemExtension(co.id, { action })
+      .then(() => {
+        toast(action === 'approve'
+          ? `Extension approved — ${co.requestedBy} has ${co.extensionDays} more day${co.extensionDays !== 1 ? 's' : ''} with ${co.itemName}.`
+          : `Extension declined for ${co.itemName}.`);
+        refreshCheckouts();
+      })
+      .catch(err => toast(err?.message || 'Could not resolve extension.', 'error'))
+      .finally(() => setExtBusyId(null));
+  }
 
   // Build list of people who currently hold items (active checkouts)
   const holdersMap = (() => {
     const map = new Map();
     for (const c of checkouts) {
-      if (['pending','approved','allocated'].includes(c.status) && c.requestedBy) {
+      if (['pending','approved','pending_receipt','allocated'].includes(c.status) && c.requestedBy) {
         map.set(c.requestedByEmail || c.requestedBy, c.requestedBy);
       }
     }
@@ -3093,7 +3334,7 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
       const holderKey = first.requestedByEmail || first.requestedBy;
       if (holderKey !== heldByFilter) return false;
     }
-    if (statusFilter === 'active')    return groupItems.some(c => ['pending','approved','allocated'].includes(c.status));
+    if (statusFilter === 'active')    return groupItems.some(c => ['pending','approved','pending_receipt','allocated'].includes(c.status));
     if (statusFilter === 'completed') return groupItems.every(c => ['returned','rejected','cancelled'].includes(c.status));
     return groupItems.some(c => c.status === statusFilter);
   });
@@ -3220,7 +3461,7 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
                   <div>
                     <div style={{ fontWeight:700, fontSize:14 }}>{first.requestedBy}</div>
                     <div style={{ fontSize:12, color:'var(--muted)', marginTop:2 }}>
-                      {first.department} · {fmtDate(first.createdAt)}{isMulti && ` · ${orderItems.length} items`}
+                      {first.department} · {fmtDate(first.createdAt)}{isMulti && ` · ${orderItems.length} Items`}
                     </div>
                     {first.reason && <div style={{ fontSize:12, color:'var(--muted)', fontStyle:'italic', marginTop:3 }}>"{first.reason}"</div>}
                     {statusFilter === 'completed' && (() => {
@@ -3284,6 +3525,27 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
                             {co.assignedAllocatorName && co.status === 'approved' && <span style={{ color:'hsl(var(--color-blue))' }}> · {co.assignedAllocatorName}</span>}
                           </div>
                           {co.rejectReason && <div style={{ fontSize:11, color:'hsl(var(--color-red))', marginTop:2 }}>{co.rejectReason}</div>}
+                          {co.status === 'allocated' && co.extensionStatus === 'pending' && (
+                            <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginTop:6, background:'hsla(var(--color-blue),0.06)', border:'1px solid hsla(var(--color-blue),0.25)', borderRadius:8, padding:'6px 10px' }}>
+                              <Clock size={12} color="hsl(var(--color-blue))" style={{ flexShrink:0 }} />
+                              <span style={{ fontSize:12, fontWeight:600, color:'hsl(var(--color-blue))' }}>
+                                Extension requested: +{co.extensionDays} day{co.extensionDays !== 1 ? 's' : ''}
+                              </span>
+                              {co.extensionReason && <span style={{ fontSize:11.5, color:'var(--muted)', fontStyle:'italic' }}>"{co.extensionReason}"</span>}
+                              {isManager && (
+                                <div style={{ display:'flex', gap:6, marginLeft:'auto' }}>
+                                  <button disabled={extBusyId === co.id} onClick={() => handleResolveExtension(co, 'reject')}
+                                    style={{ background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:7, padding:'3px 10px', fontSize:11.5, cursor:'pointer', color:'hsl(var(--color-red))', fontWeight:600, fontFamily:'Inter,sans-serif' }}>
+                                    Decline
+                                  </button>
+                                  <button disabled={extBusyId === co.id} onClick={() => handleResolveExtension(co, 'approve')}
+                                    className="primary-btn" style={{ fontSize:11.5, padding:'3px 12px', display:'inline-flex', alignItems:'center', gap:4 }}>
+                                    {extBusyId === co.id ? <Loader2 size={11} style={{ animation:'spin 1s linear infinite' }} /> : <CheckCircle size={11} />} Approve
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
 
                         <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0, flexWrap:'wrap', justifyContent:'flex-end' }}>
@@ -3475,6 +3737,133 @@ function PurchaseRequestsTab({ userEmail, userName, isManager }) {
   );
 }
 
+// ── Who Has It Tab ────────────────────────────────────────────────────────────
+// Per-person view of every allocation: searchable, split into permanent
+// assignments and transient checkouts — Neil's "permanent vs transient" ask.
+function WhoHasItTab({ items, checkouts }) {
+  const [search, setSearch] = useState('');
+  const [photoPreview, setPhotoPreview] = useState(null);
+
+  // Transient: live checkouts grouped by holder
+  const holders = (() => {
+    const map = new Map(); // key → { name, transient: [], permanent: [] }
+    for (const c of checkouts) {
+      if (!['approved','pending_receipt','allocated'].includes(c.status) || !c.requestedBy) continue;
+      const key = (c.requestedByEmail || c.requestedBy).toLowerCase();
+      if (!map.has(key)) map.set(key, { name: c.requestedBy, transient: [], permanent: [] });
+      map.get(key).transient.push(c);
+    }
+    // Permanent: items assigned to a default owner
+    for (const i of items) {
+      if (i.ownershipType !== 'permanent' && i.status !== 'permanently_assigned') continue;
+      const owner = (i.defaultOwner || '').trim();
+      if (!owner) continue;
+      // Try to merge with an existing holder by name; otherwise the owner gets their own card
+      let entry = [...map.values()].find(h => h.name.toLowerCase() === owner.toLowerCase());
+      if (!entry) {
+        const key = `perm-${owner.toLowerCase()}`;
+        if (!map.has(key)) map.set(key, { name: owner, transient: [], permanent: [] });
+        entry = map.get(key);
+      }
+      entry.permanent.push(i);
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+  })();
+
+  const filtered = holders.filter(h =>
+    !search ||
+    h.name.toLowerCase().includes(search.toLowerCase()) ||
+    h.transient.some(c => c.itemName.toLowerCase().includes(search.toLowerCase())) ||
+    h.permanent.some(i => i.name.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  const initials = name => name.split(/\s+/).map(p => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+
+  return (
+    <div>
+      <div className="search-bar" style={{ maxWidth:420, marginBottom:20 }}>
+        <Search size={14} style={{ flexShrink:0 }} />
+        <input placeholder="Search by person or item…" value={search} onChange={e => setSearch(e.target.value)} autoFocus />
+      </div>
+
+      {filtered.length === 0 ? (
+        <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)' }}>
+          <Users size={32} style={{ opacity:.25, display:'block', margin:'0 auto 10px' }} />
+          {search ? 'Nobody matches your search.' : 'No items are currently allocated to anyone.'}
+        </div>
+      ) : (
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(330px,1fr))', gap:14 }}>
+          {filtered.map(h => (
+            <div key={h.name} style={{ border:'1px solid var(--line)', borderRadius:12, background:'var(--card)', boxShadow:'var(--shadow-sm)', overflow:'hidden' }}>
+              {/* Person header */}
+              <div style={{ display:'flex', alignItems:'center', gap:11, padding:'13px 16px', borderBottom:'1px solid var(--line)', background:'var(--mist)' }}>
+                <div style={{ width:34, height:34, borderRadius:'50%', background:'hsla(var(--color-blue),0.14)', color:'hsl(var(--color-blue))', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12.5, fontWeight:800, flexShrink:0 }}>
+                  {initials(h.name)}
+                </div>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflowEllipsis:'ellipsis', whiteSpace:'nowrap' }}>{h.name}</div>
+                  <div style={{ fontSize:11.5, color:'var(--muted)' }}>
+                    {h.transient.length > 0 && `${h.transient.length} checked out`}
+                    {h.transient.length > 0 && h.permanent.length > 0 && ' · '}
+                    {h.permanent.length > 0 && `${h.permanent.length} permanent`}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ padding:'12px 16px', display:'flex', flexDirection:'column', gap:12 }}>
+                {/* Transient */}
+                {h.transient.length > 0 && (
+                  <div>
+                    <div style={{ fontSize:10.5, fontWeight:800, color:'hsl(var(--color-orange))', letterSpacing:'.06em', marginBottom:7 }}>CHECKED OUT (TRANSIENT)</div>
+                    <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                      {h.transient.map(c => {
+                        const { daysLeft } = checkoutDueInfo(c);
+                        const inUse = c.status === 'allocated';
+                        return (
+                          <div key={c.id} style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5 }}>
+                            <span style={{ width:6, height:6, borderRadius:'50%', flexShrink:0, background: inUse ? (daysLeft < 0 ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))') : 'hsl(var(--color-blue))' }} />
+                            <span style={{ fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.itemName}</span>
+                            <span style={{ fontSize:11, color: inUse && daysLeft < 0 ? 'hsl(var(--color-red))' : 'var(--muted)', flexShrink:0, fontWeight: inUse && daysLeft < 0 ? 700 : 400 }}>
+                              {inUse
+                                ? (daysLeft < 0 ? `overdue ${Math.abs(daysLeft)}d` : daysLeft === 0 ? 'due today' : `${daysLeft}d left`)
+                                : CHECKOUT_STATUS_META[c.status]?.label}
+                            </span>
+                            {c.checkoutPhotoUrl && (
+                              <button onClick={() => setPhotoPreview(c.checkoutPhotoUrl)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:2 }}>
+                                <ZoomIn size={12} />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {/* Permanent */}
+                {h.permanent.length > 0 && (
+                  <div>
+                    <div style={{ fontSize:10.5, fontWeight:800, color:'hsl(var(--color-blue))', letterSpacing:'.06em', marginBottom:7 }}>PERMANENTLY ASSIGNED</div>
+                    <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                      {h.permanent.map(i => (
+                        <div key={i.id} style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5 }}>
+                          <span style={{ width:6, height:6, borderRadius:'50%', flexShrink:0, background:'hsl(var(--color-blue))' }} />
+                          <span style={{ fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{i.name}</span>
+                          <span style={{ fontSize:11, color:'var(--muted)', flexShrink:0 }}>{[i.make, i.model].filter(Boolean).join(' ') || i.itemType}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
+    </div>
+  );
+}
+
 // ── Main view ─────────────────────────────────────────────────────────────────
 export default function InventoryManagement({ activeSub }) {
   const {
@@ -3498,6 +3887,9 @@ export default function InventoryManagement({ activeSub }) {
   const myActiveCount  = checkouts.filter(c =>
     ['pending','approved','pending_receipt','allocated'].includes(c.status) &&
     ((c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) || c.requestedBy === userName)
+  ).length;
+  const myTotalCount   = checkouts.filter(c =>
+    (c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) || c.requestedBy === userName
   ).length;
 
   // Cart — DB-backed, survives logout and device switches
@@ -3628,7 +4020,7 @@ export default function InventoryManagement({ activeSub }) {
       <div className="view-header" style={{ marginBottom:0 }}>
         <div className="view-title-group">
           <h2>Item Management</h2>
-          <p>View company assets and checkout whatever you require</p>
+          <p>Browse company assets, check out what you need, or request a purchase</p>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
           <button className={cart.length ? 'primary-btn' : 'secondary-btn'}
@@ -3686,18 +4078,19 @@ export default function InventoryManagement({ activeSub }) {
         ))}
       </div>}
 
-      {/* Tab strip */}
-      <div style={{ display:'flex', gap:0, marginBottom:20, borderBottom:'1px solid var(--line)', flexWrap:'wrap' }}>
+      {/* Tab strip — horizontally scrollable on phones instead of wrapping into a tall stack */}
+      <div style={{ display:'flex', gap:0, marginBottom:20, borderBottom:'1px solid var(--line)', overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
         {[
           { id:'myitems',      label:'My Items',          Icon: User,         badge: myActiveCount          },
           { id:'catalog',      label:'Catalog',           Icon: Package                                     },
           { id:'manage',       label:'Manage',            Icon: ClipboardList                               },
           { id:'checkouts',    label:'Checkouts',         Icon: ShoppingCart, badge: pendingCount + approvedCount },
+          { id:'whohasit',     label:'Who Has It',        Icon: Users                                       },
           { id:'purchasereqs', label:'Purchase Requests', Icon: FileText                                    },
           { id:'audit',        label:'Audit Log',         Icon: History                                     },
         ].map(({ id, label, Icon, badge }) => (
           <button key={id} onClick={() => setMainTab(id)}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 16px', background:'none', border:'none', borderBottom: mainTab === id ? '2px solid var(--pine)' : '2px solid transparent', color: mainTab === id ? 'var(--ink)' : 'var(--muted)', fontWeight: mainTab === id ? 700 : 600, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-1 }}>
+            style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 16px', background:'none', border:'none', borderBottom: mainTab === id ? '2px solid var(--pine)' : '2px solid transparent', color: mainTab === id ? 'var(--ink)' : 'var(--muted)', fontWeight: mainTab === id ? 700 : 600, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-1, whiteSpace:'nowrap', flexShrink:0 }}>
             <Icon size={14} /> {label}
             {badge > 0 && <span style={{ background:'hsl(var(--color-orange))', color:'#fff', borderRadius:20, fontSize:10, fontWeight:800, padding:'1px 6px', marginLeft:2 }}>{badge}</span>}
           </button>
@@ -3747,6 +4140,10 @@ export default function InventoryManagement({ activeSub }) {
                 .then(() => toast(`Returned ${items.length} item${items.length !== 1 ? 's' : ''}.`))
                 .catch(() => toast('Some returns could not be submitted.', 'error'))
             }
+            onRequestExtension={(co, days, reason) =>
+              api.requestItemExtension(co.id, { days, reason })
+                .then(() => { toast(`Extension requested for ${co.itemName} — awaiting approval.`); refreshCheckouts(); })
+            }
             onReRequest={async (co, newReason) => {
               await api.createItemCheckout({
                 id: crypto.randomUUID(),
@@ -3759,10 +4156,10 @@ export default function InventoryManagement({ activeSub }) {
               refreshCheckouts();
             }}
           />
-          {myActiveCount === 0 && (
+          {myTotalCount === 0 && (
             <div style={{ textAlign:'center', padding:'64px 20px', color:'var(--muted)' }}>
               <Package size={36} style={{ opacity:.15, display:'block', margin:'0 auto 14px' }} />
-              <div style={{ fontWeight:600, fontSize:15, marginBottom:6 }}>No active checkouts</div>
+              <div style={{ fontWeight:600, fontSize:15, marginBottom:6 }}>No checkouts yet</div>
               <div style={{ fontSize:13 }}>Your personal item checkouts will appear here.</div>
             </div>
           )}
@@ -3778,6 +4175,9 @@ export default function InventoryManagement({ activeSub }) {
           onSendAlert={() => setSendAlertOpen(true)}
         />
       )}
+      {mainTab === 'whohasit' && (
+        <WhoHasItTab items={items} checkouts={checkouts} />
+      )}
       {mainTab === 'purchasereqs' && (
         <PurchaseRequestsTab userEmail={userEmail} userName={userName} isManager={isManager} />
       )}
@@ -3788,7 +4188,7 @@ export default function InventoryManagement({ activeSub }) {
       {editingItem  && <EditItemModal  item={editingItem} onClose={() => setEditingItem(null)} onSave={data => handleEditItem(editingItem, data)} />}
       {deletingItem && <DeleteItemModal item={deletingItem} onClose={() => setDeletingItem(null)} onConfirm={() => handleDeleteItem(deletingItem)} />}
       {importOpen   && <ImportItemsModal onClose={() => setImportOpen(false)} onImport={handleImport} />}
-      {reportOpen   && <ReportModal onClose={() => setReportOpen(false)} />}
+      {reportOpen   && <ReportModal onClose={() => setReportOpen(false)} checkouts={checkouts} />}
       {returningCo  && (
         <ReturnModal checkout={returningCo} onClose={() => setReturningCo(null)}
           onSubmit={data => returnItem(returningCo.id, data).then(() => { toast(`Return confirmed — ${returningCo.itemName}`); setReturningCo(null); })} />

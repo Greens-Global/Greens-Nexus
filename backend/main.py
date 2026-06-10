@@ -43,6 +43,12 @@ def _run_migrations():
         "ALTER TABLE nexus_roles ADD COLUMN IF NOT EXISTS display_name VARCHAR DEFAULT ''",
         # inventory_items: physical site/storage location (e.g. "GSVC", "GSE")
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS location VARCHAR DEFAULT ''",
+        # item_checkouts: extension request flow (employee asks for more days, manager approves)
+        "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS extension_days INTEGER DEFAULT 0",
+        "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS extension_reason VARCHAR DEFAULT ''",
+        "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS extension_status VARCHAR DEFAULT ''",
+        # Fleet department retired — vehicles belong to Construction (Neil, Jun 2026)
+        "UPDATE items SET department = 'Construction' WHERE department = 'Fleet'",
     ]
     with engine.connect() as conn:
         for sql in migrations:

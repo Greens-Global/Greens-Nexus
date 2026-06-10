@@ -34,6 +34,8 @@ const TYPE_META = {
   approved:         { icon: CheckCircle,  label: 'Request Approved',     color: 'var(--color-green)'  },
   rejected:         { icon: XCircle,      label: 'Request Rejected',     color: 'var(--color-red)'    },
   custom_alert:     { icon: AlertCircle,  label: 'Alert',                color: 'var(--color-orange)' },
+  extension_pending:  { icon: Clock,       label: 'Extension Request',    color: 'var(--color-blue)'   },
+  extension_resolved: { icon: CheckCircle, label: 'Extension Update',     color: 'var(--color-green)'  },
 };
 
 // Short stage labels/colors for chips on cards and the lifecycle "trail" strip
