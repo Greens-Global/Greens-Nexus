@@ -1303,3 +1303,8 @@ input[type="number"] { -moz-appearance: textfield; }
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+
+/* Horizontally scrollable tab strips — keep the swipe/scroll, hide the ugly
+   native bar (Windows Chrome always paints it otherwise). */
+.scroll-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; }
+.scroll-tabs::-webkit-scrollbar { display: none; height: 0; }

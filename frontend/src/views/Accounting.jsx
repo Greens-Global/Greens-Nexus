@@ -127,7 +127,7 @@ export default function Accounting({ activeSub, onSubChange }) {
       </div>
 
       {/* Scrollable Tab Pills */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 24, overflowX: 'auto', paddingBottom: 8, borderBottom: '1px solid var(--border-color)' }}>
+      <div className="scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 24, paddingBottom: 8, borderBottom: '1px solid var(--border-color)' }}>
         {TABS.map(t => (
           <button key={t} className={`tab-pill${sub === t ? ' active' : ''}`} style={{ whiteSpace: 'nowrap' }} onClick={() => onSubChange(t)}>
             {TAB_LABELS[t]}

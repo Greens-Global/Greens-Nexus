@@ -91,7 +91,7 @@ export default function Purchase() {
       </div>
 
       {/* Tabs */}
-      <div style={{ display:'flex', gap:0, margin:'8px 0 24px', borderBottom:'1px solid var(--line)', overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
+      <div className="scroll-tabs" style={{ display:'flex', gap:0, margin:'8px 0 24px', borderBottom:'1px solid var(--line)' }}>
         {[
           { id:'new', label:'New Request',     Icon: Send          },
           { id:'log', label:'Requisition Log', Icon: ClipboardList, badge: requisitions.length || null },

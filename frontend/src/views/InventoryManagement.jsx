@@ -1964,7 +1964,7 @@ function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsL
       </button>
 
       {/* Tab strip — scrolls horizontally on phones */}
-      <div style={{ display:'flex', alignItems:'center', borderBottom:'2px solid var(--line)', marginBottom:24, overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
+      <div className="scroll-tabs" style={{ display:'flex', alignItems:'center', borderBottom:'2px solid var(--line)', marginBottom:24 }}>
         {[
           { id:'catalog',   label:'Browse Catalog', Icon: Package,       badge: null },
           { id:'checkouts', label:'My Checkouts',   Icon: ClipboardList, badge: activeCheckouts.length || null },
@@ -4218,7 +4218,7 @@ export default function InventoryManagement({ activeSub }) {
       </div>}
 
       {/* Tab strip — horizontally scrollable on phones instead of wrapping into a tall stack */}
-      <div style={{ display:'flex', gap:0, marginBottom:20, borderBottom:'1px solid var(--line)', overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
+      <div className="scroll-tabs" style={{ display:'flex', gap:0, marginBottom:20, borderBottom:'1px solid var(--line)' }}>
         {[
           { id:'myitems',      label:'My Items',          Icon: User,         badge: myActiveCount          },
           { id:'catalog',      label:'Catalog',           Icon: Package                                     },
