@@ -20,7 +20,7 @@ _VALID_TRANSITIONS = {
     "pending_receipt":  {"approved"},
     "allocated":        {"approved", "pending_receipt"},
     "returned":         {"allocated"},
-    "cancelled":        {"pending", "approved"},
+    "cancelled":        {"pending", "approved", "rejected"},
 }
 
 _ROLE_LEVEL = {"employee": 1, "supervisor": 2, "manager": 3, "administrator": 4, "owner": 5}

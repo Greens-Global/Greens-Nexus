@@ -1096,21 +1096,46 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
     (c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) ||
     c.requestedBy === userName
   );
-  // Rejected items stay visible until the employee explicitly discards them
   const [dismissedIds,    setDismissedIds]    = useState(new Set());
   const [reRequestId,     setReRequestId]     = useState(null);
   const [reRequestReason, setReRequestReason] = useState('');
   const [reRequestBusy,   setReRequestBusy]   = useState(false);
   const [confirmingCo,    setConfirmingCo]    = useState(null);
 
-  const active    = mine.filter(c =>
-    ['pending','approved','pending_receipt','allocated'].includes(c.status) ||
-    (c.status === 'rejected' && !dismissedIds.has(c.id))
+  // Find order groups where ALL items are rejected → auto-move to past, no manual discard needed
+  const _orderMap = (() => {
+    const m = new Map();
+    for (const c of mine) {
+      const key = c.orderId || `solo-${c.id}`;
+      if (!m.has(key)) m.set(key, []);
+      m.get(key).push(c);
+    }
+    return m;
+  })();
+  const allRejectedKeys = new Set(
+    [..._orderMap.entries()]
+      .filter(([, items]) => items.every(c => c.status === 'rejected'))
+      .map(([key]) => key)
   );
-  const completed = mine.filter(c =>
-    c.status === 'returned' || c.status === 'cancelled' ||
-    (c.status === 'rejected' && dismissedIds.has(c.id))
-  );
+
+  const active    = mine.filter(c => {
+    if (['pending','approved','pending_receipt','allocated'].includes(c.status)) return true;
+    if (c.status === 'rejected') {
+      const key = c.orderId || `solo-${c.id}`;
+      if (allRejectedKeys.has(key)) return false;
+      return !dismissedIds.has(c.id);
+    }
+    return false;
+  });
+  const completed = mine.filter(c => {
+    if (['returned','cancelled'].includes(c.status)) return true;
+    if (c.status === 'rejected') {
+      const key = c.orderId || `solo-${c.id}`;
+      if (allRejectedKeys.has(key)) return true;
+      return dismissedIds.has(c.id);
+    }
+    return false;
+  });
   const [histOpen, setHistOpen] = useState(false);
   const [cancelId, setCancelId] = useState(null);
   const [cancelBusy, setCancelBusy] = useState(null);
@@ -1232,7 +1257,10 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
                       </div>
                     ) : (
                       <div style={{ display:'flex', gap:8, justifyContent:'flex-end', flexWrap:'wrap', marginTop:10 }}>
-                        <button onClick={() => setDismissedIds(prev => new Set([...prev, c.id]))}
+                        <button onClick={() => {
+                            setDismissedIds(prev => new Set([...prev, c.id]));
+                            onCancel && onCancel(c, { silent: true });
+                          }}
                           style={{ background:'none', border:'1px solid var(--line)', borderRadius:8, padding:'5px 12px', fontSize:12, cursor:'pointer', color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:5, fontFamily:'Inter,sans-serif', fontWeight:600 }}>
                           <X size={12} /> Discard
                         </button>
@@ -1594,8 +1622,10 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
       setReturningCo(null);
     }).catch(() => toast('Could not confirm return — please try again.', 'error'));
   }
-  function handleCancel(co) {
-    return cancelRequest(co.id, userName).then(() => toast('Checkout cancelled.')).catch(() => toast('Could not cancel.', 'error'));
+  function handleCancel(co, opts = {}) {
+    return cancelRequest(co.id, userName)
+      .then(() => { if (!opts.silent) toast('Checkout cancelled.'); })
+      .catch(() => { if (!opts.silent) toast('Could not cancel.', 'error'); });
   }
   async function handleReRequest(co, newReason) {
     await api.createItemCheckout({
@@ -3448,7 +3478,9 @@ export default function InventoryManagement({ activeSub }) {
     );
   }
 
-  const cancelCo = co => cancelRequest(co.id, userName).then(() => toast('Checkout cancelled.')).catch(() => toast('Could not cancel.', 'error'));
+  const cancelCo = (co, opts = {}) => cancelRequest(co.id, userName)
+    .then(() => { if (!opts.silent) toast('Checkout cancelled.'); })
+    .catch(() => { if (!opts.silent) toast('Could not cancel.', 'error'); });
 
   return (
     <div style={{ animation:'fadeIn var(--transition-normal) ease-in-out' }}>
