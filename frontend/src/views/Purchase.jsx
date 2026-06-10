@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { Send, FileText, ClipboardList, User, Users, Link2, Package } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
 import { useRequisitions }  from '../contexts/RequisitionContext';
-import { useNotifications } from '../contexts/NotificationContext';
 import { cleanName } from '../lib/utils';
 import { api } from '../api';
 
@@ -33,7 +32,6 @@ const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'blo
 
 export default function Purchase() {
   const { requisitions, submitRequisition, exportToCsv } = useRequisitions();
-  const { addNotification } = useNotifications();
   const { accounts } = useMsal();
   const myName = cleanName(accounts[0]?.name ?? '');
 
@@ -76,21 +74,15 @@ export default function Purchase() {
     if (!canSubmit) return;
     // Reference link travels inside the reason so no backend change is needed
     const fullReason = refLink.trim() ? `${reason.trim()}\nReference: ${refLink.trim()}` : reason.trim();
-    const submittedNote = !forSelf && myName ? ` (submitted by ${myName})` : '';
-    const newReq = submitRequisition({
+    // Notification is created by the BACKEND (targeted at the picked manager) —
+    // employees can't write to the notifications API, so a client-side
+    // addNotification here silently 403'd and nobody ever got notified.
+    submitRequisition({
       employeeName, employeeDept: dept, item: resolvedItem, quantity: qty, reason: fullReason,
       employeeEmail: forSelf ? '' : behalfMatch?.email || '',
+      approverEmail: approver.email,
     });
     localStorage.setItem('nexus-approver-email', approver.email);
-    addNotification({
-      type:        'req_pending',
-      recipient:   approver.email,   // targeted — only this manager is notified
-      refId:       newReq.id,
-      title:       'New Purchase Requisition',
-      body:        `${employeeName}${submittedNote} (${dept}) requested ${qty}× ${resolvedItem} — "${reason.trim()}"`,
-      requestedBy: employeeName,
-      itemName:    resolvedItem,
-    });
     setItem(''); setCustomItem(''); setQty(1); setDept('Operations'); setReason(''); setRefLink('');
     setForSelf(true); setBehalfName('');
     setFlash(true);

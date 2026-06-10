@@ -4,7 +4,7 @@ import {
   AlertCircle, X, Loader2, ChevronDown, UploadCloud, FileSpreadsheet,
   Download, Pencil, Trash2, MapPin, ClipboardList, History, FileBarChart,
   ShoppingCart, Filter, ZoomIn, Car, Wrench, Key, Monitor, Box, FileText,
-  ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image, LayoutGrid, User, Wand2,
+  ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image, LayoutGrid, User, Wand2, Link2,
 } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import { useInventory }     from '../contexts/InventoryContext';
@@ -71,6 +71,23 @@ function useEscapeKey(fn) {
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, [fn]);
+}
+
+// Renders text with URLs as clickable links (truncated for readability) —
+// requisition reasons carry "Reference: https://…" from the purchase form.
+function Linkify({ text }) {
+  if (!text) return null;
+  const parts = String(text).split(/(https?:\/\/[^\s"']+)/g);
+  return parts.map((part, i) =>
+    /^https?:\/\//.test(part) ? (
+      <a key={i} href={part} target="_blank" rel="noopener noreferrer"
+        onClick={e => e.stopPropagation()}
+        style={{ color:'hsl(var(--color-blue))', fontWeight:600, wordBreak:'break-all' }}
+        title={part}>
+        {part.length > 64 ? `${part.slice(0, 60)}…` : part}
+      </a>
+    ) : part
+  );
 }
 
 function ImageLightbox({ src, alt, onClose }) {
@@ -2605,7 +2622,8 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
 
   // Claude finds and fills product images. With rows selected it REPLACES their
   // photos; with nothing selected it fills only items missing one.
-  // Processed in batches of 5 so each request stays inside Azure's timeout.
+  // ONE item per request — rate-limit backoff on the server can take a minute
+  // per item, and batching 5 into one request blew past Azure's HTTP timeout.
   async function runAiPhotoFill() {
     const replacing = selected.size > 0;
     const targets = replacing
@@ -2615,12 +2633,14 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
     setAiPhotoBusy(true);
     let ok = 0, failed = 0;
     try {
-      for (let i = 0; i < targets.length; i += 5) {
-        setAiPhotoProgress(`${Math.min(i + 5, targets.length)}/${targets.length}`);
-        const { results } = await api.autoFillItemPhotos(targets.slice(i, i + 5), replacing);
-        ok     += results.filter(r => r.status === 'ok').length;
-        failed += results.filter(r => !['ok', 'already_has_photo'].includes(r.status)).length;
-        refreshItems(); // photos appear as each batch lands
+      for (let i = 0; i < targets.length; i += 1) {
+        setAiPhotoProgress(`${i + 1}/${targets.length}`);
+        try {
+          const { results } = await api.autoFillItemPhotos([targets[i]], replacing);
+          ok     += results.filter(r => r.status === 'ok').length;
+          failed += results.filter(r => !['ok', 'already_has_photo'].includes(r.status)).length;
+        } catch { failed += 1; /* one item failing must not abort the run */ }
+        if ((i + 1) % 3 === 0 || i === targets.length - 1) refreshItems(); // photos appear as they land
       }
       if (replacing) setSelected(new Set());
       toast(ok > 0
@@ -3797,25 +3817,55 @@ function PurchaseRequestsTab({ userEmail, userName, isManager }) {
   const pending  = visible.filter(r => r.status === 'pending_manager');
   const resolved = visible.filter(r => r.status !== 'pending_manager');
 
+  // The purchase form appends "Reference: <url>" to the reason — split it out
+  // so the link renders as its own clean action instead of a wall of URL text.
+  function splitReason(reason) {
+    const m = (reason || '').match(/\s*Reference:\s*(https?:\/\/\S+)\s*$/i);
+    if (!m) return { text: reason || '', link: null };
+    return { text: (reason || '').replace(m[0], '').trim(), link: m[1] };
+  }
+
   function renderCard(r) {
     const sm = STATUS_META[r.status] || { label: r.status, bg:'var(--mist)', fg:'var(--muted)' };
     const isRej = rejectingId === r.id;
+    const { text: reasonText, link: refLink } = splitReason(r.reason);
+    let refHost = '';
+    if (refLink) { try { refHost = new URL(refLink).hostname.replace(/^www\./, ''); } catch { refHost = 'link'; } }
     return (
       <div key={r.id} style={{ border:'1px solid var(--line)', borderRadius:12, padding:'16px 20px', background:'var(--card)', boxShadow:'var(--shadow-sm)', marginBottom:10 }}>
-        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:10, flexWrap:'wrap' }}>
-          <div>
-            <div style={{ fontWeight:700, fontSize:14 }}>{r.item}</div>
-            <div style={{ fontSize:12, color:'var(--muted)', marginTop:2 }}>
-              {r.employeeName} · {r.employeeDept} · Qty: {r.quantity}
-              {r.createdAt && <span style={{ marginLeft:8 }}>{fmtDate(r.createdAt)}</span>}
+        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
+          <div style={{ display:'flex', gap:12, alignItems:'flex-start', flex:1, minWidth:0 }}>
+            <div style={{ width:38, height:38, borderRadius:10, background:'hsla(var(--color-orange),0.12)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+              <ClipboardList size={17} color="hsl(var(--color-orange))" />
             </div>
-            {r.reason && <div style={{ fontSize:12.5, color:'var(--muted)', marginTop:6, fontStyle:'italic' }}>"{r.reason}"</div>}
-            {r.rejectionReason && <div style={{ fontSize:12, color:'hsl(var(--color-red))', marginTop:4 }}>Rejected: "{r.rejectionReason}"</div>}
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                <span style={{ fontWeight:700, fontSize:14 }}>{r.item}</span>
+                <span style={{ fontSize:11, fontWeight:800, color:'hsl(var(--color-blue))', background:'hsla(var(--color-blue),0.10)', borderRadius:20, padding:'2px 9px' }}>×{r.quantity}</span>
+              </div>
+              <div style={{ fontSize:12, color:'var(--muted)', marginTop:3 }}>
+                <strong style={{ color:'var(--ink)', fontWeight:600 }}>{r.employeeName}</strong> · {r.employeeDept}
+                {r.createdAt && <> · {fmtDate(r.createdAt)}</>}
+              </div>
+            </div>
           </div>
           <span style={{ display:'inline-flex', alignItems:'center', padding:'3px 10px', borderRadius:20, fontSize:11, fontWeight:700, background:sm.bg, color:sm.fg, flexShrink:0 }}>
             {sm.label}
           </span>
         </div>
+        {reasonText && (
+          <div style={{ fontSize:12.5, color:'var(--ink)', marginTop:12, background:'var(--mist)', borderLeft:'3px solid var(--line)', borderRadius:'0 8px 8px 0', padding:'8px 12px', lineHeight:1.5, whiteSpace:'pre-line' }}>
+            <Linkify text={reasonText} />
+          </div>
+        )}
+        {refLink && (
+          <a href={refLink} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+            style={{ display:'inline-flex', alignItems:'center', gap:6, marginTop:10, padding:'6px 12px', borderRadius:8, border:'1px solid hsla(var(--color-blue),0.3)', background:'hsla(var(--color-blue),0.06)', color:'hsl(var(--color-blue))', fontSize:12, fontWeight:700, textDecoration:'none' }}
+            title={refLink}>
+            <Link2 size={13} /> View reference — {refHost}
+          </a>
+        )}
+        {r.rejectionReason && <div style={{ fontSize:12, color:'hsl(var(--color-red))', marginTop:10 }}>Rejected: "{r.rejectionReason}"</div>}
         {isManager && r.status === 'pending_manager' && (
           isRej ? (
             <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:8 }}>

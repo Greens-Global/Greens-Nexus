@@ -20,13 +20,14 @@ def _ts():
 class RequisitionCreate(BaseModel):
     id: str
     employee_name: str
-    employee_email: str = ""
+    employee_email: str = ""    # beneficiary — on-behalf requests tag THEIR email so it lands in their log
     employee_dept: str
     item: str
     quantity: int = 1
     reason: str = ""
     status: str = "pending_manager"
     supervisor_name: str = ""
+    approver_email: str = ""    # manager picked by the requester — only they get the notification
 
 
 class RequisitionApprove(BaseModel):
@@ -118,14 +119,49 @@ def create_requisition(
     user: dict = Depends(get_current_user),
     db:   Session = Depends(get_db),
 ):
-    # Always stamp the verified email — never trust the client-supplied value
-    payload = data.model_dump()
-    payload["employee_email"] = user["email"]
+    payload = data.model_dump(exclude={"approver_email"})
+    # Beneficiary tagging: an on-behalf request lands in the BENEFICIARY's log,
+    # so honour a client-supplied email; default to the verified submitter.
+    payload["employee_email"] = (data.employee_email or user["email"]).lower().strip()
     req = models.Requisition(**payload, created_at=_ts(), updated_at=_ts())
     db.add(req)
+
+    # Notification is created HERE, server-side — employees can't write to the
+    # notifications API (level gate), so the old frontend addNotification call
+    # silently 403'd and managers never heard about employee requisitions.
+    from datetime import timezone as _tz
+    import uuid as _uuid
+    reason_snip = (data.reason or "").strip().split("\n")[0][:120]
+    db.add(models.NexusNotification(
+        id=str(_uuid.uuid4()),
+        type="req_pending",
+        recipient=(data.approver_email or "").lower().strip(),  # targeted; empty = all managers
+        title="New Purchase Requisition",
+        body=f"{data.employee_name} ({data.employee_dept}) requested {data.quantity}× {data.item}."
+             + (f' Reason: "{reason_snip}"' if reason_snip else ""),
+        ref_id=data.id,
+        item_name=data.item,
+        requested_by=data.employee_name,
+        action="",
+        actioned=False,
+        read_by="",
+        created_at=datetime.now(_tz.utc).isoformat(),
+    ))
+
     db.commit()
     db.refresh(req)
     return req
+
+
+def _action_req_notification(db: Session, req_id: str):
+    """Clear the req_pending bell entry once a manager resolves the requisition."""
+    notif = db.query(models.NexusNotification).filter(
+        models.NexusNotification.type == "req_pending",
+        models.NexusNotification.ref_id == req_id,
+        models.NexusNotification.actioned == False,
+    ).first()
+    if notif:
+        notif.actioned = True
 
 
 @router.patch("/requisitions/{req_id}/approve")
@@ -138,6 +174,7 @@ def approve_requisition(req_id: str, body: RequisitionApprove, user: dict = Depe
     req.manager_approval_date = _ts()
     req.updated_at = _ts()
     db.add(models.ApprovalHistory(requisition_id=req_id, action="Approved", action_by=body.manager_name, action_role="Manager", created_at=_ts()))
+    _action_req_notification(db, req_id)
     db.commit()
     db.refresh(req)
     return req
@@ -153,6 +190,7 @@ def reject_requisition(req_id: str, body: RequisitionReject, user: dict = Depend
     req.rejection_reason = body.rejection_reason
     req.updated_at = _ts()
     db.add(models.ApprovalHistory(requisition_id=req_id, action="Rejected", action_by=body.manager_name, action_role="Manager", comment=body.rejection_reason, created_at=_ts()))
+    _action_req_notification(db, req_id)
     db.commit()
     db.refresh(req)
     return req

@@ -1107,8 +1107,9 @@ def _find_product_page_urls(item) -> list:
                 json=payload,
             )
             if r.status_code == 429 and attempt < 2:
-                # Tier-1 API keys have tight per-minute limits — wait and retry
-                wait = min(float(r.headers.get("retry-after", 20)), 60)
+                # Tier-1 API keys have tight per-minute limits — wait and retry,
+                # but capped so a single item never approaches the HTTP timeout
+                wait = min(float(r.headers.get("retry-after", 15)), 30)
                 time.sleep(wait)
                 continue
             r.raise_for_status()

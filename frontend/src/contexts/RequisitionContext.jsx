@@ -183,7 +183,7 @@ export function RequisitionProvider({ children }) {
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
-  const submitRequisition = ({ employeeName, employeeDept, item, quantity, reason, employeeEmail }) => {
+  const submitRequisition = ({ employeeName, employeeDept, item, quantity, reason, employeeEmail, approverEmail }) => {
     const id  = `REQ-${Date.now().toString().slice(-6)}`;
     const now = ts();
     // On-behalf requests are tagged to the BENEFICIARY's email so the
@@ -208,6 +208,7 @@ export function RequisitionProvider({ children }) {
       employee_dept: employeeDept, item, quantity: Number(quantity),
       reason: reason || '', status: 'pending_manager',
       supervisor_name: DEPT_SUPERVISORS[employeeDept] || 'TBD',
+      approver_email: (approverEmail || '').toLowerCase(),  // backend notifies only this manager
     }).catch(() => setRequisitions(prev => prev.filter(r => r.id !== id)));
     return newReq;
   };
