@@ -1457,7 +1457,14 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
                             onClick={() => {
                               setReRequestBusy(true);
                               onReRequest(c, reRequestReason.trim())
-                                .then(() => { setReRequestId(null); setReRequestReason(''); })
+                                .then(() => {
+                                  setReRequestId(null); setReRequestReason('');
+                                  // The fresh request replaces this rejected card —
+                                  // clear it to Past Checkouts so the item isn't listed twice
+                                  setDismissedIds(prev => new Set([...prev, c.id]));
+                                  onCancel && onCancel(c, { silent: true });
+                                })
+                                .catch(() => {})
                                 .finally(() => setReRequestBusy(false));
                             }}>
                             {reRequestBusy ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : <RotateCcw size={12} />}
@@ -1907,6 +1914,7 @@ function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsL
       if (refreshCheckouts) refreshCheckouts();
     } catch (err) {
       toast(err?.message || `Could not re-submit request for ${co.itemName}.`, 'error');
+      throw err; // panel must not clear the rejected card on failure
     }
   }
 
@@ -4309,6 +4317,7 @@ export default function InventoryManagement({ activeSub }) {
                 refreshCheckouts();
               } catch (err) {
                 toast(err?.message || `Could not re-submit request for ${co.itemName}.`, 'error');
+                throw err; // panel must not clear the rejected card on failure
               }
             }}
           />
