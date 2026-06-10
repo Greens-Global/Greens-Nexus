@@ -2584,21 +2584,26 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
   const [aiPhotoBusy,        setAiPhotoBusy]        = useState(false);
   const [aiPhotoProgress,    setAiPhotoProgress]    = useState('');
 
-  // Claude finds and fills product images for items missing photos —
-  // processed in batches of 5 so each request stays inside Azure's timeout.
+  // Claude finds and fills product images. With rows selected it REPLACES their
+  // photos; with nothing selected it fills only items missing one.
+  // Processed in batches of 5 so each request stays inside Azure's timeout.
   async function runAiPhotoFill() {
-    const targets = items.filter(i => !i.photoUrl).map(i => i.id);
+    const replacing = selected.size > 0;
+    const targets = replacing
+      ? [...selected]
+      : items.filter(i => !i.photoUrl).map(i => i.id);
     if (!targets.length || aiPhotoBusy) return;
     setAiPhotoBusy(true);
     let ok = 0, failed = 0;
     try {
       for (let i = 0; i < targets.length; i += 5) {
         setAiPhotoProgress(`${Math.min(i + 5, targets.length)}/${targets.length}`);
-        const { results } = await api.autoFillItemPhotos(targets.slice(i, i + 5));
+        const { results } = await api.autoFillItemPhotos(targets.slice(i, i + 5), replacing);
         ok     += results.filter(r => r.status === 'ok').length;
         failed += results.filter(r => !['ok', 'already_has_photo'].includes(r.status)).length;
         refreshItems(); // photos appear as each batch lands
       }
+      if (replacing) setSelected(new Set());
       toast(ok > 0
         ? `AI added ${ok} photo${ok !== 1 ? 's' : ''}${failed ? ` · ${failed} couldn't be found` : ''}. Review them and replace any with real unit photos.`
         : 'No suitable product photos were found.', ok > 0 ? 'success' : 'error');
@@ -2704,13 +2709,18 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
             </span>
           )}
         </button>
-        {/* AI photo fill — Claude web-searches each missing item's make/model and pulls the product image */}
-        {missingPhotos > 0 && (
+        {/* AI photo fill — Claude web-searches each item's make/model and pulls the
+            product image. Selected rows → replace their photos; none selected →
+            fill items missing one. */}
+        {(missingPhotos > 0 || selected.size > 0) && (
           <button onClick={runAiPhotoFill} disabled={aiPhotoBusy}
+            title={selected.size > 0 ? 'Replace the photos of the selected items with AI-found product images' : 'Find product images for items missing a photo'}
             style={{ display:'inline-flex', alignItems:'center', gap:7, background:'hsla(var(--color-purple),0.1)', color:'hsl(var(--color-purple))', border:'1px solid hsla(var(--color-purple),0.35)', borderRadius:9, padding:'7px 14px', fontWeight:700, fontSize:12.5, cursor: aiPhotoBusy ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', opacity: aiPhotoBusy ? 0.75 : 1 }}>
             {aiPhotoBusy
               ? <><Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> Finding photos… {aiPhotoProgress}</>
-              : <><Wand2 size={13} /> AI Photo Fill ({missingPhotos})</>}
+              : selected.size > 0
+                ? <><Wand2 size={13} /> AI Replace Photos ({selected.size})</>
+                : <><Wand2 size={13} /> AI Photo Fill ({missingPhotos})</>}
           </button>
         )}
         {/* Batch delete */}

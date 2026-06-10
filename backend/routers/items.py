@@ -1108,6 +1108,7 @@ def _fetch_image_to_storage(img_url: str, item_id: str, _depth: int = 0) -> str:
 
 class AutoPhotoRequest(BaseModel):
     item_ids: list[str]
+    replace:  bool = False   # True → overwrite existing photos (manager selected specific rows)
 
 
 @router.post("/auto-photos")
@@ -1123,7 +1124,7 @@ def auto_fill_photos(body: AutoPhotoRequest, user: dict = Depends(require_items_
         if not item:
             results.append({"item_id": item_id, "status": "not_found"})
             continue
-        if item.photo_url:
+        if item.photo_url and not body.replace:
             results.append({"item_id": item_id, "status": "already_has_photo"})
             continue
         try:
