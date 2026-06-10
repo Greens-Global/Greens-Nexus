@@ -122,6 +122,22 @@ export default function NotificationBell({ onNavigate }) {
     Object.values(resolveTimers.current).forEach(clearTimeout);
   }, []);
 
+  // Auto-action checkout_pending notifications that are no longer relevant —
+  // i.e. the checkout was handled directly in the Checkouts tab (not via the bell),
+  // so there are no more pending checkouts for that order/id.
+  useEffect(() => {
+    if (!can('manager')) return;
+    notifications.forEach(n => {
+      if (n.type !== 'checkout_pending' || n.recipient || n.actioned) return;
+      const refId = n.refId ?? '';
+      if (!refId) return;
+      const stillPending = invRequests.some(c =>
+        c.status === 'pending' && (c.orderId === refId || c.id === refId)
+      );
+      if (!stillPending) markActioned(n.id);
+    });
+  }, [notifications, invRequests]);
+
   function handleOpen() {
     setOpen(o => !o);
   }

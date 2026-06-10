@@ -658,17 +658,28 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
 
     # Auto-mark the checkout_pending notification as actioned so it clears from
     # all managers' bells even when the approval happens via the Checkouts tab.
+    # For order-level approvals: mark actioned once ALL items in the order are
+    # no longer pending (handles item-by-item approval from the Checkouts tab).
     if body.status in ("approved", "rejected", "cancelled"):
         ref_ids = [checkout_id]
         if row.order_id:
             ref_ids.append(row.order_id)
-        pending_notif = db.query(NexusNotification).filter(
-            NexusNotification.type == "checkout_pending",
-            NexusNotification.actioned == False,
-            NexusNotification.ref_id.in_(ref_ids),
-        ).first()
-        if pending_notif:
-            pending_notif.actioned = True
+            # Check if any sibling items in this order are still pending
+            sibling_pending = db.query(ItemCheckout).filter(
+                ItemCheckout.order_id == row.order_id,
+                ItemCheckout.id != checkout_id,
+                ItemCheckout.status == "pending",
+            ).count()
+            if sibling_pending > 0:
+                ref_ids = []  # don't action yet — order not fully resolved
+        if ref_ids:
+            pending_notif = db.query(NexusNotification).filter(
+                NexusNotification.type == "checkout_pending",
+                NexusNotification.actioned == False,
+                NexusNotification.ref_id.in_(ref_ids),
+            ).first()
+            if pending_notif:
+                pending_notif.actioned = True
 
     if body.status == "approved":
         _notify(db, type="approved", recipient=row.requested_by_email,
