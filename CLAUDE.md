@@ -87,6 +87,27 @@ keep the diff minimal.
 - Photos are evidence: handover, receipt, return, and assignment acceptance all
   require them (lost-item reports are the exception).
 
+## Asset Management module — scope (Ankush)
+
+Everything currently on the Property Portfolio screen (`PropertyAsset.jsx`) is
+**hardcoded mock data**. The job is to make it real, in roughly this order:
+
+1. **Properties** — `properties` table + CRUD endpoints in `assets.py` + the
+   portfolio cards/Add Property modal backed by the API (name, type, address,
+   units, acquisition cost, year completed, asset manager, occupancy).
+2. **Equipment Warranties** — fields live on the existing `items` table
+   (serial number, asset tag, purchase date/cost, warranty end, vendor), NOT a
+   separate system. Expiry list + bell notifications when warranties near expiry.
+3. **As-Built Plans** — document upload per property (Supabase storage, reuse
+   the upload helpers) with list/view/download.
+4. **Annual Inspections** — inspection schedule per property, due-date
+   reminders into the bell (server-side `_notify`, targeted at the property's
+   asset manager).
+5. **Compliance** — requirements checklist per property with status + expiry.
+
+Old `hardware_assets` table (IT module) is legacy — planned to fold into
+`items`; coordinate with Visesh before touching it.
+
 ## Gotchas
 
 - The shared dev database (Supabase `greens-nexus-dev`) backs the live
