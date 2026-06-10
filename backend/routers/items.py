@@ -1144,11 +1144,14 @@ def _fetch_image_to_storage(img_url: str, item_id: str, _depth: int = 0) -> str:
     # AIA-fetch the intermediates, Python doesn't). Risk is negligible here: the
     # payload is a public stock photo, content-type and size validated below,
     # and reviewed by a manager. Our Anthropic/Supabase calls keep strict TLS.
-    with httpx.Client(timeout=30, follow_redirects=True, verify=False) as client:
-        resp = client.get(img_url, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-            "Accept": "text/html,image/avif,image/webp,image/*,*/*;q=0.8",
-        })
+    with httpx.Client(timeout=10, follow_redirects=True, verify=False) as client:
+        try:
+            resp = client.get(img_url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+                "Accept": "text/html,image/avif,image/webp,image/*,*/*;q=0.8",
+            })
+        except httpx.HTTPError:
+            return ""  # slow/dead host — fail fast, the caller tries the next candidate
         if resp.status_code != 200:
             return ""
         ctype = resp.headers.get("content-type", "").split(";")[0].strip().lower()
@@ -1226,35 +1229,28 @@ def auto_fill_photos(body: AutoPhotoRequest, user: dict = Depends(require_items_
             continue
         try:
             desc = " ".join(x for x in [item.make, item.model, item.name] if x).strip() or item.name
-            # Source priority: Google image API (exact product, needs key) →
-            # Claude-found product pages (og:image) → Openverse CC photos.
-            # A Claude failure (rate limit etc.) must not abort the item —
-            # fall through to the keyless source instead.
+            # SPEED CONTRACT: with Google configured the pipeline is Google →
+            # Openverse, both ~1-2s calls — an item succeeds or fails FAST.
+            # Claude web search (rate-limit sleeps, up to a minute per item) is
+            # only ever used when no Google key exists at all.
             sources = _google_image_candidates(desc)
             if not sources:
+                sources = _openverse_image_candidates(desc)
+            if not sources and not _GOOGLE_CSE_KEY:
                 try:
                     sources = _find_product_page_urls(item)
                 except Exception:
                     sources = []
             if not sources:
-                sources = _openverse_image_candidates(desc)
-            if not sources:
                 results.append({"item_id": item_id, "status": "no_image", "item_name": item.name})
                 continue
             public_url = ""
             tried = []
-            for src in sources:
+            for src in sources[:3]:  # at most 3 download attempts per item
                 public_url = _fetch_image_to_storage(src, item.id)
                 tried.append(src)
                 if public_url:
                     break
-            if not public_url and not _GOOGLE_CSE_KEY:
-                # Claude's pages were all bot-walled — last resort: similar-model CC photo
-                for src in _openverse_image_candidates(desc):
-                    public_url = _fetch_image_to_storage(src, item.id)
-                    tried.append(src)
-                    if public_url:
-                        break
             if not public_url:
                 results.append({"item_id": item_id, "status": "download_failed", "item_name": item.name,
                                 "detail": f"no usable image on: {', '.join(t[:60] for t in tried)}"})
