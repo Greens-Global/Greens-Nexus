@@ -118,7 +118,13 @@ def list_groups(user: dict = Depends(get_current_user), db: Session = Depends(ge
             NexusGroupMember.email == user["email"]
         ).all()]
         groups = db.query(NexusGroup).filter(NexusGroup.id.in_(member_ids)).order_by(NexusGroup.created_at).all() if member_ids else []
-    return [_serialize(g, db) for g in groups]
+    result = [_serialize(g, db) for g in groups]
+    if user["level"] < 4:
+        # Non-admins must not see other members' emails — they only need to
+        # know they're in the group (for myGrantedModules computation).
+        for g in result:
+            g["members"] = [user["email"]] if user["email"] in g["members"] else []
+    return result
 
 
 @router.post("")

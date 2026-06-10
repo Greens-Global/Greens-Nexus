@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from fastapi import FastAPI
@@ -112,6 +113,19 @@ def _seed_inventory_items():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Refuse to start if NEXUS_SKIP_AUTH is set while running on Azure App
+    # Service — the env var is for local development only and must never reach
+    # a deployed instance (dev or prod).
+    import sys as _sys
+    if os.getenv("NEXUS_SKIP_AUTH", "").lower() in ("1", "true", "yes"):
+        if os.getenv("WEBSITE_SITE_NAME"):
+            print(
+                "FATAL: NEXUS_SKIP_AUTH must not be set on Azure App Service. "
+                "Remove it from the application settings and restart.",
+                file=_sys.stderr,
+            )
+            _sys.exit(1)
+
     try:
         models.Base.metadata.create_all(bind=engine)
         print("[startup] DB tables ready")

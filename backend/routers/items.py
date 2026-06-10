@@ -45,6 +45,18 @@ require_items_delete = require_level_or_module(_ROLE_LEVEL["owner"],   "inventor
 _SUPABASE_URL         = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 
+# Valid photo URL prefix — only allow URLs pointing to our own Supabase storage
+# so fake/external evidence cannot be submitted.
+_STORAGE_PREFIX = f"{_SUPABASE_URL}/storage/v1/object/public/" if _SUPABASE_URL else None
+
+
+def _validate_photo_url(url: Optional[str], field: str) -> None:
+    """Raise 400 if url is non-empty and does not originate from our storage bucket."""
+    if not url or not url.strip():
+        return
+    if _STORAGE_PREFIX and not url.startswith(_STORAGE_PREFIX):
+        raise HTTPException(400, f"{field} must be a Supabase storage URL")
+
 
 def _notify(db: Session, *, type: str, recipient: str, title: str, body: str,
             ref_id: str = "", item_name: str = "", requested_by: str = "") -> None:
@@ -423,7 +435,7 @@ def delete_item(item_id: str, user: dict = Depends(require_items_delete), db: Se
 # ── Checkouts ─────────────────────────────────────────────────────────────────
 
 class CheckoutIn(BaseModel):
-    id:                  str
+    id:                  Optional[str] = None  # ignored — server generates
     item_id:             str
     item_name:           str
     item_type:           Optional[str] = ""
@@ -442,8 +454,6 @@ class CheckoutIn(BaseModel):
             raise HTTPException(400, "days must be between 1 and 90")
 
     def validate_lengths(self):
-        if len(self.id) > 120:
-            raise HTTPException(400, "id too long")
         if len(self.reason) > 1000:
             raise HTTPException(400, "reason too long (max 1000 chars)")
         if len(self.requested_by) > 200:
@@ -487,8 +497,9 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
     if not body.reason.strip():
         raise HTTPException(400, "Reason for checkout is required")
 
-    if db.query(ItemCheckout).filter(ItemCheckout.id == body.id).first():
-        raise HTTPException(409, "A checkout with this id already exists")
+    # Server always generates the checkout ID — client-supplied IDs are ignored
+    # to prevent ID injection / collision attacks.
+    server_id = f"ICHK-{uuid.uuid4().hex[:8].upper()}-{uuid.uuid4().hex[:8].upper()}"
 
     item = db.query(Item).filter(Item.id == body.item_id).first()
     if not item:
@@ -516,7 +527,7 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
 
     order_id = (body.order_id or "").strip()
     row = ItemCheckout(
-        id=body.id,
+        id=server_id,
         item_id=body.item_id,
         item_name=body.item_name,
         item_type=body.item_type or "",
@@ -538,7 +549,7 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
     if initial_status == "pending":
         # One notification per order — if this order_id already has a checkout_pending
         # notification, skip to avoid spamming managers with N alerts for one cart.
-        ref_for_notif = order_id if order_id else body.id
+        ref_for_notif = order_id if order_id else server_id
         already_notified = order_id and db.query(NexusNotification).filter(
             NexusNotification.ref_id == order_id,
             NexusNotification.type == "checkout_pending",
@@ -549,7 +560,7 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
                     body=f"{body.requested_by} has submitted a checkout request. Please review and approve or reject.",
                     ref_id=ref_for_notif, item_name=body.item_name, requested_by=body.requested_by)
     db.commit()
-    _fire_item_event(row.id, initial_status, row.requested_by_email or "")
+    _fire_item_event(server_id, initial_status, row.requested_by_email or "")
     return _checkout_to_dict(row)
 
 
@@ -558,6 +569,11 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
     row = db.query(ItemCheckout).filter(ItemCheckout.id == checkout_id).first()
     if not row:
         return {"ok": False, "error": "not found"}
+
+    # Validate photo URLs to prevent fake evidence from external sources
+    _validate_photo_url(body.checkout_photo_url, "checkout_photo_url")
+    _validate_photo_url(body.receipt_photo_url,  "receipt_photo_url")
+    _validate_photo_url(body.return_photo_url,   "return_photo_url")
 
     if body.status in ("approved", "rejected") and user["level"] < 3:
         raise HTTPException(403, "Manager or above required to approve or reject checkouts")
