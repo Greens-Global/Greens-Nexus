@@ -84,7 +84,7 @@ export default function PropertyAsset({ activeSub, onSubChange }) {
             <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
               <div>
                 <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Real Estate Property Portfolio</h3>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Review values, geographic addresses, capacities, and active managers</p>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Track properties Values, Occupancy, capacities, and active managers</p>
               </div>
               <button className="primary-btn" onClick={() => setShowPropModal(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <Plus size={14} /> Add Property Asset
