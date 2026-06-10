@@ -1039,13 +1039,46 @@ def resolve_extension(checkout_id: str, body: ExtensionResolve, user: dict = Dep
 # them with real unit photos via Assign Photos at any time.
 
 _ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+_GOOGLE_CSE_KEY    = os.getenv("GOOGLE_CSE_KEY", "")   # Google Custom Search JSON API key
+_GOOGLE_CSE_CX     = os.getenv("GOOGLE_CSE_CX", "")    # Programmable Search Engine id (image search on)
 _IMG_CTYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
 
 
-def _find_product_image_url(item) -> str:
-    """Ask Claude (web search enabled) for the best product PAGE — search results
-    are pages, not images, so we grab the page's og:image afterwards. A direct
-    image URL is accepted too if Claude happens to have one."""
+def _google_image_candidates(query: str) -> list:
+    """Direct product-image URLs via the official Google image search API —
+    the most reliable source when configured (retail sites bot-wall scrapers)."""
+    if not _GOOGLE_CSE_KEY or not _GOOGLE_CSE_CX:
+        return []
+    try:
+        with httpx.Client(timeout=20) as client:
+            r = client.get("https://www.googleapis.com/customsearch/v1", params={
+                "key": _GOOGLE_CSE_KEY, "cx": _GOOGLE_CSE_CX,
+                "q": query, "searchType": "image", "num": 5, "safe": "active",
+            })
+            if r.status_code != 200:
+                return []
+            return [it.get("link", "") for it in r.json().get("items", []) if it.get("link")]
+    except Exception:
+        return []
+
+
+def _openverse_image_candidates(query: str) -> list:
+    """Keyless CC-image fallback — usually a photo of a similar model rather
+    than the exact product render, but beats no photo at all."""
+    try:
+        with httpx.Client(timeout=20) as client:
+            r = client.get("https://api.openverse.org/v1/images/", params={"q": query, "page_size": 5})
+            if r.status_code != 200:
+                return []
+            return [res.get("url", "") for res in r.json().get("results", []) if res.get("url")]
+    except Exception:
+        return []
+
+
+def _find_product_page_urls(item) -> list:
+    """Ask Claude (web search enabled) for candidate product pages — we then try
+    each one's preview image until one validates. Amazon is excluded (bot-walls
+    every server-side fetch); retail/manufacturer pages with og:image work."""
     import re
     desc = " ".join(x for x in [item.make, item.model, item.name] if x).strip() or item.name
     payload = {
@@ -1056,11 +1089,11 @@ def _find_product_image_url(item) -> str:
             "role": "user",
             "content": (
                 f"Search the web for this product: {desc}. "
-                "Find the manufacturer's official product page, or a major retailer's product page "
-                "(Amazon, Home Depot, Grainger, etc.) that clearly shows this product. "
-                "Reply with ONLY that page's URL on a single line, nothing else — no explanation. "
-                "If you find a direct image URL (.jpg/.png/.webp) that's even better. "
-                "If you truly cannot find anything, reply NONE."
+                "Give me up to 3 product page URLs that clearly show this product — prefer retailer "
+                "product pages (Grainger, Acme Tools, Zoro, Toolstop, eBay listings, CDW, B&H) or the "
+                "manufacturer's page. Do NOT use amazon.com links (they block automated access). "
+                "Direct image URLs (.jpg/.png/.webp) are even better if you find them. "
+                "Reply with ONLY the URLs, one per line, nothing else. If you find nothing, reply NONE."
             ),
         }],
     }
@@ -1073,8 +1106,18 @@ def _find_product_image_url(item) -> str:
         r.raise_for_status()
         data = r.json()
     text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
-    urls = re.findall(r"https?://[^\s\"'<>]+", text)
-    return urls[-1].rstrip(").,]") if urls else ""
+    urls = [u.rstrip(").,]") for u in re.findall(r"https?://[^\s\"'<>]+", text)]
+    # Drop amazon links if Claude ignored the instruction
+    return [u for u in urls if "amazon." not in u.lower()][:3]
+
+
+# Image URLs that are obviously NOT product photos (site chrome) — reject them
+_BAD_IMG_HINTS = ("logo", "sprite", "icon", "favicon", "placeholder", "badge", "banner")
+
+
+def _looks_like_junk_image(url: str) -> bool:
+    low = url.lower()
+    return any(h in low for h in _BAD_IMG_HINTS) or low.endswith((".svg", ".gif"))
 
 
 def _fetch_image_to_storage(img_url: str, item_id: str, _depth: int = 0) -> str:
@@ -1098,21 +1141,37 @@ def _fetch_image_to_storage(img_url: str, item_id: str, _depth: int = 0) -> str:
             return ""
         ctype = resp.headers.get("content-type", "").split(";")[0].strip().lower()
         if ctype.startswith("text/html"):
-            # Got a product page instead of an image — pull its social-preview image
+            # Got a product page instead of an image — collect candidate images in
+            # quality order: JSON-LD product image, og:image, twitter:image. Skip
+            # obvious site chrome (logos, icons, .svg/.gif).
             html = resp.text
-            m = (re.search(r'<meta[^>]+property=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)', html)
-                 or re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image(?::secure_url)?["\']', html)
-                 or re.search(r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)', html)
-                 or re.search(r'<link[^>]+rel=["\']image_src["\'][^>]+href=["\']([^"\']+)', html))
-            if not m:
-                return ""
-            # og:image can be protocol-relative or site-relative — resolve it
-            return _fetch_image_to_storage(urljoin(str(resp.url), m.group(1)), item_id, _depth + 1)
+            candidates = []
+            for block in re.findall(r'<script[^>]+application/ld\+json[^>]*>(.*?)</script>', html, re.S):
+                m = re.search(r'"image"\s*:\s*\[?\s*"(https?://[^"]+)"', block)
+                if m:
+                    candidates.append(m.group(1))
+            for pat in (
+                r'<meta[^>]+property=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)',
+                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image(?::secure_url)?["\']',
+                r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)',
+                r'<link[^>]+rel=["\']image_src["\'][^>]+href=["\']([^"\']+)',
+            ):
+                m = re.search(pat, html)
+                if m:
+                    candidates.append(m.group(1))
+            for cand in candidates:
+                resolved = urljoin(str(resp.url), cand)
+                if _looks_like_junk_image(resolved):
+                    continue
+                got = _fetch_image_to_storage(resolved, item_id, _depth + 1)
+                if got:
+                    return got
+            return ""
         if ctype not in _IMG_CTYPES:
             return ""
         content = resp.content
-        if len(content) < 2048 or len(content) > 8 * 1024 * 1024:
-            return ""  # tracking pixel or unreasonably large
+        if len(content) < 8 * 1024 or len(content) > 8 * 1024 * 1024:
+            return ""  # tracking pixel / logo-sized, or unreasonably large
         path = f"item-photos/ai-{item_id}-{uuid.uuid4().hex[:6]}.{_IMG_CTYPES[ctype]}"
     # Upload on a SEPARATE client with strict TLS — verify=False above is only
     # for the third-party retail sites, never for our own infrastructure.
@@ -1154,13 +1213,34 @@ def auto_fill_photos(body: AutoPhotoRequest, user: dict = Depends(require_items_
             results.append({"item_id": item_id, "status": "already_has_photo"})
             continue
         try:
-            img_url = _find_product_image_url(item)
-            if not img_url or img_url.upper().endswith("NONE"):
+            desc = " ".join(x for x in [item.make, item.model, item.name] if x).strip() or item.name
+            # Source priority: Google image API (exact product, needs key) →
+            # Claude-found product pages (og:image) → Openverse CC photos.
+            sources = _google_image_candidates(desc)
+            if not sources:
+                sources = _find_product_page_urls(item)
+            if not sources:
+                sources = _openverse_image_candidates(desc)
+            if not sources:
                 results.append({"item_id": item_id, "status": "no_image", "item_name": item.name})
                 continue
-            public_url = _fetch_image_to_storage(img_url, item.id)
+            public_url = ""
+            tried = []
+            for src in sources:
+                public_url = _fetch_image_to_storage(src, item.id)
+                tried.append(src)
+                if public_url:
+                    break
+            if not public_url and not _GOOGLE_CSE_KEY:
+                # Claude's pages were all bot-walled — last resort: similar-model CC photo
+                for src in _openverse_image_candidates(desc):
+                    public_url = _fetch_image_to_storage(src, item.id)
+                    tried.append(src)
+                    if public_url:
+                        break
             if not public_url:
-                results.append({"item_id": item_id, "status": "download_failed", "item_name": item.name})
+                results.append({"item_id": item_id, "status": "download_failed", "item_name": item.name,
+                                "detail": f"no usable image on: {', '.join(t[:60] for t in tried)}"})
                 continue
             item.photo_url = public_url
             db.commit()
