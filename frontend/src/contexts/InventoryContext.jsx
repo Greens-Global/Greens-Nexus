@@ -115,6 +115,8 @@ export function InventoryProvider({ children }) {
     fetchCheckouts();
 
     if (supabase) {
+      // inventory_events: fired by backend after every checkout state change;
+      // only refetch if the current user is the requester or allocator.
       eventsRef.current = supabase
         .channel('item_events_inserts')
         .on(
@@ -128,10 +130,33 @@ export function InventoryProvider({ children }) {
           }
         )
         .subscribe();
+
+      // item_checkouts: direct table subscription for cross-account updates.
+      // When another user creates or resolves a checkout, every open session
+      // needs to see the item flip available ↔ unavailable in the catalog.
+      channelRef.current = supabase
+        .channel('item_checkouts_changes')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'item_checkouts' },
+          payload => {
+            const { status, requested_by_email, assigned_allocator_email } = payload.new ?? {};
+            const isMe = requested_by_email === myEmail || assigned_allocator_email === myEmail;
+            // Always refetch checkouts for involved users or managers (server
+            // enforces visibility — over-fetching here is safe).
+            fetchCheckouts();
+            // Refetch items when availability actually changes
+            if (status === 'allocated' || status === 'returned' || status === 'cancelled') {
+              fetchItems();
+            }
+          }
+        )
+        .subscribe();
     }
 
     return () => {
       if (eventsRef.current) supabase?.removeChannel(eventsRef.current);
+      if (channelRef.current) supabase?.removeChannel(channelRef.current);
       clearTimeout(pollRef.current);
     };
   }, [fetchItems, fetchCheckouts, scheduleNext, myEmail]);

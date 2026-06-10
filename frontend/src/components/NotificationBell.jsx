@@ -493,7 +493,7 @@ export default function NotificationBell({ onNavigate }) {
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                          <span style={{ fontWeight: 700, fontSize: 15.5, color: 'var(--ink)', lineHeight: 1.3 }}>{n.itemName || n.title}</span>
+                          <span style={{ fontWeight: 700, fontSize: 15.5, color: 'var(--ink)', lineHeight: 1.3 }}>{n.title}</span>
                           <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>{timeAgo(n.timestamp)}</span>
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, margin: '7px 0 4px' }}>

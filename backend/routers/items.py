@@ -510,8 +510,8 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
         ).first()
         if not already_notified:
             _notify(db, type="checkout_pending", recipient="",
-                    title=f"Checkout request from {body.requested_by}",
-                    body=f"{body.requested_by} submitted a checkout — \"{body.reason}\"",
+                    title=f"Checkout request — {body.requested_by}",
+                    body=f"{body.requested_by} has submitted a checkout request. Please review and approve or reject.",
                     ref_id=ref_for_notif, item_name=body.item_name, requested_by=body.requested_by)
     db.commit()
     _fire_item_event(row.id, initial_status, row.requested_by_email or "")
