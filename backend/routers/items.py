@@ -216,7 +216,30 @@ def list_items(
         q = q.filter(Item.item_type == item_type)
     if status:
         q = q.filter(Item.status == status)
-    return [_item_to_dict(i) for i in q.all()]
+    items = q.all()
+
+    # Enrich each item with live checkout activity so ALL users (not just
+    # managers who see every checkout) know when an item is taken or under
+    # review — prevents submitting a cart that will 409 at the server.
+    active_cos = db.query(
+        ItemCheckout.item_id,
+        ItemCheckout.requested_by,
+        ItemCheckout.status,
+    ).filter(
+        ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"])
+    ).all()
+    active_map = {row.item_id: row for row in active_cos}
+
+    result = []
+    for i in items:
+        d = _item_to_dict(i)
+        co = active_map.get(i.id)
+        # hasActiveRequest: true when a checkout blocks new requests (not yet allocated)
+        d["hasActiveRequest"] = co is not None and co.status in ("pending", "approved", "pending_receipt")
+        # activeRequestedBy: who currently holds or has requested the item (for display)
+        d["activeRequestedBy"] = co.requested_by if co else None
+        result.append(d)
+    return result
 
 
 @router.post("", status_code=201)
@@ -466,7 +489,7 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
     # Verify no active checkout exists for this item (race condition guard)
     active = db.query(ItemCheckout).filter(
         ItemCheckout.item_id == body.item_id,
-        ItemCheckout.status.in_(["pending", "approved", "allocated"]),
+        ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"]),
     ).first()
     if active:
         raise HTTPException(409, f'"{item.name}" already has an active checkout request')

@@ -1368,9 +1368,10 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
     </div>
   );
 
-  // Items with active (pending/approved) checkout requests — greyed out BookMyShow style
+  // Items with active requests: combine server-reported flag (works for all
+  // users, not just managers) with the local checkouts list.
   const pendingCheckoutIds = new Set(
-    (checkouts || []).filter(c => ['pending','approved'].includes(c.status)).map(c => c.itemId)
+    (checkouts || []).filter(c => ['pending','approved','pending_receipt'].includes(c.status)).map(c => c.itemId)
   );
 
   // Available items first, then unavailable, alpha within each group
@@ -1388,15 +1389,19 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
           const tm = TYPE_META[item.itemType] || TYPE_META.Other;
           const alreadyInCart = inCart?.has(item.id);
           const isAvailable = item.status === 'available';
-          const hasPending  = isAvailable && pendingCheckoutIds.has(item.id);
+          // hasPending: item has a request in flight — block Add to Cart for everyone.
+          // item.hasActiveRequest comes from the server and is visible to all users,
+          // even employees who can't see other users' checkouts.
+          const hasPending  = isAvailable && (pendingCheckoutIds.has(item.id) || !!item.hasActiveRequest);
           const canAdd = onAddToCart && isAvailable && !hasPending && item.ownershipType === 'transient';
 
-          // For checked-out items, show who has it and when it's due
+          // Show who has the item — use checkouts list if visible, fall back to
+          // server-supplied activeRequestedBy (available even for non-managers).
           let checkedOutBy = null, dueDate = null;
-          if (!isAvailable && checkouts) {
-            const co = checkouts.find(c => c.itemId === item.id && ['approved','allocated'].includes(c.status));
+          if (!isAvailable || hasPending) {
+            const co = checkouts?.find(c => c.itemId === item.id && ['approved','pending_receipt','allocated'].includes(c.status));
+            checkedOutBy = co?.requestedBy ?? item.activeRequestedBy ?? null;
             if (co) {
-              checkedOutBy = co.requestedBy;
               const due = new Date(co.createdAt);
               due.setDate(due.getDate() + (co.days || 1));
               dueDate = due.toLocaleDateString('en-US', { month:'short', day:'numeric' });
@@ -1454,7 +1459,7 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
                     <MapPin size={10} /> {item.location}
                   </div>
                 )}
-                {checkedOutBy && (
+                {checkedOutBy && !isAvailable && (
                   <div style={{ fontSize:11, color:'hsl(var(--color-orange))', fontWeight:600 }}>
                     With {checkedOutBy}{dueDate ? ` · due ${dueDate}` : ''}
                   </div>
@@ -1471,7 +1476,13 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
                 ) : hasPending ? (
                   <div style={{ textAlign:'center', fontSize:11.5, color:'hsl(var(--color-orange))', fontWeight:600 }}>Under Review</div>
                 ) : !isAvailable ? (
-                  <div style={{ textAlign:'center', fontSize:11.5, color:'var(--muted)', fontWeight:600 }}>Unavailable</div>
+                  <div style={{ textAlign:'center', fontSize:11.5, color:'hsl(var(--color-orange))', fontWeight:600 }}>
+                    {item.status === 'checked_out'
+                      ? checkedOutBy ? `In Use — ${checkedOutBy}` : 'In Use'
+                      : item.status === 'permanently_assigned' ? 'Assigned'
+                      : item.status === 'retired' ? 'Retired'
+                      : 'Unavailable'}
+                  </div>
                 ) : null}
               </div>
             </div>
