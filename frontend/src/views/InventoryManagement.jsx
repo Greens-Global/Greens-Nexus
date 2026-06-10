@@ -3427,7 +3427,7 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
   const { can } = useRole();
   const isManager = can('manager');
   const [statusFilter,   setStatusFilter]   = useState('active');
-  const [heldByFilter,   setHeldByFilter]   = useState('All');
+  const [personQuery,    setPersonQuery]    = useState('');
   const [approvingCo,    setApprovingCo]    = useState(null);
   const [rejectingCo,    setRejectingCo]    = useState(null);
   const [approvingOrder, setApprovingOrder] = useState(null);
@@ -3452,17 +3452,6 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
       .finally(() => setExtBusyId(null));
   }
 
-  // Build list of people who currently hold items (active checkouts)
-  const holdersMap = (() => {
-    const map = new Map();
-    for (const c of checkouts) {
-      if (['pending','approved','pending_receipt','allocated'].includes(c.status) && c.requestedBy) {
-        map.set(c.requestedByEmail || c.requestedBy, c.requestedBy);
-      }
-    }
-    return map;
-  })();
-
   // Group ALL checkouts by orderId first, then filter groups
   const allGrouped = (() => {
     const map = new Map();
@@ -3476,9 +3465,13 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
 
   const groupedOrders = allGrouped.filter(groupItems => {
     const first = groupItems[0];
-    if (heldByFilter !== 'All') {
-      const holderKey = first.requestedByEmail || first.requestedBy;
-      if (holderKey !== heldByFilter) return false;
+    // Person search — matches requester name or any item name in the order,
+    // across every status (chips only covered people with ACTIVE checkouts)
+    if (personQuery.trim()) {
+      const q = personQuery.trim().toLowerCase();
+      const matches = (first.requestedBy || '').toLowerCase().includes(q) ||
+        groupItems.some(c => (c.itemName || '').toLowerCase().includes(q));
+      if (!matches) return false;
     }
     if (statusFilter === 'active')    return groupItems.some(c => ['pending','approved','pending_receipt','allocated'].includes(c.status));
     if (statusFilter === 'completed') return groupItems.every(c => ['returned','rejected','cancelled'].includes(c.status));
@@ -3575,22 +3568,17 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
           </button>
         )}
       </div>
-      {/* Who has what filter */}
-      {holdersMap.size > 0 && (
-        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:18, flexWrap:'wrap' }}>
-          <span style={{ fontSize:12, color:'var(--muted)', display:'flex', alignItems:'center', gap:4 }}><Users size={13} /> Who has it:</span>
-          <button onClick={() => setHeldByFilter('All')}
-            style={{ padding:'4px 12px', borderRadius:20, border:`1px solid ${heldByFilter === 'All' ? 'var(--pine)' : 'var(--line)'}`, background: heldByFilter === 'All' ? 'hsla(var(--color-green),0.1)' : 'transparent', color: heldByFilter === 'All' ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-            All
+      {/* Person/item search — works across every status, unlike the old chips
+          which only listed people with active checkouts */}
+      <div className="search-bar" style={{ maxWidth:380, marginBottom:18 }}>
+        <Users size={13} style={{ flexShrink:0 }} />
+        <input placeholder="Search by person or item…" value={personQuery} onChange={e => setPersonQuery(e.target.value)} />
+        {personQuery && (
+          <button onClick={() => setPersonQuery('')} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:2 }}>
+            <X size={13} />
           </button>
-          {[...holdersMap.entries()].map(([key, name]) => (
-            <button key={key} onClick={() => setHeldByFilter(key)}
-              style={{ padding:'4px 12px', borderRadius:20, border:`1px solid ${heldByFilter === key ? 'var(--pine)' : 'var(--line)'}`, background: heldByFilter === key ? 'hsla(var(--color-green),0.1)' : 'transparent', color: heldByFilter === key ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-              {name}
-            </button>
-          ))}
-        </div>
-      )}
+        )}
+      </div>
 
       {groupedOrders.length === 0 ? (
         <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)' }}>
@@ -3615,7 +3603,7 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
                   <div>
                     <div style={{ fontWeight:700, fontSize:14 }}>{first.requestedBy}</div>
                     <div style={{ fontSize:12, color:'var(--muted)', marginTop:2 }}>
-                      {first.department} · {fmtDate(first.createdAt)}{isMulti && ` · ${orderItems.length} Items`}
+                      {fmtDate(first.createdAt)}{isMulti && ` · ${orderItems.length} Items`}
                     </div>
                     {first.reason && <div style={{ fontSize:12, color:'var(--muted)', fontStyle:'italic', marginTop:3 }}>"{first.reason}"</div>}
                     {statusFilter === 'completed' && (() => {
