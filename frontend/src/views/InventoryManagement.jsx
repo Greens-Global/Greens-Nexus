@@ -233,6 +233,7 @@ function AddItemModal({ onClose, onSave }) {
   const [ownershipType, setOwnershipType] = useState('transient');
   const [location,      setLocation]      = useState('');
   const [photoUrl,      setPhotoUrl]      = useState('');
+  const [skipPhoto,     setSkipPhoto]     = useState(false);
   const [saving,        setSaving]        = useState(false);
   const [error,         setError]         = useState('');
   useEscapeKey(onClose);
@@ -243,7 +244,7 @@ function AddItemModal({ onClose, onSave }) {
   }
 
   function submit() {
-    if (!name.trim() || !photoUrl || saving) return;
+    if (!name.trim() || (!photoUrl && !skipPhoto) || saving) return;
     setSaving(true); setError('');
     Promise.resolve(onSave({
       name: name.trim(), item_type: itemType, make: make.trim(), model: model.trim(),
@@ -316,14 +317,24 @@ function AddItemModal({ onClose, onSave }) {
             <input className="form-input" style={{ width:'100%' }} value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. GSVC, GSE, Site Office" />
           </div>
 
-          <PhotoUpload value={photoUrl} onChange={setPhotoUrl} required hint="Required — upload a clear photo that distinguishes this specific item." />
+          <PhotoUpload value={photoUrl} onChange={setPhotoUrl} required={!skipPhoto} hint="Upload a clear photo that distinguishes this specific item." />
+          {!photoUrl && (
+            <label style={{ display:'flex', alignItems:'flex-start', gap:8, fontSize:12.5, color:'var(--muted)', cursor:'pointer', marginTop:-4 }}>
+              <input type="checkbox" checked={skipPhoto} onChange={e => setSkipPhoto(e.target.checked)}
+                style={{ cursor:'pointer', accentColor:'var(--pine)', marginTop:2 }} />
+              <span>
+                <strong style={{ color:'var(--ink)' }}>Add without a photo for now</strong> — the item will show
+                under Missing Photos; add one later via Assign Photos or AI Photo Fill.
+              </span>
+            </label>
+          )}
         </div>
 
         {error && <p style={{ display:'flex', alignItems:'center', gap:6, fontSize:12.5, color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:8, padding:'9px 12px', marginTop:14 }}><AlertCircle size={14} style={{ flexShrink:0 }} /> {error}</p>}
 
         <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:22 }}>
           <button className="secondary-btn" onClick={onClose} disabled={saving}>Cancel</button>
-          <button className="primary-btn" disabled={!name.trim() || !photoUrl || !department.trim() || !location.trim() || saving}
+          <button className="primary-btn" disabled={!name.trim() || (!photoUrl && !skipPhoto) || !department.trim() || !location.trim() || saving}
             style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:120, justifyContent:'center' }}
             onClick={submit}>
             {saving ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Saving…</> : <><Plus size={14} /> Add Item</>}
