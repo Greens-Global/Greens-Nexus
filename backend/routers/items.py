@@ -681,21 +681,96 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
             if pending_notif:
                 pending_notif.actioned = True
 
-    if body.status == "approved":
-        _notify(db, type="approved", recipient=row.requested_by_email,
-                title=f"Checkout approved: {row.item_name}",
-                body=f"Your request for {row.item_name} was approved. {row.assigned_allocator_name or 'Someone'} will hand it over to you.",
-                ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
-        if row.assigned_allocator_email:
-            _notify(db, type="allocate_request", recipient=row.assigned_allocator_email,
-                    title=f"Hand over: {row.item_name}",
-                    body=f"Please hand {row.item_name} over to {row.requested_by}.",
-                    ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
-    elif body.status == "rejected":
-        _notify(db, type="rejected", recipient=row.requested_by_email,
-                title=f"Checkout rejected: {row.item_name}",
-                body=f"Your request for {row.item_name} was not approved. Reason: {row.reject_reason or 'No reason given.'}",
-                ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+    if body.status in ("approved", "rejected"):
+        if row.order_id:
+            # Tally all siblings' current status (not yet committed — exclude current item)
+            siblings = db.query(ItemCheckout).filter(
+                ItemCheckout.order_id == row.order_id,
+                ItemCheckout.id != checkout_id,
+            ).all()
+            approved_names = [s.item_name for s in siblings if s.status == "approved"]
+            rejected_names = [s.item_name for s in siblings if s.status == "rejected"]
+            still_pending  = [s.item_name for s in siblings if s.status == "pending"]
+
+            # Add current item to the right bucket
+            if body.status == "approved":
+                approved_names.append(row.item_name)
+            else:
+                rejected_names.append(row.item_name)
+
+            all_resolved = len(still_pending) == 0
+
+            # Build title and body
+            if all_resolved:
+                if approved_names and rejected_names:
+                    notif_type = "approved"
+                    notif_title = f"Order update: {len(approved_names)} approved, {len(rejected_names)} rejected"
+                    parts = []
+                    if approved_names:
+                        parts.append(f"Approved: {', '.join(approved_names)}")
+                    if rejected_names:
+                        parts.append(f"Not approved: {', '.join(rejected_names)}")
+                    notif_body = ". ".join(parts) + "."
+                elif approved_names:
+                    notif_type = "approved"
+                    notif_title = f"Order approved: {len(approved_names)} item{'s' if len(approved_names) != 1 else ''}"
+                    notif_body = f"All {len(approved_names)} items from your order were approved. Your allocator will hand them over shortly."
+                else:
+                    notif_type = "rejected"
+                    notif_title = f"Order rejected: {len(rejected_names)} item{'s' if len(rejected_names) != 1 else ''}"
+                    notif_body = f"Your {len(rejected_names)}-item order was not approved. Reason: {row.reject_reason or 'No reason given.'}"
+            else:
+                total = len(approved_names) + len(rejected_names) + len(still_pending)
+                notif_type = "approved" if approved_names else "rejected"
+                notif_title = f"Order partially processed — {len(approved_names) + len(rejected_names)} of {total} items"
+                parts = []
+                if approved_names:
+                    parts.append(f"Approved: {', '.join(approved_names)}")
+                if rejected_names:
+                    parts.append(f"Not approved: {', '.join(rejected_names)}")
+                parts.append(f"Still pending: {', '.join(still_pending)}")
+                notif_body = ". ".join(parts) + "."
+
+            # Update existing order notification if one exists, otherwise create
+            existing = db.query(NexusNotification).filter(
+                NexusNotification.ref_id == row.order_id,
+                NexusNotification.recipient == (row.requested_by_email or "").lower(),
+                NexusNotification.type.in_(["approved", "rejected"]),
+                NexusNotification.actioned == False,
+            ).first()
+            if existing:
+                existing.type    = notif_type
+                existing.title   = notif_title
+                existing.body    = notif_body
+                existing.read_by = ""  # re-surface as unread
+            else:
+                _notify(db, type=notif_type, recipient=row.requested_by_email,
+                        title=notif_title, body=notif_body,
+                        ref_id=row.order_id, item_name=row.item_name, requested_by=row.requested_by)
+
+            # Allocator notification fires per approved item regardless of batch
+            if body.status == "approved" and row.assigned_allocator_email:
+                _notify(db, type="allocate_request", recipient=row.assigned_allocator_email,
+                        title=f"Hand over: {row.item_name}",
+                        body=f"Please hand {row.item_name} over to {row.requested_by}.",
+                        ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+        else:
+            # Solo item (no order) — one notification per action
+            if body.status == "approved":
+                _notify(db, type="approved", recipient=row.requested_by_email,
+                        title=f"Checkout approved: {row.item_name}",
+                        body=f"Your request for {row.item_name} was approved. {row.assigned_allocator_name or 'Someone'} will hand it over to you.",
+                        ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+                if row.assigned_allocator_email:
+                    _notify(db, type="allocate_request", recipient=row.assigned_allocator_email,
+                            title=f"Hand over: {row.item_name}",
+                            body=f"Please hand {row.item_name} over to {row.requested_by}.",
+                            ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+            else:
+                _notify(db, type="rejected", recipient=row.requested_by_email,
+                        title=f"Checkout rejected: {row.item_name}",
+                        body=f"Your request for {row.item_name} was not approved. Reason: {row.reject_reason or 'No reason given.'}",
+                        ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
     elif body.status == "pending_receipt":
         # For order batches: only notify once, when the LAST item in the order moves to pending_receipt
         if row.order_id:
