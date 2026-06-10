@@ -1240,9 +1240,15 @@ def auto_fill_photos(body: AutoPhotoRequest, user: dict = Depends(require_items_
             # Openverse, both ~1-2s calls — an item succeeds or fails FAST.
             # Claude web search (rate-limit sleeps, up to a minute per item) is
             # only ever used when no Google key exists at all.
+            # Query relaxation: "Make Model Name" can be too specific for the
+            # site-restricted index — fall back to the bare item name.
             sources = _google_image_candidates(desc)
+            if not sources and desc != item.name:
+                sources = _google_image_candidates(item.name)
             if not sources:
                 sources = _openverse_image_candidates(desc)
+            if not sources and desc != item.name:
+                sources = _openverse_image_candidates(item.name)
             if not sources and not _GOOGLE_CSE_KEY:
                 try:
                     sources = _find_product_page_urls(item)
