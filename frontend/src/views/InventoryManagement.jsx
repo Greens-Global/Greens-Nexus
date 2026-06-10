@@ -1092,7 +1092,7 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
 }
 
 // ── My Checkouts Panel ────────────────────────────────────────────────────────
-function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept, onConfirmReceipt, onReRequest }) {
+function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept, onConfirmReceipt, onReRequest, onReturnAll }) {
   const mine = checkouts.filter(c =>
     (c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) ||
     c.requestedBy === userName
@@ -1102,6 +1102,7 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
   const [reRequestReason, setReRequestReason] = useState('');
   const [reRequestBusy,   setReRequestBusy]   = useState(false);
   const [confirmingCo,    setConfirmingCo]    = useState(null);
+  const [returnAllGroup,  setReturnAllGroup]  = useState(null);
 
   // Find order groups where ALL items are rejected → auto-move to past, no manual discard needed
   const _orderMap = (() => {
@@ -1175,6 +1176,8 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
         const cancellableItems = groupItems.filter(c => ['pending','approved'].includes(c.status));
         const pendingReceiptItems = groupItems.filter(c => c.status === 'pending_receipt');
         const allPendingReceipt = isMulti && pendingReceiptItems.length === groupItems.length;
+        const allocatedItems = groupItems.filter(c => c.status === 'allocated');
+        const allAllocated = isMulti && allocatedItems.length === groupItems.length;
         return (
           <div key={groupKey} style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', marginBottom:12, background:'var(--card)', boxShadow:'var(--shadow-sm)' }}>
             {isMulti && (
@@ -1191,7 +1194,13 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
                     <Camera size={12} /> Confirm Receipt for All
                   </button>
                 )}
-                {cancellableItems.length > 1 && !allPendingReceipt && cancelAllKey !== groupKey && (
+                {allAllocated && onReturnAll && (
+                  <button onClick={() => setReturnAllGroup(allocatedItems)}
+                    style={{ marginLeft:'auto', background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'3px 10px', fontSize:11.5, cursor:'pointer', color:'var(--ink)', display:'inline-flex', alignItems:'center', gap:4, fontFamily:'Inter,sans-serif', fontWeight:600 }}>
+                    <RotateCcw size={11} /> Return All ({allocatedItems.length})
+                  </button>
+                )}
+                {cancellableItems.length > 1 && !allPendingReceipt && !allAllocated && cancelAllKey !== groupKey && (
                   <button onClick={() => setCancelAllKey(groupKey)}
                     style={{ marginLeft:'auto', background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:7, padding:'3px 10px', fontSize:11.5, cursor:'pointer', color:'hsl(var(--color-red))', display:'inline-flex', alignItems:'center', gap:4, fontFamily:'Inter,sans-serif', fontWeight:600 }}>
                     <XCircle size={11} /> Cancel All
@@ -1375,6 +1384,15 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
           />
         );
       })()}
+      {returnAllGroup && onReturnAll && (
+        <ReturnModal
+          checkout={{ itemName: `${returnAllGroup.length} items from your order` }}
+          onClose={() => setReturnAllGroup(null)}
+          onSubmit={data =>
+            onReturnAll(returnAllGroup, data).then(() => setReturnAllGroup(null))
+          }
+        />
+      )}
     </div>
   );
 }
@@ -1866,6 +1884,11 @@ function EmployeeView({ items, checkouts, userName, userEmail, itemsLoading, ite
                 confirmReceipt(co.id, userName, photoMap[co.id]?.url || '', photoMap[co.id]?.name || '')
                   .catch(() => { throw new Error(`Could not confirm receipt for ${co.itemName}.`); })
               : undefined}
+              onReturnAll={(items, data) =>
+                Promise.allSettled(items.map(c => onReturn(c.id, data)))
+                  .then(() => toast(`Returned ${items.length} item${items.length !== 1 ? 's' : ''}.`))
+                  .catch(() => toast('Some returns could not be submitted.', 'error'))
+              }
             />
           )}
           <div style={{ marginTop:28, paddingTop:20, borderTop:'1px solid var(--line)', display:'flex', justifyContent:'center' }}>
@@ -3718,6 +3741,11 @@ export default function InventoryManagement({ activeSub }) {
             onConfirmReceipt={(co, batch, photoMap) =>
               confirmReceipt(co.id, userName, photoMap[co.id]?.url || '', photoMap[co.id]?.name || '')
                 .catch(() => { throw new Error(`Could not confirm receipt for ${co.itemName}.`); })
+            }
+            onReturnAll={(items, data) =>
+              Promise.allSettled(items.map(c => returnItem(c.id, data)))
+                .then(() => toast(`Returned ${items.length} item${items.length !== 1 ? 's' : ''}.`))
+                .catch(() => toast('Some returns could not be submitted.', 'error'))
             }
             onReRequest={async (co, newReason) => {
               await api.createItemCheckout({
