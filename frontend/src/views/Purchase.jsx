@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Send, FileText, ClipboardList, User, Users, Link2, Package } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
 import { useRequisitions }  from '../contexts/RequisitionContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { cleanName } from '../lib/utils';
+import { api } from '../api';
 
 const ITEMS = ['Laptop','PC','Monitors','Speakers','Headset','Mouse','Keyboard','Battery Backup','Webcam','Safety Vest','Safety Helmet','Hand Tools','Power Tools','Nametag','Uniforms','Keys & Key Sets','Tablet','Phone'];
 const OTHER_ITEM = '__other__';
@@ -46,11 +47,29 @@ export default function Purchase() {
   const [reason,       setReason]       = useState('');
   const [refLink,      setRefLink]      = useState('');
   const [flash,        setFlash]        = useState(false);
+  const [directory,    setDirectory]    = useState([]);   // company people picker for on-behalf
+  const [approvers,    setApprovers]    = useState([]);   // manager list — only the picked one is notified
+  const [approverEmail, setApproverEmail] = useState('');
 
-  const isOther      = item === OTHER_ITEM;
-  const resolvedItem = isOther ? customItem.trim() : item;
-  const employeeName = forSelf ? myName : behalfName.trim();
-  const canSubmit    = resolvedItem && employeeName && reason.trim();
+  useEffect(() => {
+    api.getRolesDirectory().then(setDirectory).catch(() => {});
+    api.getItemApprovers().then(rows => {
+      setApprovers(rows);
+      const remembered = localStorage.getItem('nexus-approver-email');
+      if (remembered && rows.some(a => a.email === remembered)) setApproverEmail(remembered);
+    }).catch(() => {});
+  }, []);
+
+  const isOther       = item === OTHER_ITEM;
+  const resolvedItem  = isOther ? customItem.trim() : item;
+  const employeeName  = forSelf ? myName : behalfName.trim();
+  // Match the typed name against the directory so the requisition lands in
+  // THEIR log (employee_email), not the submitter's
+  const behalfMatch   = !forSelf
+    ? directory.find(d => d.name.toLowerCase() === behalfName.trim().toLowerCase())
+    : null;
+  const approver      = approvers.find(a => a.email === approverEmail) || null;
+  const canSubmit     = resolvedItem && employeeName && reason.trim() && approver && (forSelf || behalfMatch);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -58,9 +77,14 @@ export default function Purchase() {
     // Reference link travels inside the reason so no backend change is needed
     const fullReason = refLink.trim() ? `${reason.trim()}\nReference: ${refLink.trim()}` : reason.trim();
     const submittedNote = !forSelf && myName ? ` (submitted by ${myName})` : '';
-    const newReq = submitRequisition({ employeeName, employeeDept: dept, item: resolvedItem, quantity: qty, reason: fullReason });
+    const newReq = submitRequisition({
+      employeeName, employeeDept: dept, item: resolvedItem, quantity: qty, reason: fullReason,
+      employeeEmail: forSelf ? '' : behalfMatch?.email || '',
+    });
+    localStorage.setItem('nexus-approver-email', approver.email);
     addNotification({
       type:        'req_pending',
+      recipient:   approver.email,   // targeted — only this manager is notified
       refId:       newReq.id,
       title:       'New Purchase Requisition',
       body:        `${employeeName}${submittedNote} (${dept}) requested ${qty}× ${resolvedItem} — "${reason.trim()}"`,
@@ -140,8 +164,24 @@ export default function Purchase() {
               </button>
             </div>
             {!forSelf && (
-              <input className="form-input" style={{ width:'100%', maxWidth:380, marginTop:10 }}
-                placeholder="Their full name" value={behalfName} onChange={e => setBehalfName(e.target.value)} autoFocus />
+              <>
+                <input className="form-input" style={{ width:'100%', maxWidth:380, marginTop:10 }}
+                  placeholder="Start typing their name…" list="behalf-people"
+                  value={behalfName} onChange={e => setBehalfName(e.target.value)} autoFocus />
+                <datalist id="behalf-people">
+                  {directory.map(d => <option key={d.email} value={d.name} />)}
+                </datalist>
+                {behalfName.trim() && !behalfMatch && (
+                  <p style={{ fontSize:11.5, color:'hsl(var(--color-orange))', margin:'6px 0 0' }}>
+                    Pick a name from the list so the request shows in their log.
+                  </p>
+                )}
+                {behalfMatch && (
+                  <p style={{ fontSize:11.5, color:'hsl(var(--color-green))', margin:'6px 0 0' }}>
+                    ✓ Will appear in {behalfMatch.name}'s requisition log ({behalfMatch.email})
+                  </p>
+                )}
+              </>
             )}
           </div>
 
@@ -180,6 +220,19 @@ export default function Purchase() {
               placeholder="Give the approver enough detail to say yes — what is it for, why now, any specs that matter…"
               value={reason} onChange={e => setReason(e.target.value)}
               style={{ width:'100%', resize:'vertical', lineHeight:1.5 }} />
+          </div>
+
+          {/* Who should approve — only the picked manager is notified */}
+          <div style={{ marginBottom:20 }}>
+            <label style={FL}>WHO SHOULD APPROVE THIS? <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+            <select className="form-select" style={{ width:'100%', maxWidth:380 }} required
+              value={approverEmail} onChange={e => setApproverEmail(e.target.value)}>
+              <option value="">— select a manager —</option>
+              {approvers.map(a => <option key={a.email} value={a.email}>{a.name}</option>)}
+            </select>
+            <p style={{ fontSize:11.5, color:'var(--muted)', margin:'6px 0 0' }}>
+              Only this manager will be notified of your request.
+            </p>
           </div>
 
           {/* Reference link */}

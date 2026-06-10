@@ -82,6 +82,23 @@ def get_all_roles(
     return [{"email": r.email, "role": r.role, "display_name": r.display_name or "", "assigned_by": r.assigned_by} for r in rows]
 
 
+@router.get("/directory")
+def get_directory(
+    user: dict = Depends(get_current_user),
+    db:   Session = Depends(get_db),
+):
+    """People picker for on-behalf flows — names and emails only, no roles.
+    Open to every authenticated user (it's the same data as the Outlook GAL)."""
+    rows = db.query(NexusRole).order_by(NexusRole.email).all()
+    return [
+        {
+            "email": r.email,
+            "name": r.display_name or " ".join(p.capitalize() for p in r.email.split("@")[0].replace("_", ".").split(".") if p),
+        }
+        for r in rows
+    ]
+
+
 @router.put("/{email}")
 def assign_role(
     email: str,

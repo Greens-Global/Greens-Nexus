@@ -183,12 +183,16 @@ export function RequisitionProvider({ children }) {
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
-  const submitRequisition = ({ employeeName, employeeDept, item, quantity, reason }) => {
+  const submitRequisition = ({ employeeName, employeeDept, item, quantity, reason, employeeEmail }) => {
     const id  = `REQ-${Date.now().toString().slice(-6)}`;
     const now = ts();
+    // On-behalf requests are tagged to the BENEFICIARY's email so the
+    // requisition shows in their log, not the submitter's.
+    const ownerEmail = (employeeEmail || myEmail).toLowerCase();
     const newReq = {
       id, employeeName, employeeDept, item,
       quantity: Number(quantity), reason,
+      employeeEmail: ownerEmail,
       status: 'pending_manager',
       supervisorName: DEPT_SUPERVISORS[employeeDept] || 'TBD',
       managerName: null, managerApprovalDate: null, rejectionReason: null,
@@ -200,7 +204,7 @@ export function RequisitionProvider({ children }) {
     };
     setRequisitions(prev => [newReq, ...prev]);
     api.createRequisition({
-      id, employee_name: employeeName, employee_email: myEmail,
+      id, employee_name: employeeName, employee_email: ownerEmail,
       employee_dept: employeeDept, item, quantity: Number(quantity),
       reason: reason || '', status: 'pending_manager',
       supervisor_name: DEPT_SUPERVISORS[employeeDept] || 'TBD',

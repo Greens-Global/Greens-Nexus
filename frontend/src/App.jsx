@@ -35,6 +35,10 @@ const Support             = lazy(() => import("./views/Support"));
 const Placeholder         = lazy(() => import("./views/Placeholder"));
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
+// Views that aren't registered MODULES (e.g. "purchase") fall back to a
+// title-cased version of their id so breadcrumbs never show raw lowercase ids.
+const viewLabel = (view) => VIEW_LABELS[view]
+  || (view || '').split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
 // Minimum role required to access each restricted view — mirrors the minRole
 // values in Sidebar's NAV array. Keep both in sync when adding new views.
@@ -227,14 +231,14 @@ export default function App() {
           />
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
             <TopHeader
-              title={VIEW_LABELS[activeView] || activeView}
+              title={viewLabel(activeView)}
               theme={theme}
               onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")}
               onMobileToggle={() => setSidebarOpen(o => !o)}
               canGoBack={navHistory.length > 0}
               onBack={goBack}
               onNavigate={navigate}
-              prevLabel={navHistory.length > 0 ? (VIEW_LABELS[navHistory[navHistory.length - 1].view] || navHistory[navHistory.length - 1].view) : null}
+              prevLabel={navHistory.length > 0 ? viewLabel(navHistory[navHistory.length - 1].view) : null}
               onOpenAdmin={tab => { setAdminPanelTab(tab); setAdminPanelOpen(true); }}
             />
             <div className="viewport">
