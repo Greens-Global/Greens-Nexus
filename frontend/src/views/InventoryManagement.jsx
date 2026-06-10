@@ -1418,7 +1418,12 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
                 <ShoppingCart size={13} color="hsl(var(--color-blue))" />
                 <span style={{ fontSize:12.5, fontWeight:700, color:'hsl(var(--color-blue))' }}>Order · {groupItems.length} Items</span>
                 <span style={{ fontSize:12, color:'var(--muted)', marginLeft:4 }}>· {fmtDateShort(firstItem.createdAt)}</span>
-                {firstItem.reason && <span style={{ fontSize:12, color:'var(--muted)', fontStyle:'italic', marginLeft:4 }}>"{firstItem.reason}"</span>}
+                {firstItem.reason && (
+                  <span style={{ display:'inline-flex', alignItems:'baseline', gap:5, marginLeft:4, background:'var(--card)', border:'1px solid var(--line)', borderRadius:6, padding:'2px 8px' }}>
+                    <span style={{ fontSize:9.5, fontWeight:800, letterSpacing:'.06em', color:'var(--muted)' }}>REASON</span>
+                    <span style={{ fontSize:12, color:'var(--ink)' }}>{firstItem.reason}</span>
+                  </span>
+                )}
                 {/* Group-level confirm receipt — covers every item awaiting receipt */}
                 {showBatchReceipt && onConfirmReceipt && (
                   <button className="primary-btn"
@@ -1473,7 +1478,10 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
                     </span>
                   </div>
                   {!isMulti && c.reason && (
-                    <div style={{ fontSize:12, color:'var(--muted)', background:'var(--mist)', borderRadius:7, padding:'6px 10px', marginBottom:4 }}>"{c.reason}"</div>
+                    <div style={{ display:'inline-flex', alignItems:'baseline', gap:6, background:'var(--mist)', borderRadius:7, padding:'5px 10px', marginBottom:4 }}>
+                      <span style={{ fontSize:9.5, fontWeight:800, letterSpacing:'.06em', color:'var(--muted)' }}>REASON</span>
+                      <span style={{ fontSize:12.5, color:'var(--ink)' }}>{c.reason}</span>
+                    </div>
                   )}
                   {c.status === 'allocated'
                     ? <InUseSummary checkout={c} />
@@ -3636,7 +3644,12 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
                     <div style={{ fontSize:12, color:'var(--muted)', marginTop:2 }}>
                       {fmtDate(first.createdAt)}{isMulti && ` · ${orderItems.length} Items`}
                     </div>
-                    {first.reason && <div style={{ fontSize:12, color:'var(--muted)', fontStyle:'italic', marginTop:3 }}>"{first.reason}"</div>}
+                    {first.reason && (
+                      <div style={{ display:'inline-flex', alignItems:'baseline', gap:6, marginTop:6, background:'var(--mist)', borderRadius:7, padding:'4px 10px' }}>
+                        <span style={{ fontSize:10, fontWeight:800, letterSpacing:'.06em', color:'var(--muted)' }}>REASON</span>
+                        <span style={{ fontSize:12.5, color:'var(--ink)' }}>{first.reason}</span>
+                      </div>
+                    )}
                     {statusFilter === 'completed' && (() => {
                       const summary = orderActivitySummary(orderItems);
                       return summary ? (
