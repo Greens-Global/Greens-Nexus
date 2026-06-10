@@ -325,6 +325,11 @@ class ItemCheckout(Base):
     return_photo_name        = Column(String, default="")
     condition_note           = Column(String, default="")
     order_id                 = Column(String, default="")
+    handover_photo_by        = Column(String, default="")   # 'allocator' | 'employee'
+    handover_batch           = Column(Boolean, default=False)
+    receipt_photo_url        = Column(String, default="")
+    receipt_photo_name       = Column(String, default="")
+    handed_over_at           = Column(String, default="")
 
 
 class ItemCartEntry(Base):

@@ -207,11 +207,38 @@ export function InventoryProvider({ children }) {
       .catch(err => { fetchCheckouts(); throw err; });
   }
 
-  function allocateItem(id, supervisorName, checkoutPhotoUrl = '') {
+  function allocateItem(id, supervisorName, checkoutPhotoUrl = '', checkoutPhotoName = '', { handoverPhotoBy = 'allocator', handoverBatch = false } = {}) {
     setCheckouts(prev => prev.map(c =>
       c.id === id ? { ...c, status: 'allocated', allocatedAt: new Date().toISOString(), allocatedBy: supervisorName, checkoutPhotoUrl: checkoutPhotoUrl || c.checkoutPhotoUrl } : c
     ));
-    return api.updateItemCheckout(id, { status: 'allocated', allocated_by: supervisorName, checkout_photo_url: checkoutPhotoUrl })
+    return api.updateItemCheckout(id, {
+      status: 'allocated', allocated_by: supervisorName,
+      checkout_photo_url: checkoutPhotoUrl, checkout_photo_name: checkoutPhotoName,
+      handover_photo_by: handoverPhotoBy, handover_batch: handoverBatch,
+    })
+      .then(saved => { fetchCheckouts(); fetchItems(); return saved; })
+      .catch(err => { fetchCheckouts(); throw err; });
+  }
+
+  // Supervisor initiates handover and employee will confirm receipt with photo
+  function initiateHandover(id, supervisorName) {
+    setCheckouts(prev => prev.map(c =>
+      c.id === id ? { ...c, status: 'pending_receipt', handedOverAt: new Date().toISOString(), handoverPhotoBy: 'employee' } : c
+    ));
+    return api.updateItemCheckout(id, { status: 'pending_receipt', allocated_by: supervisorName, handover_photo_by: 'employee' })
+      .then(saved => { fetchCheckouts(); return saved; })
+      .catch(err => { fetchCheckouts(); throw err; });
+  }
+
+  // Employee confirms receipt and uploads their own photo
+  function confirmReceipt(id, recipientName, receiptPhotoUrl = '', receiptPhotoName = '') {
+    setCheckouts(prev => prev.map(c =>
+      c.id === id ? { ...c, status: 'allocated', allocatedAt: new Date().toISOString(), receiptPhotoUrl } : c
+    ));
+    return api.updateItemCheckout(id, {
+      status: 'allocated', allocated_by: recipientName,
+      receipt_photo_url: receiptPhotoUrl, receipt_photo_name: receiptPhotoName,
+    })
       .then(saved => { fetchCheckouts(); fetchItems(); return saved; })
       .catch(err => { fetchCheckouts(); throw err; });
   }
@@ -271,7 +298,7 @@ export function InventoryProvider({ children }) {
       checkouts, checkoutsLoading, checkoutsError,
       pendingCount,
       submitCartCheckouts, approveRequest, rejectRequest,
-      allocateItem, returnItem, cancelRequest,
+      allocateItem, initiateHandover, confirmReceipt, returnItem, cancelRequest,
       refreshItems: fetchItems, refreshCheckouts: fetchCheckouts,
       // Backward compat aliases for NotificationBell + ManagerDashboard
       requests: checkouts,

@@ -67,7 +67,7 @@ function groupByRequest(list) {
 }
 
 export default function NotificationBell({ onNavigate }) {
-  const { notifications, unreadCount, markRead, markAllRead, dismiss, clearRead, addNotification, markActioned, pendingApprovalId, clearPendingApproval } = useNotifications();
+  const { notifications, unreadCount, markRead, markAllRead, dismiss, addNotification, markActioned, pendingApprovalId, clearPendingApproval } = useNotifications();
   const { approveRequest, rejectRequest, allocateItem, requests: invRequests } = useInventory();
   const { approveRequisition, rejectRequisition }   = useRequisitions();
   const { accounts } = useMsal();
@@ -317,16 +317,11 @@ export default function NotificationBell({ onNavigate }) {
     }).catch(() => {}).finally(() => setAllocatingId(null));
   }
 
-  // Marks an "Updates" notification as read and schedules it to quietly drop
-  // out of the list shortly after — informational items shouldn't linger once
-  // you've seen them (unlike "Needs Action", which stays until resolved).
+  // Clicking an update notification reads and immediately dismisses it.
+  // Informational updates don't need to linger — one click = done.
   function handleUpdateClick(n) {
     markRead(n.id);
-    if (n.read || dismissTimers.current[n.id]) return;
-    dismissTimers.current[n.id] = setTimeout(() => {
-      dismiss(n.id);
-      delete dismissTimers.current[n.id];
-    }, AUTO_DISMISS_MS);
+    dismiss(n.id);
   }
 
   // Needs Action: only visible to managers+
@@ -430,20 +425,12 @@ export default function NotificationBell({ onNavigate }) {
             </div>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            {unreadCount > 0 && (
-              <button onClick={() => { markAllRead(); updates.filter(n => !n.read).forEach(handleUpdateClick); }}
+            {updates.length > 0 && (
+              <button onClick={() => { markAllRead(); updates.forEach(n => dismiss(n.id)); }}
                 style={{ fontSize: 12.5, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600 }}
                 onMouseEnter={e => e.currentTarget.style.background='var(--mist)'}
                 onMouseLeave={e => e.currentTarget.style.background='none'}>
-                Mark all read
-              </button>
-            )}
-            {notifications.some(n => n.read) && (
-              <button onClick={clearRead} title="Clear read notifications"
-                style={{ color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 8, borderRadius: 8, display: 'flex', alignItems: 'center' }}
-                onMouseEnter={e => e.currentTarget.style.background='var(--mist)'}
-                onMouseLeave={e => e.currentTarget.style.background='none'}>
-                <Trash2 size={17} />
+                Clear all
               </button>
             )}
             <button onClick={() => setOpen(false)} aria-label="Close" title="Close"
@@ -665,8 +652,10 @@ export default function NotificationBell({ onNavigate }) {
                         </button>
                       )}
                     </div>
-                    <button onClick={e => { e.stopPropagation(); dismiss(n.id); }}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 6, borderRadius: 6, flexShrink: 0 }}>
+                    <button onClick={e => { e.stopPropagation(); dismiss(n.id); }} title="Dismiss"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink)', opacity: 0.35, padding: 6, borderRadius: 6, flexShrink: 0, transition: 'opacity 0.15s' }}
+                      onMouseEnter={e => e.currentTarget.style.opacity='0.8'}
+                      onMouseLeave={e => e.currentTarget.style.opacity='0.35'}>
                       <X size={15} />
                     </button>
                   </div>
