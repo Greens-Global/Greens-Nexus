@@ -1097,14 +1097,25 @@ def _find_product_page_urls(item) -> list:
             ),
         }],
     }
+    import time
+    data = None
     with httpx.Client(timeout=60) as client:
-        r = client.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={"x-api-key": _ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-            json=payload,
-        )
-        r.raise_for_status()
-        data = r.json()
+        for attempt in range(3):
+            r = client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": _ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json=payload,
+            )
+            if r.status_code == 429 and attempt < 2:
+                # Tier-1 API keys have tight per-minute limits — wait and retry
+                wait = min(float(r.headers.get("retry-after", 20)), 60)
+                time.sleep(wait)
+                continue
+            r.raise_for_status()
+            data = r.json()
+            break
+    if data is None:
+        return []
     text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
     urls = [u.rstrip(").,]") for u in re.findall(r"https?://[^\s\"'<>]+", text)]
     # Drop amazon links if Claude ignored the instruction
@@ -1216,9 +1227,14 @@ def auto_fill_photos(body: AutoPhotoRequest, user: dict = Depends(require_items_
             desc = " ".join(x for x in [item.make, item.model, item.name] if x).strip() or item.name
             # Source priority: Google image API (exact product, needs key) →
             # Claude-found product pages (og:image) → Openverse CC photos.
+            # A Claude failure (rate limit etc.) must not abort the item —
+            # fall through to the keyless source instead.
             sources = _google_image_candidates(desc)
             if not sources:
-                sources = _find_product_page_urls(item)
+                try:
+                    sources = _find_product_page_urls(item)
+                except Exception:
+                    sources = []
             if not sources:
                 sources = _openverse_image_candidates(desc)
             if not sources:
