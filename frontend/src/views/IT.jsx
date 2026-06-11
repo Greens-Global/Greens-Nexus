@@ -823,12 +823,24 @@ function NetworkDashboard() {
     setError(null);
   }
 
-  function exportCSV() {
+  async function exportCSV() {
+    // A plain <a href> can't carry the Authorization header — the backend
+    // rejected it with 401. Fetch with the token, download the blob instead.
     if (!currentSite) return;
-    const a = document.createElement("a");
-    a.href = `${BASE}/export/csv?siteId=${encodeURIComponent(currentSite.siteId)}`;
-    a.download = "";
-    a.click();
+    try {
+      const authHeader = await getAuthHeader();
+      const r = await fetch(`${BASE}/export/csv?siteId=${encodeURIComponent(currentSite.siteId)}`, { headers: authHeader });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+      const blob = await r.blob();
+      const url  = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `unifi_${currentSite.siteId}_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e.message || "Export failed");
+    }
   }
 
   const allOffline       = sites.flatMap(s => s.offline_devices.map(d => ({ ...d, siteName: s.name, siteId: s.siteId })));
