@@ -239,6 +239,7 @@ function AddItemModal({ onClose, onSave }) {
   const [skipPhoto,     setSkipPhoto]     = useState(false);
   const [pictureRequired, setPictureRequired] = useState(true);
   const [assetValue,    setAssetValue]    = useState('');
+  const [assignNow,     setAssignNow]     = useState(false);
   const [saving,        setSaving]        = useState(false);
   const [error,         setError]         = useState('');
   useEscapeKey(onClose);
@@ -256,7 +257,7 @@ function AddItemModal({ onClose, onSave }) {
       year: year.trim(), department: department.trim(), default_owner: defaultOwner.trim(),
       ownership_type: ownershipType, location: location.trim(), photo_url: photoUrl,
       picture_required: pictureRequired, asset_value: parseFloat(assetValue) || 0,
-    }))
+    }, { assignNow: ownershipType === 'permanent' && assignNow }))
       .then(onClose)
       .catch(err => setError(err?.message || 'Could not add item — please try again.'))
       .finally(() => setSaving(false));
@@ -290,6 +291,19 @@ function AddItemModal({ onClose, onSave }) {
               </select>
             </div>
           </div>
+
+          {/* Permanent items start UNASSIGNED — adding one doesn't put it under
+              the adder's name. Optionally jump straight into the assign flow. */}
+          {ownershipType === 'permanent' && (
+            <label style={{ display:'flex', alignItems:'flex-start', gap:8, fontSize:12.5, color:'var(--muted)', cursor:'pointer', marginTop:-4 }}>
+              <input type="checkbox" checked={assignNow} onChange={e => setAssignNow(e.target.checked)}
+                style={{ cursor:'pointer', accentColor:'var(--pine)', marginTop:2 }} />
+              <span>
+                <strong style={{ color:'var(--ink)' }}>Assign to a person right away</strong> — pick who after
+                saving. Otherwise the item stays unassigned until you use Assign in the Manage tab.
+              </span>
+            </label>
+          )}
 
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 80px', gap:12 }}>
             <div>
@@ -4237,12 +4251,13 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts }) {
       if (!map.has(key)) map.set(key, { name: c.requestedBy, transient: [], permanent: [] });
       map.get(key).transient.push(c);
     }
-    // Permanent: matched by the assignee EMAIL set through the assignment flow;
-    // legacy items without one fall back to the default-owner text
+    // Permanent: only items tagged to a REAL person via the assignment flow.
+    // No defaultOwner fallback — that's a department label, not a holder, and
+    // it filed unassigned items under whoever added them (Sai's Oneplus bug).
     for (const i of items) {
       if (i.ownershipType !== 'permanent' && i.status !== 'permanently_assigned') continue;
       const email = (i.assignedToEmail || '').toLowerCase();
-      const owner = i.assignedToName || (i.defaultOwner || '').trim();
+      const owner = (i.assignedToName || '').trim();
       if (!email && !owner) continue;
       const key = email || `perm-${owner.toLowerCase()}`;
       if (!map.has(key)) {
@@ -4482,9 +4497,14 @@ export default function InventoryManagement({ activeSub }) {
   }, []);
   const dismissToast = id => setToasts(prev => prev.filter(t => t.id !== id));
 
-  function handleAddItem(data) {
+  function handleAddItem(data, opts = {}) {
     return api.createItem(data)
-      .then(() => { refreshItems(); toast(`Added "${data.name}" to the catalog.`); })
+      .then(created => {
+        refreshItems(); toast(`Added "${data.name}" to the catalog.`);
+        // Permanent item + "assign right away" → straight into the normal
+        // assign flow (acceptance + photo), same as the Manage-tab button
+        if (opts.assignNow && created?.id) setAssigningItem({ item: created, mode: 'assign' });
+      })
       .catch(err => { toast(err?.message || 'Could not add item.', 'error'); throw err; });
   }
   function handleEditItem(item, data) {

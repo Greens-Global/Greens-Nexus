@@ -305,7 +305,10 @@ def create_item(body: ItemCreate, user: dict = Depends(require_items_admin), db:
         department=(body.department or "").strip(),
         default_owner=(body.default_owner or "").strip(),
         ownership_type=(body.ownership_type or "transient").strip(),
-        status="available" if (body.ownership_type or "transient") == "transient" else "permanently_assigned",
+        # Permanent items start AVAILABLE too — "permanently_assigned" only
+        # happens via the assignment flow once a real person accepts it.
+        # Auto-stamping it at creation made unassigned items show as assigned.
+        status="available",
         location=(body.location or "").strip(),
         photo_url=(body.photo_url or "").strip(),
         created_by=user["email"],
@@ -343,7 +346,7 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
             department=(row.department or "").strip(),
             default_owner=(row.default_owner or _TYPE_DEFAULT_OWNER.get(item_type, "")).strip(),
             ownership_type=ownership,
-            status="available" if ownership == "transient" else "permanently_assigned",
+            status="available",  # assignment flow sets permanently_assigned once accepted
             location=(row.location or "").strip(),
             photo_url="",
             created_by=user["email"],

@@ -21,6 +21,7 @@ def _run_migrations():
         sqlite_migrations = [
             "ALTER TABLE items ADD COLUMN picture_required BOOLEAN DEFAULT 1",
             "ALTER TABLE items ADD COLUMN asset_value FLOAT DEFAULT 0",
+            "UPDATE items SET status = 'available' WHERE ownership_type = 'permanent' AND COALESCE(assigned_to_email, '') = '' AND status = 'permanently_assigned'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -75,6 +76,9 @@ def _run_migrations():
         # items: per-item photo policy + dollar value (Neil, Jun 2026 review)
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS picture_required BOOLEAN DEFAULT TRUE",
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS asset_value DOUBLE PRECISION DEFAULT 0",
+        # Permanent items were auto-stamped permanently_assigned at creation even
+        # with nobody attached — unstamp the ones that never got a real assignee
+        "UPDATE items SET status = 'available' WHERE ownership_type = 'permanent' AND COALESCE(assigned_to_email, '') = '' AND status = 'permanently_assigned'",
     ]
     with engine.connect() as conn:
         for sql in migrations:
