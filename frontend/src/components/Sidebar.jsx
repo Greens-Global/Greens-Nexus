@@ -12,7 +12,8 @@ import {
   HelpCircle, Store, Calendar, MessageSquare, Package,
 } from "lucide-react";
 
-const NAV = [
+// Exported: MobileMenu mirrors this exact order/grouping on phones
+export const NAV = [
   { view: "dashboard",         label: "Dashboard",          icon: LayoutDashboard },
   { view: "manager-dashboard", label: "Manager Dashboard",  icon: UserCheck,    minRole: 'supervisor' },
   { divider: true },

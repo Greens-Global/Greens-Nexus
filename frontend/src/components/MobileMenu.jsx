@@ -1,16 +1,11 @@
 import { X, ChevronRight, LogOut, Moon, Sun } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
-import { useRole, MODULES, ROLES } from '../contexts/RoleContext';
+import { useRole, ROLES } from '../contexts/RoleContext';
+import { NAV } from './Sidebar';
 
-// Full-screen phone menu (adidas-style): centered brand + close, big tappable
-// rows for every module this user can access, then utility rows. Replaces the
-// desktop sidebar on phones — same destinations, app-like presentation.
-// Access gating mirrors TopHeader's search (admin + supervisor-restricted).
-const MIN_SUPERVISOR = new Set([
-  'manager-dashboard', 'tasks', 'sop', 'it', 'ops', 'operations', 'development',
-  'property-asset', 'accounting', 'investor-relations', 'hr', 'marketing', 'external-links',
-]);
-
+// Full-screen phone menu. Mirrors the desktop sidebar EXACTLY — same NAV
+// definition, same order, same dividers, same minRole/group gating — so the
+// app never presents two different navigation structures (Visesh).
 export default function MobileMenu({ open, onClose, onNavigate, activeView, theme, onThemeToggle }) {
   const { instance, accounts } = useMsal();
   const { myRole, can, myGrantedModules } = useRole();
@@ -21,11 +16,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
 
   if (!open) return null;
 
-  const visible = MODULES.filter(m => {
-    if (m.id === 'admin' && !can?.('administrator')) return false;
-    if (MIN_SUPERVISOR.has(m.id) && !can?.('supervisor') && !myGrantedModules?.has(m.id)) return false;
-    return true;
-  });
+  const visible = NAV.filter(item => item.divider || !item.minRole || can?.(item.minRole) || myGrantedModules?.has(item.view));
   const go = id => { onNavigate(id); onClose(); };
 
   return (
@@ -42,12 +33,15 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
         </div>
       </div>
       <div className="mobile-menu-rows">
-        {visible.map(m => (
-          <button key={m.id} className={`mobile-menu-row${activeView === m.id ? ' active' : ''}`} onClick={() => go(m.id)}>
-            <span>{m.label}</span>
-            <ChevronRight size={17} />
-          </button>
-        ))}
+        {visible.map((item, i) => {
+          if (item.divider) return <div key={`d${i}`} className="mobile-menu-divider" />;
+          return (
+            <button key={item.view} className={`mobile-menu-row${activeView === item.view ? ' active' : ''}`} onClick={() => go(item.view)}>
+              <span>{item.label}</span>
+              <ChevronRight size={17} />
+            </button>
+          );
+        })}
       </div>
       <div className="mobile-menu-divider" />
       <div className="mobile-menu-rows secondary">
