@@ -155,6 +155,7 @@ _BODY_FIELDS_BY_RESOURCE = {
         "name", "item_type", "make", "model", "department", "location",
         "ownership_type", "status", "item_name", "reason", "days",
         "requested_by", "condition_note", "return_photo_name",
+        "asset_value",  # checkout/add value — "who took out how much worth"
     ),
     "inventory-requests": (
         "status", "item_id", "item_name", "quantity", "days", "reason",

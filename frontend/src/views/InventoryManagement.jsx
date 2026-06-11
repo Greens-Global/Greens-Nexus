@@ -16,6 +16,7 @@ import { supabase }         from '../lib/supabase';
 import { useMsal }          from '@azure/msal-react';
 import { cleanName }        from '../lib/utils';
 import { useAssignments, MyPermanentPanel, AssignmentsQueue, AssignItemModal } from '../components/Assignments';
+import { renderNotifBody } from '../components/NotificationBell';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const ITEM_TYPES = ['Devices', 'Tools', 'Vehicles', 'Equipment', 'Keys', 'Other'];
@@ -1064,11 +1065,15 @@ function formatAuditDetails(action, rawDetails) {
   const a = (action || '').toLowerCase();
   const skip = new Set(['path', 'status']);
 
+  // Everything important is **bold** (rendered via the notification bold parser)
+  const money = v => '$' + Math.round(Number(v) || 0).toLocaleString('en-US');
+
   if (a.includes('checkout') || a.includes('checked out')) {
     const parts = [];
-    if (d.item_name) parts.push(d.item_name);
+    if (d.item_name) parts.push(`**${d.item_name}**`);
     if (d.item_type) parts.push(`(${d.item_type})`);
-    if (d.days)      parts.push(`for ${d.days} day${d.days !== 1 ? 's' : ''}`);
+    if (d.days)      parts.push(`for **${d.days} day${d.days !== 1 ? 's' : ''}**`);
+    if (Number(d.asset_value) > 0) parts.push(`· worth **${money(d.asset_value)}**`);
     if (d.reason)    parts.push(`— "${d.reason}"`);
     if (d.department) parts.push(`[${d.department}]`);
     return parts.length ? parts.join(' ') : '—';
@@ -1076,28 +1081,38 @@ function formatAuditDetails(action, rawDetails) {
   if (a.includes('deleted item cart') || (a.includes('cart') && a.includes('delet'))) {
     return 'Removed item from cart';
   }
+  if (a.includes('added item') || a.includes('deleted item') || a.includes('imported')) {
+    const parts = [];
+    if (d.name || d.item_name) parts.push(`**${d.name || d.item_name}**`);
+    if (d.item_type)  parts.push(`(${d.item_type})`);
+    if (d.make || d.model) parts.push([d.make, d.model].filter(Boolean).join(' '));
+    if (Number(d.asset_value) > 0) parts.push(`· worth **${money(d.asset_value)}**`);
+    if (d.location)   parts.push(`@ ${d.location}`);
+    if (d.ownership_type) parts.push(d.ownership_type === 'permanent' ? '· permanent' : '· temporary');
+    return parts.length ? parts.join(' ') : '—';
+  }
   if (a.includes('approved')) {
     const parts = [];
-    if (d.item_name) parts.push(d.item_name);
-    if (d.allocator_name) parts.push(`→ assigned to ${d.allocator_name}`);
+    if (d.item_name) parts.push(`**${d.item_name}**`);
+    if (d.allocator_name) parts.push(`→ assigned to **${d.allocator_name}**`);
     return parts.length ? parts.join(' ') : '—';
   }
   if (a.includes('rejected')) {
     const parts = [];
-    if (d.item_name) parts.push(d.item_name);
+    if (d.item_name) parts.push(`**${d.item_name}**`);
     if (d.reason)    parts.push(`Reason: "${d.reason}"`);
     return parts.join(' — ') || '—';
   }
   if (a.includes('return')) {
-    return d.item_name ? `${d.item_name} returned` : '—';
+    return d.item_name ? `**${d.item_name}** returned${d.condition_note ? ` — ${d.condition_note}` : ''}` : '—';
   }
   if (a.includes('allocated') || a.includes('hand over')) {
-    return d.item_name ? `${d.item_name} handed over${d.requested_by ? ` to ${d.requested_by}` : ''}` : '—';
+    return d.item_name ? `**${d.item_name}** handed over${d.requested_by ? ` to **${d.requested_by}**` : ''}` : '—';
   }
 
-  // Generic fallback — drop path/status, render remaining keys in plain English
+  // Generic fallback — drop path/status, render remaining keys with bold values
   const entries = Object.entries(d).filter(([k, v]) => !skip.has(k) && v !== null && v !== undefined && v !== '');
-  return entries.length ? entries.map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join(' · ') : '—';
+  return entries.length ? entries.map(([k, v]) => `${k.replace(/_/g, ' ')}: **${v}**`).join(' · ') : '—';
 }
 
 function orderActivitySummary(orderItems) {
@@ -1155,6 +1170,19 @@ function fmtAuditStamp(iso) {
   return d.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) + ' PT';
 }
 
+// Audit rows store raw emails and full checkout IDs — display friendly forms:
+// "Visesh Lodha" instead of the address, "Req #F1AC60E7" instead of
+// ICHK-CAF2CE90-F1AC60E7 (Visesh: make the log human-understandable).
+function auditName(email) {
+  const local = (email || '').split('@')[0];
+  return local.split(/[._]/).filter(Boolean).map(p => p[0].toUpperCase() + p.slice(1)).join(' ') || email || '—';
+}
+function humanizeAuditAction(action) {
+  return (action || '')
+    .replace(/ICHK-[A-Z0-9]+-([A-Z0-9]{4,})/i, (_, tail) => `· Req #${tail.slice(-8).toUpperCase()}`)
+    .replace(/ASG-([A-Z0-9]{4,})/i, (_, t) => `· #${t.slice(-8).toUpperCase()}`);
+}
+
 const AuditLogPanel = memo(function AuditLogPanel() {
   const [query,   setQuery]   = useState('');
   const [logs,    setLogs]    = useState([]);
@@ -1194,18 +1222,21 @@ const AuditLogPanel = memo(function AuditLogPanel() {
         </div>
       ) : isMobile ? (
         <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-          {logs.map(log => (
-            <div key={log.id} style={{ border:'1px solid var(--line)', borderRadius:12, background:'var(--card)', padding:'11px 14px', boxShadow:'var(--shadow-sm)' }}>
-              <div style={{ display:'flex', justifyContent:'space-between', gap:8, alignItems:'baseline' }}>
-                <span style={{ fontWeight:700, fontSize:13, minWidth:0 }}>{log.action}</span>
-                <span style={{ fontSize:10.5, color:'var(--muted)', flexShrink:0, whiteSpace:'nowrap' }}>{fmtAuditStamp(log.timestamp)}</span>
+          {logs.map(log => {
+            const det = formatAuditDetails(log.action, log.details);
+            return (
+              <div key={log.id} style={{ border:'1px solid var(--line)', borderRadius:12, background:'var(--card)', padding:'11px 14px', boxShadow:'var(--shadow-sm)' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', gap:8, alignItems:'baseline' }}>
+                  <span style={{ fontWeight:700, fontSize:13, minWidth:0 }}>{humanizeAuditAction(log.action)}</span>
+                  <span style={{ fontSize:10.5, color:'var(--muted)', flexShrink:0, whiteSpace:'nowrap' }}>{fmtAuditStamp(log.timestamp)}</span>
+                </div>
+                <div title={log.user_email} style={{ fontSize:12, fontWeight:700, color:'var(--ink)', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{auditName(log.user_email)}</div>
+                {det && det !== '—' && (
+                  <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:4, lineHeight:1.45 }}>{renderNotifBody(det)}</div>
+                )}
               </div>
-              <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{log.user_email}</div>
-              {formatAuditDetails(log.action, log.details) && (
-                <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:4, lineHeight:1.45 }}>{formatAuditDetails(log.action, log.details)}</div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto' }}>
@@ -1220,9 +1251,9 @@ const AuditLogPanel = memo(function AuditLogPanel() {
               {logs.map(log => (
                 <tr key={log.id} style={{ borderTop:'1px solid var(--line)' }}>
                   <td style={{ padding:'9px 14px', color:'var(--muted)', whiteSpace:'nowrap' }}>{fmtAuditStamp(log.timestamp)}</td>
-                  <td style={{ padding:'9px 14px' }}>{log.user_email}</td>
-                  <td style={{ padding:'9px 14px', fontWeight:600 }}>{log.action}</td>
-                  <td style={{ padding:'9px 14px', color:'var(--muted)' }}>{formatAuditDetails(log.action, log.details)}</td>
+                  <td style={{ padding:'9px 14px', fontWeight:700 }} title={log.user_email}>{auditName(log.user_email)}</td>
+                  <td style={{ padding:'9px 14px', fontWeight:600 }}>{humanizeAuditAction(log.action)}</td>
+                  <td style={{ padding:'9px 14px', color:'var(--muted)' }}>{renderNotifBody(formatAuditDetails(log.action, log.details))}</td>
                 </tr>
               ))}
             </tbody>

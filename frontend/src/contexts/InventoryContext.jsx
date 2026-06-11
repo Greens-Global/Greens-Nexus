@@ -160,11 +160,14 @@ export function InventoryProvider({ children }) {
         checkoutPhotoUrl: cartItem.photoUrl || null, orderId,
       };
       setCheckouts(prev => [optimistic, ...prev]);
+      // asset_value is informational (audit log capture) — the API ignores it
+      const itemValue = Number(cartItem.item.assetValue ?? items.find(i => i.id === cartItem.item.id)?.assetValue) || 0;
       return api.createItemCheckout({
         id, item_id: cartItem.item.id, item_name: cartItem.item.name,
         item_type: cartItem.item.itemType, requested_by: raisedBy,
         requested_by_email: raisedByEmail, raised_by: raisedBy,
         department: cartItem.item.department, days: itemDays, reason,
+        asset_value: itemValue,
         checkout_photo_url: cartItem.photoUrl || '',
         checkout_photo_name: cartItem.photoName || '',
         order_id: orderId,
@@ -180,7 +183,7 @@ export function InventoryProvider({ children }) {
       });
     });
     return Promise.allSettled(promises);
-  }, []);
+  }, [items]); // items: asset_value lookup for the audit trail
 
   // Named approveRequest for backward compat with NotificationBell + ManagerDashboard
   const approveRequest = useCallback((id, managerName, allocatorEmail, allocatorName) => {
