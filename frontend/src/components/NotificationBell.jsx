@@ -14,6 +14,17 @@ const AUTO_DISMISS_MS = 6000;
 
 // Resolved dynamically from MSAL account — see myName below
 
+// Bodies may carry **bold** markers (names, item lists, totals) — render them
+// as <strong> while everything else stays plain text. No other markup.
+export function renderNotifBody(text) {
+  if (!text || !text.includes('**')) return text;
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    part.startsWith('**') && part.endsWith('**')
+      ? <strong key={i} style={{ color: 'var(--ink)', fontWeight: 700 }}>{part.slice(2, -2)}</strong>
+      : part
+  );
+}
+
 function timeAgo(iso) {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
@@ -435,7 +446,14 @@ export default function NotificationBell({ onNavigate }) {
 
   function handleUpdateClick(n) {
     markRead(n.id);
-    const dest = destinationFor(n);
+    let dest = destinationFor(n);
+    // "Request returned" opens the Completed filter — unless the order is only
+    // PARTIALLY back, in which case it still lives under Active.
+    if (n.type === 'item_returned') {
+      const related = (invRequests || []).filter(c => c.orderId === n.refId || c.id === n.refId);
+      const anyOut = related.some(c => ['approved', 'pending_receipt', 'allocated'].includes(c.status));
+      dest = ['inventory', anyOut ? 'checkouts' : 'checkouts-completed'];
+    }
     if (dest) {
       setOpen(false);
       // Window event instead of onNavigate: App navigates on it AND the target
@@ -645,7 +663,7 @@ export default function NotificationBell({ onNavigate }) {
                             </span>
                           )}
                         </div>
-                        <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '4px 0 14px', lineHeight: 1.45, whiteSpace: 'pre-line' }}>{n.body}</p>
+                        <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '4px 0 14px', lineHeight: 1.45, whiteSpace: 'pre-line' }}>{renderNotifBody(n.body)}</p>
 
                         {!isRejecting && !isApproving ? (
                           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -777,7 +795,7 @@ export default function NotificationBell({ onNavigate }) {
                           )}
                         </div>
                       )}
-                      <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '4px 0 0', lineHeight: 1.45, whiteSpace: 'pre-line' }}>{n.body}</p>
+                      <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '4px 0 0', lineHeight: 1.45, whiteSpace: 'pre-line' }}>{renderNotifBody(n.body)}</p>
                       {n.action && n.action.kind === 'allocate' && (
                         <button
                           onClick={e => { e.stopPropagation(); handleInlineAllocate(n); }}

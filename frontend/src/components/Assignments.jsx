@@ -285,20 +285,36 @@ export function AssignmentsQueue({ assignments, refresh, toast }) {
   const [accepting, setAccepting] = useState(null);
   const [preview, setPreview] = useState(null);
   const [cancelling, setCancelling] = useState(null); // assignment pending in-app confirm (no native dialogs)
+  const [search, setSearch] = useState('');
   const live = assignments.filter(a => ['pending_acceptance', 'active', 'return_initiated'].includes(a.status));
-  const shown = chip === 'live' ? live
+  const q = search.trim().toLowerCase();
+  const matchesSearch = a => !q ||
+    (a.itemName || '').toLowerCase().includes(q) ||
+    (a.assigneeName || '').toLowerCase().includes(q) ||
+    (a.assigneeEmail || '').toLowerCase().includes(q);
+  const shown = (chip === 'live' ? live
     : chip === 'returns' ? assignments.filter(a => a.status === 'return_initiated')
     : chip === 'pending' ? assignments.filter(a => a.status === 'pending_acceptance')
-    : assignments.filter(a => ['closed', 'declined', 'cancelled'].includes(a.status)).slice(0, 50);
+    : assignments.filter(a => ['closed', 'declined', 'cancelled'].includes(a.status)).slice(0, 50)
+  ).filter(matchesSearch);
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
         {[['live', `Live (${live.length})`], ['returns', 'Returns to Accept'], ['pending', 'Awaiting Acceptance'], ['history', 'History']].map(([k, l]) => (
           <button key={k} onClick={() => setChip(k)}
             style={{ padding: '5px 14px', borderRadius: 20, border: `1px solid ${chip === k ? 'var(--pine)' : 'var(--line)'}`, background: chip === k ? 'hsla(var(--color-green),0.1)' : 'transparent', color: chip === k ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
             {l}
           </button>
         ))}
+      </div>
+      <div className="search-bar" style={{ width: '100%', marginBottom: 16 }}>
+        <User size={13} style={{ flexShrink: 0 }} />
+        <input placeholder="Search by person or item…" value={search} onChange={e => setSearch(e.target.value)} />
+        {search && (
+          <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
+            <XCircle size={13} />
+          </button>
+        )}
       </div>
       {shown.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--muted)' }}>

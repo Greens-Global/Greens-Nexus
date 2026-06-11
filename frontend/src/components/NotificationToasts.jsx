@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, X } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
+import { renderNotifBody }  from './NotificationBell';
 import { useMsal }          from '@azure/msal-react';
 import { useRole }          from '../contexts/RoleContext';
 
@@ -134,7 +135,7 @@ export default function NotificationToasts({ onNavigate }) {
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--ink)' }}>{n.title}</div>
-              <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '2px 0 0', lineHeight: 1.4 }}>{n.body}</p>
+              <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '2px 0 0', lineHeight: 1.4, whiteSpace: 'pre-line' }}>{renderNotifBody(n.body)}</p>
             </div>
             <button onClick={e => { e.stopPropagation(); close(n.id); }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 2, borderRadius: 4, flexShrink: 0 }}

@@ -603,6 +603,21 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
             NexusNotification.type == "checkout_pending",
             NexusNotification.actioned == False,
         ).first()
+        # Item count + total $ value of the order so far (this row included) —
+        # the manager sees what's at stake before approving. autoflush is off,
+        # so the current row is counted manually.
+        sib_item_ids = [r[0] for r in db.query(ItemCheckout.item_id).filter(
+            ItemCheckout.order_id == order_id,
+            ItemCheckout.id != server_id,
+            ItemCheckout.status == "pending",
+        ).all()] if order_id else []
+        order_count = len(sib_item_ids) + 1
+        val_rows = db.query(Item).filter(Item.id.in_(set(sib_item_ids + [body.item_id]))).all()
+        total_value = sum(float(i.asset_value or 0) for i in val_rows)
+        notif_body = (f"{body.requested_by} has submitted a Checkout Request — "
+                      f"{order_count} item{'s' if order_count != 1 else ''}"
+                      + (f", total value **${total_value:,.0f}**" if total_value > 0 else "")
+                      + ".\nPlease review, approve or reject.")
         if not already_notified:
             # Targeted: only the manager the employee picked gets the notification.
             # Empty approver (legacy clients / managers raising on behalf) falls back
@@ -610,8 +625,12 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
             # every manager's Checkouts tab regardless — anyone can still approve.
             _notify(db, type="checkout_pending", recipient=(body.approver_email or "").lower().strip(),
                     title=f"Checkout Request — {body.requested_by}",
-                    body=f"{body.requested_by} has submitted a Checkout Request. Please review, approve or reject.",
+                    body=notif_body,
                     ref_id=ref_for_notif, item_name=body.item_name, requested_by=body.requested_by)
+        else:
+            # Subsequent cart items: refresh the count/value on the existing
+            # notification (the realtime ping pushes the new body to open bells)
+            already_notified.body = notif_body
     db.commit()
     _fire_item_event(server_id, initial_status, row.requested_by_email or "")
     return _checkout_to_dict(row)
@@ -786,9 +805,9 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
                     notif_title = f"Request update: {len(approved_names)} approved, {len(rejected_names)} rejected"
                     parts = []
                     if approved_names:
-                        parts.append(f"Approved: {', '.join(approved_names)}")
+                        parts.append(f"Approved: **{', '.join(approved_names)}**")
                     if rejected_names:
-                        parts.append(f"Not approved: {', '.join(rejected_names)}")
+                        parts.append(f"Not approved: **{', '.join(rejected_names)}**")
                     notif_body = "\n".join(parts)
                 elif approved_names:
                     notif_type = "approved"
@@ -804,10 +823,10 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
                 notif_title = f"Request partially processed — {len(approved_names) + len(rejected_names)} of {total} items"
                 parts = []
                 if approved_names:
-                    parts.append(f"Approved: {', '.join(approved_names)}")
+                    parts.append(f"Approved: **{', '.join(approved_names)}**")
                 if rejected_names:
-                    parts.append(f"Not approved: {', '.join(rejected_names)}")
-                parts.append(f"Still pending: {', '.join(still_pending)}")
+                    parts.append(f"Not approved: **{', '.join(rejected_names)}**")
+                parts.append(f"Still pending: **{', '.join(still_pending)}**")
                 notif_body = "\n".join(parts)
 
             # Update existing order notification if one exists, otherwise create
@@ -941,16 +960,19 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
                 returned_names = [s.item_name for s in siblings if s.status == "returned"] + [row.item_name]
                 still_out      = [s.item_name for s in siblings if s.status in ("approved", "pending_receipt", "allocated")]
 
+                # Neil's format: bold name, then each list on its own line with
+                # bold item names (bell renders **bold** markers)
                 if still_out:
                     total = len(returned_names) + len(still_out)
                     notif_title = f"Returns in progress: {len(returned_names)} of {total} items back"
-                    notif_body  = (f"{row.requested_by} returned: {', '.join(returned_names)}. "
-                                   f"Still out: {', '.join(still_out)}.")
+                    notif_body  = (f"**{row.requested_by}**\n"
+                                   f"Returned: **{', '.join(returned_names)}**\n"
+                                   f"Still out: **{', '.join(still_out)}**")
                 else:
                     notif_title = f"Request returned: {len(returned_names)} item{'s' if len(returned_names) != 1 else ''}"
-                    notif_body  = (f"{row.requested_by} returned all {len(returned_names)} items: "
-                                   f"{', '.join(returned_names)}."
-                                   + (f" Condition: {row.condition_note}" if row.condition_note else ""))
+                    notif_body  = (f"**{row.requested_by}** returned all {len(returned_names)} items:\n"
+                                   f"**{', '.join(returned_names)}**"
+                                   + (f"\nCondition: {row.condition_note}" if row.condition_note else ""))
 
                 existing = db.query(NexusNotification).filter(
                     NexusNotification.ref_id == row.order_id,

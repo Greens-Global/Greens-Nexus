@@ -248,6 +248,7 @@ function AddItemModal({ onClose, onSave, initial = {} }) {
   const [pictureRequired, setPictureRequired] = useState(true);
   const [assetValue,    setAssetValue]    = useState('');
   const [assignNow,     setAssignNow]     = useState(false);
+  const [aiFill,        setAiFill]        = useState(true);
   const [saving,        setSaving]        = useState(false);
   const [error,         setError]         = useState('');
   useEscapeKey(onClose);
@@ -265,7 +266,7 @@ function AddItemModal({ onClose, onSave, initial = {} }) {
       year: year.trim(), department: department.trim(), default_owner: defaultOwner.trim(),
       ownership_type: ownershipType, location: location.trim(), photo_url: photoUrl,
       picture_required: pictureRequired, asset_value: parseFloat(assetValue) || 0,
-    }, { assignNow: ownershipType === 'permanent' && assignNow }))
+    }, { assignNow: ownershipType === 'permanent' && assignNow, aiFill: !photoUrl && skipPhoto && aiFill }))
       .then(onClose)
       .catch(err => setError(err?.message || 'Could not add item — please try again.'))
       .finally(() => setSaving(false));
@@ -372,6 +373,17 @@ function AddItemModal({ onClose, onSave, initial = {} }) {
               <span>
                 <strong style={{ color:'var(--ink)' }}>Add without a photo for now</strong> — the item will show
                 under Missing Photos; add one later via Batch Update Photos or AI Photo Fill.
+              </span>
+            </label>
+          )}
+          {/* Neil: offer AI fill at add time, not only afterwards from Manage */}
+          {!photoUrl && skipPhoto && (
+            <label style={{ display:'flex', alignItems:'flex-start', gap:8, fontSize:12.5, color:'var(--muted)', cursor:'pointer', marginTop:-4 }}>
+              <input type="checkbox" checked={aiFill} onChange={e => setAiFill(e.target.checked)}
+                style={{ cursor:'pointer', accentColor:'var(--pine)', marginTop:2 }} />
+              <span>
+                <strong style={{ color:'hsl(var(--color-purple))' }}>Let AI find a product photo after saving</strong> —
+                uses the make/model to fetch a stock image. Replace it with a real unit photo when you can.
               </span>
             </label>
           )}
@@ -962,6 +974,8 @@ function checkoutDueInfo(checkout) {
   return { due, daysLeft };
 }
 
+const fmtMoney = v => '$' + Math.round(Number(v) || 0).toLocaleString('en-US');
+
 // Short request number derived from the order/checkout id — Neil: tag the
 // backend request number on the front end and make it searchable
 // ("hey, I'm talking about request number 818").
@@ -1003,7 +1017,9 @@ function InUseSummary({ checkout }) {
   const fmtDue    = due.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
 
   return (
-    <div style={{ margin:'10px 0 4px', background:`hsla(${color},0.06)`, border:`1px solid hsla(${color},0.25)`, borderRadius:10, padding:'10px 14px' }}>
+    // maxWidth: Neil's sketch — the in-use block ends instead of stretching the
+    // whole row, with Extend/Return sitting right under it
+    <div style={{ margin:'10px 0 4px', maxWidth:640, background:`hsla(${color},0.06)`, border:`1px solid hsla(${color},0.25)`, borderRadius:10, padding:'10px 14px' }}>
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, flexWrap:'wrap' }}>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
           <Clock size={15} color={`hsl(${color})`} />
@@ -1248,8 +1264,12 @@ const TYPE_DEPT_FALLBACK = {
   Devices: 'it', Keys: 'operations', Equipment: 'operations',
 };
 
-function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDaysChange, showApprover = false }) {
+function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDaysChange, showApprover = false, items = [] }) {
   const [reason, setReason] = useState('');
+  // $ value per line + cart total — restored cart rows only carry id/name/type,
+  // so values are looked up from the live items list
+  const valueOf = ci => Number(items.find(i => i.id === ci.item.id)?.assetValue) || 0;
+  const totalValue = cart.reduce((s, c) => s + valueOf(c), 0);
   const [approvers,     setApprovers]     = useState([]);
   const [approverEmail, setApproverEmail] = useState('');
   useEffect(() => { if (!open) return; const h = e => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [open, onClose]);
@@ -1290,7 +1310,9 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
           </div>
           <div>
             <div style={{ fontWeight:700, fontSize:15 }}>Checkout Cart</div>
-            <div style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>{cart.length} item{cart.length !== 1 ? 's' : ''}</div>
+            <div style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>
+              {cart.length} item{cart.length !== 1 ? 's' : ''}{totalValue > 0 && <> · <strong style={{ color:'var(--ink)' }}>{fmtMoney(totalValue)}</strong> total value</>}
+            </div>
           </div>
           <button onClick={onClose} style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:'var(--muted)', padding:6, borderRadius:8, display:'flex' }}><X size={18} /></button>
         </div>
@@ -1328,6 +1350,7 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
                           <div style={{ display:'flex', alignItems:'center', gap:5, marginTop:2 }}>
                             <TypeBadge type={cartItem.item.itemType} />
                             {cartItem.item.location && <span style={{ fontSize:10.5, color:'var(--muted)' }}><MapPin size={9} style={{ display:'inline', marginRight:2 }} />{cartItem.item.location}</span>}
+                            {valueOf(cartItem) > 0 && <span style={{ fontSize:10.5, fontWeight:700, color:'var(--muted)' }}>{fmtMoney(valueOf(cartItem))}</span>}
                           </div>
                         </div>
                         {/* Days stepper — explicit "days" unit so it can't be mistaken for quantity */}
@@ -1387,6 +1410,12 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
 
         {cart.length > 0 && (
           <div style={{ padding:'16px 22px', borderTop:'1px solid var(--line)', flexShrink:0 }}>
+            {totalValue > 0 && (
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:10, fontSize:12.5 }}>
+                <span style={{ color:'var(--muted)', fontWeight:600 }}>Total value being checked out</span>
+                <span style={{ fontWeight:800, fontSize:15 }}>{fmtMoney(totalValue)}</span>
+              </div>
+            )}
             <button className="primary-btn" disabled={!canSubmit}
               style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
               onClick={() => {
@@ -1421,11 +1450,14 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
   // and repeat clicks while already mounted (window event).
   useEffect(() => {
     if (activeSub === 'permanent') setPanelTab('permanent');
+    if (activeSub === 'active-checkouts') setPanelTab('active');
   }, [activeSub]);
   useEffect(() => {
     const h = e => {
       const { view, sub } = e.detail || {};
-      if (view === 'inventory' && sub === 'permanent') setPanelTab('permanent');
+      if (view !== 'inventory') return;
+      if (sub === 'permanent') setPanelTab('permanent');
+      if (sub === 'active-checkouts') setPanelTab('active');
     };
     window.addEventListener('nexus:navigate', h);
     return () => window.removeEventListener('nexus:navigate', h);
@@ -1709,7 +1741,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
                       </div>
                     )
                   ) : (
-                  <div style={{ display:'flex', gap:8, justifyContent:'flex-end', flexWrap:'wrap', marginTop:8 }}>
+                  <div style={{ display:'flex', gap:8, justifyContent: c.status === 'allocated' ? 'flex-start' : 'flex-end', flexWrap:'wrap', marginTop:8, maxWidth: c.status === 'allocated' ? 640 : undefined }}>
                     {c.status === 'allocated' && onRequestExtension && c.extensionStatus !== 'pending' && (
                       <button className="secondary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5, color:'hsl(var(--color-blue))' }}
                         onClick={() => setExtendingCo(c)}>
@@ -2017,7 +2049,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
   // Deep-link from notifications: 'myitems'/'checkouts' lands on My Checkouts,
   // 'catalog' on the catalog — skipping the home screen.
   useEffect(() => {
-    if (['myitems','checkouts','permanent'].includes(activeSub)) { setMode('catalog'); setTab('checkouts'); }
+    if (['myitems','checkouts','permanent','active-checkouts'].includes(activeSub)) { setMode('catalog'); setTab('checkouts'); }
     else if (activeSub === 'catalog')                            { setMode('catalog'); setTab('catalog'); }
   }, [activeSub]);
   // Window event covers repeat clicks where activeSub doesn't change value
@@ -2025,7 +2057,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
     const h = e => {
       const { view, sub } = e.detail || {};
       if (view !== 'inventory') return;
-      if (['myitems','checkouts','permanent'].includes(sub)) { setMode('catalog'); setTab('checkouts'); }
+      if (['myitems','checkouts','permanent','active-checkouts'].includes(sub)) { setMode('catalog'); setTab('checkouts'); }
       else if (sub === 'catalog')                             { setMode('catalog'); setTab('catalog'); }
     };
     window.addEventListener('nexus:navigate', h);
@@ -2102,8 +2134,12 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
     setSubmitting(false);
     setCartOpen(false);
     setCart(failedItems);
-    if (failedItems.length === 0) setTab('checkouts');
-    if (succeededItems.length > 0) toast(`${succeededItems.length} checkout request${succeededItems.length !== 1 ? 's' : ''} submitted.`);
+    if (succeededItems.length > 0) {
+      toast(`${succeededItems.length} checkout request${succeededItems.length !== 1 ? 's' : ''} submitted.`);
+      // Land on My Checkouts → Active so the fresh order + progress trackers
+      // are immediately in view (no wondering whether the submit worked)
+      window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'inventory', sub: 'active-checkouts' } }));
+    }
     if (failedItems.length > 0) {
       const allConflict = results.filter(r => r.status === 'rejected').every(r => r.reason?.message?.includes('active checkout'));
       toast(
@@ -2191,7 +2227,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
             <button className="primary-btn" onClick={() => setCartOpen(true)} style={{ fontSize:12, padding:'6px 14px', flexShrink:0 }}>View Cart</button>
           </div>
         )}
-        <CartDrawer open={cartOpen} cart={cart} onClose={() => setCartOpen(false)} onRemove={removeFromCart} onSubmit={handleSubmitCart} submitting={submitting} onDaysChange={handleDaysChange} showApprover />
+        <CartDrawer open={cartOpen} cart={cart} items={items} onClose={() => setCartOpen(false)} onRemove={removeFromCart} onSubmit={handleSubmitCart} submitting={submitting} onDaysChange={handleDaysChange} showApprover />
       </div>
     );
   }
@@ -2226,7 +2262,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
           className={cart.length ? 'primary-btn' : 'secondary-btn'}
           style={{ marginLeft:'auto', display:'inline-flex', alignItems:'center', gap:6, position:'relative', fontSize:13, padding:'7px 14px' }}>
           <ShoppingCart size={14} /> Cart
-          {cart.length > 0 && <span style={{ position:'absolute', top:-7, right:-7, background:'hsl(var(--color-red))', color:'#fff', borderRadius:'50%', width:17, height:17, fontSize:10, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>{cart.length}</span>}
+          {cart.length > 0 && <span style={{ position:'absolute', top:-7, right:-1, background:'hsl(var(--color-red))', color:'#fff', borderRadius:'50%', width:17, height:17, fontSize:10, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>{cart.length}</span>}
         </button>
       </div>
 
@@ -2406,7 +2442,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
       )}
 
       <CartDrawer
-        open={cartOpen} cart={cart}
+        open={cartOpen} cart={cart} items={items}
         onClose={() => setCartOpen(false)}
         onRemove={removeFromCart}
         onSubmit={handleSubmitCart}
@@ -3755,6 +3791,22 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
     }
   }, [prefilter]);
 
+  // Bell/banner clicks land on the TEMPORARY segment — `segment` persists, so
+  // after a visit to Assignments every later notification click looked like it
+  // "opened Permanent by default" (handover notifications especially).
+  // 'checkouts-completed' additionally lands on the Completed filter
+  // (returned-order notifications).
+  useEffect(() => {
+    const h = e => {
+      const { view, sub } = e.detail || {};
+      if (view !== 'inventory') return;
+      if (sub === 'checkouts') setSegment('checkouts');
+      if (sub === 'checkouts-completed') { setSegment('checkouts'); setStatusFilter('completed'); }
+    };
+    window.addEventListener('nexus:navigate', h);
+    return () => window.removeEventListener('nexus:navigate', h);
+  }, []);
+
   function handleResolveExtension(co, action) {
     setExtBusyId(co.id);
     api.resolveItemExtension(co.id, { action })
@@ -4471,6 +4523,11 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
 
   const initials = name => name.split(/\s+/).map(p => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
 
+  // Neil: "this person's holding $6,000 worth of items" — total value in hand
+  const holderValue = h =>
+    h.transient.reduce((s, c) => s + (Number(items.find(i => i.id === c.itemId)?.assetValue) || 0), 0) +
+    h.permanent.reduce((s, i) => s + (Number(i.assetValue) || 0), 0);
+
   return (
     <div>
       <div className="search-bar" style={{ maxWidth:420, marginBottom:20 }}>
@@ -4502,6 +4559,7 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
                     {h.transient.length > 0 && `${h.transient.length} checked out`}
                     {h.transient.length > 0 && h.permanent.length > 0 && ' · '}
                     {h.permanent.length > 0 && `${h.permanent.length} permanent`}
+                    {holderValue(h) > 0 && <> · <strong style={{ color:'var(--ink)' }}>{fmtMoney(holderValue(h))}</strong> in hand</>}
                   </div>
                 </div>
                 <ChevronRight size={15} style={{ color:'var(--muted)', flexShrink:0 }} />
@@ -4652,7 +4710,11 @@ export default function InventoryManagement({ activeSub }) {
     const failedItems    = cart.filter((_, i) => results[i].status === 'rejected');
     await Promise.all(succeededItems.map(c => api.removeItemFromCart(c.item.id).catch(() => {})));
     setCartBusy(false); setCartOpen(false); setCart(failedItems);
-    if (succeededItems.length > 0) toast(`${succeededItems.length} checkout${succeededItems.length !== 1 ? 's' : ''} submitted.`);
+    if (succeededItems.length > 0) {
+      toast(`${succeededItems.length} checkout${succeededItems.length !== 1 ? 's' : ''} submitted.`);
+      // Land on My Items → Active Checkouts to see the fresh order's trackers
+      window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'inventory', sub: 'active-checkouts' } }));
+    }
     if (failedItems.length > 0) {
       const allConflict = results.filter(r => r.status === 'rejected').every(r => r.reason?.message?.includes('active checkout'));
       toast(
@@ -4683,8 +4745,13 @@ export default function InventoryManagement({ activeSub }) {
   // Deep-link: NotificationBell navigates with ('inventory', subTab) — land on
   // that tab instead of the default Catalog so the click shows the relevant info.
   const VALID_SUBTABS = ['myitems','catalog','manage','checkouts','whohasit','purchasereqs','audit'];
-  // 'permanent' is a sub-tab inside My Items (MyCheckoutsPanel picks it up)
-  const resolveSub = sub => sub === 'permanent' ? 'myitems' : sub;
+  // 'permanent' / 'active-checkouts' are sub-tabs inside My Items;
+  // 'checkouts-completed' is the Completed filter inside Checkouts
+  // (the inner components pick these up from the same event)
+  const resolveSub = sub =>
+    (sub === 'permanent' || sub === 'active-checkouts') ? 'myitems'
+    : sub === 'checkouts-completed' ? 'checkouts'
+    : sub;
   useEffect(() => {
     const t = resolveSub(activeSub);
     if (t && VALID_SUBTABS.includes(t)) setMainTab(t);
@@ -4727,6 +4794,13 @@ export default function InventoryManagement({ activeSub }) {
         // Permanent item + "assign right away" → straight into the normal
         // assign flow (acceptance + photo), same as the Manage-tab button
         if (opts.assignNow && created?.id) setAssigningItem({ item: created, mode: 'assign' });
+        // "Let AI find a photo" — fire-and-forget, photo lands via refresh
+        if (opts.aiFill && created?.id) {
+          toast(`AI is finding a photo for "${data.name}"…`);
+          api.autoFillItemPhotos([created.id], false)
+            .then(() => { refreshItems(); })
+            .catch(() => {});
+        }
       })
       .catch(err => { toast(err?.message || 'Could not add item.', 'error'); throw err; });
   }
@@ -4848,7 +4922,7 @@ export default function InventoryManagement({ activeSub }) {
             onClick={() => setCartOpen(true)}>
             <ShoppingCart size={14} /> Cart
             {cart.length > 0 && (
-              <span style={{ position:'absolute', top:-7, right:-7, background:'hsl(var(--color-red))', color:'#fff', borderRadius:'50%', width:17, height:17, fontSize:10, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <span style={{ position:'absolute', top:-7, right:-1, background:'hsl(var(--color-red))', color:'#fff', borderRadius:'50%', width:17, height:17, fontSize:10, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>
                 {cart.length}
               </span>
             )}
@@ -4896,12 +4970,13 @@ export default function InventoryManagement({ activeSub }) {
       )}
 
       {/* KPI strip — manage tab only, rendered below the strip for the same reason */}
-      {mainTab === 'manage' && <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(4,1fr)', margin:'0 0 20px' }}>
+      {mainTab === 'manage' && <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', margin:'0 0 20px' }}>
         {[
           { label:'Available',      value: items.filter(i => i.status === 'available').length,    color:'card-green'  },
           { label:'Total Items',    value: items.length,                                          color:'card-blue'   },
           { label:'Checked Out',    value: items.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
           { label:'Missing Photos', value: items.filter(i => !i.photoUrl).length,                 color: items.filter(i => !i.photoUrl).length > 0 ? 'card-red' : '' },
+          { label:'Inventory Value', value: fmtMoney(items.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },
         ].map(({ label, value, color }) => (
           <div key={label} className={`kpi-card ${color}`}>
             <div className="kpi-label">{label}</div>
@@ -4993,7 +5068,7 @@ export default function InventoryManagement({ activeSub }) {
           onSubmit={data => returnItem(returningCo.id, data).then(() => { toast(`Return confirmed — ${returningCo.itemName}`); setReturningCo(null); })} />
       )}
 
-      <CartDrawer open={cartOpen} cart={cart} onClose={() => setCartOpen(false)}
+      <CartDrawer open={cartOpen} cart={cart} items={items} onClose={() => setCartOpen(false)}
         onRemove={removeFromCart} onSubmit={handleSubmitCart} submitting={cartBusy}
         onDaysChange={handleDaysChange} />
 
