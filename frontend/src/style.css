@@ -1335,3 +1335,12 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
   border-left-color: hsl(var(--color-red));
   background: linear-gradient(105deg, hsla(var(--color-red),0.13) 0%, hsla(var(--color-red),0.04) 50%, var(--card) 100%);
 }
+
+/* Reserve the scrollbar gutter permanently so the page width is identical
+   whether or not the content is tall enough to scroll - without this, the
+   scrollbar appearing/disappearing between tabs shifted the whole layout
+   ~15px left/right (cart, filters, cards all moved). Applies to the root
+   scroller and the inner viewport; browsers with overlay scrollbars
+   (macOS default) are unaffected. */
+html { scrollbar-gutter: stable; }
+.viewport { scrollbar-gutter: stable; }
