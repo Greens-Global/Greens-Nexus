@@ -8,6 +8,19 @@ import { cleanName }      from '../lib/utils';
 
 const ROLE_ORDER = ['owner', 'administrator', 'manager', 'supervisor', 'employee'];
 
+// Phones get a card list + tap-to-edit role sheet instead of the table
+// (the role dropdown column sat off-screen on mobile)
+function useIsMobileAdmin() {
+  const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 640px)');
+    const h = e => setMobile(e.matches);
+    mq.addEventListener('change', h);
+    return () => mq.removeEventListener('change', h);
+  }, []);
+  return mobile;
+}
+
 // ── Permissions matrix data ──────────────────────────────────────────────────
 const PERMISSION_MATRIX = [
   {
@@ -417,6 +430,8 @@ export default function Admin() {
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [groupSaving,  setGroupSaving]  = useState(false);
   const [groupError,   setGroupError]   = useState('');
+  const isMobile = useIsMobileAdmin();
+  const [roleSheetUser, setRoleSheetUser] = useState(null); // phone: tap a user → role sheet
 
   const loading = graphLoading;
 
@@ -656,6 +671,56 @@ export default function Admin() {
                   {error
                     ? 'Couldn\'t load users from Microsoft 365 — please refresh to try again.'
                     : users.length === 0 ? 'No users loaded from Microsoft 365 yet.' : 'No users match your filter.'}
+                </div>
+              ) : isMobile ? (
+                /* Phone: cards + tap-to-edit role sheet — the table's role
+                   dropdown column sat off-screen on mobile */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {displayUsers.map(u => {
+                    const isMe = u.email === myEmail2;
+                    const editable = canEditRoleOf(u.role);
+                    return (
+                      <button key={u.id ?? u.email}
+                        onClick={() => editable && setRoleSheetUser(u)}
+                        title={!editable ? "Only a Global Admin can manage another admin's access" : undefined}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 13px', border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', cursor: editable ? 'pointer' : 'default', textAlign: 'left', fontFamily: 'Inter,sans-serif', width: '100%', opacity: editable ? 1 : 0.65 }}>
+                        <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--pine)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+                          {initials(u.name)}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {u.name}{isMe && <span style={{ fontSize: 10, fontWeight: 700, background: 'var(--mist)', color: 'var(--muted)', padding: '1px 6px', borderRadius: 4, marginLeft: 6 }}>You</span>}
+                          </div>
+                          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email}</div>
+                        </div>
+                        {saved[u.email]
+                          ? <CheckCircle size={15} color="hsl(var(--color-green))" style={{ flexShrink: 0 }} />
+                          : <RoleBadge role={u.role} />}
+                      </button>
+                    );
+                  })}
+                  {/* Role sheet — global mobile CSS renders this as a bottom sheet */}
+                  {roleSheetUser && (
+                    <div role="dialog" aria-modal="true"
+                      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+                      onClick={e => e.target === e.currentTarget && setRoleSheetUser(null)}>
+                      <div style={{ background: 'var(--card)', borderRadius: 14, padding: 22, width: '100%', maxWidth: 420 }}>
+                        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>{roleSheetUser.name}</div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>{roleSheetUser.email}</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {assignableRoles().map(r => (
+                            <button key={r} disabled={saving[roleSheetUser.email]}
+                              onClick={() => { handleAssign(roleSheetUser.email, r, roleSheetUser.name); setRoleSheetUser(null); }}
+                              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 15px', borderRadius: 10, border: `1.5px solid ${roleSheetUser.role === r ? 'var(--pine)' : 'var(--line)'}`, background: roleSheetUser.role === r ? 'var(--mist)' : 'var(--card)', fontFamily: 'Inter,sans-serif', fontSize: 14, fontWeight: 600, color: 'var(--ink)', cursor: 'pointer' }}>
+                              <span>{ROLES[r].label}</span>
+                              {roleSheetUser.role === r && <CheckCircle size={15} color="hsl(var(--color-green))" />}
+                            </button>
+                          ))}
+                        </div>
+                        <button className="secondary-btn" style={{ width: '100%', marginTop: 12 }} onClick={() => setRoleSheetUser(null)}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div style={{ border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
