@@ -1065,7 +1065,7 @@ const AuditLogPanel = memo(function AuditLogPanel() {
             <thead>
               <tr style={{ background:'var(--mist)' }}>
                 {['Timestamp','User','Action','Details'].map(h =>
-                  <th key={h} style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)' }}>{h}</th>)}
+                  <th key={h} style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em' }}>{h}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -2179,7 +2179,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
                   <thead>
                     <tr style={{ background:'var(--mist)' }}>
                       {['Photo','Name','Type','Make','Model','Location','Status',''].map(h =>
-                        <th key={h} style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5, whiteSpace:'nowrap' }}>{h}</th>)}
+                        <th key={h} style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em', whiteSpace:'nowrap' }}>{h}</th>)}
                     </tr>
                   </thead>
                   <tbody>
@@ -2198,8 +2198,8 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
                         <tr key={item.id} style={{ borderTop:'1px solid var(--line)', opacity: item.status==='available'&&!hasPending ? 1 : 0.65 }}>
                           <td style={{ padding:'8px 14px' }}>
                             {item.photoUrl
-                              ? <img src={item.photoUrl} alt={item.name} style={{ width:36, height:36, borderRadius:7, objectFit:'cover', border:'1px solid var(--line)' }} />
-                              : <div style={{ width:36, height:36, borderRadius:7, background:tm.bg, display:'flex', alignItems:'center', justifyContent:'center' }}><tm.Icon size={16} color={tm.color} /></div>}
+                              ? <img src={item.photoUrl} alt={item.name} loading="lazy" decoding="async" style={{ width:44, height:44, borderRadius:10, objectFit:'cover', border:'1px solid var(--line)' }} />
+                              : <div style={{ width:44, height:44, borderRadius:10, background:tm.bg, display:'flex', alignItems:'center', justifyContent:'center' }}><tm.Icon size={21} color={tm.color} /></div>}
                           </td>
                           <td style={{ padding:'8px 14px', fontWeight:600 }}>{item.name}</td>
                           <td style={{ padding:'8px 14px' }}><TypeBadge type={item.itemType} /></td>
@@ -2363,7 +2363,7 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
               <thead>
                 <tr style={{ background:'var(--mist)' }}>
                   {['Photo','Name','Type','Make','Model','Location','Status',''].map(h =>
-                    <th key={h} style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5, whiteSpace:'nowrap' }}>{h}</th>)}
+                    <th key={h} style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, whiteSpace:'nowrap', textTransform:'uppercase', letterSpacing:'.07em' }}>{h}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -2377,8 +2377,8 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
                     <tr key={item.id} style={{ borderTop:'1px solid var(--line)', opacity: item.status === 'available' && !hasPending ? 1 : 0.65 }}>
                       <td style={{ padding:'8px 14px' }}>
                         {item.photoUrl
-                          ? <img src={item.photoUrl} alt={item.name} loading="lazy" decoding="async" style={{ width:36, height:36, borderRadius:7, objectFit:'cover', border:'1px solid var(--line)' }} />
-                          : <div style={{ width:36, height:36, borderRadius:7, background:tm.bg, display:'flex', alignItems:'center', justifyContent:'center' }}><tm.Icon size={16} color={tm.color} /></div>}
+                          ? <img src={item.photoUrl} alt={item.name} loading="lazy" decoding="async" style={{ width:44, height:44, borderRadius:10, objectFit:'cover', border:'1px solid var(--line)' }} />
+                          : <div style={{ width:44, height:44, borderRadius:10, background:tm.bg, display:'flex', alignItems:'center', justifyContent:'center' }}><tm.Icon size={21} color={tm.color} /></div>}
                       </td>
                       <td style={{ padding:'8px 14px', fontWeight:600 }}>
                         {item.name}
@@ -2802,7 +2802,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
     const active = sortCol === col;
     return (
       <th onClick={() => toggleSort(col)}
-        style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color: active ? 'var(--ink)' : 'var(--muted)', whiteSpace:'nowrap', fontSize:11.5, cursor:'pointer', userSelect:'none' }}>
+        style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color: active ? 'var(--ink)' : 'var(--muted)', whiteSpace:'nowrap', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em', cursor:'pointer', userSelect:'none' }}>
         <span style={{ display:'inline-flex', alignItems:'center', gap:3 }}>
           {label}
           <ArrowUpDown size={11} style={{ opacity: active ? 1 : 0.35, color: active ? 'var(--pine)' : 'inherit', transform: active && sortDir === 'desc' ? 'scaleY(-1)' : 'none' }} />
@@ -2885,14 +2885,14 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
                     onChange={toggleAll}
                     style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
                 </th>
-                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5 }}>Photo</th>
+                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em' }}>Photo</th>
                 <SortTh col="name" label="Name" />
                 <SortTh col="type" label="Type" />
-                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5, whiteSpace:'nowrap' }}>Make</th>
-                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5, whiteSpace:'nowrap' }}>Model</th>
-                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5 }}>Dept</th>
+                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em', whiteSpace:'nowrap' }}>Make</th>
+                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em', whiteSpace:'nowrap' }}>Model</th>
+                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em' }}>Dept</th>
                 <SortTh col="location" label="Location" />
-                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:11.5 }}>Ownership</th>
+                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em' }}>Ownership</th>
                 <SortTh col="status" label="Status" />
                 <th style={{ padding:'10px 14px' }}></th>
               </tr>
@@ -2906,10 +2906,10 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
                   </td>
                   <td style={{ padding:'10px 14px' }}>
                     {item.photoUrl
-                      ? <PhotoThumb url={item.photoUrl} size={40} onPreview={url => setPhotoPreview(url)} />
+                      ? <PhotoThumb url={item.photoUrl} size={44} onPreview={url => setPhotoPreview(url)} />
                       : (
-                        <div style={{ width:40, height:40, borderRadius:8, background:'hsla(var(--color-red),0.08)', border:'1px dashed hsla(var(--color-red),0.4)', display:'flex', alignItems:'center', justifyContent:'center' }} title="Missing photo">
-                          <Camera size={16} color="hsl(var(--color-red))" />
+                        <div style={{ width:44, height:44, borderRadius:10, background:'hsla(var(--color-red),0.08)', border:'1px dashed hsla(var(--color-red),0.4)', display:'flex', alignItems:'center', justifyContent:'center' }} title="Missing photo">
+                          <Camera size={18} color="hsl(var(--color-red))" />
                         </div>
                       )
                     }
@@ -3805,8 +3805,8 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
                     return (
                       <div key={co.id} style={{ padding:'12px 18px', borderTop: idx > 0 ? '1px solid var(--line)' : 'none', display:'flex', alignItems:'center', gap:12, flexWrap:'wrap', opacity: isCompleted ? 0.7 : 1 }}>
                         {item?.photoUrl
-                          ? <img src={item.photoUrl} alt={co.itemName} style={{ width:38, height:38, borderRadius:7, objectFit:'cover', border:'1px solid var(--line)', flexShrink:0 }} />
-                          : <div style={{ width:38, height:38, borderRadius:7, background:'var(--mist)', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}><Package size={15} style={{ opacity:.4 }} /></div>}
+                          ? <img src={item.photoUrl} alt={co.itemName} loading="lazy" decoding="async" style={{ width:44, height:44, borderRadius:10, objectFit:'cover', border:'1px solid var(--line)', flexShrink:0 }} />
+                          : <div style={{ width:44, height:44, borderRadius:10, background:'var(--mist)', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}><Package size={18} style={{ opacity:.4 }} /></div>}
 
                         <div style={{ flex:1, minWidth:0 }}>
                           <div style={{ fontWeight:600, fontSize:13 }}>{co.itemName}</div>

@@ -1308,3 +1308,30 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
    native bar (Windows Chrome always paints it otherwise). */
 .scroll-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; }
 .scroll-tabs::-webkit-scrollbar { display: none; height: 0; }
+
+/* ── Gradient KPI cards (June 2026 design pass) ─────────────────────────────
+   Soft per-color gradient tint on KPI cards with a colored left edge.
+   Uses ONLY the existing palette variables — no new colors. */
+.kpi-card {
+  border-radius: 14px;
+  border-left: 4px solid var(--line);
+}
+.kpi-card.card-green {
+  border-left-color: hsl(var(--color-green));
+  background: linear-gradient(105deg, hsla(var(--color-green),0.14) 0%, hsla(var(--color-green),0.04) 50%, var(--card) 100%);
+}
+.kpi-card.card-blue {
+  border-top: none !important;
+  border-left-color: hsl(var(--color-blue));
+  background: linear-gradient(105deg, hsla(var(--color-blue),0.14) 0%, hsla(var(--color-blue),0.04) 50%, var(--card) 100%);
+}
+.kpi-card.card-orange {
+  border-top: none !important;
+  border-left-color: hsl(var(--color-orange));
+  background: linear-gradient(105deg, hsla(var(--color-orange),0.16) 0%, hsla(var(--color-orange),0.05) 50%, var(--card) 100%);
+}
+.kpi-card.card-red {
+  border-top: none !important;
+  border-left-color: hsl(var(--color-red));
+  background: linear-gradient(105deg, hsla(var(--color-red),0.13) 0%, hsla(var(--color-red),0.04) 50%, var(--card) 100%);
+}
