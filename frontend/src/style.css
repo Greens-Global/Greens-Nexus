@@ -1686,3 +1686,21 @@ html { overflow-x: hidden; }
   .view-header { margin-bottom: 6px; row-gap: 6px; }
   [data-vis="visible"] { margin: 4px 0 10px; }
 }
+
+/* Cart: ONE fixed position on every phone screen - pinned to the title row,
+   top right (Visesh: the UI must never be misleading or jumpy). The old
+   .cart-btn FAB rules are retired (no element carries that class anymore). */
+@media (max-width: 640px) {
+  .viewport { position: relative; }
+  .header-cart {
+    position: absolute !important;
+    top: 8px;
+    right: 8px;
+    z-index: 20;
+    padding: 7px 14px !important;
+    border-radius: 10px !important;
+    min-height: 0 !important;
+  }
+  /* filters drop below the pinned cart's row */
+  [data-vis="visible"] { margin: 14px 0 10px; }
+}

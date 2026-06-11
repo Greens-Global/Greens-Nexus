@@ -2289,7 +2289,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
           </button>
         ))}
         <button onClick={() => setCartOpen(true)}
-          className={`cart-btn ${cart.length ? 'primary-btn' : 'secondary-btn'}`}
+          className={`header-cart ${cart.length ? 'primary-btn' : 'secondary-btn'}`}
           style={{ marginLeft:'auto', display:'inline-flex', alignItems:'center', gap:6, position:'relative', fontSize:13, padding:'7px 14px' }}>
           <ShoppingCart size={14} /> Cart
           {cart.length > 0 && <span style={{ position:'absolute', top:-7, right:-1, background:'hsl(var(--color-red))', color:'#fff', borderRadius:'50%', width:17, height:17, fontSize:10, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>{cart.length}</span>}
@@ -5005,9 +5005,9 @@ export default function InventoryManagement({ activeSub }) {
           </div>
           {/* Cart last: it's the one control visible on every tab, so it anchors
               the right edge instead of floating next to hidden filters */}
-          {/* FAB only where carting happens — on Manage it was covering the
-              card action buttons (Delete) */}
-          <button className={`${mainTab === 'catalog' ? 'cart-btn ' : ''}${cart.length ? 'primary-btn' : 'secondary-btn'}`}
+          {/* header-cart: phones pin this to ONE fixed spot (title row, top
+              right) on every tab — no FAB, no drifting (Visesh) */}
+          <button className={`header-cart ${cart.length ? 'primary-btn' : 'secondary-btn'}`}
             style={{ display:'inline-flex', alignItems:'center', gap:7, position:'relative' }}
             onClick={() => setCartOpen(true)}>
             <ShoppingCart size={14} /> Cart
