@@ -1572,3 +1572,40 @@ html { overflow-x: hidden; }
   .primary-btn, .secondary-btn { min-height: 40px; }
   .icon-btn { width: 38px; height: 38px; }
 }
+
+/* ── Mobile v2 fixes (from phone screenshots) ───────────────────────────────
+   1) NOTHING may render wider than the screen — pages were panning/cutting
+   2) Header: wordmark sits LEFT, hamburger gone (Menu lives in the tab bar)
+   3) Cart becomes a floating action button above the tab bar
+   4) KPI stat grids everywhere collapse to 2-up (!important beats the inline
+      repeat(4,1fr) used across modules - Tasks/IT/Manage all inherit this) */
+@media (max-width: 900px) {
+  .viewport, .main-content { overflow-x: hidden; max-width: 100vw; }
+  img, svg, video { max-width: 100%; }
+
+  /* Menu is in the bottom tab bar - no hamburger up top */
+  .mobile-toggle { display: none !important; }
+
+  /* Wordmark left-aligned in flow (was centered + colliding with icons) */
+  .top-header::before {
+    position: static;
+    transform: none;
+    margin-right: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .kpi-grid { grid-template-columns: 1fr 1fr !important; }
+
+  /* Cart = floating action button, always in thumb reach */
+  .cart-btn {
+    position: fixed !important;
+    right: 14px;
+    bottom: calc(78px + env(safe-area-inset-bottom));
+    z-index: 170;
+    border-radius: 999px !important;
+    padding: 13px 20px !important;
+    font-size: 13.5px !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.28) !important;
+  }
+}
