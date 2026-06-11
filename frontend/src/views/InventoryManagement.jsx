@@ -3684,7 +3684,7 @@ function ForceReturnModal({ checkout, onClose, onConfirm }) {
 }
 
 // ── Manager Checkouts Tab ─────────────────────────────────────────────────────
-const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveRequest, rejectRequest, allocateItem, initiateHandover, refreshCheckouts, refreshItems, toast, onSendAlert, assignments = [], refreshAssignments }) {
+const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveRequest, rejectRequest, allocateItem, initiateHandover, refreshCheckouts, refreshItems, toast, onSendAlert, assignments = [], refreshAssignments, prefilter }) {
   const [segment, setSegment] = useState('checkouts'); // 'checkouts' | 'assignments'
   const { can } = useRole();
   const isManager = can('manager');
@@ -3708,6 +3708,17 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
     next.has(key) ? next.delete(key) : next.add(key);
     return next;
   });
+
+  // Deep-link from Who Has What: land already scoped to the clicked person/item
+  // with the right segment selected, so the actions are one glance away.
+  useEffect(() => {
+    if (!prefilter) return;
+    setSegment(prefilter.segment || 'checkouts');
+    if ((prefilter.segment || 'checkouts') === 'checkouts') {
+      setStatusFilter('active');
+      setPersonQuery(prefilter.q || '');
+    }
+  }, [prefilter]);
 
   function handleResolveExtension(co, action) {
     setExtBusyId(co.id);
@@ -4238,7 +4249,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
 // ── Who Has It Tab ────────────────────────────────────────────────────────────
 // Per-person view of every allocation: searchable, split into permanent
 // assignments and transient checkouts — Neil's "permanent vs transient" ask.
-const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts }) {
+const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckouts }) {
   const [search, setSearch] = useState('');
   const [photoPreview, setPhotoPreview] = useState(null);
 
@@ -4295,8 +4306,12 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts }) {
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(330px,1fr))', gap:14 }}>
           {filtered.map(h => (
             <div key={h.name} style={{ border:'1px solid var(--line)', borderRadius:12, background:'var(--card)', boxShadow:'var(--shadow-sm)', overflow:'hidden' }}>
-              {/* Person header */}
-              <div style={{ display:'flex', alignItems:'center', gap:11, padding:'13px 16px', borderBottom:'1px solid var(--line)', background:'var(--mist)' }}>
+              {/* Person header — click-through to their orders & actions */}
+              <div onClick={() => onOpenCheckouts?.({ q: h.name, segment: h.transient.length ? 'checkouts' : 'assignments' })}
+                title={`Open ${h.name}'s checkouts — approve, hand over, force return`}
+                style={{ display:'flex', alignItems:'center', gap:11, padding:'13px 16px', borderBottom:'1px solid var(--line)', background:'var(--mist)', cursor:'pointer', transition:'background .12s' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'hsla(var(--color-blue),0.08)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'var(--mist)'}>
                 <div style={{ width:34, height:34, borderRadius:'50%', background:'hsla(var(--color-blue),0.14)', color:'hsl(var(--color-blue))', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12.5, fontWeight:800, flexShrink:0 }}>
                   {initials(h.name)}
                 </div>
@@ -4308,6 +4323,7 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts }) {
                     {h.permanent.length > 0 && `${h.permanent.length} permanent`}
                   </div>
                 </div>
+                <ChevronRight size={15} style={{ color:'var(--muted)', flexShrink:0 }} />
               </div>
 
               <div style={{ padding:'12px 16px', display:'flex', flexDirection:'column', gap:12 }}>
@@ -4319,23 +4335,30 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts }) {
                       {h.transient.map(c => {
                         const { daysLeft } = checkoutDueInfo(c);
                         const inUse = c.status === 'allocated';
-                        // Clickable item → photo of the exact unit (Neil)
                         const itemPhoto = items.find(i => i.id === c.itemId)?.photoUrl || c.checkoutPhotoUrl;
                         return (
-                          <div key={c.id} style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5 }}>
+                          // Row click → that item's order in Checkouts, where the
+                          // actions live (hand over / extend / force return)
+                          <div key={c.id} onClick={() => onOpenCheckouts?.({ q: c.itemName })}
+                            title="Open this checkout to act on it"
+                            style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5, cursor:'pointer', borderRadius:7, padding:'4px 6px', margin:'0 -6px', transition:'background .12s' }}
+                            onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                             <span style={{ width:6, height:6, borderRadius:'50%', flexShrink:0, background: inUse ? (daysLeft < 0 ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))') : 'hsl(var(--color-blue))' }} />
-                            <span onClick={itemPhoto ? () => setPhotoPreview(itemPhoto) : undefined}
-                              style={{ fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', cursor: itemPhoto ? 'zoom-in' : 'default', textDecoration: itemPhoto ? 'underline dotted var(--line)' : 'none', textUnderlineOffset:3 }}>{c.itemName}</span>
+                            <span style={{ fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.itemName}</span>
                             <span style={{ fontSize:11, color: inUse && daysLeft < 0 ? 'hsl(var(--color-red))' : 'var(--muted)', flexShrink:0, fontWeight: inUse && daysLeft < 0 ? 700 : 400 }}>
                               {inUse
                                 ? (daysLeft < 0 ? `overdue ${Math.abs(daysLeft)}d` : daysLeft === 0 ? 'due today' : `${daysLeft}d left`)
                                 : MANAGER_CHECKOUT_STATUS_META[c.status]?.label}
                             </span>
-                            {c.checkoutPhotoUrl && (
-                              <button onClick={() => setPhotoPreview(c.checkoutPhotoUrl)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:2 }}>
+                            {itemPhoto && (
+                              <button onClick={e => { e.stopPropagation(); setPhotoPreview(itemPhoto); }}
+                                title="See the exact item"
+                                style={{ background:'none', border:'none', cursor:'zoom-in', color:'var(--muted)', display:'flex', padding:2 }}>
                                 <ZoomIn size={12} />
                               </button>
                             )}
+                            <ChevronRight size={12} style={{ color:'var(--muted)', flexShrink:0, opacity:.6 }} />
                           </div>
                         );
                       })}
@@ -4348,11 +4371,23 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts }) {
                     <div style={{ fontSize:10.5, fontWeight:800, color:'hsl(var(--color-blue))', letterSpacing:'.06em', marginBottom:7 }}>PERMANENTLY ASSIGNED</div>
                     <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
                       {h.permanent.map(i => (
-                        <div key={i.id} style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5 }}>
+                        // Row click → Assignments queue (force recover / reassign live there)
+                        <div key={i.id} onClick={() => onOpenCheckouts?.({ segment: 'assignments' })}
+                          title="Open in Assignments to reassign or force-recover"
+                          style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5, cursor:'pointer', borderRadius:7, padding:'4px 6px', margin:'0 -6px', transition:'background .12s' }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                           <span style={{ width:6, height:6, borderRadius:'50%', flexShrink:0, background:'hsl(var(--color-blue))' }} />
-                          <span onClick={i.photoUrl ? () => setPhotoPreview(i.photoUrl) : undefined}
-                            style={{ fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', cursor: i.photoUrl ? 'zoom-in' : 'default', textDecoration: i.photoUrl ? 'underline dotted var(--line)' : 'none', textUnderlineOffset:3 }}>{i.name}</span>
+                          <span style={{ fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{i.name}</span>
                           <span style={{ fontSize:11, color:'var(--muted)', flexShrink:0 }}>{[i.make, i.model].filter(Boolean).join(' ') || i.itemType}</span>
+                          {i.photoUrl && (
+                            <button onClick={e => { e.stopPropagation(); setPhotoPreview(i.photoUrl); }}
+                              title="See the exact item"
+                              style={{ background:'none', border:'none', cursor:'zoom-in', color:'var(--muted)', display:'flex', padding:2 }}>
+                              <ZoomIn size={12} />
+                            </button>
+                          )}
+                          <ChevronRight size={12} style={{ color:'var(--muted)', flexShrink:0, opacity:.6 }} />
                         </div>
                       ))}
                     </div>
@@ -4456,6 +4491,13 @@ export default function InventoryManagement({ activeSub }) {
 
   // Manager-only tab/modal state
   const [mainTab,       setMainTab]       = useState('catalog');
+  // Who Has What → Checkouts deep-link: carries the person/item to prefill the
+  // search so the landing view is already scoped to what was clicked.
+  const [checkoutsPrefilter, setCheckoutsPrefilter] = useState(null);
+  const openInCheckouts = useCallback(filter => {
+    setCheckoutsPrefilter({ ...filter, ts: Date.now() }); // ts: re-trigger on same target
+    setMainTab('checkouts');
+  }, []);
 
   // Deep-link: NotificationBell navigates with ('inventory', subTab) — land on
   // that tab instead of the default Catalog so the click shows the relevant info.
@@ -4738,11 +4780,11 @@ export default function InventoryManagement({ activeSub }) {
           allocateItem={allocateItem} initiateHandover={initiateHandover}
           refreshCheckouts={refreshCheckouts} refreshItems={refreshItems} toast={toast}
           assignments={assignments} refreshAssignments={refreshAssignmentsAndItems}
-          onSendAlert={openSendAlert}
+          onSendAlert={openSendAlert} prefilter={checkoutsPrefilter}
         />
       )}
       {mainTab === 'whohasit' && (
-        <WhoHasItTab items={items} checkouts={checkouts} />
+        <WhoHasItTab items={items} checkouts={checkouts} onOpenCheckouts={openInCheckouts} />
       )}
       {mainTab === 'purchasereqs' && (
         <PurchaseRequestsTab userEmail={userEmail} userName={userName} isManager={isManager} />
