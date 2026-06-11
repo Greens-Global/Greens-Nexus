@@ -441,15 +441,15 @@ export default function NotificationBell({ onNavigate }) {
     return true;
   });
 
-  // A toast click set this to a notification id — open the panel straight into
-  // its approval workflow (allocator picker for inv_request, reject reason for
-  // requisitions) instead of just opening the list and making the user hunt.
+  // A toast click set this to a notification id — open the panel on that card
+  // with the full set of choices (Review / Approve All / Reject All) visible.
+  // It used to jump straight into the allocator picker, which hid the other
+  // two options and read as "the buttons are gone".
   useEffect(() => {
     if (!pendingApprovalId) return;
     const n = actionable.find(x => x.id === pendingApprovalId);
     if (!n) { clearPendingApproval(); return; }
     setOpen(true);
-    handleAction(n, 'approve');
     markRead(n.id);
     clearPendingApproval();
     // eslint-disable-next-line react-hooks/exhaustive-deps
