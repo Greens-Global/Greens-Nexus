@@ -1664,3 +1664,15 @@ html { overflow-x: hidden; }
 @media (max-width: 640px) {
   .viewport { padding: 8px 4px 12px; }
 }
+
+/* ── Kill the phantom left strip on phones (Visesh screenshots) ─────────────
+   1) The off-screen sidebar drawer still painted its 50px box-shadow into
+      the viewport - a soft grey column down the left of EVERY screen.
+   2) .main-content.main-collapsed (2 classes) out-specifies the mobile
+      margin-left: 0, indenting pages 60px when the desktop sidebar was
+      left collapsed. */
+@media (max-width: 900px) {
+  .sidebar { box-shadow: none; }
+  .sidebar.open { box-shadow: 0 0 50px rgba(0,0,0,.3); }
+  .main-content, .main-content.main-collapsed { margin-left: 0; }
+}
