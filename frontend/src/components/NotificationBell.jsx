@@ -545,7 +545,7 @@ export default function NotificationBell({ onNavigate }) {
       }} />
 
       {/* Drawer — mirrors My Requests / Access Manager so the panel slides in from the side */}
-      <div style={{
+      <div className="notif-drawer" style={{
         position: 'fixed', top: 0, right: 0, height: '100vh',
         width: 'min(560px, 94vw)',
         background: 'var(--card)',

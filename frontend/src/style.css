@@ -1546,3 +1546,29 @@ html { overflow-x: hidden; }
 .mobile-menu-rows.secondary .mobile-menu-row { font-size: 13.5px; font-weight: 500; color: var(--muted); padding: 12px 16px; }
 .mobile-menu-row.signout { color: hsl(var(--color-red)); }
 .mobile-menu-divider { height: 1px; background: var(--line); margin: 4px 20px; }
+
+/* ── Mobile usability polish ────────────────────────────────────────────────
+   Full-width drawers, toasts above the tab bar, comfortable touch targets,
+   and 16px inputs (anything smaller makes iOS zoom the page on focus). */
+@media (max-width: 640px) {
+  /* Drawers go edge-to-edge like app screens */
+  .notif-drawer { width: 100vw !important; }
+  .cart-drawer  { width: 100vw !important; }
+
+  /* Toasts: full-width, floating just above the bottom tab bar */
+  .toast-stack {
+    left: 12px !important;
+    right: 12px !important;
+    bottom: calc(72px + env(safe-area-inset-bottom)) !important;
+    max-width: none !important;
+  }
+
+  /* iOS zooms the viewport when a focused input's font is under 16px */
+  .form-input, .search-bar input, input[type="text"], input[type="number"], textarea, select {
+    font-size: 16px !important;
+  }
+
+  /* Comfortable thumb targets */
+  .primary-btn, .secondary-btn { min-height: 40px; }
+  .icon-btn { width: 38px; height: 38px; }
+}
