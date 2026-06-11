@@ -148,12 +148,19 @@ export default function App() {
   useEffect(() => {
     if (sidebarCollapsed) return;
     const handleClickOutside = (e) => {
+      // Expanding re-renders the sidebar and can replace the clicked node
+      // (chevron icon swap) before this handler runs — a detached target fails
+      // contains() and instantly re-collapsed the nav. Ignore detached nodes.
+      if (!document.documentElement.contains(e.target)) return;
       if (sidebarRef.current && !sidebarRef.current.contains(e.target)) {
         setSidebarCollapsed(true);
       }
     };
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
+    // Defer attaching by a tick: React 18 flushes this effect synchronously on
+    // discrete events, so the very click that EXPANDED the sidebar would still
+    // bubble to document and immediately collapse it again.
+    const arm = setTimeout(() => document.addEventListener('click', handleClickOutside), 0);
+    return () => { clearTimeout(arm); document.removeEventListener('click', handleClickOutside); };
   }, [sidebarCollapsed]);
 
   useEffect(() => {
