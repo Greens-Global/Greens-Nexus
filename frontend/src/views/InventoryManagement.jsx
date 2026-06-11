@@ -957,6 +957,23 @@ function requestNo(key) {
   return (key || '').replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase();
 }
 
+// Highlights the active search query inside a name — flashes on arrival (CSS
+// animation), then stays softly marked. key={q} remounts the <mark> when the
+// query changes so the flash replays for each new search.
+function HighlightMatch({ text, query }) {
+  const q = (query || '').trim().replace(/^#/, '');
+  if (!q || !text) return text ?? null;
+  const idx = text.toLowerCase().indexOf(q.toLowerCase());
+  if (idx === -1) return text;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark key={q} className="search-hit">{text.slice(idx, idx + q.length)}</mark>
+      {text.slice(idx + q.length)}
+    </>
+  );
+}
+
 // Neil: show the actual date, not just days — "you have it for 4 days,
 // until 06-14-2026".
 function fmtDueDate(co) {
@@ -3917,7 +3934,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
                   <div onClick={() => toggleCollapsed(groupKey)} style={{ cursor:'pointer', flex:1, minWidth:0 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:7 }}>
                       <ChevronDown size={15} style={{ color:'var(--muted)', flexShrink:0, transform: isCollapsed ? 'rotate(-90deg)' : 'none', transition:'transform 0.18s' }} />
-                      <span style={{ fontWeight:700, fontSize:14 }}>{first.requestedBy}</span>
+                      <span style={{ fontWeight:700, fontSize:14 }}><HighlightMatch text={first.requestedBy} query={personQuery} /></span>
                     </div>
                     <div style={{ fontSize:12, color:'var(--muted)', marginTop:2, paddingLeft:22 }}>
                       {fmtDate(first.createdAt)}{isMulti && ` · ${orderItems.length} Items`} · Req #{requestNo(groupKey)}
@@ -3982,7 +3999,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
                           : <div style={{ width:44, height:44, borderRadius:10, background:'var(--mist)', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}><Package size={18} style={{ opacity:.4 }} /></div>}
 
                         <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ fontWeight:600, fontSize:13 }}>{co.itemName}</div>
+                          <div style={{ fontWeight:600, fontSize:13 }}><HighlightMatch text={co.itemName} query={personQuery} /></div>
                           <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1 }}>
                             {co.itemType} · {co.days} day{co.days !== 1 ? 's' : ''}
                             {co.status === 'allocated' && ` · until ${fmtDueDate(co)}`}
@@ -4316,7 +4333,7 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
                   {initials(h.name)}
                 </div>
                 <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{h.name}</div>
+                  <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}><HighlightMatch text={h.name} query={search} /></div>
                   <div style={{ fontSize:11.5, color:'var(--muted)' }}>
                     {h.transient.length > 0 && `${h.transient.length} checked out`}
                     {h.transient.length > 0 && h.permanent.length > 0 && ' · '}
@@ -4345,7 +4362,7 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
                             onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
                             onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                             <span style={{ width:6, height:6, borderRadius:'50%', flexShrink:0, background: inUse ? (daysLeft < 0 ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))') : 'hsl(var(--color-blue))' }} />
-                            <span style={{ fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.itemName}</span>
+                            <span style={{ fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}><HighlightMatch text={c.itemName} query={search} /></span>
                             <span style={{ fontSize:11, color: inUse && daysLeft < 0 ? 'hsl(var(--color-red))' : 'var(--muted)', flexShrink:0, fontWeight: inUse && daysLeft < 0 ? 700 : 400 }}>
                               {inUse
                                 ? (daysLeft < 0 ? `overdue ${Math.abs(daysLeft)}d` : daysLeft === 0 ? 'due today' : `${daysLeft}d left`)
@@ -4378,7 +4395,7 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
                           onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
                           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                           <span style={{ width:6, height:6, borderRadius:'50%', flexShrink:0, background:'hsl(var(--color-blue))' }} />
-                          <span style={{ fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{i.name}</span>
+                          <span style={{ fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}><HighlightMatch text={i.name} query={search} /></span>
                           <span style={{ fontSize:11, color:'var(--muted)', flexShrink:0 }}>{[i.make, i.model].filter(Boolean).join(' ') || i.itemType}</span>
                           {i.photoUrl && (
                             <button onClick={e => { e.stopPropagation(); setPhotoPreview(i.photoUrl); }}

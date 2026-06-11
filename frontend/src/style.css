@@ -1344,3 +1344,19 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
    (macOS default) are unaffected. */
 html { scrollbar-gutter: stable; }
 .viewport { scrollbar-gutter: stable; }
+
+/* Search-match highlight: flashes briefly when results land, then settles
+   into a static marker so the eye finds WHY a card matched the query. */
+@keyframes searchHitFlash {
+  0%   { background: hsla(var(--color-gold), 0.55); box-shadow: 0 0 0 5px hsla(var(--color-gold), 0.30); }
+  60%  { background: hsla(var(--color-gold), 0.45); box-shadow: 0 0 0 2px hsla(var(--color-gold), 0.15); }
+  100% { background: hsla(var(--color-gold), 0.22); box-shadow: 0 0 0 0 transparent; }
+}
+mark.search-hit {
+  background: hsla(var(--color-gold), 0.22);
+  color: inherit;
+  border-radius: 4px;
+  padding: 0 2px;
+  margin: 0 -2px;
+  animation: searchHitFlash 0.9s ease-out;
+}
