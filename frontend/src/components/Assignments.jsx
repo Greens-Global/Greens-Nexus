@@ -284,6 +284,7 @@ export function AssignmentsQueue({ assignments, refresh, toast }) {
   const [chip, setChip] = useState('live');
   const [accepting, setAccepting] = useState(null);
   const [preview, setPreview] = useState(null);
+  const [cancelling, setCancelling] = useState(null); // assignment pending in-app confirm (no native dialogs)
   const live = assignments.filter(a => ['pending_acceptance', 'active', 'return_initiated'].includes(a.status));
   const shown = chip === 'live' ? live
     : chip === 'returns' ? assignments.filter(a => a.status === 'return_initiated')
@@ -332,7 +333,7 @@ export function AssignmentsQueue({ assignments, refresh, toast }) {
                 )}
                 {['pending_acceptance', 'active', 'return_initiated'].includes(a.status) && (
                   <button title={a.status === 'pending_acceptance' ? 'Cancel assignment' : 'Force-recover (employee unavailable)'}
-                    onClick={() => { if (!confirm(a.status === 'pending_acceptance' ? 'Cancel this pending assignment?' : `Force-recover ${a.itemName} from ${a.assigneeName}? Use when the holder cannot complete the return.`)) return; api.cancelAssignment(a.id).then(() => { toast('Done.'); refresh(); }).catch(e => toast(e?.message || 'Failed.', 'error')); }}
+                    onClick={() => setCancelling(a)}
                     style={{ background: 'none', border: '1px solid hsla(var(--color-red),0.4)', borderRadius: 8, padding: '5px 11px', fontSize: 12, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 600, fontFamily: 'Inter,sans-serif' }}>
                     <XCircle size={12} style={{ verticalAlign: '-2px', marginRight: 3 }} />{a.status === 'pending_acceptance' ? 'Cancel' : 'Force Recover'}
                   </button>
@@ -348,11 +349,41 @@ export function AssignmentsQueue({ assignments, refresh, toast }) {
           <AcceptReturnBody a={accepting} onClose={() => setAccepting(null)} onDone={() => { refresh(); setAccepting(null); }} toast={toast} />
         </ModalShell>
       )}
+      {cancelling && (
+        <ModalShell onClose={() => setCancelling(null)}
+          title={cancelling.status === 'pending_acceptance' ? 'Cancel this assignment?' : `Force-recover ${cancelling.itemName}?`}
+          sub={cancelling.status === 'pending_acceptance'
+            ? `${cancelling.itemName} hasn't been accepted by ${cancelling.assigneeName || cancelling.assigneeEmail} yet — cancelling puts it back in stock.`
+            : `Take ${cancelling.itemName} back from ${cancelling.assigneeName || cancelling.assigneeEmail} without their confirmation. Use this when the holder can't complete the return themselves.`}>
+          <CancelAssignmentBody a={cancelling} onClose={() => setCancelling(null)} onDone={() => { refresh(); setCancelling(null); }} toast={toast} />
+        </ModalShell>
+      )}
       {preview && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }} onClick={() => setPreview(null)}>
           <img src={preview} alt="" style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 10 }} />
         </div>
       )}
+    </div>
+  );
+}
+
+function CancelAssignmentBody({ a, onClose, onDone, toast }) {
+  const [busy, setBusy] = useState(false);
+  const recover = a.status !== 'pending_acceptance';
+  function go() {
+    setBusy(true);
+    api.cancelAssignment(a.id)
+      .then(() => { toast(recover ? `${a.itemName} recovered — back in stock.` : 'Assignment cancelled.'); onDone(); })
+      .catch(e => { toast(e?.message || 'Failed.', 'error'); setBusy(false); });
+  }
+  return (
+    <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
+      <button className="secondary-btn" onClick={onClose} disabled={busy}>Keep Assigned</button>
+      <button onClick={go} disabled={busy}
+        style={{ background: 'hsl(var(--color-red))', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'Inter,sans-serif', opacity: busy ? 0.7 : 1 }}>
+        {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <XCircle size={13} />}
+        {recover ? 'Force Recover' : 'Cancel Assignment'}
+      </button>
     </div>
   );
 }
