@@ -58,6 +58,12 @@ function reqFromApi(r) {
     returnAssetCondition: r.return_asset_condition || null,
     returnPhotoName:      r.return_photo_name || null,
     returnPhotoUrl:       r.return_photo_url  || null,
+    allocatorEmail:       r.allocator_email || '',
+    allocatorName:        r.allocator_name  || '',
+    orderedAt:            r.ordered_at      || null,
+    fulfilledAt:          r.fulfilled_at    || null,
+    fulfillmentNote:      r.fulfillment_note || '',
+    fulfilledItemId:      r.fulfilled_item_id || '',
     history:              r.history || [],
     createdAt:            r.created_at,
     updatedAt:            r.updated_at,
@@ -167,18 +173,40 @@ export function RequisitionProvider({ children }) {
       });
   }, []);
 
-  // ── Poll every 30s through the authenticated API ──────────────────────────
-  // Realtime is intentionally not used here: requisitions and hardware_assets
-  // are protected by Supabase RLS (anon key has no SELECT access), so change
-  // events would never arrive. Polling via the backend keeps data fresh while
-  // keeping all access behind the Azure AD token.
+  // ── Freshness ──────────────────────────────────────────────────────────────
+  // Realtime WITHOUT exposing the table: every requisition action writes a
+  // notification, and a DB trigger pings the content-free notification_events
+  // table. We refetch through the authenticated API on each ping (debounced),
+  // so approve/reject/order/fulfill land in the log within a second — same
+  // mechanism as the bell. The 30s poll stays as the fallback.
 
   useEffect(() => {
     const iv = setInterval(() => {
       refreshRequisitions();
       refreshAssets();
     }, 30000);
-    return () => clearInterval(iv);
+
+    let pingTimer = null;
+    let channel = null;
+    if (supabase) {
+      channel = supabase
+        .channel('requisition_event_pings')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'notification_events' },
+          () => {
+            clearTimeout(pingTimer);
+            pingTimer = setTimeout(refreshRequisitions, 400);
+          }
+        )
+        .subscribe();
+    }
+
+    return () => {
+      clearInterval(iv);
+      clearTimeout(pingTimer);
+      if (channel) supabase?.removeChannel(channel);
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Mutations ──────────────────────────────────────────────────────────────
@@ -213,15 +241,35 @@ export function RequisitionProvider({ children }) {
     return newReq;
   };
 
-  const approveRequisition = (id, managerName) => {
+  // allocator = { email, name } — who the manager picked to purchase & fulfill
+  const approveRequisition = (id, managerName, allocator = null) => {
     setRequisitions(prev => prev.map(r => r.id !== id ? r : {
       ...r, status: 'manager_approved', managerName,
+      allocatorEmail: allocator?.email || '', allocatorName: allocator?.name || '',
       managerApprovalDate: ts(), updatedAt: ts(),
       history: [...r.history, { action: 'Approved by Manager', by: managerName, role: 'Manager', date: ts() }],
     }));
-    api.approveRequisition(id, { manager_name: managerName })
+    return api.approveRequisition(id, {
+      manager_name: managerName,
+      allocator_email: allocator?.email || '',
+      allocator_name:  allocator?.name  || '',
+    })
       .then(updated => setRequisitions(prev => prev.map(r => r.id !== id ? r : { ...reqFromApi(updated), history: reqFromApi(updated).history })))
-      .catch(refreshRequisitions);
+      .catch(err => { refreshRequisitions(); throw err; });
+  };
+
+  const markRequisitionOrdered = (id, byName, note = '') => {
+    setRequisitions(prev => prev.map(r => r.id !== id ? r : { ...r, status: 'ordered', orderedAt: ts(), updatedAt: ts() }));
+    return api.markRequisitionOrdered(id, { by_name: byName, note })
+      .then(updated => setRequisitions(prev => prev.map(r => r.id !== id ? r : { ...reqFromApi(updated), history: reqFromApi(updated).history })))
+      .catch(err => { refreshRequisitions(); throw err; });
+  };
+
+  const fulfillRequisition = (id, byName, { note = '', itemId = '' } = {}) => {
+    setRequisitions(prev => prev.map(r => r.id !== id ? r : { ...r, status: 'fulfilled', fulfilledAt: ts(), fulfillmentNote: note, updatedAt: ts() }));
+    return api.fulfillRequisition(id, { by_name: byName, note, item_id: itemId })
+      .then(updated => setRequisitions(prev => prev.map(r => r.id !== id ? r : { ...reqFromApi(updated), history: reqFromApi(updated).history })))
+      .catch(err => { refreshRequisitions(); throw err; });
   };
 
   const rejectRequisition = (id, managerName, reason) => {
@@ -393,6 +441,7 @@ export function RequisitionProvider({ children }) {
       requisitions, hwAssets,
       pendingManagerCount, pendingAllocationCount,
       submitRequisition, approveRequisition, rejectRequisition,
+      markRequisitionOrdered, fulfillRequisition,
       allocateAsset, initiateReturn, confirmReturn, markAssetLost,
       addHwAsset, exportToCsv,
     }}>

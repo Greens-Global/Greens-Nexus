@@ -200,6 +200,13 @@ class Requisition(Base):
     allocated_by = Column(String, default="")
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
+    # Purchase fulfillment flow (Jun 2026): manager picks who procures the item
+    allocator_email   = Column(String, default="")
+    allocator_name    = Column(String, default="")
+    ordered_at        = Column(String, default="")
+    fulfilled_at      = Column(String, default="")
+    fulfillment_note  = Column(String, default="")
+    fulfilled_item_id = Column(String, default="")  # items.id once it entered inventory
 
 
 class HardwareAsset(Base):

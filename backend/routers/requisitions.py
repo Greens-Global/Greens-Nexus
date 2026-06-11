@@ -32,11 +32,26 @@ class RequisitionCreate(BaseModel):
 
 class RequisitionApprove(BaseModel):
     manager_name: str
+    # Who will purchase & fulfill this — picked by the manager at approval
+    # (mirrors the checkout allocator flow). Optional for backward compat.
+    allocator_email: str = ""
+    allocator_name:  str = ""
 
 
 class RequisitionReject(BaseModel):
     manager_name: str
     rejection_reason: str
+
+
+class RequisitionOrder(BaseModel):
+    by_name: str
+    note: str = ""           # vendor / expected arrival — shown to the requester
+
+
+class RequisitionFulfill(BaseModel):
+    by_name: str
+    note: str = ""
+    item_id: str = ""        # items.id when the purchase was added to inventory
 
 
 class RequisitionAllocate(BaseModel):
@@ -186,15 +201,102 @@ def approve_requisition(req_id: str, body: RequisitionApprove, user: dict = Depe
     req.status = "manager_approved"
     req.manager_name = body.manager_name
     req.manager_approval_date = _ts()
+    req.allocator_email = (body.allocator_email or "").lower().strip()
+    req.allocator_name  = (body.allocator_name or "").strip()
     req.updated_at = _ts()
-    db.add(models.ApprovalHistory(requisition_id=req_id, action="Approved", action_by=body.manager_name, action_role="Manager", created_at=_ts()))
+    db.add(models.ApprovalHistory(requisition_id=req_id, action="Approved", action_by=body.manager_name, action_role="Manager",
+                                  comment=(f"Fulfillment: {req.allocator_name}" if req.allocator_name else ""), created_at=_ts()))
     _action_req_notification(db, req_id)
     if req.employee_email:
         _req_notify(db,
             type="req_approved",
             recipient=req.employee_email,
             title=f"Requisition approved: {req.item}",
-            body=f"Your purchase request for {req.quantity}× {req.item} was approved by {body.manager_name}.",
+            body=f"Your purchase request for {req.quantity}× {req.item} was approved by {body.manager_name}."
+                 + (f"\n{req.allocator_name} will purchase it for you." if req.allocator_name else ""),
+            ref_id=req_id, item_name=req.item, requested_by=req.employee_name,
+        )
+    # Targeted work item for the allocator — their bell deep-links to the
+    # To Fulfill queue in Purchase Requests.
+    if req.allocator_email:
+        _req_notify(db,
+            type="req_fulfill",
+            recipient=req.allocator_email,
+            title=f"Purchase to fulfill: {req.quantity}× {req.item}",
+            body=f"{body.manager_name} approved {req.employee_name}'s request and assigned the purchase to you."
+                 + (f"\nReason: {req.reason}" if (req.reason or "").strip() else ""),
+            ref_id=req_id, item_name=req.item, requested_by=req.employee_name,
+        )
+    db.commit()
+    db.refresh(req)
+    return req
+
+
+def _require_fulfiller(req, user):
+    """Only the assigned allocator or a manager+ may act on fulfillment."""
+    if user["level"] >= 3:
+        return
+    if (req.allocator_email or "").lower() != user["email"].lower():
+        raise HTTPException(403, "Only the assigned fulfiller or a manager can do this")
+
+
+@router.patch("/requisitions/{req_id}/mark-ordered")
+def mark_ordered(req_id: str, body: RequisitionOrder, user: dict = Depends(require_level(2)), db: Session = Depends(get_db)):
+    req = db.query(models.Requisition).filter(models.Requisition.id == req_id).first()
+    if not req:
+        raise HTTPException(404, "Requisition not found")
+    if req.status != "manager_approved":
+        raise HTTPException(409, f"Cannot mark a '{req.status}' requisition as ordered")
+    _require_fulfiller(req, user)
+    req.status = "ordered"
+    req.ordered_at = _ts()
+    req.updated_at = _ts()
+    db.add(models.ApprovalHistory(requisition_id=req_id, action="Ordered", action_by=body.by_name, action_role="Fulfiller", comment=body.note or "", created_at=_ts()))
+    if req.employee_email:
+        _req_notify(db,
+            type="req_update",
+            recipient=req.employee_email,
+            title=f"Ordered: {req.item}",
+            body=f"{body.by_name} has placed the order for your {req.quantity}× {req.item}."
+                 + (f"\n{body.note}" if (body.note or "").strip() else ""),
+            ref_id=req_id, item_name=req.item, requested_by=req.employee_name,
+        )
+    db.commit()
+    db.refresh(req)
+    return req
+
+
+@router.patch("/requisitions/{req_id}/fulfill")
+def fulfill_requisition(req_id: str, body: RequisitionFulfill, user: dict = Depends(require_level(2)), db: Session = Depends(get_db)):
+    req = db.query(models.Requisition).filter(models.Requisition.id == req_id).first()
+    if not req:
+        raise HTTPException(404, "Requisition not found")
+    if req.status not in ("manager_approved", "ordered"):
+        raise HTTPException(409, f"Cannot fulfill a '{req.status}' requisition")
+    _require_fulfiller(req, user)
+    req.status = "fulfilled"
+    req.fulfilled_at = _ts()
+    req.fulfillment_note = (body.note or "").strip()
+    req.fulfilled_item_id = (body.item_id or "").strip()
+    req.updated_at = _ts()
+    db.add(models.ApprovalHistory(requisition_id=req_id, action="Fulfilled", action_by=body.by_name, action_role="Fulfiller",
+                                  comment=(body.note or "") + (" · added to inventory" if body.item_id else ""), created_at=_ts()))
+    # Clear the allocator's req_fulfill work item from the bell
+    notif = db.query(models.NexusNotification).filter(
+        models.NexusNotification.type == "req_fulfill",
+        models.NexusNotification.ref_id == req_id,
+        models.NexusNotification.actioned == False,
+    ).first()
+    if notif:
+        notif.actioned = True
+    if req.employee_email:
+        _req_notify(db,
+            type="req_update",
+            recipient=req.employee_email,
+            title=f"Ready for you: {req.item}",
+            body=f"Your {req.quantity}× {req.item} has been purchased{' and added to inventory' if body.item_id else ''}."
+                 + (f"\n{req.fulfillment_note}" if req.fulfillment_note else "")
+                 + f"\nCoordinate with {body.by_name} to receive it.",
             ref_id=req_id, item_name=req.item, requested_by=req.employee_name,
         )
     db.commit()

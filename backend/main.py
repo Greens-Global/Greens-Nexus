@@ -22,6 +22,12 @@ def _run_migrations():
             "ALTER TABLE items ADD COLUMN picture_required BOOLEAN DEFAULT 1",
             "ALTER TABLE items ADD COLUMN asset_value FLOAT DEFAULT 0",
             "UPDATE items SET status = 'available' WHERE ownership_type = 'permanent' AND COALESCE(assigned_to_email, '') = '' AND status = 'permanently_assigned'",
+            "ALTER TABLE requisitions ADD COLUMN allocator_email VARCHAR DEFAULT ''",
+            "ALTER TABLE requisitions ADD COLUMN allocator_name VARCHAR DEFAULT ''",
+            "ALTER TABLE requisitions ADD COLUMN ordered_at VARCHAR DEFAULT ''",
+            "ALTER TABLE requisitions ADD COLUMN fulfilled_at VARCHAR DEFAULT ''",
+            "ALTER TABLE requisitions ADD COLUMN fulfillment_note VARCHAR DEFAULT ''",
+            "ALTER TABLE requisitions ADD COLUMN fulfilled_item_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -79,6 +85,13 @@ def _run_migrations():
         # Permanent items were auto-stamped permanently_assigned at creation even
         # with nobody attached — unstamp the ones that never got a real assignee
         "UPDATE items SET status = 'available' WHERE ownership_type = 'permanent' AND COALESCE(assigned_to_email, '') = '' AND status = 'permanently_assigned'",
+        # requisitions: purchase fulfillment flow (allocator + ordered/fulfilled)
+        "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS allocator_email VARCHAR DEFAULT ''",
+        "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS allocator_name VARCHAR DEFAULT ''",
+        "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS ordered_at VARCHAR DEFAULT ''",
+        "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfilled_at VARCHAR DEFAULT ''",
+        "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfillment_note VARCHAR DEFAULT ''",
+        "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfilled_item_id VARCHAR DEFAULT ''",
     ]
     with engine.connect() as conn:
         for sql in migrations:

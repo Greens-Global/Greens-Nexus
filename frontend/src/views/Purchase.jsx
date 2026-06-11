@@ -12,7 +12,9 @@ const DEPTS = ['Operations','Accounting','IT Support','Real Estate','Marketing',
 const STATUS_LABEL = {
   pending_manager:   'Pending Approval',
   rejected:          'Rejected',
-  manager_approved:  'Manager Approved',
+  manager_approved:  'Approved',
+  ordered:           'Ordered',
+  fulfilled:         'Fulfilled',
   asset_allocated:   'Asset Allocated',
   return_initiated:  'Return Initiated',
   returned:          'Returned & Closed',
@@ -21,7 +23,9 @@ const STATUS_LABEL = {
 const STATUS_CLASS = {
   pending_manager:   'status-pending',
   rejected:          'status-rejected',
-  manager_approved:  'status-badge',
+  manager_approved:  'status-approved',
+  ordered:           'status-approved',
+  fulfilled:         'status-approved',
   asset_allocated:   'status-approved',
   return_initiated:  'status-pending',
   returned:          'status-approved',
@@ -287,7 +291,19 @@ export default function Purchase() {
                         <span style={{ color: 'hsl(var(--color-green))' }}>✓ {req.assetName}</span>
                       )}
                       {req.status === 'manager_approved' && (
-                        <span style={{ color: 'hsl(var(--color-blue))' }}>Routing to {req.supervisorName}</span>
+                        <span style={{ color: 'hsl(var(--color-green))' }}>
+                          {req.allocatorName ? `${req.allocatorName} is purchasing it` : 'Being processed'}
+                        </span>
+                      )}
+                      {req.status === 'ordered' && (
+                        <span style={{ color: 'hsl(var(--color-blue))' }}>
+                          Ordered{req.allocatorName ? ` by ${req.allocatorName}` : ''}
+                        </span>
+                      )}
+                      {req.status === 'fulfilled' && (
+                        <span style={{ color: 'hsl(var(--color-green))' }} title={req.fulfillmentNote || ''}>
+                          ✓ Ready — see {req.allocatorName || 'your fulfiller'}
+                        </span>
                       )}
                       {req.status === 'pending_manager' && (
                         <span style={{ color: 'var(--text-muted)' }}>{fmtDate(req.createdAt)}</span>

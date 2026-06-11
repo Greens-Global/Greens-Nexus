@@ -41,6 +41,7 @@ const TYPE_META = {
   req_update:         { icon: ShoppingCart, label: 'Requisition Update',   color: 'var(--color-blue)'   },
   req_approved:       { icon: CheckCircle,  label: 'Requisition Approved', color: 'var(--color-green)'  },
   req_rejected:       { icon: XCircle,      label: 'Requisition Rejected', color: 'var(--color-red)'    },
+  req_fulfill:        { icon: ShoppingCart, label: 'Purchase to Fulfill',  color: 'var(--color-purple)' },
   perm_assign:        { icon: User,         label: 'Item Assignment',      color: 'var(--color-blue)'   },
   perm_update:        { icon: CheckCircle,  label: 'Assignment Update',    color: 'var(--color-green)'  },
   perm_return:        { icon: RotateCcw,    label: 'Assignment Return',    color: 'var(--color-orange)' },
@@ -214,11 +215,13 @@ export default function NotificationBell({ onNavigate }) {
         clearActionError(n.id);
       }
     } else if (n.type === 'req_pending') {
-      // Purchase requisition — backend notifies the beneficiary on approval
+      // Purchase requisition — manager picks who purchases & fulfills it
+      // (same allocator picker as checkouts; backend notifies everyone)
       if (action === 'approve') {
-        approveRequisition(refId, myName);
-        markActioned(n.id);
-        resolveAndDismiss(n, 'approved');
+        setApprovingId(n.id);
+        setPickedAllocator('');
+        setRejectingId(null);
+        clearActionError(n.id);
       } else { setRejectingId(n.id); }
     } else if (n.type === 'extension_pending') {
       // Item extension request — no allocator needed; resolve straight away.
@@ -249,6 +252,22 @@ export default function NotificationBell({ onNavigate }) {
     const refId       = n.refId       ?? '';
     const itemName    = n.itemName    ?? 'the item';
     const requestedBy = n.requestedBy ?? '';
+
+    // Purchase requisition: approve + assign the fulfiller in one shot
+    if (n.type === 'req_pending') {
+      setApprovingBusy(true);
+      clearActionError(n.id);
+      Promise.resolve(approveRequisition(refId, myName, { email: chosen.email, name: chosen.name }))
+        .then(() => {
+          markActioned(n.id);
+          resolveAndDismiss(n, 'approved');
+          setApprovingId(null);
+          setPickedAllocator('');
+        })
+        .catch(err => setActionError(prev => ({ ...prev, [n.id]: friendlyActionError(err) })))
+        .finally(() => setApprovingBusy(false));
+      return;
+    }
 
     // For checkout_pending: ref_id may be an order_id (cart) or single checkout_id.
     // Find all pending checkouts that share this ref so cart orders all get approved.
@@ -402,6 +421,8 @@ export default function NotificationBell({ onNavigate }) {
         return ['inventory', 'permanent'];
       case 'perm_return':
         return ['inventory', 'checkouts'];     // the requester's own items
+      case 'req_fulfill':
+        return ['inventory', 'purchasereqs'];  // allocator's To Fulfill queue
       case 'req_pending':
       case 'req_update':
       case 'req_approved':
@@ -630,7 +651,7 @@ export default function NotificationBell({ onNavigate }) {
                           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                             {/* Neil: Review = yellow/caution with a ? icon so people
                                 know it opens the full list to decide item-by-item */}
-                            <button onClick={e => { e.stopPropagation(); markRead(n.id); setOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'inventory', sub: 'checkouts' } })); }}
+                            <button onClick={e => { e.stopPropagation(); markRead(n.id); setOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'inventory', sub: n.type === 'req_pending' ? 'purchasereqs' : 'checkouts' } })); }}
                               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: '1px solid hsla(var(--color-orange),0.4)', background: 'hsla(var(--color-orange),0.12)', color: 'hsl(var(--color-orange))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
                               <HelpCircle size={15} /> Review
                             </button>
@@ -645,9 +666,13 @@ export default function NotificationBell({ onNavigate }) {
                           </div>
                         ) : isApproving ? (
                           <div onClick={e => e.stopPropagation()}>
-                            {(n.type === 'inv_request' || n.type === 'checkout_pending') ? (
+                            {(n.type === 'inv_request' || n.type === 'checkout_pending' || n.type === 'req_pending') ? (
                               <>
-                                <p style={{ fontSize: 13, color: 'hsl(var(--color-green))', fontWeight: 700, margin: '0 0 8px' }}>Who should hand this over to {n.requestedBy}?</p>
+                                <p style={{ fontSize: 13, color: 'hsl(var(--color-green))', fontWeight: 700, margin: '0 0 8px' }}>
+                                  {n.type === 'req_pending'
+                                    ? `Who should purchase & fulfill this for ${n.requestedBy}?`
+                                    : `Who should hand this over to ${n.requestedBy}?`}
+                                </p>
                                 {actionError[n.id] && (
                                   <p style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.08)', borderRadius: 8, padding: '8px 12px', margin: '0 0 8px', lineHeight: 1.4 }}>
                                     <AlertCircle size={14} style={{ flexShrink: 0 }} /> {actionError[n.id]}

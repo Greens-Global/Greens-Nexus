@@ -268,6 +268,8 @@ export const api = {
   initiateRequisitionReturn: (id, data)      => req(`/requisitions/${id}/initiate-return`, { method: 'PATCH', body: JSON.stringify(data) }),
   confirmRequisitionReturn:  (id, data)      => req(`/requisitions/${id}/confirm-return`, { method: 'PATCH', body: JSON.stringify(data) }),
   markRequisitionLost:       (id, data)      => req(`/requisitions/${id}/mark-lost`, { method: 'PATCH', body: JSON.stringify(data) }),
+  markRequisitionOrdered:    (id, data)      => req(`/requisitions/${id}/mark-ordered`, { method: 'PATCH', body: JSON.stringify(data) }),
+  fulfillRequisition:        (id, data)      => req(`/requisitions/${id}/fulfill`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   // Hardware Assets (persisted in Supabase)
   getHardwareAssets:  ()      => req('/hardware-assets'),

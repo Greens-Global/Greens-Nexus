@@ -40,10 +40,18 @@ const TYPE_META = {
 
 const STATUS_META = {
   available:            { label: 'Available',          bg: 'hsla(var(--color-green),0.12)',  fg: 'hsl(var(--color-green))'  },
+  unassigned:           { label: 'Unassigned',         bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))' },
   checked_out:          { label: 'Checked Out',        bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
   permanently_assigned: { label: 'Perm. Assigned',    bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))'   },
   retired:              { label: 'Retired',             bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))'    },
 };
+
+// Display status: a permanent item that nobody holds is "Unassigned", not
+// "Available" — green Available implies it could be checked out, which
+// permanent items can't be.
+function displayStatus(item) {
+  return item.ownershipType === 'permanent' && item.status === 'available' ? 'unassigned' : item.status;
+}
 
 const CHECKOUT_STATUS_META = {
   pending:         { label: 'Pending',            bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))', Icon: Clock },
@@ -225,15 +233,15 @@ function PhotoUpload({ value, onChange, label = 'PHOTO', required = false, hint 
 }
 
 // ── Add Item Modal ─────────────────────────────────────────────────────────────
-function AddItemModal({ onClose, onSave }) {
-  const [name,          setName]          = useState('');
-  const [itemType,      setItemType]      = useState('Tools');
+function AddItemModal({ onClose, onSave, initial = {} }) {
+  const [name,          setName]          = useState(initial.name || '');
+  const [itemType,      setItemType]      = useState(initial.itemType || 'Tools');
   const [make,          setMake]          = useState('');
   const [model,         setModel]         = useState('');
   const [year,          setYear]          = useState('');
-  const [department,    setDepartment]    = useState('');
-  const [defaultOwner,  setDefaultOwner]  = useState(TYPE_DEFAULT_OWNER['Tools']);
-  const [ownershipType, setOwnershipType] = useState('transient');
+  const [department,    setDepartment]    = useState(initial.department || '');
+  const [defaultOwner,  setDefaultOwner]  = useState(TYPE_DEFAULT_OWNER[initial.itemType || 'Tools']);
+  const [ownershipType, setOwnershipType] = useState(initial.ownershipType || 'transient');
   const [location,      setLocation]      = useState('');
   const [photoUrl,      setPhotoUrl]      = useState('');
   const [skipPhoto,     setSkipPhoto]     = useState(false);
@@ -2320,7 +2328,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
                           <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.make||'—'}</td>
                           <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.model||'—'}</td>
                           <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.location||'—'}</td>
-                          <td style={{ padding:'8px 14px' }}><StatusBadge status={hasPending ? 'checked_out' : item.status} /></td>
+                          <td style={{ padding:'8px 14px' }}><StatusBadge status={hasPending ? 'checked_out' : displayStatus(item)} /></td>
                           <td style={{ padding:'8px 14px' }}>
                             {canAdd && (
                               <button onClick={() => addToCart(item)} disabled={alreadyInCart}
@@ -2509,7 +2517,7 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
                       <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.make || '—'}</td>
                       <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.model || '—'}</td>
                       <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.location || '—'}</td>
-                      <td style={{ padding:'8px 14px' }}><StatusBadge status={hasPending ? 'checked_out' : item.status} /></td>
+                      <td style={{ padding:'8px 14px' }}><StatusBadge status={hasPending ? 'checked_out' : displayStatus(item)} /></td>
                       <td style={{ padding:'8px 14px' }}>
                         {canAdd && (
                           <button onClick={() => onAddToCart(item)} disabled={alreadyInCart}
@@ -3041,7 +3049,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
                       {item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}
                     </span>
                   </td>
-                  <td style={{ padding:'10px 14px' }}><StatusBadge status={item.status} /></td>
+                  <td style={{ padding:'10px 14px' }}><StatusBadge status={displayStatus(item)} /></td>
                   <td style={{ padding:'10px 14px' }}>
                     <div style={{ display:'flex', gap:6 }}>
                       {item.ownershipType === 'permanent' && onAssign && (
@@ -4142,18 +4150,36 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
 });
 
 // ── Purchase Requests Tab ─────────────────────────────────────────────────────
-const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userName, isManager }) {
-  const { requisitions, approveRequisition, rejectRequisition } = useRequisitions();
-  const [rejectingId, setRejectingId] = useState(null);
-  const [rejectReason, setRejectReason] = useState('');
+const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userName, isManager, onAssign, toast }) {
+  const { requisitions, approveRequisition, rejectRequisition, markRequisitionOrdered, fulfillRequisition } = useRequisitions();
+  const [rejectingId,   setRejectingId]   = useState(null);
+  const [rejectReason,  setRejectReason]  = useState('');
+  const [approvingId,   setApprovingId]   = useState(null);
+  const [pickedFulfiller, setPickedFulfiller] = useState('');
+  const [allocators,    setAllocators]    = useState([]);
+  const [orderingId,    setOrderingId]    = useState(null);
+  const [orderNote,     setOrderNote]     = useState('');
+  const [noInvId,       setNoInvId]       = useState(null);
+  const [noInvNote,     setNoInvNote]     = useState('');
+  const [addingForReq,  setAddingForReq]  = useState(null); // requisition → prefilled AddItemModal
+  const [busyId,        setBusyId]        = useState(null);
+
+  useEffect(() => {
+    if (isManager) api.getItemAllocators().then(setAllocators).catch(() => {});
+  }, [isManager]);
 
   const fmtDate = iso => new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
 
+  // manager_approved displays as plain "Approved" in green — the raw status
+  // string leaking into the UI was Neil/Visesh feedback.
   const STATUS_META = {
-    pending_manager: { label:'Pending Approval', bg:'hsla(var(--color-orange),0.12)', fg:'hsl(var(--color-orange))' },
-    approved:        { label:'Approved',          bg:'hsla(var(--color-green),0.12)',  fg:'hsl(var(--color-green))'  },
-    rejected:        { label:'Rejected',          bg:'hsla(var(--color-red),0.12)',    fg:'hsl(var(--color-red))'    },
-    allocated:       { label:'Allocated',         bg:'hsla(var(--color-blue),0.12)',   fg:'hsl(var(--color-blue))'   },
+    pending_manager:  { label:'Pending Approval', bg:'hsla(var(--color-orange),0.12)', fg:'hsl(var(--color-orange))' },
+    manager_approved: { label:'Approved',          bg:'hsla(var(--color-green),0.12)',  fg:'hsl(var(--color-green))'  },
+    ordered:          { label:'Ordered',           bg:'hsla(var(--color-blue),0.12)',   fg:'hsl(var(--color-blue))'   },
+    fulfilled:        { label:'Fulfilled',         bg:'hsla(var(--color-green),0.12)',  fg:'hsl(var(--color-green))'  },
+    rejected:         { label:'Rejected',          bg:'hsla(var(--color-red),0.12)',    fg:'hsl(var(--color-red))'    },
+    asset_allocated:  { label:'Allocated',         bg:'hsla(var(--color-blue),0.12)',   fg:'hsl(var(--color-blue))'   },
+    returned:         { label:'Returned',          bg:'hsla(var(--color-blue),0.12)',   fg:'hsl(var(--color-blue))'   },
   };
 
   const visible = isManager
@@ -4161,7 +4187,39 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
     : requisitions.filter(r => r.employeeName === userName || (r.employeeEmail || '').toLowerCase() === userEmail);
 
   const pending  = visible.filter(r => r.status === 'pending_manager');
-  const resolved = visible.filter(r => r.status !== 'pending_manager');
+  const active   = visible.filter(r => ['manager_approved', 'ordered'].includes(r.status));
+  const resolved = visible.filter(r => !['pending_manager', 'manager_approved', 'ordered'].includes(r.status));
+
+  // The assigned fulfiller (or any manager) gets the procurement actions
+  const canFulfill = r => ['manager_approved', 'ordered'].includes(r.status) &&
+    (isManager || (r.allocatorEmail || '').toLowerCase() === userEmail);
+
+  function submitApprove(r) {
+    const chosen = allocators.find(a => a.email === pickedFulfiller);
+    if (!chosen) return;
+    setBusyId(r.id);
+    Promise.resolve(approveRequisition(r.id, userName, { email: chosen.email, name: chosen.name }))
+      .then(() => { toast?.(`Approved — ${chosen.name} will purchase ${r.item}.`); setApprovingId(null); setPickedFulfiller(''); })
+      .catch(err => toast?.(err?.message || 'Could not approve.', 'error'))
+      .finally(() => setBusyId(null));
+  }
+
+  function submitOrdered(r) {
+    setBusyId(r.id);
+    Promise.resolve(markRequisitionOrdered(r.id, userName, orderNote.trim()))
+      .then(() => { toast?.(`${r.item} marked as ordered.`); setOrderingId(null); setOrderNote(''); })
+      .catch(err => toast?.(err?.message || 'Could not mark as ordered.', 'error'))
+      .finally(() => setBusyId(null));
+  }
+
+  function submitNoInventory(r) {
+    if (!noInvNote.trim()) return;
+    setBusyId(r.id);
+    Promise.resolve(fulfillRequisition(r.id, userName, { note: noInvNote.trim() }))
+      .then(() => { toast?.(`${r.item} fulfilled.`); setNoInvId(null); setNoInvNote(''); })
+      .catch(err => toast?.(err?.message || 'Could not fulfill.', 'error'))
+      .finally(() => setBusyId(null));
+  }
 
   // The purchase form appends "Reference: <url>" to the reason — split it out
   // so the link renders as its own clean action instead of a wall of URL text.
@@ -4193,6 +4251,16 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
                 <strong style={{ color:'var(--ink)', fontWeight:600 }}>{r.employeeName}</strong> · {r.employeeDept}
                 {r.createdAt && <> · {fmtDate(r.createdAt)}</>}
               </div>
+              {r.allocatorName && ['manager_approved','ordered','fulfilled'].includes(r.status) && (
+                <div style={{ fontSize:12, color:'var(--muted)', marginTop:2 }}>
+                  Fulfillment: <strong style={{ color:'hsl(var(--color-purple))', fontWeight:600 }}>{r.allocatorName}</strong>
+                  {r.status === 'ordered' && r.orderedAt && <> · ordered {fmtDate(r.orderedAt)}</>}
+                  {r.status === 'fulfilled' && r.fulfilledAt && <> · fulfilled {fmtDate(r.fulfilledAt)}</>}
+                </div>
+              )}
+              {r.fulfillmentNote && r.status === 'fulfilled' && (
+                <div style={{ fontSize:12, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>{r.fulfillmentNote}</div>
+              )}
             </div>
           </div>
           <span style={{ display:'inline-flex', alignItems:'center', padding:'3px 10px', borderRadius:20, fontSize:11, fontWeight:700, background:sm.bg, color:sm.fg, flexShrink:0 }}>
@@ -4211,7 +4279,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
             <Link2 size={13} /> View reference — {refHost}
           </a>
         )}
-        {r.rejectionReason && <div style={{ fontSize:12, color:'hsl(var(--color-red))', marginTop:10 }}>Rejected: "{r.rejectionReason}"</div>}
+        {r.rejectionReason && <div style={{ fontSize:12, color:'hsl(var(--color-red))', marginTop:10 }}>Reason of rejection: "{r.rejectionReason}"</div>}
         {isManager && r.status === 'pending_manager' && (
           isRej ? (
             <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:8 }}>
@@ -4227,6 +4295,22 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
                 </button>
               </div>
             </div>
+          ) : approvingId === r.id ? (
+            /* Approval = pick who purchases & fulfills (mirrors checkout allocators) */
+            <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:8 }}>
+              <div style={{ fontSize:12.5, fontWeight:700, color:'hsl(var(--color-green))' }}>Who should purchase & fulfill this?</div>
+              <select className="form-input" autoFocus value={pickedFulfiller} onChange={e => setPickedFulfiller(e.target.value)} style={{ fontSize:13, padding:'8px 12px' }}>
+                <option value="">Select a person…</option>
+                {allocators.map(a => <option key={a.email} value={a.email}>{a.name}</option>)}
+              </select>
+              <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
+                <button className="secondary-btn" style={{ fontSize:12 }} onClick={() => { setApprovingId(null); setPickedFulfiller(''); }} disabled={busyId === r.id}>Cancel</button>
+                <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
+                  disabled={!pickedFulfiller || busyId === r.id} onClick={() => submitApprove(r)}>
+                  {busyId === r.id ? <Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> : <CheckCircle size={13} />} Confirm Approval
+                </button>
+              </div>
+            </div>
           ) : (
             <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:12 }}>
               <button onClick={() => { setRejectingId(r.id); setRejectReason(''); }}
@@ -4234,8 +4318,55 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
                 <XCircle size={12} /> Reject
               </button>
               <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, padding:'6px 14px' }}
-                onClick={() => approveRequisition(r.id, userName)}>
+                onClick={() => { setApprovingId(r.id); setPickedFulfiller(''); setRejectingId(null); }}>
                 <CheckCircle size={12} /> Approve
+              </button>
+            </div>
+          )
+        )}
+        {/* Fulfillment actions — assigned fulfiller or any manager */}
+        {canFulfill(r) && (
+          orderingId === r.id ? (
+            <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:8 }}>
+              <input className="form-input" autoFocus placeholder="Optional note — vendor, expected arrival…" value={orderNote}
+                onChange={e => setOrderNote(e.target.value)} style={{ fontSize:13, padding:'8px 12px' }} />
+              <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
+                <button className="secondary-btn" style={{ fontSize:12 }} onClick={() => { setOrderingId(null); setOrderNote(''); }} disabled={busyId === r.id}>Cancel</button>
+                <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
+                  disabled={busyId === r.id} onClick={() => submitOrdered(r)}>
+                  {busyId === r.id ? <Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> : <Send size={13} />} Confirm Ordered
+                </button>
+              </div>
+            </div>
+          ) : noInvId === r.id ? (
+            <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:8 }}>
+              <input className="form-input" autoFocus placeholder="Required — where did it go? e.g. consumables handed to requester" value={noInvNote}
+                onChange={e => setNoInvNote(e.target.value)} style={{ fontSize:13, padding:'8px 12px' }} />
+              <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
+                <button className="secondary-btn" style={{ fontSize:12 }} onClick={() => { setNoInvId(null); setNoInvNote(''); }} disabled={busyId === r.id}>Cancel</button>
+                <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
+                  disabled={!noInvNote.trim() || busyId === r.id} onClick={() => submitNoInventory(r)}>
+                  {busyId === r.id ? <Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> : <CheckCircle size={13} />} Mark Fulfilled
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:12, flexWrap:'wrap' }}>
+              {r.status === 'manager_approved' && (
+                <button className="secondary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
+                  onClick={() => { setOrderingId(r.id); setOrderNote(''); }}>
+                  <Send size={12} /> Mark Ordered
+                </button>
+              )}
+              <button className="secondary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, color:'var(--muted)' }}
+                title="For consumables that don't belong in inventory — a note is required"
+                onClick={() => { setNoInvId(r.id); setNoInvNote(''); }}>
+                <CheckCircle size={12} /> Fulfill without inventory
+              </button>
+              <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
+                title="Item received — add it to the items catalog (and optionally assign it to the requester)"
+                onClick={() => setAddingForReq(r)}>
+                <Package size={12} /> Received — Add to Inventory
               </button>
             </div>
           )
@@ -4254,6 +4385,14 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
           {pending.map(renderCard)}
         </>
       )}
+      {active.length > 0 && (
+        <>
+          <div style={{ fontSize:11.5, fontWeight:700, letterSpacing:'.07em', color:'var(--muted)', textTransform:'uppercase', margin:'20px 0 10px' }}>
+            {active.some(canFulfill) ? 'To Fulfill' : 'In Progress'} — {active.length}
+          </div>
+          {active.map(renderCard)}
+        </>
+      )}
       {resolved.length > 0 && (
         <>
           <div style={{ fontSize:11.5, fontWeight:700, letterSpacing:'.07em', color:'var(--muted)', textTransform:'uppercase', margin:'20px 0 10px' }}>
@@ -4268,6 +4407,21 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
           <div style={{ fontWeight:700, fontSize:15, marginBottom:6 }}>No purchase requests yet</div>
           <div style={{ fontSize:13 }}>Requests submitted via Purchase Requisition will appear here.</div>
         </div>
+      )}
+      {/* "Received — Add to Inventory": prefilled from the requisition; saving
+          creates the real item, fulfills the requisition, and (via the
+          assign-right-away checkbox) can flow straight into assignment. */}
+      {addingForReq && (
+        <AddItemModal
+          initial={{ name: addingForReq.item, department: addingForReq.employeeDept, ownershipType: 'permanent' }}
+          onClose={() => setAddingForReq(null)}
+          onSave={async (data, opts = {}) => {
+            const created = await api.createItem(data);
+            await fulfillRequisition(addingForReq.id, userName, { note: `Added to inventory: ${data.name}`, itemId: created?.id || '' });
+            toast?.(`${data.name} added to inventory — requisition fulfilled.`);
+            if (opts.assignNow && created?.id && onAssign) onAssign(created, 'assign');
+          }}
+        />
       )}
     </div>
   );
@@ -4817,7 +4971,8 @@ export default function InventoryManagement({ activeSub }) {
         <WhoHasItTab items={items} checkouts={checkouts} onOpenCheckouts={openInCheckouts} />
       )}
       {mainTab === 'purchasereqs' && (
-        <PurchaseRequestsTab userEmail={userEmail} userName={userName} isManager={isManager} />
+        <PurchaseRequestsTab userEmail={userEmail} userName={userName} isManager={isManager}
+          onAssign={openAssign} toast={toast} />
       )}
       {mainTab === 'audit' && <AuditLogPanel />}
 
