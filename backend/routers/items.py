@@ -1407,7 +1407,7 @@ def assign_item(item_id: str, body: AssignmentCreate, user: dict = Depends(requi
         id=f"ASG-{uuid.uuid4().hex[:10].upper()}", item_id=item_id, item_name=item.name,
         assignee_email=body.assignee_email.lower().strip(),
         assignee_name=(body.assignee_name or "").strip(),
-        assigned_by=user.get("name") or "", assigned_by_email=user["email"],
+        assigned_by=_title_case_email(user["email"]), assigned_by_email=user["email"],
         status="pending_acceptance", created_at=_now_iso(),
     )
     db.add(a)
@@ -1538,7 +1538,9 @@ def accept_assignment_return(assignment_id: str, body: AssignmentReturnAccept, u
     dispo = body.disposition if body.disposition in ("stock", "retired") else "stock"
     a.status = "closed"
     a.disposition = dispo
-    a.return_accepted_by, a.return_accepted_at = user.get("name") or user["email"], _now_iso()
+    # Auth tokens carry only the email — derive a readable name ("Visesh Lodha",
+    # not visesh.lodha@greensglobal.com) for everything user-facing.
+    a.return_accepted_by, a.return_accepted_at = _title_case_email(user["email"]), _now_iso()
     item = db.query(Item).filter(Item.id == a.item_id).first()
     if item:
         item.assigned_to_email = item.assigned_to_name = item.assigned_at = ""
@@ -1576,7 +1578,9 @@ def cancel_assignment(assignment_id: str, user: dict = Depends(require_items_adm
     was_pending = a.status == "pending_acceptance"
     a.status = "cancelled" if was_pending else "closed"
     a.disposition = "" if was_pending else "stock"
-    a.return_accepted_by, a.return_accepted_at = user.get("name") or user["email"], _now_iso()
+    # Auth tokens carry only the email — derive a readable name ("Visesh Lodha",
+    # not visesh.lodha@greensglobal.com) for everything user-facing.
+    a.return_accepted_by, a.return_accepted_at = _title_case_email(user["email"]), _now_iso()
     item = db.query(Item).filter(Item.id == a.item_id).first()
     if item and not was_pending:
         item.assigned_to_email = item.assigned_to_name = item.assigned_at = ""
