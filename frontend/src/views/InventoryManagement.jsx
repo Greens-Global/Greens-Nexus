@@ -2457,7 +2457,10 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
 
 // ── Manager Catalog Tab ───────────────────────────────────────────────────────
 const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, searchValue, onSearchChange, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate }) {
-  const [viewMode, setViewMode] = useState('list'); // 'tile' | 'list'
+  // Phones default to TILE — the list view's Add buttons sit in the table's
+  // off-screen columns there (toggle stays available either way)
+  const [viewMode, setViewMode] = useState(() =>
+    (typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches) ? 'tile' : 'list');
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -4902,8 +4905,10 @@ export default function InventoryManagement({ activeSub }) {
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
           {/* Always mounted (hidden, not removed) so the header height never
-              changes between tabs — Neil: the top nav must not jump around */}
-          <div style={{ display:'flex', alignItems:'center', gap:10, visibility: ['catalog','manage','audit'].includes(mainTab) ? 'visible' : 'hidden' }}>
+              changes between tabs — Neil: the top nav must not jump around.
+              data-vis lets the mobile CSS drop the placeholder from flow. */}
+          <div data-vis={['catalog','manage','audit'].includes(mainTab) ? 'visible' : 'hidden'}
+            style={{ display:'flex', alignItems:'center', gap:10, visibility: ['catalog','manage','audit'].includes(mainTab) ? 'visible' : 'hidden' }}>
             <div style={{ display:'flex', alignItems:'center', gap:6 }}>
               <Filter size={13} style={{ color:'var(--muted)' }} />
               <select className="form-input" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34 }}>
@@ -4950,7 +4955,8 @@ export default function InventoryManagement({ activeSub }) {
         {/* Always mounted so the strip height/width never shifts between tabs.
             Catalog renders its own search beside the item count, so this one
             only shows on Manage. */}
-        <div className="search-bar" style={{ marginLeft:'auto', flex:1, maxWidth:480, minWidth:220, marginBottom:0, visibility: mainTab === 'manage' ? 'visible' : 'hidden' }}>
+        <div className="search-bar" data-vis={mainTab === 'manage' ? 'visible' : 'hidden'}
+          style={{ marginLeft:'auto', flex:1, maxWidth:480, minWidth:220, marginBottom:0, visibility: mainTab === 'manage' ? 'visible' : 'hidden' }}>
           <Search size={14} style={{ flexShrink:0 }} />
           <input placeholder="Search items…" value={search} onChange={e => setSearch(e.target.value)} />
         </div>

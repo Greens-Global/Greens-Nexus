@@ -5,6 +5,7 @@ import { RoleProvider, useRole, MODULES } from "./contexts/RoleContext";
 import { RequisitionProvider } from "./contexts/RequisitionContext";
 import { InventoryProvider } from "./contexts/InventoryContext";
 import Sidebar from "./components/Sidebar";
+import MobileNav from "./components/MobileNav";
 import TopHeader from "./components/TopHeader";
 import AdminPanel from "./components/AdminPanel";
 import NotificationToasts from "./components/NotificationToasts";
@@ -241,6 +242,8 @@ export default function App() {
             collapsed={sidebarCollapsed}
             onToggleCollapse={() => setSidebarCollapsed(c => !c)}
           />
+          {/* App-style bottom navigation — phones only (CSS-gated ≤900px) */}
+          <MobileNav activeView={activeView} onNavigate={navigate} onMenu={() => setSidebarOpen(true)} />
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
             <TopHeader
               title={viewLabel(activeView)}
