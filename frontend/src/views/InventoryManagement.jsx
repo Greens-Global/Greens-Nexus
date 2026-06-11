@@ -282,7 +282,7 @@ function AddItemModal({ onClose, onSave }) {
             <div>
               <label style={FL}>OWNERSHIP</label>
               <select className="form-input" style={{ width:'100%' }} value={ownershipType} onChange={e => setOwnershipType(e.target.value)}>
-                <option value="transient">Transient (check-out/return)</option>
+                <option value="transient">Temporary (check-out/return)</option>
                 <option value="permanent">Permanent (stays assigned)</option>
               </select>
             </div>
@@ -327,7 +327,7 @@ function AddItemModal({ onClose, onSave }) {
                 style={{ cursor:'pointer', accentColor:'var(--pine)', marginTop:2 }} />
               <span>
                 <strong style={{ color:'var(--ink)' }}>Add without a photo for now</strong> — the item will show
-                under Missing Photos; add one later via Assign Photos or AI Photo Fill.
+                under Missing Photos; add one later via Batch Update Photos or AI Photo Fill.
               </span>
             </label>
           )}
@@ -400,7 +400,7 @@ function EditItemModal({ item, onClose, onSave }) {
             <div>
               <label style={FL}>OWNERSHIP</label>
               <select className="form-input" style={{ width:'100%' }} value={ownershipType} onChange={e => setOwnershipType(e.target.value)}>
-                <option value="transient">Transient</option>
+                <option value="transient">Temporary</option>
                 <option value="permanent">Permanent</option>
               </select>
             </div>
@@ -899,6 +899,20 @@ function checkoutDueInfo(checkout) {
   return { due, daysLeft };
 }
 
+// Short request number derived from the order/checkout id — Neil: tag the
+// backend request number on the front end and make it searchable
+// ("hey, I'm talking about request number 818").
+function requestNo(key) {
+  return (key || '').replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase();
+}
+
+// Neil: show the actual date, not just days — "you have it for 4 days,
+// until 06-14-2026".
+function fmtDueDate(co) {
+  const d = checkoutDueInfo(co).due;
+  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}-${d.getFullYear()}`;
+}
+
 function InUseSummary({ checkout }) {
   const { due, daysLeft } = checkoutDueInfo(checkout);
   const totalDays = checkout.days || 1;
@@ -906,7 +920,7 @@ function InUseSummary({ checkout }) {
   const overdue   = daysLeft < 0;
   const dueToday  = daysLeft === 0;
   const color     = overdue ? 'var(--color-red)' : dueToday || daysLeft <= 1 ? 'var(--color-orange)' : 'var(--color-green)';
-  const fmtDue    = due.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+  const fmtDue    = due.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
 
   return (
     <div style={{ margin:'10px 0 4px', background:`hsla(${color},0.06)`, border:`1px solid hsla(${color},0.25)`, borderRadius:10, padding:'10px 14px' }}>
@@ -1300,7 +1314,7 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
 }
 
 // ── My Checkouts Panel ────────────────────────────────────────────────────────
-const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept, onConfirmReceipt, onReRequest, onReturnAll, onRequestExtension, assignments = [], refreshAssignments, toast }) {
+const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept, onConfirmReceipt, onReRequest, onReturnAll, onRequestExtension, assignments = [], refreshAssignments, toast, activeSub }) {
   const mine = checkouts.filter(c =>
     (c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) ||
     c.requestedBy === userName
@@ -1313,6 +1327,20 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
   const [returnAllGroup,  setReturnAllGroup]  = useState(null);
   const [extendingCo,     setExtendingCo]     = useState(null);
   const [panelTab,        setPanelTab]        = useState('active');
+  // Deep-link: permanent-assignment notifications must land on the Permanent
+  // tab, not Active Checkouts (Neil bug). Covers fresh mounts (activeSub prop)
+  // and repeat clicks while already mounted (window event).
+  useEffect(() => {
+    if (activeSub === 'permanent') setPanelTab('permanent');
+  }, [activeSub]);
+  useEffect(() => {
+    const h = e => {
+      const { view, sub } = e.detail || {};
+      if (view === 'inventory' && sub === 'permanent') setPanelTab('permanent');
+    };
+    window.addEventListener('nexus:navigate', h);
+    return () => window.removeEventListener('nexus:navigate', h);
+  }, []);
   // Filters — type/dept apply to both tabs, status + sort to Past
   const [fStatus,         setFStatus]         = useState('All');
   const [fType,           setFType]           = useState('All');
@@ -1476,7 +1504,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
               <div style={{ padding:'10px 16px', background:'var(--mist)', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
                 <ShoppingCart size={13} color="hsl(var(--color-blue))" />
                 <span style={{ fontSize:12.5, fontWeight:700, color:'hsl(var(--color-blue))' }}>Order · {groupItems.length} Items</span>
-                <span style={{ fontSize:12, color:'var(--muted)', marginLeft:4 }}>· {fmtDateShort(firstItem.createdAt)}</span>
+                <span style={{ fontSize:12, color:'var(--muted)', marginLeft:4 }}>· {fmtDateShort(firstItem.createdAt)} · Req #{requestNo(groupKey)}</span>
                 {firstItem.reason && (
                   <span style={{ display:'inline-flex', alignItems:'baseline', gap:5, marginLeft:4, background:'var(--card)', border:'1px solid var(--line)', borderRadius:6, padding:'2px 8px' }}>
                     <span style={{ fontSize:9.5, fontWeight:800, letterSpacing:'.06em', color:'var(--muted)' }}>REASON</span>
@@ -1596,7 +1624,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
                     {c.status === 'allocated' && onRequestExtension && c.extensionStatus !== 'pending' && (
                       <button className="secondary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5, color:'hsl(var(--color-blue))' }}
                         onClick={() => setExtendingCo(c)}>
-                        <Clock size={13} /> Extend
+                        <Clock size={13} /> Extend Item
                       </button>
                     )}
                     {c.status === 'allocated' && (
@@ -1897,16 +1925,16 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
   // Deep-link from notifications: 'myitems'/'checkouts' lands on My Checkouts,
   // 'catalog' on the catalog — skipping the home screen.
   useEffect(() => {
-    if (activeSub === 'myitems' || activeSub === 'checkouts') { setMode('catalog'); setTab('checkouts'); }
-    else if (activeSub === 'catalog')                          { setMode('catalog'); setTab('catalog'); }
+    if (['myitems','checkouts','permanent'].includes(activeSub)) { setMode('catalog'); setTab('checkouts'); }
+    else if (activeSub === 'catalog')                            { setMode('catalog'); setTab('catalog'); }
   }, [activeSub]);
   // Window event covers repeat clicks where activeSub doesn't change value
   useEffect(() => {
     const h = e => {
       const { view, sub } = e.detail || {};
       if (view !== 'inventory') return;
-      if (sub === 'myitems' || sub === 'checkouts') { setMode('catalog'); setTab('checkouts'); }
-      else if (sub === 'catalog')                    { setMode('catalog'); setTab('catalog'); }
+      if (['myitems','checkouts','permanent'].includes(sub)) { setMode('catalog'); setTab('checkouts'); }
+      else if (sub === 'catalog')                             { setMode('catalog'); setTab('catalog'); }
     };
     window.addEventListener('nexus:navigate', h);
     return () => window.removeEventListener('nexus:navigate', h);
@@ -2041,7 +2069,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))', gap:16, maxWidth:820, marginBottom:cart.length ? 28 : 0 }}>
           {[
             { Icon:ShoppingCart,  colorVar:'color-green',  title:'Checkout an Item',      sub:'Browse available equipment and raise a checkout request.',                                                                          go:() => { setMode('catalog'); setTab('catalog'); },   badge:null },
-            { Icon:RotateCcw,     colorVar:'color-blue',   title:'Return or Extend an Item', sub:activeCheckouts.length > 0 ? `${activeCheckouts.length} item${activeCheckouts.length!==1?'s':''} currently checked out.` : 'Return equipment you have, or ask for more time.', go:() => { setMode('catalog'); setTab('checkouts'); }, badge:activeCheckouts.length||null },
+            { Icon:RotateCcw,     colorVar:'color-blue',   title:'Extend an Item', sub:activeCheckouts.length > 0 ? `${activeCheckouts.length} item${activeCheckouts.length!==1?'s':''} currently checked out.` : 'Return equipment you have, or ask for more time.', go:() => { setMode('catalog'); setTab('checkouts'); }, badge:activeCheckouts.length||null },
             { Icon:ClipboardList, colorVar:'color-orange', title:'Raise Purchase Request', sub:'Need something not in the catalog? Submit a formal purchase request.',                                                              go:() => window.dispatchEvent(new CustomEvent('nexus:navigate',{detail:{view:'purchase'}})),                      badge:null },
           ].map(({ Icon, colorVar, title, sub, go, badge }) => (
             <button key={title} onClick={go}
@@ -2254,7 +2282,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
             </div>
           ) : (
             <MyCheckoutsPanel
-              checkouts={checkouts} userEmail={userEmail} userName={userName}
+              checkouts={checkouts} userEmail={userEmail} userName={userName} activeSub={activeSub}
               assignments={assignments} refreshAssignments={refreshAssignments} toast={toast}
               onReturn={handleReturn} onCancel={handleCancel} onReRequest={handleReRequest}
               onConfirmReceipt={confirmReceipt ? (co, batch, photoMap) =>
@@ -2515,7 +2543,7 @@ function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
         {/* Header */}
         <div style={{ padding:'20px 24px 16px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
           <div>
-            <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>Assign Photos</h3>
+            <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>Batch Update Photos</h3>
             <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>{withPhotos} / {items.length} items have photos</p>
           </div>
           <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
@@ -2710,15 +2738,14 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
   const [aiPhotoBusy,        setAiPhotoBusy]        = useState(false);
   const [aiPhotoProgress,    setAiPhotoProgress]    = useState('');
 
-  // Claude finds and fills product images. With rows selected it REPLACES their
-  // photos; with nothing selected it fills only items missing one.
+  // Claude finds and fills product images for items MISSING a photo only.
+  // Neil: AI fill must never overwrite an existing photo — someone adds 150
+  // real photos, an idiot clicks this, and all that work is gone. No replace
+  // mode, regardless of row selection.
   // ONE item per request — rate-limit backoff on the server can take a minute
   // per item, and batching 5 into one request blew past Azure's HTTP timeout.
   async function runAiPhotoFill() {
-    const replacing = selected.size > 0;
-    const targets = replacing
-      ? [...selected]
-      : items.filter(i => !i.photoUrl).map(i => i.id);
+    const targets = items.filter(i => !i.photoUrl).map(i => i.id);
     if (!targets.length || aiPhotoBusy) return;
     setAiPhotoBusy(true);
     let ok = 0, failed = 0;
@@ -2726,13 +2753,12 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
       for (let i = 0; i < targets.length; i += 1) {
         setAiPhotoProgress(`${i + 1}/${targets.length}`);
         try {
-          const { results } = await api.autoFillItemPhotos([targets[i]], replacing);
+          const { results } = await api.autoFillItemPhotos([targets[i]], false);
           ok     += results.filter(r => r.status === 'ok').length;
           failed += results.filter(r => !['ok', 'already_has_photo'].includes(r.status)).length;
         } catch { failed += 1; /* one item failing must not abort the run */ }
         if ((i + 1) % 3 === 0 || i === targets.length - 1) refreshItems(); // photos appear as they land
       }
-      if (replacing) setSelected(new Set());
       toast(ok > 0
         ? `AI added ${ok} photo${ok !== 1 ? 's' : ''}${failed ? ` · ${failed} couldn't be found` : ''}. Review them and replace any with real unit photos.`
         : 'No suitable product photos were found.', ok > 0 ? 'success' : 'error');
@@ -2829,27 +2855,24 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
         <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onReport}>
           <FileBarChart size={14} /> Export Report
         </button>
-        {/* Assign Photos */}
+        {/* Batch Update Photos */}
         <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7, position:'relative' }} onClick={() => setBatchPhotoOpen(true)}>
-          <Image size={14} /> Assign Photos
+          <Image size={14} /> Batch Update Photos
           {missingPhotos > 0 && (
             <span style={{ position:'absolute', top:-6, right:-6, background:'hsl(var(--color-red))', color:'#fff', borderRadius:'50%', width:16, height:16, fontSize:9.5, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>
               {missingPhotos > 99 ? '99+' : missingPhotos}
             </span>
           )}
         </button>
-        {/* AI photo fill — Claude web-searches each item's make/model and pulls the
-            product image. Selected rows → replace their photos; none selected →
-            fill items missing one. */}
-        {(missingPhotos > 0 || selected.size > 0) && (
+        {/* AI photo fill — Claude web-searches each item's make/model and pulls
+            the product image. Missing-photo items ONLY; never replaces. */}
+        {missingPhotos > 0 && (
           <button onClick={runAiPhotoFill} disabled={aiPhotoBusy}
-            title={selected.size > 0 ? 'Replace the photos of the selected items with AI-found product images' : 'Find product images for items missing a photo'}
+            title="Find product images for items missing a photo — existing photos are never touched"
             style={{ display:'inline-flex', alignItems:'center', gap:7, background:'hsla(var(--color-purple),0.1)', color:'hsl(var(--color-purple))', border:'1px solid hsla(var(--color-purple),0.35)', borderRadius:9, padding:'7px 14px', fontWeight:700, fontSize:12.5, cursor: aiPhotoBusy ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', opacity: aiPhotoBusy ? 0.75 : 1 }}>
             {aiPhotoBusy
               ? <><Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> Finding photos… {aiPhotoProgress}</>
-              : selected.size > 0
-                ? <><Wand2 size={13} /> AI Replace Photos ({selected.size})</>
-                : <><Wand2 size={13} /> AI Photo Fill ({missingPhotos})</>}
+              : <><Wand2 size={13} /> AI Photo Fill ({missingPhotos})</>}
           </button>
         )}
         {/* Batch delete */}
@@ -2922,7 +2945,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
                   <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.location || '—'}</td>
                   <td style={{ padding:'10px 14px' }}>
                     <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:20, background: item.ownershipType === 'permanent' ? 'hsla(var(--color-purple),0.1)' : 'hsla(var(--color-blue),0.1)', color: item.ownershipType === 'permanent' ? 'hsl(var(--color-purple))' : 'hsl(var(--color-blue))' }}>
-                      {item.ownershipType === 'permanent' ? 'Permanent' : 'Transient'}
+                      {item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}
                     </span>
                   </td>
                   <td style={{ padding:'10px 14px' }}><StatusBadge status={item.status} /></td>
@@ -3142,15 +3165,16 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm 
               To <strong>{first.requestedBy}</strong> — who will upload the handover photo?
             </p>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
+              {/* Neil: no icons here (misleading), and "Employee" → "Requester" —
+                  everyone is technically an employee */}
               {[
-                { id:'you',      icon:'📷', title:'Photos by You',      sub:'You upload now — individual items or a batch shot.' },
-                { id:'employee', icon:'📱', title:'Photos by Employee', sub:'Employee confirms receipt and uploads on their side.' },
+                { id:'you',      title:'Photos by You',       sub:'You upload now — individual items or a batch shot.' },
+                { id:'employee', title:'Photos by Requester', sub:'Requester confirms receipt and uploads on their side.' },
               ].map(opt => (
                 <button key={opt.id} onClick={() => opt.id === 'you' ? setStep(isMulti ? 'mode' : 'upload') || setPhotoMode('batch') : setStep('employee')}
                   style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:6, padding:'14px 16px', borderRadius:12, border:'1.5px solid var(--line)', background:'var(--mist)', cursor:'pointer', textAlign:'left', fontFamily:'Inter,sans-serif', transition:'border-color .15s, box-shadow .15s' }}
                   onMouseEnter={e => { e.currentTarget.style.borderColor='var(--pine)'; e.currentTarget.style.boxShadow='0 2px 12px rgba(0,0,0,.08)'; }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor='var(--line)'; e.currentTarget.style.boxShadow='none'; }}>
-                  <span style={{ fontSize:22 }}>{opt.icon}</span>
                   <span style={{ fontWeight:700, fontSize:13.5 }}>{opt.title}</span>
                   <span style={{ fontSize:12, color:'var(--muted)', lineHeight:1.4 }}>{opt.sub}</span>
                 </button>
@@ -3171,14 +3195,13 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm 
             </p>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
               {[
-                { id:'individual', icon:'🖼️', title:'Individual Photos', sub:'One photo per item — best for high-value assets.' },
-                { id:'batch',      icon:'📦', title:'Batch Photo',       sub:'One photo of all items together — quick for groups.' },
+                { id:'individual', title:'Individual Photos', sub:'One photo per item — best for high-value assets.' },
+                { id:'batch',      title:'Batch Photo',       sub:'One photo of all items together — quick for groups.' },
               ].map(opt => (
                 <button key={opt.id} onClick={() => { setPhotoMode(opt.id); setStep('upload'); }}
                   style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:6, padding:'14px 16px', borderRadius:12, border:'1.5px solid var(--line)', background:'var(--mist)', cursor:'pointer', textAlign:'left', fontFamily:'Inter,sans-serif', transition:'border-color .15s' }}
                   onMouseEnter={e => e.currentTarget.style.borderColor='var(--pine)'}
                   onMouseLeave={e => e.currentTarget.style.borderColor='var(--line)'}>
-                  <span style={{ fontSize:22 }}>{opt.icon}</span>
                   <span style={{ fontWeight:700, fontSize:13.5 }}>{opt.title}</span>
                   <span style={{ fontSize:12, color:'var(--muted)', lineHeight:1.4 }}>{opt.sub}</span>
                 </button>
@@ -3195,7 +3218,8 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm 
         {step === 'upload' && (
           <>
             <h3 style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>
-              {photoMode === 'batch' ? 'Batch Photo' : 'Individual Photos'}
+              {/* Single-item handover must not read "Batch Photo" (Neil) */}
+              {!isMulti ? 'Handover Photo' : photoMode === 'batch' ? 'Batch Photo' : 'Individual Photos'}
             </h3>
             <p style={{ fontSize:13, color:'var(--muted)', marginBottom:16 }}>
               {photoMode === 'batch'
@@ -3236,7 +3260,7 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm 
                 </div>
               )}
               <div style={{ fontSize:12.5, color:'var(--muted)', marginTop:8, lineHeight:1.5 }}>
-                The employee will be prompted on their side to confirm receipt and upload a photo. The checkout won't complete until they do.
+                {first.requestedBy} will be prompted on their side to confirm receipt and upload a photo. The checkout won't complete until they do.
               </div>
             </div>
             {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginTop:8 }}>{error}</p>}
@@ -3247,7 +3271,7 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm 
                 <button className="primary-btn" disabled={uploading}
                   style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:160, justifyContent:'center' }}
                   onClick={submitEmployee}>
-                  {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Please wait…</> : <><CheckCircle size={14} /> Handed Over — Notify Employee</>}
+                  {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Please wait…</> : <><CheckCircle size={14} /> Handed Over — Notify {(first.requestedBy || 'Requester').split(' ')[0]}</>}
                 </button>
               </div>
             </div>
@@ -3593,9 +3617,10 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
     // Person search — matches requester name or any item name in the order,
     // across every status (chips only covered people with ACTIVE checkouts)
     if (personQuery.trim()) {
-      const q = personQuery.trim().toLowerCase();
+      const q = personQuery.trim().toLowerCase().replace(/^#/, '');
       const matches = (first.requestedBy || '').toLowerCase().includes(q) ||
-        groupItems.some(c => (c.itemName || '').toLowerCase().includes(q));
+        groupItems.some(c => (c.itemName || '').toLowerCase().includes(q)) ||
+        requestNo(first.orderId || first.id).toLowerCase().includes(q);
       if (!matches) return false;
     }
     if (statusFilter === 'active')    return groupItems.some(c => ['pending','approved','pending_receipt','allocated'].includes(c.status));
@@ -3673,7 +3698,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
     <div>
       {/* Transient vs Permanent — Neil's separation */}
       <div style={{ display:'flex', gap:8, marginBottom:14 }}>
-        {[['checkouts','Checkouts (Transient)'], ['assignments', `Assignments (Permanent)${liveAssignments ? ` · ${liveAssignments}` : ''}`]].map(([k, l]) => (
+        {[['checkouts','Checkouts (Temporary)'], ['assignments', `Assignments (Permanent)${liveAssignments ? ` · ${liveAssignments}` : ''}`]].map(([k, l]) => (
           <button key={k} onClick={() => setSegment(k)}
             style={{ padding:'7px 16px', borderRadius:10, border:`1px solid ${segment === k ? 'var(--pine)' : 'var(--line)'}`, background: segment === k ? 'hsla(var(--color-green),0.08)' : 'var(--card)', color: segment === k ? 'hsl(var(--color-green))' : 'var(--muted)', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
             {l}
@@ -3747,7 +3772,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
                       <span style={{ fontWeight:700, fontSize:14 }}>{first.requestedBy}</span>
                     </div>
                     <div style={{ fontSize:12, color:'var(--muted)', marginTop:2, paddingLeft:22 }}>
-                      {fmtDate(first.createdAt)}{isMulti && ` · ${orderItems.length} Items`}
+                      {fmtDate(first.createdAt)}{isMulti && ` · ${orderItems.length} Items`} · Req #{requestNo(groupKey)}
                       {isCollapsed && ` · ${visibleItems.map(c => c.itemName).slice(0, 3).join(', ')}${visibleItems.length > 3 ? '…' : ''}`}
                     </div>
                     {first.reason && (
@@ -3812,21 +3837,21 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
                           <div style={{ fontWeight:600, fontSize:13 }}>{co.itemName}</div>
                           <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1 }}>
                             {co.itemType} · {co.days} day{co.days !== 1 ? 's' : ''}
+                            {co.status === 'allocated' && ` · until ${fmtDueDate(co)}`}
                             {co.assignedAllocatorName && co.status === 'approved' && <span style={{ color:'hsl(var(--color-blue))' }}> · {co.assignedAllocatorName}</span>}
                           </div>
-                          {co.rejectReason && <div style={{ fontSize:11, color:'hsl(var(--color-red))', marginTop:2 }}>{co.rejectReason}</div>}
+                          {co.rejectReason && <div style={{ fontSize:11, color:'hsl(var(--color-red))', marginTop:2 }}>Reason: {co.rejectReason}</div>}
                           {co.status === 'allocated' && co.extensionStatus === 'pending' && (
                             <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginTop:6, background:'hsla(var(--color-blue),0.06)', border:'1px solid hsla(var(--color-blue),0.25)', borderRadius:8, padding:'6px 10px' }}>
                               <Clock size={12} color="hsl(var(--color-blue))" style={{ flexShrink:0 }} />
                               <span style={{ fontSize:12, fontWeight:600, color:'hsl(var(--color-blue))' }}>
                                 Extension requested: +{co.extensionDays} day{co.extensionDays !== 1 ? 's' : ''}
                               </span>
-                              {co.extensionReason && <span style={{ fontSize:11.5, color:'var(--muted)', fontStyle:'italic' }}>"{co.extensionReason}"</span>}
                               {isManager && (
                                 <div style={{ display:'flex', gap:6, marginLeft:'auto' }}>
                                   <button disabled={extBusyId === co.id} onClick={() => handleResolveExtension(co, 'reject')}
-                                    style={{ background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:7, padding:'3px 10px', fontSize:11.5, cursor:'pointer', color:'hsl(var(--color-red))', fontWeight:600, fontFamily:'Inter,sans-serif' }}>
-                                    Decline
+                                    style={{ background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:7, padding:'3px 10px', fontSize:11.5, cursor:'pointer', color:'hsl(var(--color-red))', fontWeight:600, fontFamily:'Inter,sans-serif', display:'inline-flex', alignItems:'center', gap:4 }}>
+                                    <XCircle size={11} /> Reject
                                   </button>
                                   <button disabled={extBusyId === co.id} onClick={() => handleResolveExtension(co, 'approve')}
                                     className="primary-btn" style={{ fontSize:11.5, padding:'3px 12px', display:'inline-flex', alignItems:'center', gap:4 }}>
@@ -3834,6 +3859,8 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
                                   </button>
                                 </div>
                               )}
+                              {/* Reason on its own line under the request (Neil) */}
+                              {co.extensionReason && <div style={{ flexBasis:'100%', fontSize:11.5, color:'var(--muted)' }}>Reason: <em>"{co.extensionReason}"</em></div>}
                             </div>
                           )}
                         </div>
@@ -4136,7 +4163,7 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts }) {
                 {/* Transient */}
                 {h.transient.length > 0 && (
                   <div>
-                    <div style={{ fontSize:10.5, fontWeight:800, color:'hsl(var(--color-orange))', letterSpacing:'.06em', marginBottom:7 }}>CHECKED OUT (TRANSIENT)</div>
+                    <div style={{ fontSize:10.5, fontWeight:800, color:'hsl(var(--color-orange))', letterSpacing:'.06em', marginBottom:7 }}>CHECKED OUT (TEMPORARY)</div>
                     <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
                       {h.transient.map(c => {
                         const { daysLeft } = checkoutDueInfo(c);
@@ -4276,14 +4303,18 @@ export default function InventoryManagement({ activeSub }) {
   // Deep-link: NotificationBell navigates with ('inventory', subTab) — land on
   // that tab instead of the default Catalog so the click shows the relevant info.
   const VALID_SUBTABS = ['myitems','catalog','manage','checkouts','whohasit','purchasereqs','audit'];
+  // 'permanent' is a sub-tab inside My Items (MyCheckoutsPanel picks it up)
+  const resolveSub = sub => sub === 'permanent' ? 'myitems' : sub;
   useEffect(() => {
-    if (activeSub && VALID_SUBTABS.includes(activeSub)) setMainTab(activeSub);
+    const t = resolveSub(activeSub);
+    if (t && VALID_SUBTABS.includes(t)) setMainTab(t);
   }, [activeSub]); // eslint-disable-line react-hooks/exhaustive-deps
   // Window event covers repeat clicks where activeSub doesn't change value
   useEffect(() => {
     const h = e => {
       const { view, sub } = e.detail || {};
-      if (view === 'inventory' && sub && VALID_SUBTABS.includes(sub)) setMainTab(sub);
+      const t = resolveSub(sub);
+      if (view === 'inventory' && t && VALID_SUBTABS.includes(t)) setMainTab(t);
     };
     window.addEventListener('nexus:navigate', h);
     return () => window.removeEventListener('nexus:navigate', h);
@@ -4447,7 +4478,7 @@ export default function InventoryManagement({ activeSub }) {
           { id:'catalog',      label:'Catalog',           Icon: Package                                     },
           { id:'manage',       label:'Manage',            Icon: ClipboardList                               },
           { id:'checkouts',    label:'Checkouts',         Icon: ShoppingCart, badge: pendingCount + approvedCount },
-          { id:'whohasit',     label:'Who Has It',        Icon: Users                                       },
+          { id:'whohasit',     label:'Who Has What',      Icon: Users                                       },
           { id:'purchasereqs', label:'Purchase Requests', Icon: FileText                                    },
           { id:'audit',        label:'Audit Log',         Icon: History                                     },
         ].map(({ id, label, Icon, badge }) => (
@@ -4518,7 +4549,7 @@ export default function InventoryManagement({ activeSub }) {
       {mainTab === 'myitems' && (
         <div>
           <MyCheckoutsPanel
-            checkouts={checkouts} userEmail={userEmail} userName={userName}
+            checkouts={checkouts} userEmail={userEmail} userName={userName} activeSub={activeSub}
             assignments={assignments} refreshAssignments={refreshAssignments} toast={toast}
             onReturn={openReturn} onCancel={cancelCo}
             onSelfAllocate={selfAllocate}

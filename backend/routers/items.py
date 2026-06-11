@@ -761,36 +761,37 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
 
             all_resolved = len(still_pending) == 0
 
-            # Build title and body
+            # Build title and body. Neil: say "request", not "order", and put
+            # Approved / Not approved on separate lines (bell renders pre-line).
             if all_resolved:
                 if approved_names and rejected_names:
                     notif_type = "approved"
-                    notif_title = f"Order update: {len(approved_names)} approved, {len(rejected_names)} rejected"
+                    notif_title = f"Request update: {len(approved_names)} approved, {len(rejected_names)} rejected"
                     parts = []
                     if approved_names:
                         parts.append(f"Approved: {', '.join(approved_names)}")
                     if rejected_names:
                         parts.append(f"Not approved: {', '.join(rejected_names)}")
-                    notif_body = ". ".join(parts) + "."
+                    notif_body = "\n".join(parts)
                 elif approved_names:
                     notif_type = "approved"
-                    notif_title = f"Order approved: {len(approved_names)} item{'s' if len(approved_names) != 1 else ''}"
-                    notif_body = f"All {len(approved_names)} items from your order were approved. Your allocator will hand them over shortly."
+                    notif_title = f"Request approved: {len(approved_names)} item{'s' if len(approved_names) != 1 else ''}"
+                    notif_body = f"All {len(approved_names)} items from your request were approved. Your allocator will hand them over shortly."
                 else:
                     notif_type = "rejected"
-                    notif_title = f"Order rejected: {len(rejected_names)} item{'s' if len(rejected_names) != 1 else ''}"
-                    notif_body = f"Your {len(rejected_names)}-item order was not approved. Reason: {row.reject_reason or 'No reason given.'}"
+                    notif_title = f"Request rejected: {len(rejected_names)} item{'s' if len(rejected_names) != 1 else ''}"
+                    notif_body = f"Your {len(rejected_names)}-item request was not approved.\nReason: {row.reject_reason or 'No reason given.'}"
             else:
                 total = len(approved_names) + len(rejected_names) + len(still_pending)
                 notif_type = "approved" if approved_names else "rejected"
-                notif_title = f"Order partially processed — {len(approved_names) + len(rejected_names)} of {total} items"
+                notif_title = f"Request partially processed — {len(approved_names) + len(rejected_names)} of {total} items"
                 parts = []
                 if approved_names:
                     parts.append(f"Approved: {', '.join(approved_names)}")
                 if rejected_names:
                     parts.append(f"Not approved: {', '.join(rejected_names)}")
                 parts.append(f"Still pending: {', '.join(still_pending)}")
-                notif_body = ". ".join(parts) + "."
+                notif_body = "\n".join(parts)
 
             # Update existing order notification if one exists, otherwise create
             existing = db.query(NexusNotification).filter(
@@ -854,24 +855,33 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
                         body=f"Your request for {row.item_name} was not approved. Reason: {row.reject_reason or 'No reason given.'}",
                         ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
     elif body.status == "pending_receipt":
-        # For order batches: only notify once, when the LAST item in the order moves to pending_receipt
         if row.order_id:
-            sibling_not_yet = db.query(ItemCheckout).filter(
+            # One updating "confirm receipt" notification per order. The old
+            # last-item-only gate meant handing over PART of an order produced
+            # no notification at all — the missed-notification bug from the
+            # Jun 10 demo. Same update-in-place pattern as approvals/returns;
+            # the FOR UPDATE lock at the top of this endpoint makes it race-safe.
+            handed = db.query(ItemCheckout).filter(
                 ItemCheckout.order_id == row.order_id,
                 ItemCheckout.id != checkout_id,
-                ItemCheckout.status == "approved",  # still awaiting initiation
-            ).count()
-            if sibling_not_yet == 0:
-                # All initiated items now pending_receipt — one consolidated notification.
-                # Count only items actually handed over (not rejected/cancelled siblings).
-                order_count = db.query(ItemCheckout).filter(
-                    ItemCheckout.order_id == row.order_id,
-                    ItemCheckout.status == "pending_receipt",
-                ).count() + 1  # +1 for current row (autoflush off — not yet visible)
+                ItemCheckout.status == "pending_receipt",
+            ).count() + 1  # +1 for current row (autoflush off — not yet visible)
+            notif_title = f"Confirm receipt: {handed} item{'s' if handed != 1 else ''}"
+            notif_body = (f"{row.item_name} has been handed over. Please confirm receipt and upload a photo." if handed == 1
+                          else f"{handed} items from your request have been handed over. Please confirm receipt and upload a photo for each.")
+            existing = db.query(NexusNotification).filter(
+                NexusNotification.ref_id == row.order_id,
+                NexusNotification.recipient == (row.requested_by_email or "").lower(),
+                NexusNotification.type == "allocated",
+                NexusNotification.actioned == False,
+            ).first()
+            if existing:
+                existing.title   = notif_title
+                existing.body    = notif_body
+                existing.read_by = ""  # re-surface as unread
+            else:
                 _notify(db, type="allocated", recipient=row.requested_by_email,
-                        title=f"Confirm receipt: {order_count} item{'s' if order_count != 1 else ''}",
-                        body=f"Your order has been handed over. Please confirm receipt and upload a photo for all {order_count} items." if order_count != 1
-                             else f"{row.item_name} has been handed over. Please confirm receipt and upload a photo.",
+                        title=notif_title, body=notif_body,
                         ref_id=row.order_id, item_name=row.item_name, requested_by=row.requested_by)
         else:
             _notify(db, type="allocated", recipient=row.requested_by_email,
@@ -893,8 +903,8 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
                     ItemCheckout.status == "allocated",
                 ).count() + 1  # +1 for current item (not yet committed)
                 _notify(db, type="allocated", recipient=row.requested_by_email,
-                        title=f"Order confirmed: {order_count} item{'' if order_count == 1 else 's'} with you",
-                        body=f"All {order_count} items from your order are confirmed. Please return them within {row.days} day(s).",
+                        title=f"Request confirmed: {order_count} item{'' if order_count == 1 else 's'} with you",
+                        body=f"All {order_count} items from your request are confirmed. Please return them within {row.days} day(s).",
                         ref_id=row.order_id, item_name=row.item_name, requested_by=row.requested_by)
             # else: don't send individual notifications mid-batch
         else:
@@ -920,7 +930,7 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
                     notif_body  = (f"{row.requested_by} returned: {', '.join(returned_names)}. "
                                    f"Still out: {', '.join(still_out)}.")
                 else:
-                    notif_title = f"Order returned: {len(returned_names)} item{'s' if len(returned_names) != 1 else ''}"
+                    notif_title = f"Request returned: {len(returned_names)} item{'s' if len(returned_names) != 1 else ''}"
                     notif_body  = (f"{row.requested_by} returned all {len(returned_names)} items: "
                                    f"{', '.join(returned_names)}."
                                    + (f" Condition: {row.condition_note}" if row.condition_note else ""))
@@ -982,10 +992,12 @@ def request_extension(checkout_id: str, body: ExtensionRequest, user: dict = Dep
     row.extension_reason = (body.reason or "").strip()
     row.extension_status = "pending"
 
+    # Neil: title leads with the ITEM and the days — the requester is already
+    # shown on the card. Reason goes on its own line (bell renders pre-line).
     _notify(db, type="extension_pending", recipient="",
-            title=f"Extension Request — {row.requested_by}",
+            title=f"Extension Request — {row.item_name} (+{days} day{'s' if days != 1 else ''})",
             body=f"{row.requested_by} requested {days} more day{'s' if days != 1 else ''} for {row.item_name}."
-                 + (f" Reason: {row.extension_reason}" if row.extension_reason else ""),
+                 + (f"\nReason: {row.extension_reason}" if row.extension_reason else ""),
             ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
 
     db.commit()

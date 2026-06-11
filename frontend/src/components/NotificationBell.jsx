@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, Loader2, AlertCircle, User, Clock } from 'lucide-react';
+import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, Loader2, AlertCircle, User, Clock, HelpCircle } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useInventory }      from '../contexts/InventoryContext';
 import { useRequisitions }   from '../contexts/RequisitionContext';
@@ -395,8 +395,11 @@ export default function NotificationBell({ onNavigate }) {
       case 'extension_resolved':
       case 'extension_approved':
       case 'extension_declined':
-      case 'perm_assign':
         return ['inventory', 'myitems'];
+      case 'perm_assign':
+        // Permanent assignments live under My Items → Permanent, not Active
+        // Checkouts — MyCheckoutsPanel switches its own tab on this sub.
+        return ['inventory', 'permanent'];
       case 'perm_return':
         return ['inventory', 'checkouts'];     // the requester's own items
       case 'req_pending':
@@ -621,13 +624,15 @@ export default function NotificationBell({ onNavigate }) {
                             </span>
                           )}
                         </div>
-                        <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '4px 0 14px', lineHeight: 1.45 }}>{n.body}</p>
+                        <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '4px 0 14px', lineHeight: 1.45, whiteSpace: 'pre-line' }}>{n.body}</p>
 
                         {!isRejecting && !isApproving ? (
                           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            {/* Neil: Review = yellow/caution with a ? icon so people
+                                know it opens the full list to decide item-by-item */}
                             <button onClick={e => { e.stopPropagation(); markRead(n.id); setOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'inventory', sub: 'checkouts' } })); }}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: '1px solid var(--line)', background: 'none', color: 'var(--ink)', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
-                              Review
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: '1px solid hsla(var(--color-orange),0.4)', background: 'hsla(var(--color-orange),0.12)', color: 'hsl(var(--color-orange))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                              <HelpCircle size={15} /> Review
                             </button>
                             <button onClick={e => { e.stopPropagation(); handleAction(n, 'approve'); }}
                               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
@@ -635,7 +640,7 @@ export default function NotificationBell({ onNavigate }) {
                             </button>
                             <button onClick={e => { e.stopPropagation(); setRejectingId(n.id); setRejectReason(''); setApprovingId(null); }}
                               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-red),0.10)', color: 'hsl(var(--color-red))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
-                              <X size={15} /> Reject
+                              <X size={15} /> {n.type === 'extension_pending' ? 'Reject' : 'Reject All'}
                             </button>
                           </div>
                         ) : isApproving ? (
@@ -747,7 +752,7 @@ export default function NotificationBell({ onNavigate }) {
                           )}
                         </div>
                       )}
-                      <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '4px 0 0', lineHeight: 1.45 }}>{n.body}</p>
+                      <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '4px 0 0', lineHeight: 1.45, whiteSpace: 'pre-line' }}>{n.body}</p>
                       {n.action && n.action.kind === 'allocate' && (
                         <button
                           onClick={e => { e.stopPropagation(); handleInlineAllocate(n); }}
