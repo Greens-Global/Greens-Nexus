@@ -1676,3 +1676,13 @@ html { overflow-x: hidden; }
   .sidebar.open { box-shadow: 0 0 50px rgba(0,0,0,.3); }
   .main-content, .main-content.main-collapsed { margin-left: 0; }
 }
+
+/* Phone header rhythm - title/filters/search were stacking with no air.
+   The marketing subtitle is desktop-only; phones get title -> filter bar ->
+   search with consistent 10px breathing room. */
+@media (max-width: 640px) {
+  .view-title-group p { display: none; }
+  .view-title-group h2 { font-size: 18px; }
+  .view-header { margin-bottom: 6px; row-gap: 6px; }
+  [data-vis="visible"] { margin: 4px 0 10px; }
+}
