@@ -267,7 +267,9 @@ function AddItemModal({ onClose, onSave }) {
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:16, overflowY:'auto' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:500, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', margin:'auto' }}>
+      {/* Wide enough that no label or select option ever truncates (e.g.
+          "Temporary (check-out/return)" was getting cut off at 500px) */}
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:620, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', margin:'auto' }}>
         <h3 style={{ fontSize:16, fontWeight:700, marginBottom:20 }}>Add Item</h3>
 
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
@@ -419,7 +421,9 @@ function EditItemModal({ item, onClose, onSave }) {
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:16, overflowY:'auto' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:500, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', margin:'auto' }}>
+      {/* Wide enough that no label or select option ever truncates (e.g.
+          "Temporary (check-out/return)" was getting cut off at 500px) */}
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:620, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', margin:'auto' }}>
         <h3 style={{ fontSize:16, fontWeight:700, marginBottom:20 }}>Edit Item</h3>
 
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
@@ -2408,7 +2412,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
 });
 
 // ── Manager Catalog Tab ───────────────────────────────────────────────────────
-const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate }) {
+const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, searchValue, onSearchChange, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate }) {
   const [viewMode, setViewMode] = useState('list'); // 'tile' | 'list'
 
   const filtered = useMemo(() => {
@@ -2435,9 +2439,15 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
 
   return (
     <>
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
-        <p style={{ fontSize:12, color:'var(--muted)', margin:0 }}>{filtered.length} item{filtered.length !== 1 ? 's' : ''}</p>
-        <div style={{ display:'flex', gap:4 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:14, marginBottom:14 }}>
+        <p style={{ fontSize:12, color:'var(--muted)', margin:0, whiteSpace:'nowrap', flexShrink:0 }}>{filtered.length} item{filtered.length !== 1 ? 's' : ''}</p>
+        {/* Search sits beside the count and stretches the full row width,
+            stopping short of the Tile/List toggle */}
+        <div className="search-bar" style={{ flex:1, minWidth:160, marginBottom:0 }}>
+          <Search size={14} style={{ flexShrink:0 }} />
+          <input placeholder="Search items…" value={searchValue} onChange={e => onSearchChange(e.target.value)} />
+        </div>
+        <div style={{ display:'flex', gap:4, flexShrink:0 }}>
           <button onClick={() => setViewMode('tile')}
             style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:8, border:`1px solid ${viewMode === 'tile' ? 'var(--pine)' : 'var(--line)'}`, background: viewMode === 'tile' ? 'hsla(var(--color-green),0.1)' : 'transparent', color: viewMode === 'tile' ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
             <LayoutGrid size={13} /> Tile
@@ -3899,7 +3909,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
       </div>
       {/* Person/item search — works across every status, unlike the old chips
           which only listed people with active checkouts */}
-      <div className="search-bar" style={{ maxWidth:380, marginBottom:18 }}>
+      <div className="search-bar" style={{ width:'100%', marginBottom:18 }}>
         <Users size={13} style={{ flexShrink:0 }} />
         <input placeholder="Search by person or item…" value={personQuery} onChange={e => setPersonQuery(e.target.value)} />
         {personQuery && (
@@ -4709,8 +4719,10 @@ export default function InventoryManagement({ activeSub }) {
             {badge > 0 && <span style={{ background:'hsl(var(--color-orange))', color:'#fff', borderRadius:20, fontSize:10, fontWeight:800, padding:'1px 6px', marginLeft:2 }}>{badge}</span>}
           </button>
         ))}
-        {/* Always mounted so the strip height/width never shifts between tabs */}
-        <div className="search-bar" style={{ marginLeft:'auto', flex:1, maxWidth:480, minWidth:220, marginBottom:0, visibility: (mainTab === 'catalog' || mainTab === 'manage') ? 'visible' : 'hidden' }}>
+        {/* Always mounted so the strip height/width never shifts between tabs.
+            Catalog renders its own search beside the item count, so this one
+            only shows on Manage. */}
+        <div className="search-bar" style={{ marginLeft:'auto', flex:1, maxWidth:480, minWidth:220, marginBottom:0, visibility: mainTab === 'manage' ? 'visible' : 'hidden' }}>
           <Search size={14} style={{ flexShrink:0 }} />
           <input placeholder="Search items…" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
@@ -4749,6 +4761,7 @@ export default function InventoryManagement({ activeSub }) {
         <ManagerCatalogTab
           items={items} itemsLoading={itemsLoading} itemsError={itemsError}
           deptFilter={deptFilter} typeFilter={typeFilter} search={deferredSearch}
+          searchValue={search} onSearchChange={setSearch}
           refreshItems={refreshItems} onAddToCart={addToCart} inCart={inCart}
           checkouts={checkouts} userEmail={userEmail} userName={userName}
           onReturn={openReturn} onCancel={cancelCo}

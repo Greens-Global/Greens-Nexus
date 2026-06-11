@@ -1348,15 +1348,17 @@ html { scrollbar-gutter: stable; }
 /* Search-match highlight: flashes briefly when results land, then settles
    into a static marker so the eye finds WHY a card matched the query. */
 @keyframes searchHitFlash {
-  0%   { background: hsla(var(--color-gold), 0.55); box-shadow: 0 0 0 5px hsla(var(--color-gold), 0.30); }
-  60%  { background: hsla(var(--color-gold), 0.45); box-shadow: 0 0 0 2px hsla(var(--color-gold), 0.15); }
-  100% { background: hsla(var(--color-gold), 0.22); box-shadow: 0 0 0 0 transparent; }
+  0%   { background: hsla(var(--color-gold), 0.85); box-shadow: 0 0 0 6px hsla(var(--color-gold), 0.45); }
+  55%  { background: hsla(var(--color-gold), 0.70); box-shadow: 0 0 0 3px hsla(var(--color-gold), 0.25); }
+  100% { background: hsla(var(--color-gold), 0.40); box-shadow: 0 0 0 0 transparent; }
 }
 mark.search-hit {
-  background: hsla(var(--color-gold), 0.22);
+  background: hsla(var(--color-gold), 0.40);
+  box-shadow: inset 0 -2px 0 hsl(var(--color-gold));
   color: inherit;
+  font-weight: 700;
   border-radius: 4px;
-  padding: 0 2px;
-  margin: 0 -2px;
-  animation: searchHitFlash 0.9s ease-out;
+  padding: 0 3px;
+  margin: 0 -3px;
+  animation: searchHitFlash 1.3s ease-out;
 }
