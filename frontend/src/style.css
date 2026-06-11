@@ -1362,3 +1362,56 @@ mark.search-hit {
   margin: 0 -3px;
   animation: searchHitFlash 1.3s ease-out;
 }
+
+/* ── Responsive pass (Jun 2026): laptops down to phones ─────────────────────
+   Desktop drawer/overlay rules already exist at 900px; this layer tightens
+   spacing on small laptops and gives phones a native-app feel. */
+
+/* Smaller laptops (1366x768 and friends): reclaim horizontal space */
+@media (max-width: 1366px) {
+  .viewport { padding: 24px 22px; }
+}
+
+@media (max-width: 900px) {
+  /* The desktop collapse chevron is meaningless when the sidebar is a drawer */
+  .sidebar-collapse-btn { display: none; }
+  /* Module tab strips stick just under the (sticky) top header so navigation
+     stays in thumb reach while scrolling long lists */
+  .scroll-tabs { position: sticky; top: 56px; background: var(--paper); z-index: 50; }
+}
+
+@media (max-width: 640px) {
+  .viewport { padding: 12px; }
+  .view-title-group h2 { font-size: 17px; }
+  .view-title-group p  { font-size: 12px; }
+  .view-header { gap: 10px; margin-bottom: 14px; }
+  .kpi-value { font-size: 22px; }
+
+  /* Dialogs become BOTTOM SHEETS on phones — slide up from the bottom edge,
+     full width, rounded top, scrollable. Every modal positions itself with
+     inline styles, so !important is required to win the cascade. */
+  [role="dialog"] { align-items: flex-end !important; padding: 0 !important; }
+  [role="dialog"] > div {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    border-radius: 18px 18px 0 0 !important;
+    max-height: 92vh;
+    overflow-y: auto;
+    animation: sheetUp 0.26s cubic-bezier(.16,1,.3,1);
+  }
+  /* grab-bar affordance, like native sheets */
+  [role="dialog"] > div::before {
+    content: '';
+    display: block;
+    width: 44px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--line);
+    margin: -10px auto 14px;
+  }
+}
+@keyframes sheetUp {
+  from { transform: translateY(48px); opacity: 0.5; }
+  to   { transform: none; opacity: 1; }
+}
