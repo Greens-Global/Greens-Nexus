@@ -246,7 +246,7 @@ export default function App() {
           />
           {/* App-style mobile chrome — phones only (CSS-gated ≤900px):
               bottom tab bar + adidas-style full-screen menu */}
-          <MobileNav activeView={activeView} onNavigate={navigate} onMenu={() => setMobileMenuOpen(true)} />
+          <MobileNav activeView={activeView} activeSub={activeSub} onNavigate={navigate} onMenu={() => setMobileMenuOpen(true)} />
           <MobileMenu open={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)}
             onNavigate={navigate} activeView={activeView}
             theme={theme} onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")} />

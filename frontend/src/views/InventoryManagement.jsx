@@ -2896,7 +2896,7 @@ function SendAlertModal({ onClose, toast }) {
 }
 
 // ── Manager Manage Tab ────────────────────────────────────────────────────────
-const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign }) {
+const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign }) {
   const [photoPreview,       setPhotoPreview]       = useState(null);
   const [selected,           setSelected]           = useState(new Set());
   const [sortCol,            setSortCol]            = useState('name');
@@ -3011,6 +3011,13 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
 
   return (
     <>
+      {/* Phone search — the desktop tab-strip search is hidden on mobile */}
+      {isMobile && onSearchChange && (
+        <div className="search-bar" style={{ width:'100%', marginBottom:12 }}>
+          <Search size={14} style={{ flexShrink:0 }} />
+          <input placeholder="Search items…" value={searchValue} onChange={e => onSearchChange(e.target.value)} />
+        </div>
+      )}
       {/* Action bar */}
       <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap', alignItems:'center' }}>
         <button className="primary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onAdd}>
@@ -4142,7 +4149,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
                     const isCompleted = ['returned','rejected','cancelled'].includes(co.status);
 
                     return (
-                      <div key={co.id} style={{ padding:'12px 18px', borderTop: idx > 0 ? '1px solid var(--line)' : 'none', display:'flex', alignItems:'center', gap:12, flexWrap:'wrap', opacity: isCompleted ? 0.7 : 1 }}>
+                      <div key={co.id} className="co-row" style={{ padding:'12px 18px', borderTop: idx > 0 ? '1px solid var(--line)' : 'none', display:'flex', alignItems:'center', gap:12, flexWrap:'wrap', opacity: isCompleted ? 0.7 : 1 }}>
                         {item?.photoUrl
                           ? <img src={item.photoUrl} alt={co.itemName} loading="lazy" decoding="async" style={{ width:44, height:44, borderRadius:10, objectFit:'cover', border:'1px solid var(--line)', flexShrink:0 }} />
                           : <div style={{ width:44, height:44, borderRadius:10, background:'var(--mist)', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}><Package size={18} style={{ opacity:.4 }} /></div>}
@@ -5011,8 +5018,8 @@ export default function InventoryManagement({ activeSub }) {
         </div>
       </div>
 
-      {/* Tab strip — horizontally scrollable on phones instead of wrapping into a tall stack */}
-      <div className="scroll-tabs" style={{ display:'flex', gap:0, marginBottom:20, borderBottom:'1px solid var(--line)' }}>
+      {/* Tab strip — desktop only; on phones the bottom action bar replaces it */}
+      <div className="scroll-tabs im-tabs" style={{ display:'flex', gap:0, marginBottom:20, borderBottom:'1px solid var(--line)' }}>
         {[
           { id:'myitems',      label:'My Items',          Icon: User,         badge: myActiveCount          },
           { id:'catalog',      label:'Catalog',           Icon: Package                                     },
@@ -5083,6 +5090,7 @@ export default function InventoryManagement({ activeSub }) {
         <ManagerManageTab
           items={items} itemsLoading={itemsLoading} itemsError={itemsError}
           deptFilter={deptFilter} typeFilter={typeFilter} search={deferredSearch}
+          searchValue={search} onSearchChange={setSearch}
           refreshItems={refreshItems} canDelete={canDelete}
           onAdd={openAdd} onEdit={setEditingItem}
           onDelete={setDeletingItem} onImport={openImport}
