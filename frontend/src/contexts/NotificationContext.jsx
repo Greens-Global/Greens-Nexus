@@ -44,6 +44,7 @@ export function NotificationProvider({ children }) {
   const channelRef  = useRef(null);
   const fetchingRef = useRef(false);
   const errCountRef = useRef(0);
+  const pingRef     = useRef(null);
 
   // ── Full fetch from backend ───────────────────────────────────────────────
   const fetchNotifications = useCallback(() => {
@@ -73,36 +74,21 @@ export function NotificationProvider({ children }) {
     }
 
     if (supabase) {
-      // Subscribe to new inserts on nexus_notifications
+      // Realtime via notification_events PINGS, not the notifications table.
+      // nexus_notifications must never be anon-readable — its rows carry every
+      // user's approval/rejection texts and emails, and the anon key ships in
+      // the public JS bundle. A DB trigger writes a zero-content ping row on
+      // every notification insert/update; we refetch through the authenticated
+      // API, which filters to this user server-side.
       channelRef.current = supabase
-        .channel(`notifs:${myEmail}`)
+        .channel('notification_events_pings')
         .on(
           'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'nexus_notifications' },
-          payload => {
-            const r = payload.new;
-            const rec = (r.recipient ?? '').toLowerCase();
-            // Only process if it's a broadcast or addressed to me
-            if (rec === '' || rec === myEmail) {
-              const readList = (r.read_by ?? '').split(',').filter(Boolean);
-              setNotifications(prev => {
-                // Deduplicate — realtime and poll can both fire
-                if (prev.some(n => n.id === r.id)) return prev;
-                return [rowToNotif({ ...r, read: readList.includes(myEmail) }), ...prev.slice(0, 49)];
-              });
-            }
-          }
-        )
-        .on(
-          'postgres_changes',
-          { event: 'UPDATE', schema: 'public', table: 'nexus_notifications' },
-          payload => {
-            const r = payload.new;
-            setNotifications(prev => prev.map(n => {
-              if (n.id !== r.id) return n;
-              const readList = (r.read_by ?? '').split(',').filter(Boolean);
-              return rowToNotif({ ...r, read: readList.includes(myEmail) });
-            }));
+          { event: 'INSERT', schema: 'public', table: 'notification_events' },
+          () => {
+            // Trailing debounce — a batch of writes fires one fetch, not N
+            clearTimeout(pingRef.current);
+            pingRef.current = setTimeout(fetchNotifications, 350);
           }
         )
         .subscribe();
@@ -113,6 +99,7 @@ export function NotificationProvider({ children }) {
     return () => {
       if (channelRef.current) supabase?.removeChannel(channelRef.current);
       clearTimeout(pollRef.current);
+      clearTimeout(pingRef.current);
     };
   }, [myEmail, fetchNotifications]);
 

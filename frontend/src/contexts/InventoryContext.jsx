@@ -1,6 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useMsal } from '@azure/msal-react';
 import { api } from '../api';
 import { supabase } from '../lib/supabase';
 import { cleanName } from '../lib/utils';
@@ -18,9 +17,6 @@ function keepIfSame(prev, next) {
 }
 
 export function InventoryProvider({ children }) {
-  const { accounts } = useMsal();
-  const myEmail = (accounts[0]?.username ?? '').toLowerCase();
-
   const [items,            setItems]            = useState([]);
   const [itemsLoading,     setItemsLoading]     = useState(true);
   const [itemsError,       setItemsError]       = useState(null);
@@ -28,17 +24,13 @@ export function InventoryProvider({ children }) {
   const [checkoutsLoading, setCheckoutsLoading] = useState(true);
   const [checkoutsError,   setCheckoutsError]   = useState(null);
 
-  const channelRef    = useRef(null);
   const eventsRef     = useRef(null);
   const pollRef       = useRef(null);
-  const checkoutsRef  = useRef([]);
   const itemsInFlight = useRef(false);
   const cosInFlight   = useRef(false);
   // Consecutive error counts for backoff
   const itemsErrCount = useRef(0);
   const cosErrCount   = useRef(0);
-
-  useEffect(() => { checkoutsRef.current = checkouts; }, [checkouts]);
 
   const fetchItems = useCallback(() => {
     if (itemsInFlight.current) return Promise.resolve(); // deduplicate
@@ -122,38 +114,24 @@ export function InventoryProvider({ children }) {
     fetchCheckouts();
 
     if (supabase) {
-      // inventory_events: fired by backend after every checkout state change;
-      // only refetch if the current user is the requester or allocator.
+      // inventory_events ONLY: a skinny ping table (checkout id + status, no
+      // personal data) the backend writes on every checkout change. The old
+      // second subscription watched item_checkouts directly, which required an
+      // anon SELECT policy that exposed the ENTIRE table (names, emails,
+      // reasons) to anyone holding the public anon key. Refetching through the
+      // authenticated API keeps the same freshness — the server filters
+      // visibility, and the inFlight guards dedupe concurrent calls.
       eventsRef.current = supabase
         .channel('item_events_inserts')
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'inventory_events' },
           payload => {
-            const { request_id, status } = payload.new ?? {};
-            const involved = checkoutsRef.current.some(c => c.id === request_id);
-            if (involved) fetchCheckouts();
-            if (involved && (status === 'allocated' || status === 'returned')) fetchItems();
-          }
-        )
-        .subscribe();
-
-      // item_checkouts: direct table subscription for cross-account updates.
-      // When another user creates or resolves a checkout, every open session
-      // needs to see the item flip available ↔ unavailable in the catalog.
-      channelRef.current = supabase
-        .channel('item_checkouts_changes')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'item_checkouts' },
-          payload => {
-            const { status, requested_by_email, assigned_allocator_email } = payload.new ?? {};
-            const isMe = requested_by_email === myEmail || assigned_allocator_email === myEmail;
-            // Always refetch checkouts for involved users or managers (server
-            // enforces visibility — over-fetching here is safe).
+            const { status } = payload.new ?? {};
             fetchCheckouts();
-            // Refetch items when availability actually changes
-            if (status === 'allocated' || status === 'returned' || status === 'cancelled') {
+            // Refetch items whenever catalog availability may have changed
+            // (pending covers brand-new requests flagging hasActiveRequest)
+            if (['pending', 'allocated', 'returned', 'cancelled'].includes(status)) {
               fetchItems();
             }
           }
@@ -163,10 +141,9 @@ export function InventoryProvider({ children }) {
 
     return () => {
       if (eventsRef.current) supabase?.removeChannel(eventsRef.current);
-      if (channelRef.current) supabase?.removeChannel(channelRef.current);
       clearTimeout(pollRef.current);
     };
-  }, [fetchItems, fetchCheckouts, scheduleNext, myEmail]);
+  }, [fetchItems, fetchCheckouts, scheduleNext]);
 
   // ── Checkout actions ──────────────────────────────────────────────────────
 

@@ -92,7 +92,10 @@ def _post_item_event(checkout_id: str, status: str, affected_email: str) -> None
                 "Content-Type": "application/json",
                 "Prefer": "return=minimal",
             },
-            json={"request_id": checkout_id, "status": status, "affected_email": affected_email},
+            # affected_email deliberately blank: inventory_events is anon-readable
+            # for realtime pings, so nothing personal may be written into it.
+            # Clients never used the field — they refetch via the authed API.
+            json={"request_id": checkout_id, "status": status, "affected_email": ""},
             timeout=5.0,
         )
     except Exception:
