@@ -13,7 +13,23 @@ from audit import AuditMiddleware
 def _run_migrations():
     """Add columns that were introduced after the initial table creation."""
     if DATABASE_URL.startswith("sqlite"):
-        return  # SQLite: create_all is enough for dev
+        # create_all builds NEW tables but never alters existing ones — columns
+        # added to models after a local DB was created must be patched in here
+        # (a model column missing from the DB breaks every SELECT with a 500).
+        # SQLite has no IF NOT EXISTS for columns; duplicates just error and
+        # are swallowed.
+        sqlite_migrations = [
+            "ALTER TABLE items ADD COLUMN picture_required BOOLEAN DEFAULT 1",
+            "ALTER TABLE items ADD COLUMN asset_value FLOAT DEFAULT 0",
+        ]
+        with engine.connect() as conn:
+            for sql in sqlite_migrations:
+                try:
+                    conn.execute(text(sql))
+                except Exception:
+                    pass  # column already exists
+            conn.commit()
+        return
     migrations = [
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS employee_email VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_notifications ADD COLUMN IF NOT EXISTS read_by VARCHAR DEFAULT ''",
