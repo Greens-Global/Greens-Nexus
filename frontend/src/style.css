@@ -1659,3 +1659,8 @@ html { overflow-x: hidden; }
     margin-left: 54px;
   }
 }
+
+/* True edge-to-edge on phones - the side gutters go to content instead */
+@media (max-width: 640px) {
+  .viewport { padding: 8px 4px 12px; }
+}

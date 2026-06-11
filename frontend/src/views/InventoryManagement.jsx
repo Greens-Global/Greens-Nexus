@@ -5005,7 +5005,9 @@ export default function InventoryManagement({ activeSub }) {
           </div>
           {/* Cart last: it's the one control visible on every tab, so it anchors
               the right edge instead of floating next to hidden filters */}
-          <button className={`cart-btn ${cart.length ? 'primary-btn' : 'secondary-btn'}`}
+          {/* FAB only where carting happens — on Manage it was covering the
+              card action buttons (Delete) */}
+          <button className={`${mainTab === 'catalog' ? 'cart-btn ' : ''}${cart.length ? 'primary-btn' : 'secondary-btn'}`}
             style={{ display:'inline-flex', alignItems:'center', gap:7, position:'relative' }}
             onClick={() => setCartOpen(true)}>
             <ShoppingCart size={14} /> Cart
