@@ -6,6 +6,7 @@ import { RequisitionProvider } from "./contexts/RequisitionContext";
 import { InventoryProvider } from "./contexts/InventoryContext";
 import Sidebar from "./components/Sidebar";
 import MobileNav from "./components/MobileNav";
+import MobileMenu from "./components/MobileMenu";
 import TopHeader from "./components/TopHeader";
 import AdminPanel from "./components/AdminPanel";
 import NotificationToasts from "./components/NotificationToasts";
@@ -131,6 +132,7 @@ export default function App() {
   const [activeSub,        setActiveSub]        = useState(null);
   const [theme,            setTheme]            = useState(() => localStorage.getItem("gg-theme") || "light");
   const [sidebarOpen,      setSidebarOpen]      = useState(false);
+  const [mobileMenuOpen,   setMobileMenuOpen]   = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("gg-sidebar-collapsed") === "true");
   const [navHistory,       setNavHistory]       = useState([]);
   const [adminPanelOpen,   setAdminPanelOpen]   = useState(false);
@@ -242,14 +244,18 @@ export default function App() {
             collapsed={sidebarCollapsed}
             onToggleCollapse={() => setSidebarCollapsed(c => !c)}
           />
-          {/* App-style bottom navigation — phones only (CSS-gated ≤900px) */}
-          <MobileNav activeView={activeView} onNavigate={navigate} onMenu={() => setSidebarOpen(true)} />
+          {/* App-style mobile chrome — phones only (CSS-gated ≤900px):
+              bottom tab bar + adidas-style full-screen menu */}
+          <MobileNav activeView={activeView} onNavigate={navigate} onMenu={() => setMobileMenuOpen(true)} />
+          <MobileMenu open={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)}
+            onNavigate={navigate} activeView={activeView}
+            theme={theme} onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")} />
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
             <TopHeader
               title={viewLabel(activeView)}
               theme={theme}
               onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")}
-              onMobileToggle={() => setSidebarOpen(o => !o)}
+              onMobileToggle={() => setMobileMenuOpen(true)}
               canGoBack={navHistory.length > 0}
               onBack={goBack}
               onNavigate={navigate}

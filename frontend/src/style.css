@@ -1,5 +1,5 @@
-/* ==========================================================================
-   Greens Nexus — Design System v3 (neutral monochrome)
+﻿/* ==========================================================================
+   Greens Nexus â€” Design System v3 (neutral monochrome)
    ========================================================================== */
 
 @keyframes fadeIn  { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
@@ -69,7 +69,7 @@
   --ink:     #e8edf5;
   --muted:   #8b97b0;
   --line:    rgba(255,255,255,0.09);
-  /* --pine and --fern stay dark (inherited from :root) — DO NOT override */
+  /* --pine and --fern stay dark (inherited from :root) â€” DO NOT override */
   --mist:    #161b27;
   --ok-bg:   #0a2218; --ok-fg:   #4ade80;
   --warn-bg: #1c1206; --warn-fg: #fbbf24;
@@ -99,7 +99,7 @@
   --shadow-lg: 0 8px 32px rgba(0,0,0,.7), 0 2px 10px rgba(0,0,0,.5);
 }
 
-/* ── Reset ─────────────────────────────────────────────────────────────── */
+/* â”€â”€ Reset â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 
 body {
@@ -121,10 +121,10 @@ h1,h2,h3,h4,h5,h6,
 
 .mono { font-family: 'SF Mono', 'Fira Code', monospace; font-size: .82em; letter-spacing: -.02em; }
 
-/* ── App layout ─────────────────────────────────────────────────────────── */
+/* â”€â”€ App layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .app-container { display: flex; min-height: 100vh; }
 
-/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+/* â”€â”€ Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .sidebar {
   width: 264px;
   background: var(--sidebar);
@@ -141,7 +141,7 @@ h1,h2,h3,h4,h5,h6,
   transition: width 0.26s cubic-bezier(.16,1,.3,1);
 }
 
-/* ── Collapsed sidebar ───────────────────────────────────────────────────── */
+/* â”€â”€ Collapsed sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .sidebar.collapsed { width: 60px; }
 
 .sidebar.collapsed .sidebar-header {
@@ -161,7 +161,7 @@ h1,h2,h3,h4,h5,h6,
   padding: 9px 6px !important;
 }
 
-/* ── Sidebar collapse toggle button ─────────────────────────────────────── */
+/* â”€â”€ Sidebar collapse toggle button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .sidebar-collapse-btn {
   position: fixed;
   top: calc(50vh - 22px);
@@ -343,7 +343,7 @@ h1,h2,h3,h4,h5,h6,
 .sidebar-user-name { font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sidebar-user-role { font-size: 11px; color: var(--muted); }
 
-/* ── Main content ─────────────────────────────────────────────────────── */
+/* â”€â”€ Main content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .main-content {
   flex: 1; min-width: 0; margin-left: 264px;
   display: flex; flex-direction: column; min-height: 100vh;
@@ -351,7 +351,7 @@ h1,h2,h3,h4,h5,h6,
 }
 .main-content.main-collapsed { margin-left: 60px; }
 
-/* ── Top header ─────────────────────────────────────────────────────────── */
+/* â”€â”€ Top header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .top-header {
   height: 56px;
   border-bottom: 1px solid var(--header-border);
@@ -448,7 +448,7 @@ h1,h2,h3,h4,h5,h6,
 }
 .icon-btn:hover { background: var(--mist); }
 
-/* ── Header user pill + dropdown ─────────────────────────────────── */
+/* â”€â”€ Header user pill + dropdown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .header-user-wrap { position: relative; }
 
 .header-user-pill {
@@ -567,10 +567,10 @@ h1,h2,h3,h4,h5,h6,
 }
 .user-name-header { font-weight: 600; font-size: 13px; color: var(--ink); }
 
-/* ── Viewport ─────────────────────────────────────────────────────────── */
+/* â”€â”€ Viewport â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .viewport { padding: 32px 36px; overflow-y: auto; background: transparent; }
 
-/* ── Buttons ─────────────────────────────────────────────────────────── */
+/* â”€â”€ Buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .primary-btn, .btn-primary {
   display: inline-flex;
   align-items: center;
@@ -611,7 +611,7 @@ h1,h2,h3,h4,h5,h6,
 .secondary-btn:hover, .btn-sm:hover { background: rgba(0,0,0,0.08); }
 .secondary-btn:disabled { opacity: .5; cursor: not-allowed; }
 
-/* ── Forms ─────────────────────────────────────────────────────────────── */
+/* â”€â”€ Forms â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .form-group { display: flex; flex-direction: column; gap: 6px; }
 .form-group label { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .01em; text-transform: uppercase; }
 
@@ -649,7 +649,7 @@ input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 input[type="number"] { -moz-appearance: textfield; }
 
-/* ── Modal system ──────────────────────────────────────────────────────────── */
+/* â”€â”€ Modal system â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -736,7 +736,7 @@ input[type="number"] { -moz-appearance: textfield; }
 [data-theme="dark"] .form-input::placeholder,
 [data-theme="dark"] .form-select::placeholder { color: var(--muted); }
 
-/* ── Cards ─────────────────────────────────────────────────────────────── */
+/* â”€â”€ Cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .card, .dash-card {
   background: var(--card);
   border: none;
@@ -745,7 +745,7 @@ input[type="number"] { -moz-appearance: textfield; }
   box-shadow: var(--shadow-md);
 }
 
-/* ── Status badges ─────────────────────────────────────────────────────── */
+/* â”€â”€ Status badges â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .status-badge {
   display: inline-block;
   font-size: 11px;
@@ -763,7 +763,7 @@ input[type="number"] { -moz-appearance: textfield; }
 .pill-info   { background: var(--info-bg); color: var(--info-fg); }
 .pill-muted  { background: var(--line);    color: var(--muted); }
 
-/* ── View header ─────────────────────────────────────────────────────── */
+/* â”€â”€ View header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .view-header {
   display: flex;
   justify-content: space-between;
@@ -781,7 +781,7 @@ input[type="number"] { -moz-appearance: textfield; }
 }
 .view-title-group p { font-size: 13px; color: var(--muted); margin-top: 2px; font-weight: 400; }
 
-/* ── Tables ─────────────────────────────────────────────────────────────── */
+/* â”€â”€ Tables â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .req-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .req-table th {
   text-align: left;
@@ -804,7 +804,7 @@ input[type="number"] { -moz-appearance: textfield; }
 .req-table tr:last-child td { border-bottom: none; }
 .req-table tbody tr:hover { background: rgba(0,0,0,0.015); }
 
-/* ── KPI cards (new style) ─────────────────────────────────────────────── */
+/* â”€â”€ KPI cards (new style) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -843,7 +843,7 @@ input[type="number"] { -moz-appearance: textfield; }
 }
 .kpi-delta.up { color: var(--ok-fg); }
 
-/* ── Legacy KPI card inner classes (ManagerDashboard, Operations, Accounting) */
+/* â”€â”€ Legacy KPI card inner classes (ManagerDashboard, Operations, Accounting) */
 .cards-grid { display: grid; gap: 16px; }
 .kpi-card-header {
   display: flex;
@@ -882,13 +882,13 @@ input[type="number"] { -moz-appearance: textfield; }
   font-weight: 400;
 }
 
-/* subtle semantic top-border accents — only for alert/status cards */
+/* subtle semantic top-border accents â€” only for alert/status cards */
 .card-blue   { border-top: 2px solid hsl(var(--color-blue)) !important; }
 .card-red    { border-top: 2px solid hsl(var(--color-red)) !important; }
 .card-orange { border-top: 2px solid hsl(var(--color-orange)) !important; }
 .card-green, .card-purple, .card-gold { }
 
-/* ── Dashboard ─────────────────────────────────────────────────────────── */
+/* â”€â”€ Dashboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .dashboard-view { display: flex; flex-direction: column; gap: 18px; }
 
 .greeting-section { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
@@ -946,17 +946,17 @@ input[type="number"] { -moz-appearance: textfield; }
 .facility-foot { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); }
 .mrr-tag { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; color: var(--muted); font-weight: 500; }
 
-/* ── Stat rows ─────────────────────────────────────────────────────────── */
+/* â”€â”€ Stat rows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .stat-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
 .stat-row:last-child { border-bottom: none; }
 .stat-label { color: var(--muted); }
 .stat-value { font-weight: 600; color: var(--ink); }
 .stat-ok { color: var(--ok-fg); }
 
-/* ── Log ─────────────────────────────────────────────────────────────── */
+/* â”€â”€ Log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .log-list { display: flex; flex-direction: column; gap: 7px; font-size: 12.5px; color: var(--muted); font-family: 'SF Mono', 'Fira Code', monospace; }
 
-/* ── Support cards ─────────────────────────────────────────────────────── */
+/* â”€â”€ Support cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .support-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: 14px; }
 .support-card {
   background: var(--card);
@@ -981,7 +981,7 @@ input[type="number"] { -moz-appearance: textfield; }
 .link-btn { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); font-weight: 600; font-size: 12.5px; background: none; border: none; cursor: pointer; font-family: inherit; margin-top: 10px; transition: color var(--transition-fast); }
 .link-btn:hover { color: var(--ink); }
 
-/* ── Placeholder ─────────────────────────────────────────────────────── */
+/* â”€â”€ Placeholder â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .placeholder-box {
   background: var(--card);
   border: 1px dashed var(--line);
@@ -1002,10 +1002,10 @@ input[type="number"] { -moz-appearance: textfield; }
   margin-bottom: 4px;
 }
 
-/* ── IT / Network ─────────────────────────────────────────────────────── */
+/* â”€â”€ IT / Network â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .material-symbol-svg { fill: currentColor; }
 
-/* ── Sidebar overlay (mobile) ─────────────────────────────────────────── */
+/* â”€â”€ Sidebar overlay (mobile) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .sidebar-overlay {
   display: none;
   position: fixed;
@@ -1015,7 +1015,7 @@ input[type="number"] { -moz-appearance: textfield; }
 }
 .sidebar-overlay.active { display: block; }
 
-/* ── Sidebar dismiss overlay (desktop click-outside) ──────────────────── */
+/* â”€â”€ Sidebar dismiss overlay (desktop click-outside) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .sidebar-dismiss-overlay {
   position: fixed;
   top: 56px; /* sit below the header so breadcrumb/back arrow stay clickable */
@@ -1026,7 +1026,7 @@ input[type="number"] { -moz-appearance: textfield; }
   cursor: default;
 }
 
-/* ── Login page ─────────────────────────────────────────────────────────── */
+/* â”€â”€ Login page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .login-page {
   min-height: 100vh;
   display: flex;
@@ -1106,7 +1106,7 @@ input[type="number"] { -moz-appearance: textfield; }
 .login-btn:hover { opacity: 0.88; box-shadow: 0 4px 20px rgba(15,23,42,0.35); }
 [data-theme="dark"] .login-btn { box-shadow: 0 2px 12px rgba(0,0,0,0.4); }
 
-/* ── Operations (facility) ───────────────────────────────────────────── */
+/* â”€â”€ Operations (facility) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .banner-warn {
   display: flex;
   align-items: center;
@@ -1120,7 +1120,7 @@ input[type="number"] { -moz-appearance: textfield; }
   margin-bottom: 18px;
 }
 
-/* ── Responsive ─────────────────────────────────────────────────────────── */
+/* â”€â”€ Responsive â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 @media (max-width: 900px) {
   .sidebar {
     transform: translateX(-100%);
@@ -1145,7 +1145,7 @@ input[type="number"] { -moz-appearance: textfield; }
   .facilities-grid { grid-template-columns: 1fr; }
 }
 
-/* ── Purchase layout ─────────────────────────────────────────────────────── */
+/* â”€â”€ Purchase layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .purchase-view { display: flex; flex-direction: column; gap: 0; }
 .purchase-split {
   display: grid;
@@ -1187,7 +1187,7 @@ input[type="number"] { -moz-appearance: textfield; }
   .purchase-split { grid-template-columns: 1fr; }
 }
 
-/* ── Tab pill — theme-safe active state ─────────────────────────────────── */
+/* â”€â”€ Tab pill â€” theme-safe active state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .tab-pill {
   border: none; padding: 7px 16px; border-radius: 20px; font-weight: 600; font-size: 13px;
   font-family: 'Inter', sans-serif; cursor: pointer; transition: background 0.13s, color 0.13s;
@@ -1196,7 +1196,7 @@ input[type="number"] { -moz-appearance: textfield; }
 .tab-pill.active { background: var(--pine); color: #ffffff; }
 .tab-pill:not(.active):hover { background: var(--line); color: var(--ink); }
 
-/* ── Chart draw animation ────────────────────────────────────────────────── */
+/* â”€â”€ Chart draw animation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 @keyframes drawLine {
   from { stroke-dashoffset: 1200; }
   to   { stroke-dashoffset: 0; }
@@ -1222,13 +1222,13 @@ input[type="number"] { -moz-appearance: textfield; }
 .chart-dot:nth-child(8) { animation-delay: 1.45s; }
 .chart-dot:nth-child(9) { animation-delay: 1.60s; }
 
-/* ── Motion & Hover animations ───────────────────────────────────────────── */
+/* â”€â”€ Motion & Hover animations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 @keyframes fadeInUp {
   from { opacity: 0; transform: translateY(20px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Hover lift — individual leaf cards only ────────────────────────────── */
+/* â”€â”€ Hover lift â€” individual leaf cards only â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 /* Small cards: full 5px lift */
 .kpi-card,
 .facility-card,
@@ -1263,9 +1263,9 @@ input[type="number"] { -moz-appearance: textfield; }
   z-index: 2;
 }
 
-/* ── Staggered entrance animations ──────────────────────────────────────── */
+/* â”€â”€ Staggered entrance animations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
-/* KPI metric cards — stagger each card individually */
+/* KPI metric cards â€” stagger each card individually */
 .kpi-grid > .kpi-card:nth-child(1),
 .cards-grid > .kpi-card:nth-child(1) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 0ms   both; }
 .kpi-grid > .kpi-card:nth-child(2),
@@ -1277,7 +1277,7 @@ input[type="number"] { -moz-appearance: textfield; }
 .kpi-grid > .kpi-card:nth-child(5),
 .cards-grid > .kpi-card:nth-child(5) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 240ms both; }
 
-/* Facility cards — stagger */
+/* Facility cards â€” stagger */
 .facilities-grid > .facility-card:nth-child(1) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 0ms   both; }
 .facilities-grid > .facility-card:nth-child(2) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 50ms  both; }
 .facilities-grid > .facility-card:nth-child(3) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 100ms both; }
@@ -1285,7 +1285,7 @@ input[type="number"] { -moz-appearance: textfield; }
 .facilities-grid > .facility-card:nth-child(5) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 200ms both; }
 .facilities-grid > .facility-card:nth-child(6) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 250ms both; }
 
-/* Dash-grid panels — stagger */
+/* Dash-grid panels â€” stagger */
 .dash-grid-2 > .dash-card:nth-child(1) { animation: fadeInUp 0.42s cubic-bezier(.16,1,.3,1) 80ms  both; }
 .dash-grid-2 > .dash-card:nth-child(2) { animation: fadeInUp 0.42s cubic-bezier(.16,1,.3,1) 160ms both; }
 
@@ -1297,21 +1297,21 @@ input[type="number"] { -moz-appearance: textfield; }
 .cards-grid > .dash-card:nth-child(5) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 240ms both; }
 .cards-grid > .dash-card:nth-child(6) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 300ms both; }
 
-/* Hide native number-input spinners — every numeric field in the app has
-   explicit −/+ stepper buttons, so the browser chrome is redundant and on
+/* Hide native number-input spinners â€” every numeric field in the app has
+   explicit âˆ’/+ stepper buttons, so the browser chrome is redundant and on
    some zoom levels renders as a detached floating widget. */
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 
-/* Horizontally scrollable tab strips — keep the swipe/scroll, hide the ugly
+/* Horizontally scrollable tab strips â€” keep the swipe/scroll, hide the ugly
    native bar (Windows Chrome always paints it otherwise). */
 .scroll-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; }
 .scroll-tabs::-webkit-scrollbar { display: none; height: 0; }
 
-/* ── Gradient KPI cards (June 2026 design pass) ─────────────────────────────
+/* â”€â”€ Gradient KPI cards (June 2026 design pass) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Soft per-color gradient tint on KPI cards with a colored left edge.
-   Uses ONLY the existing palette variables — no new colors. */
+   Uses ONLY the existing palette variables â€” no new colors. */
 .kpi-card {
   border-radius: 14px;
   border-left: 4px solid var(--line);
@@ -1363,7 +1363,7 @@ mark.search-hit {
   animation: searchHitFlash 1.3s ease-out;
 }
 
-/* ── Responsive pass (Jun 2026): laptops down to phones ─────────────────────
+/* â”€â”€ Responsive pass (Jun 2026): laptops down to phones â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Desktop drawer/overlay rules already exist at 900px; this layer tightens
    spacing on small laptops and gives phones a native-app feel. */
 
@@ -1387,11 +1387,11 @@ mark.search-hit {
   .view-header { gap: 10px; margin-bottom: 14px; }
   .kpi-value { font-size: 22px; }
 
-  /* Dialogs become BOTTOM SHEETS on phones — slide up from the bottom edge,
+  /* Dialogs become BOTTOM SHEETS on phones â€” slide up from the bottom edge,
      full width, rounded top, scrollable. Every modal positions itself with
      inline styles, so !important is required to win the cascade. */
-  [role="dialog"] { align-items: flex-end !important; padding: 0 !important; }
-  [role="dialog"] > div {
+  [role="dialog"]:not(.mobile-menu) { align-items: flex-end !important; padding: 0 !important; }
+  [role="dialog"]:not(.mobile-menu) > div {
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 !important;
@@ -1401,7 +1401,7 @@ mark.search-hit {
     animation: sheetUp 0.26s cubic-bezier(.16,1,.3,1);
   }
   /* grab-bar affordance, like native sheets */
-  [role="dialog"] > div::before {
+  [role="dialog"]:not(.mobile-menu) > div::before {
     content: '';
     display: block;
     width: 44px;
@@ -1416,9 +1416,9 @@ mark.search-hit {
   to   { transform: none; opacity: 1; }
 }
 
-/* ── Mobile header fix (phone test, Jun 11) ─────────────────────────────────
+/* â”€â”€ Mobile header fix (phone test, Jun 11) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Header contents must SHRINK on narrow screens, not push the document wider
-   than the viewport — that is what made the whole page pan/cut off. */
+   than the viewport â€” that is what made the whole page pan/cut off. */
 html { overflow-x: hidden; }
 
 @media (max-width: 900px) {
@@ -1434,7 +1434,7 @@ html { overflow-x: hidden; }
 
 @media (max-width: 640px) {
   .top-header { padding: 0 10px; gap: 6px; }
-  /* back arrow + current page only — drop the "Dashboard /" trail */
+  /* back arrow + current page only â€” drop the "Dashboard /" trail */
   .breadcrumb-prev, .breadcrumb-prev + span { display: none; }
   /* profile pill: avatar + chevron only */
   .header-user-info { display: none; }
@@ -1443,7 +1443,7 @@ html { overflow-x: hidden; }
   [data-vis="hidden"] { display: none !important; }
 }
 
-/* ── Mobile bottom navigation — the app shell on phones ─────────────────────
+/* â”€â”€ Mobile bottom navigation â€” the app shell on phones â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Desktop keeps the sidebar; phones navigate via a fixed bottom tab bar
    (Home / Items / Tasks / Buy / Menu) like a native app. Menu opens the
    sidebar drawer for the rest of the modules. */
@@ -1479,3 +1479,70 @@ html { overflow-x: hidden; }
   /* content must never hide behind the bar */
   .main-content { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
 }
+
+/* ── adidas-style mobile chrome ──────────────────────────────────────────────
+   Phones get an icon-driven header (hamburger | centered brand | bell/avatar)
+   and a FULL-SCREEN menu with big tappable rows. Desktop untouched. */
+@media (max-width: 900px) {
+  .top-header { justify-content: flex-start; }
+  .breadcrumb { display: none; }
+  .top-header::before {
+    content: 'NEXUS';
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    font-size: 14px;
+    color: var(--ink);
+    pointer-events: none;
+  }
+  .header-right { margin-left: auto; }
+}
+
+/* Full-screen menu */
+.mobile-menu {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  animation: menuIn 0.22s cubic-bezier(.16,1,.3,1);
+}
+@media (min-width: 901px) { .mobile-menu { display: none; } }
+@keyframes menuIn { from { transform: translateX(-10%); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.mobile-menu-head { display: flex; align-items: center; justify-content: center; position: relative; padding: 18px 16px 12px; }
+.mobile-menu-brand { font-weight: 800; letter-spacing: 0.22em; font-size: 16px; }
+.mobile-menu-close { position: absolute; right: 10px; top: 12px; background: none; border: none; color: var(--ink); padding: 10px; cursor: pointer; }
+
+.mobile-menu-user { display: flex; gap: 12px; align-items: center; padding: 8px 20px 16px; border-bottom: 1px solid var(--line); }
+.mobile-menu-avatar { width: 42px; height: 42px; border-radius: 50%; background: var(--pine); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+.mobile-menu-name { font-weight: 700; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mobile-menu-role { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+
+.mobile-menu-rows { display: flex; flex-direction: column; padding: 8px 8px; }
+.mobile-menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 15px 16px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  border-radius: 10px;
+  text-align: left;
+}
+.mobile-menu-row:active { background: var(--mist); }
+.mobile-menu-row.active { color: hsl(var(--color-green)); }
+.mobile-menu-row svg { color: var(--muted); flex-shrink: 0; }
+.mobile-menu-rows.secondary { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+.mobile-menu-rows.secondary .mobile-menu-row { font-size: 13.5px; font-weight: 500; color: var(--muted); padding: 12px 16px; }
+.mobile-menu-row.signout { color: hsl(var(--color-red)); }
+.mobile-menu-divider { height: 1px; background: var(--line); margin: 4px 20px; }
