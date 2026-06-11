@@ -278,6 +278,7 @@ export default function AdminPanel({ open, initialTab = 'access', onClose }) {
       {/* Drawer */}
       <div
         ref={panelRef}
+        className="admin-drawer"
         style={{
           position: 'fixed', top: 0, right: 0, height: '100vh',
           width: 'min(900px, 92vw)',
@@ -303,7 +304,7 @@ export default function AdminPanel({ open, initialTab = 'access', onClose }) {
           </div>
           <div>
             <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>Admin Settings</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>Access manager &amp; activity logs</div>
+            <div className="admin-drawer-sub" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>Access manager &amp; activity logs</div>
           </div>
 
           {/* Tab strip */}

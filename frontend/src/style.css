@@ -1704,3 +1704,11 @@ html { overflow-x: hidden; }
   /* filters drop below the pinned cart's row */
   [data-vis="visible"] { margin: 14px 0 10px; }
 }
+
+/* Admin panel on phones: full-screen, compact header, role stats 2-up
+   (was a 92vw side panel with five squeezed stat columns) */
+@media (max-width: 640px) {
+  .admin-drawer { width: 100vw !important; }
+  .admin-drawer-sub { display: none; }
+  .role-stat-grid { grid-template-columns: 1fr 1fr !important; }
+}

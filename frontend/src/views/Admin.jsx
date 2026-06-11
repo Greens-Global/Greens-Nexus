@@ -616,7 +616,7 @@ export default function Admin() {
       {activeTab === 'users' && (
         <>
           {/* KPI row */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 12, marginBottom: 24 }}>
+          <div className="role-stat-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 12, marginBottom: 24 }}>
             {ROLE_ORDER.map(role => {
               const meta = ROLES[role];
               return (
