@@ -297,6 +297,8 @@ class Item(Base):
     assigned_to_email = Column(String, default="")   # current permanent assignee
     assigned_to_name  = Column(String, default="")
     assigned_at       = Column(String, default="")
+    picture_required  = Column(Boolean, default=True)  # False = photos optional in every flow (e.g. keys) — Neil, Jun 2026
+    asset_value       = Column(Float, default=0.0)     # USD value: accountability + per-person holdings total
 
 
 class ItemCheckout(Base):

@@ -133,6 +133,9 @@ def _item_to_dict(i: Item) -> dict:
         "assignedToEmail": i.assigned_to_email or "",
         "assignedToName":  i.assigned_to_name  or "",
         "assignedAt":      i.assigned_at       or "",
+        # NULL (pre-migration rows) must read as True — photos required by default
+        "pictureRequired": True if i.picture_required is None else bool(i.picture_required),
+        "assetValue":      float(i.asset_value or 0),
     }
 
 
@@ -190,6 +193,8 @@ class ItemCreate(BaseModel):
     ownership_type: Optional[str] = "transient"
     location:       Optional[str] = ""
     photo_url:      Optional[str] = ""
+    picture_required: Optional[bool]  = True
+    asset_value:      Optional[float] = 0
 
 
 class ItemUpdate(BaseModel):
@@ -204,6 +209,8 @@ class ItemUpdate(BaseModel):
     status:         Optional[str] = None
     location:       Optional[str] = None
     photo_url:      Optional[str] = None
+    picture_required: Optional[bool]  = None
+    asset_value:      Optional[float] = None
 
 
 class ItemImportRow(BaseModel):
@@ -300,6 +307,8 @@ def create_item(body: ItemCreate, user: dict = Depends(require_items_admin), db:
         photo_url=(body.photo_url or "").strip(),
         created_by=user["email"],
         created_at=now,
+        picture_required=True if body.picture_required is None else bool(body.picture_required),
+        asset_value=float(body.asset_value or 0),
     )
     db.add(item)
     db.commit()
@@ -425,6 +434,8 @@ def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(require_ite
         item.status = s
     if body.location  is not None: item.location  = body.location.strip()
     if body.photo_url is not None: item.photo_url = body.photo_url.strip()
+    if body.picture_required is not None: item.picture_required = bool(body.picture_required)
+    if body.asset_value      is not None: item.asset_value      = float(body.asset_value)
     db.commit()
     return _item_to_dict(item)
 

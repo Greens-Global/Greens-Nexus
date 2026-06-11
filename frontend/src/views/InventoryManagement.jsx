@@ -237,6 +237,8 @@ function AddItemModal({ onClose, onSave }) {
   const [location,      setLocation]      = useState('');
   const [photoUrl,      setPhotoUrl]      = useState('');
   const [skipPhoto,     setSkipPhoto]     = useState(false);
+  const [pictureRequired, setPictureRequired] = useState(true);
+  const [assetValue,    setAssetValue]    = useState('');
   const [saving,        setSaving]        = useState(false);
   const [error,         setError]         = useState('');
   useEscapeKey(onClose);
@@ -253,6 +255,7 @@ function AddItemModal({ onClose, onSave }) {
       name: name.trim(), item_type: itemType, make: make.trim(), model: model.trim(),
       year: year.trim(), department: department.trim(), default_owner: defaultOwner.trim(),
       ownership_type: ownershipType, location: location.trim(), photo_url: photoUrl,
+      picture_required: pictureRequired, asset_value: parseFloat(assetValue) || 0,
     }))
       .then(onClose)
       .catch(err => setError(err?.message || 'Could not add item — please try again.'))
@@ -315,10 +318,27 @@ function AddItemModal({ onClose, onSave }) {
             </div>
           </div>
 
-          <div>
-            <label style={FL}>LOCATION <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
-            <input className="form-input" style={{ width:'100%' }} value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. GSVC, GSE, Site Office" />
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+            <div>
+              <label style={FL}>LOCATION <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+              <input className="form-input" style={{ width:'100%' }} value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. GSVC, GSE, Site Office" />
+            </div>
+            <div>
+              <label style={FL}>ASSET VALUE ($)</label>
+              <input className="form-input" type="number" min="0" step="0.01" style={{ width:'100%' }} value={assetValue} onChange={e => setAssetValue(e.target.value)} placeholder="e.g. 1200" />
+            </div>
           </div>
+
+          {/* Per-item photo policy — keys etc. shouldn't demand pictures (Neil).
+              Default yes; when off, every photo in this item's flows goes optional. */}
+          <label style={{ display:'flex', alignItems:'flex-start', gap:8, fontSize:12.5, color:'var(--muted)', cursor:'pointer' }}>
+            <input type="checkbox" checked={pictureRequired} onChange={e => setPictureRequired(e.target.checked)}
+              style={{ cursor:'pointer', accentColor:'var(--pine)', marginTop:2 }} />
+            <span>
+              <strong style={{ color:'var(--ink)' }}>Require photos in workflows</strong> — handover, receipt and
+              return photos are mandatory for this item. Untick for items like keys where photos add no value.
+            </span>
+          </label>
 
           <PhotoUpload value={photoUrl} onChange={setPhotoUrl} required={!skipPhoto} hint="Upload a clear photo that distinguishes this specific item." />
           {!photoUrl && (
@@ -361,6 +381,8 @@ function EditItemModal({ item, onClose, onSave }) {
   const [status,        setStatus]        = useState(item.status || 'available');
   const [location,      setLocation]      = useState(item.location || '');
   const [photoUrl,      setPhotoUrl]      = useState(item.photoUrl || '');
+  const [pictureRequired, setPictureRequired] = useState(item.pictureRequired !== false);
+  const [assetValue,    setAssetValue]    = useState(item.assetValue ? String(item.assetValue) : '');
   const [saving,        setSaving]        = useState(false);
   const [error,         setError]         = useState('');
   useEscapeKey(onClose);
@@ -372,6 +394,7 @@ function EditItemModal({ item, onClose, onSave }) {
       name: name.trim(), item_type: itemType, make: make.trim(), model: model.trim(),
       year: year.trim(), department: department.trim(), default_owner: defaultOwner.trim(),
       ownership_type: ownershipType, status, location: location.trim(), photo_url: photoUrl,
+      picture_required: pictureRequired, asset_value: parseFloat(assetValue) || 0,
     }))
       .then(onClose)
       .catch(err => setError(err?.message || 'Could not save changes.'))
@@ -445,6 +468,18 @@ function EditItemModal({ item, onClose, onSave }) {
               </select>
             </div>
           </div>
+          <div>
+            <label style={FL}>ASSET VALUE ($)</label>
+            <input className="form-input" type="number" min="0" step="0.01" style={{ width:'100%' }} value={assetValue} onChange={e => setAssetValue(e.target.value)} placeholder="e.g. 1200" />
+          </div>
+          <label style={{ display:'flex', alignItems:'flex-start', gap:8, fontSize:12.5, color:'var(--muted)', cursor:'pointer' }}>
+            <input type="checkbox" checked={pictureRequired} onChange={e => setPictureRequired(e.target.checked)}
+              style={{ cursor:'pointer', accentColor:'var(--pine)', marginTop:2 }} />
+            <span>
+              <strong style={{ color:'var(--ink)' }}>Require photos in workflows</strong> — handover, receipt and
+              return photos are mandatory for this item. Untick for items like keys where photos add no value.
+            </span>
+          </label>
           <PhotoUpload value={photoUrl} onChange={setPhotoUrl} hint="Replace photo if needed — must clearly identify this specific unit." />
         </div>
 
@@ -754,7 +789,7 @@ function ReportModal({ onClose, checkouts }) {
 }
 
 // ── Return Modal ───────────────────────────────────────────────────────────────
-function ReturnModal({ checkout, onClose, onSubmit }) {
+function ReturnModal({ checkout, onClose, onSubmit, photoOptional = false }) {
   const [file,          setFile]          = useState(null);
   const [preview,       setPreview]       = useState('');
   const [conditionNote, setConditionNote] = useState('');
@@ -771,9 +806,9 @@ function ReturnModal({ checkout, onClose, onSubmit }) {
   }
 
   function submit() {
-    if (!file || submitting) return;
+    if ((!file && !photoOptional) || submitting) return;
     setSubmitting(true);
-    Promise.resolve(onSubmit({ file, photoName: file.name, conditionNote }))
+    Promise.resolve(onSubmit({ file, photoName: file?.name || '', conditionNote }))
       .catch(() => {})
       .finally(() => setSubmitting(false));
   }
@@ -785,12 +820,14 @@ function ReturnModal({ checkout, onClose, onSubmit }) {
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
         <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Return Item</h3>
         <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:20 }}>
-          Returning <strong>{checkout.itemName}</strong>. A photo of the item is required.
+          Returning <strong>{checkout.itemName}</strong>. {photoOptional ? 'A photo is optional for this item.' : 'A photo of the item is required.'}
         </p>
 
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
           <div>
-            <label style={FL}>RETURN PHOTO <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+            <label style={FL}>RETURN PHOTO {photoOptional
+              ? <span style={{ fontSize:11, fontWeight:400 }}>(optional)</span>
+              : <span style={{ color:'hsl(var(--color-red))' }}>*</span>}</label>
             <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={e => handleFile(e.target.files?.[0])} />
             {preview ? (
               <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -799,7 +836,7 @@ function ReturnModal({ checkout, onClose, onSubmit }) {
               </div>
             ) : (
               <button type="button" onClick={() => fileRef.current?.click()}
-                style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', borderRadius:9, border:'2px dashed hsla(var(--color-red),0.4)', background:'hsla(var(--color-red),0.04)', cursor:'pointer', fontSize:13, color:'var(--muted)' }}>
+                style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', borderRadius:9, border:`2px dashed ${photoOptional ? 'var(--line)' : 'hsla(var(--color-red),0.4)'}`, background: photoOptional ? 'var(--mist)' : 'hsla(var(--color-red),0.04)', cursor:'pointer', fontSize:13, color:'var(--muted)' }}>
                 <Camera size={15} /> Take / Upload Photo
               </button>
             )}
@@ -814,7 +851,7 @@ function ReturnModal({ checkout, onClose, onSubmit }) {
 
         <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
           <button className="secondary-btn" onClick={onClose} disabled={submitting}>Cancel</button>
-          <button className="primary-btn" disabled={!file || submitting}
+          <button className="primary-btn" disabled={(!file && !photoOptional) || submitting}
             style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:130, justifyContent:'center' }} onClick={submit}>
             {submitting ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Returning…</> : <><RotateCcw size={14} /> Confirm Return</>}
           </button>
@@ -1037,6 +1074,15 @@ function orderActivitySummary(orderItems) {
 }
 
 // ── Audit Log Panel ───────────────────────────────────────────────────────────
+// Audit rows are stored as NAIVE UTC (no timezone suffix) — parsing them raw
+// makes JS treat them as local time, which is the "wrong timestamps" Sai saw.
+// Force UTC parse, display as California time per Neil.
+function fmtAuditStamp(iso) {
+  if (!iso) return '';
+  const d = new Date(/[zZ]$|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso + 'Z');
+  return d.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) + ' PT';
+}
+
 const AuditLogPanel = memo(function AuditLogPanel() {
   const [query,   setQuery]   = useState('');
   const [logs,    setLogs]    = useState([]);
@@ -1085,7 +1131,7 @@ const AuditLogPanel = memo(function AuditLogPanel() {
             <tbody>
               {logs.map(log => (
                 <tr key={log.id} style={{ borderTop:'1px solid var(--line)' }}>
-                  <td style={{ padding:'9px 14px', color:'var(--muted)', whiteSpace:'nowrap' }}>{new Date(log.timestamp).toLocaleString()}</td>
+                  <td style={{ padding:'9px 14px', color:'var(--muted)', whiteSpace:'nowrap' }}>{fmtAuditStamp(log.timestamp)}</td>
                   <td style={{ padding:'9px 14px' }}>{log.user_email}</td>
                   <td style={{ padding:'9px 14px', fontWeight:600 }}>{log.action}</td>
                   <td style={{ padding:'9px 14px', color:'var(--muted)' }}>{formatAuditDetails(log.action, log.details)}</td>
@@ -1314,7 +1360,7 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
 }
 
 // ── My Checkouts Panel ────────────────────────────────────────────────────────
-const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept, onConfirmReceipt, onReRequest, onReturnAll, onRequestExtension, assignments = [], refreshAssignments, toast, activeSub }) {
+const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept, onConfirmReceipt, onReRequest, onReturnAll, onRequestExtension, assignments = [], refreshAssignments, toast, activeSub, photoOptionalIds = new Set() }) {
   const mine = checkouts.filter(c =>
     (c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) ||
     c.requestedBy === userName
@@ -1716,6 +1762,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
       {acceptingCo && onEmployeeAccept && (
         <EmployeeAcceptModal
           checkout={acceptingCo}
+          photoOptional={photoOptionalIds.has(acceptingCo.itemId)}
           onClose={() => setAcceptingCo(null)}
           onConfirm={(url, name) => onEmployeeAccept(acceptingCo, url, name).then(() => setAcceptingCo(null))}
         />
@@ -1726,6 +1773,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
         return (
           <ReceiptConfirmModal
             checkouts={coList}
+            photoOptional={coList.every(co => photoOptionalIds.has(co.itemId))}
             onClose={() => setConfirmingCo(null)}
             onConfirm={async ({ batch, photoMap }) => {
               // Sequential so the backend's per-order notification batching
@@ -1741,6 +1789,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
       {returnAllGroup && onReturnAll && (
         <ReturnModal
           checkout={{ itemName: `${returnAllGroup.length} items from your order` }}
+          photoOptional={returnAllGroup.every(co => photoOptionalIds.has(co.itemId))}
           onClose={() => setReturnAllGroup(null)}
           onSubmit={data =>
             onReturnAll(returnAllGroup, data).then(() => setReturnAllGroup(null))
@@ -1959,6 +2008,8 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
   );
   const activeCheckouts = myCheckouts.filter(c => ['pending','approved','pending_receipt','allocated'].includes(c.status));
   const allTransient    = useMemo(() => items.filter(i => i.ownershipType === 'transient'), [items]);
+  // Items flagged picture_required=false — every photo step for them is optional
+  const photoOptionalIds = useMemo(() => new Set(items.filter(i => i.pictureRequired === false).map(i => i.id)), [items]);
   const availableItems  = allTransient.filter(i => i.status === 'available');
   const inCart          = new Set(cart.map(c => c.item.id));
 
@@ -2283,6 +2334,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
           ) : (
             <MyCheckoutsPanel
               checkouts={checkouts} userEmail={userEmail} userName={userName} activeSub={activeSub}
+              photoOptionalIds={photoOptionalIds}
               assignments={assignments} refreshAssignments={refreshAssignments} toast={toast}
               onReturn={handleReturn} onCancel={handleCancel} onReRequest={handleReRequest}
               onConfirmReceipt={confirmReceipt ? (co, batch, photoMap) =>
@@ -2319,7 +2371,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
         onDaysChange={handleDaysChange}
         showApprover
       />
-      {returningCo && <ReturnModal checkout={returningCo} onClose={() => setReturningCo(null)} onSubmit={handleReturnSubmit} />}
+      {returningCo && <ReturnModal checkout={returningCo} photoOptional={photoOptionalIds.has(returningCo.itemId)} onClose={() => setReturningCo(null)} onSubmit={handleReturnSubmit} />}
     </div>
   );
 });
@@ -2996,7 +3048,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
 });
 
 // ── Employee Accept Modal (employee takes checkout photo to confirm receipt) ───
-function EmployeeAcceptModal({ checkout, onClose, onConfirm }) {
+function EmployeeAcceptModal({ checkout, onClose, onConfirm, photoOptional = false }) {
   const [file,       setFile]       = useState(null);
   const [preview,    setPreview]    = useState('');
   const [uploading,  setUploading]  = useState(false);
@@ -3013,12 +3065,16 @@ function EmployeeAcceptModal({ checkout, onClose, onConfirm }) {
   }
 
   async function submit() {
-    if (!file || uploading) return;
+    if ((!file && !photoOptional) || uploading) return;
     setUploading(true); setError('');
-    const path = `checkout-photos/${checkout.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-    const { url, error: upErr } = await uploadToSupabase(file, 'checkout-photos', path);
-    if (upErr) { setError(upErr); setUploading(false); return; }
-    Promise.resolve(onConfirm(url, file.name))
+    let url = '', name = '';
+    if (file) {
+      const path = `checkout-photos/${checkout.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+      const { url: uploaded, error: upErr } = await uploadToSupabase(file, 'checkout-photos', path);
+      if (upErr) { setError(upErr); setUploading(false); return; }
+      url = uploaded; name = file.name;
+    }
+    Promise.resolve(onConfirm(url, name))
       .then(onClose)
       .catch(err => { setError(err?.message || 'Could not confirm receipt.'); setUploading(false); });
   }
@@ -3033,7 +3089,9 @@ function EmployeeAcceptModal({ checkout, onClose, onConfirm }) {
           Take a photo of <strong>{checkout.itemName}</strong> to confirm you received it. This creates a condition record for the handover.
         </p>
         <div>
-          <label style={FL}>HANDOVER PHOTO <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+          <label style={FL}>HANDOVER PHOTO {photoOptional
+            ? <span style={{ fontSize:11, fontWeight:400 }}>(optional)</span>
+            : <span style={{ color:'hsl(var(--color-red))' }}>*</span>}</label>
           <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={e => handleFile(e.target.files?.[0])} />
           {preview ? (
             <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -3042,7 +3100,7 @@ function EmployeeAcceptModal({ checkout, onClose, onConfirm }) {
             </div>
           ) : (
             <button type="button" onClick={() => fileRef.current?.click()}
-              style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', borderRadius:9, border:'2px dashed hsla(var(--color-red),0.4)', background:'hsla(var(--color-red),0.04)', cursor:'pointer', fontSize:13, color:'var(--muted)' }}>
+              style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', borderRadius:9, border:`2px dashed ${photoOptional ? 'var(--line)' : 'hsla(var(--color-red),0.4)'}`, background: photoOptional ? 'var(--mist)' : 'hsla(var(--color-red),0.04)', cursor:'pointer', fontSize:13, color:'var(--muted)' }}>
               <Camera size={15} /> Take / Upload Photo
             </button>
           )}
@@ -3050,7 +3108,7 @@ function EmployeeAcceptModal({ checkout, onClose, onConfirm }) {
         {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginTop:10 }}>{error}</p>}
         <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
           <button className="secondary-btn" onClick={onClose} disabled={uploading}>Cancel</button>
-          <button className="primary-btn" disabled={!file || uploading}
+          <button className="primary-btn" disabled={(!file && !photoOptional) || uploading}
             style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:160, justifyContent:'center' }} onClick={submit}>
             {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><CheckCircle size={14} /> Confirm Receipt</>}
           </button>
@@ -3062,7 +3120,7 @@ function EmployeeAcceptModal({ checkout, onClose, onConfirm }) {
 
 // ── Allocate Modal (manager/allocator takes checkout photo here) ───────────────
 // ── Photo upload slot used inside AllocateModal and ReceiptConfirmModal ────────
-function PhotoSlot({ label, slotKey, photos, onChange }) {
+function PhotoSlot({ label, slotKey, photos, onChange, required = true }) {
   const ref = useRef(null);
   const entry = photos[slotKey] || {};
   function handleFile(f) {
@@ -3085,8 +3143,10 @@ function PhotoSlot({ label, slotKey, photos, onChange }) {
         </div>
       ) : (
         <button type="button" onClick={() => ref.current?.click()}
-          style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', borderRadius:9, border:'2px dashed hsla(var(--color-red),0.4)', background:'hsla(var(--color-red),0.04)', cursor:'pointer', fontSize:13, color:'var(--muted)', fontFamily:'Inter,sans-serif' }}>
-          <Camera size={15} /> Take / Upload Photo <span style={{ fontSize:11, marginLeft:4, color:'hsl(var(--color-red))' }}>*</span>
+          style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', borderRadius:9, border:`2px dashed ${required ? 'hsla(var(--color-red),0.4)' : 'var(--line)'}`, background: required ? 'hsla(var(--color-red),0.04)' : 'var(--mist)', cursor:'pointer', fontSize:13, color:'var(--muted)', fontFamily:'Inter,sans-serif' }}>
+          <Camera size={15} /> Take / Upload Photo {required
+            ? <span style={{ fontSize:11, marginLeft:4, color:'hsl(var(--color-red))' }}>*</span>
+            : <span style={{ fontSize:11, marginLeft:4 }}>(optional)</span>}
         </button>
       )}
     </div>
@@ -3095,7 +3155,7 @@ function PhotoSlot({ label, slotKey, photos, onChange }) {
 
 // ── Handover modal for the assigned allocator ──────────────────────────────────
 // onConfirm receives: { photoBy:'allocator'|'employee', batch:bool, photoMap:{[id]:{url,name}} }
-function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm }) {
+function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm, photoOptional = false }) {
   const coItems = checkoutBatch || (checkout ? [checkout] : []);
   const first   = coItems[0] || {};
   const isMulti = coItems.length > 1;
@@ -3227,9 +3287,9 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm 
                 : `Upload a photo for each item being handed to ${first.requestedBy}.`}
             </p>
             {photoMode === 'batch' ? (
-              <PhotoSlot label={isMulti ? `All ${coItems.length} items together` : first.itemName} slotKey="batch" photos={photos} onChange={handlePhotoChange} />
+              <PhotoSlot label={isMulti ? `All ${coItems.length} items together` : first.itemName} slotKey="batch" photos={photos} onChange={handlePhotoChange} required={!photoOptional} />
             ) : (
-              coItems.map(co => <PhotoSlot key={co.id} label={co.itemName} slotKey={co.id} photos={photos} onChange={handlePhotoChange} />)
+              coItems.map(co => <PhotoSlot key={co.id} label={co.itemName} slotKey={co.id} photos={photos} onChange={handlePhotoChange} required={!photoOptional} />)
             )}
             {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginTop:8 }}>{error}</p>}
             <div style={{ display:'flex', gap:10, justifyContent:'space-between', marginTop:16 }}>
@@ -3284,7 +3344,7 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm 
 
 // ── Receipt confirmation modal for the employee ────────────────────────────────
 // onConfirm receives: { batch:bool, photoMap:{[id]:{url,name}} }
-function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm }) {
+function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm, photoOptional = false }) {
   const coItems = checkoutBatch || (checkout ? [checkout] : []);
   const first   = coItems[0] || {};
   const isMulti = coItems.length > 1;
@@ -3296,9 +3356,9 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
   const [error,     setError]     = useState('');
   useEscapeKey(onClose);
 
-  const hasPhotos = photoMode === 'batch'
+  const hasPhotos = photoOptional || (photoMode === 'batch'
     ? !!photos['batch']?.file
-    : coItems.every(co => !!photos[co.id]?.file);
+    : coItems.every(co => !!photos[co.id]?.file));
 
   function handlePhotoChange(key, val) { setPhotos(prev => ({ ...prev, [key]: val })); }
 
@@ -3372,9 +3432,9 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
         {step === 'upload' && (
           <>
             {photoMode === 'batch' ? (
-              <PhotoSlot label={isMulti ? `All ${coItems.length} items` : first.itemName} slotKey="batch" photos={photos} onChange={handlePhotoChange} />
+              <PhotoSlot label={isMulti ? `All ${coItems.length} items` : first.itemName} slotKey="batch" photos={photos} onChange={handlePhotoChange} required={!photoOptional} />
             ) : (
-              coItems.map(co => <PhotoSlot key={co.id} label={co.itemName} slotKey={co.id} photos={photos} onChange={handlePhotoChange} />)
+              coItems.map(co => <PhotoSlot key={co.id} label={co.itemName} slotKey={co.id} photos={photos} onChange={handlePhotoChange} required={!photoOptional} />)
             )}
             {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginTop:8 }}>{error}</p>}
             <div style={{ display:'flex', gap:10, justifyContent:'space-between', marginTop:16 }}>
@@ -3563,6 +3623,52 @@ function RejectCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onCo
   );
 }
 
+// ── Force Return Modal ────────────────────────────────────────────────────────
+// Manager reclaims an item without the holder's action. Reason is mandatory —
+// it is stored on the checkout and shows up in the audit trail (Neil: "leaves
+// 100% of the control with the manager here and an auditable log of why").
+function ForceReturnModal({ checkout, onClose, onConfirm }) {
+  const [reason, setReason] = useState('');
+  const [busy,   setBusy]   = useState(false);
+  const [error,  setError]  = useState('');
+  useEscapeKey(onClose);
+
+  function submit() {
+    if (!reason.trim() || busy) return;
+    setBusy(true); setError('');
+    Promise.resolve(onConfirm(reason.trim()))
+      .then(onClose)
+      .catch(err => { setError(err?.message || 'Could not check the item back in.'); setBusy(false); });
+  }
+
+  return (
+    <div role="dialog" aria-modal="true"
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Force Return</h3>
+        <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:16, lineHeight:1.5 }}>
+          Check <strong>{checkout.itemName}</strong> back in on behalf of <strong>{checkout.requestedBy}</strong>.
+          Use this when the holder can't or won't return it in the app. The reason is recorded on the
+          checkout and in the audit log.
+        </p>
+        <label style={FL}>REASON <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+        <textarea rows={3} autoFocus className="form-input" style={{ width:'100%', resize:'vertical', fontSize:13 }}
+          placeholder="e.g. Collected from site office — employee on leave"
+          value={reason} onChange={e => setReason(e.target.value)} />
+        {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginTop:8 }}>{error}</p>}
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:18 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button disabled={!reason.trim() || busy} onClick={submit}
+            style={{ background:'hsl(var(--color-orange))', color:'#fff', border:'none', borderRadius:8, padding:'8px 18px', fontWeight:700, fontSize:13.5, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:7, fontFamily:'Inter,sans-serif', opacity: (!reason.trim() || busy) ? 0.6 : 1 }}>
+            {busy ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <RotateCcw size={14} />} Check Back In
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Manager Checkouts Tab ─────────────────────────────────────────────────────
 const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveRequest, rejectRequest, allocateItem, initiateHandover, refreshCheckouts, refreshItems, toast, onSendAlert, assignments = [], refreshAssignments }) {
   const [segment, setSegment] = useState('checkouts'); // 'checkouts' | 'assignments'
@@ -3576,6 +3682,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
   const [rejectingOrder, setRejectingOrder] = useState(null);
   const [allocatingCo,   setAllocatingCo]   = useState(null);
   const [allocatingOrder, setAllocatingOrder] = useState(null);
+  const [forceReturnCo,  setForceReturnCo]  = useState(null);
   const [photoPreview,   setPhotoPreview]   = useState(null);
   // IDs of completed items dismissed from the active-order view via X button
   const [dismissedIds,   setDismissedIds]   = useState(new Set());
@@ -3600,6 +3707,9 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
       .catch(err => toast(err?.message || 'Could not resolve extension.', 'error'))
       .finally(() => setExtBusyId(null));
   }
+
+  // Items flagged picture_required=false — every photo step for them is optional
+  const photoOptionalIds = useMemo(() => new Set(items.filter(i => i.pictureRequired === false).map(i => i.id)), [items]);
 
   // Group ALL checkouts by orderId first, then filter groups
   const allGrouped = (() => {
@@ -3658,6 +3768,19 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
     }
     toast(`${orderItems.length} item${orderItems.length > 1 ? 's' : ''} rejected.`);
     refreshCheckouts();
+  }
+
+  // Neil's "one big bug": the manager must be able to check an item back in
+  // even if the holder never opens the app — with a mandatory reason that
+  // lands in condition_note (visible on the past checkout + audit log).
+  function handleForceReturn(co, reason) {
+    return api.updateItemCheckout(co.id, {
+      status: 'returned',
+      condition_note: `Force-returned by ${userName} — ${reason}`,
+    }).then(() => {
+      toast(`${co.itemName} checked back in.`);
+      refreshCheckouts(); refreshItems();
+    }).catch(err => { toast(err?.message || 'Could not check the item back in.', 'error'); throw err; });
   }
 
   function handleAllocate(co, { photoBy, batch, photoMap }) {
@@ -3898,6 +4021,13 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
                               <XCircle size={12} /> Reject
                             </button>
                           )}
+                          {co.status === 'allocated' && isManager && (
+                            <button onClick={() => setForceReturnCo(co)}
+                              title="Check the item back in yourself — for when the holder can't or won't return it in the app"
+                              style={{ background:'none', border:'1px solid hsla(var(--color-orange),0.45)', borderRadius:8, padding:'5px 11px', fontSize:12, cursor:'pointer', color:'hsl(var(--color-orange))', fontWeight:600, display:'inline-flex', alignItems:'center', gap:4, fontFamily:'Inter,sans-serif' }}>
+                              <RotateCcw size={12} /> Force Return
+                            </button>
+                          )}
                           {co.status === 'approved' && (isMyAlloc || isManager) && (
                             <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:4, background:'hsl(var(--color-orange))', padding:'6px 12px' }}
                               onClick={() => setAllocatingCo(co)}>
@@ -3941,11 +4071,17 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
       )}
       {allocatingCo && (
         <AllocateModal checkout={allocatingCo} onClose={() => setAllocatingCo(null)}
+          photoOptional={photoOptionalIds.has(allocatingCo.itemId)}
           onConfirm={payload => handleAllocate(allocatingCo, payload)} />
       )}
       {allocatingOrder && (
         <AllocateModal checkouts={allocatingOrder} onClose={() => setAllocatingOrder(null)}
+          photoOptional={allocatingOrder.every(co => photoOptionalIds.has(co.itemId))}
           onConfirm={payload => handleAllocateOrder(allocatingOrder, payload)} />
+      )}
+      {forceReturnCo && (
+        <ForceReturnModal checkout={forceReturnCo} onClose={() => setForceReturnCo(null)}
+          onConfirm={reason => handleForceReturn(forceReturnCo, reason)} />
       )}
       {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
       </>)}
@@ -4168,10 +4304,13 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts }) {
                       {h.transient.map(c => {
                         const { daysLeft } = checkoutDueInfo(c);
                         const inUse = c.status === 'allocated';
+                        // Clickable item → photo of the exact unit (Neil)
+                        const itemPhoto = items.find(i => i.id === c.itemId)?.photoUrl || c.checkoutPhotoUrl;
                         return (
                           <div key={c.id} style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5 }}>
                             <span style={{ width:6, height:6, borderRadius:'50%', flexShrink:0, background: inUse ? (daysLeft < 0 ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))') : 'hsl(var(--color-blue))' }} />
-                            <span style={{ fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.itemName}</span>
+                            <span onClick={itemPhoto ? () => setPhotoPreview(itemPhoto) : undefined}
+                              style={{ fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', cursor: itemPhoto ? 'zoom-in' : 'default', textDecoration: itemPhoto ? 'underline dotted var(--line)' : 'none', textUnderlineOffset:3 }}>{c.itemName}</span>
                             <span style={{ fontSize:11, color: inUse && daysLeft < 0 ? 'hsl(var(--color-red))' : 'var(--muted)', flexShrink:0, fontWeight: inUse && daysLeft < 0 ? 700 : 400 }}>
                               {inUse
                                 ? (daysLeft < 0 ? `overdue ${Math.abs(daysLeft)}d` : daysLeft === 0 ? 'due today' : `${daysLeft}d left`)
@@ -4196,7 +4335,8 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts }) {
                       {h.permanent.map(i => (
                         <div key={i.id} style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5 }}>
                           <span style={{ width:6, height:6, borderRadius:'50%', flexShrink:0, background:'hsl(var(--color-blue))' }} />
-                          <span style={{ fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{i.name}</span>
+                          <span onClick={i.photoUrl ? () => setPhotoPreview(i.photoUrl) : undefined}
+                            style={{ fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', cursor: i.photoUrl ? 'zoom-in' : 'default', textDecoration: i.photoUrl ? 'underline dotted var(--line)' : 'none', textUnderlineOffset:3 }}>{i.name}</span>
                           <span style={{ fontSize:11, color:'var(--muted)', flexShrink:0 }}>{[i.make, i.model].filter(Boolean).join(' ') || i.itemType}</span>
                         </div>
                       ))}
@@ -4256,6 +4396,8 @@ export default function InventoryManagement({ activeSub }) {
   }, []);
 
   const inCart = useMemo(() => new Set(cart.map(c => c.item.id)), [cart]);
+  // Items flagged picture_required=false — every photo step for them is optional
+  const photoOptionalIds = useMemo(() => new Set(items.filter(i => i.pictureRequired === false).map(i => i.id)), [items]);
   const addToCart = useCallback(item => {
     if (inCart.has(item.id)) return;
     const optimisticId = `cart-${Date.now()}`;
@@ -4550,6 +4692,7 @@ export default function InventoryManagement({ activeSub }) {
         <div>
           <MyCheckoutsPanel
             checkouts={checkouts} userEmail={userEmail} userName={userName} activeSub={activeSub}
+            photoOptionalIds={photoOptionalIds}
             assignments={assignments} refreshAssignments={refreshAssignments} toast={toast}
             onReturn={openReturn} onCancel={cancelCo}
             onSelfAllocate={selfAllocate}
@@ -4599,6 +4742,7 @@ export default function InventoryManagement({ activeSub }) {
       {reportOpen   && <ReportModal onClose={() => setReportOpen(false)} checkouts={checkouts} />}
       {returningCo  && (
         <ReturnModal checkout={returningCo} onClose={() => setReturningCo(null)}
+          photoOptional={photoOptionalIds.has(returningCo.itemId)}
           onSubmit={data => returnItem(returningCo.id, data).then(() => { toast(`Return confirmed — ${returningCo.itemName}`); setReturningCo(null); })} />
       )}
 

@@ -56,6 +56,9 @@ def _run_migrations():
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS assigned_at VARCHAR DEFAULT ''",
         # Fleet department retired — vehicles belong to Construction (Neil, Jun 2026)
         "UPDATE items SET department = 'Construction' WHERE department = 'Fleet'",
+        # items: per-item photo policy + dollar value (Neil, Jun 2026 review)
+        "ALTER TABLE items ADD COLUMN IF NOT EXISTS picture_required BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE items ADD COLUMN IF NOT EXISTS asset_value DOUBLE PRECISION DEFAULT 0",
     ]
     with engine.connect() as conn:
         for sql in migrations:
