@@ -1712,3 +1712,10 @@ html { overflow-x: hidden; }
   .admin-drawer-sub { display: none; }
   .role-stat-grid { grid-template-columns: 1fr 1fr !important; }
 }
+
+/* The pinned cart reserves its zone: the title row is always at least as
+   tall as the cart and keeps clear of it horizontally, so first-row content
+   (search bars, segment pills) never slides underneath on any tab */
+@media (max-width: 640px) {
+  .view-header { min-height: 46px; padding-right: 92px; }
+}
