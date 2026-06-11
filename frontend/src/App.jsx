@@ -139,7 +139,12 @@ export default function App() {
 
   useEffect(() => onBackendHealth(setBackendDown), []);
 
-  // Collapse sidebar when clicking outside it — lets clicks pass through to content
+  // Collapse sidebar when clicking outside it — lets clicks pass through to content.
+  // Must listen on 'click', NOT 'mousedown': collapsing on mousedown reflows the
+  // page mid-press, the target moves before mouseup, and the browser never fires
+  // the click on it — users had to click everything twice while the nav was open.
+  // With 'click' the target's own handler runs first (bubbles to document last),
+  // then the sidebar collapses: one click does both.
   useEffect(() => {
     if (sidebarCollapsed) return;
     const handleClickOutside = (e) => {
@@ -147,8 +152,8 @@ export default function App() {
         setSidebarCollapsed(true);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
   }, [sidebarCollapsed]);
 
   useEffect(() => {

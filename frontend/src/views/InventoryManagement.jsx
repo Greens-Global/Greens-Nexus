@@ -1741,7 +1741,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
                   <div style={{ fontWeight:600, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.itemName}</div>
                   <div style={{ fontSize:11.5, color:'var(--muted)' }}>{fmtDate(c.createdAt)}</div>
                   {c.status === 'rejected' && c.rejectReason && (
-                    <div style={{ fontSize:11.5, color:'hsl(var(--color-red))', marginTop:3 }}>Rejected: "{c.rejectReason}"</div>
+                    <div style={{ fontSize:11.5, color:'hsl(var(--color-red))', marginTop:3 }}>Reason of rejection: "{c.rejectReason}"</div>
                   )}
                 </div>
                 <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:20, fontSize:11, fontWeight:700, background:sm.bg, color:sm.fg, flexShrink:0 }}>
