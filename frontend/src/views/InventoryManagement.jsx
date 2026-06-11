@@ -1603,7 +1603,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
   return (
     <div style={{ marginTop:32 }}>
       {/* Active / Past side tabs — both always visible, no scrolling to discover history */}
-      <div style={{ display:'flex', gap:8, marginBottom:16 }}>
+      <div className="chip-row" style={{ display:'flex', gap:8, marginBottom:16 }}>
         {[
           { key:'active', label:'Active Checkouts', Icon: Clock,   count: active.length    },
           { key:'past',   label:'Past Checkouts',   Icon: History, count: completed.length },
@@ -4049,7 +4049,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
   return (
     <div>
       {/* Transient vs Permanent — Neil's separation */}
-      <div style={{ display:'flex', gap:8, marginBottom:14 }}>
+      <div className="chip-row" style={{ display:'flex', gap:8, marginBottom:14 }}>
         {[['checkouts','Checkouts (Temporary)'], ['assignments', `Assignments (Permanent)${liveAssignments ? ` · ${liveAssignments}` : ''}`]].map(([k, l]) => (
           <button key={k} onClick={() => setSegment(k)}
             style={{ padding:'7px 16px', borderRadius:10, border:`1px solid ${segment === k ? 'var(--pine)' : 'var(--line)'}`, background: segment === k ? 'hsla(var(--color-green),0.08)' : 'var(--card)', color: segment === k ? 'hsl(var(--color-green))' : 'var(--muted)', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
@@ -4064,7 +4064,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
       {/* Tab header with Send Alert */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, flexWrap:'wrap', gap:8 }}>
         {/* Summary chips */}
-        <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
+        <div className="chip-row" style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
         {[
           { key:'active',    label:'Active',            count: pending + approved + checkouts.filter(c => c.status === 'allocated').length },
           { key:'pending',   label:'Pending Approval',  count: pending },
