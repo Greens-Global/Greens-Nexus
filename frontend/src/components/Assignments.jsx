@@ -27,7 +27,11 @@ const REASON_FLAG = {
 export function useAssignments() {
   const [assignments, setAssignments] = useState([]);
   const timer = useRef(null);
-  const fetchNow = useCallback(() => api.getAssignments().then(setAssignments).catch(() => {}), []);
+  // Keep the previous array reference when the poll returns identical data so
+  // React bails out of re-rendering consumers every 15s.
+  const fetchNow = useCallback(() => api.getAssignments()
+    .then(rows => setAssignments(prev => JSON.stringify(prev) === JSON.stringify(rows) ? prev : rows))
+    .catch(() => {}), []);
   useEffect(() => {
     fetchNow();
     timer.current = setInterval(fetchNow, 15000);

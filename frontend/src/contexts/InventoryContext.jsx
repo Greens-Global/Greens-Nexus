@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { api } from '../api';
 import { supabase } from '../lib/supabase';
@@ -9,6 +9,12 @@ const InventoryContext = createContext(null);
 
 function genCheckoutId() {
   return `ICHK-${Date.now().toString(36).toUpperCase()}-${crypto.randomUUID().replace(/-/g,'').slice(0,8).toUpperCase()}`;
+}
+
+// Polls usually return identical data — keeping the previous array reference
+// lets React bail out of re-rendering every consumer on each 10s cycle.
+function keepIfSame(prev, next) {
+  return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
 }
 
 export function InventoryProvider({ children }) {
@@ -38,7 +44,7 @@ export function InventoryProvider({ children }) {
     if (itemsInFlight.current) return Promise.resolve(); // deduplicate
     itemsInFlight.current = true;
     return api.getItems()
-      .then(rows => { setItems(rows); setItemsError(null); itemsErrCount.current = 0; })
+      .then(rows => { setItems(prev => keepIfSame(prev, rows)); setItemsError(null); itemsErrCount.current = 0; })
       .catch(err => { setItemsError(err?.message || 'Failed to load items'); itemsErrCount.current += 1; })
       .finally(() => { setItemsLoading(false); itemsInFlight.current = false; });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -48,14 +54,15 @@ export function InventoryProvider({ children }) {
     cosInFlight.current = true;
     return api.getItemCheckouts()
       .then(rows => {
-        setCheckouts(rows.map(r => ({
+        const mapped = rows.map(r => ({
           ...r,
           requestedBy:           cleanName(r.requestedBy),
           raisedBy:              cleanName(r.raisedBy),
           resolvedBy:            cleanName(r.resolvedBy),
           assignedAllocatorName: cleanName(r.assignedAllocatorName),
           allocatedBy:           cleanName(r.allocatedBy),
-        })));
+        }));
+        setCheckouts(prev => keepIfSame(prev, mapped));
         setCheckoutsError(null);
         cosErrCount.current = 0;
       })
@@ -163,7 +170,7 @@ export function InventoryProvider({ children }) {
 
   // ── Checkout actions ──────────────────────────────────────────────────────
 
-  function submitCartCheckouts(cartItems, { reason, raisedBy, raisedByEmail, approverEmail = '', approverName = '' }) {
+  const submitCartCheckouts = useCallback((cartItems, { reason, raisedBy, raisedByEmail, approverEmail = '', approverName = '' }) => {
     const orderId = crypto.randomUUID();
     const promises = cartItems.map(cartItem => {
       const id = genCheckoutId();
@@ -196,10 +203,10 @@ export function InventoryProvider({ children }) {
       });
     });
     return Promise.allSettled(promises);
-  }
+  }, []);
 
   // Named approveRequest for backward compat with NotificationBell + ManagerDashboard
-  function approveRequest(id, managerName, allocatorEmail, allocatorName) {
+  const approveRequest = useCallback((id, managerName, allocatorEmail, allocatorName) => {
     setCheckouts(prev => prev.map(c =>
       c.id === id ? {
         ...c, status: 'approved',
@@ -213,27 +220,27 @@ export function InventoryProvider({ children }) {
     })
       .then(saved => { fetchCheckouts(); return saved; })
       .catch(err => { fetchCheckouts(); throw err; });
-  }
+  }, [fetchCheckouts]);
 
-  function rejectRequest(id, managerName, reason) {
+  const rejectRequest = useCallback((id, managerName, reason) => {
     setCheckouts(prev => prev.map(c =>
       c.id === id ? { ...c, status: 'rejected', resolvedAt: new Date().toISOString(), resolvedBy: managerName, rejectReason: reason } : c
     ));
     api.updateItemCheckout(id, { status: 'rejected', resolved_by: managerName, reject_reason: reason })
       .then(() => fetchCheckouts())
       .catch(() => fetchCheckouts());
-  }
+  }, [fetchCheckouts]);
 
-  function cancelRequest(id, requesterName) {
+  const cancelRequest = useCallback((id, requesterName) => {
     setCheckouts(prev => prev.map(c =>
       c.id === id ? { ...c, status: 'cancelled', resolvedAt: new Date().toISOString(), resolvedBy: requesterName } : c
     ));
     return api.updateItemCheckout(id, { status: 'cancelled', resolved_by: requesterName })
       .then(saved => { fetchCheckouts(); return saved; })
       .catch(err => { fetchCheckouts(); throw err; });
-  }
+  }, [fetchCheckouts]);
 
-  function allocateItem(id, supervisorName, checkoutPhotoUrl = '', checkoutPhotoName = '', { handoverPhotoBy = 'allocator', handoverBatch = false } = {}) {
+  const allocateItem = useCallback((id, supervisorName, checkoutPhotoUrl = '', checkoutPhotoName = '', { handoverPhotoBy = 'allocator', handoverBatch = false } = {}) => {
     setCheckouts(prev => prev.map(c =>
       c.id === id ? { ...c, status: 'allocated', allocatedAt: new Date().toISOString(), allocatedBy: supervisorName, checkoutPhotoUrl: checkoutPhotoUrl || c.checkoutPhotoUrl } : c
     ));
@@ -244,20 +251,20 @@ export function InventoryProvider({ children }) {
     })
       .then(saved => { fetchCheckouts(); fetchItems(); return saved; })
       .catch(err => { fetchCheckouts(); throw err; });
-  }
+  }, [fetchCheckouts, fetchItems]);
 
   // Supervisor initiates handover and employee will confirm receipt with photo
-  function initiateHandover(id, supervisorName) {
+  const initiateHandover = useCallback((id, supervisorName) => {
     setCheckouts(prev => prev.map(c =>
       c.id === id ? { ...c, status: 'pending_receipt', handedOverAt: new Date().toISOString(), handoverPhotoBy: 'employee' } : c
     ));
     return api.updateItemCheckout(id, { status: 'pending_receipt', allocated_by: supervisorName, handover_photo_by: 'employee' })
       .then(saved => { fetchCheckouts(); return saved; })
       .catch(err => { fetchCheckouts(); throw err; });
-  }
+  }, [fetchCheckouts]);
 
   // Employee confirms receipt and uploads their own photo
-  function confirmReceipt(id, recipientName, receiptPhotoUrl = '', receiptPhotoName = '') {
+  const confirmReceipt = useCallback((id, recipientName, receiptPhotoUrl = '', receiptPhotoName = '') => {
     setCheckouts(prev => prev.map(c =>
       c.id === id ? { ...c, status: 'allocated', allocatedAt: new Date().toISOString(), receiptPhotoUrl } : c
     ));
@@ -267,9 +274,9 @@ export function InventoryProvider({ children }) {
     })
       .then(saved => { fetchCheckouts(); fetchItems(); return saved; })
       .catch(err => { fetchCheckouts(); throw err; });
-  }
+  }, [fetchCheckouts, fetchItems]);
 
-  async function returnItem(id, { file, photoName, conditionNote }) {
+  const returnItem = useCallback(async (id, { file, photoName, conditionNote }) => {
     const now = new Date().toISOString();
     let permanentUrl = '';
     let photoUploadError = null;
@@ -313,25 +320,29 @@ export function InventoryProvider({ children }) {
       fetchCheckouts();
       throw err;
     });
-  }
+  }, [fetchCheckouts, fetchItems]);
 
-  const pendingCount = checkouts.filter(c => c.status === 'pending').length;
+  const value = useMemo(() => ({
+    // New items system
+    items, itemsLoading, itemsError,
+    checkouts, checkoutsLoading, checkoutsError,
+    pendingCount: checkouts.filter(c => c.status === 'pending').length,
+    submitCartCheckouts, approveRequest, rejectRequest,
+    allocateItem, initiateHandover, confirmReceipt, returnItem, cancelRequest,
+    refreshItems: fetchItems, refreshCheckouts: fetchCheckouts,
+    // Backward compat aliases for NotificationBell + ManagerDashboard
+    requests: checkouts,
+    requestsLoading: checkoutsLoading,
+    requestsError: checkoutsError,
+    refreshRequests: fetchCheckouts,
+  }), [
+    items, itemsLoading, itemsError, checkouts, checkoutsLoading, checkoutsError,
+    submitCartCheckouts, approveRequest, rejectRequest, allocateItem,
+    initiateHandover, confirmReceipt, returnItem, cancelRequest, fetchItems, fetchCheckouts,
+  ]);
 
   return (
-    <InventoryContext.Provider value={{
-      // New items system
-      items, itemsLoading, itemsError,
-      checkouts, checkoutsLoading, checkoutsError,
-      pendingCount,
-      submitCartCheckouts, approveRequest, rejectRequest,
-      allocateItem, initiateHandover, confirmReceipt, returnItem, cancelRequest,
-      refreshItems: fetchItems, refreshCheckouts: fetchCheckouts,
-      // Backward compat aliases for NotificationBell + ManagerDashboard
-      requests: checkouts,
-      requestsLoading: checkoutsLoading,
-      requestsError: checkoutsError,
-      refreshRequests: fetchCheckouts,
-    }}>
+    <InventoryContext.Provider value={value}>
       {children}
     </InventoryContext.Provider>
   );

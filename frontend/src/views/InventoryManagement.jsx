@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo, useDeferredValue, memo } from 'react';
 import {
   Package, Plus, Search, CheckCircle, Clock, XCircle, RotateCcw, Camera,
   AlertCircle, X, Loader2, ChevronDown, UploadCloud, FileSpreadsheet,
@@ -156,7 +156,7 @@ function PhotoThumb({ url, name, onPreview, size = 44 }) {
   return (
     <div onClick={onPreview ? () => onPreview(url, name) : undefined}
       style={{ width:size, height:size, borderRadius:8, overflow:'hidden', cursor:onPreview ? 'pointer' : 'default', flexShrink:0, border:'1px solid var(--line)' }}>
-      <img src={url} alt={name || 'Item photo'} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+      <img src={url} alt={name || 'Item photo'} loading="lazy" decoding="async" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
     </div>
   );
 }
@@ -1023,7 +1023,7 @@ function orderActivitySummary(orderItems) {
 }
 
 // ── Audit Log Panel ───────────────────────────────────────────────────────────
-function AuditLogPanel() {
+const AuditLogPanel = memo(function AuditLogPanel() {
   const [query,   setQuery]   = useState('');
   const [logs,    setLogs]    = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1083,7 +1083,7 @@ function AuditLogPanel() {
       )}
     </div>
   );
-}
+});
 
 // ── Stage Tracker ─────────────────────────────────────────────────────────────
 const STAGES = [
@@ -1300,7 +1300,7 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
 }
 
 // ── My Checkouts Panel ────────────────────────────────────────────────────────
-function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept, onConfirmReceipt, onReRequest, onReturnAll, onRequestExtension, assignments = [], refreshAssignments, toast }) {
+const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept, onConfirmReceipt, onReRequest, onReturnAll, onRequestExtension, assignments = [], refreshAssignments, toast }) {
   const mine = checkouts.filter(c =>
     (c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) ||
     c.requestedBy === userName
@@ -1728,12 +1728,25 @@ function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, 
       )}
     </div>
   );
-}
+});
 
-// ── Employee View ─────────────────────────────────────────────────────────────
 // ── Item Photo Grid (shared by employee + manager catalog) ────────────────────
-function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItems, onAddToCart, inCart, emptyLabel }) {
+const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItems, onAddToCart, inCart, emptyLabel }) {
   const [lightbox, setLightbox] = useState(null);
+
+  // Items with active requests: combine server-reported flag (works for all
+  // users, not just managers) with the local checkouts list.
+  const pendingCheckoutIds = useMemo(() => new Set(
+    (checkouts || []).filter(c => ['pending','approved','pending_receipt'].includes(c.status)).map(c => c.itemId)
+  ), [checkouts]);
+
+  // Available items first, then unavailable, alpha within each group
+  const sorted = useMemo(() => [...items].sort((a, b) => {
+    const aAvail = a.status === 'available' ? 0 : 1;
+    const bAvail = b.status === 'available' ? 0 : 1;
+    if (aAvail !== bAvail) return aAvail - bAvail;
+    return a.name.localeCompare(b.name);
+  }), [items]);
 
   if (itemsError) return <ErrorBanner message="Could not load items right now." onRetry={refreshItems} />;
   if (itemsLoading && !items.length) return (
@@ -1747,20 +1760,6 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
       {emptyLabel || 'No items available right now.'}
     </div>
   );
-
-  // Items with active requests: combine server-reported flag (works for all
-  // users, not just managers) with the local checkouts list.
-  const pendingCheckoutIds = new Set(
-    (checkouts || []).filter(c => ['pending','approved','pending_receipt'].includes(c.status)).map(c => c.itemId)
-  );
-
-  // Available items first, then unavailable, alpha within each group
-  const sorted = [...items].sort((a, b) => {
-    const aAvail = a.status === 'available' ? 0 : 1;
-    const bAvail = b.status === 'available' ? 0 : 1;
-    if (aAvail !== bAvail) return aAvail - bAvail;
-    return a.name.localeCompare(b.name);
-  });
 
   return (
     <>
@@ -1799,7 +1798,7 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
               <div onClick={() => item.photoUrl && isAvailable && !hasPending && setLightbox({ src: item.photoUrl, alt: item.name })}
                 style={{ height:140, background: item.photoUrl ? 'transparent' : tm.bg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, cursor: item.photoUrl && isAvailable && !hasPending ? 'zoom-in' : 'default', position:'relative', overflow:'hidden', opacity: (isAvailable && !hasPending) ? 1 : 0.55 }}>
                 {item.photoUrl
-                  ? <img src={item.photoUrl} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover', filter: (isAvailable && !hasPending) ? 'none' : 'grayscale(60%)' }} />
+                  ? <img src={item.photoUrl} alt={item.name} loading="lazy" decoding="async" style={{ width:'100%', height:'100%', objectFit:'cover', filter: (isAvailable && !hasPending) ? 'none' : 'grayscale(60%)' }} />
                   : <tm.Icon size={40} color={tm.color} />}
                 {item.photoUrl && isAvailable && !hasPending && (
                   <div style={{ position:'absolute', top:6, right:6, background:'rgba(0,0,0,0.45)', borderRadius:6, padding:'2px 5px', display:'flex', alignItems:'center', gap:3 }}>
@@ -1887,10 +1886,10 @@ function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItem
       {lightbox && <ImageLightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}
     </>
   );
-}
+});
 
 // ── Employee View ─────────────────────────────────────────────────────────────
-function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, refreshCheckouts, submitCartCheckouts, cancelRequest, allocateItem, confirmReceipt, toast }) {
+const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, refreshCheckouts, submitCartCheckouts, cancelRequest, allocateItem, confirmReceipt, toast }) {
   const { assignments, refreshAssignments } = useAssignments();
   const [tab,            setTab]            = useState('catalog');
   const [mode,           setMode]           = useState('home');
@@ -1931,21 +1930,24 @@ function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsL
     (c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) || c.requestedBy === userName
   );
   const activeCheckouts = myCheckouts.filter(c => ['pending','approved','pending_receipt','allocated'].includes(c.status));
-  const allTransient    = items.filter(i => i.ownershipType === 'transient');
+  const allTransient    = useMemo(() => items.filter(i => i.ownershipType === 'transient'), [items]);
   const availableItems  = allTransient.filter(i => i.status === 'available');
   const inCart          = new Set(cart.map(c => c.item.id));
 
   // Derive location list from all transient items (not just available)
   const locations = ['All', ...Array.from(new Set(allTransient.map(i => i.location).filter(Boolean))).sort()];
 
-  const filteredItems = allTransient.filter(i => {
-    const ms = !search || i.name.toLowerCase().includes(search.toLowerCase()) ||
-      (i.make||'').toLowerCase().includes(search.toLowerCase()) ||
-      (i.model||'').toLowerCase().includes(search.toLowerCase());
+  // Deferred so the input stays responsive while the grid re-filters at low priority
+  const deferredSearch = useDeferredValue(search);
+  const filteredItems = useMemo(() => allTransient.filter(i => {
+    const q = deferredSearch.toLowerCase();
+    const ms = !deferredSearch || i.name.toLowerCase().includes(q) ||
+      (i.make||'').toLowerCase().includes(q) ||
+      (i.model||'').toLowerCase().includes(q);
     const mt = typeFilter     === 'All' || i.itemType === typeFilter;
     const ml = locationFilter === 'All' || i.location === locationFilter;
     return ms && mt && ml;
-  });
+  }), [allTransient, deferredSearch, typeFilter, locationFilter]);
 
   function addToCart(item) {
     if (inCart.has(item.id)) return;
@@ -2292,30 +2294,33 @@ function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsL
       {returningCo && <ReturnModal checkout={returningCo} onClose={() => setReturningCo(null)} onSubmit={handleReturnSubmit} />}
     </div>
   );
-}
+});
 
 // ── Manager Catalog Tab ───────────────────────────────────────────────────────
-function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate }) {
+const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate }) {
   const [viewMode, setViewMode] = useState('list'); // 'tile' | 'list'
 
-  const filtered = items.filter(i => {
-    const mS = !search || i.name.toLowerCase().includes(search.toLowerCase()) || (i.make||'').toLowerCase().includes(search.toLowerCase()) || (i.model||'').toLowerCase().includes(search.toLowerCase());
-    const mD = deptFilter === 'All' || i.department === deptFilter;
-    const mT = typeFilter === 'All' || i.itemType === typeFilter;
-    return mS && mD && mT;
-  });
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return items.filter(i => {
+      const mS = !search || i.name.toLowerCase().includes(q) || (i.make||'').toLowerCase().includes(q) || (i.model||'').toLowerCase().includes(q);
+      const mD = deptFilter === 'All' || i.department === deptFilter;
+      const mT = typeFilter === 'All' || i.itemType === typeFilter;
+      return mS && mD && mT;
+    });
+  }, [items, search, deptFilter, typeFilter]);
 
   // Sorted for list view: available first, then alpha
-  const sortedForList = [...filtered].sort((a, b) => {
+  const sortedForList = useMemo(() => [...filtered].sort((a, b) => {
     const aAvail = a.status === 'available' ? 0 : 1;
     const bAvail = b.status === 'available' ? 0 : 1;
     if (aAvail !== bAvail) return aAvail - bAvail;
     return a.name.localeCompare(b.name);
-  });
+  }), [filtered]);
 
-  const pendingCheckoutIds = new Set(
+  const pendingCheckoutIds = useMemo(() => new Set(
     (checkouts || []).filter(c => ['pending','approved','pending_receipt','allocated'].includes(c.status)).map(c => c.itemId)
-  );
+  ), [checkouts]);
 
   return (
     <>
@@ -2372,7 +2377,7 @@ function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFi
                     <tr key={item.id} style={{ borderTop:'1px solid var(--line)', opacity: item.status === 'available' && !hasPending ? 1 : 0.65 }}>
                       <td style={{ padding:'8px 14px' }}>
                         {item.photoUrl
-                          ? <img src={item.photoUrl} alt={item.name} style={{ width:36, height:36, borderRadius:7, objectFit:'cover', border:'1px solid var(--line)' }} />
+                          ? <img src={item.photoUrl} alt={item.name} loading="lazy" decoding="async" style={{ width:36, height:36, borderRadius:7, objectFit:'cover', border:'1px solid var(--line)' }} />
                           : <div style={{ width:36, height:36, borderRadius:7, background:tm.bg, display:'flex', alignItems:'center', justifyContent:'center' }}><tm.Icon size={16} color={tm.color} /></div>}
                       </td>
                       <td style={{ padding:'8px 14px', fontWeight:600 }}>
@@ -2404,7 +2409,7 @@ function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFi
 
     </>
   );
-}
+});
 
 // ── Batch Delete Confirm Modal ────────────────────────────────────────────────
 function BatchDeleteConfirmModal({ selectedItems, blockedItems, onClose, onConfirm, deleting }) {
@@ -2694,7 +2699,7 @@ function SendAlertModal({ onClose, toast }) {
 }
 
 // ── Manager Manage Tab ────────────────────────────────────────────────────────
-function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign }) {
+const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign }) {
   const [photoPreview,       setPhotoPreview]       = useState(null);
   const [selected,           setSelected]           = useState(new Set());
   const [sortCol,            setSortCol]            = useState('name');
@@ -2742,15 +2747,15 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
 
   const TYPE_ORDER = ['Vehicles', 'Devices', 'Tools', 'Equipment', 'Keys', 'Other'];
 
-  const filtered = items.filter(i => {
+  const filtered = useMemo(() => items.filter(i => {
     const q = search.toLowerCase();
     const mS = !search || i.name.toLowerCase().includes(q) || (i.make||'').toLowerCase().includes(q) || (i.model||'').toLowerCase().includes(q);
     const mD = deptFilter === 'All' || i.department === deptFilter;
     const mT = typeFilter === 'All' || i.itemType === typeFilter;
     return mS && mD && mT;
-  });
+  }), [items, search, deptFilter, typeFilter]);
 
-  const sorted = [...filtered].sort((a, b) => {
+  const sorted = useMemo(() => [...filtered].sort((a, b) => {
     let av, bv;
     if (sortCol === 'name')     { av = a.name.toLowerCase();                          bv = b.name.toLowerCase(); }
     if (sortCol === 'type')     { av = TYPE_ORDER.indexOf(a.itemType);                bv = TYPE_ORDER.indexOf(b.itemType); }
@@ -2759,7 +2764,7 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
     if (av === bv) return 0;
     const cmp = av < bv ? -1 : 1;
     return sortDir === 'asc' ? cmp : -cmp;
-  });
+  }), [filtered, sortCol, sortDir]);
 
   const missingPhotos = items.filter(i => !i.photoUrl).length;
   const selItems      = filtered.filter(i => selected.has(i.id));
@@ -2965,7 +2970,7 @@ function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFil
       )}
     </>
   );
-}
+});
 
 // ── Employee Accept Modal (employee takes checkout photo to confirm receipt) ───
 function EmployeeAcceptModal({ checkout, onClose, onConfirm }) {
@@ -3535,7 +3540,7 @@ function RejectCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onCo
 }
 
 // ── Manager Checkouts Tab ─────────────────────────────────────────────────────
-function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveRequest, rejectRequest, allocateItem, initiateHandover, refreshCheckouts, refreshItems, toast, onSendAlert, assignments = [], refreshAssignments }) {
+const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveRequest, rejectRequest, allocateItem, initiateHandover, refreshCheckouts, refreshItems, toast, onSendAlert, assignments = [], refreshAssignments }) {
   const [segment, setSegment] = useState('checkouts'); // 'checkouts' | 'assignments'
   const { can } = useRole();
   const isManager = can('manager');
@@ -3919,10 +3924,10 @@ function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveReq
       </>)}
     </div>
   );
-}
+});
 
 // ── Purchase Requests Tab ─────────────────────────────────────────────────────
-function PurchaseRequestsTab({ userEmail, userName, isManager }) {
+const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userName, isManager }) {
   const { requisitions, approveRequisition, rejectRequisition } = useRequisitions();
   const [rejectingId, setRejectingId] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
@@ -4051,17 +4056,17 @@ function PurchaseRequestsTab({ userEmail, userName, isManager }) {
       )}
     </div>
   );
-}
+});
 
 // ── Who Has It Tab ────────────────────────────────────────────────────────────
 // Per-person view of every allocation: searchable, split into permanent
 // assignments and transient checkouts — Neil's "permanent vs transient" ask.
-function WhoHasItTab({ items, checkouts }) {
+const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts }) {
   const [search, setSearch] = useState('');
   const [photoPreview, setPhotoPreview] = useState(null);
 
   // Transient: live checkouts grouped by holder
-  const holders = (() => {
+  const holders = useMemo(() => {
     const map = new Map(); // key → { name, transient: [], permanent: [] }
     for (const c of checkouts) {
       if (!['approved','pending_receipt','allocated'].includes(c.status) || !c.requestedBy) continue;
@@ -4085,14 +4090,14 @@ function WhoHasItTab({ items, checkouts }) {
       map.get(key).permanent.push(i);
     }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-  })();
+  }, [checkouts, items]);
 
-  const filtered = holders.filter(h =>
+  const filtered = useMemo(() => holders.filter(h =>
     !search ||
     h.name.toLowerCase().includes(search.toLowerCase()) ||
     h.transient.some(c => c.itemName.toLowerCase().includes(search.toLowerCase())) ||
     h.permanent.some(i => i.name.toLowerCase().includes(search.toLowerCase()))
-  );
+  ), [holders, search]);
 
   const initials = name => name.split(/\s+/).map(p => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
 
@@ -4179,7 +4184,7 @@ function WhoHasItTab({ items, checkouts }) {
       {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
     </div>
   );
-}
+});
 
 // ── Main view ─────────────────────────────────────────────────────────────────
 export default function InventoryManagement({ activeSub }) {
@@ -4223,15 +4228,15 @@ export default function InventoryManagement({ activeSub }) {
     }).catch(() => {});
   }, []);
 
-  const inCart = new Set(cart.map(c => c.item.id));
-  function addToCart(item) {
+  const inCart = useMemo(() => new Set(cart.map(c => c.item.id)), [cart]);
+  const addToCart = useCallback(item => {
     if (inCart.has(item.id)) return;
     const optimisticId = `cart-${Date.now()}`;
     setCart(prev => [...prev, { id: optimisticId, item, days: 1 }]);
     api.addItemToCart({ item_id: item.id, item_name: item.name, item_type: item.itemType })
       .then(saved => setCart(prev => prev.map(c => c.id === optimisticId ? { id: saved.id, item, days: 1 } : c)))
       .catch(() => setCart(prev => prev.filter(c => c.id !== optimisticId)));
-  }
+  }, [inCart]);
   function removeFromCart(cartId) {
     const entry = cart.find(c => c.id === cartId);
     setCart(prev => prev.filter(c => c.id !== cartId));
@@ -4286,6 +4291,9 @@ export default function InventoryManagement({ activeSub }) {
   const [deptFilter,    setDeptFilter]    = useState('All');
   const [typeFilter,    setTypeFilter]    = useState('All');
   const [search,        setSearch]        = useState('');
+  // Deferred copy keeps the input responsive: tabs re-filter at low priority
+  // instead of blocking every keystroke.
+  const deferredSearch = useDeferredValue(search);
   const [addItemOpen,   setAddItemOpen]   = useState(false);
   const [editingItem,   setEditingItem]   = useState(null);
   const [deletingItem,  setDeletingItem]  = useState(null);
@@ -4322,6 +4330,55 @@ export default function InventoryManagement({ activeSub }) {
       .catch(err => { toast(err?.message || 'Import failed.', 'error'); throw err; });
   }
 
+  // Stable handlers so the memoized tab components skip re-renders when
+  // unrelated state (toasts, cart, modals) changes in this component.
+  const openReturn = useCallback(co => setReturningCo(co), []);
+  const cancelCo = useCallback((co, opts = {}) => cancelRequest(co.id, userName)
+    .then(() => { if (!opts.silent) toast('Checkout cancelled.'); })
+    .catch(() => { if (!opts.silent) toast('Could not cancel.', 'error'); }), [cancelRequest, userName, toast]);
+  const selfAllocate = useCallback(co => allocateItem(co.id, userName)
+    .then(() => toast(`Confirmed — ${co.itemName} is with you.`))
+    .catch(() => toast('Could not confirm.', 'error')), [allocateItem, userName, toast]);
+  const openAdd       = useCallback(() => setAddItemOpen(true), []);
+  const openImport    = useCallback(() => setImportOpen(true), []);
+  const openReport    = useCallback(() => setReportOpen(true), []);
+  const openSendAlert = useCallback(() => setSendAlertOpen(true), []);
+  const exportCsv     = useCallback(() => downloadItemsCsv(items), [items]);
+  const openAssign    = useCallback((item, mode) => setAssigningItem({ item, mode }), []);
+  const refreshAssignmentsAndItems = useCallback(() => { refreshAssignments(); refreshItems(); }, [refreshAssignments, refreshItems]);
+  const handleConfirmReceipt = useCallback((co, batch, photoMap) =>
+    confirmReceipt(co.id, userName, photoMap[co.id]?.url || '', photoMap[co.id]?.name || '')
+      .catch(() => { throw new Error(`Could not confirm receipt for ${co.itemName}.`); }),
+    [confirmReceipt, userName]);
+  const handleReturnAll = useCallback(async (cos, data) => {
+    for (const c of cos) {
+      try { await returnItem(c.id, data); } catch { /* keep going */ }
+    }
+    toast(`Returned ${cos.length} item${cos.length !== 1 ? 's' : ''}.`);
+  }, [returnItem, toast]);
+  const handleRequestExtension = useCallback((co, days, reason) =>
+    api.requestItemExtension(co.id, { days, reason })
+      .then(() => { toast(`Extension requested for ${co.itemName} — awaiting approval.`); refreshCheckouts(); }),
+    [toast, refreshCheckouts]);
+  const handleReRequest = useCallback(async (co, newReason) => {
+    try {
+      await api.createItemCheckout({
+        id: crypto.randomUUID(),
+        item_id: co.itemId, item_name: co.itemName, item_type: co.itemType,
+        requested_by: co.requestedBy, requested_by_email: co.requestedByEmail || userEmail,
+        raised_by: userName, department: co.department, days: co.days || 1,
+        reason: newReason,
+        order_id: co.orderId || null,            // rejoin the original order, not a new solo card
+        approver_email: co.approverEmail || '', approver_name: co.approverName || '',
+      });
+      toast(`Re-submitted request for ${co.itemName}.`);
+      refreshCheckouts();
+    } catch (err) {
+      toast(err?.message || `Could not re-submit request for ${co.itemName}.`, 'error');
+      throw err; // panel must not clear the rejected card on failure
+    }
+  }, [userEmail, userName, toast, refreshCheckouts]);
+
   if (roleLoading) return <SkeletonBlocks count={6} height={56} borderRadius={10} />;
 
   if (!isManager) {
@@ -4331,7 +4388,7 @@ export default function InventoryManagement({ activeSub }) {
           items={items} checkouts={checkouts} activeSub={activeSub}
           userName={userName} userEmail={userEmail}
           itemsLoading={itemsLoading} itemsError={itemsError}
-          onReturn={(id, data) => returnItem(id, data)}
+          onReturn={returnItem}
           refreshItems={refreshItems} refreshCheckouts={refreshCheckouts}
           submitCartCheckouts={submitCartCheckouts}
           cancelRequest={cancelRequest}
@@ -4344,10 +4401,6 @@ export default function InventoryManagement({ activeSub }) {
       </>
     );
   }
-
-  const cancelCo = (co, opts = {}) => cancelRequest(co.id, userName)
-    .then(() => { if (!opts.silent) toast('Checkout cancelled.'); })
-    .catch(() => { if (!opts.silent) toast('Could not cancel.', 'error'); });
 
   return (
     <div style={{ animation:'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -4368,50 +4421,22 @@ export default function InventoryManagement({ activeSub }) {
               </span>
             )}
           </button>
-          {['catalog','manage','audit'].includes(mainTab) && (
-            <>
-              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                <Filter size={13} style={{ color:'var(--muted)' }} />
-                <select className="form-input" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34 }}>
-                  {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
-                </select>
-              </div>
-              <select className="form-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34 }}>
-                <option value="All">All types</option>
-                {ITEM_TYPES.map(t => <option key={t}>{t}</option>)}
+          {/* Always mounted (hidden, not removed) so the header height never
+              changes between tabs — Neil: the top nav must not jump around */}
+          <div style={{ display:'flex', alignItems:'center', gap:10, visibility: ['catalog','manage','audit'].includes(mainTab) ? 'visible' : 'hidden' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+              <Filter size={13} style={{ color:'var(--muted)' }} />
+              <select className="form-input" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34 }}>
+                {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
               </select>
-            </>
-          )}
+            </div>
+            <select className="form-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34 }}>
+              <option value="All">All types</option>
+              {ITEM_TYPES.map(t => <option key={t}>{t}</option>)}
+            </select>
+          </div>
         </div>
       </div>
-
-      {/* Pending approvals banner */}
-      {pendingCount > 0 && (
-        <div onClick={() => setMainTab('checkouts')}
-          style={{ margin:'16px 0 0', background:'hsla(var(--color-orange),0.1)', border:'1px solid hsla(var(--color-orange),0.35)', borderRadius:12, padding:'12px 18px', display:'flex', alignItems:'center', gap:12, cursor:'pointer' }}>
-          <AlertCircle size={18} color="hsl(var(--color-orange))" style={{ flexShrink:0 }} />
-          <div style={{ flex:1 }}>
-            <span style={{ fontWeight:700, fontSize:13.5 }}>{pendingCount} checkout request{pendingCount !== 1 ? 's' : ''} waiting for your approval</span>
-            <span style={{ fontSize:12, color:'var(--muted)', marginLeft:8 }}>Tap to review</span>
-          </div>
-          <ChevronRight size={16} style={{ color:'var(--muted)', flexShrink:0 }} />
-        </div>
-      )}
-
-      {/* KPI strip — only relevant when browsing or managing items */}
-      {mainTab === 'manage' && <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(4,1fr)', margin:'16px 0 20px' }}>
-        {[
-          { label:'Available',      value: items.filter(i => i.status === 'available').length,    color:'card-green'  },
-          { label:'Total Items',    value: items.length,                                          color:'card-blue'   },
-          { label:'Checked Out',    value: items.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
-          { label:'Missing Photos', value: items.filter(i => !i.photoUrl).length,                 color: items.filter(i => !i.photoUrl).length > 0 ? 'card-red' : '' },
-        ].map(({ label, value, color }) => (
-          <div key={label} className={`kpi-card ${color}`}>
-            <div className="kpi-label">{label}</div>
-            <div className="kpi-value">{value}</div>
-          </div>
-        ))}
-      </div>}
 
       {/* Tab strip — horizontally scrollable on phones instead of wrapping into a tall stack */}
       <div className="scroll-tabs" style={{ display:'flex', gap:0, marginBottom:20, borderBottom:'1px solid var(--line)' }}>
@@ -4430,35 +4455,62 @@ export default function InventoryManagement({ activeSub }) {
             {badge > 0 && <span style={{ background:'hsl(var(--color-orange))', color:'#fff', borderRadius:20, fontSize:10, fontWeight:800, padding:'1px 6px', marginLeft:2 }}>{badge}</span>}
           </button>
         ))}
-        {(mainTab === 'catalog' || mainTab === 'manage') && (
-          <div className="search-bar" style={{ marginLeft:'auto', flex:1, maxWidth:480, minWidth:220, marginBottom:0 }}>
-            <Search size={14} style={{ flexShrink:0 }} />
-            <input placeholder="Search items…" value={search} onChange={e => setSearch(e.target.value)} />
-          </div>
-        )}
+        {/* Always mounted so the strip height/width never shifts between tabs */}
+        <div className="search-bar" style={{ marginLeft:'auto', flex:1, maxWidth:480, minWidth:220, marginBottom:0, visibility: (mainTab === 'catalog' || mainTab === 'manage') ? 'visible' : 'hidden' }}>
+          <Search size={14} style={{ flexShrink:0 }} />
+          <input placeholder="Search items…" value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
       </div>
+
+      {/* Pending approvals banner — below the tab strip so the nav itself never moves */}
+      {pendingCount > 0 && (
+        <div onClick={() => setMainTab('checkouts')}
+          style={{ margin:'0 0 16px', background:'hsla(var(--color-orange),0.1)', border:'1px solid hsla(var(--color-orange),0.35)', borderRadius:12, padding:'12px 18px', display:'flex', alignItems:'center', gap:12, cursor:'pointer' }}>
+          <AlertCircle size={18} color="hsl(var(--color-orange))" style={{ flexShrink:0 }} />
+          <div style={{ flex:1 }}>
+            <span style={{ fontWeight:700, fontSize:13.5 }}>{pendingCount} checkout request{pendingCount !== 1 ? 's' : ''} waiting for your approval</span>
+            <span style={{ fontSize:12, color:'var(--muted)', marginLeft:8 }}>Tap to review</span>
+          </div>
+          <ChevronRight size={16} style={{ color:'var(--muted)', flexShrink:0 }} />
+        </div>
+      )}
+
+      {/* KPI strip — manage tab only, rendered below the strip for the same reason */}
+      {mainTab === 'manage' && <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(4,1fr)', margin:'0 0 20px' }}>
+        {[
+          { label:'Available',      value: items.filter(i => i.status === 'available').length,    color:'card-green'  },
+          { label:'Total Items',    value: items.length,                                          color:'card-blue'   },
+          { label:'Checked Out',    value: items.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
+          { label:'Missing Photos', value: items.filter(i => !i.photoUrl).length,                 color: items.filter(i => !i.photoUrl).length > 0 ? 'card-red' : '' },
+        ].map(({ label, value, color }) => (
+          <div key={label} className={`kpi-card ${color}`}>
+            <div className="kpi-label">{label}</div>
+            <div className="kpi-value">{value}</div>
+          </div>
+        ))}
+      </div>}
 
       {/* Tab content */}
       {mainTab === 'catalog' && (
         <ManagerCatalogTab
           items={items} itemsLoading={itemsLoading} itemsError={itemsError}
-          deptFilter={deptFilter} typeFilter={typeFilter} search={search}
+          deptFilter={deptFilter} typeFilter={typeFilter} search={deferredSearch}
           refreshItems={refreshItems} onAddToCart={addToCart} inCart={inCart}
           checkouts={checkouts} userEmail={userEmail} userName={userName}
-          onReturn={co => setReturningCo(co)} onCancel={cancelCo}
-          onSelfAllocate={co => allocateItem(co.id, userName).then(() => toast(`Confirmed — ${co.itemName} is with you.`)).catch(() => toast('Could not confirm.', 'error'))}
+          onReturn={openReturn} onCancel={cancelCo}
+          onSelfAllocate={selfAllocate}
         />
       )}
       {mainTab === 'manage' && (
         <ManagerManageTab
           items={items} itemsLoading={itemsLoading} itemsError={itemsError}
-          deptFilter={deptFilter} typeFilter={typeFilter} search={search}
+          deptFilter={deptFilter} typeFilter={typeFilter} search={deferredSearch}
           refreshItems={refreshItems} canDelete={canDelete}
-          onAdd={() => setAddItemOpen(true)} onEdit={setEditingItem}
-          onDelete={setDeletingItem} onImport={() => setImportOpen(true)}
-          onExport={() => downloadItemsCsv(items)} onReport={() => setReportOpen(true)}
+          onAdd={openAdd} onEdit={setEditingItem}
+          onDelete={setDeletingItem} onImport={openImport}
+          onExport={exportCsv} onReport={openReport}
           checkouts={checkouts} toast={toast}
-          onAssign={(item, mode) => setAssigningItem({ item, mode })}
+          onAssign={openAssign}
         />
       )}
       {mainTab === 'myitems' && (
@@ -4466,40 +4518,12 @@ export default function InventoryManagement({ activeSub }) {
           <MyCheckoutsPanel
             checkouts={checkouts} userEmail={userEmail} userName={userName}
             assignments={assignments} refreshAssignments={refreshAssignments} toast={toast}
-            onReturn={co => setReturningCo(co)} onCancel={cancelCo}
-            onSelfAllocate={co => allocateItem(co.id, userName).then(() => toast(`Confirmed — ${co.itemName} is with you.`)).catch(() => toast('Could not confirm.', 'error'))}
-            onConfirmReceipt={(co, batch, photoMap) =>
-              confirmReceipt(co.id, userName, photoMap[co.id]?.url || '', photoMap[co.id]?.name || '')
-                .catch(() => { throw new Error(`Could not confirm receipt for ${co.itemName}.`); })
-            }
-            onReturnAll={async (items, data) => {
-              for (const c of items) {
-                try { await returnItem(c.id, data); } catch { /* keep going */ }
-              }
-              toast(`Returned ${items.length} item${items.length !== 1 ? 's' : ''}.`);
-            }}
-            onRequestExtension={(co, days, reason) =>
-              api.requestItemExtension(co.id, { days, reason })
-                .then(() => { toast(`Extension requested for ${co.itemName} — awaiting approval.`); refreshCheckouts(); })
-            }
-            onReRequest={async (co, newReason) => {
-              try {
-                await api.createItemCheckout({
-                  id: crypto.randomUUID(),
-                  item_id: co.itemId, item_name: co.itemName, item_type: co.itemType,
-                  requested_by: co.requestedBy, requested_by_email: co.requestedByEmail || userEmail,
-                  raised_by: userName, department: co.department, days: co.days || 1,
-                  reason: newReason,
-        order_id: co.orderId || null,            // rejoin the original order, not a new solo card
-        approver_email: co.approverEmail || '', approver_name: co.approverName || '',
-                });
-                toast(`Re-submitted request for ${co.itemName}.`);
-                refreshCheckouts();
-              } catch (err) {
-                toast(err?.message || `Could not re-submit request for ${co.itemName}.`, 'error');
-                throw err; // panel must not clear the rejected card on failure
-              }
-            }}
+            onReturn={openReturn} onCancel={cancelCo}
+            onSelfAllocate={selfAllocate}
+            onConfirmReceipt={handleConfirmReceipt}
+            onReturnAll={handleReturnAll}
+            onRequestExtension={handleRequestExtension}
+            onReRequest={handleReRequest}
           />
           {myTotalCount === 0 && (
             <div style={{ textAlign:'center', padding:'64px 20px', color:'var(--muted)' }}>
@@ -4517,8 +4541,8 @@ export default function InventoryManagement({ activeSub }) {
           approveRequest={approveRequest} rejectRequest={rejectRequest}
           allocateItem={allocateItem} initiateHandover={initiateHandover}
           refreshCheckouts={refreshCheckouts} refreshItems={refreshItems} toast={toast}
-          assignments={assignments} refreshAssignments={() => { refreshAssignments(); refreshItems(); }}
-          onSendAlert={() => setSendAlertOpen(true)}
+          assignments={assignments} refreshAssignments={refreshAssignmentsAndItems}
+          onSendAlert={openSendAlert}
         />
       )}
       {mainTab === 'whohasit' && (
