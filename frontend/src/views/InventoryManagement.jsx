@@ -976,6 +976,19 @@ function checkoutDueInfo(checkout) {
 
 const fmtMoney = v => '$' + Math.round(Number(v) || 0).toLocaleString('en-US');
 
+// Live viewport check — phone layouts render genuinely different structures
+// (cards instead of tables) rather than squeezing the desktop UI sideways.
+function useIsMobile(bp = 640) {
+  const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia(`(max-width: ${bp}px)`).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${bp}px)`);
+    const h = e => setMobile(e.matches);
+    mq.addEventListener('change', h);
+    return () => mq.removeEventListener('change', h);
+  }, [bp]);
+  return mobile;
+}
+
 // Short request number derived from the order/checkout id — Neil: tag the
 // backend request number on the front end and make it searchable
 // ("hey, I'm talking about request number 818").
@@ -1147,6 +1160,7 @@ const AuditLogPanel = memo(function AuditLogPanel() {
   const [logs,    setLogs]    = useState([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
+  const isMobile = useIsMobile(); // phones render cards, not the table
 
   const load = useCallback(() => {
     setLoading(true);
@@ -1177,6 +1191,21 @@ const AuditLogPanel = memo(function AuditLogPanel() {
         <div style={{ textAlign:'center', padding:'48px 0', color:'var(--muted)', fontSize:13 }}>
           <History size={28} style={{ opacity:.3, display:'block', margin:'0 auto 8px' }} />
           {query ? 'No entries match your search.' : 'No audit entries yet.'}
+        </div>
+      ) : isMobile ? (
+        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+          {logs.map(log => (
+            <div key={log.id} style={{ border:'1px solid var(--line)', borderRadius:12, background:'var(--card)', padding:'11px 14px', boxShadow:'var(--shadow-sm)' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', gap:8, alignItems:'baseline' }}>
+                <span style={{ fontWeight:700, fontSize:13, minWidth:0 }}>{log.action}</span>
+                <span style={{ fontSize:10.5, color:'var(--muted)', flexShrink:0, whiteSpace:'nowrap' }}>{fmtAuditStamp(log.timestamp)}</span>
+              </div>
+              <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{log.user_email}</div>
+              {formatAuditDetails(log.action, log.details) && (
+                <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:4, lineHeight:1.45 }}>{formatAuditDetails(log.action, log.details)}</div>
+              )}
+            </div>
+          ))}
         </div>
       ) : (
         <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto' }}>
@@ -2064,6 +2093,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
     return () => window.removeEventListener('nexus:navigate', h);
   }, []);
   const [viewMode,       setViewMode]       = useState('tile');
+  const isMobile = useIsMobile();
   const [search,         setSearch]         = useState('');
   const [typeFilter,     setTypeFilter]     = useState('All');
   const [locationFilter, setLocationFilter] = useState('All');
@@ -2289,7 +2319,8 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
                   {filteredItems.filter(i => i.status === 'available').length} available · {filteredItems.length} total
                 </span>
               </div>
-              <div style={{ display:'flex', gap:4, flexShrink:0 }}>
+              {/* Phones are always tile — list is a table with off-screen columns */}
+              {!isMobile && <div style={{ display:'flex', gap:4, flexShrink:0 }}>
                 <button onClick={() => setViewMode('tile')}
                   style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:8, border:`1px solid ${viewMode==='tile' ? 'var(--pine)' : 'var(--line)'}`, background: viewMode==='tile' ? 'hsla(var(--color-green),0.1)' : 'transparent', color: viewMode==='tile' ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
                   <LayoutGrid size={13} /> Tile
@@ -2298,7 +2329,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
                   style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:8, border:`1px solid ${viewMode==='list' ? 'var(--pine)' : 'var(--line)'}`, background: viewMode==='list' ? 'hsla(var(--color-green),0.1)' : 'transparent', color: viewMode==='list' ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
                   <ClipboardList size={13} /> List
                 </button>
-              </div>
+              </div>}
             </div>
             {locations.length > 2 && (
               <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
@@ -2316,7 +2347,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
             )}
           </div>
 
-          {viewMode === 'tile' ? (
+          {(isMobile || viewMode === 'tile') ? (
             <ItemPhotoGrid
               items={filteredItems} checkouts={checkouts}
               itemsLoading={itemsLoading} itemsError={itemsError}
@@ -2457,10 +2488,8 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
 
 // ── Manager Catalog Tab ───────────────────────────────────────────────────────
 const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, searchValue, onSearchChange, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate }) {
-  // Phones default to TILE — the list view's Add buttons sit in the table's
-  // off-screen columns there (toggle stays available either way)
-  const [viewMode, setViewMode] = useState(() =>
-    (typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches) ? 'tile' : 'list');
+  const [viewMode, setViewMode] = useState('list'); // 'tile' | 'list' (desktop)
+  const isMobile = useIsMobile(); // phones are ALWAYS tile — no table views
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -2494,7 +2523,7 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
           <Search size={14} style={{ flexShrink:0 }} />
           <input placeholder="Search items…" value={searchValue} onChange={e => onSearchChange(e.target.value)} />
         </div>
-        <div style={{ display:'flex', gap:4, flexShrink:0 }}>
+        {!isMobile && <div style={{ display:'flex', gap:4, flexShrink:0 }}>
           <button onClick={() => setViewMode('tile')}
             style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:8, border:`1px solid ${viewMode === 'tile' ? 'var(--pine)' : 'var(--line)'}`, background: viewMode === 'tile' ? 'hsla(var(--color-green),0.1)' : 'transparent', color: viewMode === 'tile' ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
             <LayoutGrid size={13} /> Tile
@@ -2503,10 +2532,10 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
             style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:8, border:`1px solid ${viewMode === 'list' ? 'var(--pine)' : 'var(--line)'}`, background: viewMode === 'list' ? 'hsla(var(--color-green),0.1)' : 'transparent', color: viewMode === 'list' ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
             <ClipboardList size={13} /> List
           </button>
-        </div>
+        </div>}
       </div>
 
-      {viewMode === 'tile' ? (
+      {(isMobile || viewMode === 'tile') ? (
         <ItemPhotoGrid
           items={filtered}
           checkouts={checkouts}
@@ -2877,6 +2906,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
   const [batchDeleting,      setBatchDeleting]      = useState(false);
   const [aiPhotoBusy,        setAiPhotoBusy]        = useState(false);
   const [aiPhotoProgress,    setAiPhotoProgress]    = useState('');
+  const isMobile = useIsMobile(); // phones render cards, not the table
 
   // Claude finds and fills product images for items MISSING a photo only.
   // Neil: AI fill must never overwrite an existing photo — someone adds 150
@@ -3035,6 +3065,52 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
         <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)' }}>
           <Package size={32} style={{ opacity:.25, display:'block', margin:'0 auto 10px' }} />
           {items.length ? 'No items match your filters.' : 'No items yet. Add one above or import a CSV.'}
+        </div>
+      ) : isMobile ? (
+        /* Phone layout: one card per item — name, badges and actions all
+           visible without sideways scrolling (the "Add/Edit is hiding" bug) */
+        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+          {sorted.map(item => (
+            <div key={item.id} style={{ border:'1px solid var(--line)', borderRadius:12, background: selected.has(item.id) ? 'hsla(var(--color-blue),0.05)' : 'var(--card)', padding:'12px 14px', boxShadow:'var(--shadow-sm)' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)}
+                  style={{ cursor:'pointer', accentColor:'var(--pine)', flexShrink:0 }} />
+                {item.photoUrl
+                  ? <PhotoThumb url={item.photoUrl} size={44} onPreview={url => setPhotoPreview(url)} />
+                  : (
+                    <div style={{ width:44, height:44, borderRadius:10, background:'hsla(var(--color-red),0.08)', border:'1px dashed hsla(var(--color-red),0.4)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }} title="Missing photo">
+                      <Camera size={18} color="hsl(var(--color-red))" />
+                    </div>
+                  )}
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
+                  <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                    {[item.make, item.model, item.location].filter(Boolean).join(' · ') || '—'}
+                  </div>
+                </div>
+                <StatusBadge status={displayStatus(item)} />
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:10, flexWrap:'wrap' }}>
+                <TypeBadge type={item.itemType} />
+                <span style={{ fontSize:10.5, fontWeight:600, padding:'2px 8px', borderRadius:20, background: item.ownershipType === 'permanent' ? 'hsla(var(--color-purple),0.1)' : 'hsla(var(--color-blue),0.1)', color: item.ownershipType === 'permanent' ? 'hsl(var(--color-purple))' : 'hsl(var(--color-blue))' }}>
+                  {item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}
+                </span>
+                {Number(item.assetValue) > 0 && <span style={{ fontSize:11, fontWeight:700, color:'var(--muted)' }}>{fmtMoney(item.assetValue)}</span>}
+                <div style={{ marginLeft:'auto', display:'flex', gap:6 }}>
+                  {item.ownershipType === 'permanent' && onAssign && (
+                    <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
+                      style={{ background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+                      {item.assignedToEmail ? 'Reassign' : 'Assign'}
+                    </button>
+                  )}
+                  <button onClick={() => onEdit(item)} style={{ background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Edit</button>
+                  {canDelete && (
+                    <button onClick={() => onDelete(item)} style={{ background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-red))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Delete</button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       ) : (
         <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto' }}>
