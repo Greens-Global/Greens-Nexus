@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Menu, Package, User, ClipboardList, ShoppingCart, Users, FileText, History } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 
@@ -23,6 +24,17 @@ export default function MobileNav({ activeView, activeSub, onMenu }) {
   const { can } = useRole();
   const isManager = can?.('manager');
 
+  // Views can broadcast their own action set (label + id + active) via
+  // 'nexus:mobile-actions'; taps come back as 'nexus:mobile-action'. This is
+  // how screens with internal tabs (PropertyAsset sections) populate the bar
+  // without MobileNav knowing their internals.
+  const [dynActions, setDynActions] = useState(null);
+  useEffect(() => {
+    const h = e => setDynActions(e.detail?.actions || null);
+    window.addEventListener('nexus:mobile-actions', h);
+    return () => window.removeEventListener('nexus:mobile-actions', h);
+  }, []);
+
   let actions = null;
   if (activeView === 'inventory') {
     actions = isManager ? INVENTORY_MANAGER_ACTIONS : INVENTORY_EMPLOYEE_ACTIONS;
@@ -31,7 +43,12 @@ export default function MobileNav({ activeView, activeSub, onMenu }) {
   return (
     <nav className="mobile-nav">
       <div className="mobile-nav-actions">
-        {actions && actions.map(a => (
+        {dynActions ? dynActions.map(a => (
+          <button key={a.id} className={`mobile-nav-item no-icon${a.active ? ' active' : ''}`}
+            onClick={() => window.dispatchEvent(new CustomEvent('nexus:mobile-action', { detail: { id: a.id } }))}>
+            <span>{a.label}</span>
+          </button>
+        )) : actions && actions.map(a => (
           <button key={a.sub} className={`mobile-nav-item${activeSub === a.sub ? ' active' : ''}`}
             onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: activeView, sub: a.sub } }))}>
             <a.Icon size={20} />

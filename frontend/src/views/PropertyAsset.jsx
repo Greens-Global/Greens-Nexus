@@ -275,6 +275,27 @@ export default function PropertyAsset() {
   const cancelOverviewReason = () => { setReasonModal(null); setOverviewReason(''); }; // back to editing
 
   const openProperty = (id, edit = false) => { setSelectedId(id); setSection('overview'); setEditMode(edit); setShowLogs(false); };
+
+  // Phone bottom bar: while a property is open, broadcast its sections as the
+  // bar's actions (same contextual pattern as Item Management). Cleared on
+  // back/unmount so other screens get their own bars.
+  const MOBILE_SECTION_LABEL = { overview: 'Overview', utilities: 'Utilities', timeline: 'Timeline', permit: 'Permit', documents: 'Docs', warranties: 'Warranty', inspections: 'Inspect' };
+  useEffect(() => {
+    if (!window.matchMedia('(max-width: 900px)').matches) return;
+    if (!selectedId) {
+      window.dispatchEvent(new CustomEvent('nexus:mobile-actions', { detail: { actions: null } }));
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('nexus:mobile-actions', {
+      detail: { actions: SECTIONS.map(s => ({ id: s.key, label: MOBILE_SECTION_LABEL[s.key] || s.label, active: s.key === section })) },
+    }));
+    const h = e => e.detail?.id && setSection(e.detail.id);
+    window.addEventListener('nexus:mobile-action', h);
+    return () => {
+      window.removeEventListener('nexus:mobile-action', h);
+      window.dispatchEvent(new CustomEvent('nexus:mobile-actions', { detail: { actions: null } }));
+    };
+  }, [selectedId, section]); // eslint-disable-line react-hooks/exhaustive-deps
   // Back from a property detail: return to its group's sub-list if grouped, else the portfolio.
   const backToPortfolio = () => { setSelectedId(null); setEditMode(false); setShowLogs(false); };
   const backToTop = () => { setSelectedGroup(null); setSelectedId(null); setEditMode(false); setShowLogs(false); };
@@ -487,8 +508,9 @@ export default function PropertyAsset() {
         </div>
       </div>
 
-      {/* Inner section tabs (property-scoped) */}
-      <div className="scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--border-color)', overflowX: 'auto' }}>
+      {/* Inner section tabs (property-scoped) — desktop only; phones use the
+          bottom action bar (pa-tabs hidden ≤640 like Item Management) */}
+      <div className="scroll-tabs pa-tabs" style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--border-color)', overflowX: 'auto' }}>
         {SECTIONS.map(({ key, label, Icon }) => (
           <button key={key} onClick={() => setSection(key)}
             style={{ background: 'none', border: 'none', padding: '10px 16px', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '0.9rem', cursor: 'pointer', whiteSpace: 'nowrap', color: section === key ? 'var(--text-primary)' : 'var(--text-secondary)', position: 'relative', display: 'flex', alignItems: 'center', gap: 7 }}>
