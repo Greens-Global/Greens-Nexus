@@ -1125,10 +1125,11 @@ input[type="number"] { -moz-appearance: textfield; }
   .sidebar {
     transform: translateX(-100%);
     transition: transform var(--transition-slow);
-    box-shadow: 0 0 50px rgba(0,0,0,.3);
     z-index: 200;
   }
-  .sidebar.open { transform: translateX(0); }
+  /* Shadow only while open — parked off-canvas it bleeds back into the
+     viewport as a grey band along the screen edge */
+  .sidebar.open { transform: translateX(0); box-shadow: 0 0 50px rgba(0,0,0,.3); }
   .main-content { margin-left: 0; }
   .mobile-toggle { display: flex; }
   .header-center { display: none; }

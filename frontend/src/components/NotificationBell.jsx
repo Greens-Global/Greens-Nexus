@@ -549,7 +549,7 @@ export default function NotificationBell({ onNavigate }) {
         position: 'fixed', top: 0, right: 0, height: '100vh',
         width: 'min(560px, 94vw)',
         background: 'var(--card)',
-        boxShadow: '-12px 0 48px rgba(0,0,0,0.22)',
+        boxShadow: open ? '-12px 0 48px rgba(0,0,0,0.22)' : 'none',
         zIndex: 1201,
         display: 'flex', flexDirection: 'column',
         transform: open ? 'translateX(0)' : 'translateX(100%)',
