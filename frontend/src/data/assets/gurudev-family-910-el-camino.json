@@ -1,0 +1,1421 @@
+{
+  "id": "gurudev-family-910-el-camino",
+  "name": "Gurudev Family (910 S El Camino)",
+  "type": "Medical + Office (Multi-tenant)",
+  "address": "910 S El Camino Real, San Clemente, CA 92672, San Clemente, CA, 92672",
+  "assetManager": "Neil Kadakia",
+  "buildingSf": "",
+  "yearBuilt": "1985",
+  "occupancyRate": null,
+  "snapshot": [
+    {
+      "group": "Project Details",
+      "fields": [
+        {
+          "label": "Project Name",
+          "value": "Gurudev Family, LP."
+        },
+        {
+          "label": "Property Address",
+          "value": "910 S El Camino Real, San Clemente, CA 92672"
+        },
+        {
+          "label": "City",
+          "value": "San Clemente"
+        },
+        {
+          "label": "County",
+          "value": "Orange County"
+        },
+        {
+          "label": "State",
+          "value": "CA"
+        },
+        {
+          "label": "Zip",
+          "value": "92672"
+        },
+        {
+          "label": "APN(s)",
+          "value": "692-151-23,24"
+        },
+        {
+          "label": "Legal Description (short)",
+          "value": "Refer Exibit A"
+        },
+        {
+          "label": "Current Use",
+          "value": "Medical + Office (Multi-tenant)"
+        },
+        {
+          "label": "Proposed Use",
+          "value": "Medical + Office (Multi-tenant)"
+        },
+        {
+          "label": "Development Stage (Feasibility / Entitlement / Permitting / Construction / Stabilized)",
+          "value": "Developed and in-Use"
+        }
+      ]
+    },
+    {
+      "group": "Ownership + Core Team",
+      "fields": [
+        {
+          "label": "Ownership Entity",
+          "value": "Gurudev Family Limited Partnership"
+        },
+        {
+          "label": "Seller (if applicable)",
+          "value": "NA"
+        },
+        {
+          "label": "Developer / Sponsor",
+          "value": ""
+        },
+        {
+          "label": "PM / Asset Manager",
+          "value": "Neil Kadakia"
+        },
+        {
+          "label": "Architect",
+          "value": "Victor Bejarano"
+        },
+        {
+          "label": "Civil",
+          "value": "Inder Jit Chauhan"
+        },
+        {
+          "label": "Structural",
+          "value": ""
+        },
+        {
+          "label": "MEP",
+          "value": ""
+        },
+        {
+          "label": "GC / CM",
+          "value": ""
+        },
+        {
+          "label": "Land Use Attorney",
+          "value": "Jesse Gessin"
+        },
+        {
+          "label": "Title / Escrow",
+          "value": "Land America"
+        }
+      ]
+    },
+    {
+      "group": "Site Data",
+      "fields": [
+        {
+          "label": "Lot Size (SF / Acres)",
+          "value": "0.17 AC+0.16 AC+0.21AC"
+        },
+        {
+          "label": "Dimensions",
+          "value": ""
+        },
+        {
+          "label": "Topography",
+          "value": ""
+        },
+        {
+          "label": "Access Points",
+          "value": ""
+        },
+        {
+          "label": "Street Frontage",
+          "value": ""
+        },
+        {
+          "label": "Easements / Encroachments",
+          "value": ""
+        },
+        {
+          "label": "Flood Zone",
+          "value": "X"
+        },
+        {
+          "label": "Soils / Geotech Notes",
+          "value": "Bagahi Engineering Inc."
+        }
+      ]
+    },
+    {
+      "group": "Zoning + Land Use",
+      "fields": [
+        {
+          "label": "Jurisdiction",
+          "value": "City of San Clemente"
+        },
+        {
+          "label": "General Plan",
+          "value": "NC2 A-AH"
+        },
+        {
+          "label": "Zoning",
+          "value": "NC2"
+        },
+        {
+          "label": "Overlays / Specific Plan",
+          "value": "A-AH"
+        },
+        {
+          "label": "Height / FAR Limits",
+          "value": "Per development Code"
+        },
+        {
+          "label": "Setbacks (F/S/R)",
+          "value": "Per development Code"
+        },
+        {
+          "label": "Parking Required",
+          "value": "Per development Code"
+        },
+        {
+          "label": "Design Review / CUP / Variance (Yes/No + notes)",
+          "value": "Yes - Per Historic Design Review"
+        }
+      ]
+    },
+    {
+      "group": "Existing Improvements",
+      "fields": [
+        {
+          "label": "Existing Structures (Yes/No)",
+          "value": "Yes"
+        },
+        {
+          "label": "Existing Building SF",
+          "value": ""
+        },
+        {
+          "label": "Year Built",
+          "value": "1985"
+        },
+        {
+          "label": "Occupancy (Vacant/Tenant)",
+          "value": "Tenant"
+        },
+        {
+          "label": "Demo Needed (Yes/No)",
+          "value": "NO"
+        },
+        {
+          "label": "Known Issues / Violations",
+          "value": "NO"
+        }
+      ]
+    }
+  ],
+  "utilities": [
+    {
+      "name": "Electric Utility",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "SG&E"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Customer Service"
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": "(800) 655-4555"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Electric utility provider"
+        }
+      ]
+    },
+    {
+      "name": "Gas Utility",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "So Cal Gas"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Customer Service"
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": "(877) 238-0092"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Natural gas provider"
+        }
+      ]
+    },
+    {
+      "name": "Water Utility",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "City of San Clemente"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Utility Billing"
+        },
+        {
+          "label": "Email",
+          "value": "utilitybilling@san-clemente.org"
+        },
+        {
+          "label": "Phone",
+          "value": "(949) 361-8200"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Water services"
+        }
+      ]
+    },
+    {
+      "name": "Sewer Utility",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "City of San Clemente"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Utility Billing"
+        },
+        {
+          "label": "Email",
+          "value": "utilitybilling@san-clemente.org"
+        },
+        {
+          "label": "Phone",
+          "value": "(949) 361-8200"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Sewer services"
+        }
+      ]
+    },
+    {
+      "name": "Trash Utility",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "CR & R"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Customer Service"
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": "(877) 728-0446"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Waste & recycling"
+        }
+      ]
+    },
+    {
+      "name": "Storm Drain",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "City of San Clemente"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Public Works Dept"
+        },
+        {
+          "label": "Email",
+          "value": "publicworks@san-clemente.org"
+        },
+        {
+          "label": "Phone",
+          "value": "(949) 361-8200"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Stormwater authority"
+        }
+      ]
+    },
+    {
+      "name": "Internet Service Provider",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "Cox / AT&T"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Customer Service"
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": "(800) 234-3993 (Cox) / (800) 288-2020 (AT&T)"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "ISP services"
+        }
+      ]
+    }
+  ],
+  "ahj": [
+    {
+      "name": "Fire Flow / Hydrants",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "City of San Clemente"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Public Works / Fire Coordination"
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": "(949) 361-8200"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Hydrants & fire flow"
+        }
+      ]
+    },
+    {
+      "name": "Offsite Work Needed (Yes/No + notes)",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "NO"
+        },
+        {
+          "label": "Contact Name",
+          "value": ""
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": ""
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "Fire Department",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "City of San Clemente"
+        },
+        {
+          "label": "Contact Name",
+          "value": "General Info"
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": "(714) 573-6000"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Fire authority (Orange County Fire Authority)"
+        }
+      ]
+    },
+    {
+      "name": "School District",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "Capistrano Unified School District"
+        },
+        {
+          "label": "Contact Name",
+          "value": "General Info"
+        },
+        {
+          "label": "Email",
+          "value": "info@capousd.org"
+        },
+        {
+          "label": "Phone",
+          "value": "(949) 234-9200"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Local school district"
+        }
+      ]
+    },
+    {
+      "name": "Native American/Cultural Resources Consultation",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "NA"
+        },
+        {
+          "label": "Contact Name",
+          "value": ""
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": ""
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "Paleontological Resource",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "NA"
+        },
+        {
+          "label": "Contact Name",
+          "value": ""
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": ""
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "Transportation Department",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "OCTA"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Customer Service"
+        },
+        {
+          "label": "Email",
+          "value": "customerrelations@octa.net"
+        },
+        {
+          "label": "Phone",
+          "value": "(714) 636-7433"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Transit authority"
+        }
+      ]
+    },
+    {
+      "name": "Air Quality Management District",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "SCAQMD"
+        },
+        {
+          "label": "Contact Name",
+          "value": "General Info"
+        },
+        {
+          "label": "Email",
+          "value": "publicadvisor@aqmd.gov"
+        },
+        {
+          "label": "Phone",
+          "value": "(909) 396-2000"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Air quality permits"
+        }
+      ]
+    },
+    {
+      "name": "State Environmental California Dept of Fish & Wildlife",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "Department of Fish & Wildlife"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Regional Office"
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": "(858) 467-4201"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Environmental compliance"
+        }
+      ]
+    },
+    {
+      "name": "California Coastal Commission",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "Yes"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Coastal Program Analyst"
+        },
+        {
+          "label": "Email",
+          "value": "southcoast@coastal.ca.gov"
+        },
+        {
+          "label": "Phone",
+          "value": "(562) 590-5071"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Applicable – Coastal Zone"
+        }
+      ]
+    }
+  ],
+  "warranties": [],
+  "inspections": [],
+  "documents": [],
+  "permitsTimeline": [
+    {
+      "phase": "Pre-Entitlement",
+      "permit": "Pre-Application Meeting",
+      "agency": "City/County Planning Dept",
+      "whenRequired": "Strongly recommended",
+      "submittals": "Concept site plan, zoning summary",
+      "reviewTime": "2–4 weeks to schedule",
+      "notes": "Completed"
+    },
+    {
+      "phase": "Land Use Entitlement",
+      "permit": "Medical + Office (Multi-tenant)",
+      "agency": "Planning Commission / City Council",
+      "whenRequired": "If use inconsistent with GP",
+      "submittals": "Medical + Office (Multi-tenant)",
+      "reviewTime": "3–9+ months",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Zone Change (Rezone)",
+      "agency": "Planning Commission / City Council",
+      "whenRequired": "If zoning inconsistent",
+      "submittals": "Site plan, findings",
+      "reviewTime": "3–9+ months",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Conditional Use Permit (CUP)",
+      "agency": "Medical + Office (Multi-tenant)",
+      "whenRequired": "For conditionally allowed uses",
+      "submittals": "Medical + Office (Multi-tenant)",
+      "reviewTime": "2–6 months",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Variance",
+      "agency": "Zoning Administrator",
+      "whenRequired": "If deviation from standards",
+      "submittals": "Hardship findings",
+      "reviewTime": "2–4 months",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Development Agreement (if applicable)",
+      "agency": "City Council",
+      "whenRequired": "Large/complex projects",
+      "submittals": "Fiscal analysis",
+      "reviewTime": "4–8+ months",
+      "notes": "Completed"
+    },
+    {
+      "phase": "Environmental (CEQA)",
+      "permit": "CEQA Exemption",
+      "agency": "Lead Agency (City/County)",
+      "whenRequired": "Minor projects",
+      "submittals": "Project description",
+      "reviewTime": "4–8 weeks",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Initial Study / Mitigated ND",
+      "agency": "Lead Agency",
+      "whenRequired": "Moderate impact projects",
+      "submittals": "Technical studies",
+      "reviewTime": "3–6 months",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Environmental Impact Report (EIR)",
+      "agency": "Lead Agency",
+      "whenRequired": "Significant impacts",
+      "submittals": "Full technical reports",
+      "reviewTime": "9–18+ months",
+      "notes": "Completed"
+    },
+    {
+      "phase": "Design & Site Approvals",
+      "permit": "Site Plan Review",
+      "agency": "Planning Dept",
+      "whenRequired": "Most commercial projects",
+      "submittals": "Civil + architectural plans",
+      "reviewTime": "1–3 months",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Architectural Review",
+      "agency": "Planning / Design Review Board",
+      "whenRequired": "If required by code",
+      "submittals": "Elevations, materials",
+      "reviewTime": "1–2 months",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Landscape Plan Approval",
+      "agency": "Planning Dept",
+      "whenRequired": "Required for new construction",
+      "submittals": "Irrigation, planting plan",
+      "reviewTime": "2–4 weeks",
+      "notes": "Completed"
+    },
+    {
+      "phase": "Grading & Site Work",
+      "permit": "Grading Permit",
+      "agency": "Data Not Available in Egnyte",
+      "whenRequired": "Earthwork > minimal thresholds",
+      "submittals": "Soils report, civil plans",
+      "reviewTime": "2–8 weeks",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "SWPPP (Stormwater Pollution Prevention Plan)",
+      "agency": "Data Not Available in Egnyte",
+      "whenRequired": "Disturbance ≥1 acre",
+      "submittals": "QSP/QSD prep",
+      "reviewTime": "2–4 weeks registration",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Encroachment Permit",
+      "agency": "Data Not Available in Egnyte",
+      "whenRequired": "Work in public ROW",
+      "submittals": "Civil drawings",
+      "reviewTime": "2–6 weeks",
+      "notes": "Completed"
+    },
+    {
+      "phase": "Utilities",
+      "permit": "Water Service Approval",
+      "agency": "Data Not Available in Egnyte",
+      "whenRequired": "New or upgraded service",
+      "submittals": "Demand calc",
+      "reviewTime": "2–6 weeks",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Sewer Capacity Letter",
+      "agency": "Sewer District",
+      "whenRequired": "New/expanded use",
+      "submittals": "Medical + Office (Multi-tenant)",
+      "reviewTime": "2–6 weeks",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Fire Flow Letter",
+      "agency": "Fire Authority",
+      "whenRequired": "All new commercial",
+      "submittals": "Hydraulic calc",
+      "reviewTime": "2–4 weeks",
+      "notes": "Completed"
+    },
+    {
+      "phase": "Building Phase",
+      "permit": "Building Permit",
+      "agency": "Data Not Available in Egnyte",
+      "whenRequired": "All structural work",
+      "submittals": "Stamped plans",
+      "reviewTime": "1–3 months plan check",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Structural / MEP Plan Check",
+      "agency": "Building Dept",
+      "whenRequired": "Required",
+      "submittals": "Structural calcs",
+      "reviewTime": "Included above",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Fire Department Permit",
+      "agency": "Data Not Available in Egnyte",
+      "whenRequired": "Sprinklers, alarms",
+      "submittals": "Fire plans",
+      "reviewTime": "2–6 weeks",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Elevator Permit (if applicable)",
+      "agency": "Data Not Available in Egnyte",
+      "whenRequired": "If elevator installed",
+      "submittals": "Elevator specs",
+      "reviewTime": "2–4 weeks",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Solar Permit (if required by code)",
+      "agency": "Data Not Available in Egnyte",
+      "whenRequired": "Title 24 compliance",
+      "submittals": "PV plans",
+      "reviewTime": "1–4 weeks",
+      "notes": "Completed"
+    },
+    {
+      "phase": "Construction Inspections",
+      "permit": "Foundation / Framing / MEP Inspections",
+      "agency": "Building Dept",
+      "whenRequired": "During construction",
+      "submittals": "Inspection requests",
+      "reviewTime": "Rolling",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Fire Final Inspection",
+      "agency": "Fire Marshal",
+      "whenRequired": "Before occupancy",
+      "submittals": "97.94%",
+      "reviewTime": "1–2 weeks scheduling",
+      "notes": "Completed"
+    },
+    {
+      "phase": "Occupancy",
+      "permit": "97.94%",
+      "agency": "Building Dept",
+      "whenRequired": "Before use",
+      "submittals": "Medical + Office (Multi-tenant)",
+      "reviewTime": "1–2 weeks",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Business License",
+      "agency": "City Finance Dept",
+      "whenRequired": "Before operation",
+      "submittals": "Application",
+      "reviewTime": "1–4 weeks",
+      "notes": "Completed"
+    },
+    {
+      "phase": "Specialty (If Applicable)",
+      "permit": "Alcohol License",
+      "agency": "California ABC",
+      "whenRequired": "If serving alcohol",
+      "submittals": "ABC forms",
+      "reviewTime": "2–6 months",
+      "notes": "NA"
+    },
+    {
+      "phase": "",
+      "permit": "Cal/OSHA Permit",
+      "agency": "Data Not Available in Egnyte",
+      "whenRequired": "Industrial/high-hazard uses",
+      "submittals": "Medical + Office (Multi-tenant)",
+      "reviewTime": "Variable",
+      "notes": "NA"
+    },
+    {
+      "phase": "",
+      "permit": "Coastal Development Permit",
+      "agency": "Data Not Available in Egnyte",
+      "whenRequired": "Coastal Zone projects",
+      "submittals": "Full package",
+      "reviewTime": "3–12+ months",
+      "notes": "NA"
+    },
+    {
+      "phase": "",
+      "permit": "Air Quality Permit",
+      "agency": "Data Not Available in Egnyte",
+      "whenRequired": "Equipment emissions",
+      "submittals": "Equipment specs",
+      "reviewTime": "1–3 months",
+      "notes": "NA"
+    }
+  ],
+  "permitMatrix": [
+    {
+      "Permit Status": "Completed",
+      "Phase": "Completed",
+      "Permit / Approval Type": "",
+      "Permit No": "SW13-0099",
+      "Permit Expiration Date": "",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "2013-10-18 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "2014-09-23 00:00:00",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "Approved",
+      "Phase": "Approved",
+      "Permit / Approval Type": "",
+      "Permit No": "E13-0115",
+      "Permit Expiration Date": "2013-06-18 00:00:00",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "2013-04-19 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "2013-04-19 00:00:00",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "",
+      "Phase": "",
+      "Permit / Approval Type": "",
+      "Permit No": "E12-0258",
+      "Permit Expiration Date": "",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "",
+      "Phase": "",
+      "Permit / Approval Type": "",
+      "Permit No": "E11-0262",
+      "Permit Expiration Date": "",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "",
+      "Phase": "",
+      "Permit / Approval Type": "",
+      "Permit No": "CRW6916",
+      "Permit Expiration Date": "",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "",
+      "Phase": "",
+      "Permit / Approval Type": "",
+      "Permit No": "B25-2115",
+      "Permit Expiration Date": "",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "",
+      "Phase": "",
+      "Permit / Approval Type": "",
+      "Permit No": "B19-2543",
+      "Permit Expiration Date": "",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "",
+      "Phase": "",
+      "Permit / Approval Type": "",
+      "Permit No": "B19-2541",
+      "Permit Expiration Date": "",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "",
+      "Phase": "",
+      "Permit / Approval Type": "",
+      "Permit No": "B19-1268",
+      "Permit Expiration Date": "",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "",
+      "Phase": "",
+      "Permit / Approval Type": "",
+      "Permit No": "B13-0697",
+      "Permit Expiration Date": "",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "",
+      "Phase": "",
+      "Permit / Approval Type": "",
+      "Permit No": "B12-1443",
+      "Permit Expiration Date": "",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "",
+      "Phase": "",
+      "Permit / Approval Type": "",
+      "Permit No": "B12-0250",
+      "Permit Expiration Date": "",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "",
+      "Phase": "",
+      "Permit / Approval Type": "",
+      "Permit No": "B11-1535",
+      "Permit Expiration Date": "",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "",
+      "Phase": "",
+      "Permit / Approval Type": "",
+      "Permit No": "B08-1171",
+      "Permit Expiration Date": "",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "",
+      "Phase": "",
+      "Permit / Approval Type": "",
+      "Permit No": "B07-1430",
+      "Permit Expiration Date": "",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "",
+      "Phase": "",
+      "Permit / Approval Type": "",
+      "Permit No": "B07-1413",
+      "Permit Expiration Date": "",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "",
+      "Phase": "",
+      "Permit / Approval Type": "",
+      "Permit No": "B07-1400",
+      "Permit Expiration Date": "",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "",
+      "Phase": "",
+      "Permit / Approval Type": "",
+      "Permit No": "B06-3034",
+      "Permit Expiration Date": "",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "",
+      "Phase": "",
+      "Permit / Approval Type": "",
+      "Permit No": "9300745",
+      "Permit Expiration Date": "",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "",
+      "Phase": "",
+      "Permit / Approval Type": "",
+      "Permit No": "500474",
+      "Permit Expiration Date": "",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "",
+      "Phase": "",
+      "Permit / Approval Type": "",
+      "Permit No": "402629",
+      "Permit Expiration Date": "",
+      "Jurisdiction/Agency": "City of San Clemente",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittial": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    }
+  ]
+}

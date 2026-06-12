@@ -1,0 +1,1305 @@
+{
+  "id": "greens-escondido-north",
+  "name": "Greens Escondido North",
+  "group": "Greens Escondido",
+  "image": "/assets/properties/greens-escondido-north.jpg",
+  "type": "Stock pilling",
+  "address": "North Center City Northway North, County of San Diego, CA 92026, Escondido, CA, 92026",
+  "assetManager": "Sahil Desai",
+  "buildingSf": "N/A",
+  "yearBuilt": "N/A",
+  "occupancyRate": null,
+  "snapshot": [
+    {
+      "group": "Project Details",
+      "fields": [
+        {
+          "label": "Project Name",
+          "value": "Greens Escondido North, LLC."
+        },
+        {
+          "label": "Property Address",
+          "value": "North Center City Northway North, County of San Diego, CA 92026"
+        },
+        {
+          "label": "City",
+          "value": "Escondido"
+        },
+        {
+          "label": "County",
+          "value": "County of San Diego"
+        },
+        {
+          "label": "State",
+          "value": "CA"
+        },
+        {
+          "label": "Zip",
+          "value": "92026"
+        },
+        {
+          "label": "APN(s)",
+          "value": "187-170-64 & 62"
+        },
+        {
+          "label": "Legal Description (short)",
+          "value": "Please refer to Exhibit A"
+        },
+        {
+          "label": "Current Use",
+          "value": "Stock pilling"
+        },
+        {
+          "label": "Proposed Use",
+          "value": "RV Parking"
+        },
+        {
+          "label": "Development Stage (Feasibility / Entitlement / Permitting / Construction / Stabilized)",
+          "value": "Entitlement"
+        }
+      ]
+    },
+    {
+      "group": "Ownership + Core Team",
+      "fields": [
+        {
+          "label": "Ownership Entity",
+          "value": "Greens Escondido, LLC."
+        },
+        {
+          "label": "Seller (if applicable)",
+          "value": "T&R Storage"
+        },
+        {
+          "label": "Developer / Sponsor",
+          "value": "RAJESH KADAKIA"
+        },
+        {
+          "label": "PM / Asset Manager",
+          "value": "Sahil Desai"
+        },
+        {
+          "label": "Architect",
+          "value": "KSP"
+        },
+        {
+          "label": "Civil",
+          "value": "Wunderlin/Saxon"
+        },
+        {
+          "label": "Structural",
+          "value": "John Schmit"
+        },
+        {
+          "label": "MEP",
+          "value": "Jim Kadakia"
+        },
+        {
+          "label": "GC / CM",
+          "value": "Sahil Desai"
+        },
+        {
+          "label": "Land Use Attorney",
+          "value": "Jesse Gessin"
+        },
+        {
+          "label": "Title / Escrow",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "group": "Site Data",
+      "fields": [
+        {
+          "label": "Lot Size (SF / Acres)",
+          "value": "5 AC"
+        },
+        {
+          "label": "Dimensions",
+          "value": ""
+        },
+        {
+          "label": "Topography",
+          "value": "880 FT"
+        },
+        {
+          "label": "Access Points",
+          "value": "Single"
+        },
+        {
+          "label": "Street Frontage",
+          "value": "North Center City Parkway"
+        },
+        {
+          "label": "Easements / Encroachments",
+          "value": "YES"
+        },
+        {
+          "label": "Flood Zone",
+          "value": "X"
+        },
+        {
+          "label": "Soils / Geotech Notes",
+          "value": "Geo Soils"
+        }
+      ]
+    },
+    {
+      "group": "Zoning + Land Use",
+      "fields": [
+        {
+          "label": "Jurisdiction",
+          "value": "County of San Diego"
+        },
+        {
+          "label": "General Plan",
+          "value": "SR-1"
+        },
+        {
+          "label": "Zoning",
+          "value": "RR"
+        },
+        {
+          "label": "Overlays / Specific Plan",
+          "value": "N/A"
+        },
+        {
+          "label": "Height / FAR Limits",
+          "value": "G Designator"
+        },
+        {
+          "label": "Setbacks (F/S/R)",
+          "value": "B Designator"
+        },
+        {
+          "label": "Parking Required",
+          "value": "Development Code"
+        },
+        {
+          "label": "Design Review / CUP / Variance (Yes/No + notes)",
+          "value": "MUP"
+        }
+      ]
+    },
+    {
+      "group": "Existing Improvements",
+      "fields": [
+        {
+          "label": "Existing Structures (Yes/No)",
+          "value": "YES"
+        },
+        {
+          "label": "Existing Building SF",
+          "value": "N/A"
+        },
+        {
+          "label": "Year Built",
+          "value": "N/A"
+        },
+        {
+          "label": "Occupancy (Vacant/Tenant)",
+          "value": "Vacant"
+        },
+        {
+          "label": "Demo Needed (Yes/No)",
+          "value": "NO"
+        },
+        {
+          "label": "Known Issues / Violations",
+          "value": "None"
+        }
+      ]
+    }
+  ],
+  "utilities": [
+    {
+      "name": "Electric Utility",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "SDG&E"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Customer Service"
+        },
+        {
+          "label": "Email",
+          "value": "customer.service@sdge.com"
+        },
+        {
+          "label": "Phone",
+          "value": "800-411-7343"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Main utility provider for electricity in San Diego"
+        }
+      ]
+    },
+    {
+      "name": "Gas Utility",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "SDG&E"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Customer Service"
+        },
+        {
+          "label": "Email",
+          "value": "customer.service@sdge.com"
+        },
+        {
+          "label": "Phone",
+          "value": "800-411-7343"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Main utility provider for electricity in San Diego"
+        }
+      ]
+    },
+    {
+      "name": "Water Utility",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "Vallecitos Water District"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Customer Service"
+        },
+        {
+          "label": "Email",
+          "value": "customerservice@vwd.org"
+        },
+        {
+          "label": "Phone",
+          "value": "760-744-0460"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Serves North San Diego County"
+        }
+      ]
+    },
+    {
+      "name": "Trash Utility",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "EDCO"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Customer Service"
+        },
+        {
+          "label": "Email",
+          "value": "customerservice@edcodisposal.com"
+        },
+        {
+          "label": "Phone",
+          "value": "760-745-3203"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Waste & recycling services"
+        }
+      ]
+    },
+    {
+      "name": "Storm Drain",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "San Diego County Public Works"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Public Works Dept"
+        },
+        {
+          "label": "Email",
+          "value": "dpw@sdcounty.ca.gov"
+        },
+        {
+          "label": "Phone",
+          "value": "858-694-2211"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Stormwater & drainage authority"
+        }
+      ]
+    },
+    {
+      "name": "Internet Service Provider",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "AT&T"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Customer Service"
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": "800-288-2020"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "ISP"
+        }
+      ]
+    }
+  ],
+  "ahj": [
+    {
+      "name": "Fire Flow / Hydrants",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "Consolidated Fire Protection"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Fire Prevention Bureau"
+        },
+        {
+          "label": "Email",
+          "value": "info@cfpd.org"
+        },
+        {
+          "label": "Phone",
+          "value": "866-556-4501"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Hydrants & fire flow approvals"
+        }
+      ]
+    },
+    {
+      "name": "Offsite Work Needed (Yes/No + notes)",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "NO"
+        },
+        {
+          "label": "Contact Name",
+          "value": ""
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": ""
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "Fire Department",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "Deer Springs Fire Protection District"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Administration"
+        },
+        {
+          "label": "Email",
+          "value": "info@dsfpd.org"
+        },
+        {
+          "label": "Phone",
+          "value": "760 749-8001"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Local fire authority"
+        }
+      ]
+    },
+    {
+      "name": "School District",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "Escondido Union"
+        },
+        {
+          "label": "Contact Name",
+          "value": "District Office"
+        },
+        {
+          "label": "Email",
+          "value": "info@eusd.org"
+        },
+        {
+          "label": "Phone",
+          "value": "760-432-2400"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Local school authority"
+        }
+      ]
+    },
+    {
+      "name": "Native American/Cultural Resources Consultation",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "N/A"
+        },
+        {
+          "label": "Contact Name",
+          "value": ""
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": ""
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "Paleontological Resource",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "N/A"
+        },
+        {
+          "label": "Contact Name",
+          "value": ""
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": ""
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "Transportation Department",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "MTS"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Customer Service"
+        },
+        {
+          "label": "Email",
+          "value": "customerrelations@sdmts.com"
+        },
+        {
+          "label": "Phone",
+          "value": "619-557-4555"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Transit coordination if needed"
+        }
+      ]
+    },
+    {
+      "name": "Air Quality Management District",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "San Diego Air Pollution District"
+        },
+        {
+          "label": "Contact Name",
+          "value": "APCD Permitting"
+        },
+        {
+          "label": "Email",
+          "value": "apcdpermits@sdcounty.ca.gov"
+        },
+        {
+          "label": "Phone",
+          "value": "858-586-2600"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Required for emissions permits"
+        }
+      ]
+    },
+    {
+      "name": "State Environmental California Dept of Fish & Wildlife",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "Department Of Fish"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Regional Office"
+        },
+        {
+          "label": "Email",
+          "value": "askmarine@wildlife.ca.gov"
+        },
+        {
+          "label": "Phone",
+          "value": "916 445-0411"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Environmental compliance"
+        }
+      ]
+    },
+    {
+      "name": "California Coastal Commission",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "N/A"
+        },
+        {
+          "label": "Contact Name",
+          "value": ""
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": ""
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": ""
+        }
+      ]
+    }
+  ],
+  "warranties": [],
+  "inspections": [],
+  "documents": [],
+  "permitsTimeline": [
+    {
+      "phase": "Pre-Entitlement",
+      "permit": "Pre-Application Meeting",
+      "agency": "City/County Planning Dept",
+      "whenRequired": "Strongly recommended",
+      "submittals": "Concept site plan, zoning summary",
+      "reviewTime": "2–4 weeks to schedule",
+      "notes": "In Process"
+    },
+    {
+      "phase": "Land Use Entitlement",
+      "permit": "General Plan Amendment (if needed)",
+      "agency": "Planning Commission / City Council",
+      "whenRequired": "If use inconsistent with GP",
+      "submittals": "Land use justification, studies",
+      "reviewTime": "3–9+ months",
+      "notes": "NA"
+    },
+    {
+      "phase": "",
+      "permit": "Zone Change (Rezone)",
+      "agency": "Planning Commission / City Council",
+      "whenRequired": "If zoning inconsistent",
+      "submittals": "Site plan, findings",
+      "reviewTime": "3–9+ months",
+      "notes": "NA"
+    },
+    {
+      "phase": "",
+      "permit": "Conditional Use Permit (CUP)",
+      "agency": "Planning Commission",
+      "whenRequired": "For conditionally allowed uses",
+      "submittals": "Operational narrative, plans",
+      "reviewTime": "2–6 months",
+      "notes": "MUP required"
+    },
+    {
+      "phase": "",
+      "permit": "Variance",
+      "agency": "Zoning Administrator",
+      "whenRequired": "If deviation from standards",
+      "submittals": "Hardship findings",
+      "reviewTime": "2–4 months",
+      "notes": "NA"
+    },
+    {
+      "phase": "",
+      "permit": "Development Agreement (if applicable)",
+      "agency": "City Council",
+      "whenRequired": "Large/complex projects",
+      "submittals": "Fiscal analysis",
+      "reviewTime": "4–8+ months",
+      "notes": "NA"
+    },
+    {
+      "phase": "Environmental (CEQA)",
+      "permit": "CEQA Exemption",
+      "agency": "Lead Agency (City/County)",
+      "whenRequired": "Minor projects",
+      "submittals": "Project description",
+      "reviewTime": "4–8 weeks",
+      "notes": "HLP Acquired"
+    },
+    {
+      "phase": "",
+      "permit": "Initial Study / Mitigated ND",
+      "agency": "Lead Agency",
+      "whenRequired": "Moderate impact projects",
+      "submittals": "Technical studies",
+      "reviewTime": "3–6 months",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Environmental Impact Report (EIR)",
+      "agency": "Lead Agency",
+      "whenRequired": "Significant impacts",
+      "submittals": "Full technical reports",
+      "reviewTime": "9–18+ months",
+      "notes": "NA"
+    },
+    {
+      "phase": "Design & Site Approvals",
+      "permit": "Site Plan Review",
+      "agency": "Planning Dept",
+      "whenRequired": "Most commercial projects",
+      "submittals": "Civil + architectural plans",
+      "reviewTime": "1–3 months",
+      "notes": "In process"
+    },
+    {
+      "phase": "",
+      "permit": "Architectural Review",
+      "agency": "Planning / Design Review Board",
+      "whenRequired": "If required by code",
+      "submittals": "Elevations, materials",
+      "reviewTime": "1–2 months",
+      "notes": "NA"
+    },
+    {
+      "phase": "",
+      "permit": "Landscape Plan Approval",
+      "agency": "Planning Dept",
+      "whenRequired": "Required for new construction",
+      "submittals": "Irrigation, planting plan",
+      "reviewTime": "2–4 weeks",
+      "notes": "In Process"
+    },
+    {
+      "phase": "Grading & Site Work",
+      "permit": "Grading Permit",
+      "agency": "Building/Public Works",
+      "whenRequired": "Earthwork > minimal thresholds",
+      "submittals": "Soils report, civil plans",
+      "reviewTime": "2–8 weeks",
+      "notes": "In Process"
+    },
+    {
+      "phase": "",
+      "permit": "SWPPP (Stormwater Pollution Prevention Plan)",
+      "agency": "State Water Board (via SMARTS)",
+      "whenRequired": "Disturbance ≥1 acre",
+      "submittals": "QSP/QSD prep",
+      "reviewTime": "2–4 weeks registration",
+      "notes": "In Process"
+    },
+    {
+      "phase": "",
+      "permit": "Encroachment Permit",
+      "agency": "Public Works",
+      "whenRequired": "Work in public ROW",
+      "submittals": "Civil drawings",
+      "reviewTime": "2–6 weeks",
+      "notes": "Pending"
+    },
+    {
+      "phase": "Utilities",
+      "permit": "Water Service Approval",
+      "agency": "Water District",
+      "whenRequired": "New or upgraded service",
+      "submittals": "Demand calc",
+      "reviewTime": "2–6 weeks",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Sewer Capacity Letter",
+      "agency": "Sewer District",
+      "whenRequired": "New/expanded use",
+      "submittals": "Fixture count",
+      "reviewTime": "2–6 weeks",
+      "notes": "NA"
+    },
+    {
+      "phase": "",
+      "permit": "Fire Flow Letter",
+      "agency": "Fire Authority",
+      "whenRequired": "All new commercial",
+      "submittals": "Hydraulic calc",
+      "reviewTime": "2–4 weeks",
+      "notes": "Pending"
+    },
+    {
+      "phase": "Building Phase",
+      "permit": "Building Permit",
+      "agency": "Building Dept",
+      "whenRequired": "All structural work",
+      "submittals": "Stamped plans",
+      "reviewTime": "1–3 months plan check",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Structural / MEP Plan Check",
+      "agency": "Building Dept",
+      "whenRequired": "Required",
+      "submittals": "Structural calcs",
+      "reviewTime": "Included above",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Fire Department Permit",
+      "agency": "Fire Marshal",
+      "whenRequired": "Sprinklers, alarms",
+      "submittals": "Fire plans",
+      "reviewTime": "2–6 weeks",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Elevator Permit (if applicable)",
+      "agency": "State DIR",
+      "whenRequired": "If elevator installed",
+      "submittals": "Elevator specs",
+      "reviewTime": "2–4 weeks",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Solar Permit (if required by code)",
+      "agency": "Building Dept",
+      "whenRequired": "Title 24 compliance",
+      "submittals": "PV plans",
+      "reviewTime": "1–4 weeks",
+      "notes": "Pending"
+    },
+    {
+      "phase": "Construction Inspections",
+      "permit": "Foundation / Framing / MEP Inspections",
+      "agency": "Building Dept",
+      "whenRequired": "During construction",
+      "submittals": "Inspection requests",
+      "reviewTime": "Rolling",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Fire Final Inspection",
+      "agency": "Fire Marshal",
+      "whenRequired": "Before occupancy",
+      "submittals": "Field inspection",
+      "reviewTime": "1–2 weeks scheduling",
+      "notes": "Pending"
+    },
+    {
+      "phase": "Occupancy",
+      "permit": "Certificate of Occupancy (COO)",
+      "agency": "Building Dept",
+      "whenRequired": "Before use",
+      "submittals": "Final inspections passed",
+      "reviewTime": "1–2 weeks",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Business License",
+      "agency": "City Finance Dept",
+      "whenRequired": "Before operation",
+      "submittals": "Application",
+      "reviewTime": "1–4 weeks",
+      "notes": "Pending"
+    },
+    {
+      "phase": "Specialty (If Applicable)",
+      "permit": "Alcohol License",
+      "agency": "California ABC",
+      "whenRequired": "If serving alcohol",
+      "submittals": "ABC forms",
+      "reviewTime": "2–6 months",
+      "notes": "N/A"
+    },
+    {
+      "phase": "",
+      "permit": "Cal/OSHA Permit",
+      "agency": "Cal/OSHA",
+      "whenRequired": "Industrial/high-hazard uses",
+      "submittals": "Safety documentation",
+      "reviewTime": "Variable",
+      "notes": "N/A"
+    },
+    {
+      "phase": "",
+      "permit": "Coastal Development Permit",
+      "agency": "Coastal Commission / Local Agency",
+      "whenRequired": "Coastal Zone projects",
+      "submittals": "Full package",
+      "reviewTime": "3–12+ months",
+      "notes": "N/A"
+    },
+    {
+      "phase": "",
+      "permit": "Air Quality Permit",
+      "agency": "Local AQMD",
+      "whenRequired": "Equipment emissions",
+      "submittals": "Equipment specs",
+      "reviewTime": "1–3 months",
+      "notes": "N/A"
+    }
+  ],
+  "permitMatrix": [
+    {
+      "Permit Status": "Open",
+      "Phase": "Fees Due",
+      "Permit / Approval Type": "Grading Permit",
+      "Permit No": "PDS2025-LDGRMN-20437",
+      "Permit Expiration Date": "",
+      "Jurisdiction / Agency": "County of San Diego",
+      "Agency Contact": "Serge Yagodin (619) 346-3050",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2025-03-05 00:00:00",
+      "Re-submittal Date 1": "10th July 2025",
+      "Re-submittal Date 2": "12th Dec 2025",
+      "Re-submittal Date 3": "N/A",
+      "Ball in whose Court": "Our",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "Permitted",
+      "Phase": "Approved",
+      "Permit / Approval Type": "Entitelment",
+      "Permit No": "PDS2006-3300-05-052",
+      "Permit Expiration Date": "",
+      "Jurisdiction / Agency": "County of San Diego",
+      "Agency Contact": "Emmet Aquino (858) 694-8845",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "2014-04-11 00:00:00",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "Open",
+      "Phase": "Open",
+      "Permit / Approval Type": "Grading Permit Maj",
+      "Permit No": "PDS2025-LDGRMJ-30563",
+      "Permit Expiration Date": "",
+      "Jurisdiction / Agency": "County of San Diego",
+      "Agency Contact": "",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2025-09-12 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "Closed",
+      "Phase": "Completed",
+      "Permit / Approval Type": "General Enforcement",
+      "Permit No": "PDS2024-ENFGEN-001581",
+      "Permit Expiration Date": "NA",
+      "Jurisdiction / Agency": "County of San Diego",
+      "Agency Contact": "",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2024-08-10 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "Closed",
+      "Phase": "Completed",
+      "Permit / Approval Type": "PDS Enforcement Complaint",
+      "Permit No": "PDS2024-ENFCOM-004071",
+      "Permit Expiration Date": "NA",
+      "Jurisdiction / Agency": "County of San Diego",
+      "Agency Contact": "",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2024-08-10 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "Sent to Revenue & Recovery",
+      "Phase": "Open",
+      "Permit / Approval Type": "Administrative Citation",
+      "Permit No": "PDS2023-ENFCIT-000715",
+      "Permit Expiration Date": "",
+      "Jurisdiction / Agency": "County of San Diego",
+      "Agency Contact": "",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2023-09-11 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "Sent to Revenue & Recovery",
+      "Phase": "Open",
+      "Permit / Approval Type": "Administrative Citation",
+      "Permit No": "PDS2023-ENFCIT-000674",
+      "Permit Expiration Date": "",
+      "Jurisdiction / Agency": "County of San Diego",
+      "Agency Contact": "",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2023-10-19 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "Issued Expired",
+      "Phase": "Completed",
+      "Permit / Approval Type": "Commercial Detached Accessory Structure - Plan Check-Permit",
+      "Permit No": "PDS2023-COMACC-000044",
+      "Permit Expiration Date": "2027-06-26 00:00:00",
+      "Jurisdiction / Agency": "County of San Diego",
+      "Agency Contact": "",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2023-09-28 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "Closed",
+      "Phase": "Completed",
+      "Permit / Approval Type": "General Enforcement",
+      "Permit No": "PDS2023-ENFGEN-001345",
+      "Permit Expiration Date": "NA",
+      "Jurisdiction / Agency": "County of San Diego",
+      "Agency Contact": "",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2023-08-23 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "DIR Approved",
+      "Phase": "Approved",
+      "Permit / Approval Type": "Habitat Loss Permit",
+      "Permit No": "PDS2022-HLP-22-002",
+      "Permit Expiration Date": "NA",
+      "Jurisdiction / Agency": "County of San Diego",
+      "Agency Contact": "",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2022-12-10 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "DIR Approved",
+      "Phase": "Approved",
+      "Permit / Approval Type": "Landscape Plan",
+      "Permit No": "PDS2021-LP-21-038",
+      "Permit Expiration Date": "NA",
+      "Jurisdiction / Agency": "County of San Diego",
+      "Agency Contact": "",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2021-05-19 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "DIR Approved",
+      "Phase": "Approved",
+      "Permit / Approval Type": "Landscape Plan",
+      "Permit No": "PDS2019-LP-19-074",
+      "Permit Expiration Date": "NA",
+      "Jurisdiction / Agency": "County of San Diego",
+      "Agency Contact": "",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2019-06-11 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "DIR Approved",
+      "Phase": "Approved",
+      "Permit / Approval Type": "Landscape Plan Modification",
+      "Permit No": "PDS2018-LP-16-030W1",
+      "Permit Expiration Date": "NA",
+      "Jurisdiction / Agency": "County of San Diego",
+      "Agency Contact": "",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2018-11-12 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "DIR Approved",
+      "Phase": "Approved",
+      "Permit / Approval Type": "Major Use Permit Minor Deviation",
+      "Permit No": "PDS2018-MUP-05-052M1",
+      "Permit Expiration Date": "NA",
+      "Jurisdiction / Agency": "County of San Diego",
+      "Agency Contact": "",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2018-11-12 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "Open",
+      "Phase": "Open",
+      "Permit / Approval Type": "CEQA",
+      "Permit No": "PDS2018-ER-18-08-004",
+      "Permit Expiration Date": "",
+      "Jurisdiction / Agency": "County of San Diego",
+      "Agency Contact": "",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2018-07-05 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "DIR Approved",
+      "Phase": "Approved",
+      "Permit / Approval Type": "Habitat Loss Permit",
+      "Permit No": "PDS2018-HLP-18-001",
+      "Permit Expiration Date": "NA",
+      "Jurisdiction / Agency": "County of San Diego",
+      "Agency Contact": "",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2018-07-05 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    }
+  ]
+}

@@ -1,0 +1,1284 @@
+{
+  "id": "greens-rainbow",
+  "name": "Greens Rainbow",
+  "image": "/assets/properties/greens-rainbow.jpg",
+  "type": "RV & Mini Storage Facility",
+  "address": "47355 & 47377 Rainbow Canyon Road, Temecula, CA, 92659",
+  "assetManager": "Sahil Desai",
+  "buildingSf": "None",
+  "yearBuilt": "1997-2023",
+  "occupancyRate": null,
+  "snapshot": [
+    {
+      "group": "Project Details",
+      "fields": [
+        {
+          "label": "Project Name",
+          "value": "Greens Rainbow, LLC."
+        },
+        {
+          "label": "Property Address",
+          "value": "47355 & 47377 Rainbow Canyon Road"
+        },
+        {
+          "label": "City",
+          "value": "Temecula"
+        },
+        {
+          "label": "County",
+          "value": "Riverside County"
+        },
+        {
+          "label": "State",
+          "value": "CA"
+        },
+        {
+          "label": "Zip",
+          "value": "92659"
+        },
+        {
+          "label": "APN(s)",
+          "value": "918-200-025, 027"
+        },
+        {
+          "label": "Legal Description (short)",
+          "value": "Please refer to Exhibit A"
+        },
+        {
+          "label": "Current Use",
+          "value": "RV & Mini Storage Facility"
+        },
+        {
+          "label": "Proposed Use",
+          "value": "RV & Mini Storage Facility"
+        },
+        {
+          "label": "Development Stage (Feasibility / Entitlement / Permitting / Construction / Stabilized)",
+          "value": "Entitled and Under Construction"
+        }
+      ]
+    },
+    {
+      "group": "Ownership + Core Team",
+      "fields": [
+        {
+          "label": "Ownership Entity",
+          "value": "Greens Rainbow, LLC."
+        },
+        {
+          "label": "Seller (if applicable)",
+          "value": "N/A"
+        },
+        {
+          "label": "Developer / Sponsor",
+          "value": "Greens Global, Inc."
+        },
+        {
+          "label": "PM / Asset Manager",
+          "value": "Sahil Desai"
+        },
+        {
+          "label": "Architect",
+          "value": "KSP"
+        },
+        {
+          "label": "Civil",
+          "value": "Wunderlin/Saxon"
+        },
+        {
+          "label": "Structural",
+          "value": "Robert Schmit"
+        },
+        {
+          "label": "MEP",
+          "value": "KSP"
+        },
+        {
+          "label": "GC / CM",
+          "value": "MCD Service, Inc."
+        },
+        {
+          "label": "Land Use Attorney",
+          "value": "Jesse Gessin"
+        },
+        {
+          "label": "Title / Escrow",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "group": "Site Data",
+      "fields": [
+        {
+          "label": "Lot Size (SF / Acres)",
+          "value": "9.65 AC"
+        },
+        {
+          "label": "Dimensions",
+          "value": "N/A"
+        },
+        {
+          "label": "Topography",
+          "value": "1,197 FT"
+        },
+        {
+          "label": "Access Points",
+          "value": "Single"
+        },
+        {
+          "label": "Street Frontage",
+          "value": "1240 feet"
+        },
+        {
+          "label": "Easements / Encroachments",
+          "value": "YES"
+        },
+        {
+          "label": "Flood Zone",
+          "value": "X"
+        },
+        {
+          "label": "Soils / Geotech Notes",
+          "value": "Geo Soils"
+        }
+      ]
+    },
+    {
+      "group": "Zoning + Land Use",
+      "fields": [
+        {
+          "label": "Jurisdiction",
+          "value": "County of Riverside"
+        },
+        {
+          "label": "General Plan",
+          "value": "SWAP"
+        },
+        {
+          "label": "Zoning",
+          "value": "MSC"
+        },
+        {
+          "label": "Overlays / Specific Plan",
+          "value": "NO"
+        },
+        {
+          "label": "Height / FAR Limits",
+          "value": "N/A"
+        },
+        {
+          "label": "Setbacks (F/S/R)",
+          "value": "Ord:348"
+        },
+        {
+          "label": "Parking Required",
+          "value": "Ord:348"
+        },
+        {
+          "label": "Design Review / CUP / Variance (Yes/No + notes)",
+          "value": "CUP"
+        }
+      ]
+    },
+    {
+      "group": "Existing Improvements",
+      "fields": [
+        {
+          "label": "Existing Structures (Yes/No)",
+          "value": "YES"
+        },
+        {
+          "label": "Existing Building SF",
+          "value": "None"
+        },
+        {
+          "label": "Year Built",
+          "value": "1997-2023"
+        },
+        {
+          "label": "Occupancy (Vacant/Tenant)",
+          "value": "Owner"
+        },
+        {
+          "label": "Demo Needed (Yes/No)",
+          "value": "No"
+        },
+        {
+          "label": "Known Issues / Violations",
+          "value": "Being Rectified"
+        }
+      ]
+    }
+  ],
+  "utilities": [
+    {
+      "name": "Electric Utility",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "SCE"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Customer Service"
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": "(800) 655-4555"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Electric utility provider"
+        }
+      ]
+    },
+    {
+      "name": "Gas Utility",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "So Cal Gas"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Customer Service"
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": "(877) 238-0092"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Natural gas provider"
+        }
+      ]
+    },
+    {
+      "name": "Water Utility",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "WMWD"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Teri Patton"
+        },
+        {
+          "label": "Email",
+          "value": "tpatton@wmwd.com"
+        },
+        {
+          "label": "Phone",
+          "value": "(951) 571-7276"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Water services"
+        }
+      ]
+    },
+    {
+      "name": "Trash Utility",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "WM"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Customer Service"
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": "(800) 423-9986"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Waste & recycling"
+        }
+      ]
+    },
+    {
+      "name": "Storm Drain",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "Riverside County Flood"
+        },
+        {
+          "label": "Contact Name",
+          "value": "General Info"
+        },
+        {
+          "label": "Email",
+          "value": "flood@rivco.org"
+        },
+        {
+          "label": "Phone",
+          "value": "(951) 955-1200"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Stormwater authority"
+        }
+      ]
+    },
+    {
+      "name": "Internet Service Provider",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "Frontier"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Customer Service"
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": "(800) 921-8101"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "ISP services"
+        }
+      ]
+    }
+  ],
+  "ahj": [
+    {
+      "name": "Fire Flow / Hydrants",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "TBD"
+        },
+        {
+          "label": "Contact Name",
+          "value": ""
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": ""
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "Offsite Work Needed (Yes/No + notes)",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "YES"
+        },
+        {
+          "label": "Contact Name",
+          "value": ""
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": ""
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "Fire Department",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "Riverside County Fire Distrct"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Doug Bloom"
+        },
+        {
+          "label": "Email",
+          "value": "NA"
+        },
+        {
+          "label": "Phone",
+          "value": "(951) 955-4777"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Fire authority"
+        }
+      ]
+    },
+    {
+      "name": "School District",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "TVUSD"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Meredith Killion"
+        },
+        {
+          "label": "Email",
+          "value": "mkillion@tvusd.us"
+        },
+        {
+          "label": "Phone",
+          "value": ""
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Local school district"
+        }
+      ]
+    },
+    {
+      "name": "Native American/Cultural Resources Consultation",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "Pechanga"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Tribal Office"
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": "(951) 676-2768"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Consultation required if applicable."
+        }
+      ]
+    },
+    {
+      "name": "Paleontological Resource",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "N/A"
+        },
+        {
+          "label": "Contact Name",
+          "value": ""
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": ""
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "Transportation Department",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "RTA"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Customer Service"
+        },
+        {
+          "label": "Email",
+          "value": "customerrelations@riversidetransit.com"
+        },
+        {
+          "label": "Phone",
+          "value": "(951) 565-5002"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Transit authority"
+        }
+      ]
+    },
+    {
+      "name": "Air Quality Management District",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "SCAQMD"
+        },
+        {
+          "label": "Contact Name",
+          "value": ""
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": ""
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Air quality permits"
+        }
+      ]
+    },
+    {
+      "name": "State Environmental California Dept of Fish & Wildlife",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "DFW"
+        },
+        {
+          "label": "Contact Name",
+          "value": ""
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": ""
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Environmental compliance"
+        }
+      ]
+    },
+    {
+      "name": "California Coastal Commission",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "N/A"
+        },
+        {
+          "label": "Contact Name",
+          "value": ""
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": ""
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": ""
+        }
+      ]
+    }
+  ],
+  "warranties": [],
+  "inspections": [],
+  "documents": [],
+  "permitsTimeline": [
+    {
+      "phase": "Pre-Entitlement",
+      "permit": "Pre-Application Meeting",
+      "agency": "City/County Planning Dept",
+      "whenRequired": "Strongly recommended",
+      "submittals": "Concept site plan, zoning summary",
+      "reviewTime": "2–4 weeks to schedule",
+      "notes": "Completed"
+    },
+    {
+      "phase": "Land Use Entitlement",
+      "permit": "General Plan Amendment (if needed)",
+      "agency": "Planning Commission / City Council",
+      "whenRequired": "If use inconsistent with GP",
+      "submittals": "Land use justification, studies",
+      "reviewTime": "3–9+ months",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Zone Change (Rezone)",
+      "agency": "Planning Commission / City Council",
+      "whenRequired": "If zoning inconsistent",
+      "submittals": "Site plan, findings",
+      "reviewTime": "3–9+ months",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Conditional Use Permit (CUP)",
+      "agency": "Planning Commission",
+      "whenRequired": "For conditionally allowed uses",
+      "submittals": "Operational narrative, plans",
+      "reviewTime": "2–6 months",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Variance",
+      "agency": "Zoning Administrator",
+      "whenRequired": "If deviation from standards",
+      "submittals": "Hardship findings",
+      "reviewTime": "2–4 months",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Development Agreement (if applicable)",
+      "agency": "City Council",
+      "whenRequired": "Large/complex projects",
+      "submittals": "Fiscal analysis",
+      "reviewTime": "4–8+ months",
+      "notes": "Completed"
+    },
+    {
+      "phase": "Environmental (CEQA)",
+      "permit": "CEQA Exemption",
+      "agency": "Lead Agency (City/County)",
+      "whenRequired": "Minor projects",
+      "submittals": "Project description",
+      "reviewTime": "4–8 weeks",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Initial Study / Mitigated ND",
+      "agency": "Lead Agency",
+      "whenRequired": "Moderate impact projects",
+      "submittals": "Technical studies",
+      "reviewTime": "3–6 months",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Environmental Impact Report (EIR)",
+      "agency": "Lead Agency",
+      "whenRequired": "Significant impacts",
+      "submittals": "Full technical reports",
+      "reviewTime": "9–18+ months",
+      "notes": "Completed"
+    },
+    {
+      "phase": "Design & Site Approvals",
+      "permit": "Site Plan Review",
+      "agency": "Planning Dept",
+      "whenRequired": "Most commercial projects",
+      "submittals": "Civil + architectural plans",
+      "reviewTime": "1–3 months",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Architectural Review",
+      "agency": "Planning / Design Review Board",
+      "whenRequired": "If required by code",
+      "submittals": "Elevations, materials",
+      "reviewTime": "1–2 months",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Landscape Plan Approval",
+      "agency": "Planning Dept",
+      "whenRequired": "Required for new construction",
+      "submittals": "Irrigation, planting plan",
+      "reviewTime": "2–4 weeks",
+      "notes": "Completed"
+    },
+    {
+      "phase": "Grading & Site Work",
+      "permit": "Grading Permit",
+      "agency": "Building/Public Works",
+      "whenRequired": "Earthwork > minimal thresholds",
+      "submittals": "Soils report, civil plans",
+      "reviewTime": "2–8 weeks",
+      "notes": "In Process"
+    },
+    {
+      "phase": "",
+      "permit": "SWPPP (Stormwater Pollution Prevention Plan)",
+      "agency": "State Water Board (via SMARTS)",
+      "whenRequired": "Disturbance ≥1 acre",
+      "submittals": "QSP/QSD prep",
+      "reviewTime": "2–4 weeks registration",
+      "notes": "Being Updated"
+    },
+    {
+      "phase": "",
+      "permit": "Encroachment Permit",
+      "agency": "Public Works",
+      "whenRequired": "Work in public ROW",
+      "submittals": "Civil drawings",
+      "reviewTime": "2–6 weeks",
+      "notes": "In Process"
+    },
+    {
+      "phase": "Utilities",
+      "permit": "Water Service Approval",
+      "agency": "Water District",
+      "whenRequired": "New or upgraded service",
+      "submittals": "Demand calc",
+      "reviewTime": "2–6 weeks",
+      "notes": "Being Updated"
+    },
+    {
+      "phase": "",
+      "permit": "Sewer Capacity Letter",
+      "agency": "Sewer District",
+      "whenRequired": "New/expanded use",
+      "submittals": "Fixture count",
+      "reviewTime": "2–6 weeks",
+      "notes": "N/A"
+    },
+    {
+      "phase": "",
+      "permit": "Fire Flow Letter",
+      "agency": "Fire Authority",
+      "whenRequired": "All new commercial",
+      "submittals": "Hydraulic calc",
+      "reviewTime": "2–4 weeks",
+      "notes": "Being Updated"
+    },
+    {
+      "phase": "Building Phase",
+      "permit": "Building Permit",
+      "agency": "Building Dept",
+      "whenRequired": "All structural work",
+      "submittals": "Stamped plans",
+      "reviewTime": "1–3 months plan check",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Structural / MEP Plan Check",
+      "agency": "Building Dept",
+      "whenRequired": "Required",
+      "submittals": "Structural calcs",
+      "reviewTime": "Included above",
+      "notes": "Completed"
+    },
+    {
+      "phase": "",
+      "permit": "Fire Department Permit",
+      "agency": "Fire Marshal",
+      "whenRequired": "Sprinklers, alarms",
+      "submittals": "Fire plans",
+      "reviewTime": "2–6 weeks",
+      "notes": "Being Updated"
+    },
+    {
+      "phase": "",
+      "permit": "Elevator Permit (if applicable)",
+      "agency": "State DIR",
+      "whenRequired": "If elevator installed",
+      "submittals": "Elevator specs",
+      "reviewTime": "2–4 weeks",
+      "notes": "N/A"
+    },
+    {
+      "phase": "",
+      "permit": "Solar Permit (if required by code)",
+      "agency": "Building Dept",
+      "whenRequired": "Title 24 compliance",
+      "submittals": "PV plans",
+      "reviewTime": "1–4 weeks",
+      "notes": "Applied"
+    },
+    {
+      "phase": "Construction Inspections",
+      "permit": "Foundation / Framing / MEP Inspections",
+      "agency": "Building Dept",
+      "whenRequired": "During construction",
+      "submittals": "Inspection requests",
+      "reviewTime": "Rolling",
+      "notes": "Being Updated"
+    },
+    {
+      "phase": "",
+      "permit": "Fire Final Inspection",
+      "agency": "Fire Marshal",
+      "whenRequired": "Before occupancy",
+      "submittals": "Field inspection",
+      "reviewTime": "1–2 weeks scheduling",
+      "notes": "In Process"
+    },
+    {
+      "phase": "Occupancy",
+      "permit": "Certificate of Occupancy (COO)",
+      "agency": "Building Dept",
+      "whenRequired": "Before use",
+      "submittals": "Final inspections passed",
+      "reviewTime": "1–2 weeks",
+      "notes": ""
+    },
+    {
+      "phase": "",
+      "permit": "Business License",
+      "agency": "City Finance Dept",
+      "whenRequired": "Before operation",
+      "submittals": "Application",
+      "reviewTime": "1–4 weeks",
+      "notes": "Separate from COO"
+    },
+    {
+      "phase": "Specialty (If Applicable)",
+      "permit": "Alcohol License",
+      "agency": "California ABC",
+      "whenRequired": "If serving alcohol",
+      "submittals": "ABC forms",
+      "reviewTime": "2–6 months",
+      "notes": "N/A"
+    },
+    {
+      "phase": "",
+      "permit": "Cal/OSHA Permit",
+      "agency": "Cal/OSHA",
+      "whenRequired": "Industrial/high-hazard uses",
+      "submittals": "Safety documentation",
+      "reviewTime": "Variable",
+      "notes": "N/A"
+    },
+    {
+      "phase": "",
+      "permit": "Coastal Development Permit",
+      "agency": "Coastal Commission / Local Agency",
+      "whenRequired": "Coastal Zone projects",
+      "submittals": "Full package",
+      "reviewTime": "3–12+ months",
+      "notes": "N/A"
+    },
+    {
+      "phase": "",
+      "permit": "Air Quality Permit",
+      "agency": "Local AQMD",
+      "whenRequired": "Equipment emissions",
+      "submittals": "Equipment specs",
+      "reviewTime": "1–3 months",
+      "notes": "N/A"
+    }
+  ],
+  "permitMatrix": [
+    {
+      "Permit No": "BPT1900678",
+      "Permit Status": "Issued",
+      "Phase": "Construction Drawings",
+      "Permit / Approval Type": "South Patio",
+      "Permit Expiration Date": "2026-06-22 00:00:00",
+      "Jurisdiction / Agency": "County of Riverside",
+      "Agency Contact": "TLMA- (951) 955-3200",
+      "Email Address": "landuseinfo@rivco.org",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2021-12-14 00:00:00",
+      "Re-submittal Date 1": "N/A",
+      "Re-submittal Date 2": "N/A",
+      "Re-submittal Date 3": "N/A",
+      "Ball in whose Court": "Greens Global",
+      "Permit Issuance Date": "2021-12-14 00:00:00",
+      "Notes": "Footing corrections need to be submitted - applied for extension"
+    },
+    {
+      "Permit No": "BPT1900679",
+      "Permit Status": "Issued",
+      "Phase": "Construction Drawings",
+      "Permit / Approval Type": "North Patio",
+      "Permit Expiration Date": "2026-06-22 00:00:00",
+      "Jurisdiction / Agency": "County of Riverside",
+      "Agency Contact": "TLMA- (951) 955-3200",
+      "Email Address": "landuseinfo@rivco.org",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2021-12-14 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "Greens Global",
+      "Permit Issuance Date": "2021-12-14 00:00:00",
+      "Notes": "Footing corrections need to be submitted - applied for extension"
+    },
+    {
+      "Permit No": "BNR1900132",
+      "Permit Status": "Issued",
+      "Phase": "Construction Drawings",
+      "Permit / Approval Type": "Office",
+      "Permit Expiration Date": "2026-06-22 00:00:00",
+      "Jurisdiction / Agency": "County of Riverside",
+      "Agency Contact": "TLMA- (951) 955-3200",
+      "Email Address": "landuseinfo@rivco.org",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2021-12-14 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "Greens Global",
+      "Permit Issuance Date": "2021-12-14 00:00:00",
+      "Notes": "Requested extension while we work on finaling permit"
+    },
+    {
+      "Permit No": "BXX2000308",
+      "Permit Status": "Issued",
+      "Phase": "Construction Drawings",
+      "Permit / Approval Type": "Light Standard 1",
+      "Permit Expiration Date": "2026-06-22 00:00:00",
+      "Jurisdiction / Agency": "County of Riverside",
+      "Agency Contact": "TLMA- (951) 955-3200",
+      "Email Address": "landuseinfo@rivco.org",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2021-12-14 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "Greens Global",
+      "Permit Issuance Date": "2021-12-14 00:00:00",
+      "Notes": "Requested extension while we work on finaling permit"
+    },
+    {
+      "Permit No": "BXX2000309",
+      "Permit Status": "Issued",
+      "Phase": "Construction Drawings",
+      "Permit / Approval Type": "Light Standard 2",
+      "Permit Expiration Date": "2026-06-22 00:00:00",
+      "Jurisdiction / Agency": "County of Riverside",
+      "Agency Contact": "TLMA- (951) 955-3200",
+      "Email Address": "landuseinfo@rivco.org",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2021-12-14 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "Greens Global",
+      "Permit Issuance Date": "2021-12-14 00:00:00",
+      "Notes": "Requested extension while we work on finaling permit"
+    },
+    {
+      "Permit No": "BNR1900133",
+      "Permit Status": "Issued",
+      "Phase": "Construction Drawings",
+      "Permit / Approval Type": "Restroom",
+      "Permit Expiration Date": "2026-06-22 00:00:00",
+      "Jurisdiction / Agency": "County of Riverside",
+      "Agency Contact": "TLMA- (951) 955-3200",
+      "Email Address": "landuseinfo@rivco.org",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2021-12-14 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "Greens Global",
+      "Permit Issuance Date": "2021-12-14 00:00:00",
+      "Notes": "Requested extension while we work on finaling permit"
+    },
+    {
+      "Permit No": "BEL2400002",
+      "Permit Status": "Issued",
+      "Phase": "Construction Drawings",
+      "Permit / Approval Type": "House Electric Meter",
+      "Permit Expiration Date": "2026-05-28 00:00:00",
+      "Jurisdiction / Agency": "County of Riverside",
+      "Agency Contact": "TLMA- (951) 955-3200",
+      "Email Address": "landuseinfo@rivco.org",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2025-05-28 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "Greens Global",
+      "Permit Issuance Date": "2025-05-28 00:00:00",
+      "Notes": "Issued"
+    },
+    {
+      "Permit No": "BXX2500513",
+      "Permit Status": "Issued",
+      "Phase": "Construction Drawings",
+      "Permit / Approval Type": "Propane Tank",
+      "Permit Expiration Date": "2026-11-04 00:00:00",
+      "Jurisdiction / Agency": "County of Riverside",
+      "Agency Contact": "TLMA- (951) 955-3200",
+      "Email Address": "landuseinfo@rivco.org",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2025-11-04 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "Greens Global",
+      "Permit Issuance Date": "2025-11-04 00:00:00",
+      "Notes": "Issued"
+    },
+    {
+      "Permit No": "BPL2500649",
+      "Permit Status": "Issued",
+      "Phase": "Construction Drawings",
+      "Permit / Approval Type": "On-Site Water",
+      "Permit Expiration Date": "2026-07-28 00:00:00",
+      "Jurisdiction / Agency": "County of Riverside",
+      "Agency Contact": "TLMA- (951) 955-3200",
+      "Email Address": "landuseinfo@rivco.org",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2025-07-28 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "Greens Global",
+      "Permit Issuance Date": "2025-07-28 00:00:00",
+      "Notes": "On Site Water"
+    },
+    {
+      "Permit No": "BSN2500035",
+      "Permit Status": "Issued",
+      "Phase": "Construction Drawings",
+      "Permit / Approval Type": "Sign Permit - Monument Sign",
+      "Permit Expiration Date": "2026-12-10 00:00:00",
+      "Jurisdiction / Agency": "County of Riverside",
+      "Agency Contact": "TLMA- (951) 955-3200",
+      "Email Address": "landuseinfo@rivco.org",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2025-12-10 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "Greens Global",
+      "Permit Issuance Date": "2025-12-10 00:00:00",
+      "Notes": "Issued"
+    },
+    {
+      "Permit No": "BXX2501537",
+      "Permit Status": "Issued",
+      "Phase": "Construction Drawings",
+      "Permit / Approval Type": "Sign Permit - Pylon Sign",
+      "Permit Expiration Date": "2026-12-10 00:00:00",
+      "Jurisdiction / Agency": "County of Riverside",
+      "Agency Contact": "TLMA- (951) 955-3200",
+      "Email Address": "landuseinfo@rivco.org",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2025-12-10 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "Greens Global",
+      "Permit Issuance Date": "2025-12-10 00:00:00",
+      "Notes": "Issued"
+    },
+    {
+      "Permit No": "BWL2501340",
+      "Permit Status": "Issued",
+      "Phase": "Construction Drawings",
+      "Permit / Approval Type": "Sign Permit - Wall Sign",
+      "Permit Expiration Date": "2026-12-10 00:00:00",
+      "Jurisdiction / Agency": "County of Riverside",
+      "Agency Contact": "TLMA- (951) 955-3200",
+      "Email Address": "landuseinfo@rivco.org",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "2025-12-10 00:00:00",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "Greens Global",
+      "Permit Issuance Date": "2025-12-10 00:00:00",
+      "Notes": "Issued"
+    },
+    {
+      "Permit No": "FPFST2500016",
+      "Permit Status": "Approved",
+      "Phase": "Construction Drawings",
+      "Permit / Approval Type": "Fuel Dispenser",
+      "Permit Expiration Date": "2025-10-10 00:00:00",
+      "Jurisdiction / Agency": "County of Riverside",
+      "Agency Contact": "TLMA- (951) 955-3200",
+      "Email Address": "landuseinfo@rivco.org",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "Greens Global",
+      "Permit Issuance Date": "2025-10-10 00:00:00",
+      "Notes": "Approved by Fire"
+    },
+    {
+      "Permit No": "BGR1900357",
+      "Permit Status": "In process",
+      "Phase": "Construction Drawings",
+      "Permit / Approval Type": "Grading",
+      "Permit Expiration Date": "",
+      "Jurisdiction / Agency": "County of Riverside",
+      "Agency Contact": "Sam D. Gonzalez- (951) 295-6959",
+      "Email Address": "SDGONZAL@RIVCO.ORG",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "",
+      "Re-submittal Date 1": "2026-04-24 00:00:00",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "Greens Global",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    }
+  ]
+}
