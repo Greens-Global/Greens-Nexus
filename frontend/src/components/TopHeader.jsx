@@ -71,6 +71,12 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
         <button className="mobile-toggle" onClick={onMobileToggle} aria-label="Toggle Sidebar">
           <Menu style={{ width: 18, height: 18 }} />
         </button>
+        {/* Phone search lives LEFT of the centered wordmark — a 4th icon on
+            the right collided with NEXUS (Visesh screenshot, Jun 12) */}
+        <button className="icon-btn header-search-left" aria-label="Search"
+          onClick={() => window.dispatchEvent(new CustomEvent('nexus:search-open'))}>
+          <Search style={{ width: 16, height: 16 }} />
+        </button>
         {/* Phone-only centered wordmark (desktop hides it) — tap = home */}
         <button className="header-brand" onClick={() => onNavigate('dashboard')} aria-label="Go to Dashboard">NEXUS</button>
         <div className="breadcrumb">
@@ -136,7 +142,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
       </div>
 
       <div className="header-right">
-        <button className="icon-btn" aria-label="Search (Ctrl+K)" title="Search (Ctrl+K)"
+        <button className="icon-btn header-search-right" aria-label="Search (Ctrl+K)" title="Search (Ctrl+K)"
           onClick={() => window.dispatchEvent(new CustomEvent('nexus:search-open'))}>
           <Search style={{ width: 16, height: 16 }} />
         </button>

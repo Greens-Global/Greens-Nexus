@@ -1946,6 +1946,14 @@ button, [role="button"], select { touch-action: manipulation; }
   }
 }
 
+/* Header search trigger: right side on desktop, left of the wordmark on
+   phones (a 4th right-side icon overlapped the centered NEXUS) */
+.header-search-left { display: none; }
+@media (max-width: 900px) {
+  .header-search-left  { display: flex; }
+  .header-search-right { display: none; }
+}
+
 /* ── Global search palette (Ctrl/Cmd+K) ─────────────────────────────────────── */
 .gs-overlay {
   position: fixed; inset: 0; z-index: 2000;
