@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  Menu, Package, User, ClipboardList, ShoppingCart, Users, FileText, History,
+  Package, User, ClipboardList, ShoppingCart, Users, FileText, History,
   Building2, Plug, ListChecks, FileCheck, Shield, ClipboardCheck, Folder,
   MessageSquare, PackageSearch, Calendar, Circle,
 } from 'lucide-react';
@@ -15,10 +15,9 @@ const DYN_ICONS = {
   'who-has-what': PackageSearch, calendar: Calendar,
 };
 
-// Phone bottom bar (Visesh's design): ONLY the current screen's actions on
-// the left + Menu pinned right. No global shortcuts — all navigation between
-// modules goes through Menu (full-screen nav). Screens without registered
-// actions show just the Menu button.
+// Phone bottom bar (Visesh's design): ONLY the current screen's actions.
+// Menu lives top-left in the header; screens without registered actions
+// show no bar at all.
 const INVENTORY_MANAGER_ACTIONS = [
   { sub: 'myitems',      label: 'My Items',  Icon: User },
   { sub: 'catalog',      label: 'Catalog',   Icon: Package },
@@ -33,7 +32,7 @@ const INVENTORY_EMPLOYEE_ACTIONS = [
   { sub: 'myitems', label: 'My Items', Icon: User },
 ];
 
-export default function MobileNav({ activeView, activeSub, onMenu }) {
+export default function MobileNav({ activeView, activeSub }) {
   const { can } = useRole();
   const isManager = can?.('manager');
 
@@ -58,6 +57,8 @@ export default function MobileNav({ activeView, activeSub, onMenu }) {
     else if (['permanent', 'active-checkouts', 'checkouts-completed'].includes(effSub)) effSub = 'checkouts';
   }
 
+  if (!dynActions && !actions) return null;
+
   return (
     <nav className="mobile-nav">
       <div className="mobile-nav-actions">
@@ -78,10 +79,6 @@ export default function MobileNav({ activeView, activeSub, onMenu }) {
           </button>
         ))}
       </div>
-      <button className="mobile-nav-item mobile-nav-menu" onClick={onMenu}>
-        <Menu size={20} />
-        <span>Menu</span>
-      </button>
     </nav>
   );
 }

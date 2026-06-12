@@ -1509,10 +1509,11 @@ html { overflow-x: hidden; }
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  animation: menuIn 0.22s cubic-bezier(.16,1,.3,1);
+  /* adidas-style entrance: the whole panel slides in from the left */
+  animation: menuIn 0.34s cubic-bezier(.16,1,.3,1);
 }
 @media (min-width: 901px) { .mobile-menu { display: none; } }
-@keyframes menuIn { from { transform: translateX(-10%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes menuIn { from { transform: translateX(-100%); } to { transform: none; } }
 
 .mobile-menu-head { display: flex; align-items: center; justify-content: center; position: relative; padding: 18px 16px 12px; }
 .mobile-menu-brand { font-weight: 800; letter-spacing: 0.22em; font-size: 16px; }
@@ -1575,23 +1576,14 @@ html { overflow-x: hidden; }
 
 /* ── Mobile v2 fixes (from phone screenshots) ───────────────────────────────
    1) NOTHING may render wider than the screen — pages were panning/cutting
-   2) Header: wordmark sits LEFT, hamburger gone (Menu lives in the tab bar)
+   2) Header: Menu button top-left (opens the full-screen menu), NEXUS
+      wordmark centered via the absolute ::before; bottom bar = actions only
    3) Cart becomes a floating action button above the tab bar
    4) KPI stat grids everywhere collapse to 2-up (!important beats the inline
       repeat(4,1fr) used across modules - Tasks/IT/Manage all inherit this) */
 @media (max-width: 900px) {
   .viewport, .main-content { overflow-x: hidden; max-width: 100vw; }
   img, svg, video { max-width: 100%; }
-
-  /* Menu is in the bottom tab bar - no hamburger up top */
-  .mobile-toggle { display: none !important; }
-
-  /* Wordmark left-aligned in flow (was centered + colliding with icons) */
-  .top-header::before {
-    position: static;
-    transform: none;
-    margin-right: auto;
-  }
 }
 
 @media (max-width: 640px) {
