@@ -12,6 +12,7 @@ import AdminPanel from "./components/AdminPanel";
 import NotificationToasts from "./components/NotificationToasts";
 import GlobalSearch from "./components/GlobalSearch";
 import PullToRefresh from "./components/PullToRefresh";
+import ViewErrorBoundary from "./components/ViewErrorBoundary";
 import { onBackendHealth } from "./api";
 
 // Always loaded — critical path
@@ -296,6 +297,7 @@ export default function App() {
               onOpenAdmin={tab => { setAdminPanelTab(tab); setAdminPanelOpen(true); }}
             />
             <div className="viewport">
+              <ViewErrorBoundary resetKey={`${activeView}/${activeSub}`}>
               <Suspense fallback={
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
                   <div style={{ width: 28, height: 28, borderRadius: '50%', border: '3px solid var(--border-color)', borderTopColor: 'var(--text-primary)', animation: 'spin 0.7s linear infinite' }} />
@@ -308,6 +310,7 @@ export default function App() {
                   onNavigate={navigate}
                 />
               </Suspense>
+              </ViewErrorBoundary>
             </div>
           </main>
         </div>
