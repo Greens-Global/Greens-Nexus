@@ -691,27 +691,51 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated }) {
   );
 }
 
-// ── Org chart (Phase 5) — top-down tree with connector lines ──────────────────
-function OrgNode({ e, childrenMap }) {
+// ── Org chart (Phase 5) — top-down tree, drag a card onto a new manager ───────
+function OrgCard({ e, kids, dnd }) {
+  const email = (e.workEmail || '').toLowerCase();
+  const isTarget = dnd.overKey === email && dnd.draggingId && dnd.draggingId !== e.id;
+  return (
+    <div className="org-card"
+      draggable
+      onDragStart={ev => { ev.dataTransfer.effectAllowed = 'move'; dnd.setDraggingId(e.id); }}
+      onDragEnd={() => { dnd.setDraggingId(null); dnd.setOverKey(null); }}
+      onDragOver={ev => { if (dnd.draggingId && dnd.draggingId !== e.id && email) { ev.preventDefault(); dnd.setOverKey(email); } }}
+      onDragLeave={() => { if (dnd.overKey === email) dnd.setOverKey(null); }}
+      onDrop={ev => { ev.preventDefault(); dnd.drop(email); }}
+      style={{
+        cursor: 'grab',
+        opacity: dnd.draggingId === e.id ? 0.45 : 1,
+        outline: isTarget ? '2px solid hsl(var(--color-green))' : 'none',
+        outlineOffset: 2,
+        background: isTarget ? 'hsla(var(--color-green),0.07)' : undefined,
+      }}>
+      <Avatar e={e} size={36} />
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 700, fontSize: 13 }}>{fullName(e)}</div>
+        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{[e.jobTitle, e.department].filter(Boolean).join(' · ') || '—'}</div>
+      </div>
+      {kids > 0 && <span style={{ fontSize: 10, fontWeight: 800, background: 'hsla(var(--color-blue),0.1)', color: 'hsl(var(--color-blue))', borderRadius: 20, padding: '1px 7px', flexShrink: 0 }}>{kids}</span>}
+    </div>
+  );
+}
+
+function OrgNode({ e, childrenMap, dnd }) {
   const kids = childrenMap.get((e.workEmail || '').toLowerCase()) || [];
   return (
     <li>
-      <div className="org-card">
-        <Avatar e={e} size={36} />
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 13 }}>{fullName(e)}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)' }}>{[e.jobTitle, e.department].filter(Boolean).join(' · ') || '—'}</div>
-        </div>
-        {kids.length > 0 && <span style={{ fontSize: 10, fontWeight: 800, background: 'hsla(var(--color-blue),0.1)', color: 'hsl(var(--color-blue))', borderRadius: 20, padding: '1px 7px', flexShrink: 0 }}>{kids.length}</span>}
-      </div>
-      {kids.length > 0 && <ul>{kids.map(k => <OrgNode key={k.id} e={k} childrenMap={childrenMap} />)}</ul>}
+      <OrgCard e={e} kids={kids.length} dnd={dnd} />
+      {kids.length > 0 && <ul>{kids.map(k => <OrgNode key={k.id} e={k} childrenMap={childrenMap} dnd={dnd} />)}</ul>}
     </li>
   );
 }
 
-function OrgChartTab({ employees }) {
+function OrgChartTab({ employees, onUpdated, toastOk, toastErr }) {
+  const [draggingId, setDraggingId] = useState(null);
+  const [overKey, setOverKey] = useState(null); // target workEmail, or '__none__' for the clear zone
   const people = employees.filter(e => e.status !== 'offboarded');
   const emails = new Set(people.map(e => (e.workEmail || '').toLowerCase()).filter(Boolean));
+  const byEmail = new Map(people.map(e => [(e.workEmail || '').toLowerCase(), e]));
   const childrenMap = new Map();
   for (const e of people) {
     const m = (e.managerEmail || '').toLowerCase();
@@ -720,6 +744,47 @@ function OrgChartTab({ employees }) {
       childrenMap.get(m).push(e);
     }
   }
+
+  // Everyone below `email` in the tree — used to refuse drops that would loop
+  function descendants(email) {
+    const seen = new Set();
+    const queue = [email];
+    while (queue.length) {
+      for (const kid of childrenMap.get(queue.pop()) || []) {
+        const ke = (kid.workEmail || '').toLowerCase();
+        if (ke && !seen.has(ke)) { seen.add(ke); queue.push(ke); }
+      }
+    }
+    return seen;
+  }
+
+  async function drop(targetEmail) {
+    const dragged = people.find(p => p.id === draggingId);
+    setDraggingId(null); setOverKey(null);
+    if (!dragged) return;
+    if (targetEmail === '__none__') {
+      if (!dragged.managerEmail) return;
+      targetEmail = '';
+    } else {
+      const target = byEmail.get(targetEmail);
+      if (!target || target.id === dragged.id) return;
+      if ((dragged.managerEmail || '').toLowerCase() === targetEmail) return;
+      const myEmail = (dragged.workEmail || '').toLowerCase();
+      if (myEmail && descendants(myEmail).has(targetEmail)) {
+        toastErr(`${fullName(target)} reports up to ${fullName(dragged)} — that would create a loop.`);
+        return;
+      }
+    }
+    try {
+      const saved = await api.updateEmployee(dragged.id, { manager_email: targetEmail });
+      onUpdated(saved);
+      toastOk(targetEmail
+        ? `${fullName(dragged)} now reports to ${fullName(byEmail.get(targetEmail))}.`
+        : `${fullName(dragged)} removed from the reporting line.`);
+    } catch (err) { toastErr(err?.message || 'Could not change the reporting line.'); }
+  }
+
+  const dnd = { draggingId, setDraggingId, overKey, setOverKey, drop };
   // Managers (people with reports) before leaves, then alphabetical — keeps
   // wide sibling rows readable
   const kidCount = e => (childrenMap.get((e.workEmail || '').toLowerCase()) || []).length;
@@ -740,15 +805,28 @@ function OrgChartTab({ employees }) {
   );
   return (
     <div>
-      <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginBottom: 14 }}>
-        {people.length} people · {linked} in the reporting hierarchy
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
+          {people.length} people · {linked} in the reporting hierarchy
+        </span>
+        <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Drag a card onto someone to change who they report to.</span>
+        {/* Clear-zone appears only mid-drag — drop here to detach from a manager */}
+        {draggingId && (
+          <div
+            onDragOver={ev => { ev.preventDefault(); setOverKey('__none__'); }}
+            onDragLeave={() => { if (overKey === '__none__') setOverKey(null); }}
+            onDrop={ev => { ev.preventDefault(); drop('__none__'); }}
+            style={{ marginLeft: 'auto', border: `2px dashed ${overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--line)'}`, borderRadius: 10, padding: '7px 16px', fontSize: 12, fontWeight: 700, color: overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--muted)', background: overKey === '__none__' ? 'hsla(var(--color-red),0.06)' : 'transparent' }}>
+            Drop here to remove their reporting line
+          </div>
+        )}
       </div>
       {roots.length > 0 && (
         <div style={{ marginBottom: 22 }}>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 4 }}>Reporting hierarchy</div>
           <div className="org-tree-wrap">
             <div className="org-tree">
-              <ul>{roots.map(r => <OrgNode key={r.id} e={r} childrenMap={childrenMap} />)}</ul>
+              <ul>{roots.map(r => <OrgNode key={r.id} e={r} childrenMap={childrenMap} dnd={dnd} />)}</ul>
             </div>
           </div>
         </div>
@@ -759,15 +837,8 @@ function OrgChartTab({ employees }) {
             No reporting line — set "Reports to" on their profile
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {unlinked.map(e => (
-              <div key={e.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 9, background: 'var(--card)', border: '1px dashed hsla(var(--color-orange),0.5)', borderRadius: 12, padding: '8px 13px' }}>
-                <Avatar e={e} size={28} />
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 12.5 }}>{fullName(e)}</div>
-                  <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{[e.jobTitle, e.department].filter(Boolean).join(' · ') || '—'}</div>
-                </div>
-              </div>
-            ))}
+            {/* Draggable too — drag Sagar onto his manager to link him in */}
+            {unlinked.map(e => <OrgCard key={e.id} e={e} kids={0} dnd={dnd} />)}
           </div>
         </div>
       )}
@@ -1043,7 +1114,7 @@ export default function HR({ activeSub, onSubChange }) {
         <HiringTab isMobile={isMobile} toastOk={toastOk} toastErr={toastErr}
           onEmployeeCreated={emp => setEmployees(prev => [...prev, emp].sort((a, b) => fullName(a).localeCompare(fullName(b))))} />
       )}
-      {sub === 'hr-org' && <OrgChartTab employees={employees} />}
+      {sub === 'hr-org' && <OrgChartTab employees={employees} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
 
       {sub === 'hr-people' && (<>
