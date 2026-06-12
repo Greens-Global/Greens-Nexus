@@ -232,6 +232,9 @@ const STEP_COLOR = { ok: '--color-green', failed: '--color-red', manual: '--colo
 function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
   const guess = `${(e.firstName || '').toLowerCase()}.${(e.lastName || '').toLowerCase()}`.replace(/\.+$/, '') + '@greensglobal.com';
   const [email, setEmail] = useState(e.workEmail || guess);
+  // Usage location drives license compliance — guess India from the profile, else US
+  const [usageLoc, setUsageLoc] = useState(() =>
+    /india/i.test(`${e.location} ${e.department} ${e.notes}`) ? 'IN' : 'US');
   const [skus, setSkus] = useState(null);
   const [picked, setPicked] = useState(new Set());
   const [busy, setBusy] = useState(false);
@@ -250,7 +253,7 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
     if (busy) return;
     setBusy(true);
     try {
-      const res = await api.provisionEmployee(e.id, { work_email: email.trim(), license_sku_ids: [...picked] });
+      const res = await api.provisionEmployee(e.id, { work_email: email.trim(), license_sku_ids: [...picked], usage_location: usageLoc });
       setResult(res);
       onDone(res.employee);
     } catch (err) { toastErr(err?.message || 'Provisioning failed.'); }
@@ -274,6 +277,11 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
             </p>
             <label style={FL}>WORK EMAIL (becomes their sign-in) *</label>
             <input className="form-input" style={{ width: '100%', marginBottom: 14 }} value={email} onChange={ev => setEmail(ev.target.value)} />
+            <label style={FL}>USAGE LOCATION (where they'll use the license) *</label>
+            <select className="form-input" style={{ width: '100%', marginBottom: 14 }} value={usageLoc} onChange={ev => setUsageLoc(ev.target.value)}>
+              <option value="US">United States</option>
+              <option value="IN">India</option>
+            </select>
             <label style={FL}>LICENSES{picked.size > 0 ? ` (${picked.size} selected)` : ' — none selected: no mailbox'}</label>
             {skus === null ? <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /> : (
               <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 220, overflowY: 'auto' }}>

@@ -617,6 +617,7 @@ class ProvisionIn(BaseModel):
     work_email:      str
     license_sku_id:  Optional[str] = ""          # legacy single-select
     license_sku_ids: Optional[List[str]] = None  # multi-select (admin-center style)
+    usage_location:  Optional[str] = "US"        # ISO 3166 alpha-2 — license compliance keys off this
 
 
 @router.post("/employees/{eid}/provision")
@@ -629,6 +630,9 @@ def provision_employee(eid: str, body: ProvisionIn, user: dict = Depends(require
     upn = body.work_email.strip().lower()
     if not re.fullmatch(r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}", upn):
         raise HTTPException(400, "work_email must be a valid address in your tenant domain")
+    usage_location = (body.usage_location or "US").strip().upper()
+    if not re.fullmatch(r"[A-Z]{2}", usage_location):
+        raise HTTPException(400, "usage_location must be a 2-letter country code")
 
     now = datetime.now(timezone.utc).isoformat()
     run = HrProvisionRun(id=str(uuid.uuid4()), employee_id=eid, status="running",
@@ -655,10 +659,11 @@ def provision_employee(eid: str, body: ProvisionIn, user: dict = Depends(require
             "givenName": emp.first_name, "surname": emp.last_name or "",
             "mailNickname": upn.split("@", 1)[0].replace(".", ""),
             "userPrincipalName": upn,
-            "usageLocation": "US",
+            "usageLocation": usage_location,
             "jobTitle": emp.job_title or None,
             "department": emp.department or None,
             "mobilePhone": emp.phone or None,
+            "officeLocation": emp.location or None,
             "passwordProfile": {"password": temp_password, "forceChangePasswordNextSignIn": True},
         }, timeout=30)
         if resp.is_success:
