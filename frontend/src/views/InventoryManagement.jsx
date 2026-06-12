@@ -4666,10 +4666,11 @@ function WhwItemDetailCard({ item, checkout, holderName, onClose, onAct, actLabe
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:16, overflowY:'auto' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, width:'100%', maxWidth:380, overflow:'hidden', boxShadow:'0 20px 60px rgba(0,0,0,0.25)' }}>
-        <div style={{ height:190, background:'var(--mist)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+        {/* Full photo, never cropped — the box grows to the image's own ratio */}
+        <div style={{ background:'var(--mist)', display:'flex', alignItems:'center', justifyContent:'center', minHeight:120 }}>
           {photo
-            ? <img src={photo} alt={name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-            : <tm.Icon size={44} color={tm.color} />}
+            ? <img src={photo} alt={name} style={{ width:'100%', maxHeight:'45vh', objectFit:'contain', display:'block' }} />
+            : <tm.Icon size={44} color={tm.color} style={{ margin:'38px 0' }} />}
         </div>
         <div style={{ padding:'16px 18px' }}>
           <div style={{ fontWeight:800, fontSize:16, letterSpacing:'-.01em' }}>{name}</div>
