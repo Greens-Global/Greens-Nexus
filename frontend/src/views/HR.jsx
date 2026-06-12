@@ -233,23 +233,24 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
   const guess = `${(e.firstName || '').toLowerCase()}.${(e.lastName || '').toLowerCase()}`.replace(/\.+$/, '') + '@greensglobal.com';
   const [email, setEmail] = useState(e.workEmail || guess);
   const [skus, setSkus] = useState(null);
-  const [sku, setSku] = useState('');
+  const [picked, setPicked] = useState(new Set());
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   useEffect(() => {
     api.getProvisionSkus().then(rows => {
       setSkus(rows);
-      // Default to the standard new-hire license (Business Basic) when in stock
-      const pick = rows.find(s => s.isDefault && s.available > 0) || rows.find(s => s.available > 0);
-      if (pick) setSku(pick.skuId);
+      // Pre-tick the standard new-hire license (Business Basic) when in stock
+      setPicked(new Set(rows.filter(s => s.isDefault && s.available > 0).map(s => s.skuId)));
     }).catch(err => { setSkus([]); toastErr(err?.message || 'Could not load licenses.'); });
   }, [toastErr]);
+
+  const togglePick = id => setPicked(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   async function run() {
     if (busy) return;
     setBusy(true);
     try {
-      const res = await api.provisionEmployee(e.id, { work_email: email.trim(), license_sku_id: sku });
+      const res = await api.provisionEmployee(e.id, { work_email: email.trim(), license_sku_ids: [...picked] });
       setResult(res);
       onDone(res.employee);
     } catch (err) { toastErr(err?.message || 'Provisioning failed.'); }
@@ -273,12 +274,28 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
             </p>
             <label style={FL}>WORK EMAIL (becomes their sign-in) *</label>
             <input className="form-input" style={{ width: '100%', marginBottom: 14 }} value={email} onChange={ev => setEmail(ev.target.value)} />
-            <label style={FL}>LICENSE</label>
+            <label style={FL}>LICENSES{picked.size > 0 ? ` (${picked.size} selected)` : ' — none selected: no mailbox'}</label>
             {skus === null ? <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /> : (
-              <select className="form-input" style={{ width: '100%' }} value={sku} onChange={ev => setSku(ev.target.value)}>
-                <option value="">— no license (no mailbox) —</option>
-                {skus.map(s => <option key={s.skuId} value={s.skuId} disabled={s.available <= 0}>{s.displayName || s.skuPartNumber} ({s.available} free{s.isDefault ? ' · standard' : ''})</option>)}
-              </select>
+              <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 220, overflowY: 'auto' }}>
+                {skus.map((s, i) => {
+                  const out = s.available <= 0;
+                  return (
+                    <label key={s.skuId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderTop: i > 0 ? '1px solid var(--line)' : 'none', cursor: out ? 'default' : 'pointer', opacity: out ? 0.5 : 1, userSelect: 'none' }}>
+                      <input type="checkbox" disabled={out} checked={picked.has(s.skuId)} onChange={() => togglePick(s.skuId)}
+                        style={{ cursor: out ? 'not-allowed' : 'pointer', accentColor: 'var(--pine)', flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>
+                          {s.displayName || s.skuPartNumber}
+                          {s.isDefault && <span style={{ marginLeft: 7, fontSize: 9.5, fontWeight: 800, letterSpacing: '.05em', background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))', borderRadius: 20, padding: '1px 7px' }}>STANDARD</span>}
+                        </div>
+                        <div style={{ fontSize: 11, color: out ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
+                          {out ? 'No licenses available' : `${s.available} of ${s.total} available`}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
             )}
           </>) : (<>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>

@@ -610,9 +610,13 @@ def list_skus(user: dict = Depends(require_hr_write)):
     return out
 
 
+from typing import List
+
+
 class ProvisionIn(BaseModel):
-    work_email:     str
-    license_sku_id: Optional[str] = ""
+    work_email:      str
+    license_sku_id:  Optional[str] = ""          # legacy single-select
+    license_sku_ids: Optional[List[str]] = None  # multi-select (admin-center style)
 
 
 @router.post("/employees/{eid}/provision")
@@ -670,16 +674,18 @@ def provision_employee(eid: str, body: ProvisionIn, user: dict = Depends(require
         steps["m365_user"].detail = str(e)[:400]
         failed = True
 
-    # 2) License (this is what creates the Outlook mailbox)
-    if user_id and body.license_sku_id:
+    # 2) Licenses — one assignLicense call for the whole set (a mailbox-bearing
+    #    SKU like Business Basic is what creates the Outlook mailbox)
+    sku_ids = [s for s in (body.license_sku_ids or []) if s] or ([body.license_sku_id] if body.license_sku_id else [])
+    if user_id and sku_ids:
         try:
             resp = httpx.post(f"{_GRAPH}/users/{user_id}/assignLicense",
                               headers={"Authorization": f"Bearer {token}"},
-                              json={"addLicenses": [{"skuId": body.license_sku_id, "disabledPlans": []}],
+                              json={"addLicenses": [{"skuId": s, "disabledPlans": []} for s in sku_ids],
                                     "removeLicenses": []}, timeout=30)
             if resp.is_success:
                 steps["m365_license"].status = "ok"
-                steps["m365_license"].detail = "License assigned — mailbox provisioning"
+                steps["m365_license"].detail = f"{len(sku_ids)} license{'s' if len(sku_ids) != 1 else ''} assigned — mailbox provisioning"
             else:
                 raise RuntimeError(resp.text[:300])
         except Exception as e:
