@@ -567,6 +567,29 @@ def _graph_token() -> str:
     return resp.json()["access_token"]
 
 
+# Graph only returns internal SKU part numbers — map the ones in our tenant to
+# the names the M365 admin center shows (Microsoft's product-identifier list)
+_SKU_NAMES = {
+    "O365_BUSINESS_ESSENTIALS":   "Microsoft 365 Business Basic",
+    "O365_BUSINESS_PREMIUM":      "Microsoft 365 Business Standard",
+    "SPB":                        "Microsoft 365 Business Premium",
+    "EXCHANGESTANDARD":           "Exchange Online (Plan 1)",
+    "EXCHANGEENTERPRISE":         "Exchange Online (Plan 2)",
+    "POWER_BI_PRO":               "Power BI Pro",
+    "POWER_BI_STANDARD":          "Power BI (free)",
+    "FLOW_FREE":                  "Power Automate Free",
+    "POWERAPPS_DEV":              "Power Apps for Developer",
+    "Microsoft_Teams_Rooms_Basic": "Microsoft Teams Rooms Basic",
+    "CCIBOTS_PRIVPREV_VIRAL":     "Copilot Studio Viral Trial",
+    "ENTERPRISEPACK":             "Office 365 E3",
+    "SPE_E3":                     "Microsoft 365 E3",
+    "SPE_E5":                     "Microsoft 365 E5",
+    "Microsoft_Fabric_(Free)":    "Microsoft Fabric (Free)",
+}
+# The license every new employee gets by default (Visesh, Jun 13)
+_DEFAULT_SKU_PART = "O365_BUSINESS_ESSENTIALS"
+
+
 @router.get("/provision/skus")
 def list_skus(user: dict = Depends(require_hr_write)):
     token = _graph_token()
@@ -577,8 +600,13 @@ def list_skus(user: dict = Depends(require_hr_write)):
     for s in resp.json().get("value", []):
         total = s.get("prepaidUnits", {}).get("enabled", 0)
         used  = s.get("consumedUnits", 0)
-        out.append({"skuId": s.get("skuId"), "skuPartNumber": s.get("skuPartNumber"),
+        part  = s.get("skuPartNumber") or ""
+        out.append({"skuId": s.get("skuId"), "skuPartNumber": part,
+                    "displayName": _SKU_NAMES.get(part, part.replace("_", " ").title()),
+                    "isDefault": part == _DEFAULT_SKU_PART,
                     "available": max(0, total - used), "total": total})
+    # Default first, then named products, then the rest — all alphabetical
+    out.sort(key=lambda s: (not s["isDefault"], s["skuPartNumber"] not in _SKU_NAMES, s["displayName"].lower()))
     return out
 
 

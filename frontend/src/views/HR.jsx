@@ -237,8 +237,12 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   useEffect(() => {
-    api.getProvisionSkus().then(rows => { setSkus(rows); const first = rows.find(s => s.available > 0); if (first) setSku(first.skuId); })
-      .catch(err => { setSkus([]); toastErr(err?.message || 'Could not load licenses.'); });
+    api.getProvisionSkus().then(rows => {
+      setSkus(rows);
+      // Default to the standard new-hire license (Business Basic) when in stock
+      const pick = rows.find(s => s.isDefault && s.available > 0) || rows.find(s => s.available > 0);
+      if (pick) setSku(pick.skuId);
+    }).catch(err => { setSkus([]); toastErr(err?.message || 'Could not load licenses.'); });
   }, [toastErr]);
 
   async function run() {
@@ -273,7 +277,7 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
             {skus === null ? <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /> : (
               <select className="form-input" style={{ width: '100%' }} value={sku} onChange={ev => setSku(ev.target.value)}>
                 <option value="">— no license (no mailbox) —</option>
-                {skus.map(s => <option key={s.skuId} value={s.skuId} disabled={s.available <= 0}>{s.skuPartNumber} ({s.available} free)</option>)}
+                {skus.map(s => <option key={s.skuId} value={s.skuId} disabled={s.available <= 0}>{s.displayName || s.skuPartNumber} ({s.available} free{s.isDefault ? ' · standard' : ''})</option>)}
               </select>
             )}
           </>) : (<>
