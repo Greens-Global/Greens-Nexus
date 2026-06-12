@@ -1515,11 +1515,14 @@ html { overflow-x: hidden; }
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  /* adidas-style entrance: the whole panel slides in from the left */
-  animation: menuIn 0.34s cubic-bezier(.16,1,.3,1);
+  /* adidas-style entrance: the whole panel slides in from the left —
+     long enough to actually read as a slide, not a blink */
+  animation: menuIn 0.45s cubic-bezier(.32,.72,0,1);
 }
+.mobile-menu.closing { animation: menuOut 0.36s cubic-bezier(.55,0,.85,.36) forwards; }
 @media (min-width: 901px) { .mobile-menu { display: none; } }
 @keyframes menuIn { from { transform: translateX(-100%); } to { transform: none; } }
+@keyframes menuOut { from { transform: none; } to { transform: translateX(-100%); } }
 
 .mobile-menu-head { display: flex; align-items: center; justify-content: center; position: relative; padding: 18px 16px 12px; }
 .mobile-menu-brand { font-weight: 800; letter-spacing: 0.22em; font-size: 16px; }

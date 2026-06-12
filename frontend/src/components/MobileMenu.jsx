@@ -87,9 +87,17 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
 
   const [subPanel,   setSubPanel]   = useState(null); // { view, label }
   const [subClosing, setSubClosing] = useState(false);
-  useEffect(() => { if (!open) { setSubPanel(null); setSubClosing(false); } }, [open]);
+  const [closing,    setClosing]    = useState(false);
+  useEffect(() => { if (!open) { setSubPanel(null); setSubClosing(false); setClosing(false); } }, [open]);
 
   if (!open) return null;
+
+  // X slides the whole menu back out to the left before unmounting
+  // (a transformed ancestor carries the fixed submenu along with it)
+  const requestClose = () => {
+    setClosing(true);
+    setTimeout(onClose, 340);
+  };
 
   const subsFor = view => {
     const entry = SUBMENUS[view];
@@ -111,10 +119,10 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
   };
 
   return (
-    <div className="mobile-menu" role="dialog" aria-modal="true" aria-label="Menu">
+    <div className={`mobile-menu${closing ? ' closing' : ''}`} role="dialog" aria-modal="true" aria-label="Menu">
       <div className="mobile-menu-head">
         <div className="mobile-menu-brand">NEXUS</div>
-        <button className="mobile-menu-close" onClick={onClose} aria-label="Close menu"><X size={22} /></button>
+        <button className="mobile-menu-close" onClick={requestClose} aria-label="Close menu"><X size={22} /></button>
       </div>
       <div className="mobile-menu-user">
         <div className="mobile-menu-avatar">{initials}</div>
@@ -153,7 +161,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
           <div className="mobile-submenu-head">
             <button className="mobile-submenu-back" onClick={closeSub} aria-label="Back"><ChevronLeft size={22} /></button>
             <div className="mobile-submenu-title">{subPanel.label}</div>
-            <button className="mobile-menu-close" onClick={onClose} aria-label="Close menu"><X size={22} /></button>
+            <button className="mobile-menu-close" onClick={requestClose} aria-label="Close menu"><X size={22} /></button>
           </div>
           <div className="mobile-menu-rows">
             {subPanel.subs.map(s => (
