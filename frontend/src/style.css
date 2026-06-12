@@ -1754,3 +1754,42 @@ html { overflow-x: hidden; }
   .form-input { border-color: transparent; background: var(--mist); }
   .form-input:focus { border-color: var(--line); }
 }
+
+/* ── Minimal design language, app-wide on phones (Visesh) ───────────────────
+   Every card in the app draws from the same shadow/line tokens - redefining
+   them at the phone breakpoint flattens ALL cards at once: hairline borders,
+   no drop shadows, flat KPI cards with a thin accent edge, quiet filled
+   buttons. Desktop keeps the full treatment. */
+@media (max-width: 640px) {
+  :root {
+    --shadow-sm: none;
+    --shadow-md: 0 1px 3px rgba(0,0,0,0.06);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+    --line: rgba(0,0,0,0.06);
+  }
+  [data-theme="dark"] { --line: rgba(255,255,255,0.07); }
+
+  /* KPI cards: flat fill + thin accent edge instead of gradients */
+  .kpi-card, .kpi-card.card-green, .kpi-card.card-blue, .kpi-card.card-orange, .kpi-card.card-red {
+    background: var(--mist) !important;
+    border: none !important;
+    border-left: 3px solid var(--line) !important;
+    border-radius: 12px;
+    padding: 12px 14px;
+  }
+  .kpi-card.card-green  { border-left-color: hsl(var(--color-green)) !important; }
+  .kpi-card.card-blue   { border-left-color: hsl(var(--color-blue)) !important; }
+  .kpi-card.card-orange { border-left-color: hsl(var(--color-orange)) !important; }
+  .kpi-card.card-red    { border-left-color: hsl(var(--color-red)) !important; }
+  .kpi-value { font-size: 20px; margin: 4px 0 0; }
+  .kpi-label { font-size: 10px; }
+
+  /* Quiet secondary buttons - filled, borderless (matches the inputs) */
+  .secondary-btn { border-color: transparent; background: var(--mist); }
+
+  /* Hover-lift animations are desktop affordances */
+  .kpi-card:hover, .facility-card:hover, .support-card:hover, .motion-card:hover {
+    transform: none;
+    box-shadow: none;
+  }
+}
