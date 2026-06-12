@@ -351,6 +351,7 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
 function EmployeeDetail({ e, employees, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated }) {
   const [provisionOpen, setProvisionOpen] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [welcomeBusy, setWelcomeBusy] = useState(false);
   const sm = STATUS_META[e.status] || STATUS_META.active;
 
   async function uploadPhoto(file) {
@@ -407,7 +408,21 @@ function EmployeeDetail({ e, employees, onEdit, onBack, isMobile, toastOk, toast
             <CheckCircle size={13} /> Provision accounts
           </button>
         ) : (
-          <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))' }}>M365 ✓</span>
+          <>
+            <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))' }}>M365 ✓</span>
+            {e.personalEmail && (
+              <button className="secondary-btn" disabled={welcomeBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}
+                title="Send the branded welcome email to their personal address again"
+                onClick={async () => {
+                  setWelcomeBusy(true);
+                  try { const r = await api.resendWelcome(e.id); toastOk(`Welcome email sent to ${r.sentTo}.`); }
+                  catch (err) { toastErr(err?.message || 'Could not send welcome email.'); }
+                  setWelcomeBusy(false);
+                }}>
+                {welcomeBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Mail size={13} />} Resend welcome
+              </button>
+            )}
+          </>
         )}
       </div>
       <div style={{ marginTop: 14 }}>

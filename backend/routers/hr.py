@@ -731,19 +731,9 @@ def provision_employee(eid: str, body: ProvisionIn, user: dict = Depends(require
     #    the temp password is returned ONCE to the HR user who clicked)
     if user_id and emp.personal_email and os.getenv("NEXUS_FROM_EMAIL"):
         try:
-            resp = httpx.post(f"{_GRAPH}/users/{os.getenv('NEXUS_FROM_EMAIL')}/sendMail",
-                              headers={"Authorization": f"Bearer {token}"}, json={
-                "message": {
-                    "subject": "Welcome to Greens Global — your account is ready",
-                    "body": {"contentType": "Text", "content":
-                             f"Hi {emp.first_name},\n\nYour Greens Global account ({upn}) has been created. "
-                             "HR will share your temporary password separately — you'll be asked to change it on first sign-in.\n\n"
-                             "Sign in at https://office.com\n\n— Greens Nexus"},
-                    "toRecipients": [{"emailAddress": {"address": emp.personal_email}}],
-                }, "saveToSentItems": False}, timeout=20)
-            steps["welcome_email"].status = "ok" if resp.is_success else "failed"
-            if not resp.is_success:
-                steps["welcome_email"].detail = resp.text[:300]
+            ok, detail = _send_welcome(emp, upn, token)
+            steps["welcome_email"].status = "ok" if ok else "failed"
+            steps["welcome_email"].detail = f"Sent to {emp.personal_email}" if ok else detail
         except Exception as e:
             steps["welcome_email"].status = "failed"
             steps["welcome_email"].detail = str(e)[:400]
@@ -844,3 +834,102 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
             updated += 1
     db.commit()
     return {"linked": linked, "updated": updated, "notInTenant": missing, "checked": len(rows)}
+
+
+# ── Welcome email — branded, warm, role-aware (not the old two-liner) ────────
+
+def _welcome_html(emp: NexusEmployee, upn: str) -> str:
+    from html import escape
+    first = escape(emp.first_name)
+    role_line = " · ".join(x for x in (emp.job_title, emp.department) if x)
+    detail_rows = "".join(
+        f"<tr><td style='padding:7px 0;font-size:12px;color:#6b7280;width:140px;text-transform:uppercase;letter-spacing:.05em;font-weight:700'>{label}</td>"
+        f"<td style='padding:7px 0;font-size:14px;color:#111827;font-weight:600'>{escape(value)}</td></tr>"
+        for label, value in (
+            ("Your name", f"{emp.first_name} {emp.last_name}".strip()),
+            ("Role", role_line or "—"),
+            ("Work email", upn),
+            ("Start date", emp.start_date or "We'll confirm shortly"),
+            ("Location", emp.location or ""),
+        ) if value
+    )
+    return f"""<div style="background:#f4f5f7;padding:32px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
+  <table align="center" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;border:1px solid #e5e7eb;border-collapse:separate;overflow:hidden">
+    <tr>
+      <td style="background:#0f3d2e;padding:34px 36px 30px;text-align:center">
+        <div style="color:#ffffff;font-size:18px;font-weight:700;letter-spacing:6px">NEXUS</div>
+        <div style="color:#9fd6b8;font-size:11px;letter-spacing:2px;margin-top:4px">GREENS GLOBAL</div>
+        <div style="color:#ffffff;font-size:26px;font-weight:800;margin-top:22px;line-height:1.3">Welcome aboard, {first}! 🎉</div>
+        <div style="color:#cde9d9;font-size:14px;margin-top:8px">We're genuinely glad you're here.</div>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:30px 36px 6px">
+        <p style="margin:0 0 14px;font-size:14.5px;line-height:1.7;color:#1f2937">
+          On behalf of everyone at <strong>Greens Global</strong> — welcome to the team{f" as our new <strong>{escape(emp.job_title)}</strong>" if emp.job_title else ""}!
+          We've been looking forward to this, and your tools are already set up and waiting for you.
+        </p>
+        <p style="margin:0 0 18px;font-size:14.5px;line-height:1.7;color:#1f2937">
+          Your company account gives you email, Teams, and the Greens&nbsp;Nexus portal — the home for
+          everything from equipment requests to time off. Here's everything you need for day one:
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f7f3;border:1px solid #cde9d9;border-radius:12px;border-collapse:separate;margin-bottom:20px">
+          <tr><td style="padding:16px 20px 8px">
+            <div style="font-size:11px;font-weight:800;letter-spacing:.08em;color:#0f3d2e;margin-bottom:4px">YOUR DETAILS</div>
+            <table cellpadding="0" cellspacing="0" width="100%">{detail_rows}</table>
+          </td></tr>
+        </table>
+        <div style="font-size:11px;font-weight:800;letter-spacing:.08em;color:#0f3d2e;margin-bottom:10px">YOUR FIRST STEPS</div>
+        <table cellpadding="0" cellspacing="0" width="100%" style="margin-bottom:6px">
+          <tr><td style="padding:6px 0;font-size:14px;line-height:1.65;color:#1f2937"><strong>1.</strong>&nbsp; Go to <a href="https://office.com" style="color:#15803d;font-weight:600">office.com</a> and sign in with <strong>{upn}</strong>.</td></tr>
+          <tr><td style="padding:6px 0;font-size:14px;line-height:1.65;color:#1f2937"><strong>2.</strong>&nbsp; Use the temporary password HR shares with you directly — you'll be asked to set your own right away. (We never email passwords.)</td></tr>
+          <tr><td style="padding:6px 0;font-size:14px;line-height:1.65;color:#1f2937"><strong>3.</strong>&nbsp; Open <strong>Outlook</strong> for email and <strong>Teams</strong> to say hi — your team is expecting you.</td></tr>
+          <tr><td style="padding:6px 0;font-size:14px;line-height:1.65;color:#1f2937"><strong>4.</strong>&nbsp; Keep an eye on your inbox — your manager will reach out with your first-week plan, and anything you need (laptop, tools, access) gets arranged through Greens&nbsp;Nexus.</td></tr>
+        </table>
+        <p style="margin:18px 0 6px;font-size:14.5px;line-height:1.7;color:#1f2937">
+          Questions before your first day? Just reply to HR or reach out to your manager — there's no such
+          thing as a silly question in week one.
+        </p>
+        <p style="margin:14px 0 24px;font-size:14.5px;line-height:1.7;color:#1f2937">
+          We can't wait to see what you'll do here. Once again — <strong>welcome to Greens Global!</strong><br>
+          <span style="color:#6b7280">— The Greens Global Team</span>
+        </p>
+      </td>
+    </tr>
+    <tr>
+      <td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 36px;font-size:11.5px;color:#6b7280;line-height:1.5">
+        Sent via Greens Nexus. This mailbox isn't monitored — for help, contact HR or your manager directly.
+      </td>
+    </tr>
+  </table>
+</div>"""
+
+
+def _send_welcome(emp: NexusEmployee, upn: str, token: str) -> tuple:
+    """Send the branded welcome to the personal email. Returns (ok, detail)."""
+    sender = os.getenv("NEXUS_FROM_EMAIL", "")
+    if not (emp.personal_email and sender):
+        return False, "no personal email on file" if not emp.personal_email else "NEXUS_FROM_EMAIL not set"
+    resp = httpx.post(f"{_GRAPH}/users/{sender}/sendMail",
+                      headers={"Authorization": f"Bearer {token}"}, json={
+        "message": {
+            "subject": f"Welcome to Greens Global, {emp.first_name} — we're glad you're here!",
+            "body": {"contentType": "HTML", "content": _welcome_html(emp, upn)},
+            "toRecipients": [{"emailAddress": {"address": emp.personal_email}}],
+        }, "saveToSentItems": False}, timeout=20)
+    return resp.is_success, ("" if resp.is_success else resp.text[:300])
+
+
+@router.post("/employees/{eid}/welcome-email")
+def resend_welcome(eid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    if not emp.work_email:
+        raise HTTPException(400, "Employee has no work email yet — provision first")
+    if not emp.personal_email:
+        raise HTTPException(400, "Employee has no personal email on file")
+    ok, detail = _send_welcome(emp, emp.work_email, _graph_token())
+    if not ok:
+        raise HTTPException(502, f"Send failed: {detail}")
+    return {"ok": True, "sentTo": emp.personal_email}
