@@ -3189,7 +3189,7 @@ function OverdueAlertModal({ checkouts, onClose, toast, onCustomAlert }) {
   async function handleSend() {
     if (!sendable.length || sending) return;
     setSending(true);
-    let failed = 0, emailFailed = 0;
+    let failed = 0, emailFailed = 0, emailErr = '';
     for (const g of sendable) {
       const lines = g.items.map(({ co, daysLeft }) => {
         const od = Math.abs(daysLeft);
@@ -3203,12 +3203,12 @@ function OverdueAlertModal({ checkouts, onClose, toast, onCustomAlert }) {
           subject: `Overdue: ${g.items.length} item${g.items.length !== 1 ? 's' : ''} to return`,
           message,
         });
-        if (!res.email_sent) emailFailed++;
+        if (!res.email_sent) { emailFailed++; emailErr = res.email_errors?.[0] || emailErr; }
       } catch { failed++; }
     }
     setSending(false);
     if (failed) toast?.(`Alerted ${sendable.length - failed} of ${sendable.length} people · ${failed} failed.`, 'error');
-    else if (emailFailed) toast?.(`Bell alerts sent to ${sendable.length} — email delivery failed for ${emailFailed} (check Azure config).`, 'error');
+    else if (emailFailed) toast?.(`Bell alerts sent to ${sendable.length} — email did NOT go out${emailErr ? `: ${emailErr.slice(0, 160)}` : ' (check Azure config).'}`, 'error');
     else toast?.(`Overdue alert sent to ${sendable.length} ${sendable.length !== 1 ? 'people' : 'person'} (bell + email).`);
     onClose();
   }

@@ -762,16 +762,24 @@ export default function NotificationBell({ onNavigate }) {
               </div>
               {groupByRequest(updates).map(({ key, primary: n, trail }) => {
                 const meta = TYPE_META[n.type] ?? TYPE_META['approved'];
+                // Manager alerts must not read like routine lifecycle updates —
+                // orange card + ALERT chip, subject bold, body in full ink
+                const isAlert = n.type === 'custom_alert';
                 return (
                   <div key={key}
-                    style={{ padding: '16px 24px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 14, alignItems: 'flex-start', background: n.read ? 'transparent' : 'hsla(var(--color-blue),0.04)', cursor: 'pointer', opacity: n.read ? 0.7 : 1 }}
+                    style={{ padding: '16px 24px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 14, alignItems: 'flex-start', background: isAlert ? 'hsla(var(--color-orange),0.07)' : n.read ? 'transparent' : 'hsla(var(--color-blue),0.04)', boxShadow: isAlert ? 'inset 3px 0 0 hsl(var(--color-orange))' : 'none', cursor: 'pointer', opacity: n.read ? 0.7 : 1 }}
                     onClick={() => handleUpdateClick(n)}>
-                    <div style={{ width: 38, height: 38, borderRadius: 10, background: `hsla(${meta.color},0.12)`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <div style={{ width: 38, height: 38, borderRadius: 10, background: `hsla(${meta.color},${isAlert ? 0.18 : 0.12})`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       <meta.icon size={17} color={`hsl(${meta.color})`} />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
+                      {isAlert && (
+                        <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 800, letterSpacing: '.08em', color: 'hsl(var(--color-orange))', background: 'hsla(var(--color-orange),0.15)', borderRadius: 999, padding: '2px 8px', marginBottom: 4 }}>
+                          ⚠ ALERT
+                        </span>
+                      )}
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                        <span style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--ink)' }}>{n.title}</span>
+                        <span style={{ fontWeight: 700, fontSize: isAlert ? 15 : 14.5, color: 'var(--ink)' }}>{n.title}</span>
                         <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>{timeAgo(n.timestamp)}</span>
                       </div>
                       {trail.length > 0 && (
@@ -795,7 +803,7 @@ export default function NotificationBell({ onNavigate }) {
                           )}
                         </div>
                       )}
-                      <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '4px 0 0', lineHeight: 1.45, whiteSpace: 'pre-line' }}>{renderNotifBody(n.body)}</p>
+                      <p style={{ fontSize: 13.5, color: isAlert ? 'var(--ink)' : 'var(--muted)', margin: '4px 0 0', lineHeight: 1.45, whiteSpace: 'pre-line' }}>{renderNotifBody(n.body)}</p>
                       {n.action && n.action.kind === 'allocate' && (
                         <button
                           onClick={e => { e.stopPropagation(); handleInlineAllocate(n); }}

@@ -205,7 +205,14 @@ def send_alert(body: AlertIn, user: dict = Depends(get_current_user), db: Sessio
     name_map  = {r.email.lower(): (r.display_name or r.email) for r in role_rows}
 
     email_errors = []
-    if _NEXUS_FROM_EMAIL and _AZURE_CLIENT_SECRET:
+    if not (_NEXUS_FROM_EMAIL and _AZURE_CLIENT_SECRET):
+        # Without this the response claimed email_sent=true while never even
+        # attempting delivery — the UI showed success and nothing arrived.
+        email_errors.append(
+            "Email not configured: set AZURE_CLIENT_SECRET and NEXUS_FROM_EMAIL "
+            "env vars (and grant the Entra app the Mail.Send application permission)"
+        )
+    else:
         try:
             token = _graph_token()
             html_body = f"<p>{body.message.replace(chr(10), '<br>')}</p><hr><p style='font-size:12px;color:#666'>Sent via Greens Nexus by {user.get('name', user['email'])}</p>"
