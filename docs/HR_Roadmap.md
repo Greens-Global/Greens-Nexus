@@ -9,7 +9,7 @@
 >
 > Sources: Neil's "Greens Global — People Platform" mockup (Jun 2026),
 > Busacta HR teardown, Rippling/BambooHR research, Nexus build sessions.
-> Status: ✅ built · 🟡 partial · ❌ not started   (last updated 2026-06-13)
+> Status: ✅ built · 🟡 partial · ❌ not started   (last updated 2026-06-13, evening)
 
 ---
 
@@ -19,12 +19,14 @@
 |---|---|---|
 | ✅ | Employee master records, GG-### codes, status lifecycle (onboarding/active/inactive/left) | built |
 | ✅ | People directory (master–detail, filters, counts strip) | built |
-| ✅ | Org chart (reports-to tree, connector lines, unlinked bucket) | built |
+| ✅ | Org chart (reports-to tree, connector lines, unlinked bucket, **drag-and-drop reassignment** with loop protection + clear-line drop zone; edit-modal picker is the touch fallback) | built |
 | ✅ | Profile photo upload (public-read bucket, backend-only writes) | built |
 | ✅ | Private documents (hr-docs bucket, 5-min signed URLs) | built |
 | ✅ | Hiring pipeline (stage kanban, history, hired → auto-creates employee) | built |
-| ✅ | M365 provisioning (account, license→mailbox, manager attr, welcome mail, run/step log, one-time temp password) | built |
-| ✅ | Leave v1 (requests, approve/reject, computed balances, bell notifications) | built |
+| ✅ | M365 provisioning — account, **multi-license set** (admin-center-style checkboxes, friendly SKU names, Business Basic pre-ticked as standard), **usage location** (US/IN), manager attr, office field, run/step log, one-time temp password | built |
+| ✅ | **Branded welcome email** (hero, details card, first steps; no passwords ever) + Resend-welcome button on provisioned profiles | built |
+| ✅ | **Sync from M365** — links existing accounts by work email, backfills empty phone/title/office, **unlinks accounts deleted in the admin center** | built |
+| ✅ | Leave v1 (requests, approve/reject, computed balances; new request notifies the manager, decision notifies the employee, stage moves notify the candidate owner) | built |
 | ❌ | **Companies/entities table** — Greens, Greens India, MCD, Oversite: legal name, EIN/GSTIN, registered address, logo, authorized signatory; `company` field on every worker | Neil |
 | ❌ | **Contractor worker type** — SOW, scope, contract end date, hourly/fixed-fee rate, engagement area, billing client | Neil |
 | ❌ | Work sites registry (name, address, lat/long, geofence radius) | Neil |
@@ -41,7 +43,7 @@
 | ❌ | Right-to-work & compliance: passport / national ID / visa scans, verification status, expiry reminders, consent checklist | Neil |
 | ❌ | Emergency contact, addresses, DOB, masked IDs | Rippling |
 | ❌ | Inline "Change status" flow (with reason + date) | Busacta |
-| ❌ | Sync from M365 (phone/title/photo backfill) + push profile changes back to Entra | Visesh |
+| 🟡 | Sync from M365 — phone/title/office backfill ✅; photo backfill ❌; **push profile changes back to Entra** ❌ | Visesh |
 
 ## C. Hiring, e-sign, onboarding & offboarding
 
