@@ -1489,8 +1489,126 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
   );
 }
 
+// ── Batch Re-Request Modal ────────────────────────────────────────────────────
+// Past Checkouts → tick rows → request them all again as ONE fresh order
+// (Neil: construction crews check out the same items over and over).
+function BatchReRequestModal({ checkouts, onClose, onSubmit }) {
+  const [reason,        setReason]        = useState('');
+  const [approvers,     setApprovers]     = useState([]);
+  const [approverEmail, setApproverEmail] = useState('');
+  const [busy,          setBusy]          = useState(false);
+  const [error,         setError]         = useState('');
+  useEscapeKey(onClose);
+
+  // Same defaulting as the cart: last-used manager, else the usual manager
+  // for these items' departments
+  useEffect(() => {
+    api.getItemApprovers().then(rows => {
+      setApprovers(rows);
+      setApproverEmail(prev => {
+        if (prev) return prev;
+        const remembered = localStorage.getItem('nexus-approver-email');
+        if (remembered && rows.some(a => a.email === remembered)) return remembered;
+        const pseudoItems = checkouts.map(c => ({ department: c.department || TYPE_DEPT_FALLBACK[c.itemType] || '' }));
+        const pick = suggestAllocator(pseudoItems, rows);
+        return pick ? pick.email : '';
+      });
+    }).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const approver  = approvers.find(a => a.email === approverEmail) || null;
+  const canSubmit = reason.trim() && approver && !busy;
+
+  function submit() {
+    if (!canSubmit) return;
+    setBusy(true); setError('');
+    localStorage.setItem('nexus-approver-email', approver.email);
+    Promise.resolve(onSubmit({ reason: reason.trim(), approverEmail: approver.email, approverName: approver.name }))
+      .catch(err => { setError(err?.message || 'Could not submit the request.'); setBusy(false); });
+  }
+
+  return (
+    <div role="dialog" aria-modal="true"
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:440, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'85vh', overflowY:'auto' }}>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Request Again</h3>
+        <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:16 }}>
+          {checkouts.length} item{checkouts.length !== 1 ? 's' : ''} from your past checkouts will go in as one new request, each for the same number of days as last time.
+        </p>
+
+        <div style={{ border:'1px solid var(--line)', borderRadius:10, marginBottom:16, overflow:'hidden' }}>
+          {checkouts.map((c, idx) => (
+            <div key={c.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', borderTop: idx > 0 ? '1px solid var(--line)' : 'none' }}>
+              <span style={{ flex:1, minWidth:0, fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.itemName}</span>
+              <span style={{ fontSize:11.5, fontWeight:700, color:'hsl(var(--color-blue))', flexShrink:0 }}>{c.days || 1} day{(c.days || 1) !== 1 ? 's' : ''}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ marginBottom:16 }}>
+          <label style={FL}>WHO SHOULD APPROVE THIS? <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+          <select className="form-input" style={{ width:'100%' }} value={approverEmail} onChange={e => setApproverEmail(e.target.value)}>
+            <option value="">— select a manager —</option>
+            {approvers.map(a => <option key={a.email} value={a.email}>{a.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={FL}>REASON FOR CHECKOUT <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
+          <textarea rows={2} className="form-input" style={{ width:'100%', resize:'vertical', fontSize:13 }}
+            placeholder="Briefly explain why you need these items again…"
+            value={reason} onChange={e => setReason(e.target.value)} />
+        </div>
+        {error && <div style={{ marginTop:10, fontSize:12.5, color:'hsl(var(--color-red))' }}>{error}</div>}
+
+        <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:20 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="primary-btn" disabled={!canSubmit} onClick={submit}
+            style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+            {busy ? <Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> : <RotateCcw size={13} />}
+            Request {checkouts.length} Item{checkouts.length !== 1 ? 's' : ''} Again
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Shared by both views' My Checkouts panels: re-submit a set of past checkouts
+// as ONE fresh order (same days as before, new reason/approver). Mirrors
+// handleSubmitCart's success/failure reporting.
+async function runBatchReRequest(cos, { reason, approverEmail, approverName }, { submitCartCheckouts, userName, userEmail, toast }) {
+  const pseudoCart = cos.map(c => ({
+    id: c.id, days: c.days || 1,
+    item: { id: c.itemId, name: c.itemName, itemType: c.itemType, department: c.department },
+  }));
+  const results = await submitCartCheckouts(pseudoCart, { reason, raisedBy: userName, raisedByEmail: userEmail, approverEmail, approverName });
+  const okCount = results.filter(r => r.status === 'fulfilled').length;
+  const failed  = cos.filter((_, i) => results[i].status === 'rejected');
+  if (okCount > 0) {
+    toast(`${okCount} item${okCount !== 1 ? 's' : ''} requested again.`);
+    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'inventory', sub: 'active-checkouts' } }));
+  }
+  if (failed.length > 0) {
+    const allConflict = results.filter(r => r.status === 'rejected').every(r => r.reason?.message?.includes('active checkout'));
+    toast(
+      <div>
+        <div style={{ fontWeight:700, marginBottom:5 }}>
+          {failed.length} item{failed.length !== 1 ? 's' : ''} couldn't be requested
+        </div>
+        <ul style={{ margin:0, paddingLeft:16, display:'flex', flexDirection:'column', gap:2 }}>
+          {failed.map((c, i) => <li key={i} style={{ fontSize:12 }}>{c.itemName}</li>)}
+        </ul>
+        {allConflict && <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:5 }}>Each already has an active checkout request.</div>}
+      </div>,
+      'error'
+    );
+  }
+  if (okCount === 0) throw new Error('Nothing was submitted — each item already has an active request.');
+}
+
 // ── My Checkouts Panel ────────────────────────────────────────────────────────
-const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept, onConfirmReceipt, onReRequest, onReturnAll, onRequestExtension, assignments = [], refreshAssignments, toast, activeSub, photoOptionalIds = new Set() }) {
+const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, onEmployeeAccept, onConfirmReceipt, onReRequest, onBatchReRequest, onReturnAll, onRequestExtension, assignments = [], refreshAssignments, toast, activeSub, photoOptionalIds = new Set() }) {
   const mine = checkouts.filter(c =>
     (c.requestedByEmail && c.requestedByEmail.toLowerCase() === userEmail) ||
     c.requestedBy === userName
@@ -1502,6 +1620,9 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
   const [confirmingCo,    setConfirmingCo]    = useState(null);
   const [returnAllGroup,  setReturnAllGroup]  = useState(null);
   const [extendingCo,     setExtendingCo]     = useState(null);
+  // Past Checkouts batch re-request (Neil): row checkboxes → one new order
+  const [selectedPastIds,    setSelectedPastIds]    = useState(new Set());
+  const [batchReRequestOpen, setBatchReRequestOpen] = useState(false);
   const [panelTab,        setPanelTab]        = useState('active');
   // Deep-link: permanent-assignment notifications must land on the Permanent
   // tab, not Active Checkouts (Neil bug). Covers fresh mounts (activeSub prop)
@@ -1580,6 +1701,19 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
       : new Date(b.createdAt) - new Date(a.createdAt));
   const myDepts = ['All', ...Array.from(new Set(mine.map(c => c.department).filter(Boolean))).sort()];
   const myTypes = ['All', ...Array.from(new Set(mine.map(c => c.itemType).filter(Boolean))).sort()];
+
+  // Batch re-request: dedupe ticked rows by item — the same item often appears
+  // many times in history, but only one fresh request per item makes sense.
+  // Most recent row wins (its days carry over to the new request).
+  const batchItems = (() => {
+    const seen = new Set(); const out = [];
+    const newestFirst = [...completed].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    for (const c of newestFirst) {
+      if (!selectedPastIds.has(c.id) || seen.has(c.itemId)) continue;
+      seen.add(c.itemId); out.push(c);
+    }
+    return out;
+  })();
 
   // Group active checkouts by orderId so cart submissions appear as one block
   const activeGroups = (() => {
@@ -1872,12 +2006,38 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
           No past checkouts match these filters.
         </div>
       )}
+      {panelTab === 'past' && onBatchReRequest && selectedPastIds.size > 0 && (
+        <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap', marginBottom:12, padding:'10px 14px', borderRadius:10, border:'1px solid hsla(var(--color-green),0.35)', background:'hsla(var(--color-green),0.06)' }}>
+          <span style={{ fontSize:13, fontWeight:600 }}>
+            {batchItems.length} item{batchItems.length !== 1 ? 's' : ''} selected
+            {selectedPastIds.size > batchItems.length && <span style={{ color:'var(--muted)', fontWeight:500 }}> (repeats counted once)</span>}
+          </span>
+          <button onClick={() => setSelectedPastIds(new Set())}
+            style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', fontSize:12.5, fontFamily:'Inter,sans-serif', fontWeight:600, padding:'2px 4px' }}>
+            Clear
+          </button>
+          <button className="primary-btn" onClick={() => setBatchReRequestOpen(true)}
+            style={{ marginLeft:'auto', fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5, padding:'6px 14px' }}>
+            <RotateCcw size={13} /> Request Again ({batchItems.length})
+          </button>
+        </div>
+      )}
       {panelTab === 'past' && completedView.length > 0 && (
         <div style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', background:'var(--card)', boxShadow:'var(--shadow-sm)' }}>
           {completedView.slice(0, 50).map((c, idx) => {
             const sm = CHECKOUT_STATUS_META[c.status];
             return (
               <div key={c.id} style={{ borderTop: idx > 0 ? '1px solid var(--line)' : 'none', padding:'10px 16px', display:'flex', alignItems:'flex-start', gap:10, flexWrap:'wrap' }}>
+                {onBatchReRequest && (
+                  <input type="checkbox" checked={selectedPastIds.has(c.id)}
+                    onChange={() => setSelectedPastIds(prev => {
+                      const next = new Set(prev);
+                      next.has(c.id) ? next.delete(c.id) : next.add(c.id);
+                      return next;
+                    })}
+                    title="Select to request again"
+                    style={{ cursor:'pointer', accentColor:'var(--pine)', marginTop:3, flexShrink:0 }} />
+                )}
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontWeight:600, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.itemName}</div>
                   <div style={{ fontSize:11.5, color:'var(--muted)' }}>{fmtDate(c.createdAt)}</div>
@@ -1942,6 +2102,16 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
           checkout={extendingCo}
           onClose={() => setExtendingCo(null)}
           onSubmit={({ days, reason }) => onRequestExtension(extendingCo, days, reason)}
+        />
+      )}
+      {batchReRequestOpen && onBatchReRequest && (
+        <BatchReRequestModal
+          checkouts={batchItems}
+          onClose={() => setBatchReRequestOpen(false)}
+          onSubmit={vals => onBatchReRequest(batchItems, vals).then(() => {
+            setBatchReRequestOpen(false);
+            setSelectedPastIds(new Set());
+          })}
         />
       )}
     </div>
@@ -2292,6 +2462,8 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
       throw err; // panel must not clear the rejected card on failure
     }
   }
+  const handleBatchReRequest = (cos, vals) =>
+    runBatchReRequest(cos, vals, { submitCartCheckouts, userName, userEmail, toast });
 
   // ── Home screen ─────────────────────────────────────────────────────────────
   if (mode === 'home') {
@@ -2522,6 +2694,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
               photoOptionalIds={photoOptionalIds}
               assignments={assignments} refreshAssignments={refreshAssignments} toast={toast}
               onReturn={handleReturn} onCancel={handleCancel} onReRequest={handleReRequest}
+              onBatchReRequest={handleBatchReRequest}
               onConfirmReceipt={confirmReceipt ? (co, batch, photoMap) =>
                 confirmReceipt(co.id, userName, photoMap[co.id]?.url || '', photoMap[co.id]?.name || '')
                   .catch(() => { throw new Error(`Could not confirm receipt for ${co.itemName}.`); })
@@ -5099,6 +5272,9 @@ export default function InventoryManagement({ activeSub }) {
       throw err; // panel must not clear the rejected card on failure
     }
   }, [userEmail, userName, toast, refreshCheckouts]);
+  const handleBatchReRequest = useCallback((cos, vals) =>
+    runBatchReRequest(cos, vals, { submitCartCheckouts, userName, userEmail, toast }),
+    [submitCartCheckouts, userName, userEmail, toast]);
 
   if (roleLoading) return <SkeletonBlocks count={6} height={56} borderRadius={10} />;
 
@@ -5258,6 +5434,7 @@ export default function InventoryManagement({ activeSub }) {
             onReturnAll={handleReturnAll}
             onRequestExtension={handleRequestExtension}
             onReRequest={handleReRequest}
+            onBatchReRequest={handleBatchReRequest}
           />
           {myTotalCount === 0 && (
             <div style={{ textAlign:'center', padding:'64px 20px', color:'var(--muted)' }}>

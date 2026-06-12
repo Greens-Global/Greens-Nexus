@@ -1797,6 +1797,13 @@ html { overflow-x: hidden; }
   }
 }
 
+/* Phone: flat page background — the ambient 145° gradient reads as a darker
+   band down the right side of the screen (Neil, Jun 12: "harder to see").
+   var(--paper) is what the sticky tab strips already use, so they blend in. */
+@media (max-width: 900px) {
+  body { background: var(--paper); }
+}
+
 /* Tasks on phones: stat cards 2-up, task cards stack vertically with the
    chips + action icons sharing a bottom row (was a desktop flex row that
    crushed titles into one-word columns and pushed actions off-screen) */
