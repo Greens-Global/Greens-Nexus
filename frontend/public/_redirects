@@ -1,0 +1,2 @@
+# SPA fallback: every path serves the app shell; the client router takes over
+/* /index.html 200

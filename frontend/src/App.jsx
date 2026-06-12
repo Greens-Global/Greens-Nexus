@@ -127,9 +127,31 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
   }
 }
 
+// URL ↔ screen sync: the address bar mirrors navigation state
+// (dev.nexus…/inventory/checkouts) so links are shareable and back/forward
+// work. State stays the source of truth; these just translate.
+function parsePath() {
+  const segs = window.location.pathname.split('/').filter(Boolean);
+  return { view: segs[0] || 'dashboard', sub: segs[1] || null };
+}
+
+const DEFAULT_SUBS = {
+  sop:               "index",
+  it:                "network",
+  ops:               "ops-dashboard",
+  operations:        "fms",
+  development:       "dev-permits",
+  "property-asset":  "asset-portfolio",
+  hr:                "hr-ms",
+  "investor-relations": "investor-dashboard",
+  marketing:         "marketing-ads",
+  accounting:        "transactions",
+};
+const getDefaultSub = view => DEFAULT_SUBS[view] ?? null;
+
 export default function App() {
-  const [activeView,       setActiveView]       = useState("dashboard");
-  const [activeSub,        setActiveSub]        = useState(null);
+  const [activeView,       setActiveView]       = useState(() => parsePath().view);
+  const [activeSub,        setActiveSub]        = useState(() => { const p = parsePath(); return p.sub ?? getDefaultSub(p.view); });
   const [theme,            setTheme]            = useState(() => localStorage.getItem("gg-theme") || "light");
   const [sidebarOpen,      setSidebarOpen]      = useState(false);
   const [mobileMenuOpen,   setMobileMenuOpen]   = useState(false);
@@ -196,21 +218,28 @@ export default function App() {
     setActiveSub(prev.sub);
   }
 
-  function getDefaultSub(view) {
-    const defaults = {
-      sop:               "index",
-      it:                "network",
-      ops:               "ops-dashboard",
-      operations:        "fms",
-      development:       "dev-permits",
-      "property-asset":  "asset-portfolio",
-      hr:                "hr-ms",
-      "investor-relations": "investor-dashboard",
-      marketing:         "marketing-ads",
-      accounting:        "transactions",
+  // Browser back/forward → state (flag stops the mirror-effect below from
+  // pushing a duplicate history entry for the same move)
+  const fromPopstate = useRef(false);
+  useEffect(() => {
+    const onPop = () => {
+      const { view, sub } = parsePath();
+      fromPopstate.current = true;
+      setActiveView(view);
+      setActiveSub(sub ?? getDefaultSub(view));
     };
-    return defaults[view] ?? null;
-  }
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  // State → address bar
+  useEffect(() => {
+    if (fromPopstate.current) { fromPopstate.current = false; return; }
+    const path = activeView === 'dashboard' && !activeSub
+      ? '/'
+      : `/${activeView}${activeSub ? `/${activeSub}` : ''}`;
+    if (window.location.pathname !== path) window.history.pushState(null, '', path);
+  }, [activeView, activeSub]);
 
   return (
     <>
