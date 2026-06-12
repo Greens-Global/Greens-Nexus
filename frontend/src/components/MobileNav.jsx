@@ -1,6 +1,19 @@
 import { useState, useEffect } from 'react';
-import { Menu, Package, User, ClipboardList, ShoppingCart, Users, FileText, History } from 'lucide-react';
+import {
+  Menu, Package, User, ClipboardList, ShoppingCart, Users, FileText, History,
+  Building2, Plug, ListChecks, FileCheck, Shield, ClipboardCheck, Folder,
+  MessageSquare, PackageSearch, Calendar, Circle,
+} from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
+
+// Icons for broadcast (dynamic) actions, keyed by action id — keeps the bar
+// visually identical whether actions are static or registered by a view.
+const DYN_ICONS = {
+  overview: Building2, utilities: Plug, timeline: ListChecks, permit: FileCheck,
+  documents: FileText, warranties: Shield, inspections: ClipboardCheck,
+  workload: Users, projects: Folder, actions: MessageSquare,
+  'who-has-what': PackageSearch, calendar: Calendar,
+};
 
 // Phone bottom bar (Visesh's design): ONLY the current screen's actions on
 // the left + Menu pinned right. No global shortcuts — all navigation between
@@ -43,12 +56,16 @@ export default function MobileNav({ activeView, activeSub, onMenu }) {
   return (
     <nav className="mobile-nav">
       <div className="mobile-nav-actions">
-        {dynActions ? dynActions.map(a => (
-          <button key={a.id} className={`mobile-nav-item no-icon${a.active ? ' active' : ''}`}
-            onClick={() => window.dispatchEvent(new CustomEvent('nexus:mobile-action', { detail: { id: a.id } }))}>
-            <span>{a.label}</span>
-          </button>
-        )) : actions && actions.map(a => (
+        {dynActions ? dynActions.map(a => {
+          const Icon = DYN_ICONS[a.id] || Circle;
+          return (
+            <button key={a.id} className={`mobile-nav-item${a.active ? ' active' : ''}`}
+              onClick={() => window.dispatchEvent(new CustomEvent('nexus:mobile-action', { detail: { id: a.id } }))}>
+              <Icon size={20} />
+              <span>{a.label}</span>
+            </button>
+          );
+        }) : actions && actions.map(a => (
           <button key={a.sub} className={`mobile-nav-item${activeSub === a.sub ? ' active' : ''}`}
             onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: activeView, sub: a.sub } }))}>
             <a.Icon size={20} />

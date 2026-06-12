@@ -1839,3 +1839,10 @@ html { overflow-x: hidden; }
 @media (max-width: 640px) {
   .md-tabs { display: none !important; }
 }
+
+/* Phone guard: any inline card grid demanding a >=300px column minimum is
+   wider than a phone - collapse such grids to one column. Catches the
+   PropertyAsset summary cards (minmax 320/340) and any future offender. */
+@media (max-width: 640px) {
+  [style*="minmax(3"] { grid-template-columns: 1fr !important; }
+}
