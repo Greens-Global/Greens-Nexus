@@ -71,6 +71,8 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
         <button className="mobile-toggle" onClick={onMobileToggle} aria-label="Toggle Sidebar">
           <Menu style={{ width: 18, height: 18 }} />
         </button>
+        {/* Phone-only centered wordmark (desktop hides it) — tap = home */}
+        <button className="header-brand" onClick={() => onNavigate('dashboard')} aria-label="Go to Dashboard">NEXUS</button>
         <div className="breadcrumb">
           {canGoBack && (
             <button className="breadcrumb-back" onClick={onBack} title={`Back to ${prevLabel}`}>

@@ -1483,11 +1483,13 @@ html { overflow-x: hidden; }
 /* ── adidas-style mobile chrome ──────────────────────────────────────────────
    Phones get an icon-driven header (hamburger | centered brand | bell/avatar)
    and a FULL-SCREEN menu with big tappable rows. Desktop untouched. */
+.header-brand { display: none; }
 @media (max-width: 900px) {
   .top-header { justify-content: flex-start; }
   .breadcrumb { display: none; }
-  .top-header::before {
-    content: 'NEXUS';
+  /* Centered wordmark is a real button — tapping it goes home */
+  .header-brand {
+    display: block;
     position: absolute;
     left: 50%;
     transform: translateX(-50%);
@@ -1495,7 +1497,11 @@ html { overflow-x: hidden; }
     letter-spacing: 0.22em;
     font-size: 14px;
     color: var(--ink);
-    pointer-events: none;
+    background: none;
+    border: none;
+    font-family: inherit;
+    padding: 8px 10px;
+    cursor: pointer;
   }
   .header-right { margin-left: auto; }
 }
@@ -1762,10 +1768,11 @@ html { overflow-x: hidden; }
   }
   [data-theme="dark"] { --line: rgba(255,255,255,0.07); }
 
-  /* KPI cards: flat fill + thin accent edge instead of gradients */
+  /* KPI cards: plain WHITE, no gradients/tints (Visesh) — hairline border
+     plus the thin accent edge is all the decoration phones get */
   .kpi-card, .kpi-card.card-green, .kpi-card.card-blue, .kpi-card.card-orange, .kpi-card.card-red {
-    background: var(--mist) !important;
-    border: none !important;
+    background: var(--card) !important;
+    border: 1px solid var(--line) !important;
     border-left: 3px solid var(--line) !important;
     border-radius: 12px;
     padding: 12px 14px;
