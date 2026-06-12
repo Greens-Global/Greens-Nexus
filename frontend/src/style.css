@@ -2100,8 +2100,11 @@ button, [role="button"], select { touch-action: manipulation; }
 .org-tree li:first-child::before, .org-tree li:last-child::after { border-top: 0 none; }
 .org-tree li:last-child::before  { border-right: 2px solid var(--sage); border-radius: 0 8px 0 0; }
 .org-tree li:first-child::after  { border-radius: 8px 0 0 0; }
+/* Nested lists get their own 26px band for the parent drop-line — without it
+   the ::before painted upward INTO the parent card (lines crossed the cards) */
+.org-tree li > ul { padding-top: 26px; }
 .org-tree li > ul::before {
-  content: ''; position: absolute; top: -26px; left: 50%; width: 0; height: 26px;
+  content: ''; position: absolute; top: 0; left: 50%; width: 0; height: 26px;
   border-left: 2px solid var(--sage);
 }
 /* roots: no inbound connectors */

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   Users, Plus, Search, X, Loader2, Mail, Phone, Briefcase, MapPin,
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
-  CheckCircle, XCircle, ChevronRight, History, CalendarDays,
+  CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -321,7 +321,21 @@ function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
 // ── Profile detail pane ───────────────────────────────────────────────────────
 function EmployeeDetail({ e, employees, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated }) {
   const [provisionOpen, setProvisionOpen] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
   const sm = STATUS_META[e.status] || STATUS_META.active;
+
+  async function uploadPhoto(file) {
+    if (!file || photoBusy) return;
+    setPhotoBusy(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const updated = await api.uploadEmployeePhoto(e.id, form);
+      onEmployeeUpdated(updated);
+      toastOk('Profile photo updated.');
+    } catch (err) { toastErr(err?.message || 'Photo upload failed.'); }
+    setPhotoBusy(false);
+  }
   const manager = employees.find(m => m.workEmail && m.workEmail === e.managerEmail);
   const reports = employees.filter(r => e.workEmail && r.managerEmail === e.workEmail);
   const row = (Icon, label, value) => (
@@ -339,7 +353,15 @@ function EmployeeDetail({ e, employees, onEdit, onBack, isMobile, toastOk, toast
         </button>
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 6, flexWrap: 'wrap' }}>
-        <Avatar e={e} size={56} />
+        {/* Avatar with camera overlay — uploads through the backend, never anon */}
+        <label title="Upload profile photo" style={{ position: 'relative', cursor: 'pointer', flexShrink: 0 }}>
+          <Avatar e={e} size={56} />
+          <span style={{ position: 'absolute', right: -4, bottom: -4, width: 22, height: 22, borderRadius: '50%', background: 'var(--pine)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--card)' }}>
+            {photoBusy ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <Camera size={11} />}
+          </span>
+          <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden
+            onChange={ev => { uploadPhoto(ev.target.files?.[0]); ev.target.value = ''; }} />
+        </label>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 800, fontSize: 18 }}>{fullName(e)}</div>
           <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>

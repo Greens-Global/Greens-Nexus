@@ -318,6 +318,7 @@ export const api = {
   getEmployeeDocs:   (empId)        => req(`/hr/employees/${empId}/documents`),
   uploadEmployeeDoc: (empId, form)  => req(`/hr/employees/${empId}/documents`, { method: 'POST', body: form }),
   getDocUrl:         (docId)        => req(`/hr/documents/${docId}/url`),
+  uploadEmployeePhoto: (empId, form) => req(`/hr/employees/${empId}/photo`, { method: 'POST', body: form }),
   deleteEmployeeDoc: (docId)        => req(`/hr/documents/${docId}`, { method: 'DELETE' }),
 
   // HR — provisioning

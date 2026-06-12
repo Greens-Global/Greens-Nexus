@@ -708,3 +708,39 @@ def provision_runs(eid: str, user: dict = Depends(require_hr_read), db: Session 
                     "startedAt": r.started_at, "finishedAt": r.finished_at,
                     "steps": [{"step": s.step, "status": s.status, "detail": s.detail} for s in steps]})
     return out
+
+
+# ── Profile photos — public-read avatars bucket, WRITES ONLY via this endpoint
+#    (no anon storage policies; the service key uploads on behalf of HR users)
+
+_AVATAR_BUCKET = "avatars"
+_IMAGE_TYPES = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
+_MAX_AVATAR_BYTES = 5 * 1024 * 1024
+
+
+@router.post("/employees/{eid}/photo")
+async def upload_photo(eid: str, file: UploadFile = File(...),
+                       user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    ext = _IMAGE_TYPES.get(file.content_type or "")
+    if not ext:
+        raise HTTPException(400, "Photo must be JPEG, PNG, WebP or GIF")
+    data = await file.read()
+    if len(data) > _MAX_AVATAR_BYTES:
+        raise HTTPException(400, "Photo must be under 5 MB")
+    path = f"{eid}/{uuid.uuid4()}.{ext}"
+    resp = httpx.post(
+        f"{_SUPABASE_URL}/storage/v1/object/{_AVATAR_BUCKET}/{path}",
+        headers={**_storage_headers(), "Content-Type": file.content_type,
+                 "cache-control": "max-age=31536000"},
+        content=data, timeout=60,
+    )
+    if not resp.is_success:
+        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    emp.photo_url = f"{_SUPABASE_URL}/storage/v1/object/public/{_AVATAR_BUCKET}/{path}"
+    emp.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit()
+    db.refresh(emp)
+    return _serialize(emp)
