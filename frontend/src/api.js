@@ -325,6 +325,7 @@ export const api = {
   getProvisionSkus:  ()             => req('/hr/provision/skus'),
   provisionEmployee: (empId, data)  => req(`/hr/employees/${empId}/provision`, { method: 'POST', body: JSON.stringify(data) }),
   getProvisionRuns:  (empId)        => req(`/hr/employees/${empId}/provision/runs`),
+  syncM365:          ()             => req('/hr/employees/sync-m365', { method: 'POST' }),
 
   // HR — leave tracker
   getLeave:         ()          => req('/hr/leave'),

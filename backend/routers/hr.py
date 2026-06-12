@@ -814,3 +814,33 @@ async def upload_photo(eid: str, file: UploadFile = File(...),
     db.commit()
     db.refresh(emp)
     return _serialize(emp)
+
+
+@router.post("/employees/sync-m365")
+def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Link existing M365 accounts to employee records by work email, and
+    backfill empty profile fields (phone/title/office) from Entra. Never
+    overwrites values already set in Nexus."""
+    token = _graph_token()
+    rows = db.query(NexusEmployee).filter(NexusEmployee.work_email != "").all()
+    linked = updated = missing = 0
+    for emp in rows:
+        resp = httpx.get(
+            f"{_GRAPH}/users/{emp.work_email}?$select=id,jobTitle,department,mobilePhone,officeLocation",
+            headers={"Authorization": f"Bearer {token}"}, timeout=20,
+        )
+        if not resp.is_success:
+            missing += 1
+            continue
+        g = resp.json()
+        changed = False
+        if not emp.m365_id and g.get("id"):
+            emp.m365_id = g["id"]; linked += 1; changed = True
+        for local, remote in (("phone", "mobilePhone"), ("job_title", "jobTitle"), ("location", "officeLocation")):
+            if not getattr(emp, local) and (g.get(remote) or "").strip():
+                setattr(emp, local, g[remote].strip()); changed = True
+        if changed:
+            emp.updated_at = datetime.now(timezone.utc).isoformat()
+            updated += 1
+    db.commit()
+    return {"linked": linked, "updated": updated, "notInTenant": missing, "checked": len(rows)}

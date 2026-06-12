@@ -938,6 +938,18 @@ export default function HR({ activeSub, onSubChange }) {
   const toastErr = msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
   const toastOk  = msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
 
+  const [syncBusy, setSyncBusy] = useState(false);
+  async function runSync() {
+    if (syncBusy) return;
+    setSyncBusy(true);
+    try {
+      const r = await api.syncM365();
+      toastOk(`M365 sync: ${r.linked} account${r.linked !== 1 ? 's' : ''} linked · ${r.updated} profile${r.updated !== 1 ? 's' : ''} updated${r.notInTenant ? ` · ${r.notInTenant} not in tenant` : ''}.`);
+      load();
+    } catch (err) { toastErr(err?.message || 'Sync failed.'); }
+    setSyncBusy(false);
+  }
+
   function load() {
     api.getEmployees()
       .then(rows => { setEmployees(rows); setError(''); })
@@ -985,10 +997,17 @@ export default function HR({ activeSub, onSubChange }) {
           <p>People, hiring, org structure and leave — one source of truth</p>
         </div>
         {sub === 'hr-people' && (
-          <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7, flexShrink: 0 }}
-            onClick={() => { setEditing(null); setFormOpen(true); }}>
-            <Plus size={15} /> Add Employee
-          </button>
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
+            <button className="secondary-btn" disabled={syncBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
+              title="Link existing M365 accounts by work email and backfill empty phone/title/office fields from Entra"
+              onClick={runSync}>
+              {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <History size={14} />} Sync from M365
+            </button>
+            <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
+              onClick={() => { setEditing(null); setFormOpen(true); }}>
+              <Plus size={15} /> Add Employee
+            </button>
+          </div>
         )}
       </div>
 
