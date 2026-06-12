@@ -49,8 +49,13 @@ export default function MobileNav({ activeView, activeSub, onMenu }) {
   }, []);
 
   let actions = null;
+  let effSub = activeSub;
   if (activeView === 'inventory') {
     actions = isManager ? INVENTORY_MANAGER_ACTIONS : INVENTORY_EMPLOYEE_ACTIONS;
+    // The view opens on Catalog before any navigation sets a sub; deep-link
+    // subs (permanent / active-checkouts) land on the Checkouts screen.
+    if (!effSub) effSub = 'catalog';
+    else if (['permanent', 'active-checkouts', 'checkouts-completed'].includes(effSub)) effSub = 'checkouts';
   }
 
   return (
@@ -66,7 +71,7 @@ export default function MobileNav({ activeView, activeSub, onMenu }) {
             </button>
           );
         }) : actions && actions.map(a => (
-          <button key={a.sub} className={`mobile-nav-item${activeSub === a.sub ? ' active' : ''}`}
+          <button key={a.sub} className={`mobile-nav-item${effSub === a.sub ? ' active' : ''}`}
             onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: activeView, sub: a.sub } }))}>
             <a.Icon size={20} />
             <span>{a.label}</span>

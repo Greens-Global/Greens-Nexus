@@ -1846,3 +1846,9 @@ html { overflow-x: hidden; }
 @media (max-width: 640px) {
   [style*="minmax(3"] { grid-template-columns: 1fr !important; }
 }
+
+/* Phone: wide data tables (.req-table - PropertyAsset sections, requisition
+   logs) scroll sideways inside their card instead of being cut off. */
+@media (max-width: 640px) {
+  .req-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}

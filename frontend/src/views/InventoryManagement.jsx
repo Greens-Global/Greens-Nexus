@@ -1667,9 +1667,13 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
       )}
 
       {panelTab === 'active' && activeGroups.map(groupItems => {
-        const isMulti = groupItems.length > 1;
         const firstItem = groupItems[0];
         const groupKey = firstItem.orderId || firstItem.id;
+        // Count siblings across ALL of the user's checkouts (incl. returned) —
+        // the Order header must survive partial returns, not vanish when only
+        // one active item remains in a multi-item order.
+        const orderSiblings = firstItem.orderId ? mine.filter(c => c.orderId === firstItem.orderId) : groupItems;
+        const isMulti = firstItem.orderId ? orderSiblings.length > 1 : groupItems.length > 1;
         const cancellableItems = groupItems.filter(c => ['pending','approved'].includes(c.status));
         // Batch buttons key off the RELEVANT items, not the whole order — a
         // rejected/cancelled sibling must not hide "Confirm Receipt for All".
@@ -1682,7 +1686,11 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
             {isMulti && (
               <div style={{ padding:'10px 16px', background:'var(--mist)', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
                 <ShoppingCart size={13} color="hsl(var(--color-blue))" />
-                <span style={{ fontSize:12.5, fontWeight:700, color:'hsl(var(--color-blue))' }}>Order · {groupItems.length} Items</span>
+                <span style={{ fontSize:12.5, fontWeight:700, color:'hsl(var(--color-blue))' }}>
+                  Order · {groupItems.length === orderSiblings.length
+                    ? `${groupItems.length} Items`
+                    : `${groupItems.length} of ${orderSiblings.length} Items active`}
+                </span>
                 <span style={{ fontSize:12, color:'var(--muted)', marginLeft:4 }}>· {fmtDateShort(firstItem.createdAt)} · Req #{requestNo(groupKey)}</span>
                 {firstItem.reason && (
                   <span style={{ display:'inline-flex', alignItems:'baseline', gap:5, marginLeft:4, background:'var(--card)', border:'1px solid var(--line)', borderRadius:6, padding:'2px 8px' }}>
