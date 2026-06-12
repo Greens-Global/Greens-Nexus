@@ -1031,9 +1031,7 @@ function InUseSummary({ checkout }) {
   const fmtDue    = due.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
 
   return (
-    // maxWidth: Neil's sketch — the in-use block ends instead of stretching the
-    // whole row, with Extend/Return sitting right under it
-    <div style={{ margin:'10px 0 4px', maxWidth:640, background:`hsla(${color},0.06)`, border:`1px solid hsla(${color},0.25)`, borderRadius:10, padding:'10px 14px' }}>
+    <div style={{ margin:'10px 0 4px', background:`hsla(${color},0.06)`, border:`1px solid hsla(${color},0.25)`, borderRadius:10, padding:'10px 14px' }}>
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, flexWrap:'wrap' }}>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
           <Clock size={15} color={`hsl(${color})`} />
@@ -1801,7 +1799,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
                       </div>
                     )
                   ) : (
-                  <div style={{ display:'flex', gap:8, justifyContent: c.status === 'allocated' ? 'flex-start' : 'flex-end', flexWrap:'wrap', marginTop:8, maxWidth: c.status === 'allocated' ? 640 : undefined }}>
+                  <div style={{ display:'flex', gap:8, justifyContent:'flex-end', flexWrap:'wrap', marginTop:8 }}>
                     {c.status === 'allocated' && onRequestExtension && c.extensionStatus !== 'pending' && (
                       <button className="secondary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5, color:'hsl(var(--color-blue))' }}
                         onClick={() => setExtendingCo(c)}>
