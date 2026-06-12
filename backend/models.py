@@ -465,3 +465,101 @@ class NexusEmployee(Base):
     created_by      = Column(String, default="")
     created_at      = Column(String, default="")
     updated_at      = Column(String, default="")
+
+
+class HrCandidate(Base):
+    """Hiring pipeline (HR Phase 2). Stage moves are recorded in HrStageEvent;
+    reaching `hired` auto-creates the NexusEmployee master record."""
+    __tablename__ = "hr_candidates"
+    id             = Column(String, primary_key=True)
+    first_name     = Column(String, nullable=False)
+    last_name      = Column(String, default="")
+    email          = Column(String, default="")               # personal email
+    phone          = Column(String, default="")
+    role_title     = Column(String, default="")               # role they applied for
+    department     = Column(String, default="")
+    stage          = Column(String, default="applied")        # applied|screening|interview|offer|hired|rejected
+    expected_start = Column(String, default="")               # ISO date
+    source         = Column(String, default="")               # referral, LinkedIn, ...
+    resume_url     = Column(String, default="")
+    notes          = Column(String, default="")
+    employee_id    = Column(String, default="")               # set when hired
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+    updated_at     = Column(String, default="")
+
+
+class HrStageEvent(Base):
+    __tablename__ = "hr_stage_events"
+    id           = Column(String, primary_key=True)
+    candidate_id = Column(String, nullable=False)
+    from_stage   = Column(String, default="")
+    to_stage     = Column(String, nullable=False)
+    note         = Column(String, default="")
+    by_email     = Column(String, default="")
+    created_at   = Column(String, default="")
+
+
+class HrLeaveRequest(Base):
+    """Leave tracker (HR Phase 6). Days decrement the year balance on approval."""
+    __tablename__ = "hr_leave_requests"
+    id             = Column(String, primary_key=True)
+    employee_id    = Column(String, nullable=False)
+    leave_type     = Column(String, default="annual")         # annual|sick|unpaid
+    start_date     = Column(String, default="")
+    end_date       = Column(String, default="")
+    days           = Column(Float, default=1)
+    reason         = Column(String, default="")
+    status         = Column(String, default="pending")        # pending|approved|rejected
+    decided_by     = Column(String, default="")
+    decided_at     = Column(String, default="")
+    decision_note  = Column(String, default="")
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+
+
+class HrLeaveBalance(Base):
+    """Allocated days per employee/year/type; used days are computed from
+    approved HrLeaveRequest rows so the numbers can never drift apart."""
+    __tablename__ = "hr_leave_balances"
+    id          = Column(String, primary_key=True)
+    employee_id = Column(String, nullable=False)
+    year        = Column(Integer, nullable=False)
+    leave_type  = Column(String, nullable=False)
+    allocated   = Column(Float, default=0)
+
+
+class HrDocument(Base):
+    """Per-employee documents (HR Phase 3) — stored in the PRIVATE hr-docs
+    bucket; clients only ever see short-lived signed URLs minted server-side."""
+    __tablename__ = "hr_documents"
+    id           = Column(String, primary_key=True)
+    employee_id  = Column(String, nullable=False)
+    kind         = Column(String, default="other")            # resume|id|contract|certificate|other
+    file_name    = Column(String, nullable=False)
+    storage_path = Column(String, nullable=False)
+    size_bytes   = Column(Integer, default=0)
+    expires_on   = Column(String, default="")                 # visa/cert expiry reminders
+    uploaded_by  = Column(String, default="")
+    created_at   = Column(String, default="")
+
+
+class HrProvisionRun(Base):
+    """One click of the provisioning button (HR Phase 4)."""
+    __tablename__ = "hr_provision_runs"
+    id          = Column(String, primary_key=True)
+    employee_id = Column(String, nullable=False)
+    status      = Column(String, default="running")           # running|done|failed|partial
+    started_by  = Column(String, default="")
+    started_at  = Column(String, default="")
+    finished_at = Column(String, default="")
+
+
+class HrProvisionStep(Base):
+    __tablename__ = "hr_provision_steps"
+    id      = Column(String, primary_key=True)
+    run_id  = Column(String, nullable=False)
+    step    = Column(String, nullable=False)                  # m365_user|m365_license|m365_manager|asana|ignite|welcome_email
+    status  = Column(String, default="pending")               # pending|ok|failed|skipped|manual
+    detail  = Column(String, default="")
+    ordinal = Column(Integer, default=0)

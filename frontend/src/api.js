@@ -306,4 +306,17 @@ export const api = {
   createEmployee: (data)     => req('/hr/employees', { method: 'POST', body: JSON.stringify(data) }),
   updateEmployee: (id, data) => req(`/hr/employees/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteEmployee: (id)       => req(`/hr/employees/${id}`, { method: 'DELETE' }),
+
+  // HR — hiring pipeline
+  getCandidates:       ()         => req('/hr/candidates'),
+  getCandidateHistory: (id)       => req(`/hr/candidates/${id}/history`),
+  createCandidate:     (data)     => req('/hr/candidates', { method: 'POST', body: JSON.stringify(data) }),
+  updateCandidate:     (id, data) => req(`/hr/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // HR — leave tracker
+  getLeave:         ()          => req('/hr/leave'),
+  getLeaveBalances: (empId, yr) => req(`/hr/leave/balances/${empId}?year=${yr}`),
+  setLeaveBalance:  (data)      => req('/hr/leave/balances', { method: 'PUT', body: JSON.stringify(data) }),
+  createLeave:      (data)      => req('/hr/leave', { method: 'POST', body: JSON.stringify(data) }),
+  decideLeave:      (id, data)  => req(`/hr/leave/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 };

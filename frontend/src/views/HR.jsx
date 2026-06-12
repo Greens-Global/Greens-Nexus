@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   Users, Plus, Search, X, Loader2, Mail, Phone, Briefcase, MapPin,
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
+  CheckCircle, XCircle, ChevronRight, History, CalendarDays,
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -204,6 +205,483 @@ function EmployeeDetail({ e, employees, onEdit, onBack, isMobile }) {
   );
 }
 
+// ── Hiring pipeline (Phase 2) ─────────────────────────────────────────────────
+const STAGES = ['applied', 'screening', 'interview', 'offer', 'hired'];
+const STAGE_META = {
+  applied:   { label: 'Applied',   hue: '215,15%,55%' },
+  screening: { label: 'Screening', hue: '215,75%,45%' },
+  interview: { label: 'Interview', hue: '30,80%,48%' },
+  offer:     { label: 'Offer',     hue: '271,60%,48%' },
+  hired:     { label: 'Hired',     hue: '142,60%,35%' },
+  rejected:  { label: 'Rejected',  hue: '350,65%,48%' },
+};
+const candName = c => [c.firstName, c.lastName].filter(Boolean).join(' ');
+const daysSince = iso => Math.max(0, Math.floor((Date.now() - new Date(iso)) / 86400000));
+
+function CandidateFormModal({ onClose, onSaved, toastErr }) {
+  const [f, setF] = useState({ first_name: '', last_name: '', email: '', phone: '', role_title: '', department: 'Operations', expected_start: '', source: '', notes: '' });
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
+  async function save() {
+    if (!f.first_name.trim() || busy) return;
+    setBusy(true);
+    try { onSaved(await api.createCandidate(f)); onClose(); }
+    catch (err) { toastErr(err?.message || 'Could not add candidate.'); setBusy(false); }
+  }
+  const input = (label, key, props = {}) => (
+    <div><label style={FL}>{label}</label>
+      <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} /></div>
+  );
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 520, maxHeight: 'min(92dvh, 680px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Add Candidate</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          {input('FIRST NAME *', 'first_name', { autoFocus: true })}
+          {input('LAST NAME', 'last_name')}
+          {input('EMAIL', 'email', { type: 'email' })}
+          {input('PHONE', 'phone')}
+          {input('ROLE APPLYING FOR', 'role_title')}
+          <div><label style={FL}>DEPARTMENT</label>
+            <select className="form-input" style={{ width: '100%' }} value={f.department} onChange={e => set('department', e.target.value)}>
+              {DEPTS.map(d => <option key={d}>{d}</option>)}
+            </select></div>
+          {input('EXPECTED START', 'expected_start', { type: 'date' })}
+          {input('SOURCE', 'source', { placeholder: 'Referral, LinkedIn…' })}
+          <div style={{ gridColumn: '1 / -1' }}><label style={FL}>NOTES</label>
+            <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} /></div>
+        </div>
+        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="primary-btn" onClick={save} disabled={!f.first_name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={14} />} Add Candidate
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CandidateDetailModal({ candidate: c, onClose, onStage, busy }) {
+  const [history, setHistory] = useState(null);
+  const [note, setNote] = useState('');
+  useEffect(() => { api.getCandidateHistory(c.id).then(setHistory).catch(() => setHistory([])); }, [c.id]);
+  const idx = STAGES.indexOf(c.stage);
+  const next = idx >= 0 && idx < STAGES.length - 1 ? STAGES[idx + 1] : null;
+  const terminal = c.stage === 'hired' || c.stage === 'rejected';
+  const sm = STAGE_META[c.stage];
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 540, maxHeight: 'min(92dvh, 720px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 16 }}>{candName(c)}</div>
+            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 1 }}>{[c.roleTitle, c.department, c.source].filter(Boolean).join(' · ')}</div>
+          </div>
+          <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: `hsla(${sm.hue},0.12)`, color: `hsl(${sm.hue})`, flexShrink: 0 }}>{sm.label}</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ overflowY: 'auto', flex: 1, padding: '16px 24px' }}>
+          <div style={{ fontSize: 13, color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {c.email && <span><Mail size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />{c.email}</span>}
+            {c.phone && <span><Phone size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />{c.phone}</span>}
+            {c.expectedStart && <span><CalendarDays size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Expected start {c.expectedStart}</span>}
+            {c.notes && <span style={{ background: 'var(--mist)', borderRadius: 8, padding: '8px 12px', color: 'var(--ink)', marginTop: 4 }}>{c.notes}</span>}
+          </div>
+          {/* Stage history timeline */}
+          <div style={{ marginTop: 18 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8 }}>
+              <History size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Stage history
+            </div>
+            {history === null ? (
+              <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
+            ) : history.map((h, i) => (
+              <div key={i} style={{ display: 'flex', gap: 10, padding: '6px 0', fontSize: 12.5, borderBottom: '1px solid var(--line)' }}>
+                <span style={{ fontWeight: 700, color: `hsl(${(STAGE_META[h.toStage] || STAGE_META.applied).hue})`, flexShrink: 0 }}>
+                  {(STAGE_META[h.toStage] || { label: h.toStage }).label}
+                </span>
+                <span style={{ color: 'var(--muted)', flex: 1 }}>{h.note}</span>
+                <span style={{ color: 'var(--muted)', flexShrink: 0 }}>{new Date(h.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+              </div>
+            ))}
+          </div>
+          {!terminal && (
+            <div style={{ marginTop: 16 }}>
+              <label style={FL}>NOTE FOR THIS MOVE (optional)</label>
+              <input className="form-input" style={{ width: '100%' }} value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Round 2 cleared, strong references" />
+            </div>
+          )}
+        </div>
+        {!terminal && (
+          <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', flexShrink: 0 }}>
+            <button onClick={() => onStage(c, 'rejected', note)} disabled={busy}
+              style={{ background: 'none', border: '1px solid hsla(var(--color-red),0.4)', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'Inter,sans-serif' }}>
+              <XCircle size={13} /> Reject
+            </button>
+            {next && (
+              <button className="primary-btn" onClick={() => onStage(c, next, note)} disabled={busy}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: next === 'hired' ? 'hsl(var(--color-green))' : undefined }}>
+                {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : next === 'hired' ? <CheckCircle size={14} /> : <ChevronRight size={14} />}
+                {next === 'hired' ? 'Mark Hired' : `Move to ${STAGE_META[next].label}`}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated }) {
+  const [candidates, setCandidates] = useState(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [detail, setDetail] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [showClosed, setShowClosed] = useState(false);
+
+  useEffect(() => { api.getCandidates().then(setCandidates).catch(() => setCandidates([])); }, []);
+
+  async function moveStage(c, stage, note) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const updated = await api.updateCandidate(c.id, { stage, stage_note: note || '' });
+      setCandidates(prev => prev.map(x => x.id === c.id ? updated : x));
+      setDetail(null);
+      if (stage === 'hired') {
+        toastOk(`${candName(c)} hired — added to People as Onboarding (${updated.createdEmployee?.employeeCode || ''}).`);
+        if (updated.createdEmployee) onEmployeeCreated(updated.createdEmployee);
+      } else if (stage === 'rejected') toastOk(`${candName(c)} marked rejected.`);
+      else toastOk(`${candName(c)} → ${STAGE_META[stage].label}.`);
+    } catch (err) { toastErr(err?.message || 'Could not update stage.'); }
+    setBusy(false);
+  }
+
+  if (candidates === null) return <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Loader2 size={26} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /></div>;
+
+  const open = candidates.filter(c => !['hired', 'rejected'].includes(c.stage));
+  const closed = candidates.filter(c => ['hired', 'rejected'].includes(c.stage));
+  const byStage = s => candidates.filter(c => c.stage === s);
+
+  const card = c => {
+    const hue = hueFor({ employeeCode: c.id });
+    return (
+      <button key={c.id} onClick={() => setDetail(c)}
+        style={{ display: 'block', width: '100%', textAlign: 'left', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 13px', marginBottom: 8, boxShadow: 'var(--shadow-sm)', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 9, background: `hsla(${hue},0.13)`, color: `hsl(${hue})`, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            {`${(c.firstName || '?')[0]}${(c.lastName || '')[0] || ''}`.toUpperCase()}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{candName(c)}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.roleTitle || c.department || '—'}</div>
+          </div>
+          <span style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600, flexShrink: 0 }}>{daysSince(c.updatedAt)}d</span>
+        </div>
+      </button>
+    );
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
+          {open.length} in pipeline · {byStage('offer').length} offer{byStage('offer').length !== 1 ? 's' : ''} out · {byStage('hired').length} hired
+        </span>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setShowClosed(s => !s)}>
+            {showClosed ? 'Hide' : 'Show'} closed ({closed.length})
+          </button>
+          <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={() => setAddOpen(true)}>
+            <Plus size={14} /> Add Candidate
+          </button>
+        </div>
+      </div>
+
+      {candidates.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
+          <UserPlus size={32} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
+          <div style={{ fontSize: 14, fontWeight: 600 }}>No candidates yet.</div>
+          <div style={{ fontSize: 12.5, marginTop: 4 }}>Add one and walk them through Applied → Hired — hiring creates the employee record automatically.</div>
+        </div>
+      ) : isMobile ? (
+        /* Phone: stage-grouped stacks, same data as the desktop board */
+        <div>
+          {[...STAGES.slice(0, 4), ...(showClosed ? ['hired', 'rejected'] : [])].map(s => {
+            const items = byStage(s);
+            if (!items.length) return null;
+            return (
+              <div key={s} style={{ marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 4px 8px' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: `hsl(${STAGE_META[s].hue})` }} />
+                  <b style={{ fontSize: 11.5, letterSpacing: '.06em', textTransform: 'uppercase' }}>{STAGE_META[s].label}</b>
+                  <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 800, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 20, padding: '1px 8px', color: 'var(--muted)' }}>{items.length}</span>
+                </div>
+                {items.map(card)}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* Desktop: kanban columns */
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${showClosed ? 6 : 4}, 1fr)`, gap: 12, alignItems: 'start' }}>
+          {[...STAGES.slice(0, 4), ...(showClosed ? ['hired', 'rejected'] : [])].map(s => (
+            <div key={s} style={{ background: 'rgba(255,255,255,0.55)', border: '1px solid var(--line)', borderRadius: 14, padding: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 4px 10px' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: `hsl(${STAGE_META[s].hue})` }} />
+                <b style={{ fontSize: 11, letterSpacing: '.05em', textTransform: 'uppercase' }}>{STAGE_META[s].label}</b>
+                <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 800, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 20, padding: '0 7px', color: 'var(--muted)' }}>{byStage(s).length}</span>
+              </div>
+              {byStage(s).map(card)}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {addOpen && <CandidateFormModal onClose={() => setAddOpen(false)} toastErr={toastErr}
+        onSaved={c => { setCandidates(prev => [c, ...prev]); toastOk(`${candName(c)} added to the pipeline.`); }} />}
+      {detail && <CandidateDetailModal candidate={detail} onClose={() => setDetail(null)} onStage={moveStage} busy={busy} />}
+    </div>
+  );
+}
+
+// ── Org chart (Phase 5) ───────────────────────────────────────────────────────
+function OrgNode({ e, childrenMap, employees, depth }) {
+  const kids = childrenMap.get((e.workEmail || '').toLowerCase()) || [];
+  return (
+    <div style={{ marginLeft: depth ? 22 : 0, borderLeft: depth ? '2px solid var(--line)' : 'none', paddingLeft: depth ? 14 : 0, marginTop: 8 }}>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '9px 14px', boxShadow: 'var(--shadow-sm)', maxWidth: '100%' }}>
+        <Avatar e={e} size={32} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[e.jobTitle, e.department].filter(Boolean).join(' · ') || '—'}</div>
+        </div>
+        {kids.length > 0 && <span style={{ fontSize: 10, fontWeight: 800, background: 'hsla(var(--color-blue),0.1)', color: 'hsl(var(--color-blue))', borderRadius: 20, padding: '1px 7px', flexShrink: 0 }}>{kids.length}</span>}
+      </div>
+      {kids.map(k => <OrgNode key={k.id} e={k} childrenMap={childrenMap} employees={employees} depth={depth + 1} />)}
+    </div>
+  );
+}
+
+function OrgChartTab({ employees }) {
+  const people = employees.filter(e => e.status !== 'offboarded');
+  const emails = new Set(people.map(e => (e.workEmail || '').toLowerCase()).filter(Boolean));
+  const childrenMap = new Map();
+  for (const e of people) {
+    const m = (e.managerEmail || '').toLowerCase();
+    if (m && emails.has(m)) {
+      if (!childrenMap.has(m)) childrenMap.set(m, []);
+      childrenMap.get(m).push(e);
+    }
+  }
+  const hasManager = e => (e.managerEmail || '') && emails.has((e.managerEmail || '').toLowerCase());
+  const roots = people.filter(e => !hasManager(e) && (childrenMap.get((e.workEmail || '').toLowerCase()) || []).length > 0);
+  // Busacta-style: surface the unlinked instead of hiding them — forces the data complete
+  const unlinked = people.filter(e => !hasManager(e) && !(childrenMap.get((e.workEmail || '').toLowerCase()) || []).length);
+  const linked = people.length - unlinked.length;
+
+  if (!people.length) return (
+    <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
+      <Network size={32} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
+      <div style={{ fontSize: 14, fontWeight: 600 }}>Add people first — the chart draws itself from each person's "Reports to".</div>
+    </div>
+  );
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginBottom: 14 }}>
+        {people.length} people · {linked} in the reporting hierarchy
+      </div>
+      {roots.length > 0 && (
+        <div style={{ marginBottom: 22 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 4 }}>Reporting hierarchy</div>
+          {roots.map(r => <OrgNode key={r.id} e={r} childrenMap={childrenMap} employees={people} depth={0} />)}
+        </div>
+      )}
+      {unlinked.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'hsl(var(--color-orange))', textTransform: 'uppercase', marginBottom: 8 }}>
+            No reporting line — set "Reports to" on their profile
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {unlinked.map(e => (
+              <div key={e.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 9, background: 'var(--card)', border: '1px dashed hsla(var(--color-orange),0.5)', borderRadius: 12, padding: '8px 13px' }}>
+                <Avatar e={e} size={28} />
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 12.5 }}>{fullName(e)}</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{[e.jobTitle, e.department].filter(Boolean).join(' · ') || '—'}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Leave tracker (Phase 6) ───────────────────────────────────────────────────
+const LEAVE_TYPES = [['annual', 'Annual'], ['sick', 'Sick'], ['unpaid', 'Unpaid']];
+const LEAVE_STATUS = {
+  pending:  { label: 'Pending',  bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
+  approved: { label: 'Approved', bg: 'hsla(var(--color-green),0.1)',   fg: 'hsl(var(--color-green))' },
+  rejected: { label: 'Rejected', bg: 'hsla(var(--color-red),0.1)',     fg: 'hsl(var(--color-red))' },
+};
+
+function LeaveFormModal({ employees, onClose, onSaved, toastErr }) {
+  const [f, setF] = useState({ employee_id: '', leave_type: 'annual', start_date: '', end_date: '', days: 1, reason: '' });
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
+  const canSave = f.employee_id && f.start_date && f.days > 0;
+  async function save() {
+    if (!canSave || busy) return;
+    setBusy(true);
+    try { onSaved(await api.createLeave({ ...f, days: Number(f.days) })); onClose(); }
+    catch (err) { toastErr(err?.message || 'Could not record leave.'); setBusy(false); }
+  }
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 480, maxHeight: 'min(92dvh, 620px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>New Leave Request</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <div style={{ gridColumn: '1 / -1' }}><label style={FL}>EMPLOYEE *</label>
+            <select className="form-input" style={{ width: '100%' }} value={f.employee_id} onChange={e => set('employee_id', e.target.value)}>
+              <option value="">— pick a person —</option>
+              {employees.filter(e => e.status !== 'offboarded').map(e => <option key={e.id} value={e.id}>{fullName(e)} ({e.employeeCode})</option>)}
+            </select></div>
+          <div><label style={FL}>TYPE</label>
+            <select className="form-input" style={{ width: '100%' }} value={f.leave_type} onChange={e => set('leave_type', e.target.value)}>
+              {LEAVE_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select></div>
+          <div><label style={FL}>DAYS *</label>
+            <input className="form-input" type="number" min="0.5" step="0.5" style={{ width: '100%' }} value={f.days} onChange={e => set('days', e.target.value)} /></div>
+          <div><label style={FL}>FROM *</label>
+            <input className="form-input" type="date" style={{ width: '100%' }} value={f.start_date} onChange={e => set('start_date', e.target.value)} /></div>
+          <div><label style={FL}>TO</label>
+            <input className="form-input" type="date" style={{ width: '100%' }} value={f.end_date} onChange={e => set('end_date', e.target.value)} /></div>
+          <div style={{ gridColumn: '1 / -1' }}><label style={FL}>REASON</label>
+            <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.reason} onChange={e => set('reason', e.target.value)} /></div>
+        </div>
+        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="primary-btn" onClick={save} disabled={!canSave || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!canSave || busy) ? 0.6 : 1 }}>
+            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={14} />} Submit
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LeaveTab({ employees, toastOk, toastErr }) {
+  const [leave, setLeave] = useState(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [empF, setEmpF] = useState('All');
+  const [balances, setBalances] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+  const year = new Date().getFullYear();
+
+  useEffect(() => { api.getLeave().then(setLeave).catch(() => setLeave([])); }, []);
+  useEffect(() => {
+    if (empF === 'All') { setBalances(null); return; }
+    api.getLeaveBalances(empF, year).then(setBalances).catch(() => setBalances(null));
+  }, [empF, year]);
+
+  const byId = Object.fromEntries(employees.map(e => [e.id, e]));
+
+  async function decide(r, action) {
+    setBusyId(r.id);
+    try {
+      const updated = await api.decideLeave(r.id, { action });
+      setLeave(prev => prev.map(x => x.id === r.id ? updated : x));
+      toastOk(`Leave ${action === 'approve' ? 'approved' : 'rejected'} for ${fullName(byId[r.employeeId] || { firstName: '?' })}.`);
+      if (empF === r.employeeId) api.getLeaveBalances(empF, year).then(setBalances).catch(() => {});
+    } catch (err) { toastErr(err?.message || 'Could not update request.'); }
+    setBusyId(null);
+  }
+
+  if (leave === null) return <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Loader2 size={26} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /></div>;
+
+  const visible = empF === 'All' ? leave : leave.filter(r => r.employeeId === empF);
+  const pending = leave.filter(r => r.status === 'pending').length;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+        <select className="form-input" value={empF} onChange={e => setEmpF(e.target.value)} style={{ padding: '6px 10px', fontSize: 13, height: 34 }}>
+          <option value="All">All employees</option>
+          {employees.map(e => <option key={e.id} value={e.id}>{fullName(e)}</option>)}
+        </select>
+        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{pending} pending · {leave.length} total</span>
+        <button className="primary-btn" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={() => setFormOpen(true)}>
+          <Plus size={14} /> New Leave
+        </button>
+      </div>
+
+      {/* Balance cards when a person is picked — used computes from approvals */}
+      {balances && (
+        <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+          {balances.map(b => (
+            <div key={b.leaveType} className={`kpi-card ${b.leaveType === 'annual' ? 'card-green' : b.leaveType === 'sick' ? 'card-orange' : 'card-blue'}`}>
+              <div className="kpi-label">{LEAVE_TYPES.find(([v]) => v === b.leaveType)?.[1]} {year}</div>
+              <div className="kpi-value">{b.used}<span style={{ fontSize: 14, color: 'var(--muted)', fontWeight: 600 }}> / {b.allocated || '∞'} used</span></div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {visible.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
+          <CalendarOff size={30} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
+          <div style={{ fontSize: 13.5 }}>No leave requests{empF !== 'All' ? ' for this person' : ''} yet.</div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {visible.map(r => {
+            const e = byId[r.employeeId];
+            const lm = LEAVE_STATUS[r.status] || LEAVE_STATUS.pending;
+            return (
+              <div key={r.id} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', boxShadow: 'var(--shadow-sm)' }}>
+                {e ? <Avatar e={e} size={34} /> : null}
+                <div style={{ flex: 1, minWidth: 160 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13.5 }}>{e ? fullName(e) : 'Unknown'} <span style={{ fontWeight: 600, color: 'var(--muted)', fontSize: 12 }}>· {LEAVE_TYPES.find(([v]) => v === r.leaveType)?.[1]} · {r.days} day{r.days !== 1 ? 's' : ''}</span></div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>
+                    {r.startDate}{r.endDate && r.endDate !== r.startDate ? ` → ${r.endDate}` : ''}{r.reason ? ` · ${r.reason}` : ''}
+                  </div>
+                  {r.decisionNote && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Note: {r.decisionNote}</div>}
+                </div>
+                <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: lm.bg, color: lm.fg, flexShrink: 0 }}>{lm.label}</span>
+                {r.status === 'pending' && (
+                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    <button onClick={() => decide(r, 'reject')} disabled={busyId === r.id}
+                      style={{ background: 'none', border: '1px solid hsla(var(--color-red),0.4)', borderRadius: 8, padding: '5px 12px', fontSize: 12, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 600, fontFamily: 'Inter,sans-serif' }}>
+                      Reject
+                    </button>
+                    <button className="primary-btn" onClick={() => decide(r, 'approve')} disabled={busyId === r.id}
+                      style={{ fontSize: 12, padding: '5px 14px', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      {busyId === r.id ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={12} />} Approve
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {formOpen && <LeaveFormModal employees={employees} toastErr={toastErr} onClose={() => setFormOpen(false)}
+        onSaved={r => { setLeave(prev => [r, ...prev]); toastOk('Leave request recorded — pending approval.'); }} />}
+    </div>
+  );
+}
+
 // ── Main view ─────────────────────────────────────────────────────────────────
 export default function HR({ activeSub, onSubChange }) {
   // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now
@@ -221,7 +699,8 @@ export default function HR({ activeSub, onSubChange }) {
   const [editing,   setEditing]   = useState(null);
   const [toast,     setToast]     = useState(null);
 
-  const toastErr = msg => { setToast(msg); setTimeout(() => setToast(null), 5000); };
+  const toastErr = msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
+  const toastOk  = msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
 
   function load() {
     api.getEmployees()
@@ -287,13 +766,12 @@ export default function HR({ activeSub, onSubChange }) {
         ))}
       </div>
 
-      {sub !== 'hr-people' && (
-        <div style={{ textAlign: 'center', padding: '64px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
-          <Network size={32} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
-          <div style={{ fontSize: 14, fontWeight: 600 }}>{TABS.find(([k]) => k === sub)?.[1]} is coming in the next phase.</div>
-          <div style={{ fontSize: 12.5, marginTop: 4 }}>The People directory is live — hiring pipeline, org chart and leave build on it.</div>
-        </div>
+      {sub === 'hr-hiring' && (
+        <HiringTab isMobile={isMobile} toastOk={toastOk} toastErr={toastErr}
+          onEmployeeCreated={emp => setEmployees(prev => [...prev, emp].sort((a, b) => fullName(a).localeCompare(fullName(b))))} />
       )}
+      {sub === 'hr-org' && <OrgChartTab employees={employees} />}
+      {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
 
       {sub === 'hr-people' && (<>
         {/* KPI strip */}
@@ -389,8 +867,8 @@ export default function HR({ activeSub, onSubChange }) {
           onSaved={onSaved} toastErr={toastErr} />
       )}
       {toast && (
-        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'hsl(var(--color-red))', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)' }}>
-          {toast}
+        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.kind === 'error' ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)', maxWidth: '90vw' }}>
+          {toast.msg}
         </div>
       )}
     </div>
