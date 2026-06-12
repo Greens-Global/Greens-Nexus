@@ -176,6 +176,18 @@ from models import HrCandidate, HrStageEvent, HrLeaveRequest, HrLeaveBalance, Ne
 _STAGES = ("applied", "screening", "interview", "offer", "hired", "rejected")
 
 
+def _hr_notify(db: Session, recipient: str, title: str, body: str, ref_id: str = "", requested_by: str = "") -> None:
+    """Server-side bell notification (items.py pattern). Empty recipient = noop —
+    HR events must always target a person, never broadcast to all managers."""
+    if not (recipient or "").strip():
+        return
+    db.add(NexusNotification(
+        id=str(uuid.uuid4()), type="custom_alert", recipient=recipient.strip().lower(),
+        title=title, body=body, ref_id=ref_id, item_name="", requested_by=requested_by,
+        action="", actioned=False, read_by="", created_at=datetime.now(timezone.utc).isoformat(),
+    ))
+
+
 class CandidateIn(BaseModel):
     first_name:     str
     last_name:      Optional[str] = ""
@@ -276,6 +288,16 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
             db.add(emp)
             row.employee_id = emp.id
             created_employee = emp
+
+        # One notification per stage move, to the candidate's owner (unless
+        # they made the move themselves) — mirrors the items.py convention
+        if row.created_by and row.created_by.lower() != user["email"].lower():
+            cand_name = f"{row.first_name} {row.last_name}".strip()
+            _hr_notify(db, row.created_by,
+                       f"Candidate {('hired' if body.stage == 'hired' else ('rejected' if body.stage == 'rejected' else 'moved'))}: {cand_name}",
+                       f"{cand_name} ({row.role_title or row.department or 'candidate'}) is now in {body.stage.replace('_', ' ')}."
+                       + (f"\nNote: {body.stage_note.strip()}" if (body.stage_note or '').strip() else ''),
+                       ref_id=row.id, requested_by=user["email"])
 
     for key in ("first_name", "last_name", "email", "phone", "role_title",
                 "department", "expected_start", "source", "notes"):
@@ -391,6 +413,15 @@ def create_leave(body: LeaveIn, user: dict = Depends(require_hr_write), db: Sess
         days=body.days, reason=body.reason or "", created_by=user["email"], created_at=now,
     )
     db.add(row)
+    # New request -> the employee's manager gets the approval ask in their bell
+    # (unless the manager is the one recording it)
+    emp_name = f"{emp.first_name} {emp.last_name}".strip()
+    if emp.manager_email and emp.manager_email.lower() != user["email"].lower():
+        _hr_notify(db, emp.manager_email,
+                   f"Leave request: {emp_name}",
+                   f"{emp_name} requested {body.days} day{'s' if body.days != 1 else ''} of {body.leave_type} leave"
+                   f" starting {body.start_date}." + (f"\nReason: {body.reason.strip()}" if (body.reason or '').strip() else ''),
+                   ref_id=row.id, requested_by=user["email"])
     db.commit()
     return _ser_leave(row)
 
