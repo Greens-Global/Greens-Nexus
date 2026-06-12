@@ -422,3 +422,289 @@ def decide_leave(lid: str, body: LeaveDecision, user: dict = Depends(require_hr_
         ))
     db.commit()
     return _ser_leave(row)
+
+
+# ── Employee documents (Phase 3) — PRIVATE bucket, signed URLs only ──────────
+
+import os
+import secrets
+import httpx
+from fastapi import UploadFile, File, Form
+from models import HrDocument, HrProvisionRun, HrProvisionStep
+
+_SUPABASE_URL         = os.getenv("SUPABASE_URL", "")
+_SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+_DOC_BUCKET    = "hr-docs"
+_DOC_KINDS     = ("resume", "id", "contract", "certificate", "other")
+_MAX_DOC_BYTES = 15 * 1024 * 1024
+
+
+def _storage_headers():
+    if not (_SUPABASE_URL and _SUPABASE_SERVICE_KEY):
+        raise HTTPException(503, "Storage not configured — set SUPABASE_URL and SUPABASE_SERVICE_KEY")
+    return {"Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}", "apikey": _SUPABASE_SERVICE_KEY}
+
+
+def _ser_doc(d: HrDocument) -> dict:
+    return {"id": d.id, "employeeId": d.employee_id, "kind": d.kind, "fileName": d.file_name,
+            "sizeBytes": d.size_bytes, "expiresOn": d.expires_on, "uploadedBy": d.uploaded_by,
+            "createdAt": d.created_at}
+
+
+@router.get("/employees/{eid}/documents")
+def list_documents(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    rows = (db.query(HrDocument).filter(HrDocument.employee_id == eid)
+            .order_by(HrDocument.created_at.desc()).all())
+    return [_ser_doc(d) for d in rows]
+
+
+@router.post("/employees/{eid}/documents")
+async def upload_document(eid: str, file: UploadFile = File(...), kind: str = Form("other"),
+                           expires_on: str = Form(""),
+                           user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    if kind not in _DOC_KINDS:
+        raise HTTPException(400, f"kind must be one of {_DOC_KINDS}")
+    data = await file.read()
+    if len(data) > _MAX_DOC_BYTES:
+        raise HTTPException(400, "File too large (max 15 MB)")
+    safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", file.filename or "document")
+    path = f"{eid}/{uuid.uuid4()}-{safe_name}"
+    resp = httpx.post(
+        f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
+        headers={**_storage_headers(), "Content-Type": file.content_type or "application/octet-stream"},
+        content=data, timeout=60,
+    )
+    if not resp.is_success:
+        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    row = HrDocument(id=str(uuid.uuid4()), employee_id=eid, kind=kind,
+                     file_name=file.filename or safe_name, storage_path=path,
+                     size_bytes=len(data), expires_on=expires_on.strip(),
+                     uploaded_by=user["email"], created_at=datetime.now(timezone.utc).isoformat())
+    db.add(row)
+    db.commit()
+    return _ser_doc(row)
+
+
+@router.get("/documents/{did}/url")
+def document_url(did: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """Mint a short-lived signed URL — the bucket itself is private."""
+    row = db.query(HrDocument).filter(HrDocument.id == did).first()
+    if not row:
+        raise HTTPException(404, "Document not found")
+    resp = httpx.post(
+        f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{row.storage_path}",
+        headers=_storage_headers(), json={"expiresIn": 300}, timeout=15,
+    )
+    if not resp.is_success:
+        raise HTTPException(502, f"Could not sign URL: {resp.text[:200]}")
+    return {"url": f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}", "expiresIn": 300}
+
+
+@router.delete("/documents/{did}")
+def delete_document(did: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    row = db.query(HrDocument).filter(HrDocument.id == did).first()
+    if not row:
+        return {"ok": True}
+    httpx.request("DELETE", f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{row.storage_path}",
+                  headers=_storage_headers(), timeout=30)
+    db.delete(row)
+    db.commit()
+    return {"ok": True}
+
+
+# ── Provisioning engine (Phase 4): one click -> M365 account ─────────────────
+
+_AZ_TENANT = os.getenv("AZURE_TENANT_ID", "")
+_AZ_CLIENT = os.getenv("AZURE_CLIENT_ID", "")
+_AZ_SECRET = os.getenv("AZURE_CLIENT_SECRET", "")
+_GRAPH = "https://graph.microsoft.com/v1.0"
+
+
+def _graph_token() -> str:
+    if not all([_AZ_TENANT, _AZ_CLIENT, _AZ_SECRET]):
+        raise HTTPException(503, "Provisioning not configured — set AZURE_TENANT_ID/CLIENT_ID/CLIENT_SECRET")
+    resp = httpx.post(
+        f"https://login.microsoftonline.com/{_AZ_TENANT}/oauth2/v2.0/token",
+        data={"grant_type": "client_credentials", "client_id": _AZ_CLIENT,
+              "client_secret": _AZ_SECRET, "scope": "https://graph.microsoft.com/.default"},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    return resp.json()["access_token"]
+
+
+@router.get("/provision/skus")
+def list_skus(user: dict = Depends(require_hr_write)):
+    token = _graph_token()
+    resp = httpx.get(f"{_GRAPH}/subscribedSkus", headers={"Authorization": f"Bearer {token}"}, timeout=20)
+    if not resp.is_success:
+        raise HTTPException(502, f"Graph error: {resp.text[:200]}")
+    out = []
+    for s in resp.json().get("value", []):
+        total = s.get("prepaidUnits", {}).get("enabled", 0)
+        used  = s.get("consumedUnits", 0)
+        out.append({"skuId": s.get("skuId"), "skuPartNumber": s.get("skuPartNumber"),
+                    "available": max(0, total - used), "total": total})
+    return out
+
+
+class ProvisionIn(BaseModel):
+    work_email:     str
+    license_sku_id: Optional[str] = ""
+
+
+@router.post("/employees/{eid}/provision")
+def provision_employee(eid: str, body: ProvisionIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    if emp.m365_id:
+        raise HTTPException(400, "Employee already has an M365 account — provisioning is one-time")
+    upn = body.work_email.strip().lower()
+    if not re.fullmatch(r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}", upn):
+        raise HTTPException(400, "work_email must be a valid address in your tenant domain")
+
+    now = datetime.now(timezone.utc).isoformat()
+    run = HrProvisionRun(id=str(uuid.uuid4()), employee_id=eid, status="running",
+                         started_by=user["email"], started_at=now)
+    db.add(run)
+    steps = {}
+    for i, name in enumerate(["m365_user", "m365_license", "m365_manager", "asana", "ignite", "welcome_email"]):
+        s = HrProvisionStep(id=str(uuid.uuid4()), run_id=run.id, step=name, status="pending", ordinal=i)
+        db.add(s)
+        steps[name] = s
+    db.commit()
+
+    temp_password = "Gn-" + secrets.token_urlsafe(9)
+    token = None
+    user_id = None
+    failed = False
+
+    # 1) Create the account
+    try:
+        token = _graph_token()
+        resp = httpx.post(f"{_GRAPH}/users", headers={"Authorization": f"Bearer {token}"}, json={
+            "accountEnabled": True,
+            "displayName": f"{emp.first_name} {emp.last_name}".strip(),
+            "givenName": emp.first_name, "surname": emp.last_name or "",
+            "mailNickname": upn.split("@", 1)[0].replace(".", ""),
+            "userPrincipalName": upn,
+            "usageLocation": "US",
+            "jobTitle": emp.job_title or None,
+            "department": emp.department or None,
+            "mobilePhone": emp.phone or None,
+            "passwordProfile": {"password": temp_password, "forceChangePasswordNextSignIn": True},
+        }, timeout=30)
+        if resp.is_success:
+            user_id = resp.json()["id"]
+            emp.m365_id = user_id
+            emp.work_email = upn
+            steps["m365_user"].status = "ok"
+            steps["m365_user"].detail = f"Account {upn} created"
+        else:
+            raise RuntimeError(resp.text[:300])
+    except Exception as e:
+        steps["m365_user"].status = "failed"
+        steps["m365_user"].detail = str(e)[:400]
+        failed = True
+
+    # 2) License (this is what creates the Outlook mailbox)
+    if user_id and body.license_sku_id:
+        try:
+            resp = httpx.post(f"{_GRAPH}/users/{user_id}/assignLicense",
+                              headers={"Authorization": f"Bearer {token}"},
+                              json={"addLicenses": [{"skuId": body.license_sku_id, "disabledPlans": []}],
+                                    "removeLicenses": []}, timeout=30)
+            if resp.is_success:
+                steps["m365_license"].status = "ok"
+                steps["m365_license"].detail = "License assigned — mailbox provisioning"
+            else:
+                raise RuntimeError(resp.text[:300])
+        except Exception as e:
+            steps["m365_license"].status = "failed"
+            steps["m365_license"].detail = str(e)[:400]
+    else:
+        steps["m365_license"].status = "skipped"
+        steps["m365_license"].detail = "" if user_id else "user creation failed"
+
+    # 3) Reporting line into Entra -> Teams/Outlook org charts match Nexus
+    if user_id and emp.manager_email:
+        try:
+            mgr = httpx.get(f"{_GRAPH}/users/{emp.manager_email}", headers={"Authorization": f"Bearer {token}"}, timeout=20)
+            if mgr.is_success:
+                resp = httpx.put(f"{_GRAPH}/users/{user_id}/manager/$ref",
+                                 headers={"Authorization": f"Bearer {token}"},
+                                 json={"@odata.id": f"{_GRAPH}/users/{mgr.json()['id']}"}, timeout=20)
+                if resp.is_success:
+                    steps["m365_manager"].status = "ok"
+                    steps["m365_manager"].detail = f"Reports to {emp.manager_email}"
+                else:
+                    raise RuntimeError(resp.text[:300])
+            else:
+                raise RuntimeError(f"manager {emp.manager_email} not found in tenant")
+        except Exception as e:
+            steps["m365_manager"].status = "failed"
+            steps["m365_manager"].detail = str(e)[:400]
+    else:
+        steps["m365_manager"].status = "skipped"
+
+    # 4/5) Asana + Ignite — manual until tier/API access is confirmed
+    steps["asana"].status = "manual"
+    steps["asana"].detail = "Invite to the Asana workspace by email"
+    steps["ignite"].status = "manual"
+    steps["ignite"].detail = "Create the Ignite account per role template"
+
+    # 6) Welcome notification to the personal email (no password in the mail —
+    #    the temp password is returned ONCE to the HR user who clicked)
+    if user_id and emp.personal_email and os.getenv("NEXUS_FROM_EMAIL"):
+        try:
+            resp = httpx.post(f"{_GRAPH}/users/{os.getenv('NEXUS_FROM_EMAIL')}/sendMail",
+                              headers={"Authorization": f"Bearer {token}"}, json={
+                "message": {
+                    "subject": "Welcome to Greens Global — your account is ready",
+                    "body": {"contentType": "Text", "content":
+                             f"Hi {emp.first_name},\n\nYour Greens Global account ({upn}) has been created. "
+                             "HR will share your temporary password separately — you'll be asked to change it on first sign-in.\n\n"
+                             "Sign in at https://office.com\n\n— Greens Nexus"},
+                    "toRecipients": [{"emailAddress": {"address": emp.personal_email}}],
+                }, "saveToSentItems": False}, timeout=20)
+            steps["welcome_email"].status = "ok" if resp.is_success else "failed"
+            if not resp.is_success:
+                steps["welcome_email"].detail = resp.text[:300]
+        except Exception as e:
+            steps["welcome_email"].status = "failed"
+            steps["welcome_email"].detail = str(e)[:400]
+    else:
+        steps["welcome_email"].status = "skipped"
+
+    statuses = {s.status for s in steps.values()}
+    run.status = "failed" if failed else ("done" if "failed" not in statuses else "partial")
+    run.finished_at = datetime.now(timezone.utc).isoformat()
+    if emp.status == "onboarding" and user_id:
+        emp.status = "active"
+    db.commit()
+
+    return {
+        "runId": run.id, "status": run.status,
+        "steps": [{"step": s.step, "status": s.status, "detail": s.detail}
+                  for s in sorted(steps.values(), key=lambda x: x.ordinal)],
+        "tempPassword": temp_password if user_id else None,
+        "employee": _serialize(emp),
+    }
+
+
+@router.get("/employees/{eid}/provision/runs")
+def provision_runs(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    runs = (db.query(HrProvisionRun).filter(HrProvisionRun.employee_id == eid)
+            .order_by(HrProvisionRun.started_at.desc()).all())
+    out = []
+    for r in runs:
+        steps = (db.query(HrProvisionStep).filter(HrProvisionStep.run_id == r.id)
+                 .order_by(HrProvisionStep.ordinal).all())
+        out.append({"id": r.id, "status": r.status, "startedBy": r.started_by,
+                    "startedAt": r.started_at, "finishedAt": r.finished_at,
+                    "steps": [{"step": s.step, "status": s.status, "detail": s.detail} for s in steps]})
+    return out

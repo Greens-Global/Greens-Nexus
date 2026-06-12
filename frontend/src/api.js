@@ -61,7 +61,8 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
         ...options,
         signal: controller.signal,
         headers: {
-          "Content-Type": "application/json",
+          // FormData bodies set their own multipart boundary — forcing JSON breaks them
+          ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
           ...authHeader,
           ...(options.headers ?? {}),
         },
@@ -312,6 +313,17 @@ export const api = {
   getCandidateHistory: (id)       => req(`/hr/candidates/${id}/history`),
   createCandidate:     (data)     => req('/hr/candidates', { method: 'POST', body: JSON.stringify(data) }),
   updateCandidate:     (id, data) => req(`/hr/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // HR — documents (private bucket, signed URLs)
+  getEmployeeDocs:   (empId)        => req(`/hr/employees/${empId}/documents`),
+  uploadEmployeeDoc: (empId, form)  => req(`/hr/employees/${empId}/documents`, { method: 'POST', body: form }),
+  getDocUrl:         (docId)        => req(`/hr/documents/${docId}/url`),
+  deleteEmployeeDoc: (docId)        => req(`/hr/documents/${docId}`, { method: 'DELETE' }),
+
+  // HR — provisioning
+  getProvisionSkus:  ()             => req('/hr/provision/skus'),
+  provisionEmployee: (empId, data)  => req(`/hr/employees/${empId}/provision`, { method: 'POST', body: JSON.stringify(data) }),
+  getProvisionRuns:  (empId)        => req(`/hr/employees/${empId}/provision/runs`),
 
   // HR — leave tracker
   getLeave:         ()          => req('/hr/leave'),

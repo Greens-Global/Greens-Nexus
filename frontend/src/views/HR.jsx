@@ -158,8 +158,169 @@ function EmployeeFormModal({ employee, employees, onClose, onSaved, toastErr }) 
   );
 }
 
+// ── Documents (Phase 3) — private bucket, viewed via short-lived signed URLs ──
+const DOC_KINDS = [['resume', 'Resume'], ['id', 'ID'], ['contract', 'Contract'], ['certificate', 'Certificate'], ['other', 'Other']];
+
+function DocumentsSection({ employeeId, toastOk, toastErr }) {
+  const [docs, setDocs] = useState(null);
+  const [kind, setKind] = useState('other');
+  const [uploading, setUploading] = useState(false);
+  useEffect(() => { api.getEmployeeDocs(employeeId).then(setDocs).catch(() => setDocs([])); }, [employeeId]);
+
+  async function upload(file) {
+    if (!file || uploading) return;
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('kind', kind);
+      const doc = await api.uploadEmployeeDoc(employeeId, form);
+      setDocs(prev => [doc, ...(prev || [])]);
+      toastOk(`${file.name} uploaded.`);
+    } catch (err) { toastErr(err?.message || 'Upload failed.'); }
+    setUploading(false);
+  }
+  async function view(doc) {
+    try { const { url } = await api.getDocUrl(doc.id); window.open(url, '_blank', 'noopener'); }
+    catch (err) { toastErr(err?.message || 'Could not open document.'); }
+  }
+  async function remove(doc) {
+    try { await api.deleteEmployeeDoc(doc.id); setDocs(prev => prev.filter(d => d.id !== doc.id)); toastOk('Document removed.'); }
+    catch (err) { toastErr(err?.message || 'Could not delete.'); }
+  }
+  const fmtSize = b => b > 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`;
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
+          <FileText size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Documents
+        </span>
+        <select className="form-input" value={kind} onChange={e => setKind(e.target.value)} style={{ padding: '3px 8px', fontSize: 11.5, height: 28 }}>
+          {DOC_KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        <label className="secondary-btn" style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', padding: '5px 12px' }}>
+          {uploading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={12} />} Upload
+          <input type="file" hidden onChange={e => { upload(e.target.files?.[0]); e.target.value = ''; }} />
+        </label>
+      </div>
+      {docs === null ? <Loader2 size={15} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
+        : docs.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No documents yet.</div>
+        : docs.map(d => (
+          <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 0', borderBottom: '1px solid var(--line)', fontSize: 12.5 }}>
+            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.05em', background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 6, padding: '2px 7px', color: 'var(--muted)', textTransform: 'uppercase', flexShrink: 0 }}>
+              {d.kind}
+            </span>
+            <button onClick={() => view(d)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-blue))', fontWeight: 600, fontSize: 12.5, fontFamily: 'Inter,sans-serif', padding: 0, flex: 1, minWidth: 0, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {d.fileName}
+            </button>
+            <span style={{ color: 'var(--muted)', fontSize: 11, flexShrink: 0 }}>{fmtSize(d.sizeBytes)}</span>
+            <button onClick={() => remove(d)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 3 }}><X size={13} /></button>
+          </div>
+        ))}
+    </div>
+  );
+}
+
+// ── Provisioning modal (Phase 4) ──────────────────────────────────────────────
+const STEP_LABEL = {
+  m365_user: 'Microsoft 365 account', m365_license: 'License + mailbox',
+  m365_manager: 'Reporting line in Entra', asana: 'Asana', ignite: 'Ignite', welcome_email: 'Welcome email',
+};
+const STEP_COLOR = { ok: '--color-green', failed: '--color-red', manual: '--color-orange', skipped: null, pending: null };
+
+function ProvisionModal({ employee: e, onClose, onDone, toastErr }) {
+  const guess = `${(e.firstName || '').toLowerCase()}.${(e.lastName || '').toLowerCase()}`.replace(/\.+$/, '') + '@greensglobal.com';
+  const [email, setEmail] = useState(e.workEmail || guess);
+  const [skus, setSkus] = useState(null);
+  const [sku, setSku] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  useEffect(() => {
+    api.getProvisionSkus().then(rows => { setSkus(rows); const first = rows.find(s => s.available > 0); if (first) setSku(first.skuId); })
+      .catch(err => { setSkus([]); toastErr(err?.message || 'Could not load licenses.'); });
+  }, [toastErr]);
+
+  async function run() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await api.provisionEmployee(e.id, { work_email: email.trim(), license_sku_id: sku });
+      setResult(res);
+      onDone(res.employee);
+    } catch (err) { toastErr(err?.message || 'Provisioning failed.'); }
+    setBusy(false);
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={ev => ev.target === ev.currentTarget && !busy && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 500, maxHeight: 'min(92dvh, 680px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Provision accounts — {fullName(e)}</h3>
+          <button onClick={onClose} disabled={busy} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
+          {!result ? (<>
+            <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 16px', lineHeight: 1.55 }}>
+              Creates the Microsoft 365 account (with a temp password shown once to you), assigns the license — which
+              is what creates the Outlook mailbox — sets the Entra reporting line, and emails a welcome note to their
+              personal address. Asana and Ignite stay manual checklist items for now.
+            </p>
+            <label style={FL}>WORK EMAIL (becomes their sign-in) *</label>
+            <input className="form-input" style={{ width: '100%', marginBottom: 14 }} value={email} onChange={ev => setEmail(ev.target.value)} />
+            <label style={FL}>LICENSE</label>
+            {skus === null ? <Loader2 size={16} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /> : (
+              <select className="form-input" style={{ width: '100%' }} value={sku} onChange={ev => setSku(ev.target.value)}>
+                <option value="">— no license (no mailbox) —</option>
+                {skus.map(s => <option key={s.skuId} value={s.skuId} disabled={s.available <= 0}>{s.skuPartNumber} ({s.available} free)</option>)}
+              </select>
+            )}
+          </>) : (<>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {result.steps.map(s => (
+                <div key={s.step} style={{ display: 'flex', alignItems: 'flex-start', gap: 9, fontSize: 13 }}>
+                  <span style={{ width: 9, height: 9, borderRadius: '50%', marginTop: 4, flexShrink: 0, background: STEP_COLOR[s.status] ? `hsl(var(${STEP_COLOR[s.status]}))` : 'var(--line)' }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontWeight: 600 }}>{STEP_LABEL[s.step]}</span>
+                    <span style={{ color: 'var(--muted)', marginLeft: 7, fontSize: 12 }}>
+                      {s.status === 'manual' ? 'manual step' : s.status}{s.detail ? ` — ${s.detail}` : ''}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {result.tempPassword && (
+              <div style={{ marginTop: 16, background: 'hsla(var(--color-orange),0.08)', border: '1px solid hsla(var(--color-orange),0.35)', borderRadius: 10, padding: '12px 14px' }}>
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.06em', color: 'hsl(var(--color-orange))', marginBottom: 5 }}>TEMP PASSWORD — SHOWN ONLY ONCE</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <code style={{ fontSize: 14, fontWeight: 700 }}>{result.tempPassword}</code>
+                  <button className="secondary-btn" style={{ fontSize: 11.5, padding: '4px 10px' }}
+                    onClick={() => navigator.clipboard?.writeText(result.tempPassword)}>Copy</button>
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 5 }}>Share it with {e.firstName} directly — they must change it on first sign-in. It is not stored anywhere.</div>
+              </div>
+            )}
+          </>)}
+        </div>
+        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
+          {!result ? (<>
+            <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+            <button className="primary-btn" onClick={run} disabled={busy || !email.trim()}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'hsl(var(--color-green))' }}>
+              {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />}
+              {busy ? 'Provisioning…' : 'Provision now'}
+            </button>
+          </>) : <button className="primary-btn" onClick={onClose}>Done</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Profile detail pane ───────────────────────────────────────────────────────
-function EmployeeDetail({ e, employees, onEdit, onBack, isMobile }) {
+function EmployeeDetail({ e, employees, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated }) {
+  const [provisionOpen, setProvisionOpen] = useState(false);
   const sm = STATUS_META[e.status] || STATUS_META.active;
   const manager = employees.find(m => m.workEmail && m.workEmail === e.managerEmail);
   const reports = employees.filter(r => e.workEmail && r.managerEmail === e.workEmail);
@@ -189,6 +350,14 @@ function EmployeeDetail({ e, employees, onEdit, onBack, isMobile }) {
         <button className="secondary-btn" onClick={() => onEdit(e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
           <Pencil size={13} /> Edit
         </button>
+        {!e.m365Id ? (
+          <button className="primary-btn" onClick={() => setProvisionOpen(true)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, background: 'hsl(var(--color-green))' }}>
+            <CheckCircle size={13} /> Provision accounts
+          </button>
+        ) : (
+          <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))' }}>M365 ✓</span>
+        )}
       </div>
       <div style={{ marginTop: 14 }}>
         {row(Mail, 'Work email', e.workEmail)}
@@ -201,6 +370,12 @@ function EmployeeDetail({ e, employees, onEdit, onBack, isMobile }) {
         {reports.length > 0 && row(Users, 'Direct reports', reports.map(fullName).join(', '))}
         {e.notes && row(FileText, 'Notes', e.notes)}
       </div>
+      <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
+      {provisionOpen && (
+        <ProvisionModal employee={e} toastErr={toastErr}
+          onClose={() => setProvisionOpen(false)}
+          onDone={updated => { onEmployeeUpdated(updated); toastOk(`${fullName(e)} provisioned.`); }} />
+      )}
     </div>
   );
 }
@@ -848,6 +1023,7 @@ export default function HR({ activeSub, onSubChange }) {
             {(!isMobile || selected) && (
               selected ? (
                 <EmployeeDetail e={selected} employees={employees} isMobile={isMobile}
+                  toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved}
                   onEdit={emp => { setEditing(emp); setFormOpen(true); }}
                   onBack={() => setSelectedId(null)} />
               ) : (
