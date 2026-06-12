@@ -3325,6 +3325,17 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
         /* Phone layout: one card per item — name, badges and actions all
            visible without sideways scrolling (the "Add/Edit is hiding" bug) */
         <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+          {/* Select all — lives in the table header on desktop, which cards don't have */}
+          <label style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 14px', cursor:'pointer', userSelect:'none' }}>
+            <input type="checkbox"
+              checked={selected.size === filtered.length && filtered.length > 0}
+              ref={el => { if (el) el.indeterminate = selected.size > 0 && selected.size < filtered.length; }}
+              onChange={toggleAll}
+              style={{ cursor:'pointer', accentColor:'var(--pine)', flexShrink:0 }} />
+            <span style={{ fontSize:12, fontWeight:600, color:'var(--muted)' }}>
+              {selected.size > 0 ? `${selected.size} of ${filtered.length} selected` : `Select all (${filtered.length})`}
+            </span>
+          </label>
           {sorted.map(item => (
             <div key={item.id} style={{ border:'1px solid var(--line)', borderRadius:12, background: selected.has(item.id) ? 'hsla(var(--color-blue),0.05)' : 'var(--card)', padding:'12px 14px', boxShadow:'var(--shadow-sm)' }}>
               <div style={{ display:'flex', alignItems:'center', gap:10 }}>
