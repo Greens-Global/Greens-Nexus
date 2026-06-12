@@ -2022,7 +2022,7 @@ const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoadi
                   {canAdd && (
                     <button onClick={e => { e.stopPropagation(); onAddToCart(item); }} disabled={alreadyInCart}
                       aria-label={alreadyInCart ? 'In cart' : 'Add to cart'}
-                      style={{ position:'absolute', right:8, bottom:8, width:34, height:34, borderRadius:'50%', border:'none', background: alreadyInCart ? 'hsl(var(--color-green))' : 'var(--pine)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 10px rgba(0,0,0,0.25)', cursor:'pointer' }}>
+                      style={{ position:'absolute', right:8, bottom:8, width:34, height:34, borderRadius:'50%', border:'none', background:'hsl(var(--color-green))', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 10px rgba(0,0,0,0.25)', cursor:'pointer' }}>
                       {alreadyInCart ? <CheckCircle size={16} /> : <Plus size={16} />}
                     </button>
                   )}
@@ -4640,12 +4640,64 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
   );
 });
 
+// Neil: clicking an item under a person shows that item's details and picture
+// as a card — acting on it still routes through Checkouts / Assignments.
+function WhwItemDetailCard({ item, checkout, holderName, onClose, onAct, actLabel }) {
+  useEscapeKey(onClose);
+  const tm = TYPE_META[item?.itemType || checkout?.itemType] || TYPE_META.Other;
+  const name  = item?.name || checkout?.itemName || 'Item';
+  const photo = item?.photoUrl || checkout?.checkoutPhotoUrl || null;
+  const due   = checkout ? checkoutDueInfo(checkout) : null;
+  const inUse = checkout?.status === 'allocated';
+  const rows = [
+    ['Held by', holderName],
+    ['Type', [item?.itemType || checkout?.itemType, item?.department || checkout?.department].filter(Boolean).join(' · ') || '—'],
+    item && (item.make || item.model) ? ['Make / Model', [item.make, item.model].filter(Boolean).join(' ')] : null,
+    checkout
+      ? ['Status', inUse
+          ? (due.daysLeft < 0 ? `In use — overdue ${Math.abs(due.daysLeft)}d` : due.daysLeft === 0 ? 'In use — due today' : `In use — ${due.daysLeft}d left`)
+          : (MANAGER_CHECKOUT_STATUS_META[checkout.status]?.label || checkout.status)]
+      : ['Status', 'Permanently assigned'],
+    checkout?.reason ? ['Reason', checkout.reason] : null,
+    Number(item?.assetValue) > 0 ? ['Asset value', fmtMoney(Number(item.assetValue))] : null,
+  ].filter(Boolean);
+  return (
+    <div role="dialog" aria-modal="true"
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:16, overflowY:'auto' }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:14, width:'100%', maxWidth:380, overflow:'hidden', boxShadow:'0 20px 60px rgba(0,0,0,0.25)' }}>
+        <div style={{ height:190, background:'var(--mist)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          {photo
+            ? <img src={photo} alt={name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+            : <tm.Icon size={44} color={tm.color} />}
+        </div>
+        <div style={{ padding:'16px 18px' }}>
+          <div style={{ fontWeight:800, fontSize:16, letterSpacing:'-.01em' }}>{name}</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:8, marginTop:12 }}>
+            {rows.map(([label, value]) => (
+              <div key={label} style={{ display:'flex', gap:10, fontSize:13 }}>
+                <span style={{ width:92, flexShrink:0, fontSize:10.5, fontWeight:800, letterSpacing:'.06em', color:'var(--muted)', textTransform:'uppercase', paddingTop:2 }}>{label}</span>
+                <span style={{ color:'var(--ink)', fontWeight:600, minWidth:0 }}>{value}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ display:'flex', gap:8, marginTop:16, justifyContent:'flex-end' }}>
+            <button className="secondary-btn" style={{ fontSize:13 }} onClick={onClose}>Close</button>
+            {onAct && <button className="primary-btn" style={{ fontSize:13 }} onClick={onAct}>{actLabel} →</button>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Who Has It Tab ────────────────────────────────────────────────────────────
 // Per-person view of every allocation: searchable, split into permanent
 // assignments and transient checkouts — Neil's "permanent vs transient" ask.
 const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckouts }) {
   const [search, setSearch] = useState('');
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [detail, setDetail] = useState(null);
 
   // Transient: live checkouts grouped by holder
   const holders = useMemo(() => {
@@ -4737,10 +4789,15 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
                         const inUse = c.status === 'allocated';
                         const itemPhoto = items.find(i => i.id === c.itemId)?.photoUrl || c.checkoutPhotoUrl;
                         return (
-                          // Row click → that item's order in Checkouts, where the
-                          // actions live (hand over / extend / force return)
-                          <div key={c.id} onClick={() => onOpenCheckouts?.({ q: c.itemName })}
-                            title="Open this checkout to act on it"
+                          // Row click → item detail card (photo + facts); the
+                          // card's action button deep-links into Checkouts
+                          <div key={c.id} onClick={() => setDetail({
+                              item: items.find(i => i.id === c.itemId) || null,
+                              checkout: c, holderName: h.name,
+                              act: () => { setDetail(null); onOpenCheckouts?.({ q: c.itemName }); },
+                              actLabel: 'Open in Checkouts',
+                            })}
+                            title="View item details"
                             style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5, cursor:'pointer', borderRadius:7, padding:'4px 6px', margin:'0 -6px', transition:'background .12s' }}
                             onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
                             onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
@@ -4771,9 +4828,14 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
                     <div style={{ fontSize:10.5, fontWeight:800, color:'hsl(var(--color-blue))', letterSpacing:'.06em', marginBottom:7 }}>PERMANENTLY ASSIGNED</div>
                     <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
                       {h.permanent.map(i => (
-                        // Row click → Assignments queue (force recover / reassign live there)
-                        <div key={i.id} onClick={() => onOpenCheckouts?.({ segment: 'assignments' })}
-                          title="Open in Assignments to reassign or force-recover"
+                        // Row click → item detail card; its action button opens
+                        // Assignments (force recover / reassign live there)
+                        <div key={i.id} onClick={() => setDetail({
+                            item: i, holderName: h.name,
+                            act: () => { setDetail(null); onOpenCheckouts?.({ segment: 'assignments' }); },
+                            actLabel: 'Open in Assignments',
+                          })}
+                          title="View item details"
                           style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5, cursor:'pointer', borderRadius:7, padding:'4px 6px', margin:'0 -6px', transition:'background .12s' }}
                           onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
                           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
@@ -4797,6 +4859,13 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
             </div>
           ))}
         </div>
+      )}
+      {detail && (
+        <WhwItemDetailCard
+          item={detail.item} checkout={detail.checkout} holderName={detail.holderName}
+          onAct={detail.act} actLabel={detail.actLabel}
+          onClose={() => setDetail(null)}
+        />
       )}
       {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
     </div>
