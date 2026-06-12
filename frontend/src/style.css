@@ -2088,7 +2088,12 @@ button, [role="button"], select { touch-action: manipulation; }
 /* ── HR org chart — top-down tree with connector lines (Busacta-style) ───────
    Classic nested-list chart: each <li> draws its half-width top connector via
    ::before/::after, each child <ul> drops a vertical line from its parent. */
-.org-tree-wrap { overflow-x: auto; padding: 6px 2px 14px; -webkit-overflow-scrolling: touch; }
+.org-tree-wrap { overflow-x: auto; padding: 6px 8px 14px; -webkit-overflow-scrolling: touch; }
+/* width:max-content — the tree must be as wide as its widest rank, otherwise
+   the overflow clips straight through the last card (it sliced Sai's card in
+   half and painted the clip edge as a phantom line). min-width keeps small
+   trees centered in the wrap. */
+.org-tree { width: max-content; min-width: 100%; }
 .org-tree ul { display: flex; justify-content: center; padding: 0; margin: 0; position: relative; }
 .org-tree li { list-style: none; display: flex; flex-direction: column; align-items: center; position: relative; padding: 26px 7px 0; }
 .org-tree li::before, .org-tree li::after {
