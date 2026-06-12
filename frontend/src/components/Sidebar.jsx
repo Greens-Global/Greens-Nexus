@@ -64,10 +64,6 @@ export const NAV = [
     view: "property-asset", label: "Asset Management", icon: Home, minRole: 'supervisor',
     sub: [
       { subview: "asset-portfolio",   label: "Property Portfolio",    icon: LayoutGrid },
-      { subview: "asset-warranties",  label: "Equipment Warranties",  icon: Shield },
-      { subview: "asset-plans",       label: "As-Built Plans",        icon: FileText },
-      { subview: "asset-inspections", label: "Annual Inspections",    icon: ClipboardCheck },
-      { subview: "compliance",        label: "Compliance",            icon: Shield },
     ],
   },
   {
