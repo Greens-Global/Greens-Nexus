@@ -2084,3 +2084,32 @@ button, [role="button"], select { touch-action: manipulation; }
 .mobile-submenu-head { display: flex; align-items: center; justify-content: center; position: relative; padding: 18px 16px 12px; }
 .mobile-submenu-back { position: absolute; left: 10px; top: 12px; background: none; border: none; color: var(--ink); padding: 10px; cursor: pointer; }
 .mobile-submenu-title { font-weight: 800; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; max-width: 65%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── HR org chart — top-down tree with connector lines (Busacta-style) ───────
+   Classic nested-list chart: each <li> draws its half-width top connector via
+   ::before/::after, each child <ul> drops a vertical line from its parent. */
+.org-tree-wrap { overflow-x: auto; padding: 6px 2px 14px; -webkit-overflow-scrolling: touch; }
+.org-tree ul { display: flex; justify-content: center; padding: 0; margin: 0; position: relative; }
+.org-tree li { list-style: none; display: flex; flex-direction: column; align-items: center; position: relative; padding: 26px 7px 0; }
+.org-tree li::before, .org-tree li::after {
+  content: ''; position: absolute; top: 0; right: 50%; width: 50%; height: 26px;
+  border-top: 2px solid var(--sage);
+}
+.org-tree li::after  { right: auto; left: 50%; border-left: 2px solid var(--sage); }
+.org-tree li:only-child::before, .org-tree li:only-child::after { border-top: 0 none; }
+.org-tree li:first-child::before, .org-tree li:last-child::after { border-top: 0 none; }
+.org-tree li:last-child::before  { border-right: 2px solid var(--sage); border-radius: 0 8px 0 0; }
+.org-tree li:first-child::after  { border-radius: 8px 0 0 0; }
+.org-tree li > ul::before {
+  content: ''; position: absolute; top: -26px; left: 50%; width: 0; height: 26px;
+  border-left: 2px solid var(--sage);
+}
+/* roots: no inbound connectors */
+.org-tree > ul > li { padding-top: 0; }
+.org-tree > ul > li::before, .org-tree > ul > li::after { display: none; }
+
+.org-card {
+  display: inline-flex; align-items: center; gap: 10px; text-align: left;
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 10px 14px; box-shadow: var(--shadow-sm); white-space: nowrap;
+}

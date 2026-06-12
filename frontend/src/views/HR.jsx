@@ -625,21 +625,21 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated }) {
   );
 }
 
-// ── Org chart (Phase 5) ───────────────────────────────────────────────────────
-function OrgNode({ e, childrenMap, employees, depth }) {
+// ── Org chart (Phase 5) — top-down tree with connector lines ──────────────────
+function OrgNode({ e, childrenMap }) {
   const kids = childrenMap.get((e.workEmail || '').toLowerCase()) || [];
   return (
-    <div style={{ marginLeft: depth ? 22 : 0, borderLeft: depth ? '2px solid var(--line)' : 'none', paddingLeft: depth ? 14 : 0, marginTop: 8 }}>
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '9px 14px', boxShadow: 'var(--shadow-sm)', maxWidth: '100%' }}>
-        <Avatar e={e} size={32} />
+    <li>
+      <div className="org-card">
+        <Avatar e={e} size={36} />
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[e.jobTitle, e.department].filter(Boolean).join(' · ') || '—'}</div>
+          <div style={{ fontWeight: 700, fontSize: 13 }}>{fullName(e)}</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)' }}>{[e.jobTitle, e.department].filter(Boolean).join(' · ') || '—'}</div>
         </div>
         {kids.length > 0 && <span style={{ fontSize: 10, fontWeight: 800, background: 'hsla(var(--color-blue),0.1)', color: 'hsl(var(--color-blue))', borderRadius: 20, padding: '1px 7px', flexShrink: 0 }}>{kids.length}</span>}
       </div>
-      {kids.map(k => <OrgNode key={k.id} e={k} childrenMap={childrenMap} employees={employees} depth={depth + 1} />)}
-    </div>
+      {kids.length > 0 && <ul>{kids.map(k => <OrgNode key={k.id} e={k} childrenMap={childrenMap} />)}</ul>}
+    </li>
   );
 }
 
@@ -653,6 +653,12 @@ function OrgChartTab({ employees }) {
       if (!childrenMap.has(m)) childrenMap.set(m, []);
       childrenMap.get(m).push(e);
     }
+  }
+  // Managers (people with reports) before leaves, then alphabetical — keeps
+  // wide sibling rows readable
+  const kidCount = e => (childrenMap.get((e.workEmail || '').toLowerCase()) || []).length;
+  for (const arr of childrenMap.values()) {
+    arr.sort((a, b) => (kidCount(b) - kidCount(a)) || fullName(a).localeCompare(fullName(b)));
   }
   const hasManager = e => (e.managerEmail || '') && emails.has((e.managerEmail || '').toLowerCase());
   const roots = people.filter(e => !hasManager(e) && (childrenMap.get((e.workEmail || '').toLowerCase()) || []).length > 0);
@@ -674,7 +680,11 @@ function OrgChartTab({ employees }) {
       {roots.length > 0 && (
         <div style={{ marginBottom: 22 }}>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 4 }}>Reporting hierarchy</div>
-          {roots.map(r => <OrgNode key={r.id} e={r} childrenMap={childrenMap} employees={people} depth={0} />)}
+          <div className="org-tree-wrap">
+            <div className="org-tree">
+              <ul>{roots.map(r => <OrgNode key={r.id} e={r} childrenMap={childrenMap} />)}</ul>
+            </div>
+          </div>
         </div>
       )}
       {unlinked.length > 0 && (
