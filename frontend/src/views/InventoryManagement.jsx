@@ -1945,6 +1945,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
 // ── Item Photo Grid (shared by employee + manager catalog) ────────────────────
 const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoading, itemsError, refreshItems, onAddToCart, inCart, emptyLabel }) {
   const [lightbox, setLightbox] = useState(null);
+  const isMobile = useIsMobile(); // phones get the minimal (amazon-style) tiles
 
   // Items with active requests: combine server-reported flag (works for all
   // users, not just managers) with the local checkouts list.
@@ -1999,6 +2000,43 @@ const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoadi
               const diff = Math.ceil((dueSrc - Date.now()) / 86400000);
               daysLeft = diff > 0 ? diff : 0;
             }
+          }
+
+          // Phones: minimal tiles — photo floating on the background with a
+          // small + on the image, one quiet info line, no card chrome or
+          // colored chips (Visesh: amazon-app minimal, not high-school cards)
+          if (isMobile) {
+            return (
+              <div key={item.id} style={{ display:'flex', flexDirection:'column' }}>
+                <div onClick={() => item.photoUrl && setLightbox({ src: item.photoUrl, alt: item.name })}
+                  style={{ position:'relative', aspectRatio:'1', borderRadius:12, overflow:'hidden', background: item.photoUrl ? 'var(--mist)' : tm.bg, display:'flex', alignItems:'center', justifyContent:'center', opacity: (isAvailable && !hasPending) ? 1 : 0.6 }}>
+                  {item.photoUrl
+                    ? <img src={item.photoUrl} alt={item.name} loading="lazy" decoding="async" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                    : <tm.Icon size={34} color={tm.color} />}
+                  {canAdd && (
+                    <button onClick={e => { e.stopPropagation(); onAddToCart(item); }} disabled={alreadyInCart}
+                      aria-label={alreadyInCart ? 'In cart' : 'Add to cart'}
+                      style={{ position:'absolute', right:8, bottom:8, width:34, height:34, borderRadius:'50%', border:'none', background: alreadyInCart ? 'hsl(var(--color-green))' : 'var(--pine)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 10px rgba(0,0,0,0.25)', cursor:'pointer' }}>
+                      {alreadyInCart ? <CheckCircle size={16} /> : <Plus size={16} />}
+                    </button>
+                  )}
+                  {(hasPending || !isAvailable) && (
+                    <div style={{ position:'absolute', left:0, right:0, bottom:0, background:'rgba(15,23,42,0.62)', color:'#fff', fontSize:10.5, fontWeight:600, textAlign:'center', padding:'4px 6px' }}>
+                      {hasPending ? 'Under review' : item.status === 'checked_out' ? `In use${checkedOutBy ? ` · ${checkedOutBy}` : ''}` : STATUS_META[item.status]?.label || 'Unavailable'}
+                    </div>
+                  )}
+                </div>
+                <div style={{ padding:'7px 2px 0' }}>
+                  <div style={{ fontSize:13, fontWeight:600, lineHeight:1.3, color:'var(--ink)', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden' }}>{item.name}</div>
+                  <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                    {[item.make, item.model, item.location].filter(Boolean).join(' · ') || item.itemType}
+                  </div>
+                  {!isAvailable && daysLeft != null && (
+                    <div style={{ fontSize:11, color:'var(--muted)', marginTop:1 }}>{daysLeft === 0 ? 'back today' : `back in ${daysLeft}d`}</div>
+                  )}
+                </div>
+              </div>
+            );
           }
 
           return (
