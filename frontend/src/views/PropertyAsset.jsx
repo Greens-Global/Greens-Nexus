@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Building2, Shield, ClipboardCheck, FileText, Plug, ListChecks, FileCheck,
   ArrowLeft, Plus, Pencil, Check, Trash2, MapPin, X, File as FileIcon, ExternalLink,
-  UploadCloud, Download, History, Filter, ChevronDown,
+  UploadCloud, Download, History, Filter, ChevronDown, Camera, Link2,
 } from 'lucide-react';
 import { msalInstance } from '../msalInstance';
+import timelineTemplate from '../data/timeline-template.json';
 
 // Current signed-in user (for activity logs).
 const currentUser = () => {
@@ -50,6 +51,30 @@ const fmtLogDate = (ts) => { try { return new Date(ts).toLocaleString([], { mont
 async function downloadIdbFile(key, name) {
   try { const blob = await idbGet(key); if (!blob) return; const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name || 'file'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000); } catch { /* ignore */ }
 }
+// Read an uploaded image File, downscale it (longest side -> maxDim) and return a
+// compressed JPEG data URL. Small enough to live in the property record (localStorage),
+// so the card photo persists across reloads and updates instantly on change.
+function fileToScaledDataUrl(file, maxDim = 900, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('bad image'));
+      img.onload = () => {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 import georgetown from '../data/assets/greens-georgetown.json';
 import austin from '../data/assets/greens-austin.json';
 import lakeside from '../data/assets/greens-lakeside.json';
@@ -72,9 +97,26 @@ const SNAPSHOT_TEMPLATE = () => [
   ['Ownership + Core Team', ['Ownership Entity', 'Seller (if applicable)', 'Developer / Sponsor', 'PM / Asset Manager', 'Architect', 'Civil', 'Structural', 'MEP', 'GC / CM', 'Land Use Attorney', 'Title / Escrow']],
   ['Site Data', ['Lot Size (SF / Acres)', 'Dimensions', 'Topography', 'Access Points', 'Street Frontage', 'Easements / Encroachments', 'Flood Zone', 'Soils / Geotech Notes']],
   ['Zoning + Land Use', ['Jurisdiction', 'General Plan', 'Zoning', 'Overlays / Specific Plan', 'Height / FAR Limits', 'Setbacks (F/S/R)', 'Parking Required', 'Design Review / CUP / Variance (Yes/No + notes)']],
-  ['Existing Improvements', ['Existing Structures (Yes/No)', 'Existing Building SF', 'Year Built', 'Occupancy (Vacant/Tenant)', 'Demo Needed (Yes/No)', 'Known Issues / Violations']],
+  ['Existing Improvements', ['Existing Structures (Yes/No)', 'Existing Building SF', 'Year Built', 'Occupancy (Vacant/Tenant)', 'Demo Needed (Yes/No)', 'Known Issues / Violations', 'Sprinklered (Yes/No)', 'Alarm Monitored (Yes/No)']],
+  // Asset-management / operations fields (per Neil's Property tab) — backfilled onto every
+  // property via normalizeSnapshot, and ready for the next Excel version's columns.
+  ['Insurance', ['Insurance Carrier', 'Policy Number', 'Policy Expiration Date', 'Insurance Agent']],
+  ['Property Tax', ['Tax Account Number', 'Annual Tax', 'Tax Due Date']],
+  ['Unit Mix', ['Climate Units', 'Non-Climate Units', 'RV Units', 'Total Units']],
 ].map(([group, labels]) => ({ group, fields: labels.map(label => ({ label, value: '' })) }));
-const emptyDetail = () => ({ snapshot: SNAPSHOT_TEMPLATE(), utilities: UTILITIES_TEMPLATE(), ahj: [], warranties: [], inspections: [], documents: [], permitsTimeline: [], logs: [] });
+const emptyDetail = () => ({ snapshot: SNAPSHOT_TEMPLATE(), utilities: UTILITIES_TEMPLATE(), ahj: [], warranties: [], inspections: [], documents: [], permitsTimeline: structuredClone(timelineTemplate), logs: [] });
+// Ensure every property's Overview has all template groups/fields (e.g. the newer
+// Insurance / Property Tax / Unit Mix groups, Sprinklered / Alarm flags). Existing values
+// and order are preserved; only missing groups/fields are appended (empty + editable).
+const normalizeSnapshot = (snapshot) => {
+  const result = (snapshot || []).map(g => ({ ...g, fields: [...(g.fields || [])] }));
+  SNAPSHOT_TEMPLATE().forEach(tg => {
+    let g = result.find(x => x.group === tg.group);
+    if (!g) { g = { group: tg.group, fields: [] }; result.push(g); }
+    tg.fields.forEach(tf => { if (!g.fields.some(f => f.label === tf.label)) g.fields.push({ label: tf.label, value: '' }); });
+  });
+  return result;
+};
 // Real properties (per-file). To add/update one: regenerate its JSON and list it here.
 const REAL = [georgetown, austin, lakeside, rainbow, escondidoNorth, escondidoSouth, sachse,
   valleyCenterNorth, valleyCenterEast, valleyCenterSouth, greensFamily918, gurudevFamily910, rjkResidence, greensFairfield];
@@ -109,8 +151,21 @@ const warrantyStatusColor = (s) => { const v = (s || '').toLowerCase(); if (v ==
 const INSPECTION_TPL = ['Inspection type', 'Frequency', 'Vendor', 'Vendor phone', 'Last completed', 'Next due', 'Cost', 'Document', 'Notes'];
 // Plans & Docs render as Development-style file chips; fields kept the same.
 const DOC_FIELDS = [['Title', 'title'], ['Category', 'category'], ['Document date', 'date'], ['Version / set', 'version'], ['Location (Egnyte path)', 'location'], ['Notes', 'notes']];
-const mkDoc = () => ({ title: '', category: '', date: '', version: '', location: '', notes: '', latest: false, fileName: '', fileSize: 0, fileKey: '' });
-const DOC_CATEGORY_OPTIONS = ['Sewer Plan', 'Water Permit', 'Electricity Permit', 'Grading Plan', 'House Plan'];
+const mkDoc = () => ({ title: '', category: '', date: '', version: '', location: '', notes: '', updatedAt: 0, fileName: '', fileSize: 0, fileKey: '' });
+// Asset-management-centric document categories (per Neil) — the As-Built plans set is the
+// core. "Other (type manually)" is added in the dropdown for anything not listed.
+const DOC_CATEGORY_OPTIONS = [
+  'Certificate of Occupancy',
+  'Permit',
+  'Survey',
+  'Geotech',
+  'O&M Manual',
+  'Closeout Set',
+  'As-Built - Electrical',
+  'As-Built - HVAC',
+  'As-Built - Landscape',
+  'As-Built - Low Voltage',
+];
 
 // Timeline editable rows + status dropdown.
 const TIMELINE_FIELDS = [['Phase', 'phase'], ['Permit / Approval', 'permit'], ['Issuing Agency', 'agency'], ['When Required', 'whenRequired'], ['Key Submittals', 'submittals'], ['Review Time', 'reviewTime']];
@@ -167,6 +222,8 @@ const SNAPSHOT_OPTIONS = [
   ['development stage', ['Feasibility', 'Entitlement', 'Permitting', 'Construction', 'Built', 'Stabilized']],
   ['existing structures', ['Yes', 'No']],
   ['demo needed', ['Yes', 'No']],
+  ['sprinklered', ['Yes', 'No']],
+  ['alarm monitored', ['Yes', 'No']],
 ];
 const fieldOptions = (label) => {
   const l = (label || '').toLowerCase();
@@ -185,6 +242,8 @@ const snapVal = (p, group, prefix) => {
   }
   return '';
 };
+// Split an APN string into individual parcels (handles & , / and "and" separators).
+const splitParcels = (apn) => (apn ? apn.split(/[&,/]|\band\b/i).map(x => x.trim()).filter(Boolean) : []);
 const stageColor = (s) => {
   const v = (s || '').toLowerCase();
   if (v.includes('built') || v.includes('stabilized')) return 'green';
@@ -193,6 +252,21 @@ const stageColor = (s) => {
   if (v.includes('permit') || v.includes('construction')) return 'orange';
   return null;
 };
+// High-level status from the granular development stage: a completed/operating asset is
+// "Active"; anything still in feasibility/entitlement/permitting/construction is
+// "Under Development". Returns null when the stage is blank/unknown.
+const devStatus = (stage) => {
+  const s = (stage || '').toLowerCase();
+  if (!s) return null;
+  const done = /(built|in[\s-]?use|open|developed|stabili[sz]ed|operat|complete|occupied|finaled)/.test(s);
+  if (done) return 'Active';
+  if (/(feasib|entitl|permit|construction|planning|predevelop|grading|design)/.test(s)) return 'Under Development';
+  return null;
+};
+const statusColor = (status) => status === 'Active' ? 'green' : status === 'Under Development' ? 'orange' : null;
+
+const DELETED_KEY = 'nexus_asset_deleted';
+const loadDeleted = () => { try { return JSON.parse(localStorage.getItem(DELETED_KEY) || '[]'); } catch { return []; } };
 
 function loadProperties() {
   const seedById = Object.fromEntries(SEED.map(p => [p.id, p]));
@@ -206,7 +280,9 @@ function loadProperties() {
   Object.values(savedById).forEach(p => {
     if (!seedById[p.id] && String(p.id).startsWith('p-')) result.push(p);
   });
-  return result;
+  const deleted = loadDeleted();
+  // Backfill any newly-added Overview groups/fields onto every property.
+  return result.filter(p => !deleted.includes(p.id)).map(p => ({ ...p, snapshot: normalizeSnapshot(p.snapshot) }));
 }
 
 export default function PropertyAsset() {
@@ -222,6 +298,9 @@ export default function PropertyAsset() {
   const [overviewReason, setOverviewReason] = useState('');
   const [showLink, setShowLink] = useState(false);
   const [linkForm, setLinkForm] = useState({ name: '', ids: [] });
+  const [editPropertyId, setEditPropertyId] = useState(null); // editing an existing property's summary via portfolio
+  const [deleteConfirm, setDeleteConfirm] = useState(null);    // property pending delete
+  const [portfolioManage, setPortfolioManage] = useState(false); // portfolio edit/manage mode (per-card edit+delete)
   const [form, setForm] = useState({ name: '', type: '', units: '', address: '', purchaseCost: '', yearBuilt: '', occupancyRate: '', manager: '' });
 
   useEffect(() => {
@@ -261,15 +340,34 @@ export default function PropertyAsset() {
     return ch;
   };
 
+  // Utilities are also edited inline via the common Edit button; diff them too.
+  const utilitiesDiff = (before, after) => {
+    const ch = [];
+    const bu = before.utilities || [], au = after.utilities || [];
+    au.forEach((u, ui) => {
+      const b = bu[ui];
+      if (!b) { ch.push(`Added "${u.name || 'utility'}"`); return; }
+      if ((b.name ?? '') !== (u.name ?? '')) ch.push(`${u.name || b.name} · Name: "${b.name || '—'}" → "${u.name || '—'}"`);
+      (u.fields || []).forEach((f, fi) => {
+        const bv = b.fields?.[fi]?.value ?? '';
+        if (String(bv) !== String(f.value ?? '')) ch.push(`${u.name || 'utility'} · ${f.label}: "${bv || '—'}" → "${f.value || '—'}"`);
+      });
+    });
+    if (bu.length > au.length) ch.push(`Removed ${bu.length - au.length} utilit${bu.length - au.length === 1 ? 'y' : 'ies'}`);
+    return ch;
+  };
+
   const toggleEdit = () => {
     if (!editMode) { setEditBaseline(structuredClone(selected)); setEditMode(true); return; }
-    const ch = editBaseline ? overviewDiff(editBaseline, selected) : [];
-    if (ch.length) { setReasonModal(ch); return; }  // changed something -> ask reason before saving
-    setEditBaseline(null); setEditMode(false);       // no change -> just exit
+    const ov = editBaseline ? overviewDiff(editBaseline, selected) : [];
+    const ut = editBaseline ? utilitiesDiff(editBaseline, selected) : [];
+    if (ov.length || ut.length) { setReasonModal({ ov, ut }); return; }  // changed -> ask reason before saving
+    setEditBaseline(null); setEditMode(false);                            // no change -> just exit
   };
   const confirmOverviewReason = (e) => {
     e.preventDefault();
-    log('Overview', 'edited', '', reasonModal, overviewReason);
+    if (reasonModal.ov.length) log('Overview', 'edited', '', reasonModal.ov, overviewReason);
+    if (reasonModal.ut.length) log('Utilities', 'edited', '', reasonModal.ut, overviewReason);
     setReasonModal(null); setOverviewReason(''); setEditBaseline(null); setEditMode(false);
   };
   const cancelOverviewReason = () => { setReasonModal(null); setOverviewReason(''); }; // back to editing
@@ -300,8 +398,52 @@ export default function PropertyAsset() {
   const backToPortfolio = () => { setSelectedId(null); setEditMode(false); setShowLogs(false); };
   const backToTop = () => { setSelectedGroup(null); setSelectedId(null); setEditMode(false); setShowLogs(false); };
 
+  const blankForm = { name: '', type: '', units: '', address: '', purchaseCost: '', yearBuilt: '', occupancyRate: '', manager: '' };
+  const closeAddModal = () => { setShowAdd(false); setEditPropertyId(null); setForm(blankForm); };
+
+  // Open the portfolio Add/Edit modal pre-filled to edit an existing property's summary.
+  const openEditProperty = (p) => {
+    setForm({
+      name: p.name || '', type: p.type || '', units: p.units ?? '', address: p.address || '',
+      purchaseCost: p.purchaseCost ?? '', yearBuilt: p.yearBuilt ?? '',
+      occupancyRate: p.occupancyRate ?? '', manager: p.manager || p.assetManager || '',
+    });
+    setEditPropertyId(p.id);
+    setShowAdd(true);
+  };
+
+  const deleteProperty = (id) => {
+    const deleted = loadDeleted();
+    if (!deleted.includes(id)) { deleted.push(id); try { localStorage.setItem(DELETED_KEY, JSON.stringify(deleted)); } catch { /* ignore */ } }
+    setProperties(prev => prev.filter(p => p.id !== id));
+    setDeleteConfirm(null);
+  };
+
+  // Upload/replace a property's card photo. Scaled to a compact JPEG so it persists
+  // in localStorage; the card updates immediately because the property record changes.
+  const changePropertyImage = async (id, file) => {
+    if (!file || !file.type.startsWith('image/')) return;
+    try {
+      const dataUrl = await fileToScaledDataUrl(file);
+      setProperties(prev => prev.map(p => p.id === id ? { ...p, image: dataUrl } : p));
+    } catch { /* ignore unreadable image */ }
+  };
+
   const submitAdd = (e) => {
     e.preventDefault();
+    if (editPropertyId) {
+      // Edit existing property's summary fields.
+      setProperties(prev => prev.map(p => p.id !== editPropertyId ? p : {
+        ...p, name: form.name, type: form.type, address: form.address,
+        units: form.units ? parseInt(form.units, 10) : '',
+        purchaseCost: form.purchaseCost ? parseInt(form.purchaseCost, 10) : '',
+        yearBuilt: form.yearBuilt ? parseInt(form.yearBuilt, 10) : '',
+        occupancyRate: form.occupancyRate ? parseInt(form.occupancyRate, 10) : null,
+        manager: form.manager,
+      }));
+      closeAddModal();
+      return;
+    }
     const p = {
       id: 'p-' + Date.now(),
       name: form.name, type: form.type, address: form.address,
@@ -319,8 +461,7 @@ export default function PropertyAsset() {
     setSnap('Existing Improvements', 'Year Built', form.yearBuilt);
     setSnap('Ownership + Core Team', 'PM / Asset Manager', form.manager);
     setProperties(prev => [...prev, p]);
-    setShowAdd(false);
-    setForm({ name: '', type: '', units: '', address: '', purchaseCost: '', yearBuilt: '', occupancyRate: '', manager: '' });
+    closeAddModal();
   };
 
   // Link selected properties under a site name (group). Unchecking a current member unlinks it.
@@ -350,7 +491,7 @@ export default function PropertyAsset() {
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{items.length} properties under this site — open one to see its full details</p>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
-          {items.map(p => <PropertyCard key={p.id} p={p} onOpen={openProperty} />)}
+          {items.map(p => <PropertyCard key={p.id} p={p} onOpen={openProperty} manage={portfolioManage} onEdit={openEditProperty} onDelete={setDeleteConfirm} onChangeImage={changePropertyImage} />)}
         </div>
       </div>
     );
@@ -368,6 +509,9 @@ export default function PropertyAsset() {
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Track properties Values, Occupancy, capacities, and active managers</p>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className={portfolioManage ? 'primary-btn' : 'secondary-btn'} onClick={() => setPortfolioManage(m => !m)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {portfolioManage ? <><Check size={14} /> Done</> : <><Pencil size={14} /> Edit</>}
+            </button>
             <button className="secondary-btn" onClick={() => { setLinkForm({ name: '', ids: [] }); setShowLink(true); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <ListChecks size={14} /> Link Properties
             </button>
@@ -377,8 +521,14 @@ export default function PropertyAsset() {
           </div>
         </div>
 
+        {portfolioManage && (
+          <div style={{ marginBottom: 16, padding: '8px 12px', borderRadius: 8, fontSize: '0.8rem', color: 'hsl(var(--color-gold))', backgroundColor: 'hsla(var(--color-gold), 0.08)', border: '1px solid hsla(var(--color-gold), 0.25)' }}>
+            Edit mode — use the ✏️ and 🗑️ on each card to edit or delete a property. Click <strong>Done</strong> when finished.
+          </div>
+        )}
+
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
-          {standalone.map(p => <PropertyCard key={p.id} p={p} onOpen={openProperty} />)}
+          {standalone.map(p => <PropertyCard key={p.id} p={p} onOpen={openProperty} manage={portfolioManage} onEdit={openEditProperty} onDelete={setDeleteConfirm} onChangeImage={changePropertyImage} />)}
           {Object.entries(groups).map(([name, items]) => <GroupCard key={name} name={name} items={items} onOpen={setSelectedGroup} />)}
         </div>
 
@@ -386,17 +536,17 @@ export default function PropertyAsset() {
           <div className="modal-overlay" style={{ display: 'flex' }}>
             <div className="modal-content">
               <div className="modal-header">
-                <h3>Register Property Asset</h3>
-                <button className="close-btn" onClick={() => setShowAdd(false)}><X size={18} /></button>
+                <h3>{editPropertyId ? 'Edit Property' : 'Register Property Asset'}</h3>
+                <button className="close-btn" onClick={closeAddModal}><X size={18} /></button>
               </div>
               <form onSubmit={submitAdd}>
                 <div className="form-grid">
                   <div className="form-group form-group-full">
-                    <label>Property Name</label>
+                    <label>Property Name<Req /></label>
                     <input type="text" className="form-input" required placeholder="e.g. Greens Plaza East" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
                   </div>
                   <div className="form-group">
-                    <label>Property Category</label>
+                    <label>Property Category<Req /></label>
                     <input type="text" className="form-input" required placeholder="e.g. Mixed-Use Commercial" value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} />
                   </div>
                   <div className="form-group">
@@ -404,7 +554,7 @@ export default function PropertyAsset() {
                     <input type="number" className="form-input" min="1" placeholder="e.g. 64" value={form.units} onChange={e => setForm(f => ({ ...f, units: e.target.value }))} />
                   </div>
                   <div className="form-group form-group-full">
-                    <label>Geographic Address</label>
+                    <label>Geographic Address<Req /></label>
                     <input type="text" className="form-input" required placeholder="e.g. 101 North Boulevard, Sector 4" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} />
                   </div>
                   <div className="form-group">
@@ -425,8 +575,8 @@ export default function PropertyAsset() {
                   </div>
                 </div>
                 <div className="modal-footer">
-                  <button type="button" className="secondary-btn" onClick={() => setShowAdd(false)}>Cancel</button>
-                  <button type="submit" className="primary-btn">Save Asset</button>
+                  <button type="button" className="secondary-btn" onClick={closeAddModal}>Cancel</button>
+                  <button type="submit" className="primary-btn">{editPropertyId ? 'Save changes' : 'Save Asset'}</button>
                 </div>
               </form>
             </div>
@@ -472,6 +622,24 @@ export default function PropertyAsset() {
             </div>
           </div>
         )}
+
+        {deleteConfirm && (
+          <div className="modal-overlay" style={{ display: 'flex' }}>
+            <div className="modal-content" style={{ maxWidth: 440 }}>
+              <div className="modal-header">
+                <h3>Delete property?</h3>
+                <button className="close-btn" onClick={() => setDeleteConfirm(null)}><X size={18} /></button>
+              </div>
+              <div style={{ padding: '6px 2px 14px', fontSize: '0.88rem', color: 'var(--text-primary)' }}>
+                Are you sure you want to delete <strong>{deleteConfirm.name}</strong>? This removes the property and all its details from the portfolio.
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="secondary-btn" onClick={() => setDeleteConfirm(null)}>Cancel</button>
+                <button type="button" className="primary-btn" style={{ backgroundColor: 'hsl(var(--color-red))', borderColor: 'hsl(var(--color-red))' }} onClick={() => deleteProperty(deleteConfirm.id)}>Delete</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -491,11 +659,13 @@ export default function PropertyAsset() {
           <button className="secondary-btn" onClick={backToPortfolio} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', fontSize: '0.8rem', marginBottom: 10 }}>
             <ArrowLeft size={14} /> {selected.group || 'Portfolio'}
           </button>
-          <h2 style={{ fontSize: '1.4rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>{selected.name}</h2>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-            <span>{selected.type || '—'}</span>
+          <h2 style={{ fontSize: '1.6rem', fontWeight: 700, letterSpacing: '-0.01em', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 6 }}>{selected.name}</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+            <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{selected.type || '—'}</span>
             {selected.address && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><MapPin size={13} /> {selected.address}</span>}
-            <span>{selected.occupancyRate != null && selected.occupancyRate !== '' ? `${selected.occupancyRate}% Occupied` : 'Occupancy —'}</span>
+            {selected.occupancyRate != null && selected.occupancyRate !== '' && (
+              <span style={{ fontSize: '0.74rem', fontWeight: 700, padding: '2px 9px', borderRadius: 20, color: 'hsl(var(--color-green))', backgroundColor: 'hsla(var(--color-green), 0.1)' }}>{selected.occupancyRate}% Occupied</span>
+            )}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
@@ -510,17 +680,19 @@ export default function PropertyAsset() {
 
       {/* Inner section tabs (property-scoped) — desktop only; phones use the
           bottom action bar (pa-tabs hidden ≤640 like Item Management) */}
-      <div className="scroll-tabs pa-tabs" style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--border-color)', overflowX: 'auto' }}>
-        {SECTIONS.map(({ key, label, Icon }) => (
-          <button key={key} onClick={() => setSection(key)}
-            style={{ background: 'none', border: 'none', padding: '10px 16px', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '0.9rem', cursor: 'pointer', whiteSpace: 'nowrap', color: section === key ? 'var(--text-primary)' : 'var(--text-secondary)', position: 'relative', display: 'flex', alignItems: 'center', gap: 7 }}>
-            <Icon size={16} /> {label}
-            {section === key && <span style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: 'var(--text-primary)', borderRadius: '4px 4px 0 0' }} />}
-          </button>
-        ))}
+      <div className="scroll-tabs pa-tabs" style={{ display: 'flex', gap: 4, marginBottom: 22, padding: 5, borderRadius: 14, backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', overflowX: 'auto' }}>
+        {SECTIONS.map(({ key, label, Icon }) => {
+          const on = section === key;
+          return (
+            <button key={key} onClick={() => setSection(key)}
+              style={{ background: on ? 'var(--bg-card)' : 'transparent', border: '1px solid', borderColor: on ? 'var(--border-color)' : 'transparent', borderRadius: 10, padding: '8px 14px', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer', whiteSpace: 'nowrap', color: on ? 'var(--text-primary)' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 7, boxShadow: on ? 'var(--shadow-sm)' : 'none', transition: 'all 0.15s' }}>
+              <Icon size={16} style={{ color: on ? 'hsl(var(--color-blue))' : 'inherit' }} /> {label}
+            </button>
+          );
+        })}
       </div>
 
-      <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-sm)' }}>
+      <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 26, boxShadow: 'var(--shadow-sm)' }}>
         <SectionHeading Icon={active.Icon} title={active.label}
           lastUpdated={(() => { const l = (selected.logs || []).find(x => x.section === SECTION_LOG[section]); return l ? fmtLogDate(l.ts) : null; })()} />
 
@@ -536,10 +708,25 @@ export default function PropertyAsset() {
         )}
 
         {section === 'utilities' && (
-          <UtilitiesSection list={selected.utilities}
-            onAdd={(u) => { mutate(p => { (p.utilities ||= []).push(u); }); log('Utilities', 'added', u.name || 'utility'); }}
-            onUpdate={(i, u, reason) => { const d = fieldEntryDiff(selected.utilities[i], u); mutate(p => { p.utilities[i] = u; }); log('Utilities', 'updated', u.name || 'utility', d, reason); }}
-            onDelete={(i) => { const nm = selected.utilities[i]?.name || 'utility'; mutate(p => { p.utilities.splice(i, 1); }); log('Utilities', 'removed', nm); }} />
+          <>
+            {editMode && (
+              <button className="primary-btn" onClick={() => mutate(p => { (p.utilities ||= []).push(mkUtility()); })} style={{ marginBottom: 16, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Plus size={14} /> Add Utility
+              </button>
+            )}
+            {(selected.utilities || []).length === 0
+              ? <EmptyState label="No utilities yet — click Edit (top-right) to add and fill in." />
+              : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
+                  {(selected.utilities || []).map((u, ci) => (
+                    <FieldCard key={ci} title={u.name || `Utility ${ci + 1}`} fields={u.fields} editMode={editMode}
+                      onField={(fi, v) => mutate(p => { p.utilities[ci].fields[fi].value = v; })}
+                      onName={(v) => mutate(p => { p.utilities[ci].name = v; })}
+                      onDelete={() => mutate(p => { p.utilities.splice(ci, 1); })} />
+                  ))}
+                </div>
+              )}
+          </>
         )}
         {section === 'warranties' && (
           <EntriesSection list={selected.warranties} title="Warranty" template={WARRANTY_TPL}
@@ -558,8 +745,8 @@ export default function PropertyAsset() {
         )}
         {section === 'documents' && (
           <DocsSection list={selected.documents}
-            onAdd={(doc) => { mutate(p => { (p.documents ||= []); if (doc.latest) p.documents.forEach(x => { if ((x.category || '') === (doc.category || '')) x.latest = false; }); p.documents.push(doc); }); log('Plans & Docs', 'added', doc.title || 'document'); }}
-            onUpdate={(i, doc, reason) => { const d = flatEntryDiff(selected.documents[i], doc, DOC_FIELDS); mutate(p => { if (doc.latest) p.documents.forEach((x, j) => { if (j !== i && (x.category || '') === (doc.category || '')) x.latest = false; }); p.documents[i] = doc; }); log('Plans & Docs', 'updated', doc.title || 'document', d, reason); }}
+            onAdd={(doc) => { doc.updatedAt = Date.now(); mutate(p => { (p.documents ||= []).push(doc); }); log('Plans & Docs', 'added', doc.title || 'document'); }}
+            onUpdate={(i, doc, reason) => { const d = flatEntryDiff(selected.documents[i], doc, DOC_FIELDS); doc.updatedAt = Date.now(); mutate(p => { p.documents[i] = doc; }); log('Plans & Docs', 'updated', doc.title || 'document', d, reason); }}
             onDelete={(i) => { const nm = selected.documents[i]?.title || 'document'; mutate(p => { p.documents.splice(i, 1); }); log('Plans & Docs', 'removed', nm); }} />
         )}
 
@@ -591,10 +778,14 @@ export default function PropertyAsset() {
             </div>
             <form onSubmit={confirmOverviewReason}>
               <div style={{ padding: '4px 2px 10px' }}>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.83rem', marginBottom: 10 }}>You changed {reasonModal.length} field{reasonModal.length === 1 ? '' : 's'}. Give a reason (saved to the activity log):</p>
-                <ul style={{ margin: '0 0 12px', paddingLeft: 18, fontSize: '0.8rem', color: 'var(--text-primary)', maxHeight: 160, overflowY: 'auto' }}>
-                  {reasonModal.map((c, i) => <li key={i} style={{ marginBottom: 4, wordBreak: 'break-word' }}>{c}</li>)}
-                </ul>
+                {(() => { const all = [...(reasonModal.ov || []), ...(reasonModal.ut || [])]; return (
+                  <>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.83rem', marginBottom: 10 }}>You changed {all.length} field{all.length === 1 ? '' : 's'}. Give a reason (saved to the activity log):</p>
+                    <ul style={{ margin: '0 0 12px', paddingLeft: 18, fontSize: '0.8rem', color: 'var(--text-primary)', maxHeight: 160, overflowY: 'auto' }}>
+                      {all.map((c, i) => <li key={i} style={{ marginBottom: 4, wordBreak: 'break-word' }}>{c}</li>)}
+                    </ul>
+                  </>
+                ); })()}
                 <div className="form-group form-group-full">
                   <label>Reason for change <span style={{ color: 'hsl(var(--color-red))' }}>*</span></label>
                   <input className="form-input" value={overviewReason} onChange={e => setOverviewReason(e.target.value)} required autoFocus placeholder="Why are you changing this?" />
@@ -614,6 +805,9 @@ export default function PropertyAsset() {
 
 /* ---------- presentational helpers ---------- */
 
+// Red asterisk for mandatory field labels.
+const Req = () => <span style={{ color: 'hsl(var(--color-red))' }}> *</span>;
+
 // Mandatory "reason for change" — shown when editing an existing record (audit trail).
 function ReasonField({ value, onChange }) {
   return (
@@ -625,26 +819,62 @@ function ReasonField({ value, onChange }) {
   );
 }
 
-// One property card (portfolio + group sub-list).
-function PropertyCard({ p, onOpen }) {
+// One property card (portfolio + group sub-list). In manage mode it shows edit/delete
+// and lets you upload/replace the card photo (auto-updates this card on change).
+function PropertyCard({ p, onOpen, manage, onEdit, onDelete, onChangeImage }) {
   const stage = snapVal(p, 'Project Details', 'Development Stage');
-  const sc = stageColor(stage);
-  const apn = snapVal(p, 'Project Details', 'APN');
+  const status = devStatus(stage);
+  const stColor = statusColor(status);
+  const parcels = splitParcels(snapVal(p, 'Project Details', 'APN'));
+  const apnPrimary = parcels[0] || '';
+  const apnDisplay = apnPrimary ? (parcels.length > 1 ? `${apnPrimary} · +${parcels.length - 1} more` : apnPrimary) : '';
+  const stop = (fn) => (e) => { e.stopPropagation(); fn(p); };
+  const fileRef = useRef(null);
+  const pickPhoto = (e) => { e.stopPropagation(); fileRef.current?.click(); };
+  const onPick = (e) => { const f = e.target.files?.[0]; if (f) onChangeImage?.(p.id, f); e.target.value = ''; };
+  const canPhoto = manage && onChangeImage;
   return (
-    <div className="motion-card" onClick={() => onOpen(p.id)} style={{ backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden', transition: 'all 0.15s', cursor: 'pointer' }}
+    <div className="motion-card" onClick={() => onOpen(p.id)} style={{ backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden', transition: 'all 0.15s', cursor: 'pointer' }}
       onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border-hover)'; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; }}
       onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}>
-      {p.image && <img src={p.image} alt={p.name} loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block', borderBottom: '1px solid var(--border-color)' }} />}
+      {canPhoto && <input ref={fileRef} type="file" accept="image/*" onChange={onPick} onClick={e => e.stopPropagation()} style={{ display: 'none' }} />}
+      {p.image ? (
+        <div style={{ position: 'relative' }}>
+          <img src={p.image} alt={p.name} loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block', borderBottom: '1px solid var(--border-color)' }} />
+          {canPhoto && (
+            <button onClick={pickPhoto} title="Change photo" style={{ position: 'absolute', top: 8, left: 8, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', fontSize: '0.72rem', fontWeight: 600, color: '#fff', background: 'rgba(15,23,42,0.62)', border: 'none', borderRadius: 6, cursor: 'pointer', backdropFilter: 'blur(2px)' }}>
+              <Camera size={13} /> Change photo
+            </button>
+          )}
+        </div>
+      ) : canPhoto ? (
+        <button onClick={pickPhoto} title="Add photo" style={{ width: '100%', height: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, color: 'var(--text-secondary)', background: 'var(--bg-secondary)', border: 'none', borderBottom: '1px dashed var(--border-color)', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 }}>
+          <Camera size={18} /> Add photo
+        </button>
+      ) : null}
       <div style={{ padding: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 12 }}>
           <div>
             <strong style={{ fontSize: '1.05rem', color: 'var(--text-primary)', fontFamily: "'Plus Jakarta Sans', sans-serif", display: 'block' }}>{p.name}</strong>
             <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500 }}>{p.type || '—'}</span>
           </div>
-          {stage && <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '2px 8px', borderRadius: 4, whiteSpace: 'nowrap', flexShrink: 0, color: sc ? `hsl(var(--color-${sc}))` : 'var(--text-secondary)', backgroundColor: sc ? `hsla(var(--color-${sc}), 0.1)` : 'var(--bg-secondary)' }}>{stage}</span>}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
+            {manage && (onEdit || onDelete) && (
+              <div style={{ display: 'flex', gap: 4 }}>
+                {onEdit && <button className="secondary-btn" title="Edit property" onClick={stop(onEdit)} style={{ padding: '4px 6px' }}><Pencil size={13} /></button>}
+                {onDelete && <button className="secondary-btn" title="Delete property" onClick={stop(onDelete)} style={{ padding: '4px 6px' }}><Trash2 size={13} /></button>}
+              </div>
+            )}
+            {status && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', fontWeight: 700, padding: '3px 9px', borderRadius: 999, whiteSpace: 'nowrap', color: `hsl(var(--color-${stColor}))`, backgroundColor: `hsla(var(--color-${stColor}), 0.12)` }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: `hsl(var(--color-${stColor}))` }} />{status}
+              </span>
+            )}
+            {stage && <span style={{ fontSize: '0.7rem', fontWeight: 500, color: 'var(--text-secondary)', whiteSpace: 'nowrap', textAlign: 'right' }}>{stage}</span>}
+          </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: '0.825rem', marginBottom: 16, borderBottom: '1px dashed var(--border-color)', paddingBottom: 12 }}>
-          {[['Address', p.address], ['APN', apn], ['Year Completed', String(p.yearBuilt ?? '').replace(/\?/g, '').trim()], ['Building SF', p.buildingSf]].map(([label, val]) => (
+          {[['Address', p.address], ['APN', apnDisplay], ['Year Completed', String(p.yearBuilt ?? '').replace(/\?/g, '').trim()], ['Building SF', p.buildingSf]].map(([label, val]) => (
             <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
               <span style={{ color: 'var(--text-secondary)' }}>{label}:</span>
               <strong style={{ color: 'var(--text-primary)', textAlign: 'right' }}>{val || '—'}</strong>
@@ -660,24 +890,65 @@ function PropertyCard({ p, onOpen }) {
 // A site card grouping multiple properties (e.g. Greens Escondido -> North / South).
 function GroupCard({ name, items, onOpen }) {
   const img = (items.find(p => p.image) || {}).image;
+  const uniq = (arr) => [...new Set(arr.filter(Boolean))];
+  const cities = uniq(items.map(p => snapVal(p, 'Project Details', 'City')));
+  const location = cities.length === 1 ? cities[0] : cities.length > 1 ? 'Multiple' : '';
+  const mgrs = uniq(items.map(p => p.manager || p.assetManager));
+  const manager = mgrs.length === 1 ? mgrs[0] : mgrs.length > 1 ? 'Multiple' : '—';
+  // Count UNIQUE parcels across the site: dedupe so two linked properties sharing the
+  // same APN aren't double-counted.
+  const parcelSet = new Set();
+  items.forEach(p => splitParcels(snapVal(p, 'Project Details', 'APN')).forEach(x => parcelSet.add(x)));
+  const parcels = parcelSet.size;
+  const totalSf = items.reduce((s, p) => { const n = parseInt(String(p.buildingSf || '').replace(/[^0-9]/g, ''), 10); return s + (Number.isFinite(n) ? n : 0); }, 0);
+  const stageCounts = {};
+  items.forEach(p => { const st = snapVal(p, 'Project Details', 'Development Stage'); if (st) stageCounts[st] = (stageCounts[st] || 0) + 1; });
+  const stageMix = Object.entries(stageCounts).map(([s, c]) => `${c} ${s}`).join(' · ');
+  // Site-level status: all Active / all Under Development, otherwise a Mixed badge.
+  const statuses = [...new Set(items.map(p => devStatus(snapVal(p, 'Project Details', 'Development Stage'))).filter(Boolean))];
+  const groupStatus = statuses.length === 1 ? statuses[0] : statuses.length > 1 ? 'Mixed' : null;
+  const gColor = groupStatus === 'Mixed' ? 'blue' : statusColor(groupStatus);
+  const rows = [
+    ['Asset Manager', manager],
+    ['Parcels (APN)', parcels || '—'],
+    ['Total Building SF', totalSf ? `${totalSf.toLocaleString()} SF` : '—'],
+    ...(stageMix ? [['Stages', stageMix]] : []),
+  ];
   return (
-    <div className="motion-card" onClick={() => onOpen(name)} style={{ backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden', transition: 'all 0.15s', cursor: 'pointer' }}
+    <div className="motion-card" onClick={() => onOpen(name)} style={{ backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden', transition: 'all 0.15s', cursor: 'pointer' }}
       onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border-hover)'; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; }}
       onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}>
       {img && <img src={img} alt={name} loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block', borderBottom: '1px solid var(--border-color)' }} />}
       <div style={{ padding: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 12 }}>
-          <div>
+          <div style={{ minWidth: 0 }}>
             <strong style={{ fontSize: '1.05rem', color: 'var(--text-primary)', fontFamily: "'Plus Jakarta Sans', sans-serif", display: 'block' }}>{name}</strong>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Site</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 3, fontSize: '0.72rem', fontWeight: 700, padding: '2px 8px', borderRadius: 999, color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple), 0.1)' }}>
+              <Link2 size={12} /> Linked Site{location ? ` · ${location}` : ''}
+            </span>
           </div>
-          <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '2px 8px', borderRadius: 4, whiteSpace: 'nowrap', flexShrink: 0, color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple), 0.1)' }}>{items.length} properties</span>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
+            {groupStatus && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', fontWeight: 700, padding: '3px 9px', borderRadius: 999, whiteSpace: 'nowrap', color: `hsl(var(--color-${gColor}))`, backgroundColor: `hsla(var(--color-${gColor}), 0.12)` }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: `hsl(var(--color-${gColor}))` }} />{groupStatus}
+              </span>
+            )}
+            <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{items.length} properties</span>
+          </div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: '0.825rem', marginBottom: 16, borderBottom: '1px dashed var(--border-color)', paddingBottom: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: '0.825rem', marginBottom: 12, paddingBottom: 12, borderBottom: '1px dashed var(--border-color)' }}>
+          {rows.map(([label, val]) => (
+            <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+              <span style={{ color: 'var(--text-secondary)' }}>{label}:</span>
+              <strong style={{ color: 'var(--text-primary)', textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{val}</strong>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: '0.8rem', marginBottom: 16 }}>
           {items.map(p => (
-            <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-              <span style={{ color: 'var(--text-secondary)' }}>{p.name.replace(name, '').trim() || p.name}</span>
-              <strong style={{ color: 'var(--text-primary)', textAlign: 'right', fontSize: '0.78rem' }}>{p.type || '—'}</strong>
+            <div key={p.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0, color: 'var(--text-primary)', fontWeight: 500 }}>
+              <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: 'hsl(var(--color-purple))', flexShrink: 0 }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
             </div>
           ))}
         </div>
@@ -822,7 +1093,7 @@ function EntriesSection({ list, title, template, fullWidth = [], fileFields = []
                   const selOpts = selectOptions[f.label];
                   return (
                     <div key={fi} className={(isFile || fullWidth.includes(f.label)) ? 'form-group form-group-full' : 'form-group'}>
-                      <label>{f.label}</label>
+                      <label>{f.label}{!isFile && <Req />}</label>
                       {selOpts ? (
                         <select className="form-input" value={typeof f.value === 'string' ? f.value : ''} onChange={e => setFieldVal(fi, e.target.value)} required>
                           <option value="">Select…</option>
@@ -930,12 +1201,12 @@ function TimelineSection({ list, onAdd, onUpdate, onStatus, onDelete }) {
               <div className="form-grid">
                 {TIMELINE_FIELDS.map(([lbl, key]) => (
                   <div key={key} className={key === 'submittals' ? 'form-group form-group-full' : 'form-group'}>
-                    <label>{lbl}</label>
+                    <label>{lbl}<Req /></label>
                     <input className="form-input" value={editing.draft[key] || ''} onChange={e => setField(key, e.target.value)} required />
                   </div>
                 ))}
                 <div className="form-group">
-                  <label>Status</label>
+                  <label>Status<Req /></label>
                   <select className="form-input" value={editing.draft.status || 'Not Started'} onChange={e => setField('status', e.target.value)}>
                     {STATUS_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
                   </select>
@@ -981,7 +1252,7 @@ function TimelineSection({ list, onAdd, onUpdate, onStatus, onDelete }) {
 }
 
 // One plan/document card — big, full-width; info on the left, actions on the right.
-function DocCard({ d, onEdit }) {
+function DocCard({ d, latest, onEdit }) {
   const btn = { padding: '7px 12px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center', width: 130 };
   return (
     <div style={{ padding: 22, borderRadius: 10, backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', gap: 20, alignItems: 'flex-start' }}>
@@ -990,7 +1261,7 @@ function DocCard({ d, onEdit }) {
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <strong style={{ color: 'var(--text-primary)', fontSize: '1.05rem', wordBreak: 'break-word', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{d.title || 'Untitled document'}</strong>
-            {d.latest && <span style={{ fontSize: '0.64rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', padding: '2px 8px', borderRadius: 4, color: 'hsl(var(--color-green))', backgroundColor: 'hsla(var(--color-green), 0.12)' }}>Latest</span>}
+            {latest && <span style={{ fontSize: '0.64rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', padding: '2px 8px', borderRadius: 4, color: 'hsl(var(--color-green))', backgroundColor: 'hsla(var(--color-green), 0.12)' }}>Latest</span>}
           </div>
           <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'block', marginTop: 4 }}>{[d.category, d.version, d.date].filter(Boolean).join(' · ') || '—'}</span>
           {d.fileName && <div style={{ fontSize: '0.8rem', color: 'hsl(var(--color-blue))', marginTop: 8, wordBreak: 'break-word' }}>📎 {d.fileName} {d.fileSize ? `(${fmtBytes(d.fileSize)})` : ''}</div>}
@@ -1047,7 +1318,7 @@ function DocsSection({ list, onAdd, onUpdate, onDelete }) {
   const visible = filter.length ? indexed.filter(x => filter.includes(catOf(x.d))) : indexed;
   const groups = {};
   visible.forEach(x => { (groups[catOf(x.d)] ||= []).push(x); });
-  Object.values(groups).forEach(arr => arr.sort((a, b) => (b.d.latest ? 1 : 0) - (a.d.latest ? 1 : 0))); // Latest first
+  Object.values(groups).forEach(arr => arr.sort((a, b) => (b.d.updatedAt || 0) - (a.d.updatedAt || 0))); // newest (auto-Latest) first
   const toggleFilter = (c) => setFilter(f => f.includes(c) ? f.filter(x => x !== c) : [...f, c]);
 
   return (
@@ -1099,7 +1370,7 @@ function DocsSection({ list, onAdd, onUpdate, onDelete }) {
                   {cat} <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '2px 9px', borderRadius: 20, color: 'hsl(var(--color-blue))', backgroundColor: 'hsla(var(--color-blue), 0.12)' }}>{groups[cat].length}</span>
                 </h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  {groups[cat].map(({ d, i }) => <DocCard key={i} d={d} onEdit={() => openEdit(i)} />)}
+                  {groups[cat].map(({ d, i }, idx) => <DocCard key={i} d={d} latest={idx === 0 && (d.updatedAt || 0) > 0} onEdit={() => openEdit(i)} />)}
                 </div>
               </div>
             ))}
@@ -1121,7 +1392,7 @@ function DocsSection({ list, onAdd, onUpdate, onDelete }) {
                     const selVal = otherActive ? 'Other' : (DOC_CATEGORY_OPTIONS.includes(editing.draft.category) ? editing.draft.category : '');
                     return (
                       <div key={key} className="form-group">
-                        <label>{lbl}</label>
+                        <label>{lbl}<Req /></label>
                         <select className="form-input" value={selVal} onChange={e => setCategory(e.target.value)} required>
                           <option value="">Select category…</option>
                           {DOC_CATEGORY_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
@@ -1136,24 +1407,19 @@ function DocsSection({ list, onAdd, onUpdate, onDelete }) {
                   }
                   if (key === 'version') {
                     return (
-                      <div key={key} className="form-group form-group-full">
-                        <label>{lbl}</label>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                          <input className="form-input" style={{ flex: 1, minWidth: 140 }} placeholder="e.g. V1, V2" required
-                            value={editing.draft.version || ''}
-                            onChange={e => { let v = e.target.value; if (v && !/^V/i.test(v)) v = 'V' + v; v = v.replace(/^[Vv]/, 'V'); setField('version', v); }} />
-                          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>
-                            <input type="checkbox" checked={!!editing.draft.latest} onChange={e => setField('latest', e.target.checked)} /> Latest
-                          </label>
-                        </div>
+                      <div key={key} className="form-group">
+                        <label>{lbl}<Req /></label>
+                        <input className="form-input" placeholder="e.g. V1, V2" required
+                          value={editing.draft.version || ''}
+                          onChange={e => { let v = e.target.value; if (v && !/^V/i.test(v)) v = 'V' + v; v = v.replace(/^[Vv]/, 'V'); setField('version', v); }} />
                       </div>
                     );
                   }
                   return (
                     <div key={key} className={key === 'title' || key === 'location' || key === 'notes' ? 'form-group form-group-full' : 'form-group'}>
-                      <label>{lbl}</label>
+                      <label>{lbl}{!['location', 'notes'].includes(key) && <Req />}</label>
                       <input className="form-input" type={isDateLabel(lbl) ? 'date' : 'text'} value={editing.draft[key] || ''} onChange={e => setField(key, e.target.value)}
-                        required placeholder={key === 'location' ? 'Egnyte path or URL' : ''} />
+                        required={!['location', 'notes'].includes(key)} placeholder={key === 'location' ? 'Egnyte path or URL' : ''} />
                     </div>
                   );
                 })}
@@ -1267,7 +1533,7 @@ function PermitSection({ list, onAdd, onUpdate, onStatus, onDelete }) {
                     const selVal = otherActive ? 'Other' : (PERMIT_TYPE_OPTIONS.includes(editing.draft.type) ? editing.draft.type : '');
                     return (
                       <div key={key} className="form-group form-group-full">
-                        <label>{lbl}</label>
+                        <label>{lbl}<Req /></label>
                         <select className="form-input" value={selVal} onChange={e => setType(e.target.value)} required>
                           <option value="">Select permit type…</option>
                           {PERMIT_TYPE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
@@ -1284,7 +1550,7 @@ function PermitSection({ list, onAdd, onUpdate, onStatus, onDelete }) {
                     const enabled = editing.draft.status === 'Issued';
                     return (
                       <div key={key} className="form-group">
-                        <label>{lbl}</label>
+                        <label>{lbl}{enabled && <Req />}</label>
                         <input className="form-input" type="date" disabled={!enabled} required={enabled}
                           value={enabled ? (editing.draft[key] || '') : ''} onChange={e => setField(key, e.target.value)}
                           style={!enabled ? { opacity: 0.5, cursor: 'not-allowed' } : undefined} />
@@ -1294,14 +1560,14 @@ function PermitSection({ list, onAdd, onUpdate, onStatus, onDelete }) {
                   }
                   return (
                     <div key={key} className={key === 'notes' ? 'form-group form-group-full' : 'form-group'}>
-                      <label>{lbl}</label>
+                      <label>{lbl}{!['resubmittal1', 'resubmittal2', 'resubmittal3', 'notes'].includes(key) && <Req />}</label>
                       <input className="form-input" type={isDateLabel(lbl) ? 'date' : 'text'} value={editing.draft[key] || ''} onChange={e => setField(key, e.target.value)}
-                        required={!['resubmittal1', 'resubmittal2', 'resubmittal3'].includes(key)} />
+                        required={!['resubmittal1', 'resubmittal2', 'resubmittal3', 'notes'].includes(key)} />
                     </div>
                   );
                 })}
                 <div className="form-group">
-                  <label>Permit Status</label>
+                  <label>Permit Status<Req /></label>
                   <select className="form-input" value={editing.draft.status || 'Not Submitted'}
                     onChange={e => { const v = e.target.value; setEditing(ed => ({ ...ed, draft: { ...ed.draft, status: v, ...(v !== 'Issued' ? { issuanceDate: '' } : {}) } })); }}>
                     {PERMIT_STATUS_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
@@ -1404,12 +1670,12 @@ function UtilitiesSection({ list, onAdd, onUpdate, onDelete }) {
             <form onSubmit={save}>
               <div className="form-grid">
                 <div className="form-group form-group-full">
-                  <label>Utility / Service Name</label>
+                  <label>Utility / Service Name<Req /></label>
                   <input className="form-input" value={editing.draft.name || ''} onChange={e => setName(e.target.value)} required placeholder="e.g. Electric Utility" />
                 </div>
                 {editing.draft.fields.map((f, fi) => (
                   <div key={fi} className={f.label === 'Notes' ? 'form-group form-group-full' : 'form-group'}>
-                    <label>{f.label}</label>
+                    <label>{f.label}<Req /></label>
                     <input className="form-input" value={f.value || ''} onChange={e => setFieldVal(fi, e.target.value)} required />
                   </div>
                 ))}
@@ -1434,17 +1700,30 @@ function LogsModal({ logs, title, onClose }) {
   const [to, setTo] = useState('');
   const items = all.filter(l => { const d = (l.ts || '').slice(0, 10); return (!from || d >= from) && (!to || d <= to); });
   const color = (a) => a === 'added' ? 'green' : a === 'removed' ? 'red' : a === 'status' ? 'blue' : 'gold';
-  const fmt = (ts) => { try { return new Date(ts).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch { return ts; } };
-  const dinp = { padding: '4px 8px', width: 'auto', fontSize: '0.8rem' };
+  const actText = (a) => a === 'added' ? 'Added' : a === 'removed' ? 'Removed' : a === 'status' ? 'Status changed' : a === 'edited' ? 'Edited' : 'Updated';
+  const fmtTime = (ts) => { try { return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch { return ''; } };
+  const dayKey = (ts) => (ts || '').slice(0, 10);
+  const dayLabel = (ts) => {
+    const today = new Date(); const y = new Date(today); y.setDate(today.getDate() - 1);
+    const k = dayKey(ts);
+    if (k === dayKey(today.toISOString())) return 'Today';
+    if (k === dayKey(y.toISOString())) return 'Yesterday';
+    try { return new Date(ts).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }); } catch { return k; }
+  };
+  const initials = (name) => (name || '?').split(/[\s@.]+/).filter(Boolean).slice(0, 2).map(s => s[0]).join('').toUpperCase() || '?';
+  // Group entries by day (items are already newest-first).
+  const groups = [];
+  items.forEach(l => { const k = dayKey(l.ts); let g = groups.find(x => x.k === k); if (!g) { g = { k, ts: l.ts, list: [] }; groups.push(g); } g.list.push(l); });
+  const dinp = { padding: '7px 12px', width: 'auto', fontSize: '0.8rem' };
   return (
     <div className="modal-overlay" style={{ display: 'flex' }}>
-      <div className="modal-content" style={{ maxWidth: 680 }}>
+      <div className="modal-content" style={{ maxWidth: 700 }}>
         <div className="modal-header">
           <h3 style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><History size={18} /> Activity Log — {title}</h3>
           <button className="close-btn" onClick={onClose}><X size={18} /></button>
         </div>
 
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', paddingBottom: 12, marginBottom: 8, borderBottom: '1px solid var(--border-color)' }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '14px 24px', marginBottom: 4, borderBottom: '1px solid var(--border-color)' }}>
           <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Filter size={13} /> Date:</span>
           <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>From <input type="date" className="form-input" value={from} onChange={e => setFrom(e.target.value)} style={dinp} /></label>
           <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>To <input type="date" className="form-input" value={to} onChange={e => setTo(e.target.value)} style={dinp} /></label>
@@ -1452,32 +1731,49 @@ function LogsModal({ logs, title, onClose }) {
           <span style={{ marginLeft: 'auto', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>{items.length} entr{items.length === 1 ? 'y' : 'ies'}</span>
         </div>
 
-        <div style={{ padding: '2px 4px 8px', maxHeight: '54vh', overflowY: 'auto' }}>
+        <div style={{ padding: '6px 24px 20px', maxHeight: '58vh', overflowY: 'auto' }}>
           {items.length === 0
             ? <EmptyState label={all.length ? 'No activity in this date range.' : 'No activity yet — edits, adds and deletes will show here.'} />
-            : items.map((l, i) => {
-              const c = color(l.action);
-              const changes = l.changes || (l.summary ? [l.summary] : []); // backward-compat with old log entries
-              const actText = l.action === 'added' ? 'Added' : l.action === 'removed' ? 'Removed' : l.action === 'status' ? 'Status changed' : l.action === 'edited' ? 'Edited' : 'Updated';
-              return (
-                <div key={i} style={{ display: 'flex', gap: 10, padding: '12px 8px', borderBottom: '1px solid var(--border-color)' }}>
-                  <span style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', padding: '2px 7px', borderRadius: 4, height: 'fit-content', whiteSpace: 'nowrap', color: `hsl(var(--color-${c}))`, backgroundColor: `hsla(var(--color-${c}), 0.1)` }}>{l.action}</span>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginBottom: 4 }}>
-                      {l.property && <strong style={{ color: 'var(--text-primary)' }}>{l.property}</strong>}{l.property ? ' · ' : ''}<span style={{ color: 'hsl(var(--color-blue))', fontWeight: 600 }}>{l.section}</span> tab
-                    </div>
-                    <div style={{ fontSize: '0.88rem', color: 'var(--text-primary)', fontWeight: 600, marginBottom: changes.length ? 4 : 0 }}>
-                      {actText}{l.item ? ` — ${l.item}` : ''}
-                    </div>
-                    {changes.map((ch, ci) => (
-                      <div key={ci} style={{ fontSize: '0.82rem', color: 'var(--text-primary)', wordBreak: 'break-word', marginBottom: 2, paddingLeft: 10, borderLeft: '2px solid var(--border-color)' }}>{ch}</div>
-                    ))}
-                    {l.reason && <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 5, fontStyle: 'italic', wordBreak: 'break-word' }}>Reason: {l.reason}</div>}
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: 5 }}>{l.user} · {fmt(l.ts)}</div>
-                  </div>
+            : groups.map(g => (
+              <div key={g.k} style={{ marginBottom: 14 }}>
+                <div style={{ position: 'sticky', top: -6, zIndex: 1, padding: '6px 0 8px', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-secondary)', backgroundColor: 'var(--card)' }}>{dayLabel(g.ts)}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {g.list.map((l, i) => {
+                    const c = color(l.action);
+                    const changes = l.changes || (l.summary ? [l.summary] : []); // backward-compat
+                    return (
+                      <div key={i} style={{ display: 'flex', gap: 11, padding: '12px 13px', borderRadius: 10, border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
+                        <span style={{ flexShrink: 0, width: 9, height: 9, marginTop: 5, borderRadius: '50%', backgroundColor: `hsl(var(--color-${c}))`, boxShadow: `0 0 0 3px hsla(var(--color-${c}), 0.15)` }} />
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: changes.length || l.reason ? 7 : 0 }}>
+                            <span style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em', padding: '2px 7px', borderRadius: 4, whiteSpace: 'nowrap', color: `hsl(var(--color-${c}))`, backgroundColor: `hsla(var(--color-${c}), 0.12)` }}>{actText(l.action)}</span>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 600, padding: '2px 7px', borderRadius: 4, color: 'hsl(var(--color-blue))', backgroundColor: 'hsla(var(--color-blue), 0.1)' }}>{l.section}</span>
+                            {l.item && <strong style={{ fontSize: '0.875rem', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.item}</strong>}
+                            <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{fmtTime(l.ts)}</span>
+                          </div>
+                          {changes.length > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '7px 10px', borderRadius: 7, backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)' }}>
+                              {changes.map((ch, ci) => (
+                                <div key={ci} style={{ fontSize: '0.8rem', color: 'var(--text-primary)', wordBreak: 'break-word', lineHeight: 1.5 }}>{ch}</div>
+                              ))}
+                            </div>
+                          )}
+                          {l.reason && (
+                            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 6, wordBreak: 'break-word' }}>
+                              <span style={{ fontWeight: 600 }}>Reason:</span> <span style={{ fontStyle: 'italic' }}>{l.reason}</span>
+                            </div>
+                          )}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
+                            <span title={l.user} style={{ flexShrink: 0, width: 20, height: 20, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6rem', fontWeight: 700, color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple), 0.14)' }}>{initials(l.user)}</span>
+                            <span style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.user}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
+              </div>
+            ))}
         </div>
       </div>
     </div>
@@ -1485,5 +1781,12 @@ function LogsModal({ logs, title, onClose }) {
 }
 
 function EmptyState({ label }) {
-  return <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>{label}</div>;
+  return (
+    <div style={{ padding: '44px 20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+      <div style={{ width: 44, height: 44, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+        <FileText size={20} style={{ color: 'var(--text-muted)' }} />
+      </div>
+      <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', maxWidth: 360 }}>{label}</span>
+    </div>
+  );
 }

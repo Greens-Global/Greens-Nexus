@@ -1,6 +1,7 @@
 {
   "id": "rjk-residence",
   "name": "RJK Residence",
+  "image": "/assets/properties/rjk-residence.svg",
   "type": "Residential (Single Family)",
   "address": "26382 Palisades Dr, Capistrano Beach, CA 92624, Dana Point, CA, 92624",
   "assetManager": "Rajesh Kadakia",
