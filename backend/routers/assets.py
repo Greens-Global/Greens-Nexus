@@ -104,3 +104,64 @@ def increment_click(link_id: int, db: Session = Depends(get_db)):
     link.clicks += 1
     db.commit()
     return link
+
+
+# ---------------------------------------------------------------------------
+# Real-estate Asset Management — properties (Neil-template model). Each parcel
+# is one row; collections live as JSON arrays. parent_id links ancillary parcels.
+# ---------------------------------------------------------------------------
+_PROP_COLS = {c.name for c in models.Property.__table__.columns}
+
+
+def _prop_dict(p):
+    return {c: getattr(p, c) for c in _PROP_COLS}
+
+
+@router.get("/properties")
+def list_properties(db: Session = Depends(get_db)):
+    return [_prop_dict(p) for p in db.query(models.Property).all()]
+
+
+@router.get("/properties/{pid}")
+def get_property(pid: str, db: Session = Depends(get_db)):
+    p = db.query(models.Property).filter(models.Property.id == pid).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Property not found")
+    return _prop_dict(p)
+
+
+@router.post("/properties", status_code=201)
+def create_property(payload: dict, db: Session = Depends(get_db)):
+    data = {k: v for k, v in payload.items() if k in _PROP_COLS}
+    if not data.get("id"):
+        import uuid
+        data["id"] = "p-" + uuid.uuid4().hex[:10]
+    if db.query(models.Property).filter(models.Property.id == data["id"]).first():
+        raise HTTPException(status_code=409, detail="Property id already exists")
+    p = models.Property(**data)
+    db.add(p)
+    db.commit()
+    db.refresh(p)
+    return _prop_dict(p)
+
+
+@router.put("/properties/{pid}")
+def update_property(pid: str, payload: dict, db: Session = Depends(get_db)):
+    p = db.query(models.Property).filter(models.Property.id == pid).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Property not found")
+    for k, v in payload.items():
+        if k in _PROP_COLS and k != "id":
+            setattr(p, k, v)
+    db.commit()
+    db.refresh(p)
+    return _prop_dict(p)
+
+
+@router.delete("/properties/{pid}", status_code=204)
+def delete_property(pid: str, db: Session = Depends(get_db)):
+    p = db.query(models.Property).filter(models.Property.id == pid).first()
+    if p:
+        db.delete(p)
+        db.commit()
+    return None

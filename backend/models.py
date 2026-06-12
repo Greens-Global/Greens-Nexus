@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Float, Integer, String
+from sqlalchemy import Boolean, Column, Float, Integer, String, JSON
 from database import Base
 
 
@@ -563,3 +563,58 @@ class HrProvisionStep(Base):
     status  = Column(String, default="pending")               # pending|ok|failed|skipped|manual
     detail  = Column(String, default="")
     ordinal = Column(Integer, default=0)
+
+
+class Property(Base):
+    """Real-estate Asset Management property/parcel (Neil-template flat model).
+    parent_id links an ancillary parcel to its primary; per-property collections
+    (warranties/inspections/documents/ahj/utilities/vendors) are JSON arrays."""
+    __tablename__ = "properties"
+    id                = Column(String, primary_key=True)
+    name              = Column(String, nullable=False, default="")
+    parent_id         = Column(String, default="")
+    parcel_role       = Column(String, default="")
+    entity            = Column(String, default="")
+    builder           = Column(String, default="")
+    manager           = Column(String, default="")
+    address           = Column(String, default="")
+    city              = Column(String, default="")
+    state             = Column(String, default="")
+    zip               = Column(String, default="")
+    county            = Column(String, default="")
+    apn               = Column(String, default="")
+    legal_desc        = Column(String, default="")
+    year_built        = Column(String, default="")
+    construction_type = Column(String, default="")
+    stories           = Column(String, default="")
+    nrsf              = Column(Float, default=0)
+    gsf               = Column(Float, default=0)
+    acreage           = Column(Float, default=0)
+    zoning            = Column(String, default="")
+    flood_zone        = Column(String, default="")
+    sprinklered       = Column(String, default="")
+    alarm_monitored   = Column(String, default="")
+    dev_stage         = Column(String, default="")
+    placed_in_service = Column(String, default="")
+    co_number         = Column(String, default="")
+    co_date           = Column(String, default="")
+    units_non_climate = Column(Integer, default=0)
+    units_climate     = Column(Integer, default=0)
+    units_rv          = Column(Integer, default=0)
+    units_total       = Column(Integer, default=0)
+    ins_carrier       = Column(String, default="")
+    ins_policy        = Column(String, default="")
+    ins_expiration    = Column(String, default="")
+    ins_agent         = Column(String, default="")
+    ins_phone         = Column(String, default="")
+    tax_id            = Column(String, default="")
+    tax_annual        = Column(Float, default=0)
+    tax_due           = Column(String, default="")
+    notes             = Column(String, default="")
+    image             = Column(String, default="")
+    warranties        = Column(JSON, default=list)
+    inspections       = Column(JSON, default=list)
+    documents         = Column(JSON, default=list)
+    ahj               = Column(JSON, default=list)
+    utilities         = Column(JSON, default=list)
+    vendors           = Column(JSON, default=list)
