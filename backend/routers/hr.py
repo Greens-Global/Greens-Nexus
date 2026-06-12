@@ -847,7 +847,7 @@ def _welcome_html(emp: NexusEmployee, upn: str) -> str:
         f"<td style='padding:7px 0;font-size:14px;color:#111827;font-weight:600'>{escape(value)}</td></tr>"
         for label, value in (
             ("Your name", f"{emp.first_name} {emp.last_name}".strip()),
-            ("Role", role_line or "—"),
+            ("Role", role_line),
             ("Work email", upn),
             ("Start date", emp.start_date or "We'll confirm shortly"),
             ("Location", emp.location or ""),
@@ -866,11 +866,11 @@ def _welcome_html(emp: NexusEmployee, upn: str) -> str:
     <tr>
       <td style="padding:30px 36px 6px">
         <p style="margin:0 0 14px;font-size:14.5px;line-height:1.7;color:#1f2937">
-          On behalf of everyone at <strong>Greens Global</strong> — welcome to the team{f" as our new <strong>{escape(emp.job_title)}</strong>" if emp.job_title else ""}!
+          On behalf of everyone at <strong>Greens Global</strong>, welcome to the team{f" as our new <strong>{escape(emp.job_title)}</strong>" if emp.job_title else ""}!
           We've been looking forward to this, and your tools are already set up and waiting for you.
         </p>
         <p style="margin:0 0 18px;font-size:14.5px;line-height:1.7;color:#1f2937">
-          Your company account gives you email, Teams, and the Greens&nbsp;Nexus portal — the home for
+          Your company account gives you email, Teams, and the Greens&nbsp;Nexus portal, the home for
           everything from equipment requests to time off. Here's everything you need for day one:
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f7f3;border:1px solid #cde9d9;border-radius:12px;border-collapse:separate;margin-bottom:20px">
@@ -882,23 +882,23 @@ def _welcome_html(emp: NexusEmployee, upn: str) -> str:
         <div style="font-size:11px;font-weight:800;letter-spacing:.08em;color:#0f3d2e;margin-bottom:10px">YOUR FIRST STEPS</div>
         <table cellpadding="0" cellspacing="0" width="100%" style="margin-bottom:6px">
           <tr><td style="padding:6px 0;font-size:14px;line-height:1.65;color:#1f2937"><strong>1.</strong>&nbsp; Go to <a href="https://office.com" style="color:#15803d;font-weight:600">office.com</a> and sign in with <strong>{upn}</strong>.</td></tr>
-          <tr><td style="padding:6px 0;font-size:14px;line-height:1.65;color:#1f2937"><strong>2.</strong>&nbsp; Use the temporary password HR shares with you directly — you'll be asked to set your own right away. (We never email passwords.)</td></tr>
-          <tr><td style="padding:6px 0;font-size:14px;line-height:1.65;color:#1f2937"><strong>3.</strong>&nbsp; Open <strong>Outlook</strong> for email and <strong>Teams</strong> to say hi — your team is expecting you.</td></tr>
-          <tr><td style="padding:6px 0;font-size:14px;line-height:1.65;color:#1f2937"><strong>4.</strong>&nbsp; Keep an eye on your inbox — your manager will reach out with your first-week plan, and anything you need (laptop, tools, access) gets arranged through Greens&nbsp;Nexus.</td></tr>
+          <tr><td style="padding:6px 0;font-size:14px;line-height:1.65;color:#1f2937"><strong>2.</strong>&nbsp; Use the temporary password HR shares with you directly. You'll be asked to set your own right away. (We never email passwords.)</td></tr>
+          <tr><td style="padding:6px 0;font-size:14px;line-height:1.65;color:#1f2937"><strong>3.</strong>&nbsp; Open <strong>Outlook</strong> for email and <strong>Teams</strong> to say hi. Your team is expecting you.</td></tr>
+          <tr><td style="padding:6px 0;font-size:14px;line-height:1.65;color:#1f2937"><strong>4.</strong>&nbsp; Keep an eye on your inbox. Your manager will reach out with your first-week plan, and anything you need (laptop, tools, access) gets arranged through Greens&nbsp;Nexus.</td></tr>
         </table>
         <p style="margin:18px 0 6px;font-size:14.5px;line-height:1.7;color:#1f2937">
-          Questions before your first day? Just reply to HR or reach out to your manager — there's no such
+          Questions before your first day? Just reply to HR or reach out to your manager. There's no such
           thing as a silly question in week one.
         </p>
         <p style="margin:14px 0 24px;font-size:14.5px;line-height:1.7;color:#1f2937">
-          We can't wait to see what you'll do here. Once again — <strong>welcome to Greens Global!</strong><br>
-          <span style="color:#6b7280">— The Greens Global Team</span>
+          We can't wait to see what you'll do here. Once again, <strong>welcome to Greens Global!</strong><br>
+          <span style="color:#6b7280">The Greens Global Team</span>
         </p>
       </td>
     </tr>
     <tr>
       <td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 36px;font-size:11.5px;color:#6b7280;line-height:1.5">
-        Sent via Greens Nexus. This mailbox isn't monitored — for help, contact HR or your manager directly.
+        Sent via Greens Nexus. This mailbox isn't monitored. For help, contact HR or your manager directly.
       </td>
     </tr>
   </table>
@@ -913,7 +913,7 @@ def _send_welcome(emp: NexusEmployee, upn: str, token: str) -> tuple:
     resp = httpx.post(f"{_GRAPH}/users/{sender}/sendMail",
                       headers={"Authorization": f"Bearer {token}"}, json={
         "message": {
-            "subject": f"Welcome to Greens Global, {emp.first_name} — we're glad you're here!",
+            "subject": f"Welcome to Greens Global, {emp.first_name}!",
             "body": {"contentType": "HTML", "content": _welcome_html(emp, upn)},
             "toRecipients": [{"emailAddress": {"address": emp.personal_email}}],
         }, "saveToSentItems": False}, timeout=20)
