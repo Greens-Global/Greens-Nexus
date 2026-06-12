@@ -959,7 +959,10 @@ export default function HR({ activeSub, onSubChange }) {
     setSyncBusy(true);
     try {
       const r = await api.syncM365();
-      toastOk(`M365 sync: ${r.linked} account${r.linked !== 1 ? 's' : ''} linked · ${r.updated} profile${r.updated !== 1 ? 's' : ''} updated${r.notInTenant ? ` · ${r.notInTenant} not in tenant` : ''}.`);
+      const bits = [`${r.linked} linked`, `${r.updated} updated`];
+      if (r.unlinked?.length) bits.push(`unlinked (account deleted): ${r.unlinked.join(', ')}`);
+      else if (r.notInTenant) bits.push(`${r.notInTenant} not in tenant`);
+      toastOk(`M365 sync: ${bits.join(' · ')}.`);
       load();
     } catch (err) { toastErr(err?.message || 'Sync failed.'); }
     setSyncBusy(false);

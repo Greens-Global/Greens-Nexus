@@ -814,6 +814,7 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
     token = _graph_token()
     rows = db.query(NexusEmployee).filter(NexusEmployee.work_email != "").all()
     linked = updated = missing = 0
+    unlinked = []
     for emp in rows:
         resp = httpx.get(
             f"{_GRAPH}/users/{emp.work_email}?$select=id,jobTitle,department,mobilePhone,officeLocation",
@@ -821,6 +822,12 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
         )
         if not resp.is_success:
             missing += 1
+            # Account deleted in the admin center: drop the stale link so the
+            # profile stops claiming M365 ✓ and can be provisioned again
+            if resp.status_code == 404 and emp.m365_id:
+                emp.m365_id = ""
+                emp.updated_at = datetime.now(timezone.utc).isoformat()
+                unlinked.append(f"{emp.first_name} {emp.last_name}".strip())
             continue
         g = resp.json()
         changed = False
@@ -833,7 +840,8 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
             emp.updated_at = datetime.now(timezone.utc).isoformat()
             updated += 1
     db.commit()
-    return {"linked": linked, "updated": updated, "notInTenant": missing, "checked": len(rows)}
+    return {"linked": linked, "updated": updated, "notInTenant": missing,
+            "unlinked": unlinked, "checked": len(rows)}
 
 
 # ── Welcome email — branded, warm, role-aware (not the old two-liner) ────────
