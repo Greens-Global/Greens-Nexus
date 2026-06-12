@@ -20,7 +20,7 @@
 | ✅ | Employee master records, GG-### codes, status lifecycle (onboarding/active/inactive/left) | built |
 | ✅ | People directory (master–detail, filters, counts strip) | built |
 | ✅ | Org chart (reports-to tree, connector lines, unlinked bucket, **drag-and-drop reassignment** with loop protection + clear-line drop zone; edit-modal picker is the touch fallback) | built |
-| ✅ | Profile photo upload (public-read bucket, backend-only writes) | built |
+| ✅ | Profile photo upload + **editor** — click the avatar to view, re-crop (drag + zoom slider, thirds grid), or change; exports a 512px square via canvas; public-read bucket, backend-only writes | built |
 | ✅ | Private documents (hr-docs bucket, 5-min signed URLs) | built |
 | ✅ | Hiring pipeline (stage kanban, history, hired → auto-creates employee) | built |
 | ✅ | M365 provisioning — account, **multi-license set** (admin-center-style checkboxes, friendly SKU names, Business Basic pre-ticked as standard), **usage location** (US/IN), manager attr, office field, run/step log, one-time temp password | built |
@@ -118,6 +118,12 @@ HR **never** stores equipment. The links between the modules:
 
 **A → B → C → D → E/F → H(portal+reports) → G.**
 Entities + contractor type first (structural). Estimated 12–15 focused sessions to 100%.
+
+## Next session
+
+Start **Section A**: companies/entities table + contractor worker type + work
+sites registry. Blocked items waiting on answers: Asana tier, what "Ignite" is,
+salary visibility, payroll rules, candidate retention period, punch system.
 
 ## Open questions
 
