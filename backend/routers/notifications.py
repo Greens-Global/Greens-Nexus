@@ -172,6 +172,72 @@ class AlertIn(BaseModel):
     message: str
 
 
+def _alert_html(subject: str, message: str) -> str:
+    """Branded alert email. Auto-populates from the alert content: plain lines
+    become paragraphs, '•' lines (the overdue item lists the frontend builds)
+    render as rows in a highlighted box. Inline styles only — email clients
+    ignore stylesheets."""
+    from html import escape
+
+    parts: list = []
+    bullets: list = []
+
+    def flush_bullets():
+        if not bullets:
+            return
+        rows = "".join(
+            f"<tr><td style='padding:9px 16px;border-bottom:1px solid #fde8d4;"
+            f"font-size:14px;color:#1f2937;line-height:1.5'>{b}</td></tr>"
+            for b in bullets
+        )
+        parts.append(
+            "<table width='100%' cellpadding='0' cellspacing='0' "
+            "style='background:#fff7ed;border:1px solid #fdba74;border-radius:10px;"
+            f"margin:6px 0 16px;border-collapse:separate'>{rows}</table>"
+        )
+        bullets.clear()
+
+    for raw in message.split("\n"):
+        stripped = raw.strip()
+        if stripped.startswith("•"):
+            bullets.append(escape(stripped[1:].strip()))
+        elif stripped:
+            flush_bullets()
+            parts.append(
+                f"<p style='margin:0 0 12px;font-size:14px;line-height:1.6;color:#1f2937'>{escape(stripped)}</p>"
+            )
+        else:
+            flush_bullets()
+    flush_bullets()
+
+    return f"""<div style="background:#f4f5f7;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
+  <table align="center" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:14px;border:1px solid #e5e7eb;border-collapse:separate;overflow:hidden">
+    <tr>
+      <td style="background:#0f3d2e;padding:18px 28px">
+        <span style="color:#ffffff;font-size:16px;font-weight:700;letter-spacing:4px">NEXUS</span>
+        <span style="color:#9fd6b8;font-size:11px;letter-spacing:1.5px;float:right;line-height:24px">GREENS GLOBAL</span>
+      </td>
+    </tr>
+    <tr>
+      <td style="background:#ea7317;padding:9px 28px">
+        <span style="color:#ffffff;font-size:12px;font-weight:700;letter-spacing:.1em">&#9888; ALERT</span>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:26px 28px 14px">
+        <h2 style="margin:0 0 16px;font-size:19px;color:#111827;line-height:1.35">{escape(subject)}</h2>
+        {"".join(parts)}
+      </td>
+    </tr>
+    <tr>
+      <td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
+        Sent via Greens Nexus. This is an automated alert — replies to this mailbox are not monitored.
+      </td>
+    </tr>
+  </table>
+</div>"""
+
+
 def _graph_token() -> str:
     if not all([_AZURE_TENANT_ID, _AZURE_CLIENT_ID, _AZURE_CLIENT_SECRET]):
         raise HTTPException(503, "Email not configured — set AZURE_CLIENT_SECRET and NEXUS_FROM_EMAIL in env vars")
@@ -215,7 +281,7 @@ def send_alert(body: AlertIn, user: dict = Depends(get_current_user), db: Sessio
     else:
         try:
             token = _graph_token()
-            html_body = f"<p>{body.message.replace(chr(10), '<br>')}</p><hr><p style='font-size:12px;color:#666'>Sent via Greens Nexus by {user.get('name', user['email'])}</p>"
+            html_body = _alert_html(body.subject, body.message)
             resp = httpx.post(
                 f"https://graph.microsoft.com/v1.0/users/{_NEXUS_FROM_EMAIL}/sendMail",
                 headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
