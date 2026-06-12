@@ -135,7 +135,7 @@ export default function HR({ activeSub, onSubChange }) {
               </button>
             </div>
             <div className="req-table-wrapper">
-              <table className="req-table">
+              <table className="req-table stack-table">
                 <thead>
                   <tr><th>Onboarding Task</th><th>Candidate</th><th>Assignee</th><th>Due Date</th><th>Status</th><th style={{ textAlign: 'right' }}>Action</th></tr>
                 </thead>
@@ -146,15 +146,15 @@ export default function HR({ activeSub, onSubChange }) {
                     return (
                       <tr key={t.id}>
                         <td style={{ fontWeight: 600, color: done ? 'var(--text-muted)' : 'var(--text-primary)', textDecoration: done ? 'line-through' : 'none' }}>{t.title}</td>
-                        <td>{t.candidate}</td>
-                        <td>
+                        <td data-th="Candidate">{t.candidate}</td>
+                        <td data-th="Assignee">
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                             <div style={{ width: 24, height: 24, borderRadius: '50%', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700 }}>{t.assignee.charAt(0)}</div>
                             <span>{t.assignee}</span>
                           </div>
                         </td>
-                        <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{t.dueDate}</td>
-                        <td>
+                        <td data-th="Due" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{t.dueDate}</td>
+                        <td data-th="Status">
                           <span style={{ backgroundColor: done ? 'hsl(var(--color-green))' : inProg ? 'hsl(var(--color-blue))' : 'var(--border-color)', color: (done || inProg) ? '#fff' : 'var(--text-secondary)', fontSize: '0.7rem', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>{t.status}</span>
                         </td>
                         <td style={{ textAlign: 'right' }}>
@@ -178,7 +178,7 @@ export default function HR({ activeSub, onSubChange }) {
             <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>NDA & Compliance Disclosures</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Review employee non-disclosure agreements and conflict of interest forms</p>
             <div className="req-table-wrapper">
-              <table className="req-table">
+              <table className="req-table stack-table">
                 <thead><tr><th>Employee</th><th>Document Type</th><th>Status</th><th>Date Signed</th><th style={{ textAlign: 'right' }}>Actions</th></tr></thead>
                 <tbody>
                   {INIT_DISCLOSURES.map(d => {
@@ -186,11 +186,11 @@ export default function HR({ activeSub, onSubChange }) {
                     return (
                       <tr key={d.id}>
                         <td style={{ fontWeight: 600 }}>{d.name}</td>
-                        <td>{d.type}</td>
-                        <td>
+                        <td data-th="Document">{d.type}</td>
+                        <td data-th="Status">
                           <span style={{ backgroundColor: signed ? 'hsla(var(--color-green), 0.1)' : 'hsla(var(--color-orange), 0.1)', color: signed ? 'hsl(var(--color-green))' : 'hsl(var(--color-orange))', fontSize: '0.75rem', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>{d.status}</span>
                         </td>
-                        <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{d.date}</td>
+                        <td data-th="Signed" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{d.date}</td>
                         <td style={{ textAlign: 'right' }}>
                           {signed
                             ? <button className="secondary-btn" style={{ padding: '4px 10px', fontSize: '0.775rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Download size={12} /> Download PDF</button>

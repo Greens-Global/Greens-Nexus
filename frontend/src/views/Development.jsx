@@ -83,7 +83,7 @@ export default function Development({ activeSub, onSubChange }) {
               </button>
             </div>
             <div className="req-table-wrapper">
-              <table className="req-table">
+              <table className="req-table stack-table">
                 <thead>
                   <tr>
                     <th>Project Site</th>
@@ -101,11 +101,11 @@ export default function Development({ activeSub, onSubChange }) {
                     return (
                       <tr key={p.id}>
                         <td style={{ fontWeight: 600 }}>{p.project}</td>
-                        <td style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{p.type}</td>
-                        <td>{p.agency}</td>
-                        <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{p.permitNo}</td>
-                        <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{p.date}</td>
-                        <td>
+                        <td data-th="Permit type" style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>{p.type}</td>
+                        <td data-th="Agency">{p.agency}</td>
+                        <td data-th="Permit #" style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{p.permitNo}</td>
+                        <td data-th="Submitted" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{p.date}</td>
+                        <td data-th="Status">
                           <span style={{ backgroundColor: s.bg, color: s.color, fontSize: '0.75rem', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>{p.status}</span>
                         </td>
                         <td style={{ textAlign: 'right' }}>

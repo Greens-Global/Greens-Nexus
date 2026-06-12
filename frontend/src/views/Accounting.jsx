@@ -172,35 +172,25 @@ export default function Accounting({ activeSub, onSubChange }) {
             <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Client Invoices</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Outstanding billing statements and due invoices</p>
             <div className="req-table-wrapper">
-              <table className="req-table">
+              <table className="req-table stack-table">
                 <thead>
                   <tr><th>Invoice ID</th><th>Client Name</th><th>Project Name</th><th>Amount</th><th>Status</th><th>Due Date</th></tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>#INV-4029</td>
-                    <td style={{ fontWeight: 600 }}>Apex Real Estate Holdings</td>
-                    <td>Downtown Commercial Complex</td>
-                    <td style={{ fontWeight: 700 }}>$180,000</td>
-                    <td><span className="status-badge status-pending">Awaiting Payment</span></td>
-                    <td>2026-06-15</td>
-                  </tr>
-                  <tr>
-                    <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>#INV-4028</td>
-                    <td style={{ fontWeight: 600 }}>Sarah Jenkins Estates</td>
-                    <td>Oakridge Subdivision Phase 1</td>
-                    <td style={{ fontWeight: 700 }}>$270,000</td>
-                    <td><span className="status-badge status-pending">Awaiting Payment</span></td>
-                    <td>2026-06-12</td>
-                  </tr>
-                  <tr>
-                    <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>#INV-4027</td>
-                    <td style={{ fontWeight: 600 }}>Metro Retail Corp.</td>
-                    <td>Commercial Retail Center Site-B</td>
-                    <td style={{ fontWeight: 700 }}>$410,000</td>
-                    <td><span className="status-badge status-approved">Paid</span></td>
-                    <td>2026-05-18</td>
-                  </tr>
+                  {[
+                    { id: '#INV-4029', client: 'Apex Real Estate Holdings', project: 'Downtown Commercial Complex',   amount: '$180,000', paid: false, due: '2026-06-15' },
+                    { id: '#INV-4028', client: 'Sarah Jenkins Estates',     project: 'Oakridge Subdivision Phase 1',  amount: '$270,000', paid: false, due: '2026-06-12' },
+                    { id: '#INV-4027', client: 'Metro Retail Corp.',        project: 'Commercial Retail Center Site-B', amount: '$410,000', paid: true, due: '2026-05-18' },
+                  ].map(inv => (
+                    <tr key={inv.id}>
+                      <td data-th="Invoice" style={{ fontFamily: 'monospace', fontWeight: 600 }}>{inv.id}</td>
+                      <td style={{ fontWeight: 600 }}>{inv.client}</td>
+                      <td data-th="Project">{inv.project}</td>
+                      <td data-th="Amount" style={{ fontWeight: 700 }}>{inv.amount}</td>
+                      <td data-th="Status"><span className={`status-badge ${inv.paid ? 'status-approved' : 'status-pending'}`}>{inv.paid ? 'Paid' : 'Awaiting Payment'}</span></td>
+                      <td data-th="Due">{inv.due}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -213,7 +203,7 @@ export default function Accounting({ activeSub, onSubChange }) {
             <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Departmental Budgets</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Approved capital allocations and expenditures</p>
             <div className="req-table-wrapper">
-              <table className="req-table">
+              <table className="req-table stack-table">
                 <thead><tr><th>Department</th><th>Allocated Budget</th><th>Spent Value</th><th>Remaining Budget</th><th>Utilization</th></tr></thead>
                 <tbody>
                   {budgets.map(b => {
@@ -222,10 +212,10 @@ export default function Accounting({ activeSub, onSubChange }) {
                     return (
                       <tr key={b.id}>
                         <td style={{ fontWeight: 600 }}>{b.name}</td>
-                        <td>{fmt(b.allocated)}</td>
-                        <td>{fmt(b.spent)}</td>
-                        <td style={{ fontWeight: 600, color: rem < 0 ? 'hsl(var(--color-red))' : 'var(--text-primary)' }}>{fmt(rem)}</td>
-                        <td>
+                        <td data-th="Allocated">{fmt(b.allocated)}</td>
+                        <td data-th="Spent">{fmt(b.spent)}</td>
+                        <td data-th="Remaining" style={{ fontWeight: 600, color: rem < 0 ? 'hsl(var(--color-red))' : 'var(--text-primary)' }}>{fmt(rem)}</td>
+                        <td data-th="Utilization">
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: 140 }}>
                             <div style={{ flex: 1, height: 6, backgroundColor: 'var(--border-color)', borderRadius: 3, overflow: 'hidden' }}>
                               <div style={{ width: `${util}%`, height: '100%', backgroundColor: utilColor(util), borderRadius: 3 }} />
@@ -278,17 +268,17 @@ export default function Accounting({ activeSub, onSubChange }) {
             <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Ramp Corporate Card Transactions</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Review and add missing memo references to card transactions</p>
             <div className="req-table-wrapper">
-              <table className="req-table">
+              <table className="req-table stack-table">
                 <thead><tr><th>Transaction ID</th><th>Vendor</th><th>Category</th><th>Date</th><th>Amount</th><th>Memo / Reference</th><th>Status</th></tr></thead>
                 <tbody>
                   {RAMP_TXN.map(t => (
                     <tr key={t.id}>
-                      <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', fontWeight: 600 }}>{t.id}</td>
+                      <td data-th="Txn" style={{ fontFamily: 'monospace', fontSize: '0.8rem', fontWeight: 600 }}>{t.id}</td>
                       <td style={{ fontWeight: 600 }}>{t.vendor}</td>
-                      <td style={{ color: 'var(--text-secondary)' }}>{t.category}</td>
-                      <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{t.date}</td>
-                      <td style={{ fontWeight: 700 }}>${t.cost.toFixed(2)}</td>
-                      <td>
+                      <td data-th="Category" style={{ color: 'var(--text-secondary)' }}>{t.category}</td>
+                      <td data-th="Date" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{t.date}</td>
+                      <td data-th="Amount" style={{ fontWeight: 700 }}>${t.cost.toFixed(2)}</td>
+                      <td data-th="Memo">
                         {t.missing
                           ? <input type="text" className="form-input" style={{ height: 28, fontSize: '0.8rem', padding: '4px 8px' }}
                               value={rampMemos[t.id] || ''} onChange={e => setRampMemos(p => ({ ...p, [t.id]: e.target.value }))}
@@ -296,7 +286,7 @@ export default function Accounting({ activeSub, onSubChange }) {
                           : <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{t.memo}</span>
                         }
                       </td>
-                      <td>
+                      <td data-th="Status">
                         <span style={{ backgroundColor: t.missing ? 'hsla(var(--color-orange), 0.1)' : 'hsla(var(--color-green), 0.1)', color: t.missing ? 'hsl(var(--color-orange))' : 'hsl(var(--color-green))', fontSize: '0.75rem', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>
                           {t.missing ? 'Missing Memo' : 'Complete'}
                         </span>
@@ -315,7 +305,7 @@ export default function Accounting({ activeSub, onSubChange }) {
             <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Vendor & Subcontractor Registry</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>W-9 status, COI expiry, 1099 eligibility, and GL mapping</p>
             <div className="req-table-wrapper">
-              <table className="req-table">
+              <table className="req-table stack-table">
                 <thead>
                   <tr><th>Vendor</th><th>Trade</th><th>W-9</th><th>COI Expiry</th><th>1099</th><th>GL Account</th><th>Open POs</th><th>Status</th></tr>
                 </thead>
@@ -329,17 +319,17 @@ export default function Accounting({ activeSub, onSubChange }) {
                     return (
                       <tr key={v.name}>
                         <td style={{ fontWeight: 600 }}>{v.name}</td>
-                        <td style={{ color: 'var(--text-secondary)' }}>{v.trade}</td>
-                        <td>
+                        <td data-th="Trade" style={{ color: 'var(--text-secondary)' }}>{v.trade}</td>
+                        <td data-th="W-9">
                           <span style={{ backgroundColor: v.w9 === 'On file' ? 'hsla(var(--color-green), 0.1)' : v.w9 === 'Pending' ? 'hsla(var(--color-orange), 0.1)' : 'hsla(var(--color-red), 0.1)', color: v.w9 === 'On file' ? 'hsl(var(--color-green))' : v.w9 === 'Pending' ? 'hsl(var(--color-orange))' : 'hsl(var(--color-red))', fontSize: '0.75rem', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>{v.w9}</span>
                         </td>
-                        <td>
+                        <td data-th="COI Expiry">
                           <span style={{ color: coiOk ? 'var(--text-primary)' : coiWarn ? 'hsl(var(--color-orange))' : 'hsl(var(--color-red))', fontWeight: coiOk ? 400 : 600, fontFamily: 'monospace', fontSize: '0.85rem' }}>{v.coi}{!coiOk && <span style={{ marginLeft: 4, fontSize: '0.7rem' }}>{daysLeft <= 0 ? '(expired)' : `(${daysLeft}d)`}</span>}</span>
                         </td>
-                        <td style={{ textAlign: 'center' }}>{v.is1099 ? <span style={{ color: 'hsl(var(--color-green))', fontWeight: 700 }}>✓</span> : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
-                        <td style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{v.gl}</td>
-                        <td style={{ textAlign: 'center', fontWeight: 600 }}>{v.pos}</td>
-                        <td><span style={{ backgroundColor: v.active ? 'hsla(var(--color-green), 0.1)' : 'hsla(var(--color-red), 0.1)', color: v.active ? 'hsl(var(--color-green))' : 'hsl(var(--color-red))', fontSize: '0.75rem', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>{v.active ? 'Active' : 'Inactive'}</span></td>
+                        <td data-th="1099" style={{ textAlign: 'center' }}>{v.is1099 ? <span style={{ color: 'hsl(var(--color-green))', fontWeight: 700 }}>✓</span> : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
+                        <td data-th="GL Account" style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{v.gl}</td>
+                        <td data-th="Open POs" style={{ textAlign: 'center', fontWeight: 600 }}>{v.pos}</td>
+                        <td data-th="Status"><span style={{ backgroundColor: v.active ? 'hsla(var(--color-green), 0.1)' : 'hsla(var(--color-red), 0.1)', color: v.active ? 'hsl(var(--color-green))' : 'hsl(var(--color-red))', fontSize: '0.75rem', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>{v.active ? 'Active' : 'Inactive'}</span></td>
                       </tr>
                     );
                   })}
@@ -356,23 +346,23 @@ export default function Accounting({ activeSub, onSubChange }) {
               <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Ask My Accountant</h3>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Transactions flagged for coding clarification — routed to your accountant for review</p>
               <div className="req-table-wrapper">
-                <table className="req-table">
+                <table className="req-table stack-table">
                   <thead>
                     <tr><th>Ticket</th><th>Date</th><th>Vendor</th><th>Amount</th><th>Coded By</th><th>Question</th><th>Days Open</th><th>Status</th></tr>
                   </thead>
                   <tbody>
                     {AMA_FLAGGED.map(f => (
                       <tr key={f.id}>
-                        <td style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.8rem' }}>{f.id}</td>
-                        <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{f.date}</td>
+                        <td data-th="Ticket" style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.8rem' }}>{f.id}</td>
+                        <td data-th="Date" style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{f.date}</td>
                         <td style={{ fontWeight: 600 }}>{f.vendor}</td>
-                        <td style={{ fontWeight: 700 }}>${f.amount.toFixed(2)}</td>
-                        <td style={{ color: 'var(--text-secondary)' }}>{f.coder}</td>
-                        <td style={{ maxWidth: 260, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{f.q}</td>
-                        <td style={{ textAlign: 'center' }}>
+                        <td data-th="Amount" style={{ fontWeight: 700 }}>${f.amount.toFixed(2)}</td>
+                        <td data-th="Coded by" style={{ color: 'var(--text-secondary)' }}>{f.coder}</td>
+                        <td data-th="Question" style={{ maxWidth: 260, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{f.q}</td>
+                        <td data-th="Days open" style={{ textAlign: 'center' }}>
                           <span style={{ backgroundColor: f.days >= 7 ? 'hsla(var(--color-red), 0.1)' : 'hsla(var(--color-orange), 0.1)', color: f.days >= 7 ? 'hsl(var(--color-red))' : 'hsl(var(--color-orange))', fontSize: '0.75rem', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>{f.days}d</span>
                         </td>
-                        <td>
+                        <td data-th="Status">
                           <span style={{ backgroundColor: f.status === 'In Review' ? 'hsla(var(--color-blue), 0.1)' : 'hsla(var(--color-orange), 0.1)', color: f.status === 'In Review' ? 'hsl(var(--color-blue))' : 'hsl(var(--color-orange))', fontSize: '0.75rem', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>{f.status}</span>
                         </td>
                       </tr>
@@ -399,7 +389,7 @@ export default function Accounting({ activeSub, onSubChange }) {
             <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>AMA Entity Billing Tracker</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Asset Management Agreement entities, fee rates, and billing schedules</p>
             <div className="req-table-wrapper">
-              <table className="req-table">
+              <table className="req-table stack-table">
                 <thead><tr><th>Entity Name</th><th>Status</th><th>Fee Rate</th><th>Billed YTD</th><th>Next Billing</th><th style={{ textAlign: 'right' }}>Actions</th></tr></thead>
                 <tbody>
                   {AMA_ENTITIES.map(e => {
@@ -407,12 +397,12 @@ export default function Accounting({ activeSub, onSubChange }) {
                     return (
                       <tr key={e.id}>
                         <td style={{ fontWeight: 600 }}>{e.entity}</td>
-                        <td>
+                        <td data-th="Status">
                           <span style={{ backgroundColor: active ? 'hsla(var(--color-green), 0.1)' : 'hsla(var(--color-orange), 0.1)', color: active ? 'hsl(var(--color-green))' : 'hsl(var(--color-orange))', fontSize: '0.75rem', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>{e.status}</span>
                         </td>
-                        <td style={{ fontWeight: 600 }}>{e.feeRate}%</td>
-                        <td style={{ fontWeight: 700 }}>${e.billedYTD.toLocaleString()}</td>
-                        <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{e.nextBilling}</td>
+                        <td data-th="Fee rate" style={{ fontWeight: 600 }}>{e.feeRate}%</td>
+                        <td data-th="Billed YTD" style={{ fontWeight: 700 }}>${e.billedYTD.toLocaleString()}</td>
+                        <td data-th="Next billing" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{e.nextBilling}</td>
                         <td style={{ textAlign: 'right' }}>
                           <button className="secondary-btn" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>View Agreement</button>
                         </td>
@@ -431,7 +421,7 @@ export default function Accounting({ activeSub, onSubChange }) {
             <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>MRE Tenant Payment Register</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Monthly rent collections and tenant payment statuses</p>
             <div className="req-table-wrapper">
-              <table className="req-table">
+              <table className="req-table stack-table">
                 <thead><tr><th>Tenant</th><th>Unit</th><th>Property</th><th>Rent Amount</th><th>Due Date</th><th>Status</th></tr></thead>
                 <tbody>
                   {[
@@ -442,11 +432,11 @@ export default function Accounting({ activeSub, onSubChange }) {
                   ].map((r, i) => (
                     <tr key={i}>
                       <td style={{ fontWeight: 600 }}>{r.tenant}</td>
-                      <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{r.unit}</td>
-                      <td>{r.property}</td>
-                      <td style={{ fontWeight: 700 }}>${r.rent.toLocaleString()}</td>
-                      <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{r.due}</td>
-                      <td><span className={`status-badge ${r.status === 'Paid' ? 'status-approved' : 'status-pending'}`}>{r.status}</span></td>
+                      <td data-th="Unit" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{r.unit}</td>
+                      <td data-th="Property">{r.property}</td>
+                      <td data-th="Rent" style={{ fontWeight: 700 }}>${r.rent.toLocaleString()}</td>
+                      <td data-th="Due" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{r.due}</td>
+                      <td data-th="Status"><span className={`status-badge ${r.status === 'Paid' ? 'status-approved' : 'status-pending'}`}>{r.status}</span></td>
                     </tr>
                   ))}
                 </tbody>
@@ -488,7 +478,7 @@ export default function Accounting({ activeSub, onSubChange }) {
             <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Financial Report Downloads</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Download certified financial statements and audit documents</p>
             <div className="req-table-wrapper">
-              <table className="req-table">
+              <table className="req-table stack-table">
                 <thead><tr><th>Report Name</th><th>Period</th><th>Generated By</th><th>File Size</th><th style={{ textAlign: 'right' }}>Download</th></tr></thead>
                 <tbody>
                   {[
@@ -499,9 +489,9 @@ export default function Accounting({ activeSub, onSubChange }) {
                   ].map((r, i) => (
                     <tr key={i}>
                       <td style={{ fontWeight: 600 }}>{r.name}</td>
-                      <td style={{ color: 'var(--text-secondary)' }}>{r.period}</td>
-                      <td>{r.by}</td>
-                      <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{r.size}</td>
+                      <td data-th="Period" style={{ color: 'var(--text-secondary)' }}>{r.period}</td>
+                      <td data-th="Generated by">{r.by}</td>
+                      <td data-th="Size" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{r.size}</td>
                       <td style={{ textAlign: 'right' }}>
                         <button className="secondary-btn" style={{ padding: '4px 10px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                           <Download size={12} /> Download PDF

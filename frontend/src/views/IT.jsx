@@ -213,7 +213,7 @@ function ITAssets() {
           </div>
 
           <div className="motion-card" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
-            <table className="req-table">
+            <table className="req-table stack-table">
               <thead>
                 <tr>
                   <th>Asset ID</th>
@@ -232,19 +232,19 @@ function ITAssets() {
                   const isReturnPending = a.status === 'Return Pending';
                   return (
                     <tr key={a.id}>
-                      <td style={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'var(--text-muted)' }}>{a.id}</td>
+                      <td data-th="Asset ID" style={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'var(--text-muted)' }}>{a.id}</td>
                       <td>
                         <div style={{ fontWeight: 600 }}>{a.name}</div>
                         <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{a.category} · {a.dept}</div>
                       </td>
-                      <td>{a.assignedTo}</td>
-                      <td style={{ color: 'var(--text-secondary)', fontSize: '0.88rem' }}>{a.location}</td>
-                      <td>
+                      <td data-th="Assigned to">{a.assignedTo}</td>
+                      <td data-th="Location" style={{ color: 'var(--text-secondary)', fontSize: '0.88rem' }}>{a.location}</td>
+                      <td data-th="Warranty">
                         <span style={{ fontSize: '0.82rem', color: w.expired ? 'hsl(var(--color-red))' : w.expiring ? 'hsl(var(--color-orange))' : 'var(--text-secondary)', fontWeight: w.expired || w.expiring ? 600 : 400 }}>
                           {a.warrantyEnd ? (w.expired ? `Expired ${Math.abs(w.days)}d ago` : w.expiring ? `${w.days}d left` : a.warrantyEnd) : '—'}
                         </span>
                       </td>
-                      <td>
+                      <td data-th="Status">
                         <span className={`status-badge ${ASSET_STATUS_BADGE(a.status)}`}>{a.status}</span>
                       </td>
                       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -295,7 +295,7 @@ function ITAssets() {
               <div style={{ fontSize: '0.82rem', marginTop: 6 }}>Approved requests from the Manager Dashboard will appear here.</div>
             </div>
           ) : (
-            <table className="req-table">
+            <table className="req-table stack-table">
               <thead>
                 <tr>
                   <th>Req ID</th>
@@ -317,19 +317,19 @@ function ITAssets() {
                   const totalAvail = availableAssets.length;
                   return (
                     <tr key={req.id}>
-                      <td style={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'var(--text-muted)' }}>{req.id}</td>
+                      <td data-th="Req ID" style={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'var(--text-muted)' }}>{req.id}</td>
                       <td>
                         <div style={{ fontWeight: 600 }}>{req.item}</div>
                         <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Reason: {req.reason?.substring(0, 40)}{req.reason?.length > 40 ? '…' : ''}</div>
                       </td>
-                      <td>
+                      <td data-th="Employee">
                         <div style={{ fontWeight: 500 }}>{req.employeeName}</div>
                         <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{req.employeeDept}</div>
                       </td>
-                      <td style={{ fontWeight: 600 }}>{req.quantity}</td>
-                      <td style={{ fontSize: '0.88rem' }}>{req.supervisorName}</td>
-                      <td style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{fmtDate(req.managerApprovalDate)}</td>
-                      <td>
+                      <td data-th="Qty" style={{ fontWeight: 600 }}>{req.quantity}</td>
+                      <td data-th="Supervisor" style={{ fontSize: '0.88rem' }}>{req.supervisorName}</td>
+                      <td data-th="Approved" style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{fmtDate(req.managerApprovalDate)}</td>
+                      <td data-th="Stock">
                         {matchingAvail > 0
                           ? <span style={{ color: 'hsl(var(--color-green))', fontWeight: 600, fontSize: '0.88rem' }}>{matchingAvail} matching</span>
                           : totalAvail > 0
@@ -363,7 +363,7 @@ function ITAssets() {
               <div>No pending return confirmations.</div>
             </div>
           ) : (
-            <table className="req-table">
+            <table className="req-table stack-table">
               <thead>
                 <tr>
                   <th>Req ID</th>
@@ -379,17 +379,17 @@ function ITAssets() {
                   const asset = hwAssets.find(a => a.id === req.assetId);
                   return (
                     <tr key={req.id}>
-                      <td style={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'var(--text-muted)' }}>{req.id}</td>
+                      <td data-th="Req ID" style={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'var(--text-muted)' }}>{req.id}</td>
                       <td>
                         <div style={{ fontWeight: 600 }}>{req.assetName}</div>
                         <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{req.assetSerial}</div>
                       </td>
-                      <td>
+                      <td data-th="Employee">
                         <div style={{ fontWeight: 500 }}>{req.employeeName}</div>
                         <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{req.employeeDept}</div>
                       </td>
-                      <td style={{ fontSize: '0.85rem' }}>{fmtDate(req.assetAllocatedDate)}</td>
-                      <td style={{ fontSize: '0.85rem' }}>{req.expectedReturnDate || '—'}</td>
+                      <td data-th="Allocated" style={{ fontSize: '0.85rem' }}>{fmtDate(req.assetAllocatedDate)}</td>
+                      <td data-th="Expected return" style={{ fontSize: '0.85rem' }}>{req.expectedReturnDate || '—'}</td>
                       <td style={{ textAlign: 'right' }}>
                         <button
                           className="primary-btn"
@@ -1188,7 +1188,7 @@ function NetworkDashboard() {
                   <span className="status-badge" style={{ background: "hsla(215,100%,50%,0.1)", color: "hsl(var(--color-blue))" }}>{detail.devices?.length || 0}</span>
                 </div>
                 <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-color)", borderRadius: 8, overflow: "hidden" }}>
-                  <table className="req-table">
+                  <table className="req-table stack-table">
                     <thead>
                       <tr>
                         <th>Name</th>
@@ -1215,11 +1215,11 @@ function NetworkDashboard() {
                                 </a>
                               )}
                             </td>
-                            <td><span className="status-badge" style={{ background: "var(--border-color)", color: "var(--text-secondary)", fontSize: "0.7rem" }}>{d.model || "—"}</span></td>
-                            <td style={{ fontSize: "0.8rem", color: "var(--text-secondary)", textTransform: "capitalize" }}>{d.productLine || "—"}</td>
-                            <td style={{ fontFamily: "monospace", fontSize: "0.85rem", color: "var(--text-secondary)" }}>{d.ip || "—"}</td>
-                            <td style={{ fontFamily: "monospace", fontSize: "0.8rem", color: "var(--text-muted)" }}>{d.mac || "—"}</td>
-                            <td>
+                            <td data-th="Model"><span className="status-badge" style={{ background: "var(--border-color)", color: "var(--text-secondary)", fontSize: "0.7rem" }}>{d.model || "—"}</span></td>
+                            <td data-th="Product line" style={{ fontSize: "0.8rem", color: "var(--text-secondary)", textTransform: "capitalize" }}>{d.productLine || "—"}</td>
+                            <td data-th="IP" style={{ fontFamily: "monospace", fontSize: "0.85rem", color: "var(--text-secondary)" }}>{d.ip || "—"}</td>
+                            <td data-th="MAC" style={{ fontFamily: "monospace", fontSize: "0.8rem", color: "var(--text-muted)" }}>{d.mac || "—"}</td>
+                            <td data-th="Firmware">
                               {!d.firmwareStatus || d.firmwareStatus === "upToDate"
                                 ? <span className="status-badge status-approved">Up to date</span>
                                 : d.firmwareStatus === "upgradeable"
@@ -1229,7 +1229,7 @@ function NetworkDashboard() {
                                   : <span className="status-badge" style={{ background: "var(--border-color)", color: "var(--text-secondary)" }}>{d.firmwareStatus}</span>
                               }
                             </td>
-                            <td><span className={`status-badge ${d.status === "online" ? "status-approved" : "status-rejected"}`}>{d.status || "—"}</span></td>
+                            <td data-th="Status"><span className={`status-badge ${d.status === "online" ? "status-approved" : "status-rejected"}`}>{d.status || "—"}</span></td>
                           </tr>
                         ))}
                     </tbody>

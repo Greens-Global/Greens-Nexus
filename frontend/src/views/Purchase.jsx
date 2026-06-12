@@ -249,7 +249,7 @@ export default function Purchase() {
       {tab === 'log' && (
         <div className="requisitions-list-card" style={{ maxWidth:'none' }}>
           <div className="req-table-wrapper">
-            <table className="req-table">
+            <table className="req-table stack-table">
               <thead>
                 <tr>
                   <th>Req ID</th>
@@ -270,18 +270,18 @@ export default function Purchase() {
                 )}
                 {requisitions.map(req => (
                   <tr key={req.id}>
-                    <td style={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'var(--text-muted)' }}>{req.id}</td>
+                    <td data-th="Req ID" style={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'var(--text-muted)' }}>{req.id}</td>
                     <td>
                       <div className="req-item-name">{req.item}</div>
                       <div className="req-item-dept">{req.employeeDept} · Qty: {req.quantity}</div>
                     </td>
-                    <td style={{ fontSize: '0.88rem' }}>{req.employeeName}</td>
-                    <td>
+                    <td data-th="Requested for" style={{ fontSize: '0.88rem' }}>{req.employeeName}</td>
+                    <td data-th="Status">
                       <span className={`status-badge ${STATUS_CLASS[req.status] || 'status-badge'}`}>
                         {STATUS_LABEL[req.status] || req.status}
                       </span>
                     </td>
-                    <td style={{ textAlign: 'right', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                    <td data-th="Details" style={{ textAlign: 'right', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
                       {req.status === 'rejected' && (
                         <span style={{ color: 'hsl(var(--color-red))' }} title={req.rejectionReason}>
                           ⚠ {req.rejectionReason ? req.rejectionReason.substring(0, 28) + (req.rejectionReason.length > 28 ? '…' : '') : 'Rejected'}

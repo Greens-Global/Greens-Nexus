@@ -1863,6 +1863,72 @@ html { overflow-x: hidden; }
   .req-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 }
 
+/* ── Phone: stacked-card tables (mobile-first pass, Jun 12) ─────────────────
+   Tables tagged .stack-table re-flow into a card per row at ≤640px: the
+   header row disappears and each cell renders as a LABEL — VALUE line, the
+   label coming from the cell's data-th attribute. Cells WITHOUT data-th act
+   as the card title (full width, bolder). Desktop rendering is untouched —
+   on wide screens .stack-table behaves exactly like .req-table. */
+@media (max-width: 640px) {
+  table.stack-table { display: block; overflow-x: visible; }
+  .stack-table thead { display: none; }
+  .stack-table tbody { display: flex; flex-direction: column; gap: 10px; }
+  .stack-table tbody tr {
+    display: flex; flex-direction: column; gap: 7px;
+    border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 14px; background: var(--card);
+  }
+  .stack-table tbody tr:hover { background: var(--card); }
+  .stack-table td {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    border-bottom: none; text-align: left;
+    /* !important beats per-cell inline styles meant for the desktop grid */
+    padding: 0 !important;
+    white-space: normal !important;
+    max-width: none !important;
+  }
+  .stack-table td::before {
+    content: attr(data-th);
+    font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--muted); flex-shrink: 0;
+  }
+  .stack-table td:not([data-th])::before,
+  .stack-table td[data-th=""]::before { content: none; }
+  .stack-table td:first-child:not([data-th]) { font-weight: 600; font-size: 14px; }
+}
+
+/* ── Touch & accessibility polish (app-wide) ────────────────────────────────
+   Kill the gray tap flash, keep double-tap zoom off interactive elements,
+   and give keyboard users a consistent focus ring (mouse clicks unaffected —
+   :focus-visible only fires for keyboard/AT focus). */
+button, [role="button"], a, input, select, textarea, label { -webkit-tap-highlight-color: transparent; }
+button, [role="button"], select { touch-action: manipulation; }
+:focus-visible { outline: 2px solid hsl(var(--color-blue)); outline-offset: 2px; }
+
+/* Phone: comfortable thumb targets without blowing up dense desktop rows */
+@media (max-width: 640px) {
+  .primary-btn, .secondary-btn { min-height: 40px; }
+  .form-input, select.form-input { min-height: 44px; }
+}
+
+/* Phone: inline two-column layouts (modal form field pairs, side-by-side
+   cards) and raw three-up stat rows stack instead of crushing into slivers.
+   Matches the inline style text, so desktop is untouched. */
+@media (max-width: 640px) {
+  [style*="1fr 1fr"] { grid-template-columns: 1fr !important; }
+  [style*="repeat(3, 1fr)"] { grid-template-columns: 1fr !important; }
+}
+
+/* Vestibular safety: collapse animations/transitions for users who asked */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Manager Dashboard phone: pending-action rows wrap (buttons drop below the
    text), alert cards stack, the week calendar goes single-column */
 @media (max-width: 640px) {

@@ -35,16 +35,16 @@ export default function Support() {
 
       <div className="dash-card">
         <div className="dash-card-title" style={{ marginBottom: 14 }}>My open tickets</div>
-        <table className="req-table">
+        <table className="req-table stack-table">
           <thead><tr><th>Ticket</th><th>Subject</th><th>Dept</th><th>Status</th><th>Updated</th></tr></thead>
           <tbody>
             {TICKETS.map(t => (
               <tr key={t.id}>
-                <td className="mono" style={{ fontWeight: 700 }}>{t.id}</td>
+                <td data-th="Ticket" className="mono" style={{ fontWeight: 700 }}>{t.id}</td>
                 <td>{t.subject}</td>
-                <td style={{ color: "var(--muted)" }}>{t.dept}</td>
-                <td><span className={`status-badge ${t.status}`}>{t.statusLabel}</span></td>
-                <td style={{ color: "var(--muted)", fontSize: 12 }}>{t.updated}</td>
+                <td data-th="Dept" style={{ color: "var(--muted)" }}>{t.dept}</td>
+                <td data-th="Status"><span className={`status-badge ${t.status}`}>{t.statusLabel}</span></td>
+                <td data-th="Updated" style={{ color: "var(--muted)", fontSize: 12 }}>{t.updated}</td>
               </tr>
             ))}
           </tbody>

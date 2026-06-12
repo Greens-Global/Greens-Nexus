@@ -162,7 +162,7 @@ function AuditLogs() {
             No activity recorded yet
           </div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+          <table className="stack-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
             <thead>
               <tr style={{ background: 'var(--mist)', position: 'sticky', top: 0, zIndex: 1 }}>
                 <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: 'var(--muted)', letterSpacing: '.04em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>When</th>
@@ -176,7 +176,7 @@ function AuditLogs() {
             <tbody>
               {rows.map((r, i) => (
                 <tr key={r.id} style={{ borderBottom: '1px solid var(--line)', background: i % 2 === 1 ? 'hsla(0,0%,50%,.025)' : 'transparent' }}>
-                  <td style={{ padding: '10px 14px', color: 'var(--muted)', whiteSpace: 'nowrap', fontSize: 12 }}>
+                  <td data-th="When" style={{ padding: '10px 14px', color: 'var(--muted)', whiteSpace: 'nowrap', fontSize: 12 }}>
                     {fmtTime(r.timestamp)}
                   </td>
                   <td style={{ padding: '10px 14px', maxWidth: 200 }}>
@@ -187,19 +187,19 @@ function AuditLogs() {
                       <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{r.user_role}</div>
                     )}
                   </td>
-                  <td style={{ padding: '10px 14px' }}>
+                  <td data-th="Action" style={{ padding: '10px 14px' }}>
                     <span style={{ fontWeight: 600, color: actionColor(r.action), fontSize: 12.5 }}>
                       {r.action}
                     </span>
                   </td>
-                  <td style={{ padding: '10px 14px', color: 'var(--muted)', fontSize: 12, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <td data-th="Resource" style={{ padding: '10px 14px', color: 'var(--muted)', fontSize: 12, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {r.resource_id || r.resource_type || '—'}
                   </td>
-                  <td style={{ padding: '10px 14px', color: 'var(--muted)', fontSize: 11.5, maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  <td data-th="Details" style={{ padding: '10px 14px', color: 'var(--muted)', fontSize: 11.5, maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                     title={summarizeDetails(r.details)}>
                     {summarizeDetails(r.details) || '—'}
                   </td>
-                  <td style={{ padding: '10px 14px', color: 'var(--muted)', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                  <td data-th="IP" style={{ padding: '10px 14px', color: 'var(--muted)', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
                     {r.ip_address || '—'}
                   </td>
                 </tr>

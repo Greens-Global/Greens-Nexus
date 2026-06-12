@@ -799,11 +799,13 @@ export default function Admin() {
             Define exactly what each role can see and do across every portal.
           </p>
 
-          <div style={{ border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
+          {/* Role-matrix is a true grid (roles as columns) — cards don't fit,
+              so it scrolls sideways on phones instead */}
+          <div style={{ border: '1px solid var(--line)', borderRadius: 14, overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: 'var(--mist)', borderBottom: '1px solid var(--line)' }}>
-                  <th style={{ padding: '11px 16px', textAlign: 'left', fontWeight: 700, fontSize: 11.5, color: 'var(--muted)', letterSpacing: '.04em', textTransform: 'uppercase', width: '32%' }}>
+                  <th style={{ padding: '11px 16px', textAlign: 'left', fontWeight: 700, fontSize: 11.5, color: 'var(--muted)', letterSpacing: '.04em', textTransform: 'uppercase', width: '32%', minWidth: 160 }}>
                     Feature / Portal
                   </th>
                   {ROLE_ORDER.map(role => {

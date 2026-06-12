@@ -882,7 +882,7 @@ function TimelineSection({ list, onAdd, onUpdate, onStatus, onDelete }) {
         ? <EmptyState label="No timeline phases yet — click “Add Timeline”." />
         : (
           <div className="req-table-wrapper">
-            <table className="req-table">
+            <table className="req-table stack-table">
               <thead>
                 <tr><th>Phase</th><th>Permit / Approval</th><th>Issuing Agency</th><th>When Required</th><th>Key Submittals</th><th>Review Time</th><th>Status</th><th style={{ textAlign: 'right' }}>Actions</th></tr>
               </thead>
@@ -894,12 +894,12 @@ function TimelineSection({ list, onAdd, onUpdate, onStatus, onDelete }) {
                   return (
                     <tr key={i}>
                       <td style={{ fontWeight: 600 }}>{r.phase || '—'}</td>
-                      <td>{r.permit || '—'}</td>
-                      <td style={{ color: 'var(--text-secondary)' }}>{r.agency || '—'}</td>
-                      <td style={{ fontSize: '0.82rem' }}>{r.whenRequired || '—'}</td>
-                      <td style={{ fontSize: '0.82rem' }}>{r.submittals || '—'}</td>
-                      <td style={{ fontSize: '0.82rem' }}>{r.reviewTime || '—'}</td>
-                      <td>
+                      <td data-th="Permit">{r.permit || '—'}</td>
+                      <td data-th="Agency" style={{ color: 'var(--text-secondary)' }}>{r.agency || '—'}</td>
+                      <td data-th="When required" style={{ fontSize: '0.82rem' }}>{r.whenRequired || '—'}</td>
+                      <td data-th="Submittals" style={{ fontSize: '0.82rem' }}>{r.submittals || '—'}</td>
+                      <td data-th="Review time" style={{ fontSize: '0.82rem' }}>{r.reviewTime || '—'}</td>
+                      <td data-th="Status">
                         <select value={val} onChange={e => { if (e.target.value !== val) { setStatusChange({ index: i, value: e.target.value }); setStatusReason(''); } }} className="form-input"
                           style={{ padding: '3px 6px', fontSize: '0.75rem', fontWeight: 700, width: 'auto',
                             color: c ? `hsl(var(--color-${c}))` : 'var(--text-secondary)',
@@ -1216,7 +1216,7 @@ function PermitSection({ list, onAdd, onUpdate, onStatus, onDelete }) {
         ? <EmptyState label="No permits yet — click “Add Permit”." />
         : (
           <div className="req-table-wrapper">
-            <table className="req-table">
+            <table className="req-table stack-table">
               <thead>
                 <tr><th>Phase</th><th>Permit / Approval Type</th><th>Permit No</th><th>Jurisdiction / Agency</th><th>Expiration</th><th>Status</th><th style={{ textAlign: 'right' }}>Actions</th></tr>
               </thead>
@@ -1228,11 +1228,11 @@ function PermitSection({ list, onAdd, onUpdate, onStatus, onDelete }) {
                   return (
                     <tr key={i}>
                       <td style={{ fontWeight: 600 }}>{r.phase || '—'}</td>
-                      <td>{r.type || '—'}</td>
-                      <td style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{r.permitNo || '—'}</td>
-                      <td style={{ color: 'var(--text-secondary)' }}>{r.agency || '—'}</td>
-                      <td style={{ fontFamily: 'monospace', fontSize: '0.82rem', color: r.expiration ? 'hsl(var(--color-red))' : 'var(--text-secondary)', fontWeight: r.expiration ? 600 : 400 }}>{r.expiration || '—'}</td>
-                      <td>
+                      <td data-th="Type">{r.type || '—'}</td>
+                      <td data-th="Permit #" style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{r.permitNo || '—'}</td>
+                      <td data-th="Agency" style={{ color: 'var(--text-secondary)' }}>{r.agency || '—'}</td>
+                      <td data-th="Expiration" style={{ fontFamily: 'monospace', fontSize: '0.82rem', color: r.expiration ? 'hsl(var(--color-red))' : 'var(--text-secondary)', fontWeight: r.expiration ? 600 : 400 }}>{r.expiration || '—'}</td>
+                      <td data-th="Status">
                         <select value={val} onChange={e => { if (e.target.value !== val) { setStatusChange({ index: i, value: e.target.value }); setStatusReason(''); } }} className="form-input"
                           style={{ padding: '3px 6px', fontSize: '0.75rem', fontWeight: 700, width: 'auto',
                             color: c ? `hsl(var(--color-${c}))` : 'var(--text-secondary)',
