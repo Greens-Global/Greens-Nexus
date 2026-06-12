@@ -1834,3 +1834,8 @@ html { overflow-x: hidden; }
   .mobile-nav-item.no-icon { font-size: 11.5px; padding: 16px 4px; }
   .mobile-nav-item.no-icon.active { font-weight: 800; }
 }
+
+/* Manager Dashboard on phones: tabs live in the bottom action bar */
+@media (max-width: 640px) {
+  .md-tabs { display: none !important; }
+}

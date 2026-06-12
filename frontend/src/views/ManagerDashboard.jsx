@@ -217,6 +217,22 @@ export default function ManagerDashboard() {
   // Default to who-has-what for supervisors who can't see workload
   const effectiveTab = activeTab === 'workload' && !isManager ? 'who-has-what' : activeTab;
 
+  // Phone bottom bar: this dashboard's tabs become the bar's actions
+  // (contextual-bar pattern; the in-page pills hide ≤640 via .md-tabs)
+  useEffect(() => {
+    if (!window.matchMedia('(max-width: 900px)').matches) return;
+    const SHORT = { workload: 'Workload', projects: 'Projects', actions: `Actions${totalPending > 0 ? ` (${totalPending})` : ''}`, 'who-has-what': 'Who Has', calendar: 'Calendar' };
+    window.dispatchEvent(new CustomEvent('nexus:mobile-actions', {
+      detail: { actions: tabs.map(t => ({ id: t.id, label: SHORT[t.id] || t.label, active: t.id === effectiveTab })) },
+    }));
+    const h = e => e.detail?.id && setActiveTab(e.detail.id);
+    window.addEventListener('nexus:mobile-action', h);
+    return () => {
+      window.removeEventListener('nexus:mobile-action', h);
+      window.dispatchEvent(new CustomEvent('nexus:mobile-actions', { detail: { actions: null } }));
+    };
+  }, [effectiveTab, isManager, totalPending, overdueCount]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       <div className="view-header">
@@ -254,8 +270,8 @@ export default function ManagerDashboard() {
         ))}
       </div>
 
-      {/* Tab Navigation */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+      {/* Tab Navigation — desktop; phones use the bottom action bar */}
+      <div className="md-tabs" style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
         {tabs.map(t => (
           <button key={t.id} className={`tab-pill${activeTab === t.id ? ' active' : ''}`} onClick={() => setActiveTab(t.id)}>
             {t.label}
