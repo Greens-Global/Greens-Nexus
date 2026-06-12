@@ -300,4 +300,10 @@ export const api = {
 
   // LMS
   getLmsCourses: () => req("/lms-courses"),
+
+  // HR — employee master records
+  getEmployees:   ()         => req('/hr/employees'),
+  createEmployee: (data)     => req('/hr/employees', { method: 'POST', body: JSON.stringify(data) }),
+  updateEmployee: (id, data) => req(`/hr/employees/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteEmployee: (id)       => req(`/hr/employees/${id}`, { method: 'DELETE' }),
 };

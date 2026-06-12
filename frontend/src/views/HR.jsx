@@ -1,236 +1,398 @@
-import { useState } from 'react';
-import { LogIn, CheckSquare, PenTool, Files, ShieldCheck, RefreshCw, Check, Download } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import {
+  Users, Plus, Search, X, Loader2, Mail, Phone, Briefcase, MapPin,
+  ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
+} from 'lucide-react';
+import { api } from '../api';
 
-const INIT_MS = [
-  { id: 1, name: 'Alice Thompson', role: 'Project Coordinator', dept: 'OPS', startDate: '2026-06-01', adAccount: 'Pending', emailSetup: 'Pending', msLicensing: 'Pending', laptopTracking: 'Shipped (Delivered May 24)' },
-  { id: 2, name: 'Marcus Brody', role: 'Safety Inspector', dept: 'OPS', startDate: '2026-06-05', adAccount: 'Active', emailSetup: 'Active', msLicensing: 'Active', laptopTracking: 'In Transit' },
-  { id: 3, name: 'Jessica Vance', role: 'Architectural Analyst', dept: 'Development', startDate: '2026-05-20', adAccount: 'Active', emailSetup: 'Active', msLicensing: 'Active', laptopTracking: 'Delivered' },
-  { id: 4, name: 'Tyler Durden', role: 'Foreman Assistant', dept: 'OPS', startDate: '2026-06-10', adAccount: 'Pending', emailSetup: 'Pending', msLicensing: 'Pending', laptopTracking: 'Processing' },
+// ── HR module — Phase 1: employee master + People directory ──────────────────
+// Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
+// Old hardcoded onboarding/disclosure screens were dummy data — removed.
+
+const DEPTS = ['Operations', 'Accounting', 'IT', 'Construction', 'Facilities', 'Marketing', 'Real Estate', 'Admin', 'HR'];
+const EMP_TYPES = [
+  ['full_time', 'Full-Time'], ['part_time', 'Part-Time'], ['contractor', 'Contractor'], ['intern', 'Intern'],
 ];
+const TYPE_LABEL = Object.fromEntries(EMP_TYPES);
 
-const INIT_ASANA = [
-  { id: 101, title: 'Collect NDA & Disclosure agreements', assignee: 'Jennifer Lee', dueDate: '2026-05-28', status: 'In Progress', candidate: 'Alice Thompson' },
-  { id: 102, title: 'Provision AWS and local VPN credentials', assignee: 'David Kim', dueDate: '2026-05-29', status: 'To Do', candidate: 'Alice Thompson' },
-  { id: 103, title: 'Conduct safety orientation walk-through', assignee: 'Michael Chen', dueDate: '2026-06-02', status: 'To Do', candidate: 'Alice Thompson' },
-  { id: 104, title: 'Verify I-9 employment authorization docs', assignee: 'Jennifer Lee', dueDate: '2026-05-24', status: 'Completed', candidate: 'Jessica Vance' },
-  { id: 105, title: 'Deliver laptop and configure MFA', assignee: 'David Kim', dueDate: '2026-05-19', status: 'Completed', candidate: 'Jessica Vance' },
-];
+const STATUS_META = {
+  onboarding: { label: 'Onboarding', bg: 'hsla(var(--color-blue),0.1)',    fg: 'hsl(var(--color-blue))' },
+  active:     { label: 'Active',     bg: 'hsla(var(--color-green),0.1)',   fg: 'hsl(var(--color-green))' },
+  inactive:   { label: 'Inactive',   bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
+  offboarded: { label: 'Left',       bg: 'var(--mist)',                    fg: 'var(--muted)' },
+};
 
-const INIT_DISCLOSURES = [
-  { id: 201, name: 'Alice Thompson', type: 'Conflict of Interest', status: 'Signed', date: '2026-05-24', file: 'coi_athompson_2026.pdf' },
-  { id: 202, name: 'Alice Thompson', type: 'NDA Agreement', status: 'Signed', date: '2026-05-24', file: 'nda_athompson_2026.pdf' },
-  { id: 203, name: 'Marcus Brody', type: 'NDA Agreement', status: 'Signed', date: '2026-05-22', file: 'nda_mbrody_2026.pdf' },
-  { id: 204, name: 'Tyler Durden', type: 'Conflict of Interest', status: 'Pending', date: 'N/A', file: '' },
-  { id: 205, name: 'Tyler Durden', type: 'NDA Agreement', status: 'Pending', date: 'N/A', file: '' },
-];
+const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em' };
 
-const HR_DOCS = [
-  { name: 'Greens Nexus Employee Handbook 2026.pdf', size: '2.4 MB', category: 'Handbooks', lastUpdated: '2026-01-10' },
-  { name: 'Direct Deposit Enrollment Form.pdf', size: '340 KB', category: 'Forms', lastUpdated: '2025-08-15' },
-  { name: 'Safety Protocols & Hazard Guide.pdf', size: '4.8 MB', category: 'Safety', lastUpdated: '2026-03-22' },
-  { name: 'Corporate Benefits & Healthcare Package.pdf', size: '1.2 MB', category: 'Benefits', lastUpdated: '2026-02-18' },
-  { name: 'Form W-4 Employee Withholding 2026.pdf', size: '180 KB', category: 'Forms', lastUpdated: '2026-01-01' },
-];
+const AVATAR_HUES = ['215,75%,45%', '142,60%,35%', '30,80%,48%', '271,60%,48%', '350,65%,48%'];
+const fullName = e => [e.firstName, e.lastName].filter(Boolean).join(' ');
+const initials = e => `${(e.firstName || '?')[0]}${(e.lastName || '')[0] || ''}`.toUpperCase();
+const hueFor = e => AVATAR_HUES[(e.employeeCode || e.id || '').split('').reduce((n, c) => n + c.charCodeAt(0), 0) % AVATAR_HUES.length];
 
+function Avatar({ e, size = 38 }) {
+  if (e.photoUrl) return <img src={e.photoUrl} alt="" style={{ width: size, height: size, borderRadius: size * 0.28, objectFit: 'cover', flexShrink: 0 }} />;
+  return (
+    <div style={{ width: size, height: size, borderRadius: size * 0.28, background: `hsla(${hueFor(e)},0.13)`, color: `hsl(${hueFor(e)})`, fontSize: size * 0.34, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      {initials(e)}
+    </div>
+  );
+}
+
+function useIsMobile(bp = 900) {
+  const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia(`(max-width: ${bp}px)`).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${bp}px)`);
+    const h = e => setMobile(e.matches);
+    mq.addEventListener('change', h);
+    return () => mq.removeEventListener('change', h);
+  }, [bp]);
+  return mobile;
+}
+
+// ── Add / Edit modal ──────────────────────────────────────────────────────────
+function EmployeeFormModal({ employee, employees, onClose, onSaved, toastErr }) {
+  const editing = !!employee;
+  const [f, setF] = useState(() => ({
+    first_name:      employee?.firstName || '',
+    last_name:       employee?.lastName || '',
+    work_email:      employee?.workEmail || '',
+    personal_email:  employee?.personalEmail || '',
+    phone:           employee?.phone || '',
+    job_title:       employee?.jobTitle || '',
+    department:      employee?.department || 'Operations',
+    employment_type: employee?.employmentType || 'full_time',
+    start_date:      employee?.startDate || '',
+    manager_email:   employee?.managerEmail || '',
+    status:          employee?.status || 'active',
+    location:        employee?.location || '',
+    notes:           employee?.notes || '',
+  }));
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
+
+  // Manager picker: anyone with a work email (yourself excluded when editing)
+  const managers = employees.filter(e => e.workEmail && e.id !== employee?.id);
+
+  async function save() {
+    if (!f.first_name.trim() || busy) return;
+    setBusy(true);
+    try {
+      const saved = editing ? await api.updateEmployee(employee.id, f) : await api.createEmployee(f);
+      onSaved(saved);
+      onClose();
+    } catch (err) {
+      toastErr(err?.message || 'Could not save employee.');
+      setBusy(false);
+    }
+  }
+
+  const input = (label, key, props = {}) => (
+    <div>
+      <label style={FL}>{label}</label>
+      <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} />
+    </div>
+  );
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 560, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-green),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <UserPlus size={17} color="hsl(var(--color-green))" />
+          </div>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{editing ? `Edit ${fullName(employee)}` : 'Add Employee'}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          {input('FIRST NAME *', 'first_name', { autoFocus: !editing })}
+          {input('LAST NAME', 'last_name')}
+          {input('WORK EMAIL', 'work_email', { type: 'email', placeholder: 'empty until provisioned' })}
+          {input('PERSONAL EMAIL', 'personal_email', { type: 'email' })}
+          {input('PHONE', 'phone')}
+          {input('JOB TITLE', 'job_title')}
+          <div>
+            <label style={FL}>DEPARTMENT</label>
+            <select className="form-input" style={{ width: '100%' }} value={f.department} onChange={e => set('department', e.target.value)}>
+              {DEPTS.map(d => <option key={d}>{d}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={FL}>EMPLOYMENT TYPE</label>
+            <select className="form-input" style={{ width: '100%' }} value={f.employment_type} onChange={e => set('employment_type', e.target.value)}>
+              {EMP_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </div>
+          {input('START DATE', 'start_date', { type: 'date' })}
+          <div>
+            <label style={FL}>STATUS</label>
+            <select className="form-input" style={{ width: '100%' }} value={f.status} onChange={e => set('status', e.target.value)}>
+              {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
+            </select>
+          </div>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label style={FL}>REPORTS TO</label>
+            <select className="form-input" style={{ width: '100%' }} value={f.manager_email} onChange={e => set('manager_email', e.target.value)}>
+              <option value="">— no reporting line —</option>
+              {managers.map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
+            </select>
+          </div>
+          {input('LOCATION', 'location', { placeholder: 'e.g. Escondido office' })}
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label style={FL}>NOTES</label>
+            <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
+              value={f.notes} onChange={e => set('notes', e.target.value)} />
+          </div>
+        </div>
+        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="primary-btn" onClick={save} disabled={!f.first_name.trim() || busy}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.first_name.trim() || busy) ? 0.6 : 1 }}>
+            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={14} />}
+            {editing ? 'Save Changes' : 'Add Employee'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Profile detail pane ───────────────────────────────────────────────────────
+function EmployeeDetail({ e, employees, onEdit, onBack, isMobile }) {
+  const sm = STATUS_META[e.status] || STATUS_META.active;
+  const manager = employees.find(m => m.workEmail && m.workEmail === e.managerEmail);
+  const reports = employees.filter(r => e.workEmail && r.managerEmail === e.workEmail);
+  const row = (Icon, label, value) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
+      <Icon size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', width: 110, flexShrink: 0 }}>{label}</span>
+      <span style={{ fontSize: 13.5, color: value ? 'var(--ink)' : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value || '—'}</span>
+    </div>
+  );
+  return (
+    <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '22px 24px', boxShadow: 'var(--shadow-sm)' }}>
+      {isMobile && (
+        <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', padding: 0, marginBottom: 14 }}>
+          <ChevronLeft size={15} /> All people
+        </button>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 6, flexWrap: 'wrap' }}>
+        <Avatar e={e} size={56} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 800, fontSize: 18 }}>{fullName(e)}</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>
+            {[e.jobTitle, e.employeeCode].filter(Boolean).join(' · ')}
+          </div>
+        </div>
+        <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: sm.bg, color: sm.fg }}>{sm.label}</span>
+        <button className="secondary-btn" onClick={() => onEdit(e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+          <Pencil size={13} /> Edit
+        </button>
+      </div>
+      <div style={{ marginTop: 14 }}>
+        {row(Mail, 'Work email', e.workEmail)}
+        {row(Mail, 'Personal', e.personalEmail)}
+        {row(Phone, 'Phone', e.phone)}
+        {row(Briefcase, 'Department', [e.department, TYPE_LABEL[e.employmentType]].filter(Boolean).join(' · '))}
+        {row(CalendarOff, 'Start date', e.startDate)}
+        {row(MapPin, 'Location', e.location)}
+        {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : e.managerEmail)}
+        {reports.length > 0 && row(Users, 'Direct reports', reports.map(fullName).join(', '))}
+        {e.notes && row(FileText, 'Notes', e.notes)}
+      </div>
+    </div>
+  );
+}
+
+// ── Main view ─────────────────────────────────────────────────────────────────
 export default function HR({ activeSub, onSubChange }) {
-  const sub = activeSub || 'hr-ms';
-  const [msEmp, setMsEmp] = useState(INIT_MS);
-  const [asanaTasks, setAsanaTasks] = useState(INIT_ASANA);
+  // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now
+  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave'].includes(activeSub) ? activeSub : 'hr-people';
+  const isMobile = useIsMobile();
 
-  const pushToAD = (id) => setMsEmp(prev => prev.map(e => e.id === id ? { ...e, adAccount: 'Active', emailSetup: 'Active', msLicensing: 'Active' } : e));
-  const completeTask = (id) => setAsanaTasks(prev => prev.map(t => t.id === id ? { ...t, status: 'Completed' } : t));
+  const [employees, setEmployees] = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState('');
+  const [search,    setSearch]    = useState('');
+  const [deptF,     setDeptF]     = useState('All');
+  const [statusF,   setStatusF]   = useState('All');
+  const [selectedId, setSelectedId] = useState(null);
+  const [formOpen,  setFormOpen]  = useState(false);
+  const [editing,   setEditing]   = useState(null);
+  const [toast,     setToast]     = useState(null);
 
-  const statusStyle = (s) => ({
-    backgroundColor: s === 'Active' ? 'hsla(var(--color-green), 0.1)' : s === 'Pending' ? 'hsla(var(--color-orange), 0.1)' : 'var(--bg-secondary)',
-    color: s === 'Active' ? 'hsl(var(--color-green))' : s === 'Pending' ? 'hsl(var(--color-orange))' : 'var(--text-secondary)',
-    padding: '2px 8px', borderRadius: 12, fontSize: '0.75rem', fontWeight: 600,
-  });
+  const toastErr = msg => { setToast(msg); setTimeout(() => setToast(null), 5000); };
+
+  function load() {
+    api.getEmployees()
+      .then(rows => { setEmployees(rows); setError(''); })
+      .catch(err => setError(err?.message || 'Could not load employees.'))
+      .finally(() => setLoading(false));
+  }
+  useEffect(load, []);
+
+  const filtered = useMemo(() => employees.filter(e => {
+    if (deptF !== 'All' && e.department !== deptF) return false;
+    if (statusF !== 'All' && e.status !== statusF) return false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      return [fullName(e), e.workEmail, e.employeeCode, e.jobTitle, e.department].some(v => (v || '').toLowerCase().includes(q));
+    }
+    return true;
+  }), [employees, deptF, statusF, search]);
+
+  const selected = employees.find(e => e.id === selectedId) || null;
+  const counts = useMemo(() => ({
+    total: employees.length,
+    active: employees.filter(e => e.status === 'active').length,
+    onboarding: employees.filter(e => e.status === 'onboarding').length,
+    depts: new Set(employees.filter(e => e.department).map(e => e.department)).size,
+  }), [employees]);
+
+  const onSaved = saved => {
+    setEmployees(prev => {
+      const i = prev.findIndex(e => e.id === saved.id);
+      if (i === -1) return [...prev, saved].sort((a, b) => fullName(a).localeCompare(fullName(b)));
+      const next = [...prev]; next[i] = saved; return next;
+    });
+    setSelectedId(saved.id);
+  };
+
+  const TABS = [
+    ['hr-people', 'People'], ['hr-hiring', 'Hiring'], ['hr-org', 'Org Chart'], ['hr-leave', 'Leave'],
+  ];
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      <div className="view-header" style={{ marginBottom: 24 }}>
+      <div className="view-header" style={{ marginBottom: 18 }}>
         <div className="view-title-group">
           <h2>Human Resources</h2>
-          <p>Employee onboarding pipelines, legal disclosures, and policy documentation</p>
+          <p>People, hiring, org structure and leave — one source of truth</p>
         </div>
-        <span style={{ fontSize: '0.8rem', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', padding: '6px 12px', borderRadius: 20, color: 'var(--text-secondary)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <ShieldCheck size={14} /> HR Manager Portal
-        </span>
+        {sub === 'hr-people' && (
+          <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7, flexShrink: 0 }}
+            onClick={() => { setEditing(null); setFormOpen(true); }}>
+            <Plus size={15} /> Add Employee
+          </button>
+        )}
       </div>
 
-      {/* Tab Navigation */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--border-color)', paddingBottom: 1, flexWrap: 'wrap' }}>
-        {[
-          { key: 'hr-ms', label: 'Onboarding - MS', Icon: LogIn },
-          { key: 'hr-asana', label: 'Onboarding - Asana', Icon: CheckSquare },
-          { key: 'hr-disclosures', label: 'Disclosures', Icon: PenTool },
-          { key: 'hr-documents', label: 'Documents', Icon: Files },
-        ].map(({ key, label, Icon }) => (
-          <button key={key} onClick={() => onSubChange(key)}
-            style={{ background: 'none', border: 'none', padding: '10px 18px', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '0.95rem', cursor: 'pointer', color: sub === key ? 'var(--text-primary)' : 'var(--text-secondary)', position: 'relative', transition: 'color 0.15s', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Icon size={18} /> {label}
-            {sub === key && <span style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: 'var(--text-primary)', borderRadius: '4px 4px 0 0' }} />}
+      {/* Tabs */}
+      <div className="chip-row scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
+        {TABS.map(([key, label]) => (
+          <button key={key} onClick={() => onSubChange ? onSubChange(key) : null}
+            style={{ padding: '7px 16px', borderRadius: 10, border: `1px solid ${sub === key ? 'var(--pine)' : 'var(--line)'}`, background: sub === key ? 'hsla(var(--color-green),0.08)' : 'var(--card)', color: sub === key ? 'hsl(var(--color-green))' : 'var(--muted)', fontWeight: sub === key ? 700 : 600, fontSize: 13, cursor: 'pointer', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap', flexShrink: 0 }}>
+            {label}
           </button>
         ))}
       </div>
 
-      <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-sm)' }}>
+      {sub !== 'hr-people' && (
+        <div style={{ textAlign: 'center', padding: '64px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
+          <Network size={32} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
+          <div style={{ fontSize: 14, fontWeight: 600 }}>{TABS.find(([k]) => k === sub)?.[1]} is coming in the next phase.</div>
+          <div style={{ fontSize: 12.5, marginTop: 4 }}>The People directory is live — hiring pipeline, org chart and leave build on it.</div>
+        </div>
+      )}
 
-        {/* MS Onboarding */}
-        {sub === 'hr-ms' && (
-          <>
-            <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Microsoft Active Directory Onboarding</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Manage employee Microsoft accounts, email addresses, and software licensing setups</p>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
-              {msEmp.map(emp => {
-                const pending = emp.adAccount === 'Pending';
-                return (
-                  <div key={emp.id} className="motion-card" style={{ backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 18, transition: 'all 0.15s' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-                      <div>
-                        <strong style={{ fontSize: '1rem', color: 'var(--text-primary)', fontFamily: "'Plus Jakarta Sans', sans-serif", display: 'block' }}>{emp.name}</strong>
-                        <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{emp.role} · {emp.dept}</span>
-                      </div>
-                      <span style={statusStyle(pending ? 'Pending' : 'Active')}>{pending ? 'Awaiting Provisioning' : 'Active Account'}</span>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16, fontSize: '0.825rem' }}>
-                      {[
-                        ['Start Date', emp.startDate],
-                        ['Azure AD Domain', pending ? 'Pending' : emp.name.toLowerCase().replace(' ', '') + '@greensglobal.com'],
-                        ['Exchange Mailbox', emp.emailSetup],
-                        ['O365 Enterprise E5', emp.msLicensing],
-                        ['Hardware Laptop', emp.laptopTracking],
-                      ].map(([label, val]) => (
-                        <div key={label} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: 'var(--text-secondary)' }}>{label}:</span>
-                          <strong style={{ color: val === 'Active' ? 'hsl(var(--color-green))' : 'var(--text-primary)', fontFamily: label === 'Azure AD Domain' ? 'monospace' : 'inherit', fontSize: label === 'Azure AD Domain' ? '0.775rem' : 'inherit' }}>{val}</strong>
+      {sub === 'hr-people' && (<>
+        {/* KPI strip */}
+        <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+          <div className="kpi-card card-blue"><div className="kpi-label">Total People</div><div className="kpi-value">{counts.total}</div></div>
+          <div className="kpi-card card-green"><div className="kpi-label">Active</div><div className="kpi-value">{counts.active}</div></div>
+          <div className="kpi-card card-orange"><div className="kpi-label">Onboarding</div><div className="kpi-value">{counts.onboarding}</div></div>
+          <div className="kpi-card card-purple"><div className="kpi-label">Departments</div><div className="kpi-value">{counts.depts}</div></div>
+        </div>
+
+        {/* Filters */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
+          <div className="search-bar" style={{ flex: '1 1 220px', maxWidth: 360 }}>
+            <Search size={13} style={{ flexShrink: 0 }} />
+            <input placeholder="Search people…" value={search} onChange={e => setSearch(e.target.value)} />
+            {search && <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={13} /></button>}
+          </div>
+          <select className="form-input" value={deptF} onChange={e => setDeptF(e.target.value)} style={{ padding: '6px 10px', fontSize: 13, height: 34 }}>
+            <option value="All">All departments</option>
+            {DEPTS.map(d => <option key={d}>{d}</option>)}
+          </select>
+          <select className="form-input" value={statusF} onChange={e => setStatusF(e.target.value)} style={{ padding: '6px 10px', fontSize: 13, height: 34 }}>
+            <option value="All">All statuses</option>
+            {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
+          </select>
+          <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
+            {counts.total} total · {counts.active} active · {filtered.length} shown
+          </span>
+        </div>
+
+        {error && (
+          <div style={{ background: 'var(--bad-bg)', color: 'var(--bad-fg)', borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 14 }}>
+            {error} <button onClick={() => { setLoading(true); load(); }} style={{ background: 'none', border: 'none', color: 'inherit', fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}>Retry</button>
+          </div>
+        )}
+
+        {loading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}>
+            <Loader2 size={26} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
+          </div>
+        ) : employees.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
+            <Users size={32} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
+            <div style={{ fontSize: 14, fontWeight: 600 }}>No employees yet.</div>
+            <div style={{ fontSize: 12.5, marginTop: 4 }}>Add the first one — everything else in HR builds on these records.</div>
+          </div>
+        ) : (
+          /* Master–detail on desktop; list ⇄ detail swap on phones */
+          <div style={{ display: isMobile ? 'block' : 'grid', gridTemplateColumns: '340px 1fr', gap: 16, alignItems: 'start' }}>
+            {(!isMobile || !selected) && (
+              <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
+                {filtered.length === 0 && (
+                  <div style={{ padding: '28px 16px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No matches.</div>
+                )}
+                {filtered.map((e, i) => {
+                  const sm = STATUS_META[e.status] || STATUS_META.active;
+                  const sel = e.id === selectedId;
+                  return (
+                    <button key={e.id} onClick={() => setSelectedId(e.id)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 11, width: '100%', textAlign: 'left', padding: '11px 14px', background: sel ? 'hsla(var(--color-green),0.06)' : 'transparent', border: 'none', borderTop: i > 0 ? '1px solid var(--line)' : 'none', borderLeft: sel ? '3px solid hsl(var(--color-green))' : '3px solid transparent', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                      <Avatar e={e} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {[e.employeeCode, e.jobTitle, e.department].filter(Boolean).join(' · ')}
                         </div>
-                      ))}
-                    </div>
-                    {pending
-                      ? <button className="primary-btn" onClick={() => pushToAD(emp.id)} style={{ width: '100%', justifyContent: 'center', fontSize: '0.85rem', padding: '8px 14px' }}>
-                          Push to Microsoft AD
-                        </button>
-                      : <button className="secondary-btn" style={{ width: '100%', justifyContent: 'center', padding: '8px 14px', fontSize: '0.85rem' }}>
-                          Print Credentials Sheet
-                        </button>
-                    }
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
-
-        {/* Asana Onboarding */}
-        {sub === 'hr-asana' && (
-          <>
-            <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
-              <div>
-                <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Asana Sync - Employee Onboarding Checklists</h3>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Interactive task completion list synchronized with team workspace boards</p>
+                      </div>
+                      <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, background: sm.bg, color: sm.fg, flexShrink: 0 }}>{sm.label}</span>
+                    </button>
+                  );
+                })}
               </div>
-              <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                <RefreshCw size={14} /> Sync with Asana API
-              </button>
-            </div>
-            <div className="req-table-wrapper">
-              <table className="req-table stack-table">
-                <thead>
-                  <tr><th>Onboarding Task</th><th>Candidate</th><th>Assignee</th><th>Due Date</th><th>Status</th><th style={{ textAlign: 'right' }}>Action</th></tr>
-                </thead>
-                <tbody>
-                  {asanaTasks.map(t => {
-                    const done = t.status === 'Completed';
-                    const inProg = t.status === 'In Progress';
-                    return (
-                      <tr key={t.id}>
-                        <td style={{ fontWeight: 600, color: done ? 'var(--text-muted)' : 'var(--text-primary)', textDecoration: done ? 'line-through' : 'none' }}>{t.title}</td>
-                        <td data-th="Candidate">{t.candidate}</td>
-                        <td data-th="Assignee">
-                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                            <div style={{ width: 24, height: 24, borderRadius: '50%', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700 }}>{t.assignee.charAt(0)}</div>
-                            <span>{t.assignee}</span>
-                          </div>
-                        </td>
-                        <td data-th="Due" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{t.dueDate}</td>
-                        <td data-th="Status">
-                          <span style={{ backgroundColor: done ? 'hsl(var(--color-green))' : inProg ? 'hsl(var(--color-blue))' : 'var(--border-color)', color: (done || inProg) ? '#fff' : 'var(--text-secondary)', fontSize: '0.7rem', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>{t.status}</span>
-                        </td>
-                        <td style={{ textAlign: 'right' }}>
-                          {done
-                            ? <span style={{ color: 'hsl(var(--color-green))', fontSize: '0.8rem', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Check size={14} /> Done</span>
-                            : <button className="secondary-btn" onClick={() => completeTask(t.id)} style={{ padding: '4px 10px', fontSize: '0.775rem' }}>Mark Complete</button>
-                          }
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-
-        {/* Disclosures */}
-        {sub === 'hr-disclosures' && (
-          <>
-            <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>NDA & Compliance Disclosures</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Review employee non-disclosure agreements and conflict of interest forms</p>
-            <div className="req-table-wrapper">
-              <table className="req-table stack-table">
-                <thead><tr><th>Employee</th><th>Document Type</th><th>Status</th><th>Date Signed</th><th style={{ textAlign: 'right' }}>Actions</th></tr></thead>
-                <tbody>
-                  {INIT_DISCLOSURES.map(d => {
-                    const signed = d.status === 'Signed';
-                    return (
-                      <tr key={d.id}>
-                        <td style={{ fontWeight: 600 }}>{d.name}</td>
-                        <td data-th="Document">{d.type}</td>
-                        <td data-th="Status">
-                          <span style={{ backgroundColor: signed ? 'hsla(var(--color-green), 0.1)' : 'hsla(var(--color-orange), 0.1)', color: signed ? 'hsl(var(--color-green))' : 'hsl(var(--color-orange))', fontSize: '0.75rem', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>{d.status}</span>
-                        </td>
-                        <td data-th="Signed" style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{d.date}</td>
-                        <td style={{ textAlign: 'right' }}>
-                          {signed
-                            ? <button className="secondary-btn" style={{ padding: '4px 10px', fontSize: '0.775rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Download size={12} /> Download PDF</button>
-                            : <button className="primary-btn" style={{ padding: '4px 10px', fontSize: '0.775rem' }}>Send for Signature</button>
-                          }
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-
-        {/* Documents */}
-        {sub === 'hr-documents' && (
-          <>
-            <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>HR Document Vault</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Company policies, onboarding forms, benefits packages, and tax documents</p>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-              {HR_DOCS.map(doc => (
-                <div key={doc.name} className="motion-card" style={{ backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: 18 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                    <div style={{ width: 36, height: 36, borderRadius: 8, backgroundColor: 'hsla(var(--color-red), 0.08)', color: 'hsl(var(--color-red))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Files size={18} />
-                    </div>
-                    <span style={{ fontSize: '0.7rem', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', padding: '2px 6px', borderRadius: 4, color: 'var(--text-secondary)', fontWeight: 600 }}>{doc.category}</span>
-                  </div>
-                  <strong style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontFamily: "'Plus Jakarta Sans', sans-serif", display: 'block', marginBottom: 4, lineHeight: 1.3 }}>{doc.name}</strong>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: 14 }}>{doc.size} · Updated {doc.lastUpdated}</div>
-                  <button className="secondary-btn" style={{ width: '100%', padding: '6px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                    <Download size={14} /> Download
-                  </button>
+            )}
+            {(!isMobile || selected) && (
+              selected ? (
+                <EmployeeDetail e={selected} employees={employees} isMobile={isMobile}
+                  onEdit={emp => { setEditing(emp); setFormOpen(true); }}
+                  onBack={() => setSelectedId(null)} />
+              ) : (
+                <div style={{ textAlign: 'center', padding: '64px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
+                  <Users size={28} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
+                  <div style={{ fontSize: 13 }}>Select a person to see their profile.</div>
                 </div>
-              ))}
-            </div>
-          </>
+              )
+            )}
+          </div>
         )}
-      </div>
+      </>)}
+
+      {formOpen && (
+        <EmployeeFormModal employee={editing} employees={employees}
+          onClose={() => { setFormOpen(false); setEditing(null); }}
+          onSaved={onSaved} toastErr={toastErr} />
+      )}
+      {toast && (
+        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'hsl(var(--color-red))', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)' }}>
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

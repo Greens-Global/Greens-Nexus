@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL, SessionLocal
-from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, inventory_requests, audit, groups, items as items_router
+from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, inventory_requests, audit, groups, items as items_router, hr
 from audit import AuditMiddleware
 
 
@@ -258,4 +258,5 @@ app.include_router(inventory_requests.router)
 app.include_router(audit.router)
 app.include_router(groups.router)
 app.include_router(items_router.router)
+app.include_router(hr.router)
 

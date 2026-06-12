@@ -437,3 +437,31 @@ class AuditLog(Base):
     resource_id   = Column(String, default="")
     details       = Column(String, default="")   # JSON string
     ip_address    = Column(String, default="")
+
+
+class NexusEmployee(Base):
+    """HR employee master record (Phase 1 of the HR module). The single source
+    of truth a person's working life hangs off — candidates, provisioning,
+    leave and the org chart all reference this row in later phases."""
+    __tablename__ = "nexus_employees"
+    id              = Column(String, primary_key=True)         # uuid
+    employee_code   = Column(String, default="")               # GG-001 style, auto-assigned
+    first_name      = Column(String, nullable=False)
+    last_name       = Column(String, default="")
+    work_email      = Column(String, default="")               # empty until provisioned (Phase 4)
+    personal_email  = Column(String, default="")
+    phone           = Column(String, default="")
+    job_title       = Column(String, default="")
+    department      = Column(String, default="")
+    employment_type = Column(String, default="full_time")      # full_time | part_time | contractor | intern
+    start_date      = Column(String, default="")               # ISO date
+    manager_email   = Column(String, default="")               # reporting line -> org chart (Phase 5)
+    photo_url       = Column(String, default="")
+    status          = Column(String, default="active")         # onboarding | active | inactive | offboarded
+    location        = Column(String, default="")
+    notes           = Column(String, default="")
+    m365_id         = Column(String, default="")               # account pointers for provisioning (Phase 4)
+    asana_id        = Column(String, default="")
+    created_by      = Column(String, default="")
+    created_at      = Column(String, default="")
+    updated_at      = Column(String, default="")

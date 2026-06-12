@@ -55,10 +55,10 @@ export const SUBMENUS = {
     { sub: 'reports',        label: 'Reports' },
   ],
   hr: [
-    { sub: 'hr-ms',          label: 'Onboarding — MS' },
-    { sub: 'hr-asana',       label: 'Onboarding — Asana' },
-    { sub: 'hr-disclosures', label: 'Disclosures' },
-    { sub: 'hr-documents',   label: 'Documents' },
+    { sub: 'hr-people', label: 'People' },
+    { sub: 'hr-hiring', label: 'Hiring' },
+    { sub: 'hr-org',    label: 'Org Chart' },
+    { sub: 'hr-leave',  label: 'Leave' },
   ],
   marketing: [
     { sub: 'marketing-ads',        label: 'Google Ads Performance' },

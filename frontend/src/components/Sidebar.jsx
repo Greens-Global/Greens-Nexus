@@ -92,10 +92,10 @@ export const NAV = [
   {
     view: "hr", label: "HR", icon: Users, minRole: 'supervisor',
     sub: [
-      { subview: "hr-ms",          label: "IT Provisioning",   icon: LogIn },
-      { subview: "hr-asana",       label: "Onboarding Tasks",  icon: CheckSquare },
-      { subview: "hr-disclosures", label: "Disclosures",       icon: PenTool },
-      { subview: "hr-documents",   label: "Documents",         icon: Files },
+      { subview: "hr-people", label: "People",    icon: Users },
+      { subview: "hr-hiring", label: "Hiring",    icon: CheckSquare },
+      { subview: "hr-org",    label: "Org Chart", icon: Files },
+      { subview: "hr-leave",  label: "Leave",     icon: PenTool },
     ],
   },
   {
