@@ -10,6 +10,8 @@ import MobileMenu from "./components/MobileMenu";
 import TopHeader from "./components/TopHeader";
 import AdminPanel from "./components/AdminPanel";
 import NotificationToasts from "./components/NotificationToasts";
+import GlobalSearch from "./components/GlobalSearch";
+import PullToRefresh from "./components/PullToRefresh";
 import { onBackendHealth } from "./api";
 
 // Always loaded — critical path
@@ -108,7 +110,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "dashboard":          return <Dashboard onNavigate={onNavigate} />;
     case "manager-dashboard":  return <ManagerDashboard />;
     case "tasks":              return <Tasks />;
-    case "purchase":           return <Purchase />;
+    case "purchase":           return <Purchase activeSub={activeSub} />;
     case "sop":                return <SOP activeSub={activeSub} onSubChange={onSubChange} />;
     case "it":                 return <IT activeSub={activeSub} onSubChange={onSubChange} />;
     case "ops":                return <Operations activeSub={activeSub} onSubChange={onSubChange} />;
@@ -250,6 +252,8 @@ export default function App() {
         <RequisitionProvider>
         <InventoryProvider>
         <NotificationToasts onNavigate={navigate} />
+        <GlobalSearch onNavigate={navigate} />
+        <PullToRefresh />
         {backendDown && (
           <div style={{
             position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999,

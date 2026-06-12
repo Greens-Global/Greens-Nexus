@@ -7,7 +7,7 @@ import { NAV } from './Sidebar';
 // Sub-screens per module — the same sub ids the views' tab strips use, so a
 // tap deep-links exactly where the in-page tab would. Modules absent here
 // (Dashboard, Tasks, Asset Management, Investor Relations…) navigate directly.
-const SUBMENUS = {
+export const SUBMENUS = {
   inventory: {
     manager: [
       { sub: 'myitems',      label: 'My Items' },
@@ -25,7 +25,6 @@ const SUBMENUS = {
   },
   it: [
     { sub: 'network',     label: 'Network Dashboard' },
-    { sub: 'it-assets',   label: 'Asset Management' },
     { sub: 'it-websites', label: 'Website Management' },
   ],
   ops: [

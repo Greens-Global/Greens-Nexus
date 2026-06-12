@@ -136,6 +136,10 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
       </div>
 
       <div className="header-right">
+        <button className="icon-btn" aria-label="Search (Ctrl+K)" title="Search (Ctrl+K)"
+          onClick={() => window.dispatchEvent(new CustomEvent('nexus:search-open'))}>
+          <Search style={{ width: 16, height: 16 }} />
+        </button>
         <button className="icon-btn" onClick={onThemeToggle} aria-label="Toggle Theme">
           {theme === "dark"
             ? <Sun style={{ width: 16, height: 16 }} />

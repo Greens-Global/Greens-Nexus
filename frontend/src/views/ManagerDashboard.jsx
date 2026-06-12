@@ -6,6 +6,7 @@ import { useInventory }     from '../contexts/InventoryContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useRole }          from '../contexts/RoleContext';
 import { api }              from '../api';
+import SwipeActions         from '../components/SwipeActions';
 
 const EMPLOYEES = [
   { name: 'Sarah Johnson',    dept: 'Accounting',  tasks: 8,  est: 32, act: 18, completed: 3, inprogress: 4, overdue: 1, workload: 85 },
@@ -451,7 +452,12 @@ export default function ManagerDashboard() {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {pendingReqs.map(req => (
-                    <div key={req.id} style={{ border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden', backgroundColor: 'var(--bg-primary)' }}>
+                    <SwipeActions key={req.id} disabled={rejectingId === req.id}
+                      actions={[
+                        { key: 'approve', label: 'Approve', Icon: CheckCircle, background: 'hsl(var(--color-green))', onClick: () => handleApprove(req.id) },
+                        { key: 'reject',  label: 'Reject',  Icon: XCircle,     background: 'hsl(var(--color-red))',   onClick: () => { setRejectingId(req.id); setRejectReason(''); } },
+                      ]}>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden', backgroundColor: 'var(--bg-primary)' }}>
                       {/* Main row */}
                       <div className="mdb-req-row" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 16px' }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
@@ -531,6 +537,7 @@ export default function ManagerDashboard() {
                         </div>
                       )}
                     </div>
+                    </SwipeActions>
                   ))}
                 </div>
               )}
@@ -558,7 +565,12 @@ export default function ManagerDashboard() {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {pendingInvReqs.map(req => (
-                    <div key={req.id} style={{ border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden', backgroundColor: 'var(--bg-primary)' }}>
+                    <SwipeActions key={req.id} disabled={rejectingInvId === req.id || approvingInvId === req.id}
+                      actions={[
+                        { key: 'approve', label: 'Approve', Icon: CheckCircle, background: 'hsl(var(--color-green))', onClick: () => { setApprovingInvId(req.id); setPickedAllocator(''); } },
+                        { key: 'reject',  label: 'Reject',  Icon: XCircle,     background: 'hsl(var(--color-red))',   onClick: () => { setRejectingInvId(req.id); setRejectInvReason(''); } },
+                      ]}>
+                    <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden', backgroundColor: 'var(--bg-primary)' }}>
                       <div className="mdb-req-row" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 16px' }}>
                         <div style={{ width: 34, height: 34, borderRadius: 8, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                           <Package size={16} color="hsl(var(--color-blue))" />
@@ -646,6 +658,7 @@ export default function ManagerDashboard() {
                         </div>
                       )}
                     </div>
+                    </SwipeActions>
                   ))}
                 </div>
               )}

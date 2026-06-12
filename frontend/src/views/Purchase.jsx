@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Send, FileText, ClipboardList, User, Users, Link2, Package } from 'lucide-react';
+import { Send, FileText, ClipboardList, User, Users, Link2, Package, Plus } from 'lucide-react';
 import { useMsal } from '@azure/msal-react';
 import { useRequisitions }  from '../contexts/RequisitionContext';
 import { cleanName } from '../lib/utils';
@@ -34,12 +34,25 @@ const STATUS_CLASS = {
 
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em' };
 
-export default function Purchase() {
+export default function Purchase({ activeSub = null }) {
   const { requisitions, submitRequisition, exportToCsv } = useRequisitions();
   const { accounts } = useMsal();
   const myName = cleanName(accounts[0]?.name ?? '');
 
-  const [tab,          setTab]          = useState('new');     // 'new' | 'log'
+  const [tab,          setTab]          = useState(activeSub === 'log' ? 'log' : 'new');     // 'new' | 'log'
+  // Deep-link: global search / notifications land on a specific tab. The prop
+  // covers fresh mounts, the window event covers repeat navigations.
+  useEffect(() => {
+    if (activeSub === 'log' || activeSub === 'new') setTab(activeSub);
+  }, [activeSub]);
+  useEffect(() => {
+    const h = e => {
+      const { view, sub } = e.detail || {};
+      if (view === 'purchase' && (sub === 'log' || sub === 'new')) setTab(sub);
+    };
+    window.addEventListener('nexus:navigate', h);
+    return () => window.removeEventListener('nexus:navigate', h);
+  }, []);
   const [forSelf,      setForSelf]      = useState(true);
   const [behalfName,   setBehalfName]   = useState('');
   const [item,         setItem]         = useState('');
@@ -324,6 +337,13 @@ export default function Purchase() {
             </table>
           </div>
         </div>
+      )}
+
+      {/* Phone: floating + jumps to the request form from anywhere in the log */}
+      {tab === 'log' && (
+        <button className="fab" onClick={() => setTab('new')} aria-label="New purchase request">
+          <Plus size={24} />
+        </button>
       )}
     </div>
   );

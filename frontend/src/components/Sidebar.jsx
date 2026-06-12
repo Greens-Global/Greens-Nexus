@@ -31,7 +31,6 @@ export const NAV = [
     view: "it", label: "IT", icon: Monitor, minRole: 'supervisor',
     sub: [
       { subview: "network",               label: "Network Dashboard",    icon: Wifi },
-      { subview: "it-assets",             label: "Asset Management",     icon: Monitor },
       { subview: "it-websites",           label: "Website Management",   icon: ExternalLink },
     ],
   },
