@@ -1735,3 +1735,15 @@ html { overflow-x: hidden; }
   .chip-row::-webkit-scrollbar { display: none; }
   .chip-row > button { flex: 0 0 auto; white-space: nowrap; }
 }
+
+/* Breathing room restored at every tier - the edge-to-edge experiments
+   overshot; content should never feel glued to the screen edge (Visesh). */
+@media (max-width: 1366px) {
+  .viewport { padding: 28px 30px; }
+}
+@media (max-width: 900px) {
+  .viewport { padding: 20px 18px; }
+}
+@media (max-width: 640px) {
+  .viewport { padding: 14px 12px 16px; }
+}
