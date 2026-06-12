@@ -1390,8 +1390,8 @@ mark.search-hit {
   /* Dialogs become BOTTOM SHEETS on phones â€” slide up from the bottom edge,
      full width, rounded top, scrollable. Every modal positions itself with
      inline styles, so !important is required to win the cascade. */
-  [role="dialog"]:not(.mobile-menu) { align-items: flex-end !important; padding: 0 !important; }
-  [role="dialog"]:not(.mobile-menu) > div {
+  [role="dialog"]:not(.mobile-menu):not(.mobile-submenu) { align-items: flex-end !important; padding: 0 !important; }
+  [role="dialog"]:not(.mobile-menu):not(.mobile-submenu) > div {
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 !important;
@@ -1401,7 +1401,7 @@ mark.search-hit {
     animation: sheetUp 0.26s cubic-bezier(.16,1,.3,1);
   }
   /* grab-bar affordance, like native sheets */
-  [role="dialog"]:not(.mobile-menu) > div::before {
+  [role="dialog"]:not(.mobile-menu):not(.mobile-submenu) > div::before {
     content: '';
     display: block;
     width: 44px;
@@ -1853,3 +1853,24 @@ html { overflow-x: hidden; }
   .mdb-alert-row { flex-direction: column; align-items: flex-start !important; gap: 10px; }
   .md-cal-grid { grid-template-columns: 1fr !important; }
 }
+
+/* adidas criss-cross: a module's sub-screens slide in from the RIGHT over
+   the left-slid menu; the back chevron slides them out again */
+.mobile-submenu {
+  position: fixed;
+  inset: 0;
+  z-index: 410;
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  animation: submenuIn 0.30s cubic-bezier(.16,1,.3,1);
+}
+.mobile-submenu.closing { animation: submenuOut 0.26s ease-in forwards; }
+@keyframes submenuIn { from { transform: translateX(100%); } to { transform: none; } }
+@keyframes submenuOut { from { transform: none; } to { transform: translateX(100%); } }
+@media (min-width: 901px) { .mobile-submenu { display: none; } }
+
+.mobile-submenu-head { display: flex; align-items: center; justify-content: center; position: relative; padding: 18px 16px 12px; }
+.mobile-submenu-back { position: absolute; left: 10px; top: 12px; background: none; border: none; color: var(--ink); padding: 10px; cursor: pointer; }
+.mobile-submenu-title { font-weight: 800; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; max-width: 65%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
