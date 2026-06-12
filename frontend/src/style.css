@@ -1354,6 +1354,13 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
    (macOS default) are unaffected. */
 html { scrollbar-gutter: stable; }
 .viewport { scrollbar-gutter: stable; }
+/* ...but never on phones: browsers with classic scrollbars (Samsung Internet,
+   Chrome with always-show-scrollbars) paint the reserved gutter as a permanent
+   grey band down the right edge of the screen. The tab-switch layout shift the
+   gutter prevents is a desktop-scrollbar problem only. */
+@media (max-width: 900px) {
+  html, .viewport { scrollbar-gutter: auto; }
+}
 
 /* Search-match highlight: flashes briefly when results land, then settles
    into a static marker so the eye finds WHY a card matched the query. */
