@@ -1,0 +1,1098 @@
+{
+  "id": "greens-fairfield",
+  "name": "Greens Fairfield",
+  "type": "RV Storage & Landscape Supply",
+  "address": "5044 Peabody Road, City of Fairfield, CA, 94533",
+  "assetManager": "Neil Kadakia",
+  "buildingSf": "1,572 SF",
+  "yearBuilt": "1979?",
+  "occupancyRate": null,
+  "snapshot": [
+    {
+      "group": "Project Details",
+      "fields": [
+        {
+          "label": "Project Name",
+          "value": "Greens Fairfield, LLC."
+        },
+        {
+          "label": "Property Address",
+          "value": "5044 Peabody Road"
+        },
+        {
+          "label": "City",
+          "value": "City of Fairfield"
+        },
+        {
+          "label": "County",
+          "value": "Solano County"
+        },
+        {
+          "label": "State",
+          "value": "CA"
+        },
+        {
+          "label": "Zip",
+          "value": "94533"
+        },
+        {
+          "label": "APN(s)",
+          "value": "0166-080-030 & 040"
+        },
+        {
+          "label": "Legal Description (short)",
+          "value": "Parcel B lots 12,13 & 14 --1969 Book 3 Page 49"
+        },
+        {
+          "label": "Current Use",
+          "value": "RV Storage & Landscape Supply"
+        },
+        {
+          "label": "Proposed Use",
+          "value": "RV & Mini Storage"
+        },
+        {
+          "label": "Development Stage (Feasibility / Entitlement / Permitting / Construction / Stabilized)",
+          "value": "Permitting & Construction"
+        }
+      ]
+    },
+    {
+      "group": "Ownership + Core Team",
+      "fields": [
+        {
+          "label": "Ownership Entity",
+          "value": "Greens Fairfield, LLC."
+        },
+        {
+          "label": "Seller (if applicable)",
+          "value": "1014 Chelsey 19, LLC."
+        },
+        {
+          "label": "Developer / Sponsor",
+          "value": "Greens Global, Inc."
+        },
+        {
+          "label": "PM / Asset Manager",
+          "value": "Neil Kadakia"
+        },
+        {
+          "label": "Architect",
+          "value": "Bhavik Mistry"
+        },
+        {
+          "label": "Civil",
+          "value": "Saxon"
+        },
+        {
+          "label": "Structural",
+          "value": "Trying to Hire"
+        },
+        {
+          "label": "MEP",
+          "value": "Trying to Hire"
+        },
+        {
+          "label": "GC / CM",
+          "value": "MCD Services"
+        },
+        {
+          "label": "Land Use Attorney",
+          "value": "Jesse Gessin"
+        },
+        {
+          "label": "Title / Escrow",
+          "value": "WFG National"
+        }
+      ]
+    },
+    {
+      "group": "Site Data",
+      "fields": [
+        {
+          "label": "Lot Size (SF / Acres)",
+          "value": "9.75 AC"
+        },
+        {
+          "label": "Dimensions",
+          "value": "N/A"
+        },
+        {
+          "label": "Topography",
+          "value": ""
+        },
+        {
+          "label": "Access Points",
+          "value": "Multiple - Peabody Private Road"
+        },
+        {
+          "label": "Street Frontage",
+          "value": "300 FT Along Peabody"
+        },
+        {
+          "label": "Easements / Encroachments",
+          "value": "Offer of Dedication Pending"
+        },
+        {
+          "label": "Flood Zone",
+          "value": "X"
+        },
+        {
+          "label": "Soils / Geotech Notes",
+          "value": "Solano Series Alluvial Soils"
+        }
+      ]
+    },
+    {
+      "group": "Zoning + Land Use",
+      "fields": [
+        {
+          "label": "Jurisdiction",
+          "value": "City of Fairfield"
+        },
+        {
+          "label": "General Plan",
+          "value": "Train Sation Specific Plan"
+        },
+        {
+          "label": "Zoning",
+          "value": "HR/CMU/CC"
+        },
+        {
+          "label": "Overlays / Specific Plan",
+          "value": "Train Sation Specific Plan"
+        },
+        {
+          "label": "Height / FAR Limits",
+          "value": "Train Sation Specific Plan"
+        },
+        {
+          "label": "Setbacks (F/S/R)",
+          "value": "Train Sation Specific Plan"
+        },
+        {
+          "label": "Parking Required",
+          "value": "YES- Train Sation Specific Plan"
+        },
+        {
+          "label": "Design Review / CUP / Variance (Yes/No + notes)",
+          "value": "PP/CUP"
+        }
+      ]
+    },
+    {
+      "group": "Existing Improvements",
+      "fields": [
+        {
+          "label": "Existing Structures (Yes/No)",
+          "value": "YES"
+        },
+        {
+          "label": "Existing Building SF",
+          "value": "1,572 SF"
+        },
+        {
+          "label": "Year Built",
+          "value": "1979?"
+        },
+        {
+          "label": "Occupancy (Vacant/Tenant)",
+          "value": "Tenant"
+        },
+        {
+          "label": "Demo Needed (Yes/No)",
+          "value": "YES"
+        },
+        {
+          "label": "Known Issues / Violations",
+          "value": "NO"
+        }
+      ]
+    }
+  ],
+  "utilities": [
+    {
+      "name": "Electric Utility",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "PG&E"
+        },
+        {
+          "label": "Contact Name",
+          "value": "General Info"
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": "(877) 743-7782"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Electric utility provider"
+        }
+      ]
+    },
+    {
+      "name": "Gas Utility",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "PG&E"
+        },
+        {
+          "label": "Contact Name",
+          "value": "General Info"
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": "(877) 743-7782"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Gas utility provider"
+        }
+      ]
+    },
+    {
+      "name": "Water Utility",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "City of Fairfield"
+        },
+        {
+          "label": "Contact Name",
+          "value": "General Info"
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": "(707) 428-7485"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "City water services"
+        }
+      ]
+    },
+    {
+      "name": "Sewer Utility",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "Fairfield - Suisun Sewer District"
+        },
+        {
+          "label": "Contact Name",
+          "value": "General Info"
+        },
+        {
+          "label": "Email",
+          "value": "info@fssd.com"
+        },
+        {
+          "label": "Phone",
+          "value": "(707) 429-8930"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Sewer services"
+        }
+      ]
+    },
+    {
+      "name": "Trash Utility",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "Republic"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Customer Service"
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": "(707) 437-8900"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Waste & recycling services"
+        }
+      ]
+    },
+    {
+      "name": "Storm Drain",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "City of Fairfield Public Works"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Public Works"
+        },
+        {
+          "label": "Email",
+          "value": "publicworks@fairfield.ca.gov"
+        },
+        {
+          "label": "Phone",
+          "value": "(707) 428-7411"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Stormwater & drainage"
+        }
+      ]
+    },
+    {
+      "name": "Internet Service Provider",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "Verizon"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Customer Service"
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": "(800) 837-4966"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "ISP"
+        }
+      ]
+    }
+  ],
+  "ahj": [
+    {
+      "name": "Fire Flow / Hydrants",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "N/A"
+        },
+        {
+          "label": "Contact Name",
+          "value": ""
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": ""
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "Offsite Work Needed (Yes/No + notes)",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "YES - Offsite improvements needed"
+        },
+        {
+          "label": "Contact Name",
+          "value": ""
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": ""
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "Fire Department",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "City of Fairfield"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Administration"
+        },
+        {
+          "label": "Email",
+          "value": "fire@fairfield.ca.gov"
+        },
+        {
+          "label": "Phone",
+          "value": "(707) 428-7375"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Fire authority"
+        }
+      ]
+    },
+    {
+      "name": "School District",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "Fairfield Suisun Unified School District"
+        },
+        {
+          "label": "Contact Name",
+          "value": "General Info"
+        },
+        {
+          "label": "Email",
+          "value": "coinfo@fsusd.org"
+        },
+        {
+          "label": "Phone",
+          "value": "(707)-399-5000"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Local school district"
+        }
+      ]
+    },
+    {
+      "name": "Native American/Cultural Resources Consultation",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "N/A"
+        },
+        {
+          "label": "Contact Name",
+          "value": ""
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": ""
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "Paleontological Resource",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "N/A"
+        },
+        {
+          "label": "Contact Name",
+          "value": ""
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": ""
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "name": "Transportation Department",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "Fairfiled & Suisun Transit"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Customer Service"
+        },
+        {
+          "label": "Email",
+          "value": "transit@fairfield.ca.gov"
+        },
+        {
+          "label": "Phone",
+          "value": "(707) 434-3800"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Public transit"
+        }
+      ]
+    },
+    {
+      "name": "Air Quality Management District",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "Bay Area Air Quality Management District"
+        },
+        {
+          "label": "Contact Name",
+          "value": "General Info"
+        },
+        {
+          "label": "Email",
+          "value": "info@baaqmd.gov"
+        },
+        {
+          "label": "Phone",
+          "value": "(415)749-4900"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Air permits & compliance"
+        }
+      ]
+    },
+    {
+      "name": "State Environmental California Dept of Fish & Wildlife",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "YES"
+        },
+        {
+          "label": "Contact Name",
+          "value": "Regional Office"
+        },
+        {
+          "label": "Email",
+          "value": "askmarine@wildlife.ca.gov"
+        },
+        {
+          "label": "Phone",
+          "value": "(707) 944-5500"
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": "Environmental compliance required"
+        }
+      ]
+    },
+    {
+      "name": "California Coastal Commission",
+      "fields": [
+        {
+          "label": "Authority / Agency Type",
+          "value": "N/A"
+        },
+        {
+          "label": "Contact Name",
+          "value": ""
+        },
+        {
+          "label": "Email",
+          "value": ""
+        },
+        {
+          "label": "Phone",
+          "value": ""
+        },
+        {
+          "label": "Application / Account #",
+          "value": ""
+        },
+        {
+          "label": "Status",
+          "value": ""
+        },
+        {
+          "label": "Notes",
+          "value": ""
+        }
+      ]
+    }
+  ],
+  "warranties": [],
+  "inspections": [],
+  "documents": [],
+  "permitsTimeline": [
+    {
+      "phase": "Pre-Entitlement",
+      "permit": "Pre-Application Meeting",
+      "agency": "City/County Planning Dept",
+      "whenRequired": "Strongly recommended",
+      "submittals": "Concept site plan, zoning summary",
+      "reviewTime": "2–4 weeks to schedule",
+      "notes": "Pending"
+    },
+    {
+      "phase": "Land Use Entitlement",
+      "permit": "General Plan Amendment (if needed)",
+      "agency": "Planning Commission / City Council",
+      "whenRequired": "If use inconsistent with GP",
+      "submittals": "Land use justification, studies",
+      "reviewTime": "3–9+ months",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Zone Change (Rezone)",
+      "agency": "Planning Commission / City Council",
+      "whenRequired": "If zoning inconsistent",
+      "submittals": "Site plan, findings",
+      "reviewTime": "3–9+ months",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Conditional Use Permit (CUP)",
+      "agency": "Planning Commission",
+      "whenRequired": "For conditionally allowed uses",
+      "submittals": "Operational narrative, plans",
+      "reviewTime": "2–6 months",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Variance",
+      "agency": "Zoning Administrator",
+      "whenRequired": "If deviation from standards",
+      "submittals": "Hardship findings",
+      "reviewTime": "2–4 months",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Development Agreement (if applicable)",
+      "agency": "City Council",
+      "whenRequired": "Large/complex projects",
+      "submittals": "Fiscal analysis",
+      "reviewTime": "4–8+ months",
+      "notes": "Pending"
+    },
+    {
+      "phase": "Environmental (CEQA)",
+      "permit": "CEQA Exemption",
+      "agency": "Lead Agency (City/County)",
+      "whenRequired": "Minor projects",
+      "submittals": "Project description",
+      "reviewTime": "4–8 weeks",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Initial Study / Mitigated ND",
+      "agency": "Lead Agency",
+      "whenRequired": "Moderate impact projects",
+      "submittals": "Technical studies",
+      "reviewTime": "3–6 months",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Environmental Impact Report (EIR)",
+      "agency": "Lead Agency",
+      "whenRequired": "Significant impacts",
+      "submittals": "Full technical reports",
+      "reviewTime": "9–18+ months",
+      "notes": "Pending"
+    },
+    {
+      "phase": "Design & Site Approvals",
+      "permit": "Site Plan Review",
+      "agency": "Planning Dept",
+      "whenRequired": "Most commercial projects",
+      "submittals": "Civil + architectural plans",
+      "reviewTime": "1–3 months",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Architectural Review",
+      "agency": "Planning / Design Review Board",
+      "whenRequired": "If required by code",
+      "submittals": "Elevations, materials",
+      "reviewTime": "1–2 months",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Landscape Plan Approval",
+      "agency": "Planning Dept",
+      "whenRequired": "Required for new construction",
+      "submittals": "Irrigation, planting plan",
+      "reviewTime": "2–4 weeks",
+      "notes": "Pending"
+    },
+    {
+      "phase": "Grading & Site Work",
+      "permit": "Grading Permit",
+      "agency": "Building/Public Works",
+      "whenRequired": "Earthwork > minimal thresholds",
+      "submittals": "Soils report, civil plans",
+      "reviewTime": "2–8 weeks",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "SWPPP (Stormwater Pollution Prevention Plan)",
+      "agency": "State Water Board (via SMARTS)",
+      "whenRequired": "Disturbance ≥1 acre",
+      "submittals": "QSP/QSD prep",
+      "reviewTime": "2–4 weeks registration",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Encroachment Permit",
+      "agency": "Public Works",
+      "whenRequired": "Work in public ROW",
+      "submittals": "Civil drawings",
+      "reviewTime": "2–6 weeks",
+      "notes": "Pending"
+    },
+    {
+      "phase": "Utilities",
+      "permit": "Water Service Approval",
+      "agency": "Water District",
+      "whenRequired": "New or upgraded service",
+      "submittals": "Demand calc",
+      "reviewTime": "2–6 weeks",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Sewer Capacity Letter",
+      "agency": "Sewer District",
+      "whenRequired": "New/expanded use",
+      "submittals": "Fixture count",
+      "reviewTime": "2–6 weeks",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Fire Flow Letter",
+      "agency": "Fire Authority",
+      "whenRequired": "All new commercial",
+      "submittals": "Hydraulic calc",
+      "reviewTime": "2–4 weeks",
+      "notes": "Pending"
+    },
+    {
+      "phase": "Building Phase",
+      "permit": "Building Permit",
+      "agency": "Building Dept",
+      "whenRequired": "All structural work",
+      "submittals": "Stamped plans",
+      "reviewTime": "1–3 months plan check",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Structural / MEP Plan Check",
+      "agency": "Building Dept",
+      "whenRequired": "Required",
+      "submittals": "Structural calcs",
+      "reviewTime": "Included above",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Fire Department Permit",
+      "agency": "Fire Marshal",
+      "whenRequired": "Sprinklers, alarms",
+      "submittals": "Fire plans",
+      "reviewTime": "2–6 weeks",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Elevator Permit (if applicable)",
+      "agency": "State DIR",
+      "whenRequired": "If elevator installed",
+      "submittals": "Elevator specs",
+      "reviewTime": "2–4 weeks",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Solar Permit (if required by code)",
+      "agency": "Building Dept",
+      "whenRequired": "Title 24 compliance",
+      "submittals": "PV plans",
+      "reviewTime": "1–4 weeks",
+      "notes": "Pending"
+    },
+    {
+      "phase": "Construction Inspections",
+      "permit": "Foundation / Framing / MEP Inspections",
+      "agency": "Building Dept",
+      "whenRequired": "During construction",
+      "submittals": "Inspection requests",
+      "reviewTime": "Rolling",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Fire Final Inspection",
+      "agency": "Fire Marshal",
+      "whenRequired": "Before occupancy",
+      "submittals": "Field inspection",
+      "reviewTime": "1–2 weeks scheduling",
+      "notes": "Pending"
+    },
+    {
+      "phase": "Occupancy",
+      "permit": "Certificate of Occupancy (COO)",
+      "agency": "Building Dept",
+      "whenRequired": "Before use",
+      "submittals": "Final inspections passed",
+      "reviewTime": "1–2 weeks",
+      "notes": "Pending"
+    },
+    {
+      "phase": "",
+      "permit": "Business License",
+      "agency": "City Finance Dept",
+      "whenRequired": "Before operation",
+      "submittals": "Application",
+      "reviewTime": "1–4 weeks",
+      "notes": "Pending"
+    },
+    {
+      "phase": "Specialty (If Applicable)",
+      "permit": "Alcohol License",
+      "agency": "California ABC",
+      "whenRequired": "If serving alcohol",
+      "submittals": "ABC forms",
+      "reviewTime": "2–6 months",
+      "notes": "N/A"
+    },
+    {
+      "phase": "",
+      "permit": "Cal/OSHA Permit",
+      "agency": "Cal/OSHA",
+      "whenRequired": "Industrial/high-hazard uses",
+      "submittals": "Safety documentation",
+      "reviewTime": "Variable",
+      "notes": "N/A"
+    },
+    {
+      "phase": "",
+      "permit": "Coastal Development Permit",
+      "agency": "Coastal Commission / Local Agency",
+      "whenRequired": "Coastal Zone projects",
+      "submittals": "Full package",
+      "reviewTime": "3–12+ months",
+      "notes": "N/A"
+    },
+    {
+      "phase": "",
+      "permit": "Air Quality Permit",
+      "agency": "Local AQMD",
+      "whenRequired": "Equipment emissions",
+      "submittals": "Equipment specs",
+      "reviewTime": "1–3 months",
+      "notes": "N/A"
+    }
+  ],
+  "permitMatrix": [
+    {
+      "Permit Status": "Approved",
+      "Phase": "Site Plan",
+      "Permit / Approval Type": "Interim Use",
+      "Permit No": "UP2025-002",
+      "Permit Expiration Date": "July 1st 2035",
+      "Jurisdiction / Agency": "City of Fairfield",
+      "Agency Contact": "JONATHAN ATKINSON - (707) 428 -7387",
+      "Internal Owner": "Roger Scherer",
+      "Initial Submittal Date": "NA",
+      "Re-submittal Date 1": "NA",
+      "Re-submittal Date 2": "NA",
+      "Re-submittal Date 3": "NA",
+      "Ball in whose Court": "NA",
+      "Permit Issuance Date": "2025-01-07 00:00:00",
+      "Notes": ""
+    },
+    {
+      "Permit Status": "Missing Details on IUP Extension",
+      "Phase": "",
+      "Permit / Approval Type": "",
+      "Permit No": "",
+      "Permit Expiration Date": "",
+      "Jurisdiction / Agency": "",
+      "Agency Contact": "",
+      "Internal Owner": "",
+      "Initial Submittal Date": "",
+      "Re-submittal Date 1": "",
+      "Re-submittal Date 2": "",
+      "Re-submittal Date 3": "",
+      "Ball in whose Court": "",
+      "Permit Issuance Date": "",
+      "Notes": ""
+    }
+  ]
+}
