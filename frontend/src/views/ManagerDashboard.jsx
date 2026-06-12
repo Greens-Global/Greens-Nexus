@@ -16,7 +16,25 @@ const EMPLOYEES = [
   { name: 'Marcus Vance',     dept: 'OPS',         tasks: 5,  est: 20, act: 16, completed: 2, inprogress: 3, overdue: 0, workload: 50 },
 ];
 
+const PROJECTS = [
+  { name: 'Oakridge Estate Subdivisions', dept: 'Development', tasks: 14, progress: 75, badges: [{ label: '4 Urgent', color: 'red' }, { label: '6 Medium', color: 'orange' }] },
+  { name: 'Downtown Commercial Complex', dept: 'OPS', tasks: 22, progress: 50, badges: [{ label: '8 Urgent', color: 'red' }, { label: '10 Low', color: 'blue' }] },
+  { name: 'Corporate Office Renovation', dept: 'IT / Admin', tasks: 9, progress: 90, badges: [{ label: '9 Completed', color: 'green' }] },
+];
+
 const MANAGER_NAME = 'Visesh Lodha';
+
+// Phones (≤640) swap the wide tables for cards — same pattern as Item Management
+function useIsMobile() {
+  const [m, setM] = useState(() => window.matchMedia('(max-width: 640px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 640px)');
+    const h = e => setM(e.matches);
+    mq.addEventListener('change', h);
+    return () => mq.removeEventListener('change', h);
+  }, []);
+  return m;
+}
 
 export default function ManagerDashboard() {
   // ── All hooks must be at the top ──────────────────────────────────────────
@@ -42,6 +60,7 @@ export default function ManagerDashboard() {
   const [alertSent,       setAlertSent]       = useState({});
   const [allocating,      setAllocating]      = useState({});
   const [allocErrors,     setAllocErrors]     = useState({});
+  const isMobile = useIsMobile();
 
   // Who the manager can hand an approved request off to — fetched once for the dropdown.
   useEffect(() => {
@@ -289,6 +308,31 @@ export default function ManagerDashboard() {
               <h3 style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '-.02em' }}>Employee Workload Analysis</h3>
               <p style={{ color: 'var(--muted)', fontSize: '13px', marginTop: 3 }}>Task distribution and estimated time per employee</p>
             </div>
+            {isMobile ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {EMPLOYEES.map(e => (
+                  <div key={e.name} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14, background: 'var(--card)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                      <strong style={{ fontSize: 14 }}>{e.name}</strong>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>{e.dept}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+                      <div style={{ flex: 1, height: 6, backgroundColor: 'var(--border-color)', borderRadius: 3, overflow: 'hidden' }}>
+                        <div style={{ width: `${e.workload}%`, height: '100%', backgroundColor: workloadColor(e.workload), borderRadius: 3 }} />
+                      </div>
+                      <span style={{ fontSize: 12.5, fontWeight: 700 }}>{e.workload}%</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 14, marginTop: 10, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
+                      <span><strong style={{ color: 'var(--ink)' }}>{e.tasks}</strong> tasks</span>
+                      <span><strong style={{ color: 'var(--ink)' }}>{e.act}h</strong> of {e.est}h</span>
+                      <span style={{ color: 'hsl(var(--color-green))', fontWeight: 600 }}>{e.completed} done</span>
+                      <span>{e.inprogress} in progress</span>
+                      {e.overdue > 0 && <span style={{ color: 'hsl(var(--color-red))', fontWeight: 700 }}>{e.overdue} overdue</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
             <div className="req-table-wrapper">
               <table className="req-table">
                 <thead>
@@ -330,6 +374,7 @@ export default function ManagerDashboard() {
                 </tbody>
               </table>
             </div>
+            )}
           </>
         )}
 
@@ -338,15 +383,30 @@ export default function ManagerDashboard() {
           <>
             <h3>Project-wise Tasks Analysis</h3>
             <p style={{ color: 'var(--text-secondary)', marginBottom: 20 }}>Distribution of current construction project tasks across active job sites.</p>
+            {isMobile ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {PROJECTS.map(p => (
+                  <div key={p.name} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14, background: 'var(--card)' }}>
+                    <strong style={{ fontSize: 14 }}>{p.name}</strong>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>{p.dept} · {p.tasks} Tasks</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+                      <div style={{ flex: 1, height: 6, backgroundColor: 'var(--border-color)', borderRadius: 3, overflow: 'hidden' }}>
+                        <div style={{ width: `${p.progress}%`, height: '100%', backgroundColor: p.progress >= 90 ? 'hsl(var(--color-green))' : p.progress >= 60 ? 'hsl(var(--color-blue))' : 'hsl(var(--color-orange))', borderRadius: 3 }} />
+                      </div>
+                      <span style={{ fontSize: 12.5, fontWeight: 700 }}>{p.progress}%</span>
+                    </div>
+                    <div style={{ marginTop: 10 }}>
+                      {p.badges.map(b => <span key={b.label} className="status-badge" style={{ backgroundColor: `hsla(var(--color-${b.color}), 0.1)`, color: `hsl(var(--color-${b.color}))`, marginRight: 4 }}>{b.label}</span>)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
             <div className="req-table-wrapper">
               <table className="req-table">
                 <thead><tr><th>Project Name</th><th>Department</th><th>Assigned Tasks</th><th>Progress</th><th>Priority Breakdown</th></tr></thead>
                 <tbody>
-                  {[
-                    { name: 'Oakridge Estate Subdivisions', dept: 'Development', tasks: 14, progress: 75, badges: [{ label: '4 Urgent', color: 'red' }, { label: '6 Medium', color: 'orange' }] },
-                    { name: 'Downtown Commercial Complex', dept: 'OPS', tasks: 22, progress: 50, badges: [{ label: '8 Urgent', color: 'red' }, { label: '10 Low', color: 'blue' }] },
-                    { name: 'Corporate Office Renovation', dept: 'IT / Admin', tasks: 9, progress: 90, badges: [{ label: '9 Completed', color: 'green' }] },
-                  ].map(p => (
+                  {PROJECTS.map(p => (
                     <tr key={p.name}>
                       <td style={{ fontWeight: 600 }}>{p.name}</td>
                       <td>{p.dept}</td>
@@ -365,6 +425,7 @@ export default function ManagerDashboard() {
                 </tbody>
               </table>
             </div>
+            )}
           </>
         )}
 
@@ -392,7 +453,7 @@ export default function ManagerDashboard() {
                   {pendingReqs.map(req => (
                     <div key={req.id} style={{ border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden', backgroundColor: 'var(--bg-primary)' }}>
                       {/* Main row */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 16px' }}>
+                      <div className="mdb-req-row" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 16px' }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                             <span style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: 'var(--text-muted)', background: 'var(--border-color)', padding: '2px 7px', borderRadius: 4 }}>{req.id}</span>
@@ -498,7 +559,7 @@ export default function ManagerDashboard() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {pendingInvReqs.map(req => (
                     <div key={req.id} style={{ border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden', backgroundColor: 'var(--bg-primary)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 16px' }}>
+                      <div className="mdb-req-row" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 16px' }}>
                         <div style={{ width: 34, height: 34, borderRadius: 8, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                           <Package size={16} color="hsl(var(--color-blue))" />
                         </div>
@@ -601,7 +662,7 @@ export default function ManagerDashboard() {
                 { color: 'orange', title: 'Material Approval Needed', body: 'Apex Concrete Requisition #8492 ($14,400) requires leadership sign-off.', btn: 'Review Req' },
                 { color: 'blue',   title: 'Shift Discrepancy',        body: 'Michael Chen logged 12 hours overtime on Site-B excavation without approval.', btn: 'Acknowledge' },
               ].map(a => (
-                <div key={a.title} style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-primary)' }}>
+                <div key={a.title} className="mdb-alert-row" style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--bg-primary)' }}>
                   <div>
                     <strong style={{ color: `hsl(var(--color-${a.color}))` }}>{a.title}</strong>
                     <div style={{ fontSize: '0.9rem', marginTop: 4 }}>{a.body}</div>
@@ -641,6 +702,39 @@ export default function ManagerDashboard() {
                   </span>
                   <span style={{ fontSize:11.5, color:'var(--muted)' }}>Approved by manager, awaiting physical handover by supervisor</span>
                 </div>
+                {isMobile ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 12 }}>
+                    {pendingAlloc.map(row => (
+                      <div key={row.key} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14, background: 'var(--card)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                          <strong style={{ fontSize: 14 }}>{row.employee}</strong>
+                          <span style={{ fontSize: 12, color: 'var(--muted)' }}>{row.dept}</span>
+                        </div>
+                        {row.raisedBy && row.raisedBy !== row.employee && (
+                          <div style={{ fontSize: 11, color: 'var(--muted)' }}>via {row.raisedBy}</div>
+                        )}
+                        <div style={{ fontSize: 13, marginTop: 4 }}>{row.item}</div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                          {row.approvedAt && <>Approved {new Date(row.approvedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})}{row.approvedBy ? ` by ${row.approvedBy}` : ''} · </>}
+                          {row.assignedTo ? <>Assigned to {row.assignedToEmail === myEmail ? 'you' : row.assignedTo}</> : 'Unassigned'}
+                        </div>
+                        <button
+                          onClick={() => handleAllocate(row)}
+                          disabled={!!allocating[row.key]}
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, width: '100%', marginTop: 10, padding: '9px 12px', borderRadius: 8, border: 'none', background: 'hsl(var(--color-green))', color: '#fff', fontSize: 13, fontWeight: 600, cursor: allocating[row.key] ? 'default' : 'pointer', opacity: allocating[row.key] ? 0.6 : 1, fontFamily: 'Inter,sans-serif' }}>
+                          {allocating[row.key]
+                            ? <><Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> Allocating…</>
+                            : <><CheckCircle size={13} /> Mark Allocated</>}
+                        </button>
+                        {allocErrors[row.key] && (
+                          <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'hsl(var(--color-red))' }}>
+                            <AlertCircle size={12} style={{ flexShrink: 0 }} /> {allocErrors[row.key]}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
                 <table className="req-table" style={{ fontSize:13 }}>
                   <thead>
                     <tr>
@@ -687,6 +781,7 @@ export default function ManagerDashboard() {
                     ))}
                   </tbody>
                 </table>
+                )}
               </div>
             )}
 
@@ -707,6 +802,49 @@ export default function ManagerDashboard() {
             {filteredWHW.length === 0 ? (
               <div style={{ textAlign:'center', padding:'48px 0', color:'var(--muted)', fontSize:14 }}>
                 No assets currently checked out{whoHasWhatDept !== 'All' ? ` for ${whoHasWhatDept}` : ''}.
+              </div>
+            ) : isMobile ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {filteredWHW.map(row => (
+                  <div key={row.key} style={{ border: `1px solid ${row.isOverdue ? 'hsla(var(--color-red),0.35)' : 'var(--line)'}`, borderRadius: 12, padding: 14, background: row.isOverdue ? 'hsla(var(--color-red),0.03)' : 'var(--card)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                      <strong style={{ fontSize: 14 }}>{row.employee}</strong>
+                      {row.isOverdue ? (
+                        <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: 'hsla(var(--color-red),0.12)', color: 'hsl(var(--color-red))' }}>Overdue</span>
+                      ) : (
+                        <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))' }}>Active</span>
+                      )}
+                    </div>
+                    {row.raisedBy && row.raisedBy !== row.employee && (
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>via {row.raisedBy}</div>
+                    )}
+                    <div style={{ fontSize: 13, marginTop: 4 }}>{row.item}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
+                      <span style={{
+                        padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600,
+                        background: row.type === 'Temporary' ? 'hsla(var(--color-blue),0.1)' : 'hsla(var(--color-purple),0.1)',
+                        color: row.type === 'Temporary' ? 'hsl(var(--color-blue))' : 'hsl(var(--color-purple))',
+                      }}>{row.type}</span>
+                      <span>{row.dept}</span>
+                      <span>· since {row.since ? new Date(row.since).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '—'}</span>
+                      <span style={{ fontWeight: row.isOverdue ? 700 : 500, color: row.isOverdue ? 'hsl(var(--color-red))' : 'var(--ink)' }}>
+                        · {row.isOverdue && '⚠ '}due {row.dueDate === '—' ? '—' : row.dueDate}
+                      </span>
+                    </div>
+                    {row.isOverdue && (
+                      alertSent[row.key] ? (
+                        <div style={{ marginTop: 10, fontSize: 12, color: 'hsl(var(--color-green))', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <CheckCircle size={12} /> Alert sent
+                        </div>
+                      ) : (
+                        <button onClick={() => handleSendOverdueAlert(row)}
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, width: '100%', marginTop: 10, padding: '8px 12px', borderRadius: 8, border: '1px solid hsla(var(--color-orange),0.3)', background: 'hsla(var(--color-orange),0.08)', color: 'hsl(var(--color-orange))', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                          <Mail size={12} /> Send Alert
+                        </button>
+                      )
+                    )}
+                  </div>
+                ))}
               </div>
             ) : (
               <div style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden' }}>
@@ -788,7 +926,7 @@ export default function ManagerDashboard() {
           <>
             <h3>Team Schedule Calendar</h3>
             <p style={{ color: 'var(--text-secondary)', marginBottom: 20 }}>Onsite shift and safety briefing rosters for the current week.</p>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, textAlign: 'center' }}>
+            <div className="md-cal-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, textAlign: 'center' }}>
               {[
                 { day: 'Mon', date: 'May 26', label: 'Safety briefing', color: 'blue' },
                 { day: 'Tue', date: 'May 27', label: 'Foundation pouring', color: 'purple' },

@@ -1852,3 +1852,11 @@ html { overflow-x: hidden; }
 @media (max-width: 640px) {
   .req-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 }
+
+/* Manager Dashboard phone: pending-action rows wrap (buttons drop below the
+   text), alert cards stack, the week calendar goes single-column */
+@media (max-width: 640px) {
+  .mdb-req-row { flex-wrap: wrap; }
+  .mdb-alert-row { flex-direction: column; align-items: flex-start !important; gap: 10px; }
+  .md-cal-grid { grid-template-columns: 1fr !important; }
+}
