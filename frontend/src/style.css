@@ -1335,6 +1335,16 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
   border-left-color: hsl(var(--color-red));
   background: linear-gradient(105deg, hsla(var(--color-red),0.13) 0%, hsla(var(--color-red),0.04) 50%, var(--card) 100%);
 }
+.kpi-card.card-purple {
+  border-top: none !important;
+  border-left-color: hsl(var(--color-purple));
+  background: linear-gradient(105deg, hsla(var(--color-purple),0.13) 0%, hsla(var(--color-purple),0.04) 50%, var(--card) 100%);
+}
+.kpi-card.card-gold {
+  border-top: none !important;
+  border-left-color: hsl(var(--color-gold));
+  background: linear-gradient(105deg, hsla(var(--color-gold),0.15) 0%, hsla(var(--color-gold),0.05) 50%, var(--card) 100%);
+}
 
 /* Reserve the scrollbar gutter permanently so the page width is identical
    whether or not the content is tall enough to scroll - without this, the
@@ -1788,10 +1798,10 @@ html { overflow-x: hidden; }
   }
   [data-theme="dark"] { --line: rgba(255,255,255,0.07); }
 
-  /* KPI cards: plain WHITE, no gradients/tints (Visesh) — hairline border
-     plus the thin accent edge is all the decoration phones get */
-  .kpi-card, .kpi-card.card-green, .kpi-card.card-blue, .kpi-card.card-orange, .kpi-card.card-red {
-    background: var(--card) !important;
+  /* KPI cards on phones: keep the gradient tint + colored left edge from the
+     June design pass (Visesh, Jun 12: gradients back on all KPI cards) —
+     only the sizing goes compact */
+  .kpi-card {
     border: 1px solid var(--line) !important;
     border-left: 3px solid var(--line) !important;
     border-radius: 12px;
@@ -1801,6 +1811,8 @@ html { overflow-x: hidden; }
   .kpi-card.card-blue   { border-left-color: hsl(var(--color-blue)) !important; }
   .kpi-card.card-orange { border-left-color: hsl(var(--color-orange)) !important; }
   .kpi-card.card-red    { border-left-color: hsl(var(--color-red)) !important; }
+  .kpi-card.card-purple { border-left-color: hsl(var(--color-purple)) !important; }
+  .kpi-card.card-gold   { border-left-color: hsl(var(--color-gold)) !important; }
   .kpi-value { font-size: 20px; margin: 4px 0 0; }
   .kpi-label { font-size: 10px; }
 
