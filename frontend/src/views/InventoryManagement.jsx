@@ -4061,7 +4061,10 @@ function RejectCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onCo
 // Manager reclaims an item without the holder's action. Reason is mandatory —
 // it is stored on the checkout and shows up in the audit trail (Neil: "leaves
 // 100% of the control with the manager here and an auditable log of why").
-function ForceReturnModal({ checkout, onClose, onConfirm }) {
+function ForceReturnModal({ checkout, checkouts, onClose, onConfirm }) {
+  const list = checkouts || [checkout];
+  const multi = list.length > 1;
+  const holders = [...new Set(list.map(c => c.requestedBy))];
   const [reason, setReason] = useState('');
   const [busy,   setBusy]   = useState(false);
   const [error,  setError]  = useState('');
@@ -4079,13 +4082,23 @@ function ForceReturnModal({ checkout, onClose, onConfirm }) {
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Force Return</h3>
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'min(85dvh, 640px)', display:'flex', flexDirection:'column' }}>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Force Return{multi ? ` ${list.length} Items` : ''}</h3>
         <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:16, lineHeight:1.5 }}>
-          Check <strong>{checkout.itemName}</strong> back in on behalf of <strong>{checkout.requestedBy}</strong>.
-          Use this when the holder can't or won't return it in the app. The reason is recorded on the
-          checkout and in the audit log.
+          Check {multi ? <strong>{list.length} items</strong> : <strong>{list[0].itemName}</strong>} back
+          in on behalf of <strong>{holders.length === 1 ? holders[0] : `${holders.length} people`}</strong>.
+          Use this when the holder can't or won't return it in the app. The reason is recorded on
+          {multi ? ' every checkout' : ' the checkout'} and in the audit log.
         </p>
+        {multi && (
+          <div style={{ overflowY:'auto', minHeight:0, background:'var(--mist)', borderRadius:10, padding:'10px 14px', marginBottom:14 }}>
+            {list.map(c => (
+              <div key={c.id} style={{ fontSize:12, color:'var(--muted)', paddingLeft:4 }}>
+                · {c.itemName}{holders.length > 1 ? <span style={{ opacity:.75 }}> — {c.requestedBy}</span> : null}
+              </div>
+            ))}
+          </div>
+        )}
         <label style={FL}>REASON <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
         <textarea rows={3} autoFocus className="form-input" style={{ width:'100%', resize:'vertical', fontSize:13 }}
           placeholder="e.g. Collected from site office — employee on leave"
@@ -4117,6 +4130,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
   const [allocatingCo,   setAllocatingCo]   = useState(null);
   const [allocatingOrder, setAllocatingOrder] = useState(null);
   const [forceReturnCo,  setForceReturnCo]  = useState(null);
+  const [forceReturnBatch, setForceReturnBatch] = useState(null); // array of checkouts (order or all)
   const [photoPreview,   setPhotoPreview]   = useState(null);
   // IDs of completed items dismissed from the active-order view via X button
   const [dismissedIds,   setDismissedIds]   = useState(new Set());
@@ -4244,6 +4258,23 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
     }).catch(err => { toast(err?.message || 'Could not check the item back in.', 'error'); throw err; });
   }
 
+  // Sequential like handleAllocateOrder — the backend's row-locked notification
+  // dedupe keeps it one notification per order, never per item
+  async function handleForceReturnBatch(cos, reason) {
+    let failed = 0;
+    for (const co of cos) {
+      try {
+        await api.updateItemCheckout(co.id, {
+          status: 'returned',
+          condition_note: `Force-returned by ${userName} — ${reason}`,
+        });
+      } catch { failed++; }
+    }
+    refreshCheckouts(); refreshItems();
+    if (failed === 0) toast(`${cos.length} item${cos.length !== 1 ? 's' : ''} checked back in.`);
+    else toast(`${cos.length - failed} checked back in · ${failed} failed.`, 'error');
+  }
+
   function handleAllocate(co, { photoBy, batch, photoMap }) {
     const p = photoBy === 'employee'
       ? initiateHandover(co.id, userName)
@@ -4310,11 +4341,20 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
           </button>
         ))}
         </div>
-        {onSendAlert && (
-          <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7, color:'hsl(var(--color-orange))', flexShrink:0 }} onClick={onSendAlert}>
-            <Megaphone size={14} /> Send Alert
-          </button>
-        )}
+        <div style={{ display:'flex', gap:8, flexShrink:0, flexWrap:'wrap' }}>
+          {isManager && checkouts.filter(c => c.status === 'allocated').length > 0 && (
+            <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7, color:'hsl(var(--color-orange))' }}
+              title="Check every in-use item across all orders back in yourself"
+              onClick={() => setForceReturnBatch(checkouts.filter(c => c.status === 'allocated'))}>
+              <RotateCcw size={14} /> Force Return All ({checkouts.filter(c => c.status === 'allocated').length})
+            </button>
+          )}
+          {onSendAlert && (
+            <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7, color:'hsl(var(--color-orange))' }} onClick={onSendAlert}>
+              <Megaphone size={14} /> Send Alert
+            </button>
+          )}
+        </div>
       </div>
       {/* Person/item search — works across every status, unlike the old chips
           which only listed people with active checkouts */}
@@ -4338,8 +4378,9 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
           {groupedOrders.map(orderItems => {
             const first         = orderItems[0];
             const isMulti       = orderItems.length > 1;
-            const pendingItems  = orderItems.filter(c => c.status === 'pending');
-            const approvedItems = orderItems.filter(c => c.status === 'approved');
+            const pendingItems   = orderItems.filter(c => c.status === 'pending');
+            const approvedItems  = orderItems.filter(c => c.status === 'approved');
+            const allocatedItems = orderItems.filter(c => c.status === 'allocated');
             const visibleItems  = statusFilter === 'active'
               ? orderItems.filter(c => !(['returned','rejected','cancelled'].includes(c.status) && dismissedIds.has(c.id)))
               : orderItems;
@@ -4398,6 +4439,13 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
                           <Camera size={12} /> Hand Over All ({approvedItems.length})
                         </button>
                       </>
+                    )}
+                    {allocatedItems.length > 1 && isManager && (
+                      <button onClick={() => setForceReturnBatch(allocatedItems)}
+                        title="Check every in-use item on this order back in yourself"
+                        style={{ background:'none', border:'1px solid hsla(var(--color-orange),0.45)', borderRadius:8, padding:'5px 12px', fontSize:12, cursor:'pointer', color:'hsl(var(--color-orange))', fontWeight:600, display:'inline-flex', alignItems:'center', gap:5, fontFamily:'Inter,sans-serif' }}>
+                        <RotateCcw size={12} /> Force Return All ({allocatedItems.length})
+                      </button>
                     )}
                   </div>
                 </div>
@@ -4543,6 +4591,10 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
       {forceReturnCo && (
         <ForceReturnModal checkout={forceReturnCo} onClose={() => setForceReturnCo(null)}
           onConfirm={reason => handleForceReturn(forceReturnCo, reason)} />
+      )}
+      {forceReturnBatch && (
+        <ForceReturnModal checkouts={forceReturnBatch} onClose={() => setForceReturnBatch(null)}
+          onConfirm={reason => handleForceReturnBatch(forceReturnBatch, reason)} />
       )}
       {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
       </>)}
