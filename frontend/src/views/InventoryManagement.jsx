@@ -2365,8 +2365,8 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
         ))}
         <button onClick={() => setCartOpen(true)}
           className={`header-cart ${cart.length ? 'primary-btn' : 'secondary-btn'}`}
-          style={{ marginLeft:'auto', display:'inline-flex', alignItems:'center', gap:6, position:'relative', fontSize:13, padding:'7px 14px' }}>
-          <ShoppingCart size={14} /> Cart
+          style={{ marginLeft:'auto', display:'inline-flex', alignItems:'center', gap:7, position:'relative', fontSize:14.5, fontWeight:700, padding:'10px 22px' }}>
+          <ShoppingCart size={17} /> Cart
           {cart.length > 0 && <span style={{ position:'absolute', top:-7, right:-1, background:'hsl(var(--color-red))', color:'#fff', borderRadius:'50%', width:17, height:17, fontSize:10, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>{cart.length}</span>}
         </button>
       </div>
@@ -5186,7 +5186,7 @@ export default function InventoryManagement({ activeSub }) {
             Catalog renders its own search beside the item count, so this one
             only shows on Manage. */}
         <div className="search-bar" data-vis={mainTab === 'manage' ? 'visible' : 'hidden'}
-          style={{ marginLeft:'auto', flex:1, maxWidth:480, minWidth:220, marginBottom:0, visibility: mainTab === 'manage' ? 'visible' : 'hidden' }}>
+          style={{ marginLeft:'auto', flex:1, minWidth:220, marginBottom:0, visibility: mainTab === 'manage' ? 'visible' : 'hidden' }}>
           <Search size={14} style={{ flexShrink:0 }} />
           <input placeholder="Search items…" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
