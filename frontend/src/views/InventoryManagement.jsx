@@ -2862,9 +2862,12 @@ function BatchDeleteConfirmModal({ selectedItems, blockedItems, onClose, onConfi
   const deletable = selectedItems.filter(i => !blockedItems.find(b => b.id === i.id));
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:16, padding:28, width:'100%', maxWidth:460, boxShadow:'var(--shadow-lg)' }}>
+      <div style={{ background:'var(--card)', borderRadius:16, padding:'28px 28px 20px', width:'100%', maxWidth:460, boxShadow:'var(--shadow-lg)', maxHeight:'min(85dvh, 640px)', display:'flex', flexDirection:'column' }}>
         <h3 style={{ margin:'0 0 6px', fontSize:16, fontWeight:700 }}>Delete {selectedItems.length} item{selectedItems.length !== 1 ? 's' : ''}?</h3>
         <p style={{ margin:'0 0 16px', fontSize:13, color:'var(--muted)' }}>This cannot be undone.</p>
+        {/* Item lists scroll; title + actions stay pinned so the modal never
+            outgrows short screens (30 items overflowed an iPhone SE) */}
+        <div style={{ overflowY:'auto', minHeight:0 }}>
         {blockedItems.length > 0 && (
           <div style={{ background:'hsla(var(--color-orange),0.1)', border:'1px solid hsla(var(--color-orange),0.3)', borderRadius:10, padding:'10px 14px', marginBottom:14 }}>
             <div style={{ fontWeight:700, fontSize:12.5, color:'hsl(var(--color-orange))', marginBottom:6 }}>
@@ -2880,7 +2883,8 @@ function BatchDeleteConfirmModal({ selectedItems, blockedItems, onClose, onConfi
             {deletable.map(i => <div key={i.id} style={{ fontSize:12, color:'var(--muted)', paddingLeft:4 }}>· {i.name}</div>)}
           </div>
         )}
-        <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
+        </div>
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', paddingTop:8, flexShrink:0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={deleting}>Cancel</button>
           {deletable.length > 0 && (
             <button onClick={onConfirm} disabled={deleting}
