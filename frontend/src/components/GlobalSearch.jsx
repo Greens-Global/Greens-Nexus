@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Search, LayoutDashboard, Package, ClipboardList, ShoppingCart, CornerDownLeft } from 'lucide-react';
+import { Search, LayoutDashboard, Package, ClipboardList, ShoppingCart, CornerDownLeft, X } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { useInventory } from '../contexts/InventoryContext';
 import { useRequisitions } from '../contexts/RequisitionContext';
@@ -163,6 +163,12 @@ export default function GlobalSearch({ onNavigate }) {
             onKeyDown={onKeyDown}
           />
           <kbd className="gs-kbd">esc</kbd>
+          {/* Phones have no Esc key and the panel is full-screen (no backdrop
+              to tap) — without this button search was a one-way door */}
+          <button onClick={close} aria-label="Close search"
+            style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:6, borderRadius:8, flexShrink:0 }}>
+            <X size={18} />
+          </button>
         </div>
 
         {query.trim() && (

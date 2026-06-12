@@ -2022,42 +2022,97 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
           </button>
         </div>
       )}
-      {panelTab === 'past' && completedView.length > 0 && (
-        <div style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', background:'var(--card)', boxShadow:'var(--shadow-sm)' }}>
-          {completedView.slice(0, 50).map((c, idx) => {
-            const sm = CHECKOUT_STATUS_META[c.status];
-            return (
-              <div key={c.id} style={{ borderTop: idx > 0 ? '1px solid var(--line)' : 'none', padding:'10px 16px', display:'flex', alignItems:'flex-start', gap:10, flexWrap:'wrap' }}>
-                {onBatchReRequest && (
-                  <input type="checkbox" checked={selectedPastIds.has(c.id)}
-                    onChange={() => setSelectedPastIds(prev => {
-                      const next = new Set(prev);
-                      next.has(c.id) ? next.delete(c.id) : next.add(c.id);
-                      return next;
-                    })}
-                    title="Select to request again"
-                    style={{ cursor:'pointer', accentColor:'var(--pine)', marginTop:3, flexShrink:0 }} />
-                )}
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontWeight:600, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.itemName}</div>
-                  <div style={{ fontSize:11.5, color:'var(--muted)' }}>{fmtDate(c.createdAt)}</div>
-                  {c.status === 'rejected' && c.rejectReason && (
-                    <div style={{ fontSize:11.5, color:'hsl(var(--color-red))', marginTop:3 }}>Reason of rejection: "{c.rejectReason}"</div>
-                  )}
+      {panelTab === 'past' && completedView.length > 0 && (() => {
+        // Group by order like Active Checkouts — Req # makes "what was taken
+        // with what" traceable; checkboxes work per order and per item
+        const visible = completedView.slice(0, 60);
+        const groups = [];
+        const gmap = new Map();
+        for (const c of visible) {
+          const key = c.orderId || c.id;
+          if (!gmap.has(key)) { const arr = []; gmap.set(key, arr); groups.push([key, arr]); }
+          gmap.get(key).push(c);
+        }
+        const togglePastIds = ids => setSelectedPastIds(prev => {
+          const next = new Set(prev);
+          const allIn = ids.every(id => next.has(id));
+          ids.forEach(id => allIn ? next.delete(id) : next.add(id));
+          return next;
+        });
+        const allIds = visible.map(c => c.id);
+        const allSel = allIds.length > 0 && allIds.every(id => selectedPastIds.has(id));
+        const someSel = allIds.some(id => selectedPastIds.has(id));
+        const renderRow = (c, idx, isMulti, groupKey) => {
+          const sm = CHECKOUT_STATUS_META[c.status];
+          return (
+            <div key={c.id} style={{ borderTop: idx > 0 ? '1px solid var(--line)' : 'none', padding:'10px 16px', display:'flex', alignItems:'flex-start', gap:10, flexWrap:'wrap' }}>
+              {onBatchReRequest && (
+                <input type="checkbox" checked={selectedPastIds.has(c.id)}
+                  onChange={() => togglePastIds([c.id])}
+                  title="Select to request again"
+                  style={{ cursor:'pointer', accentColor:'var(--pine)', marginTop:3, flexShrink:0 }} />
+              )}
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontWeight:600, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.itemName}</div>
+                <div style={{ fontSize:11.5, color:'var(--muted)' }}>
+                  {fmtDate(c.createdAt)}{!isMulti && <> · Req #{requestNo(groupKey)}</>}
                 </div>
-                <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:20, fontSize:11, fontWeight:700, background:sm.bg, color:sm.fg, flexShrink:0 }}>
-                  <sm.Icon size={10} /> {sm.label}
-                </span>
-                {c.returnPhotoUrl && (
-                  <button onClick={() => setPhotoPreview(c.returnPhotoUrl)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }} title="View return photo">
-                    <ZoomIn size={14} />
-                  </button>
+                {c.status === 'rejected' && c.rejectReason && (
+                  <div style={{ fontSize:11.5, color:'hsl(var(--color-red))', marginTop:3 }}>Reason of rejection: "{c.rejectReason}"</div>
                 )}
               </div>
-            );
-          })}
-        </div>
-      )}
+              <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:20, fontSize:11, fontWeight:700, background:sm.bg, color:sm.fg, flexShrink:0 }}>
+                <sm.Icon size={10} /> {sm.label}
+              </span>
+              {c.returnPhotoUrl && (
+                <button onClick={() => setPhotoPreview(c.returnPhotoUrl)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }} title="View return photo">
+                  <ZoomIn size={14} />
+                </button>
+              )}
+            </div>
+          );
+        };
+        return (
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            {onBatchReRequest && (
+              <label style={{ display:'flex', alignItems:'center', gap:10, padding:'2px 16px', cursor:'pointer', userSelect:'none' }}>
+                <input type="checkbox" checked={allSel}
+                  ref={el => { if (el) el.indeterminate = someSel && !allSel; }}
+                  onChange={() => setSelectedPastIds(allSel ? new Set() : new Set(allIds))}
+                  style={{ cursor:'pointer', accentColor:'var(--pine)', flexShrink:0 }} />
+                <span style={{ fontSize:12, fontWeight:600, color:'var(--muted)' }}>
+                  {someSel ? `${allIds.filter(id => selectedPastIds.has(id)).length} of ${allIds.length} selected` : `Select all (${allIds.length})`}
+                </span>
+              </label>
+            )}
+            {groups.map(([key, items]) => {
+              const isMulti = items.length > 1;
+              const gIds = items.map(c => c.id);
+              const gAll = gIds.every(id => selectedPastIds.has(id));
+              const gSome = gIds.some(id => selectedPastIds.has(id));
+              return (
+                <div key={key} style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', background:'var(--card)', boxShadow:'var(--shadow-sm)' }}>
+                  {isMulti && (
+                    <label style={{ padding:'9px 16px', background:'var(--mist)', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', gap:9, flexWrap:'wrap', cursor: onBatchReRequest ? 'pointer' : 'default', userSelect:'none' }}>
+                      {onBatchReRequest && (
+                        <input type="checkbox" checked={gAll}
+                          ref={el => { if (el) el.indeterminate = gSome && !gAll; }}
+                          onChange={() => togglePastIds(gIds)}
+                          title="Select the whole order"
+                          style={{ cursor:'pointer', accentColor:'var(--pine)', flexShrink:0 }} />
+                      )}
+                      <ShoppingCart size={12} color="hsl(var(--color-blue))" />
+                      <span style={{ fontSize:12, fontWeight:700, color:'hsl(var(--color-blue))' }}>Order · {items.length} Items</span>
+                      <span style={{ fontSize:11.5, color:'var(--muted)' }}>· {fmtDate(items[0].createdAt)} · Req #{requestNo(key)}</span>
+                    </label>
+                  )}
+                  {items.map((c, idx) => renderRow(c, idx, isMulti, key))}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
       {acceptingCo && onEmployeeAccept && (
@@ -4989,6 +5044,14 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
 
   return (
     <div>
+      {/* Managers fulfill here but had no way to RAISE a request — the New
+          Request form lives on the Purchase view, which isn't in the sidebar */}
+      <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:14 }}>
+        <button className="primary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:6, padding:'7px 16px' }}
+          onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view:'purchase', sub:'new' } }))}>
+          <Plus size={13} /> New Purchase Request
+        </button>
+      </div>
       {pending.length > 0 && (
         <>
           <div style={{ fontSize:11.5, fontWeight:700, letterSpacing:'.07em', color:'var(--muted)', textTransform:'uppercase', marginBottom:10 }}>
@@ -5543,7 +5606,7 @@ export default function InventoryManagement({ activeSub }) {
             <div style={{ display:'flex', alignItems:'center', gap:6 }}>
               <Filter size={13} style={{ color:'var(--muted)' }} />
               <select className="form-input" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34 }}>
-                {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
+                {DEPARTMENTS.map(d => <option key={d} value={d}>{d === 'All' ? 'All departments' : d}</option>)}
               </select>
             </div>
             <select className="form-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34 }}>

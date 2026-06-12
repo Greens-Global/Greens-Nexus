@@ -556,20 +556,22 @@ export default function NotificationBell({ onNavigate }) {
         transition: 'transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)',
       }}>
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', padding: '20px 24px', borderBottom: '1px solid var(--line)', gap: 14, flexShrink: 0 }}>
+        {/* flexWrap + flex:1 on the title block: on narrow drawers the action
+            buttons drop to their own line instead of overlapping the title */}
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', padding: '20px 24px', borderBottom: '1px solid var(--line)', gap: 14, flexShrink: 0 }}>
           <div style={{ width: 40, height: 40, borderRadius: 11, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <Bell size={19} style={{ color: 'hsl(var(--color-blue))' }} />
           </div>
-          <div style={{ minWidth: 0 }}>
+          <div style={{ minWidth: 0, flex: '1 1 120px' }}>
             <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--ink)' }}>Notifications</div>
             <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 1 }}>
               {isEmpty ? 'All caught up' : `${actionable.length ? `${actionable.length} need${actionable.length === 1 ? 's' : ''} action · ` : ''}${updates.length} update${updates.length !== 1 ? 's' : ''}`}
             </div>
           </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
             {myUnread > 0 && (
               <button onClick={markAllRead}
-                style={{ fontSize: 12.5, color: 'hsl(var(--color-blue))', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600 }}
+                style={{ fontSize: 12.5, color: 'hsl(var(--color-blue))', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 10px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600, whiteSpace: 'nowrap' }}
                 onMouseEnter={e => e.currentTarget.style.background='var(--mist)'}
                 onMouseLeave={e => e.currentTarget.style.background='none'}>
                 Mark all read
