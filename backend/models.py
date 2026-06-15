@@ -618,3 +618,6 @@ class Property(Base):
     ahj               = Column(JSON, default=list)
     utilities         = Column(JSON, default=list)
     vendors           = Column(JSON, default=list)
+    snapshot          = Column(JSON, default=list)   # full Sheet-1 groups (all fields)
+    timeline          = Column(JSON, default=list)   # Sheet-3 development timeline rows
+    permits           = Column(JSON, default=list)   # Sheet-4 permit matrix rows

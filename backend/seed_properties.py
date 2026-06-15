@@ -95,11 +95,14 @@ def adapt(p, group_primary):
         tax_id=sv(p, "Property Tax", "Tax Account"), tax_annual=num0(sv(p, "Property Tax", "Annual Tax")), tax_due=sv(p, "Property Tax", "Tax Due"),
         notes="", image=p.get("image", ""),
         warranties=warranties, inspections=inspections, documents=documents, ahj=ahj, utilities=utilities, vendors=[],
+        snapshot=p.get("snapshot", []), timeline=p.get("permitsTimeline", []), permits=p.get("permitMatrix", []),
     )
 
 
 def main():
-    Base.metadata.create_all(bind=engine)  # ensure properties table exists
+    # Rebuild the properties table so new columns (snapshot/timeline/permits) exist locally.
+    models.Property.__table__.drop(bind=engine, checkfirst=True)
+    Base.metadata.create_all(bind=engine)
     files = sorted(glob.glob(os.path.join(ASSETS_DIR, "*.json")))
     raw = []
     seen = set()
@@ -115,11 +118,19 @@ def main():
         g = p.get("group")
         if g and g not in group_primary:
             group_primary[g] = p["id"]
+    records = [adapt(p, group_primary) for p in raw]
+    # Write a self-contained bundle so the server can auto-seed without the frontend files.
+    bundle_dir = os.path.join(os.path.dirname(__file__), "data")
+    os.makedirs(bundle_dir, exist_ok=True)
+    bundle = os.path.join(bundle_dir, "properties_seed.json")
+    with open(bundle, "w") as f:
+        json.dump(records, f, indent=2, ensure_ascii=False)
+    print(f"Wrote bundle: {bundle} ({len(records)} properties)")
+    # Upsert into the local DB too.
     db = SessionLocal()
     n_new = n_upd = 0
     try:
-        for p in raw:
-            data = adapt(p, group_primary)
+        for data in records:
             existing = db.query(models.Property).filter(models.Property.id == data["id"]).first()
             if existing:
                 for k, v in data.items():

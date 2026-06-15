@@ -28,6 +28,9 @@ def _run_migrations():
             "ALTER TABLE requisitions ADD COLUMN fulfilled_at VARCHAR DEFAULT ''",
             "ALTER TABLE requisitions ADD COLUMN fulfillment_note VARCHAR DEFAULT ''",
             "ALTER TABLE requisitions ADD COLUMN fulfilled_item_id VARCHAR DEFAULT ''",
+            "ALTER TABLE properties ADD COLUMN snapshot TEXT DEFAULT '[]'",
+            "ALTER TABLE properties ADD COLUMN timeline TEXT DEFAULT '[]'",
+            "ALTER TABLE properties ADD COLUMN permits TEXT DEFAULT '[]'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -92,6 +95,9 @@ def _run_migrations():
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfilled_at VARCHAR DEFAULT ''",
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfillment_note VARCHAR DEFAULT ''",
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfilled_item_id VARCHAR DEFAULT ''",
+        "ALTER TABLE properties ADD COLUMN IF NOT EXISTS snapshot JSONB DEFAULT '[]'",
+        "ALTER TABLE properties ADD COLUMN IF NOT EXISTS timeline JSONB DEFAULT '[]'",
+        "ALTER TABLE properties ADD COLUMN IF NOT EXISTS permits JSONB DEFAULT '[]'",
     ]
     with engine.connect() as conn:
         for sql in migrations:
@@ -160,6 +166,27 @@ def _seed_inventory_items():
         db.close()
 
 
+def _seed_properties():
+    """Auto-seed the real-estate `properties` table from the bundled JSON — only when the
+    table is empty (idempotent). Lets a fresh deploy populate without a manual seed."""
+    import json as _json
+    import os as _os
+    path = _os.path.join(_os.path.dirname(__file__), "data", "properties_seed.json")
+    if not _os.path.exists(path):
+        return
+    db = SessionLocal()
+    try:
+        if db.query(models.Property).count() > 0:
+            return  # already populated — never overwrite existing data
+        with open(path) as f:
+            records = _json.load(f)
+        for data in records:
+            db.add(models.Property(**data))
+        db.commit()
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Refuse to start if NEXUS_SKIP_AUTH is set while running on Azure App
@@ -190,6 +217,11 @@ async def lifespan(app: FastAPI):
         print("[startup] inventory_items seeded")
     except Exception as e:
         print(f"[startup] inventory_items seed skipped: {e}")
+    try:
+        _seed_properties()
+        print("[startup] properties seeded")
+    except Exception as e:
+        print(f"[startup] properties seed skipped: {e}")
     try:
         from auth import _fetch_jwks, SKIP_AUTH
         if not SKIP_AUTH:

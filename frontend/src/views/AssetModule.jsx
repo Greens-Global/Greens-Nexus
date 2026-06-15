@@ -497,38 +497,42 @@ export default function AssetModule() {
         );
       })()}
 
-      {/* tab bar + parcel switcher */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', overflowX: 'auto' }}>
-          {TABS.map(([k, label]) => {
-            const on = tab === k;
-            const global = k === 'portfolio' || k === 'logs'; // these don't need an active property
-            const disabled = !global && !active;
-            return (
-              <button key={k} onClick={() => !disabled && openTab(k)} disabled={disabled}
-                style={{ position: 'relative', padding: '8px 16px', borderRadius: 999, border: '1px solid', borderColor: on ? 'var(--pine)' : 'var(--border-color)', background: on ? 'var(--pine)' : 'var(--bg-card)', color: on ? '#fff' : 'var(--text-secondary)', fontWeight: 600, fontSize: '0.85rem', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.45 : 1, whiteSpace: 'nowrap' }}>
-                {label}
-                {k === 'logs' && unseenLogs > 0 && <span style={{ position: 'absolute', top: -5, right: -4, minWidth: 17, height: 17, padding: '0 4px', borderRadius: 999, fontSize: '0.62rem', fontWeight: 700, color: '#fff', backgroundColor: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--bg-primary)' }}>{unseenLogs}</span>}
-              </button>
-            );
-          })}
-        </div>
-        {tab !== 'portfolio' && tab !== 'logs' && active && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginLeft: 'auto' }}>
-            <span style={microLabel}>Parcel</span>
-            <select value={activeId} onChange={e => setActiveId(e.target.value)} className="form-input" style={{ width: 'auto', padding: '6px 10px', fontSize: '0.82rem' }}>
-              {props.filter(isPrimary).map(pr => {
-                const fam = familyOf(pr);
-                return fam.length > 1
-                  ? <optgroup key={pr.id} label={pr.name}>{fam.map(x => <option key={x.id} value={x.id}>{isPrimary(x) ? `${x.name} (primary)` : `↳ ${x.name}`}</option>)}</optgroup>
-                  : <option key={pr.id} value={pr.id}>{pr.name}</option>;
-              })}
-            </select>
+      {/* Per-property tabs — only when a property is selected (Portfolio is the landing) */}
+      {active && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', overflowX: 'auto', alignItems: 'center' }}>
+            <button onClick={() => { setActiveId(null); setTab('portfolio'); }} title="Back to portfolio"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 999, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              <ArrowLeft size={14} /> Portfolio
+            </button>
+            {TABS.filter(([k]) => k !== 'portfolio').map(([k, label]) => {
+              const on = tab === k;
+              return (
+                <button key={k} onClick={() => openTab(k)}
+                  style={{ position: 'relative', padding: '8px 16px', borderRadius: 999, border: '1px solid', borderColor: on ? 'var(--pine)' : 'var(--border-color)', background: on ? 'var(--pine)' : 'var(--bg-card)', color: on ? '#fff' : 'var(--text-secondary)', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  {label}
+                  {k === 'logs' && unseenLogs > 0 && <span style={{ position: 'absolute', top: -5, right: -4, minWidth: 17, height: 17, padding: '0 4px', borderRadius: 999, fontSize: '0.62rem', fontWeight: 700, color: '#fff', backgroundColor: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--bg-primary)' }}>{unseenLogs}</span>}
+                </button>
+              );
+            })}
           </div>
-        )}
-      </div>
+          {tab !== 'logs' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginLeft: 'auto' }}>
+              <span style={microLabel}>Parcel</span>
+              <select value={activeId} onChange={e => setActiveId(e.target.value)} className="form-input" style={{ width: 'auto', padding: '6px 10px', fontSize: '0.82rem' }}>
+                {props.filter(isPrimary).map(pr => {
+                  const fam = familyOf(pr);
+                  return fam.length > 1
+                    ? <optgroup key={pr.id} label={pr.name}>{fam.map(x => <option key={x.id} value={x.id}>{isPrimary(x) ? `${x.name} (primary)` : `↳ ${x.name}`}</option>)}</optgroup>
+                    : <option key={pr.id} value={pr.id}>{pr.name}</option>;
+                })}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
 
-      {tab === 'portfolio' && <Portfolio {...{ props, isPrimary, familyOf, assetAgg, assetHealth, parcelHealth, openProperty, onEdit: (id) => setModal({ type: 'property', id }) }} />}
+      {tab === 'portfolio' && !active && <Portfolio {...{ props, isPrimary, familyOf, assetAgg, assetHealth, parcelHealth, openProperty, onEdit: (id) => setModal({ type: 'property', id }) }} />}
       {tab === 'property' && active && <PropertyDetail {...{ p: active, familyOf, isPrimary, childrenOf, assetAgg, openProperty, onEdit: () => setModal({ type: 'property', id: active.id }), onExport: () => exportReport(active, data), highlight: highlight?.tab === 'property' ? highlight : null }} />}
       {tab === 'warranties' && active && <Collection coll="warranties" rows={rowsFor('warranties')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'warranties' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'warranties', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'warranties', id })} />}
       {tab === 'inspections' && active && <Collection coll="inspections" rows={rowsFor('inspections')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'inspections' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'inspections', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'inspections', id })} />}
@@ -540,8 +544,8 @@ export default function AssetModule() {
           <Collection coll="vendors" rows={rowsFor('vendors')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.section === 'Vendors' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'vendors', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'vendors', id })} />
         </div>
       )}
-      {tab === 'timeline' && active && <ReadTable title="Development Timeline" subtitle={active.name} rows={active.timeline} cols={[['phase', 'Phase'], ['permit', 'Permit / Approval'], ['agency', 'Agency'], ['whenRequired', 'When Required'], ['reviewTime', 'Review Time'], ['notes', 'Notes']]} />}
-      {tab === 'permit' && active && <ReadTable title="Permit Matrix" subtitle={active.name} rows={active.permits} cols={[['Permit Status', 'Status'], ['Permit / Approval Type', 'Type'], ['Permit No', 'Permit No'], ['Jurisdiction/Agency', 'Agency'], ['Permit Issuance Date', 'Issued'], ['Permit Expiration Date', 'Expires'], ['Notes', 'Notes']]} />}
+      {tab === 'timeline' && active && <ReadTable title="Development Timeline" subtitle={active.name} rows={active.timeline} cols={[['phase', 'Phase'], ['permit', 'Permit / Approval'], ['agency', 'Issuing Agency'], ['whenRequired', 'When Required'], ['submittals', 'Key Submittals'], ['reviewTime', 'Review Time'], ['notes', 'Notes']]} />}
+      {tab === 'permit' && active && <ReadTable title="Permit Matrix" subtitle={active.name} rows={active.permits} />}
       {tab === 'logs' && <LogsTab logs={data.logs || []} onOpenProperty={openProperty} activeId={activeId} activeName={active ? (active.siteName || active.name) : ''} onGoTo={goToChange} />}
 
       {modal?.type === 'row' && <RowModal coll={modal.coll} row={modal.id ? data[modal.coll].find(r => r.id === modal.id) : null} onSave={(v) => saveRow(modal.coll, modal.id, v)} onDelete={() => deleteRow(modal.coll, modal.id)} onClose={() => setModal(null)} />}
@@ -997,8 +1001,15 @@ function LogsTab({ logs, onOpenProperty, activeId, activeName, onGoTo }) {
 }
 
 // Read-only table for Timeline (sheet 3) and Permit Matrix (sheet 4) source data.
+// If `cols` is omitted, columns are derived from the data keys (handles varying headers).
 function ReadTable({ title, subtitle, rows, cols }) {
-  const list = (rows || []).filter(r => cols.some(c => String(r[c[0]] ?? '').trim()));
+  const data = rows || [];
+  const columns = cols || (() => {
+    const keys = [];
+    data.forEach(r => Object.keys(r).forEach(k => { if (k !== 'id' && k !== 'propertyId' && !keys.includes(k)) keys.push(k); }));
+    return keys.map(k => [k, k]);
+  })();
+  const list = data.filter(r => columns.some(c => String(r[c[0]] ?? '').trim()));
   return (
     <Panel>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
@@ -1009,9 +1020,9 @@ function ReadTable({ title, subtitle, rows, cols }) {
       {list.length ? (
         <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden', overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-            <thead><tr>{cols.map(c => <th key={c[0]} style={{ ...microLabel, textAlign: 'left', padding: '10px 12px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' }}>{c[1]}</th>)}</tr></thead>
+            <thead><tr>{columns.map(c => <th key={c[0]} style={{ ...microLabel, textAlign: 'left', padding: '10px 12px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' }}>{c[1]}</th>)}</tr></thead>
             <tbody>{list.map((r, i) => (
-              <tr key={i}>{cols.map(c => <td key={c[0]} style={{ padding: '9px 12px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top', color: 'var(--text-primary)' }}>{String(r[c[0]] ?? '').trim() || '—'}</td>)}</tr>
+              <tr key={i}>{columns.map(c => <td key={c[0]} style={{ padding: '9px 12px', borderBottom: '1px solid var(--border-color)', verticalAlign: 'top', color: 'var(--text-primary)', fontSize: '0.78rem' }}>{String(r[c[0]] ?? '').trim() || '—'}</td>)}</tr>
             ))}</tbody>
           </table>
         </div>
