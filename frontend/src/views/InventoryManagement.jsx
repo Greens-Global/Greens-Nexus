@@ -5633,6 +5633,15 @@ export default function InventoryManagement({ activeSub }) {
   const selfAllocate = useCallback(co => allocateItem(co.id, userName)
     .then(() => toast(`Confirmed — ${co.itemName} is with you.`))
     .catch(() => toast('Could not confirm.', 'error')), [allocateItem, userName, toast]);
+  // Manager accepting their OWN approved checkout: must upload a handover photo
+  // just like an employee does — receipts are evidence (Jun 16 bug: this path
+  // skipped the photo modal and auto-accepted). Throws on failure so the modal
+  // surfaces the error and stays open.
+  const handleSelfAccept = useCallback((co, url, name) =>
+    allocateItem(co.id, userName, url, name)
+      .then(() => toast(`Confirmed — ${co.itemName} is with you.`))
+      .catch(() => { throw new Error(`Could not confirm receipt for ${co.itemName}.`); }),
+    [allocateItem, userName, toast]);
   const openAdd       = useCallback(() => setAddItemOpen(true), []);
   const openImport    = useCallback(() => setImportOpen(true), []);
   const openReport    = useCallback(() => setReportOpen(true), []);
@@ -5834,7 +5843,7 @@ export default function InventoryManagement({ activeSub }) {
             photoOptionalIds={photoOptionalIds}
             assignments={assignments} refreshAssignments={refreshAssignments} toast={toast}
             onReturn={openReturn} onCancel={cancelCo}
-            onSelfAllocate={selfAllocate}
+            onEmployeeAccept={handleSelfAccept}
             onConfirmReceipt={handleConfirmReceipt}
             onReturnAll={handleReturnAll}
             onRequestExtension={handleRequestExtension}
