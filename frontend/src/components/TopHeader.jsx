@@ -52,7 +52,9 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
     if (!q) return [];
     return MODULES.filter(m => {
       if (m.id === 'admin' && !can?.('administrator')) return false;
-      if (RESTRICTED_MIN_SUPERVISOR.has(m.id) && !can?.('supervisor') && !myGrantedModules?.has(m.id)) return false;
+      // Grant-driven below admin: a restricted screen only appears in search if
+      // the user is admin+ or an Access Group grants it (Jun 17).
+      if (RESTRICTED_MIN_SUPERVISOR.has(m.id) && !can?.('administrator') && !myGrantedModules?.has(m.id)) return false;
       return m.label.toLowerCase().includes(q) || m.id.toLowerCase().includes(q);
     }).slice(0, 6);
   // eslint-disable-next-line react-hooks/exhaustive-deps

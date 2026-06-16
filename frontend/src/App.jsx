@@ -86,9 +86,11 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
 
   // Access granted if: no restriction, OR user's role meets minRole,
   // OR a Group has explicitly granted this module to the user.
-  // Groups complement roles additively — they can never grant admin/owner
-  // screens (those require role level, not a module grant).
-  const hasAccess = !minRole || can(minRole) || (minRole !== 'administrator' && myGrantedModules.has(activeView));
+  // Visibility below admin is grant-driven, not role-level (Jun 17): managers
+  // reach a restricted screen only if an Access Group grants it. IT Admin /
+  // Global Admin (administrator+) still reach everything to manage access.
+  // Groups can never grant admin/owner screens (minRole === 'administrator').
+  const hasAccess = !minRole || can('administrator') || (minRole !== 'administrator' && myGrantedModules.has(activeView));
 
   if (!hasAccess) {
     return (

@@ -162,7 +162,11 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
         {/* ── Nav ── */}
         <nav className="sidebar-nav">
           <ul className="nav-list">
-            {NAV.filter(item => !item.minRole || can(item.minRole) || myGrantedModules.has(item.view)).map((item, i) => {
+            {/* Visibility below admin is grant-driven, NOT role-level: a manager
+                only sees baseline screens (no minRole) plus modules an Access
+                Group grants them. IT Admin / Global Admin (administrator+) still
+                see everything so they can manage access. (Jun 17) */}
+            {NAV.filter(item => !item.minRole || can('administrator') || myGrantedModules.has(item.view)).map((item, i) => {
               if (item.divider) return <li key={i} className="nav-divider" />;
 
               // ── Collapsed: icon-only rail ──

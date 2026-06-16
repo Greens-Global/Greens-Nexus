@@ -2,9 +2,13 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 import models
 from database import get_db
-from auth import require_manager
+from auth import require_module_grant
 
-router = APIRouter(prefix="/accounting", tags=["Accounting"], dependencies=[Depends(require_manager)])
+# Grant-driven (Jun 17): a manager role no longer opens Accounting by itself —
+# it needs an "accounting" Access Group grant (or IT Admin+). The router has no
+# per-endpoint read/write split, so a grant = full accounting access; grant it
+# only to finance people.
+router = APIRouter(prefix="/accounting", tags=["Accounting"], dependencies=[Depends(require_module_grant("accounting", "viewer"))])
 
 
 @router.get("/transactions")

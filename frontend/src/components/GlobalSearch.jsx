@@ -57,7 +57,8 @@ export default function GlobalSearch({ onNavigate }) {
 
   // Screens registry: sidebar NAV (same role gating) + each module's sub-tabs
   const screens = useMemo(() => {
-    const visible = NAV.filter(i => !i.divider && (!i.minRole || can?.(i.minRole) || myGrantedModules?.has(i.view)));
+    // Grant-driven visibility below admin: don't surface screens the user can't open (Jun 17).
+    const visible = NAV.filter(i => !i.divider && (!i.minRole || can?.('administrator') || myGrantedModules?.has(i.view)));
     const out = [];
     for (const item of visible) {
       out.push({ view: item.view, sub: null, label: item.label, context: null });

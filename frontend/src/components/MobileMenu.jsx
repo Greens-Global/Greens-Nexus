@@ -114,7 +114,8 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
       ? <svg className="material-symbol-svg" viewBox="0 -960 960 960" style={{ width: size, height: size, flexShrink: 0 }}><path d={item.svgPath} /></svg>
       : null;
 
-  const visible = NAV.filter(item => item.divider || !item.minRole || can?.(item.minRole) || myGrantedModules?.has(item.view));
+  // Mirror the sidebar: grant-driven visibility below admin (Jun 17).
+  const visible = NAV.filter(item => item.divider || !item.minRole || can?.('administrator') || myGrantedModules?.has(item.view));
   const go = (id, sub = null) => { onNavigate(id, sub); onClose(); };
   const openRow = item => {
     const subs = subsFor(item.view);

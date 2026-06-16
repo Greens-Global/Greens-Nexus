@@ -196,3 +196,22 @@ def require_level_or_module(min_level: int, module_id: str, min_module_level: st
             return user
         raise HTTPException(status_code=401, detail="Insufficient permissions")
     return _check
+
+
+def require_module_grant(module_id: str, min_module_level: str = "viewer", bypass_level: str = "administrator"):
+    """Grant-driven access (Jun 17): admits admins at/above `bypass_level`
+    (administrator by default — they manage every screen), OR anyone whose Access
+    Group grants at least `min_module_level` for `module_id`.
+
+    Unlike require_level_or_module, a supervisor/manager role does NOT by itself
+    open the module — only an explicit Access Group grant does. This mirrors the
+    frontend's grant-driven sidebar/route visibility so a screen hidden in the UI
+    is also blocked at the API (UI hiding alone is not a security boundary)."""
+    threshold = _MODULE_LEVEL_RANK[min_module_level]
+    blevel = _LEVELS[bypass_level]
+
+    def _check(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+        if user["level"] >= blevel or _module_level(user["email"], module_id, db) >= threshold:
+            return user
+        raise HTTPException(status_code=403, detail="You don't have access to this screen")
+    return _check

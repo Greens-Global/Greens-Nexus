@@ -6,17 +6,16 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
-from auth import require_level_or_module
+from auth import require_module_grant
 from models import NexusEmployee
 
-_ROLE_LEVEL = {"employee": 1, "supervisor": 2, "manager": 3, "administrator": 4, "owner": 5}
-
-# HR data is the most sensitive in the app. Reads need supervisor+ (matches the
-# sidebar gate) or an "hr" module grant; writes need manager+/editor; hard
-# deletes are owner-only — prefer status changes (offboarded) over deletion.
-require_hr_read   = require_level_or_module(_ROLE_LEVEL["supervisor"], "hr", "viewer")
-require_hr_write  = require_level_or_module(_ROLE_LEVEL["manager"],    "hr", "editor")
-require_hr_delete = require_level_or_module(_ROLE_LEVEL["owner"],      "hr", "owner")
+# HR data is the most sensitive in the app. Access is grant-driven (Jun 17): a
+# supervisor/manager role no longer auto-opens HR — they need an explicit "hr"
+# Access Group grant. Reads need viewer; writes editor; hard deletes owner-grant
+# (or Global Admin). IT Admin+ bypass reads/writes; deletes stay owner-only.
+require_hr_read   = require_module_grant("hr", "viewer")
+require_hr_write  = require_module_grant("hr", "editor")
+require_hr_delete = require_module_grant("hr", "owner", bypass_level="owner")
 
 router = APIRouter(prefix="/hr", tags=["hr"])
 
