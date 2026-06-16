@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from fastapi import FastAPI
@@ -5,14 +6,37 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL, SessionLocal
-from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, inventory_requests, audit
+from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, inventory_requests, audit, groups, items as items_router, hr
 from audit import AuditMiddleware
 
 
 def _run_migrations():
     """Add columns that were introduced after the initial table creation."""
     if DATABASE_URL.startswith("sqlite"):
-        return  # SQLite: create_all is enough for dev
+        # create_all builds NEW tables but never alters existing ones — columns
+        # added to models after a local DB was created must be patched in here
+        # (a model column missing from the DB breaks every SELECT with a 500).
+        # SQLite has no IF NOT EXISTS for columns; duplicates just error and
+        # are swallowed.
+        sqlite_migrations = [
+            "ALTER TABLE items ADD COLUMN picture_required BOOLEAN DEFAULT 1",
+            "ALTER TABLE items ADD COLUMN asset_value FLOAT DEFAULT 0",
+            "UPDATE items SET status = 'available' WHERE ownership_type = 'permanent' AND COALESCE(assigned_to_email, '') = '' AND status = 'permanently_assigned'",
+            "ALTER TABLE requisitions ADD COLUMN allocator_email VARCHAR DEFAULT ''",
+            "ALTER TABLE requisitions ADD COLUMN allocator_name VARCHAR DEFAULT ''",
+            "ALTER TABLE requisitions ADD COLUMN ordered_at VARCHAR DEFAULT ''",
+            "ALTER TABLE requisitions ADD COLUMN fulfilled_at VARCHAR DEFAULT ''",
+            "ALTER TABLE requisitions ADD COLUMN fulfillment_note VARCHAR DEFAULT ''",
+            "ALTER TABLE requisitions ADD COLUMN fulfilled_item_id VARCHAR DEFAULT ''",
+        ]
+        with engine.connect() as conn:
+            for sql in sqlite_migrations:
+                try:
+                    conn.execute(text(sql))
+                except Exception:
+                    pass  # column already exists
+            conn.commit()
+        return
     migrations = [
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS employee_email VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_notifications ADD COLUMN IF NOT EXISTS read_by VARCHAR DEFAULT ''",
@@ -40,6 +64,34 @@ def _run_migrations():
         "ALTER TABLE inventory_requests ADD COLUMN IF NOT EXISTS assigned_allocator_name VARCHAR DEFAULT ''",
         # nexus_roles: display name captured from Microsoft Graph at assignment time
         "ALTER TABLE nexus_roles ADD COLUMN IF NOT EXISTS display_name VARCHAR DEFAULT ''",
+        # inventory_items: physical site/storage location (e.g. "GSVC", "GSE")
+        "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS location VARCHAR DEFAULT ''",
+        # item_checkouts: extension request flow (employee asks for more days, manager approves)
+        "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS extension_days INTEGER DEFAULT 0",
+        "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS extension_reason VARCHAR DEFAULT ''",
+        "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS extension_status VARCHAR DEFAULT ''",
+        # item_checkouts: employee picks which manager is notified for approval
+        "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS approver_email VARCHAR DEFAULT ''",
+        "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS approver_name VARCHAR DEFAULT ''",
+        # items: current permanent assignee pointer (full history in item_assignments)
+        "ALTER TABLE items ADD COLUMN IF NOT EXISTS assigned_to_email VARCHAR DEFAULT ''",
+        "ALTER TABLE items ADD COLUMN IF NOT EXISTS assigned_to_name VARCHAR DEFAULT ''",
+        "ALTER TABLE items ADD COLUMN IF NOT EXISTS assigned_at VARCHAR DEFAULT ''",
+        # Fleet department retired — vehicles belong to Construction (Neil, Jun 2026)
+        "UPDATE items SET department = 'Construction' WHERE department = 'Fleet'",
+        # items: per-item photo policy + dollar value (Neil, Jun 2026 review)
+        "ALTER TABLE items ADD COLUMN IF NOT EXISTS picture_required BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE items ADD COLUMN IF NOT EXISTS asset_value DOUBLE PRECISION DEFAULT 0",
+        # Permanent items were auto-stamped permanently_assigned at creation even
+        # with nobody attached — unstamp the ones that never got a real assignee
+        "UPDATE items SET status = 'available' WHERE ownership_type = 'permanent' AND COALESCE(assigned_to_email, '') = '' AND status = 'permanently_assigned'",
+        # requisitions: purchase fulfillment flow (allocator + ordered/fulfilled)
+        "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS allocator_email VARCHAR DEFAULT ''",
+        "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS allocator_name VARCHAR DEFAULT ''",
+        "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS ordered_at VARCHAR DEFAULT ''",
+        "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfilled_at VARCHAR DEFAULT ''",
+        "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfillment_note VARCHAR DEFAULT ''",
+        "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfilled_item_id VARCHAR DEFAULT ''",
     ]
     with engine.connect() as conn:
         for sql in migrations:
@@ -110,6 +162,19 @@ def _seed_inventory_items():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Refuse to start if NEXUS_SKIP_AUTH is set while running on Azure App
+    # Service — the env var is for local development only and must never reach
+    # a deployed instance (dev or prod).
+    import sys as _sys
+    if os.getenv("NEXUS_SKIP_AUTH", "").lower() in ("1", "true", "yes"):
+        if os.getenv("WEBSITE_SITE_NAME"):
+            print(
+                "FATAL: NEXUS_SKIP_AUTH must not be set on Azure App Service. "
+                "Remove it from the application settings and restart.",
+                file=_sys.stderr,
+            )
+            _sys.exit(1)
+
     try:
         models.Base.metadata.create_all(bind=engine)
         print("[startup] DB tables ready")
@@ -132,6 +197,14 @@ async def lifespan(app: FastAPI):
             print("[startup] JWKS keys cached")
     except Exception as e:
         print(f"[startup] JWKS prefetch skipped: {e}")
+    # Pre-warm the DB connection pool so the first user request doesn't pay
+    # the cold-start cost of establishing the initial Postgres connection.
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        print("[startup] DB connection pool warmed")
+    except Exception as e:
+        print(f"[startup] DB pool warm-up skipped: {e}")
     yield
 
 
@@ -153,7 +226,13 @@ app.add_middleware(
 
 
 @app.get("/")
+def root():
+    return {"status": "ok"}
+
+
+@app.get("/health")
 def health():
+    """No-auth liveness probe — used by frontend to detect outages without burning a token."""
     return {"status": "ok"}
 
 
@@ -177,4 +256,7 @@ app.include_router(roles.router)
 app.include_router(notifications.router)
 app.include_router(inventory_requests.router)
 app.include_router(audit.router)
+app.include_router(groups.router)
+app.include_router(items_router.router)
+app.include_router(hr.router)
 

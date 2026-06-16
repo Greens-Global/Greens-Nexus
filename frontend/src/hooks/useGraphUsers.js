@@ -1,6 +1,7 @@
 import { useMsal }                         from '@azure/msal-react';
 import { InteractionRequiredAuthError }    from '@azure/msal-browser';
 import { useState, useEffect } from 'react';
+import { cleanName } from '../lib/utils';
 
 const GRAPH_URL = 'https://graph.microsoft.com/v1.0/users'
   + '?$select=id,displayName,mail,userPrincipalName,jobTitle,department,officeLocation,accountEnabled'
@@ -43,7 +44,9 @@ async function fetchUsers(instance, account, attempt = 1) {
 
   const data = await res.json();
   // Filter enabled accounts only (filter param not always supported without $count)
-  return (data.value ?? []).filter(u => u.accountEnabled !== false);
+  return (data.value ?? [])
+    .filter(u => u.accountEnabled !== false)
+    .map(u => ({ ...u, displayName: cleanName(u.displayName) }));
 }
 
 export function useGraphUsers() {

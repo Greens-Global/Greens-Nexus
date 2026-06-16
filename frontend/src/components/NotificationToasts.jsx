@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, X } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
+import { renderNotifBody }  from './NotificationBell';
 import { useMsal }          from '@azure/msal-react';
 import { useRole }          from '../contexts/RoleContext';
 
@@ -32,21 +33,57 @@ export default function NotificationToasts({ onNavigate }) {
 
   useEffect(() => {
     // First run: remember everything that already exists so refreshes/logins
-    // don't dump a wall of "new" popups on screen.
+    // don't dump a wall of "new" popups on screen. The context starts with an
+    // empty array before its first fetch — seeding against THAT made the whole
+    // history look "fresh" and toast-bombed managers on every page load.
     if (seenIds.current === null) {
+      if (notifications.length === 0) return;   // wait for the first real payload
       seenIds.current = new Set(notifications.map(n => n.id));
       return;
     }
     const fresh = notifications.filter(n => {
       if (seenIds.current.has(n.id)) return false;
       seenIds.current.add(n.id);
-      const isActionable = (n.type === 'inv_request' || n.type === 'req_pending');
-      if (isActionable) return can('manager') && !n.recipient;
+      // Never toast history: already-handled, already-read, or older than 2
+      // minutes (poll/realtime replays of old rows must stay silent)
+      if (n.actioned || n.read) return false;
+      const ageMs = Date.now() - new Date(n.timestamp).getTime();
+      if (!Number.isFinite(ageMs) || ageMs > 120_000) return false;
+      const isActionable = (n.type === 'inv_request' || n.type === 'req_pending' || n.type === 'checkout_pending' || n.type === 'extension_pending');
+      // Manager-only: broadcast requests, or ones addressed specifically to me
+      if (isActionable) return can('manager') && (!n.recipient || n.recipient === myEmail);
+      // item_returned with no recipient must not toast for non-managers (avoids broadcasting returns to all employees)
+      if ((n.type === 'item_returned' || n.type === 'perm_return') && !n.recipient) return can('manager');
       return !n.recipient || n.recipient === myEmail || n.recipient === myName;
     });
     if (fresh.length === 0) return;
 
-    setPopups(prev => [...fresh.map(n => ({ ...n, _popupId: `pop-${n.id}` })), ...prev].slice(0, 4));
+    // One popup per request/order: a lifecycle update (approved → handed over →
+    // confirmed) REPLACES the previous popup for the same refId instead of
+    // stacking — four toasts for one order buried the rest of the screen.
+    setPopups(prev => {
+      let next = [...prev];
+      // Within this batch too, keep only the newest per refId
+      const seenRefs = new Set();
+      const incoming = [];
+      for (const n of fresh) {                      // notifications arrive newest-first
+        const key = n.refId || n.id;
+        if (seenRefs.has(key)) continue;
+        seenRefs.add(key);
+        incoming.push(n);
+      }
+      for (const n of incoming.reverse()) {         // oldest first so newest ends on top
+        const key = n.refId || n.id;
+        const dup = next.findIndex(p => (p.refId || p.id) === key);
+        if (dup >= 0) {
+          clearTimeout(timersRef.current[next[dup].id]);
+          delete timersRef.current[next[dup].id];
+          next.splice(dup, 1);
+        }
+        next = [{ ...n, _popupId: `pop-${n.id}` }, ...next];
+      }
+      return next.slice(0, 4);
+    });
     fresh.forEach(n => {
       timersRef.current[n.id] = setTimeout(() => {
         setPopups(prev => prev.filter(p => p.id !== n.id));
@@ -66,7 +103,8 @@ export default function NotificationToasts({ onNavigate }) {
   }
 
   function handleClick(n) {
-    const isActionable = (n.type === 'inv_request' || n.type === 'req_pending') && !n.recipient;
+    const isActionable = (n.type === 'inv_request' || n.type === 'req_pending' || n.type === 'checkout_pending')
+      && (!n.recipient || n.recipient === myEmail);
     if (isActionable && can('manager')) {
       // Jump straight into the approval workflow (allocator picker / reject
       // reason) in the bell panel — no extra navigation or hunting required.
@@ -97,7 +135,7 @@ export default function NotificationToasts({ onNavigate }) {
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 12.5, color: 'var(--ink)' }}>{n.title}</div>
-              <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '2px 0 0', lineHeight: 1.4 }}>{n.body}</p>
+              <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '2px 0 0', lineHeight: 1.4, whiteSpace: 'pre-line' }}>{renderNotifBody(n.body)}</p>
             </div>
             <button onClick={e => { e.stopPropagation(); close(n.id); }}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 2, borderRadius: 4, flexShrink: 0 }}

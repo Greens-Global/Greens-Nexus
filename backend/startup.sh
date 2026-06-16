@@ -1,7 +1,6 @@
 #!/bin/bash
-# B1 plan = 1 vCPU. 4 workers meant 4 separate connection pools (60 DB conns
-# total) and ~160 threadpool threads fighting over one core — under load that
-# starved the DB pool and caused 20-50s tail latencies. 2 workers halves both,
-# and --timeout gives slow requests room before gunicorn SIGKILLs the worker
-# (the default 30s was killing in-flight requests mid-query under load).
-gunicorn -w 2 -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:8000 --timeout 60
+# B3 plan = 4 vCPU, 7 GB RAM. Formula: 2*vCPU+1 = 9, use 8 to leave headroom.
+# --keepalive 65 avoids Azure load balancer / TCP keepalive mismatch that causes
+# random dropped connections. --timeout 120 gives slow operations (reports,
+# batch checkouts) room without gunicorn SIGKILLing the worker mid-request.
+gunicorn -w 8 -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:8000 --timeout 120 --keepalive 65

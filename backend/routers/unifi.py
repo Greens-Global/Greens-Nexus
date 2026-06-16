@@ -4,9 +4,14 @@ import re
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from unifi_client import fetch_all, build_site_payload
-from auth import get_current_user
+from auth import get_current_user, require_module_grant
 
-router = APIRouter(prefix="/unifi", tags=["UniFi Network"], dependencies=[Depends(get_current_user)])
+# Grant-driven (Jun 17): access needs an "it" Access Group grant (or IT Admin+),
+# not a supervisor/manager role. Network topology and device exports are not for
+# every authenticated employee. (UI gating alone is not security: anyone logged
+# in could call the API directly.)
+router = APIRouter(prefix="/unifi", tags=["UniFi Network"],
+                   dependencies=[Depends(get_current_user), Depends(require_module_grant("it", "viewer"))])
 
 
 def _build_maps(sites_raw, devices_raw, hosts_raw):

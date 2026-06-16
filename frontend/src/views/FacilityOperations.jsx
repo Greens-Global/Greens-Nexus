@@ -72,17 +72,17 @@ function FMS() {
       <div className="dash-card">
         <div className="dash-card-title" style={{ marginBottom: 12 }}>Per-facility feed</div>
         <div style={{ overflowX: "auto" }}>
-          <table className="req-table">
+          <table className="req-table stack-table">
             <thead><tr><th>Facility</th><th>Units</th><th>Rented</th><th>Occupancy</th><th>MRR</th><th>Last sync</th></tr></thead>
             <tbody>
               {FACILITIES.map(f => (
                 <tr key={f.name}>
                   <td style={{ fontWeight: 600 }}>{f.name}</td>
-                  <td className="mono">{f.units}</td>
-                  <td className="mono">{f.rented}</td>
-                  <td>{pill(f.occ >= 90 ? "status-approved" : f.occ >= 78 ? "status-pending" : "status-rejected", f.occ + "%")}</td>
-                  <td className="mono">${(f.mrr / 1000).toFixed(1)}k</td>
-                  <td style={{ color: "var(--muted)" }}>{f.lastSync}</td>
+                  <td data-th="Units" className="mono">{f.units}</td>
+                  <td data-th="Rented" className="mono">{f.rented}</td>
+                  <td data-th="Occupancy">{pill(f.occ >= 90 ? "status-approved" : f.occ >= 78 ? "status-pending" : "status-rejected", f.occ + "%")}</td>
+                  <td data-th="MRR" className="mono">${(f.mrr / 1000).toFixed(1)}k</td>
+                  <td data-th="Last sync" style={{ color: "var(--muted)" }}>{f.lastSync}</td>
                 </tr>
               ))}
             </tbody>
@@ -168,15 +168,15 @@ function SiteStaff() {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
         <div className="dash-card">
           <div className="dash-card-title" style={{ marginBottom: 12 }}>Roster</div>
-          <table className="req-table">
+          <table className="req-table stack-table">
             <thead><tr><th>Name</th><th>Role</th><th>Facility</th><th>Hrs/wk</th></tr></thead>
             <tbody>
               {STAFF.map(s => (
                 <tr key={s.name}>
                   <td style={{ fontWeight: 600 }}>{s.name}</td>
-                  <td>{s.role}</td>
-                  <td style={{ color: "var(--muted)" }}>{s.facility}</td>
-                  <td className="mono">{s.hrs}</td>
+                  <td data-th="Role">{s.role}</td>
+                  <td data-th="Facility" style={{ color: "var(--muted)" }}>{s.facility}</td>
+                  <td data-th="Hrs/wk" className="mono">{s.hrs}</td>
                 </tr>
               ))}
             </tbody>

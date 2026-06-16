@@ -1,0 +1,281 @@
+[
+  {
+    "phase": "Pre-Entitlement",
+    "permit": "Pre-Application Meeting",
+    "agency": "City/County Planning Dept",
+    "whenRequired": "Strongly recommended",
+    "submittals": "Concept site plan, zoning summary",
+    "reviewTime": "2–4 weeks to schedule",
+    "status": "Not Started"
+  },
+  {
+    "phase": "Land Use Entitlement",
+    "permit": "General Plan Amendment (if needed)",
+    "agency": "Planning Commission / City Council",
+    "whenRequired": "If use inconsistent with GP",
+    "submittals": "Land use justification, studies",
+    "reviewTime": "3–9+ months",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "Zone Change (Rezone)",
+    "agency": "Planning Commission / City Council",
+    "whenRequired": "If zoning inconsistent",
+    "submittals": "Site plan, findings",
+    "reviewTime": "3–9+ months",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "Conditional Use Permit (CUP)",
+    "agency": "Planning Commission",
+    "whenRequired": "For conditionally allowed uses",
+    "submittals": "Operational narrative, plans",
+    "reviewTime": "2–6 months",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "Variance",
+    "agency": "Zoning Administrator",
+    "whenRequired": "If deviation from standards",
+    "submittals": "Hardship findings",
+    "reviewTime": "2–4 months",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "Development Agreement (if applicable)",
+    "agency": "City Council",
+    "whenRequired": "Large/complex projects",
+    "submittals": "Fiscal analysis",
+    "reviewTime": "4–8+ months",
+    "status": "Not Started"
+  },
+  {
+    "phase": "Environmental (CEQA)",
+    "permit": "CEQA Exemption",
+    "agency": "Lead Agency (City/County)",
+    "whenRequired": "Minor projects",
+    "submittals": "Project description",
+    "reviewTime": "4–8 weeks",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "Initial Study / Mitigated ND",
+    "agency": "Lead Agency",
+    "whenRequired": "Moderate impact projects",
+    "submittals": "Technical studies",
+    "reviewTime": "3–6 months",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "Environmental Impact Report (EIR)",
+    "agency": "Lead Agency",
+    "whenRequired": "Significant impacts",
+    "submittals": "Full technical reports",
+    "reviewTime": "9–18+ months",
+    "status": "Not Started"
+  },
+  {
+    "phase": "Design & Site Approvals",
+    "permit": "Site Plan Review",
+    "agency": "Planning Dept",
+    "whenRequired": "Most commercial projects",
+    "submittals": "Civil + architectural plans",
+    "reviewTime": "1–3 months",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "Architectural Review",
+    "agency": "Planning / Design Review Board",
+    "whenRequired": "If required by code",
+    "submittals": "Elevations, materials",
+    "reviewTime": "1–2 months",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "Landscape Plan Approval",
+    "agency": "Planning Dept",
+    "whenRequired": "Required for new construction",
+    "submittals": "Irrigation, planting plan",
+    "reviewTime": "2–4 weeks",
+    "status": "Not Started"
+  },
+  {
+    "phase": "Grading & Site Work",
+    "permit": "Grading Permit",
+    "agency": "Building/Public Works",
+    "whenRequired": "Earthwork > minimal thresholds",
+    "submittals": "Soils report, civil plans",
+    "reviewTime": "2–8 weeks",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "SWPPP (Stormwater Pollution Prevention Plan)",
+    "agency": "State Water Board (via SMARTS)",
+    "whenRequired": "Disturbance ≥1 acre",
+    "submittals": "QSP/QSD prep",
+    "reviewTime": "2–4 weeks registration",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "Encroachment Permit",
+    "agency": "Public Works",
+    "whenRequired": "Work in public ROW",
+    "submittals": "Civil drawings",
+    "reviewTime": "2–6 weeks",
+    "status": "Not Started"
+  },
+  {
+    "phase": "Utilities",
+    "permit": "Water Service Approval",
+    "agency": "Water District",
+    "whenRequired": "New or upgraded service",
+    "submittals": "Demand calc",
+    "reviewTime": "2–6 weeks",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "Sewer Capacity Letter",
+    "agency": "Sewer District",
+    "whenRequired": "New/expanded use",
+    "submittals": "Fixture count",
+    "reviewTime": "2–6 weeks",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "Fire Flow Letter",
+    "agency": "Fire Authority",
+    "whenRequired": "All new commercial",
+    "submittals": "Hydraulic calc",
+    "reviewTime": "2–4 weeks",
+    "status": "Not Started"
+  },
+  {
+    "phase": "Building Phase",
+    "permit": "Building Permit",
+    "agency": "Building Dept",
+    "whenRequired": "All structural work",
+    "submittals": "Stamped plans",
+    "reviewTime": "1–3 months plan check",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "Structural / MEP Plan Check",
+    "agency": "Building Dept",
+    "whenRequired": "Required",
+    "submittals": "Structural calcs",
+    "reviewTime": "Included above",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "Fire Department Permit",
+    "agency": "Fire Marshal",
+    "whenRequired": "Sprinklers, alarms",
+    "submittals": "Fire plans",
+    "reviewTime": "2–6 weeks",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "Elevator Permit (if applicable)",
+    "agency": "State DIR",
+    "whenRequired": "If elevator installed",
+    "submittals": "Elevator specs",
+    "reviewTime": "2–4 weeks",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "Solar Permit (if required by code)",
+    "agency": "Building Dept",
+    "whenRequired": "Title 24 compliance",
+    "submittals": "PV plans",
+    "reviewTime": "1–4 weeks",
+    "status": "Not Started"
+  },
+  {
+    "phase": "Construction Inspections",
+    "permit": "Foundation / Framing / MEP Inspections",
+    "agency": "Building Dept",
+    "whenRequired": "During construction",
+    "submittals": "Inspection requests",
+    "reviewTime": "Rolling",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "Fire Final Inspection",
+    "agency": "Fire Marshal",
+    "whenRequired": "Before occupancy",
+    "submittals": "Field inspection",
+    "reviewTime": "1–2 weeks scheduling",
+    "status": "Not Started"
+  },
+  {
+    "phase": "Occupancy",
+    "permit": "Certificate of Occupancy (COO)",
+    "agency": "Building Dept",
+    "whenRequired": "Before use",
+    "submittals": "Final inspections passed",
+    "reviewTime": "1–2 weeks",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "Business License",
+    "agency": "City Finance Dept",
+    "whenRequired": "Before operation",
+    "submittals": "Application",
+    "reviewTime": "1–4 weeks",
+    "status": "Not Started"
+  },
+  {
+    "phase": "Specialty (If Applicable)",
+    "permit": "Alcohol License",
+    "agency": "California ABC",
+    "whenRequired": "If serving alcohol",
+    "submittals": "ABC forms",
+    "reviewTime": "2–6 months",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "Cal/OSHA Permit",
+    "agency": "Cal/OSHA",
+    "whenRequired": "Industrial/high-hazard uses",
+    "submittals": "Safety documentation",
+    "reviewTime": "Variable",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "Coastal Development Permit",
+    "agency": "Coastal Commission / Local Agency",
+    "whenRequired": "Coastal Zone projects",
+    "submittals": "Full package",
+    "reviewTime": "3–12+ months",
+    "status": "Not Started"
+  },
+  {
+    "phase": "",
+    "permit": "Air Quality Permit",
+    "agency": "Local AQMD",
+    "whenRequired": "Equipment emissions",
+    "submittals": "Equipment specs",
+    "reviewTime": "1–3 months",
+    "status": "Not Started"
+  }
+]

@@ -12,11 +12,11 @@ import {
   HelpCircle, Store, Calendar, MessageSquare, Package,
 } from "lucide-react";
 
-const NAV = [
+// Exported: MobileMenu mirrors this exact order/grouping on phones
+export const NAV = [
   { view: "dashboard",         label: "Dashboard",          icon: LayoutDashboard },
   { view: "manager-dashboard", label: "Manager Dashboard",  icon: UserCheck,    minRole: 'supervisor' },
   { divider: true },
-  { view: "purchase",          label: "Purchase Requisition", icon: ShoppingCart, minRole: 'supervisor' },
   { view: "tasks",             label: "Tasks",               icon: CheckSquare,  minRole: 'supervisor' },
   {
     view: "sop", label: "Knowledge Base", icon: BookOpen, minRole: 'supervisor',
@@ -31,7 +31,6 @@ const NAV = [
     view: "it", label: "IT", icon: Monitor, minRole: 'supervisor',
     sub: [
       { subview: "network",               label: "Network Dashboard",    icon: Wifi },
-      { subview: "it-assets",             label: "Asset Management",     icon: Monitor },
       { subview: "it-websites",           label: "Website Management",   icon: ExternalLink },
     ],
   },
@@ -60,15 +59,11 @@ const NAV = [
       { subview: "dev-details", label: "Property Details", icon: FileText },
     ],
   },
-  { view: "inventory", label: "Inventory Management", icon: Package },
+  { view: "inventory", label: "Item Management", icon: Package },
   {
     view: "property-asset", label: "Asset Management", icon: Home, minRole: 'supervisor',
     sub: [
       { subview: "asset-portfolio",   label: "Property Portfolio",    icon: LayoutGrid },
-      { subview: "asset-warranties",  label: "Equipment Warranties",  icon: Shield },
-      { subview: "asset-plans",       label: "As-Built Plans",        icon: FileText },
-      { subview: "asset-inspections", label: "Annual Inspections",    icon: ClipboardCheck },
-      { subview: "compliance",        label: "Compliance",            icon: Shield },
     ],
   },
   {
@@ -97,10 +92,10 @@ const NAV = [
   {
     view: "hr", label: "HR", icon: Users, minRole: 'supervisor',
     sub: [
-      { subview: "hr-ms",          label: "IT Provisioning",   icon: LogIn },
-      { subview: "hr-asana",       label: "Onboarding Tasks",  icon: CheckSquare },
-      { subview: "hr-disclosures", label: "Disclosures",       icon: PenTool },
-      { subview: "hr-documents",   label: "Documents",         icon: Files },
+      { subview: "hr-people", label: "People",    icon: Users },
+      { subview: "hr-hiring", label: "Hiring",    icon: CheckSquare },
+      { subview: "hr-org",    label: "Org Chart", icon: Files },
+      { subview: "hr-leave",  label: "Leave",     icon: PenTool },
     ],
   },
   {
@@ -118,7 +113,7 @@ const NAV = [
 const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }, ref) {
   const [expanded, setExpanded] = useState({});
   const { accounts } = useMsal();
-  const { myRole, can } = useRole();
+  const { myRole, can, myGrantedModules } = useRole();
   const account     = accounts[0];
   const displayName = account?.name ?? account?.username ?? "User";
   const initials    = displayName.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase();
@@ -167,7 +162,11 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
         {/* ── Nav ── */}
         <nav className="sidebar-nav">
           <ul className="nav-list">
-            {NAV.filter(item => !item.minRole || can(item.minRole)).map((item, i) => {
+            {/* Visibility below admin is grant-driven, NOT role-level: a manager
+                only sees baseline screens (no minRole) plus modules an Access
+                Group grants them. IT Admin / Global Admin (administrator+) still
+                see everything so they can manage access. (Jun 17) */}
+            {NAV.filter(item => !item.minRole || can('administrator') || myGrantedModules.has(item.view)).map((item, i) => {
               if (item.divider) return <li key={i} className="nav-divider" />;
 
               // ── Collapsed: icon-only rail ──

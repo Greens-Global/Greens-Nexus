@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, Loader2, AlertCircle, User, Clock } from 'lucide-react';
+import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, Loader2, AlertCircle, User, Clock, HelpCircle } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useInventory }      from '../contexts/InventoryContext';
 import { useRequisitions }   from '../contexts/RequisitionContext';
@@ -14,6 +14,17 @@ const AUTO_DISMISS_MS = 6000;
 
 // Resolved dynamically from MSAL account — see myName below
 
+// Bodies may carry **bold** markers (names, item lists, totals) — render them
+// as <strong> while everything else stays plain text. No other markup.
+export function renderNotifBody(text) {
+  if (!text || !text.includes('**')) return text;
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    part.startsWith('**') && part.endsWith('**')
+      ? <strong key={i} style={{ color: 'var(--ink)', fontWeight: 700 }}>{part.slice(2, -2)}</strong>
+      : part
+  );
+}
+
 function timeAgo(iso) {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
@@ -25,13 +36,26 @@ function timeAgo(iso) {
 }
 
 const TYPE_META = {
-  inv_request:     { icon: Package,      label: 'Inventory Request',    color: 'var(--color-blue)'   },
-  req_pending:     { icon: ShoppingCart, label: 'Purchase Requisition', color: 'var(--color-orange)' },
-  item_returned:   { icon: RotateCcw,    label: 'Item Returned',        color: 'var(--color-green)'  },
-  allocate_request:{ icon: Package,      label: 'Allocation Needed',    color: 'var(--color-orange)' },
-  allocated:       { icon: CheckCircle,  label: 'Item Allocated',       color: 'var(--color-green)'  },
-  approved:        { icon: CheckCircle,  label: 'Request Approved',     color: 'var(--color-green)'  },
-  rejected:        { icon: XCircle,      label: 'Request Rejected',     color: 'var(--color-red)'    },
+  inv_request:      { icon: Package,      label: 'Inventory Request',    color: 'var(--color-blue)'   },
+  req_pending:      { icon: ShoppingCart, label: 'Purchase Requisition', color: 'var(--color-orange)' },
+  checkout_pending: { icon: ShoppingCart, label: 'Checkout Request',     color: 'var(--color-orange)' },
+  item_returned:    { icon: RotateCcw,    label: 'Item Returned',        color: 'var(--color-green)'  },
+  allocate_request: { icon: Package,      label: 'Allocation Needed',    color: 'var(--color-orange)' },
+  allocated:        { icon: CheckCircle,  label: 'Item Allocated',       color: 'var(--color-green)'  },
+  approved:         { icon: CheckCircle,  label: 'Request Approved',     color: 'var(--color-green)'  },
+  rejected:         { icon: XCircle,      label: 'Request Rejected',     color: 'var(--color-red)'    },
+  custom_alert:     { icon: AlertCircle,  label: 'Alert',                color: 'var(--color-orange)' },
+  extension_pending:  { icon: Clock,        label: 'Extension Request',    color: 'var(--color-blue)'   },
+  extension_resolved: { icon: CheckCircle,  label: 'Extension Update',     color: 'var(--color-green)'  },
+  extension_approved: { icon: CheckCircle,  label: 'Extension Approved',   color: 'var(--color-green)'  },
+  extension_declined: { icon: XCircle,      label: 'Extension Declined',   color: 'var(--color-red)'    },
+  req_update:         { icon: ShoppingCart, label: 'Requisition Update',   color: 'var(--color-blue)'   },
+  req_approved:       { icon: CheckCircle,  label: 'Requisition Approved', color: 'var(--color-green)'  },
+  req_rejected:       { icon: XCircle,      label: 'Requisition Rejected', color: 'var(--color-red)'    },
+  req_fulfill:        { icon: ShoppingCart, label: 'Purchase to Fulfill',  color: 'var(--color-purple)' },
+  perm_assign:        { icon: User,         label: 'Item Assignment',      color: 'var(--color-blue)'   },
+  perm_update:        { icon: CheckCircle,  label: 'Assignment Update',    color: 'var(--color-green)'  },
+  perm_return:        { icon: RotateCcw,    label: 'Assignment Return',    color: 'var(--color-orange)' },
 };
 
 // Short stage labels/colors for chips on cards and the lifecycle "trail" strip
@@ -39,9 +63,10 @@ const TYPE_META = {
 const STAGE_META = {
   inv_request:      { label: 'Requested',  color: 'var(--color-blue)'   },
   req_pending:      { label: 'Requested',  color: 'var(--color-orange)' },
+  checkout_pending: { label: 'Pending',    color: 'var(--color-orange)' },
   approved:         { label: 'Approved',   color: 'var(--color-green)'  },
   allocate_request: { label: 'Allocating', color: 'var(--color-orange)' },
-  allocated:        { label: 'Allocated',  color: 'var(--color-green)'  },
+  allocated:        { label: 'In Use',     color: 'var(--color-green)'  },
   item_returned:    { label: 'Returned',   color: 'var(--color-blue)'   },
   rejected:         { label: 'Rejected',   color: 'var(--color-red)'    },
 };
@@ -64,8 +89,8 @@ function groupByRequest(list) {
 }
 
 export default function NotificationBell({ onNavigate }) {
-  const { notifications, unreadCount, markRead, markAllRead, dismiss, clearRead, addNotification, markActioned, pendingApprovalId, clearPendingApproval } = useNotifications();
-  const { approveRequest, rejectRequest, allocateItem, requests: invRequests } = useInventory();
+  const { notifications, unreadCount, markRead, markAllRead, dismiss, addNotification, markActioned, pendingApprovalId, clearPendingApproval } = useNotifications();
+  const { approveRequest, rejectRequest, allocateItem, requests: invRequests, requestsLoading: invRequestsLoading, refreshRequests: refreshInvRequests } = useInventory();
   const { approveRequisition, rejectRequisition }   = useRequisitions();
   const { accounts } = useMsal();
   const { can }      = useRole();
@@ -119,6 +144,30 @@ export default function NotificationBell({ onNavigate }) {
     Object.values(resolveTimers.current).forEach(clearTimeout);
   }, []);
 
+  // Auto-action checkout_pending notifications that are no longer relevant —
+  // i.e. the checkout was handled directly in the Checkouts tab (not via the bell),
+  // so there are no more pending checkouts for that order/id.
+  useEffect(() => {
+    if (!can('manager')) return;
+    // Never judge from an empty/loading checkout list — on first load invRequests
+    // is [] and every pending notification would be wrongly cleared for good.
+    if (invRequestsLoading || !invRequests.length) return;
+    notifications.forEach(n => {
+      if (n.type !== 'checkout_pending' || (n.recipient && n.recipient !== myEmail) || n.actioned) return;
+      const refId = n.refId ?? '';
+      if (!refId) return;
+      // Grace period: a fresh notification can arrive (realtime) before the
+      // checkout poll knows about the new order — judging against that stale
+      // list wrongly cleared brand-new requests. Give the data 90s to catch up.
+      const ageMs = Date.now() - new Date(n.timestamp).getTime();
+      if (!Number.isFinite(ageMs) || ageMs < 90_000) return;
+      const stillPending = invRequests.some(c =>
+        c.status === 'pending' && (c.orderId === refId || c.id === refId)
+      );
+      if (!stillPending) markActioned(n.id);
+    });
+  }, [notifications, invRequests, invRequestsLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleOpen() {
     setOpen(o => !o);
   }
@@ -152,90 +201,145 @@ export default function NotificationBell({ onNavigate }) {
     }, 950);
   }
 
+  function clearActionError(id) {
+    setActionError(prev => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev }; delete next[id]; return next;
+    });
+  }
+
   function handleAction(n, action) {
     const refId       = n.refId       ?? '';
     const itemName    = n.itemName    ?? 'the item';
     const requestedBy = n.requestedBy ?? '';
 
-    if (n.type === 'inv_request') {
+    // New Items checkout pending — needs allocator picker before approving
+    if (n.type === 'checkout_pending' || n.type === 'inv_request') {
       if (action === 'approve') {
-        // Approving now requires picking who'll physically hand the item over —
-        // open the inline allocator picker instead of approving outright.
         setApprovingId(n.id);
         setPickedAllocator('');
         setRejectingId(null);
-        setActionError(prev => {
-          if (!(n.id in prev)) return prev;
-          const next = { ...prev };
-          delete next[n.id];
-          return next;
-        });
+        clearActionError(n.id);
       } else {
-        setRejectingId(n.id); setApprovingId(null);
-        setActionError(prev => {
-          if (!(n.id in prev)) return prev;
-          const next = { ...prev };
-          delete next[n.id];
-          return next;
-        });
+        setRejectingId(n.id);
+        setApprovingId(null);
+        clearActionError(n.id);
       }
     } else if (n.type === 'req_pending') {
+      // Purchase requisition — manager picks who purchases & fulfills it
+      // (same allocator picker as checkouts; backend notifies everyone)
       if (action === 'approve') {
-        approveRequisition(refId, myName);
-        markActioned(n.id);
-        resolveAndDismiss(n, 'approved');
-        addNotification({ type: 'approved', recipient: requestedBy, requestedBy, itemName,
-          title: 'Requisition Approved ✓',
-          body:  `Your purchase requisition has been approved by ${myName}. Your supervisor will allocate the asset to you.`,
-        });
+        setApprovingId(n.id);
+        setPickedAllocator('');
+        setRejectingId(null);
+        clearActionError(n.id);
       } else { setRejectingId(n.id); }
+    } else if (n.type === 'extension_pending') {
+      // Item extension request — no allocator needed; resolve straight away.
+      // Backend adds the days, notifies the employee and actions this notification.
+      if (action === 'approve') {
+        clearActionError(n.id);
+        api.resolveItemExtension(refId, { action: 'approve' })
+          .then(() => {
+            markActioned(n.id);
+            resolveAndDismiss(n, 'approved');
+            refreshInvRequests && refreshInvRequests();
+          })
+          .catch(err => setActionError(prev => ({ ...prev, [n.id]: friendlyActionError(err) })));
+      } else {
+        setRejectingId(n.id);
+        setApprovingId(null);
+        clearActionError(n.id);
+      }
     }
   }
 
-  // Confirms an inventory approval once a name has been picked from the
-  // allocator dropdown — assigns the request to them and notifies both sides.
+  // Confirms approval once an allocator has been picked.
+  // checkout_pending: backend fires approved + allocate_request notifications automatically.
+  // inv_request (old system): we fire them manually via addNotification.
   function submitApprove(n) {
     const chosen = allocators.find(a => a.email === pickedAllocator);
     if (!chosen) return;
     const refId       = n.refId       ?? '';
     const itemName    = n.itemName    ?? 'the item';
     const requestedBy = n.requestedBy ?? '';
-    const invReq      = invRequests.find(r => r.id === refId);
-    const recipientEmail = n.action?.requestedByEmail ?? invReq?.requestedByEmail ?? '';
+
+    // Purchase requisition: approve + assign the fulfiller in one shot
+    if (n.type === 'req_pending') {
+      setApprovingBusy(true);
+      clearActionError(n.id);
+      Promise.resolve(approveRequisition(refId, myName, { email: chosen.email, name: chosen.name }))
+        .then(() => {
+          markActioned(n.id);
+          resolveAndDismiss(n, 'approved');
+          setApprovingId(null);
+          setPickedAllocator('');
+        })
+        .catch(err => setActionError(prev => ({ ...prev, [n.id]: friendlyActionError(err) })))
+        .finally(() => setApprovingBusy(false));
+      return;
+    }
+
+    // For checkout_pending: ref_id may be an order_id (cart) or single checkout_id.
+    // Find all pending checkouts that share this ref so cart orders all get approved.
+    const targets = (n.type === 'checkout_pending')
+      ? invRequests.filter(c => c.status === 'pending' && (c.orderId === refId || c.id === refId))
+      : null;
+
+    if (n.type === 'checkout_pending' && (!targets || !targets.length)) {
+      setActionError(prev => ({ ...prev, [n.id]: 'Request not found — it may have already been processed. Refresh to see the latest state.' }));
+      return;
+    }
 
     setApprovingBusy(true);
-    setActionError(prev => {
-      if (!(n.id in prev)) return prev;
-      const next = { ...prev };
-      delete next[n.id];
-      return next;
-    });
-    approveRequest(refId, myName, chosen.email, chosen.name)
-      .then(() => {
-        markActioned(n.id);
-        resolveAndDismiss(n, 'approved');
-        addNotification({
-          type:        'approved',
-          recipient:   recipientEmail || requestedBy,
-          requestedBy, itemName,
-          title: 'Request Approved ✓',
-          body:  `Your request for ${itemName} has been approved by ${myName}. It will be assigned to you by your supervisor shortly.`,
-          action: { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
-        });
-        addNotification({
-          type:        'allocate_request',
-          recipient:   chosen.email,
-          refId,
-          itemName,
-          requestedBy,
-          title:       'Allocate an Item',
-          body:        `${myName} approved ${requestedBy}'s request for ${itemName} and assigned it to you to hand over.`,
-          action:      { label: 'Allocate Now →', kind: 'allocate' },
-        });
-        setApprovingId(null);
-        setPickedAllocator('');
+    clearActionError(n.id);
+
+    // Sequential (not Promise.all) so the backend batches the order's
+    // notifications into one instead of racing into per-item duplicates.
+    const approveAll = targets
+      ? (async () => {
+          const results = [];
+          for (const c of targets) {
+            try { results.push({ status: 'fulfilled', value: await approveRequest(c.id, myName, chosen.email, chosen.name) }); }
+            catch (e) { results.push({ status: 'rejected', reason: e }); }
+          }
+          return results;
+        })()
+      : approveRequest(refId, myName, chosen.email, chosen.name).then(r => [{ status: 'fulfilled', value: r }]).catch(e => [{ status: 'rejected', reason: e }]);
+
+    approveAll
+      .then(results => {
+        const anySucceeded = results.some(r => r.status === 'fulfilled');
+        const firstFailure = results.find(r => r.status === 'rejected');
+
+        if (anySucceeded) {
+          markActioned(n.id);
+          resolveAndDismiss(n, 'approved');
+          // Old inventory system: manually push notifications (backend doesn't do it)
+          if (n.type === 'inv_request') {
+            const invReq = invRequests.find(r => r.id === refId);
+            const recipientEmail = n.action?.requestedByEmail ?? invReq?.requestedByEmail ?? '';
+            addNotification({
+              type: 'approved', recipient: recipientEmail || requestedBy,
+              requestedBy, itemName,
+              title: 'Request Approved ✓',
+              body:  `Your request for ${itemName} has been approved by ${myName}. It will be assigned to you by your supervisor shortly.`,
+              action: { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
+            });
+            addNotification({
+              type: 'allocate_request', recipient: chosen.email, refId, itemName, requestedBy,
+              title: 'Allocate an Item',
+              body:  `${myName} approved ${requestedBy}'s request for ${itemName} and assigned it to you to hand over.`,
+              action: { label: 'Allocate Now →', kind: 'allocate' },
+            });
+          }
+          setApprovingId(null);
+          setPickedAllocator('');
+        }
+        if (!anySucceeded && firstFailure) {
+          setActionError(prev => ({ ...prev, [n.id]: friendlyActionError(firstFailure.reason) }));
+        }
       })
-      .catch(err => setActionError(prev => ({ ...prev, [n.id]: friendlyActionError(err) })))
       .finally(() => setApprovingBusy(false));
   }
 
@@ -245,25 +349,37 @@ export default function NotificationBell({ onNavigate }) {
     const itemName    = n.itemName    ?? 'the item';
     const requestedBy = n.requestedBy ?? '';
 
-    if (n.type === 'inv_request') {
+    if (n.type === 'extension_pending') {
+      api.resolveItemExtension(refId, { action: 'reject', note: rejectReason.trim() })
+        .then(() => refreshInvRequests && refreshInvRequests())
+        .catch(() => {});
+    } else if (n.type === 'checkout_pending') {
+      // For cart orders, ref_id = order_id; find all pending checkouts under it.
+      // Sequential so the backend batches the order's rejection notifications into one.
+      const targets = invRequests.filter(c =>
+        c.status === 'pending' && (c.orderId === refId || c.id === refId)
+      );
+      (async () => {
+        for (const c of (targets.length ? targets : [{ id: refId }])) {
+          try { await api.updateItemCheckout(c.id, { status: 'rejected', resolved_by: myName, reject_reason: rejectReason.trim() }); }
+          catch { /* keep going */ }
+        }
+        refreshInvRequests && refreshInvRequests();
+      })();
+    } else if (n.type === 'inv_request') {
       rejectRequest(refId, myName, rejectReason.trim());
       const invReq = invRequests.find(r => r.id === refId);
       const recipientEmail = n.action?.requestedByEmail ?? invReq?.requestedByEmail ?? '';
       addNotification({
-        type:        'rejected',
-        recipient:   recipientEmail || requestedBy,
+        type: 'rejected', recipient: recipientEmail || requestedBy,
         requestedBy, itemName,
         title: 'Request Rejected',
         body:  `Your request for ${itemName} was not approved. Reason: "${rejectReason.trim()}"`,
         action: { label: 'View Request →', view: 'inventory', sub: 'my-requests' },
       });
-    }
-    if (n.type === 'req_pending') {
+    } else if (n.type === 'req_pending') {
+      // Backend notifies the beneficiary with the rejection reason
       rejectRequisition(refId, myName, rejectReason.trim());
-      addNotification({ type: 'rejected', recipient: requestedBy, requestedBy, itemName,
-        title: 'Requisition Rejected',
-        body:  `Your purchase requisition was not approved. Reason: "${rejectReason.trim()}"`,
-      });
     }
     markActioned(n.id);
     resolveAndDismiss(n, 'rejected');
@@ -293,41 +409,106 @@ export default function NotificationBell({ onNavigate }) {
     }).catch(() => {}).finally(() => setAllocatingId(null));
   }
 
-  // Marks an "Updates" notification as read and schedules it to quietly drop
-  // out of the list shortly after — informational items shouldn't linger once
-  // you've seen them (unlike "Needs Action", which stays until resolved).
-  function handleUpdateClick(n) {
-    markRead(n.id);
-    if (n.read || dismissTimers.current[n.id]) return;
-    dismissTimers.current[n.id] = setTimeout(() => {
-      dismiss(n.id);
-      delete dismissTimers.current[n.id];
-    }, AUTO_DISMISS_MS);
+  // Where each notification type lives in the app — clicking a card marks it
+  // read and takes you there. Cards are never auto-dismissed on click; the
+  // header's "Clear all" (or the per-card ×) is the only way to remove them.
+  function destinationFor(n) {
+    switch (n.type) {
+      case 'allocate_request':
+        // The assigned allocator's handover queue — supervisors land on their
+        // "To Hand Over" tab, managers on the Checkouts queue (both via 'handover').
+        return ['inventory', 'handover'];
+      case 'checkout_pending':
+      case 'extension_pending':
+      case 'item_returned':
+        return ['inventory', 'checkouts'];   // manager work queue
+      case 'approved':
+      case 'rejected':
+      case 'allocated':
+      case 'extension_resolved':
+      case 'extension_approved':
+      case 'extension_declined':
+        return ['inventory', 'myitems'];
+      case 'perm_assign':
+        // Permanent assignments live under My Items → Permanent, not Active
+        // Checkouts — MyCheckoutsPanel switches its own tab on this sub.
+        return ['inventory', 'permanent'];
+      case 'perm_return':
+        // Manager verifies/accepts the return under Checkouts → Assignments
+        // (Permanent) → Returns to Accept, not the Temporary checkouts list.
+        return ['inventory', 'assignment-returns'];
+      case 'req_fulfill':
+        return ['inventory', 'purchasereqs'];  // allocator's To Fulfill queue
+      case 'req_pending':
+      case 'req_update':
+      case 'req_approved':
+      case 'req_rejected':
+        // Land on the Requisition Log (status/steps live there), not the blank
+        // New Request form (Jun 16).
+        return ['purchase', 'log'];
+      default:
+        return n.action?.view ? [n.action.view, n.action.sub] : null;
+    }
   }
 
-  // Needs Action: only visible to managers+ (they have approve/reject capability)
-  const actionable = can('manager') ? notifications.filter(n =>
-    (n.type === 'inv_request' || n.type === 'req_pending') && !n.recipient && !n.actioned
-  ) : [];
+  function handleUpdateClick(n) {
+    markRead(n.id);
+    let dest = destinationFor(n);
+    // "Request returned" opens the Completed filter — unless the order is only
+    // PARTIALLY back, in which case it still lives under Active.
+    if (n.type === 'item_returned') {
+      const related = (invRequests || []).filter(c => c.orderId === n.refId || c.id === n.refId);
+      const anyOut = related.some(c => ['approved', 'pending_receipt', 'allocated'].includes(c.status));
+      dest = ['inventory', anyOut ? 'checkouts' : 'checkouts-completed'];
+    }
+    if (dest) {
+      setOpen(false);
+      // Window event instead of onNavigate: App navigates on it AND the target
+      // view's own listener switches its internal tab even when the app-level
+      // view/sub didn't change (repeat clicks on the same destination).
+      window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: dest[0], sub: dest[1] } }));
+    }
+  }
 
-  // A toast click set this to a notification id — open the panel straight into
-  // its approval workflow (allocator picker for inv_request, reject reason for
-  // requisitions) instead of just opening the list and making the user hunt.
+  // Needs Action: only visible to managers+
+  // checkout_pending = new Items module; inv_request/req_pending = older systems
+  const ACTIONABLE_TYPES = new Set(['inv_request', 'req_pending', 'checkout_pending', 'extension_pending']);
+  // Broadcast (no recipient) or addressed to me — checkout requests are now
+  // targeted at the manager the employee picked at checkout.
+  const actionableRaw = can('manager') ? notifications.filter(n =>
+    ACTIONABLE_TYPES.has(n.type) && (!n.recipient || n.recipient === myEmail) && !n.actioned
+  ) : [];
+  // Deduplicate by refId — parallel cart submissions can create N notifications for one order
+  const seenRefs = new Set();
+  const actionable = actionableRaw.filter(n => {
+    const key = n.refId || n.id;
+    if (seenRefs.has(key)) return false;
+    seenRefs.add(key);
+    return true;
+  });
+
+  // A toast click set this to a notification id — open the panel on that card
+  // with the full set of choices (Review / Approve All / Reject All) visible.
+  // It used to jump straight into the allocator picker, which hid the other
+  // two options and read as "the buttons are gone".
   useEffect(() => {
     if (!pendingApprovalId) return;
     const n = actionable.find(x => x.id === pendingApprovalId);
     if (!n) { clearPendingApproval(); return; }
     setOpen(true);
-    handleAction(n, 'approve');
     markRead(n.id);
     clearPendingApproval();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingApprovalId]);
 
-  // Updates: no recipient (global) OR addressed to my email or my display name
+  // Updates: everything that isn't an actionable type, scoped to me or broadcast.
+  // item_returned with no recipient is manager-only — skip for employees to avoid
+  // broadcasting someone else's return into every user's bell.
   const updates = notifications.filter(n =>
-    n.type !== 'inv_request' && n.type !== 'req_pending' &&
-    (!n.recipient || n.recipient === myEmail || n.recipient === myName)
+    !ACTIONABLE_TYPES.has(n.type) &&
+    (!n.recipient || n.recipient === myEmail || n.recipient === myName) &&
+    !(n.type === 'item_returned' && !n.recipient && !can('manager')) &&
+    !(n.type === 'perm_return' && !n.recipient && !can('manager'))
   );
 
   // Unread count scoped to what I can see
@@ -371,42 +552,44 @@ export default function NotificationBell({ onNavigate }) {
       }} />
 
       {/* Drawer — mirrors My Requests / Access Manager so the panel slides in from the side */}
-      <div style={{
+      <div className="notif-drawer" style={{
         position: 'fixed', top: 0, right: 0, height: '100vh',
         width: 'min(560px, 94vw)',
         background: 'var(--card)',
-        boxShadow: '-12px 0 48px rgba(0,0,0,0.22)',
+        boxShadow: open ? '-12px 0 48px rgba(0,0,0,0.22)' : 'none',
         zIndex: 1201,
         display: 'flex', flexDirection: 'column',
         transform: open ? 'translateX(0)' : 'translateX(100%)',
         transition: 'transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)',
       }}>
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', padding: '20px 24px', borderBottom: '1px solid var(--line)', gap: 14, flexShrink: 0 }}>
+        {/* flexWrap + flex:1 on the title block: on narrow drawers the action
+            buttons drop to their own line instead of overlapping the title */}
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', padding: '20px 24px', borderBottom: '1px solid var(--line)', gap: 14, flexShrink: 0 }}>
           <div style={{ width: 40, height: 40, borderRadius: 11, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <Bell size={19} style={{ color: 'hsl(var(--color-blue))' }} />
           </div>
-          <div style={{ minWidth: 0 }}>
+          <div style={{ minWidth: 0, flex: '1 1 120px' }}>
             <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--ink)' }}>Notifications</div>
             <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 1 }}>
               {isEmpty ? 'All caught up' : `${actionable.length ? `${actionable.length} need${actionable.length === 1 ? 's' : ''} action · ` : ''}${updates.length} update${updates.length !== 1 ? 's' : ''}`}
             </div>
           </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            {unreadCount > 0 && (
-              <button onClick={() => { markAllRead(); updates.filter(n => !n.read).forEach(handleUpdateClick); }}
-                style={{ fontSize: 12.5, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600 }}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+            {myUnread > 0 && (
+              <button onClick={markAllRead}
+                style={{ fontSize: 12.5, color: 'hsl(var(--color-blue))', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 10px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600, whiteSpace: 'nowrap' }}
                 onMouseEnter={e => e.currentTarget.style.background='var(--mist)'}
                 onMouseLeave={e => e.currentTarget.style.background='none'}>
                 Mark all read
               </button>
             )}
-            {notifications.some(n => n.read) && (
-              <button onClick={clearRead} title="Clear read notifications"
-                style={{ color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 8, borderRadius: 8, display: 'flex', alignItems: 'center' }}
+            {updates.length > 0 && (
+              <button onClick={() => { markAllRead(); updates.forEach(n => dismiss(n.id)); }}
+                style={{ fontSize: 12.5, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600 }}
                 onMouseEnter={e => e.currentTarget.style.background='var(--mist)'}
                 onMouseLeave={e => e.currentTarget.style.background='none'}>
-                <Trash2 size={17} />
+                Clear all
               </button>
             )}
             <button onClick={() => setOpen(false)} aria-label="Close" title="Close"
@@ -469,7 +652,7 @@ export default function NotificationBell({ onNavigate }) {
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                          <span style={{ fontWeight: 700, fontSize: 15.5, color: 'var(--ink)', lineHeight: 1.3 }}>{n.itemName || n.title}</span>
+                          <span style={{ fontWeight: 700, fontSize: 15.5, color: 'var(--ink)', lineHeight: 1.3 }}>{n.title}</span>
                           <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>{timeAgo(n.timestamp)}</span>
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, margin: '7px 0 4px' }}>
@@ -489,24 +672,34 @@ export default function NotificationBell({ onNavigate }) {
                             </span>
                           )}
                         </div>
-                        <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '4px 0 14px', lineHeight: 1.45 }}>{n.body}</p>
+                        <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '4px 0 14px', lineHeight: 1.45, whiteSpace: 'pre-line' }}>{renderNotifBody(n.body)}</p>
 
                         {!isRejecting && !isApproving ? (
-                          <div style={{ display: 'flex', gap: 10 }}>
+                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                            {/* Neil: Review = yellow/caution with a ? icon so people
+                                know it opens the full list to decide item-by-item */}
+                            <button onClick={e => { e.stopPropagation(); markRead(n.id); setOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'inventory', sub: n.type === 'req_pending' ? 'purchasereqs' : 'checkouts' } })); }}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: '1px solid hsla(var(--color-orange),0.4)', background: 'hsla(var(--color-orange),0.12)', color: 'hsl(var(--color-orange))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                              <HelpCircle size={15} /> Review
+                            </button>
                             <button onClick={e => { e.stopPropagation(); handleAction(n, 'approve'); }}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 20px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
-                              <Check size={15} /> Approve
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                              <Check size={15} /> {n.type === 'extension_pending' ? 'Approve' : 'Approve All'}
                             </button>
                             <button onClick={e => { e.stopPropagation(); setRejectingId(n.id); setRejectReason(''); setApprovingId(null); }}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 20px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-red),0.10)', color: 'hsl(var(--color-red))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
-                              <X size={15} /> Reject
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-red),0.10)', color: 'hsl(var(--color-red))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+                              <X size={15} /> {n.type === 'extension_pending' ? 'Reject' : 'Reject All'}
                             </button>
                           </div>
                         ) : isApproving ? (
                           <div onClick={e => e.stopPropagation()}>
-                            {n.type === 'inv_request' ? (
+                            {(n.type === 'inv_request' || n.type === 'checkout_pending' || n.type === 'req_pending') ? (
                               <>
-                                <p style={{ fontSize: 13, color: 'hsl(var(--color-green))', fontWeight: 700, margin: '0 0 8px' }}>Who should hand this item over to {n.requestedBy}?</p>
+                                <p style={{ fontSize: 13, color: 'hsl(var(--color-green))', fontWeight: 700, margin: '0 0 8px' }}>
+                                  {n.type === 'req_pending'
+                                    ? `Who should purchase & fulfill this for ${n.requestedBy}?`
+                                    : `Who should hand this over to ${n.requestedBy}?`}
+                                </p>
                                 {actionError[n.id] && (
                                   <p style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.08)', borderRadius: 8, padding: '8px 12px', margin: '0 0 8px', lineHeight: 1.4 }}>
                                     <AlertCircle size={14} style={{ flexShrink: 0 }} /> {actionError[n.id]}
@@ -578,16 +771,24 @@ export default function NotificationBell({ onNavigate }) {
               </div>
               {groupByRequest(updates).map(({ key, primary: n, trail }) => {
                 const meta = TYPE_META[n.type] ?? TYPE_META['approved'];
+                // Manager alerts must not read like routine lifecycle updates —
+                // orange card + ALERT chip, subject bold, body in full ink
+                const isAlert = n.type === 'custom_alert';
                 return (
                   <div key={key}
-                    style={{ padding: '16px 24px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 14, alignItems: 'flex-start', background: n.read ? 'transparent' : 'hsla(var(--color-blue),0.04)', cursor: 'pointer', opacity: n.read ? 0.7 : 1 }}
+                    style={{ padding: '16px 24px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 14, alignItems: 'flex-start', background: isAlert ? 'hsla(var(--color-orange),0.07)' : n.read ? 'transparent' : 'hsla(var(--color-blue),0.04)', boxShadow: isAlert ? 'inset 3px 0 0 hsl(var(--color-orange))' : 'none', cursor: 'pointer', opacity: n.read ? 0.7 : 1 }}
                     onClick={() => handleUpdateClick(n)}>
-                    <div style={{ width: 38, height: 38, borderRadius: 10, background: `hsla(${meta.color},0.12)`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <div style={{ width: 38, height: 38, borderRadius: 10, background: `hsla(${meta.color},${isAlert ? 0.18 : 0.12})`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       <meta.icon size={17} color={`hsl(${meta.color})`} />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
+                      {isAlert && (
+                        <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 800, letterSpacing: '.08em', color: 'hsl(var(--color-orange))', background: 'hsla(var(--color-orange),0.15)', borderRadius: 999, padding: '2px 8px', marginBottom: 4 }}>
+                          ⚠ ALERT
+                        </span>
+                      )}
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                        <span style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--ink)' }}>{n.title}</span>
+                        <span style={{ fontWeight: 700, fontSize: isAlert ? 15 : 14.5, color: 'var(--ink)' }}>{n.title}</span>
                         <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0, whiteSpace: 'nowrap' }}>{timeAgo(n.timestamp)}</span>
                       </div>
                       {trail.length > 0 && (
@@ -611,7 +812,7 @@ export default function NotificationBell({ onNavigate }) {
                           )}
                         </div>
                       )}
-                      <p style={{ fontSize: 13.5, color: 'var(--muted)', margin: '4px 0 0', lineHeight: 1.45 }}>{n.body}</p>
+                      <p style={{ fontSize: 13.5, color: isAlert ? 'var(--ink)' : 'var(--muted)', margin: '4px 0 0', lineHeight: 1.45, whiteSpace: 'pre-line' }}>{renderNotifBody(n.body)}</p>
                       {n.action && n.action.kind === 'allocate' && (
                         <button
                           onClick={e => { e.stopPropagation(); handleInlineAllocate(n); }}
@@ -628,8 +829,10 @@ export default function NotificationBell({ onNavigate }) {
                         </button>
                       )}
                     </div>
-                    <button onClick={e => { e.stopPropagation(); dismiss(n.id); }}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 6, borderRadius: 6, flexShrink: 0 }}>
+                    <button onClick={e => { e.stopPropagation(); dismiss(n.id); }} title="Dismiss"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink)', opacity: 0.35, padding: 6, borderRadius: 6, flexShrink: 0, transition: 'opacity 0.15s' }}
+                      onMouseEnter={e => e.currentTarget.style.opacity='0.8'}
+                      onMouseLeave={e => e.currentTarget.style.opacity='0.35'}>
                       <X size={15} />
                     </button>
                   </div>

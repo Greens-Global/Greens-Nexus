@@ -40,8 +40,28 @@ def _describe(method: str, path: str) -> tuple[str, str]:
         if sub == "confirm-return":             return _fmt("Confirmed return"), display_id
         if sub == "mark-lost":                  return _fmt("Marked asset lost"), display_id
 
+    # ── Items (individual-unit system) ───────────────────────────────────────
+    if resource == "items":
+        if rid == "checkouts":
+            checkout_id = sub if sub else ""
+            if method == "POST":   return "Checked out item", ""
+            if method == "PATCH":  return f"Updated checkout {checkout_id}".strip(), checkout_id
+        if rid == "import":        return "Imported items (CSV)", ""
+        if method == "POST":       return "Added item", ""
+        if method == "PATCH":      return f"Updated item {rid}".strip(), rid
+        if method == "DELETE":     return f"Deleted item {rid}".strip(), rid
+
     # ── Inventory requests ────────────────────────────────────────────────────
     if resource == "inventory-requests":
+        if rid == "items":
+            # /inventory-requests/items[/{item_id}[/import]] — catalogue management,
+            # distinct from the request-lifecycle paths below (rid would otherwise
+            # be mistaken for the resource id, e.g. "Updated inventory request items")
+            item_id = sub if sub and sub != "import" else ""
+            if method == "POST" and sub == "import": return "Imported inventory items", ""
+            if method == "POST":                      return "Added inventory item", ""
+            if method == "PATCH":                     return f"Updated inventory item {item_id}".strip(), item_id
+            if method == "DELETE":                    return f"Deleted inventory item {item_id}".strip(), item_id
         if method == "POST":                    return "Created inventory request", ""
         if method == "PATCH":                   return _fmt("Updated inventory request"), display_id
 
@@ -131,10 +151,18 @@ def _extract_email(request: Request) -> str:
 # These fields, when present in the JSON body, are copied into `details` so an
 # auditor can see *what* changed, not just that *something* changed.
 _BODY_FIELDS_BY_RESOURCE = {
+    "items": (
+        "name", "item_type", "make", "model", "department", "location",
+        "ownership_type", "status", "item_name", "reason", "days",
+        "requested_by", "condition_note", "return_photo_name",
+        "asset_value",  # checkout/add value — "who took out how much worth"
+    ),
     "inventory-requests": (
         "status", "item_id", "item_name", "quantity", "days", "reason",
         "resolved_by", "reject_reason", "allocated_by", "condition_note",
         "return_photo_name",
+        # catalogue item create/edit fields (POST|PATCH /inventory-requests/items/*)
+        "name", "category", "department", "location", "total_qty",
     ),
     "requisitions": (
         "status", "item_id", "item_name", "quantity", "reason",
@@ -176,19 +204,46 @@ class AuditMiddleware(BaseHTTPMiddleware):
 
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return response
+
+        # Resolve IP once — used for both security logs and normal audit rows.
+        forwarded = request.headers.get("x-forwarded-for", "")
+        if forwarded:
+            hops = [h.strip() for h in forwarded.split(",") if h.strip()]
+            ip = hops[-1] if hops else ""
+        else:
+            ip = request.client.host if request.client else ""
+
+        # Log failed auth attempts (401 / 403) as security events so they
+        # appear in the audit trail and can trigger alerts.
+        if response.status_code in (401, 403):
+            try:
+                user_email = _extract_email(request)
+                sec_action = "Authentication failed" if response.status_code == 401 else "Authorization denied"
+                db = SessionLocal()
+                try:
+                    db.add(models.AuditLog(
+                        timestamp=datetime.utcnow().isoformat(),
+                        user_email=user_email,
+                        user_role="",
+                        action=sec_action,
+                        resource_type=resource,
+                        resource_id="",
+                        details=json.dumps({"path": path, "method": method, "status": response.status_code}),
+                        ip_address=ip,
+                    ))
+                    db.commit()
+                finally:
+                    db.close()
+            except Exception:
+                pass
+            return response
+
         if response.status_code >= 400:
             return response
 
         try:
             action, resource_id = _describe(method, path)
             user_email = _extract_email(request)
-
-            forwarded  = request.headers.get("x-forwarded-for")
-            ip = (
-                forwarded.split(",")[0].strip()
-                if forwarded
-                else (request.client.host if request.client else "")
-            )
 
             details = {"path": path, "status": response.status_code}
             details.update(body_fields)

@@ -118,19 +118,19 @@ export default function Marketing({ activeSub, onSubChange }) {
             <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Active Campaign Performance</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Real-time stats from Google Ads API integration</p>
             <div className="req-table-wrapper">
-              <table className="req-table">
+              <table className="req-table stack-table">
                 <thead><tr><th>Campaign</th><th>Platform</th><th>Impressions</th><th>Clicks</th><th>Conversions</th><th>Abandoned Carts</th><th>Spend</th><th>Status</th></tr></thead>
                 <tbody>
                   {filteredCampaigns.map(c => (
                     <tr key={c.name}>
                       <td style={{ fontWeight: 600 }}>{c.name}</td>
-                      <td style={{ color: 'var(--text-secondary)' }}>{c.platform}</td>
-                      <td>{c.impressions.toLocaleString()}</td>
-                      <td>{c.clicks.toLocaleString()}</td>
-                      <td style={{ fontWeight: 600, color: 'hsl(var(--color-green))' }}>{c.conversions}</td>
-                      <td style={{ fontWeight: 600, color: 'hsl(var(--color-orange))' }}>{c.abandonedCarts}</td>
-                      <td style={{ fontWeight: 700 }}>${c.spend.toLocaleString()}</td>
-                      <td>
+                      <td data-th="Platform" style={{ color: 'var(--text-secondary)' }}>{c.platform}</td>
+                      <td data-th="Impressions">{c.impressions.toLocaleString()}</td>
+                      <td data-th="Clicks">{c.clicks.toLocaleString()}</td>
+                      <td data-th="Conversions" style={{ fontWeight: 600, color: 'hsl(var(--color-green))' }}>{c.conversions}</td>
+                      <td data-th="Abandoned carts" style={{ fontWeight: 600, color: 'hsl(var(--color-orange))' }}>{c.abandonedCarts}</td>
+                      <td data-th="Spend" style={{ fontWeight: 700 }}>${c.spend.toLocaleString()}</td>
+                      <td data-th="Status">
                         <span style={{ backgroundColor: c.status === 'Active' ? '#111827' : 'var(--bg-secondary)', color: c.status === 'Active' ? '#fff' : 'var(--text-secondary)', border: c.status !== 'Active' ? '1px solid var(--border-color)' : 'none', padding: '4px 8px', borderRadius: 4, fontSize: '0.75rem', fontWeight: 700 }}>{c.status}</span>
                       </td>
                     </tr>

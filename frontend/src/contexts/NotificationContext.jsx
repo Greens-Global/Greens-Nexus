@@ -3,13 +3,15 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef } f
 import { useMsal } from '@azure/msal-react';
 import { api }     from '../api';
 import { supabase } from '../lib/supabase';
+import { cleanName } from '../lib/utils';
 
 const NotificationCtx = createContext(null);
 
 let counter = 1;
 const genId = () => `N${Date.now()}-${counter++}`;
 
-const FALLBACK_POLL = 8000; // 8s fallback in case realtime misses anything
+const FALLBACK_POLL_OK  = 30_000; // 30s when everything's fine — realtime handles the rest
+const FALLBACK_POLL_ERR = 60_000; // 60s backoff when backend is struggling
 
 function rowToNotif(r) {
   return {
@@ -20,7 +22,7 @@ function rowToNotif(r) {
     body:        r.body,
     refId:       r.ref_id,
     itemName:    r.item_name,
-    requestedBy: r.requested_by,
+    requestedBy: cleanName(r.requested_by),
     action:      r.action,
     actioned:    r.actioned,
     read:        r.read,
@@ -38,15 +40,20 @@ export function NotificationProvider({ children }) {
   // the bell panel to open itself straight into that item's approval workflow
   // (allocator picker / reject reason) instead of just opening the list.
   const [pendingApprovalId, setPendingApprovalId] = useState(null);
-  const pollRef    = useRef(null);
-  const channelRef = useRef(null);
+  const pollRef     = useRef(null);
+  const channelRef  = useRef(null);
+  const fetchingRef = useRef(false);
+  const errCountRef = useRef(0);
+  const pingRef     = useRef(null);
 
   // ── Full fetch from backend ───────────────────────────────────────────────
   const fetchNotifications = useCallback(() => {
-    if (!myEmail) return;
+    if (!myEmail || fetchingRef.current) return;
+    fetchingRef.current = true;
     api.getNotifications()
-      .then(rows => setNotifications(rows.map(rowToNotif)))
-      .catch(() => {});
+      .then(rows => { setNotifications(rows.map(rowToNotif)); errCountRef.current = 0; })
+      .catch(() => { errCountRef.current += 1; })
+      .finally(() => { fetchingRef.current = false; });
   }, [myEmail]);
 
   // ── Supabase Realtime subscription ────────────────────────────────────────
@@ -56,51 +63,43 @@ export function NotificationProvider({ children }) {
     // Initial load
     fetchNotifications();
 
+    // Adaptive fallback poll — backs off when backend errors accumulate
+    function scheduleNotifPoll() {
+      clearTimeout(pollRef.current);
+      const delay = errCountRef.current > 0 ? FALLBACK_POLL_ERR : FALLBACK_POLL_OK;
+      pollRef.current = setTimeout(() => {
+        fetchNotifications();
+        scheduleNotifPoll();
+      }, delay);
+    }
+
     if (supabase) {
-      // Subscribe to new inserts on nexus_notifications
+      // Realtime via notification_events PINGS, not the notifications table.
+      // nexus_notifications must never be anon-readable — its rows carry every
+      // user's approval/rejection texts and emails, and the anon key ships in
+      // the public JS bundle. A DB trigger writes a zero-content ping row on
+      // every notification insert/update; we refetch through the authenticated
+      // API, which filters to this user server-side.
       channelRef.current = supabase
-        .channel(`notifs:${myEmail}`)
+        .channel('notification_events_pings')
         .on(
           'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'nexus_notifications' },
-          payload => {
-            const r = payload.new;
-            const rec = (r.recipient ?? '').toLowerCase();
-            // Only process if it's a broadcast or addressed to me
-            if (rec === '' || rec === myEmail) {
-              const readList = (r.read_by ?? '').split(',').filter(Boolean);
-              setNotifications(prev => {
-                // Deduplicate — realtime and poll can both fire
-                if (prev.some(n => n.id === r.id)) return prev;
-                return [rowToNotif({ ...r, read: readList.includes(myEmail) }), ...prev.slice(0, 49)];
-              });
-            }
-          }
-        )
-        .on(
-          'postgres_changes',
-          { event: 'UPDATE', schema: 'public', table: 'nexus_notifications' },
-          payload => {
-            const r = payload.new;
-            setNotifications(prev => prev.map(n => {
-              if (n.id !== r.id) return n;
-              const readList = (r.read_by ?? '').split(',').filter(Boolean);
-              return rowToNotif({ ...r, read: readList.includes(myEmail) });
-            }));
+          { event: 'INSERT', schema: 'public', table: 'notification_events' },
+          () => {
+            // Trailing debounce — a batch of writes fires one fetch, not N
+            clearTimeout(pingRef.current);
+            pingRef.current = setTimeout(fetchNotifications, 350);
           }
         )
         .subscribe();
-
-      // 60s fallback poll to catch anything realtime missed
-      pollRef.current = setInterval(fetchNotifications, FALLBACK_POLL);
-    } else {
-      // No Supabase client — fall back to 5s polling
-      pollRef.current = setInterval(fetchNotifications, 5000);
     }
+
+    scheduleNotifPoll();
 
     return () => {
       if (channelRef.current) supabase?.removeChannel(channelRef.current);
-      clearInterval(pollRef.current);
+      clearTimeout(pollRef.current);
+      clearTimeout(pingRef.current);
     };
   }, [myEmail, fetchNotifications]);
 

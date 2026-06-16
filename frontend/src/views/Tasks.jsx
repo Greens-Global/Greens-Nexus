@@ -116,7 +116,7 @@ export default function Tasks() {
         {filtered.length === 0
           ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)', border: '1px dashed var(--border-color)', borderRadius: 12 }}>No matching tasks found.</div>
           : filtered.map(task => (
-            <div key={task.id} style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: '20px 24px', boxShadow: 'var(--shadow-sm)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 24 }}>
+            <div key={task.id} className="task-card" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: '20px 24px', boxShadow: 'var(--shadow-sm)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 24 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontFamily: 'monospace', fontWeight: 600 }}>{task.id}</span>
@@ -134,7 +134,7 @@ export default function Tasks() {
                   </div>
                 )}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
+              <div className="task-side" style={{ display: 'flex', alignItems: 'center', gap: 16, flexShrink: 0 }}>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <span className="status-badge" style={{ ...priorityStyle(task.priority), borderRadius: 20, padding: '4px 10px' }}>{task.priority}</span>
                   <span className="status-badge" style={{ backgroundColor: 'var(--border-color)', color: 'var(--text-secondary)', borderRadius: 20, padding: '4px 10px' }}>{task.status}</span>

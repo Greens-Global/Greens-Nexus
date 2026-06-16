@@ -1,233 +1,262 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { useMsal } from '@azure/msal-react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { api } from '../api';
 import { supabase } from '../lib/supabase';
+import { cleanName } from '../lib/utils';
 
 const InventoryContext = createContext(null);
 
-function genId() { return `IREQ-${Date.now().toString(36).toUpperCase()}`; }
+function genCheckoutId() {
+  return `ICHK-${Date.now().toString(36).toUpperCase()}-${crypto.randomUUID().replace(/-/g,'').slice(0,8).toUpperCase()}`;
+}
+
+// Polls usually return identical data — keeping the previous array reference
+// lets React bail out of re-rendering every consumer on each 10s cycle.
+function keepIfSame(prev, next) {
+  return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+}
 
 export function InventoryProvider({ children }) {
-  const { accounts } = useMsal();
-  const myEmail = (accounts[0]?.username ?? '').toLowerCase();
+  const [items,            setItems]            = useState([]);
+  const [itemsLoading,     setItemsLoading]     = useState(true);
+  const [itemsError,       setItemsError]       = useState(null);
+  const [checkouts,        setCheckouts]        = useState([]);
+  const [checkoutsLoading, setCheckoutsLoading] = useState(true);
+  const [checkoutsError,   setCheckoutsError]   = useState(null);
 
-  // Stock levels now live server-side (inventory_items table) and are the
-  // single source of truth — decremented on allocation, restored on return.
-  // No more locally-held mock data that drifts from reality.
-  const [items,         setItems]         = useState([]);
-  const [itemsLoading,  setItemsLoading]   = useState(true);
-  const [itemsError,    setItemsError]     = useState(null);
-  const [requests,      setRequests]       = useState([]);
-  const [requestsLoading, setRequestsLoading] = useState(true);
-  const [requestsError, setRequestsError]  = useState(null);
-  const channelRef  = useRef(null);  // postgres_changes on inventory_requests
-  const eventsRef   = useRef(null);  // postgres_changes on inventory_events
-  const pollRef     = useRef(null);
-  // Always-current snapshot of requests for use inside subscription callbacks.
-  // Avoids stale closure: subscriptions are set up once but need fresh state.
-  const requestsRef = useRef([]);
-
-  useEffect(() => {
-    requestsRef.current = requests;
-  }, [requests]);
+  const eventsRef     = useRef(null);
+  const pollRef       = useRef(null);
+  const itemsInFlight = useRef(false);
+  const cosInFlight   = useRef(false);
+  // Consecutive error counts for backoff
+  const itemsErrCount = useRef(0);
+  const cosErrCount   = useRef(0);
 
   const fetchItems = useCallback(() => {
-    return api.getInventoryItems()
-      .then(rows => { setItems(rows); setItemsError(null); })
-      .catch(err => setItemsError(err?.message || 'Failed to load inventory items'))
-      .finally(() => setItemsLoading(false));
-  }, []);
+    if (itemsInFlight.current) return Promise.resolve(); // deduplicate
+    itemsInFlight.current = true;
+    return api.getItems()
+      .then(rows => { setItems(prev => keepIfSame(prev, rows)); setItemsError(null); itemsErrCount.current = 0; })
+      .catch(err => { setItemsError(err?.message || 'Failed to load items'); itemsErrCount.current += 1; })
+      .finally(() => { setItemsLoading(false); itemsInFlight.current = false; });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const fetchRequests = useCallback(() => {
-    return api.getInventoryRequests()
-      .then(rows => { setRequests(rows); setRequestsError(null); })
-      .catch(err => setRequestsError(err?.message || 'Failed to load requests'))
-      .finally(() => setRequestsLoading(false));
-  }, []);
+  const fetchCheckouts = useCallback(() => {
+    if (cosInFlight.current) return Promise.resolve(); // deduplicate
+    cosInFlight.current = true;
+    return api.getItemCheckouts()
+      .then(rows => {
+        const mapped = rows.map(r => ({
+          ...r,
+          requestedBy:           cleanName(r.requestedBy),
+          raisedBy:              cleanName(r.raisedBy),
+          resolvedBy:            cleanName(r.resolvedBy),
+          assignedAllocatorName: cleanName(r.assignedAllocatorName),
+          allocatedBy:           cleanName(r.allocatedBy),
+        }));
+        setCheckouts(prev => keepIfSame(prev, mapped));
+        setCheckoutsError(null);
+        cosErrCount.current = 0;
+      })
+      .catch(err => { setCheckoutsError(err?.message || 'Failed to load checkouts'); cosErrCount.current += 1; })
+      .finally(() => { setCheckoutsLoading(false); cosInFlight.current = false; });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Convert raw Supabase Realtime row (snake_case) → camelCase to match API shape
-  function rowToRequest(r) {
+  function rowToCheckout(r) {
     return {
-      id:               r.id,
-      itemId:           r.item_id,
-      itemName:         r.item_name,
-      requestedBy:      r.requested_by,
-      requestedByEmail: r.requested_by_email,
-      raisedBy:         r.raised_by,
-      department:       r.department,
-      quantity:         r.quantity,
-      days:             r.days,
-      reason:           r.reason,
-      status:           r.status,
-      createdAt:        r.created_at,
-      resolvedAt:       r.resolved_at   || null,
-      resolvedBy:       r.resolved_by   || null,
-      rejectReason:     r.reject_reason || null,
+      id:                     r.id,
+      itemId:                 r.item_id,
+      itemName:               r.item_name,
+      itemType:               r.item_type,
+      requestedBy:            cleanName(r.requested_by),
+      requestedByEmail:       r.requested_by_email,
+      raisedBy:               cleanName(r.raised_by),
+      department:             r.department,
+      days:                   r.days,
+      reason:                 r.reason,
+      status:                 r.status,
+      createdAt:              r.created_at,
+      resolvedAt:             r.resolved_at              || null,
+      resolvedBy:             cleanName(r.resolved_by)   || null,
+      rejectReason:           r.reject_reason            || null,
       assignedAllocatorEmail: r.assigned_allocator_email || null,
-      assignedAllocatorName:  r.assigned_allocator_name  || null,
-      allocatedAt:      r.allocated_at  || null,
-      allocatedBy:      r.allocated_by  || null,
-      returnedAt:       r.returned_at   || null,
-      returnPhotoName:  r.return_photo_name || null,
-      returnPhotoUrl:   r.return_photo_url  || null,
-      conditionNote:    r.condition_note    || null,
+      assignedAllocatorName:  cleanName(r.assigned_allocator_name) || null,
+      allocatedAt:            r.allocated_at             || null,
+      allocatedBy:            cleanName(r.allocated_by)  || null,
+      checkoutPhotoUrl:       r.checkout_photo_url       || null,
+      checkoutPhotoName:      r.checkout_photo_name      || null,
+      returnedAt:             r.returned_at              || null,
+      returnPhotoUrl:         r.return_photo_url         || null,
+      returnPhotoName:        r.return_photo_name        || null,
+      conditionNote:          r.condition_note           || null,
+      orderId:                r.orderId                  || r.order_id || '',
     };
   }
 
+  // Adaptive polling: backs off from 10s to 60s when errors accumulate,
+  // then ramps back down on the first successful response.
+  const scheduleNext = useCallback(() => {
+    clearTimeout(pollRef.current);
+    const errCount = Math.max(itemsErrCount.current, cosErrCount.current);
+    const delay = errCount === 0 ? 10_000
+                : errCount === 1 ? 20_000
+                : errCount === 2 ? 40_000
+                : 60_000;
+    pollRef.current = setTimeout(() => {
+      fetchItems();
+      fetchCheckouts();
+      scheduleNext();
+    }, delay);
+  }, [fetchItems, fetchCheckouts]);
+
   useEffect(() => {
-    fetchItems();
-    fetchRequests();
+    fetchItems().then(scheduleNext);
+    fetchCheckouts();
 
     if (supabase) {
-      // INSERT on inventory_requests: new request submitted — add directly to state
-      // UPDATE on inventory_requests: kept as backup in case inventory_events misses
-      channelRef.current = supabase
-        .channel('inventory_requests_changes')
-        .on(
-          'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'inventory_requests' },
-          payload => {
-            const incoming = rowToRequest(payload.new);
-            setRequests(prev => {
-              if (prev.some(r => r.id === incoming.id)) return prev;
-              return [incoming, ...prev];
-            });
-          }
-        )
-        .on(
-          'postgres_changes',
-          { event: 'UPDATE', schema: 'public', table: 'inventory_requests' },
-          () => fetchRequests()
-        )
-        .subscribe();
-
-      // INSERT on inventory_events: backend-pushed signal after every status change.
-      // Only the affected user and users who already have the request refetch —
-      // keeps API load minimal regardless of how many users are connected.
-      // Stock only moves on allocation/return, both of which always fire one of
-      // these events — so re-fetching items here keeps "available" counts live
-      // for everyone without subscribing to a second realtime channel.
+      // inventory_events ONLY: a skinny ping table (checkout id + status, no
+      // personal data) the backend writes on every checkout change. The old
+      // second subscription watched item_checkouts directly, which required an
+      // anon SELECT policy that exposed the ENTIRE table (names, emails,
+      // reasons) to anyone holding the public anon key. Refetching through the
+      // authenticated API keeps the same freshness — the server filters
+      // visibility, and the inFlight guards dedupe concurrent calls.
       eventsRef.current = supabase
-        .channel('inventory_events_inserts')
+        .channel('item_events_inserts')
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'inventory_events' },
           payload => {
-            const { affected_email, request_id, status } = payload.new ?? {};
-            const isMyRequest = affected_email && myEmail &&
-              affected_email.toLowerCase() === myEmail;
-            const iAmInvolved = isMyRequest ||
-              requestsRef.current.some(r => r.id === request_id);
-            if (iAmInvolved) fetchRequests();
-            if (status === 'allocated' || status === 'returned') fetchItems();
+            const { status } = payload.new ?? {};
+            fetchCheckouts();
+            // Refetch items whenever catalog availability may have changed
+            // (pending covers brand-new requests flagging hasActiveRequest)
+            if (['pending', 'allocated', 'returned', 'cancelled'].includes(status)) {
+              fetchItems();
+            }
           }
         )
         .subscribe();
-
-      // 30s fallback poll — catches anything missed if WebSocket drops
-      pollRef.current = setInterval(() => { fetchItems(); fetchRequests(); }, 30000);
-    } else {
-      pollRef.current = setInterval(() => { fetchItems(); fetchRequests(); }, 30000);
     }
 
     return () => {
-      if (channelRef.current) supabase?.removeChannel(channelRef.current);
-      if (eventsRef.current)  supabase?.removeChannel(eventsRef.current);
-      clearInterval(pollRef.current);
+      if (eventsRef.current) supabase?.removeChannel(eventsRef.current);
+      clearTimeout(pollRef.current);
     };
-  }, [fetchItems, fetchRequests, myEmail]);
+  }, [fetchItems, fetchCheckouts, scheduleNext]);
 
-  function raiseRequest({ itemId, itemName, requestedBy, requestedByEmail, raisedBy, department, quantity, days, reason }) {
-    const id = genId();
-    const resolvedEmail = requestedByEmail || myEmail;
-    const req = {
-      id, itemId, itemName,
-      requestedBy,
-      requestedByEmail: resolvedEmail,
-      raisedBy: raisedBy || requestedBy,
-      department, quantity, days, reason,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-      resolvedAt: null, resolvedBy: null, rejectReason: null,
-    };
-    setRequests(prev => [req, ...prev]);
-    // Returns the persistence promise (not just the optimistic local object) so
-    // the caller can show real success/failure feedback and roll back on error —
-    // silently swallowing this used to mean a failed save looked identical to a
-    // successful one from the user's point of view.
-    return api.createInventoryRequest({
-      id,
-      item_id:             itemId,
-      item_name:           itemName,
-      requested_by:        requestedBy,
-      requested_by_email:  resolvedEmail,
-      raised_by:           req.raisedBy,
-      department, quantity, days, reason,
-    }).then(saved => {
-      setRequests(prev => prev.map(r => r.id === id ? saved : r));
-      return saved;
-    }).catch(err => {
-      setRequests(prev => prev.filter(r => r.id !== id));
-      throw err;
+  // ── Checkout actions ──────────────────────────────────────────────────────
+
+  const submitCartCheckouts = useCallback((cartItems, { reason, raisedBy, raisedByEmail, approverEmail = '', approverName = '' }) => {
+    const orderId = crypto.randomUUID();
+    const promises = cartItems.map(cartItem => {
+      const id = genCheckoutId();
+      const itemDays = cartItem.days ?? 1;
+      const optimistic = {
+        id, itemId: cartItem.item.id, itemName: cartItem.item.name,
+        itemType: cartItem.item.itemType, requestedBy: raisedBy,
+        requestedByEmail: raisedByEmail, raisedBy, department: cartItem.item.department,
+        days: itemDays, reason, status: 'pending', createdAt: new Date().toISOString(),
+        checkoutPhotoUrl: cartItem.photoUrl || null, orderId,
+      };
+      setCheckouts(prev => [optimistic, ...prev]);
+      // asset_value is informational (audit log capture) — the API ignores it
+      const itemValue = Number(cartItem.item.assetValue ?? items.find(i => i.id === cartItem.item.id)?.assetValue) || 0;
+      return api.createItemCheckout({
+        id, item_id: cartItem.item.id, item_name: cartItem.item.name,
+        item_type: cartItem.item.itemType, requested_by: raisedBy,
+        requested_by_email: raisedByEmail, raised_by: raisedBy,
+        department: cartItem.item.department, days: itemDays, reason,
+        asset_value: itemValue,
+        checkout_photo_url: cartItem.photoUrl || '',
+        checkout_photo_name: cartItem.photoName || '',
+        order_id: orderId,
+        approver_email: approverEmail, approver_name: approverName,
+      }).then(saved => {
+        setCheckouts(prev => prev.map(c => c.id === id ? saved : c));
+        // mark item as pending in local state
+        setItems(prev => prev.map(i => i.id === cartItem.item.id ? { ...i, _pendingCheckout: true } : i));
+        return saved;
+      }).catch(err => {
+        setCheckouts(prev => prev.filter(c => c.id !== id));
+        throw err;
+      });
     });
-  }
+    return Promise.allSettled(promises);
+  }, [items]); // items: asset_value lookup for the audit trail
 
-  function approveRequest(id, managerName, allocatorEmail, allocatorName) {
-    setRequests(prev => prev.map(r =>
-      r.id === id ? {
-        ...r, status: 'approved',
+  // Named approveRequest for backward compat with NotificationBell + ManagerDashboard
+  const approveRequest = useCallback((id, managerName, allocatorEmail, allocatorName) => {
+    setCheckouts(prev => prev.map(c =>
+      c.id === id ? {
+        ...c, status: 'approved',
         resolvedAt: new Date().toISOString(), resolvedBy: managerName,
         assignedAllocatorEmail: allocatorEmail, assignedAllocatorName: allocatorName,
-      } : r
+      } : c
     ));
-    return api.updateInventoryRequest(id, {
+    return api.updateItemCheckout(id, {
       status: 'approved', resolved_by: managerName,
       assigned_allocator_email: allocatorEmail, assigned_allocator_name: allocatorName,
     })
-      .then(saved => { fetchRequests(); return saved; })
-      .catch(err => { fetchRequests(); throw err; });
-  }
+      .then(saved => { fetchCheckouts(); return saved; })
+      .catch(err => { fetchCheckouts(); throw err; });
+  }, [fetchCheckouts]);
 
-  function cancelRequest(id, requesterName) {
-    setRequests(prev => prev.map(r =>
-      r.id === id ? { ...r, status: 'cancelled', resolvedAt: new Date().toISOString(), resolvedBy: requesterName } : r
+  const rejectRequest = useCallback((id, managerName, reason) => {
+    setCheckouts(prev => prev.map(c =>
+      c.id === id ? { ...c, status: 'rejected', resolvedAt: new Date().toISOString(), resolvedBy: managerName, rejectReason: reason } : c
     ));
-    return api.updateInventoryRequest(id, { status: 'cancelled', resolved_by: requesterName })
-      .then(saved => { fetchRequests(); return saved; })
-      .catch(err => { fetchRequests(); throw err; });
-  }
+    api.updateItemCheckout(id, { status: 'rejected', resolved_by: managerName, reject_reason: reason })
+      .then(() => fetchCheckouts())
+      .catch(() => fetchCheckouts());
+  }, [fetchCheckouts]);
 
-  function allocateItem(id, supervisorName) {
-    setRequests(prev => prev.map(r =>
-      r.id === id ? { ...r, status: 'allocated', allocatedAt: new Date().toISOString(), allocatedBy: supervisorName } : r
+  const cancelRequest = useCallback((id, requesterName) => {
+    setCheckouts(prev => prev.map(c =>
+      c.id === id ? { ...c, status: 'cancelled', resolvedAt: new Date().toISOString(), resolvedBy: requesterName } : c
     ));
-    // Allocation can now legitimately fail server-side (409 — not enough stock,
-    // caught by the atomic _reserve_stock guard). Propagate that to the caller
-    // so the manager sees *why* their optimistic "allocated" reverted, instead
-    // of it silently flipping back to "approved" with no explanation.
-    return api.updateInventoryRequest(id, { status: 'allocated', allocated_by: supervisorName })
-      .then(saved => {
-        fetchRequests();
-        fetchItems();
-        return saved;
-      })
-      .catch(err => {
-        fetchRequests();
-        throw err;
-      });
-  }
+    return api.updateItemCheckout(id, { status: 'cancelled', resolved_by: requesterName })
+      .then(saved => { fetchCheckouts(); return saved; })
+      .catch(err => { fetchCheckouts(); throw err; });
+  }, [fetchCheckouts]);
 
-  function rejectRequest(id, managerName, reason) {
-    setRequests(prev => prev.map(r =>
-      r.id === id ? { ...r, status: 'rejected', resolvedAt: new Date().toISOString(), resolvedBy: managerName, rejectReason: reason } : r
+  const allocateItem = useCallback((id, supervisorName, checkoutPhotoUrl = '', checkoutPhotoName = '', { handoverPhotoBy = 'allocator', handoverBatch = false } = {}) => {
+    setCheckouts(prev => prev.map(c =>
+      c.id === id ? { ...c, status: 'allocated', allocatedAt: new Date().toISOString(), allocatedBy: supervisorName, checkoutPhotoUrl: checkoutPhotoUrl || c.checkoutPhotoUrl } : c
     ));
-    api.updateInventoryRequest(id, { status: 'rejected', resolved_by: managerName, reject_reason: reason })
-      .then(() => fetchRequests())
-      .catch(() => fetchRequests());
-  }
+    return api.updateItemCheckout(id, {
+      status: 'allocated', allocated_by: supervisorName,
+      checkout_photo_url: checkoutPhotoUrl, checkout_photo_name: checkoutPhotoName,
+      handover_photo_by: handoverPhotoBy, handover_batch: handoverBatch,
+    })
+      .then(saved => { fetchCheckouts(); fetchItems(); return saved; })
+      .catch(err => { fetchCheckouts(); throw err; });
+  }, [fetchCheckouts, fetchItems]);
 
-  async function returnItem(id, { file, photoName, conditionNote }) {
+  // Supervisor initiates handover and employee will confirm receipt with photo
+  const initiateHandover = useCallback((id, supervisorName) => {
+    setCheckouts(prev => prev.map(c =>
+      c.id === id ? { ...c, status: 'pending_receipt', handedOverAt: new Date().toISOString(), handoverPhotoBy: 'employee' } : c
+    ));
+    return api.updateItemCheckout(id, { status: 'pending_receipt', allocated_by: supervisorName, handover_photo_by: 'employee' })
+      .then(saved => { fetchCheckouts(); return saved; })
+      .catch(err => { fetchCheckouts(); throw err; });
+  }, [fetchCheckouts]);
+
+  // Employee confirms receipt and uploads their own photo
+  const confirmReceipt = useCallback((id, recipientName, receiptPhotoUrl = '', receiptPhotoName = '') => {
+    setCheckouts(prev => prev.map(c =>
+      c.id === id ? { ...c, status: 'allocated', allocatedAt: new Date().toISOString(), receiptPhotoUrl } : c
+    ));
+    return api.updateItemCheckout(id, {
+      status: 'allocated', allocated_by: recipientName,
+      receipt_photo_url: receiptPhotoUrl, receipt_photo_name: receiptPhotoName,
+    })
+      .then(saved => { fetchCheckouts(); fetchItems(); return saved; })
+      .catch(err => { fetchCheckouts(); throw err; });
+  }, [fetchCheckouts, fetchItems]);
+
+  const returnItem = useCallback(async (id, { file, photoName, conditionNote }) => {
     const now = new Date().toISOString();
     let permanentUrl = '';
     let photoUploadError = null;
@@ -237,63 +266,63 @@ export function InventoryProvider({ children }) {
       const MAX_BYTES = 10 * 1024 * 1024;
       if (!ALLOWED_TYPES.includes(file.type)) throw new Error('Only image files are allowed (JPEG, PNG, GIF, WebP)');
       if (file.size > MAX_BYTES) throw new Error('Photo must be under 10 MB');
-
       const ext  = file.type.split('/')[1] || 'jpg';
       const path = `${id}/${Date.now()}.${ext}`;
       const { data: uploaded, error } = await supabase.storage
         .from('return-photos')
-        .upload(path, file, { contentType: file.type, upsert: false });
+        .upload(path, file, { contentType: file.type, upsert: false, cacheControl: '31536000' });
       if (!error && uploaded) {
-        const { data: urlData } = supabase.storage
-          .from('return-photos')
-          .getPublicUrl(uploaded.path);
+        const { data: urlData } = supabase.storage.from('return-photos').getPublicUrl(uploaded.path);
         permanentUrl = urlData.publicUrl;
       } else if (error) {
-        // Don't let a storage hiccup (missing bucket, RLS, network) block the
-        // return itself — the item still needs to go back into circulation.
-        // But it WAS silently dropping the photo with no feedback at all, so
-        // the requester thought it worked and the supervisor never saw it.
-        // Surface it after the fact instead — see handleReturnSubmit's toast.
         photoUploadError = error.message || 'Photo upload failed';
       }
     }
 
-    setRequests(prev => prev.map(r =>
-      r.id !== id ? r : {
-        ...r, status: 'returned',
-        returnedAt:     now,
-        returnPhotoUrl:  permanentUrl || null,
-        returnPhotoName: photoName    || null,
-        conditionNote:   conditionNote || null,
+    setCheckouts(prev => prev.map(c =>
+      c.id !== id ? c : {
+        ...c, status: 'returned', returnedAt: now,
+        returnPhotoUrl: permanentUrl || null, returnPhotoName: photoName || null,
+        conditionNote: conditionNote || null,
       }
     ));
 
-    return api.updateInventoryRequest(id, {
-      status:            'returned',
-      return_photo_name: photoName     || '',
-      return_photo_url:  permanentUrl  || '',
+    return api.updateItemCheckout(id, {
+      status: 'returned',
+      return_photo_name: photoName || '',
+      return_photo_url:  permanentUrl || '',
       condition_note:    conditionNote || '',
     }).then(saved => {
-      fetchRequests();
+      fetchCheckouts();
       fetchItems();
       return { ...saved, photoUploadError };
     }).catch(err => {
-      fetchRequests();
+      fetchCheckouts();
       throw err;
     });
-  }
+  }, [fetchCheckouts, fetchItems]);
 
-  const pendingCount = requests.filter(r => r.status === 'pending').length;
+  const value = useMemo(() => ({
+    // New items system
+    items, itemsLoading, itemsError,
+    checkouts, checkoutsLoading, checkoutsError,
+    pendingCount: checkouts.filter(c => c.status === 'pending').length,
+    submitCartCheckouts, approveRequest, rejectRequest,
+    allocateItem, initiateHandover, confirmReceipt, returnItem, cancelRequest,
+    refreshItems: fetchItems, refreshCheckouts: fetchCheckouts,
+    // Backward compat aliases for NotificationBell + ManagerDashboard
+    requests: checkouts,
+    requestsLoading: checkoutsLoading,
+    requestsError: checkoutsError,
+    refreshRequests: fetchCheckouts,
+  }), [
+    items, itemsLoading, itemsError, checkouts, checkoutsLoading, checkoutsError,
+    submitCartCheckouts, approveRequest, rejectRequest, allocateItem,
+    initiateHandover, confirmReceipt, returnItem, cancelRequest, fetchItems, fetchCheckouts,
+  ]);
 
   return (
-    <InventoryContext.Provider value={{
-      items, itemsLoading, itemsError,
-      requests, requestsLoading, requestsError,
-      pendingCount,
-      raiseRequest, approveRequest, rejectRequest, allocateItem, returnItem, cancelRequest,
-      refreshRequests: fetchRequests,
-      refreshItems: fetchItems,
-    }}>
+    <InventoryContext.Provider value={value}>
       {children}
     </InventoryContext.Provider>
   );

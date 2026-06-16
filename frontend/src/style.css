@@ -1,5 +1,5 @@
-/* ==========================================================================
-   Greens Nexus — Design System v3 (neutral monochrome)
+﻿/* ==========================================================================
+   Greens Nexus â€” Design System v3 (neutral monochrome)
    ========================================================================== */
 
 @keyframes fadeIn  { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
@@ -69,7 +69,7 @@
   --ink:     #e8edf5;
   --muted:   #8b97b0;
   --line:    rgba(255,255,255,0.09);
-  /* --pine and --fern stay dark (inherited from :root) — DO NOT override */
+  /* --pine and --fern stay dark (inherited from :root) â€” DO NOT override */
   --mist:    #161b27;
   --ok-bg:   #0a2218; --ok-fg:   #4ade80;
   --warn-bg: #1c1206; --warn-fg: #fbbf24;
@@ -99,7 +99,7 @@
   --shadow-lg: 0 8px 32px rgba(0,0,0,.7), 0 2px 10px rgba(0,0,0,.5);
 }
 
-/* ── Reset ─────────────────────────────────────────────────────────────── */
+/* â”€â”€ Reset â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 
 body {
@@ -121,10 +121,10 @@ h1,h2,h3,h4,h5,h6,
 
 .mono { font-family: 'SF Mono', 'Fira Code', monospace; font-size: .82em; letter-spacing: -.02em; }
 
-/* ── App layout ─────────────────────────────────────────────────────────── */
+/* â”€â”€ App layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .app-container { display: flex; min-height: 100vh; }
 
-/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+/* â”€â”€ Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .sidebar {
   width: 264px;
   background: var(--sidebar);
@@ -141,7 +141,7 @@ h1,h2,h3,h4,h5,h6,
   transition: width 0.26s cubic-bezier(.16,1,.3,1);
 }
 
-/* ── Collapsed sidebar ───────────────────────────────────────────────────── */
+/* â”€â”€ Collapsed sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .sidebar.collapsed { width: 60px; }
 
 .sidebar.collapsed .sidebar-header {
@@ -161,7 +161,7 @@ h1,h2,h3,h4,h5,h6,
   padding: 9px 6px !important;
 }
 
-/* ── Sidebar collapse toggle button ─────────────────────────────────────── */
+/* â”€â”€ Sidebar collapse toggle button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .sidebar-collapse-btn {
   position: fixed;
   top: calc(50vh - 22px);
@@ -343,7 +343,7 @@ h1,h2,h3,h4,h5,h6,
 .sidebar-user-name { font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sidebar-user-role { font-size: 11px; color: var(--muted); }
 
-/* ── Main content ─────────────────────────────────────────────────────── */
+/* â”€â”€ Main content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .main-content {
   flex: 1; min-width: 0; margin-left: 264px;
   display: flex; flex-direction: column; min-height: 100vh;
@@ -351,7 +351,7 @@ h1,h2,h3,h4,h5,h6,
 }
 .main-content.main-collapsed { margin-left: 60px; }
 
-/* ── Top header ─────────────────────────────────────────────────────────── */
+/* â”€â”€ Top header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .top-header {
   height: 56px;
   border-bottom: 1px solid var(--header-border);
@@ -448,7 +448,7 @@ h1,h2,h3,h4,h5,h6,
 }
 .icon-btn:hover { background: var(--mist); }
 
-/* ── Header user pill + dropdown ─────────────────────────────────── */
+/* â”€â”€ Header user pill + dropdown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .header-user-wrap { position: relative; }
 
 .header-user-pill {
@@ -567,10 +567,10 @@ h1,h2,h3,h4,h5,h6,
 }
 .user-name-header { font-weight: 600; font-size: 13px; color: var(--ink); }
 
-/* ── Viewport ─────────────────────────────────────────────────────────── */
+/* â”€â”€ Viewport â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .viewport { padding: 32px 36px; overflow-y: auto; background: transparent; }
 
-/* ── Buttons ─────────────────────────────────────────────────────────── */
+/* â”€â”€ Buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .primary-btn, .btn-primary {
   display: inline-flex;
   align-items: center;
@@ -611,7 +611,7 @@ h1,h2,h3,h4,h5,h6,
 .secondary-btn:hover, .btn-sm:hover { background: rgba(0,0,0,0.08); }
 .secondary-btn:disabled { opacity: .5; cursor: not-allowed; }
 
-/* ── Forms ─────────────────────────────────────────────────────────────── */
+/* â”€â”€ Forms â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .form-group { display: flex; flex-direction: column; gap: 6px; }
 .form-group label { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .01em; text-transform: uppercase; }
 
@@ -649,7 +649,7 @@ input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 input[type="number"] { -moz-appearance: textfield; }
 
-/* ── Modal system ──────────────────────────────────────────────────────────── */
+/* â”€â”€ Modal system â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -736,7 +736,7 @@ input[type="number"] { -moz-appearance: textfield; }
 [data-theme="dark"] .form-input::placeholder,
 [data-theme="dark"] .form-select::placeholder { color: var(--muted); }
 
-/* ── Cards ─────────────────────────────────────────────────────────────── */
+/* â”€â”€ Cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .card, .dash-card {
   background: var(--card);
   border: none;
@@ -745,7 +745,7 @@ input[type="number"] { -moz-appearance: textfield; }
   box-shadow: var(--shadow-md);
 }
 
-/* ── Status badges ─────────────────────────────────────────────────────── */
+/* â”€â”€ Status badges â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .status-badge {
   display: inline-block;
   font-size: 11px;
@@ -763,7 +763,7 @@ input[type="number"] { -moz-appearance: textfield; }
 .pill-info   { background: var(--info-bg); color: var(--info-fg); }
 .pill-muted  { background: var(--line);    color: var(--muted); }
 
-/* ── View header ─────────────────────────────────────────────────────── */
+/* â”€â”€ View header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .view-header {
   display: flex;
   justify-content: space-between;
@@ -781,7 +781,7 @@ input[type="number"] { -moz-appearance: textfield; }
 }
 .view-title-group p { font-size: 13px; color: var(--muted); margin-top: 2px; font-weight: 400; }
 
-/* ── Tables ─────────────────────────────────────────────────────────────── */
+/* â”€â”€ Tables â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .req-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .req-table th {
   text-align: left;
@@ -804,7 +804,7 @@ input[type="number"] { -moz-appearance: textfield; }
 .req-table tr:last-child td { border-bottom: none; }
 .req-table tbody tr:hover { background: rgba(0,0,0,0.015); }
 
-/* ── KPI cards (new style) ─────────────────────────────────────────────── */
+/* â”€â”€ KPI cards (new style) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -843,7 +843,7 @@ input[type="number"] { -moz-appearance: textfield; }
 }
 .kpi-delta.up { color: var(--ok-fg); }
 
-/* ── Legacy KPI card inner classes (ManagerDashboard, Operations, Accounting) */
+/* â”€â”€ Legacy KPI card inner classes (ManagerDashboard, Operations, Accounting) */
 .cards-grid { display: grid; gap: 16px; }
 .kpi-card-header {
   display: flex;
@@ -882,13 +882,13 @@ input[type="number"] { -moz-appearance: textfield; }
   font-weight: 400;
 }
 
-/* subtle semantic top-border accents — only for alert/status cards */
+/* subtle semantic top-border accents â€” only for alert/status cards */
 .card-blue   { border-top: 2px solid hsl(var(--color-blue)) !important; }
 .card-red    { border-top: 2px solid hsl(var(--color-red)) !important; }
 .card-orange { border-top: 2px solid hsl(var(--color-orange)) !important; }
 .card-green, .card-purple, .card-gold { }
 
-/* ── Dashboard ─────────────────────────────────────────────────────────── */
+/* â”€â”€ Dashboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .dashboard-view { display: flex; flex-direction: column; gap: 18px; }
 
 .greeting-section { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
@@ -946,17 +946,17 @@ input[type="number"] { -moz-appearance: textfield; }
 .facility-foot { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); }
 .mrr-tag { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; color: var(--muted); font-weight: 500; }
 
-/* ── Stat rows ─────────────────────────────────────────────────────────── */
+/* â”€â”€ Stat rows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .stat-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
 .stat-row:last-child { border-bottom: none; }
 .stat-label { color: var(--muted); }
 .stat-value { font-weight: 600; color: var(--ink); }
 .stat-ok { color: var(--ok-fg); }
 
-/* ── Log ─────────────────────────────────────────────────────────────── */
+/* â”€â”€ Log â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .log-list { display: flex; flex-direction: column; gap: 7px; font-size: 12.5px; color: var(--muted); font-family: 'SF Mono', 'Fira Code', monospace; }
 
-/* ── Support cards ─────────────────────────────────────────────────────── */
+/* â”€â”€ Support cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .support-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: 14px; }
 .support-card {
   background: var(--card);
@@ -981,7 +981,7 @@ input[type="number"] { -moz-appearance: textfield; }
 .link-btn { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); font-weight: 600; font-size: 12.5px; background: none; border: none; cursor: pointer; font-family: inherit; margin-top: 10px; transition: color var(--transition-fast); }
 .link-btn:hover { color: var(--ink); }
 
-/* ── Placeholder ─────────────────────────────────────────────────────── */
+/* â”€â”€ Placeholder â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .placeholder-box {
   background: var(--card);
   border: 1px dashed var(--line);
@@ -1002,10 +1002,10 @@ input[type="number"] { -moz-appearance: textfield; }
   margin-bottom: 4px;
 }
 
-/* ── IT / Network ─────────────────────────────────────────────────────── */
+/* â”€â”€ IT / Network â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .material-symbol-svg { fill: currentColor; }
 
-/* ── Sidebar overlay (mobile) ─────────────────────────────────────────── */
+/* â”€â”€ Sidebar overlay (mobile) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .sidebar-overlay {
   display: none;
   position: fixed;
@@ -1015,7 +1015,7 @@ input[type="number"] { -moz-appearance: textfield; }
 }
 .sidebar-overlay.active { display: block; }
 
-/* ── Sidebar dismiss overlay (desktop click-outside) ──────────────────── */
+/* â”€â”€ Sidebar dismiss overlay (desktop click-outside) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .sidebar-dismiss-overlay {
   position: fixed;
   top: 56px; /* sit below the header so breadcrumb/back arrow stay clickable */
@@ -1026,7 +1026,7 @@ input[type="number"] { -moz-appearance: textfield; }
   cursor: default;
 }
 
-/* ── Login page ─────────────────────────────────────────────────────────── */
+/* â”€â”€ Login page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .login-page {
   min-height: 100vh;
   display: flex;
@@ -1106,7 +1106,7 @@ input[type="number"] { -moz-appearance: textfield; }
 .login-btn:hover { opacity: 0.88; box-shadow: 0 4px 20px rgba(15,23,42,0.35); }
 [data-theme="dark"] .login-btn { box-shadow: 0 2px 12px rgba(0,0,0,0.4); }
 
-/* ── Operations (facility) ───────────────────────────────────────────── */
+/* â”€â”€ Operations (facility) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .banner-warn {
   display: flex;
   align-items: center;
@@ -1120,15 +1120,16 @@ input[type="number"] { -moz-appearance: textfield; }
   margin-bottom: 18px;
 }
 
-/* ── Responsive ─────────────────────────────────────────────────────────── */
+/* â”€â”€ Responsive â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 @media (max-width: 900px) {
   .sidebar {
     transform: translateX(-100%);
     transition: transform var(--transition-slow);
-    box-shadow: 0 0 50px rgba(0,0,0,.3);
     z-index: 200;
   }
-  .sidebar.open { transform: translateX(0); }
+  /* Shadow only while open — parked off-canvas it bleeds back into the
+     viewport as a grey band along the screen edge */
+  .sidebar.open { transform: translateX(0); box-shadow: 0 0 50px rgba(0,0,0,.3); }
   .main-content { margin-left: 0; }
   .mobile-toggle { display: flex; }
   .header-center { display: none; }
@@ -1145,7 +1146,7 @@ input[type="number"] { -moz-appearance: textfield; }
   .facilities-grid { grid-template-columns: 1fr; }
 }
 
-/* ── Purchase layout ─────────────────────────────────────────────────────── */
+/* â”€â”€ Purchase layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .purchase-view { display: flex; flex-direction: column; gap: 0; }
 .purchase-split {
   display: grid;
@@ -1187,7 +1188,7 @@ input[type="number"] { -moz-appearance: textfield; }
   .purchase-split { grid-template-columns: 1fr; }
 }
 
-/* ── Tab pill — theme-safe active state ─────────────────────────────────── */
+/* â”€â”€ Tab pill â€” theme-safe active state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .tab-pill {
   border: none; padding: 7px 16px; border-radius: 20px; font-weight: 600; font-size: 13px;
   font-family: 'Inter', sans-serif; cursor: pointer; transition: background 0.13s, color 0.13s;
@@ -1196,7 +1197,7 @@ input[type="number"] { -moz-appearance: textfield; }
 .tab-pill.active { background: var(--pine); color: #ffffff; }
 .tab-pill:not(.active):hover { background: var(--line); color: var(--ink); }
 
-/* ── Chart draw animation ────────────────────────────────────────────────── */
+/* â”€â”€ Chart draw animation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 @keyframes drawLine {
   from { stroke-dashoffset: 1200; }
   to   { stroke-dashoffset: 0; }
@@ -1222,13 +1223,13 @@ input[type="number"] { -moz-appearance: textfield; }
 .chart-dot:nth-child(8) { animation-delay: 1.45s; }
 .chart-dot:nth-child(9) { animation-delay: 1.60s; }
 
-/* ── Motion & Hover animations ───────────────────────────────────────────── */
+/* â”€â”€ Motion & Hover animations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 @keyframes fadeInUp {
   from { opacity: 0; transform: translateY(20px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Hover lift — individual leaf cards only ────────────────────────────── */
+/* â”€â”€ Hover lift â€” individual leaf cards only â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 /* Small cards: full 5px lift */
 .kpi-card,
 .facility-card,
@@ -1263,9 +1264,9 @@ input[type="number"] { -moz-appearance: textfield; }
   z-index: 2;
 }
 
-/* ── Staggered entrance animations ──────────────────────────────────────── */
+/* â”€â”€ Staggered entrance animations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
-/* KPI metric cards — stagger each card individually */
+/* KPI metric cards â€” stagger each card individually */
 .kpi-grid > .kpi-card:nth-child(1),
 .cards-grid > .kpi-card:nth-child(1) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 0ms   both; }
 .kpi-grid > .kpi-card:nth-child(2),
@@ -1277,7 +1278,7 @@ input[type="number"] { -moz-appearance: textfield; }
 .kpi-grid > .kpi-card:nth-child(5),
 .cards-grid > .kpi-card:nth-child(5) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 240ms both; }
 
-/* Facility cards — stagger */
+/* Facility cards â€” stagger */
 .facilities-grid > .facility-card:nth-child(1) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 0ms   both; }
 .facilities-grid > .facility-card:nth-child(2) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 50ms  both; }
 .facilities-grid > .facility-card:nth-child(3) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 100ms both; }
@@ -1285,7 +1286,7 @@ input[type="number"] { -moz-appearance: textfield; }
 .facilities-grid > .facility-card:nth-child(5) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 200ms both; }
 .facilities-grid > .facility-card:nth-child(6) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 250ms both; }
 
-/* Dash-grid panels — stagger */
+/* Dash-grid panels â€” stagger */
 .dash-grid-2 > .dash-card:nth-child(1) { animation: fadeInUp 0.42s cubic-bezier(.16,1,.3,1) 80ms  both; }
 .dash-grid-2 > .dash-card:nth-child(2) { animation: fadeInUp 0.42s cubic-bezier(.16,1,.3,1) 160ms both; }
 
@@ -1296,3 +1297,858 @@ input[type="number"] { -moz-appearance: textfield; }
 .cards-grid > .dash-card:nth-child(4) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 180ms both; }
 .cards-grid > .dash-card:nth-child(5) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 240ms both; }
 .cards-grid > .dash-card:nth-child(6) { animation: fadeInUp 0.38s cubic-bezier(.16,1,.3,1) 300ms both; }
+
+/* Hide native number-input spinners â€” every numeric field in the app has
+   explicit âˆ’/+ stepper buttons, so the browser chrome is redundant and on
+   some zoom levels renders as a detached floating widget. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+
+/* Horizontally scrollable tab strips â€” keep the swipe/scroll, hide the ugly
+   native bar (Windows Chrome always paints it otherwise). */
+.scroll-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; }
+.scroll-tabs::-webkit-scrollbar { display: none; height: 0; }
+
+/* â”€â”€ Gradient KPI cards (June 2026 design pass) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+   Soft per-color gradient tint on KPI cards with a colored left edge.
+   Uses ONLY the existing palette variables â€” no new colors. */
+.kpi-card {
+  border-radius: 14px;
+  border-left: 4px solid var(--line);
+}
+.kpi-card.card-green {
+  border-left-color: hsl(var(--color-green));
+  background: linear-gradient(105deg, hsla(var(--color-green),0.14) 0%, hsla(var(--color-green),0.04) 50%, var(--card) 100%);
+}
+.kpi-card.card-blue {
+  border-top: none !important;
+  border-left-color: hsl(var(--color-blue));
+  background: linear-gradient(105deg, hsla(var(--color-blue),0.14) 0%, hsla(var(--color-blue),0.04) 50%, var(--card) 100%);
+}
+.kpi-card.card-orange {
+  border-top: none !important;
+  border-left-color: hsl(var(--color-orange));
+  background: linear-gradient(105deg, hsla(var(--color-orange),0.16) 0%, hsla(var(--color-orange),0.05) 50%, var(--card) 100%);
+}
+.kpi-card.card-red {
+  border-top: none !important;
+  border-left-color: hsl(var(--color-red));
+  background: linear-gradient(105deg, hsla(var(--color-red),0.13) 0%, hsla(var(--color-red),0.04) 50%, var(--card) 100%);
+}
+.kpi-card.card-purple {
+  border-top: none !important;
+  border-left-color: hsl(var(--color-purple));
+  background: linear-gradient(105deg, hsla(var(--color-purple),0.13) 0%, hsla(var(--color-purple),0.04) 50%, var(--card) 100%);
+}
+.kpi-card.card-gold {
+  border-top: none !important;
+  border-left-color: hsl(var(--color-gold));
+  background: linear-gradient(105deg, hsla(var(--color-gold),0.15) 0%, hsla(var(--color-gold),0.05) 50%, var(--card) 100%);
+}
+
+/* Reserve the scrollbar gutter permanently so the page width is identical
+   whether or not the content is tall enough to scroll - without this, the
+   scrollbar appearing/disappearing between tabs shifted the whole layout
+   ~15px left/right (cart, filters, cards all moved). Applies to the root
+   scroller and the inner viewport; browsers with overlay scrollbars
+   (macOS default) are unaffected. */
+html { scrollbar-gutter: stable; }
+.viewport { scrollbar-gutter: stable; }
+/* ...but never on phones: browsers with classic scrollbars (Samsung Internet,
+   Chrome with always-show-scrollbars) paint the reserved gutter as a permanent
+   grey band down the right edge of the screen. The tab-switch layout shift the
+   gutter prevents is a desktop-scrollbar problem only. */
+@media (max-width: 900px) {
+  html, .viewport { scrollbar-gutter: auto; }
+}
+
+/* Search-match highlight: flashes briefly when results land, then settles
+   into a static marker so the eye finds WHY a card matched the query. */
+@keyframes searchHitFlash {
+  0%   { background: hsla(var(--color-gold), 0.85); box-shadow: 0 0 0 6px hsla(var(--color-gold), 0.45); }
+  55%  { background: hsla(var(--color-gold), 0.70); box-shadow: 0 0 0 3px hsla(var(--color-gold), 0.25); }
+  100% { background: hsla(var(--color-gold), 0.40); box-shadow: 0 0 0 0 transparent; }
+}
+mark.search-hit {
+  background: hsla(var(--color-gold), 0.40);
+  box-shadow: inset 0 -2px 0 hsl(var(--color-gold));
+  color: inherit;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 0 3px;
+  margin: 0 -3px;
+  animation: searchHitFlash 1.3s ease-out;
+}
+
+/* â”€â”€ Responsive pass (Jun 2026): laptops down to phones â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+   Desktop drawer/overlay rules already exist at 900px; this layer tightens
+   spacing on small laptops and gives phones a native-app feel. */
+
+/* Smaller laptops (1366x768 and friends): reclaim horizontal space */
+@media (max-width: 1366px) {
+  .viewport { padding: 24px 22px; }
+}
+
+@media (max-width: 900px) {
+  /* The desktop collapse chevron is meaningless when the sidebar is a drawer */
+  .sidebar-collapse-btn { display: none; }
+  /* Module tab strips stick just under the (sticky) top header so navigation
+     stays in thumb reach while scrolling long lists */
+  .scroll-tabs { position: sticky; top: 56px; background: var(--paper); z-index: 50; }
+}
+
+@media (max-width: 640px) {
+  .viewport { padding: 12px; }
+  .view-title-group h2 { font-size: 17px; }
+  .view-title-group p  { font-size: 12px; }
+  .view-header { gap: 10px; margin-bottom: 14px; }
+  .kpi-value { font-size: 22px; }
+
+  /* Dialogs become BOTTOM SHEETS on phones â€” slide up from the bottom edge,
+     full width, rounded top, scrollable. Every modal positions itself with
+     inline styles, so !important is required to win the cascade. */
+  [role="dialog"]:not(.mobile-menu):not(.mobile-submenu) { align-items: flex-end !important; padding: 0 !important; }
+  [role="dialog"]:not(.mobile-menu):not(.mobile-submenu) > div {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    border-radius: 18px 18px 0 0 !important;
+    max-height: 92vh;
+    overflow-y: auto;
+    animation: sheetUp 0.26s cubic-bezier(.16,1,.3,1);
+  }
+  /* grab-bar affordance, like native sheets */
+  [role="dialog"]:not(.mobile-menu):not(.mobile-submenu) > div::before {
+    content: '';
+    display: block;
+    width: 44px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--line);
+    margin: -10px auto 14px;
+  }
+}
+@keyframes sheetUp {
+  from { transform: translateY(48px); opacity: 0.5; }
+  to   { transform: none; opacity: 1; }
+}
+
+/* â”€â”€ Mobile header fix (phone test, Jun 11) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+   Header contents must SHRINK on narrow screens, not push the document wider
+   than the viewport â€” that is what made the whole page pan/cut off. */
+html { overflow-x: hidden; }
+
+@media (max-width: 900px) {
+  .header-left { min-width: 0; flex: 1; }
+  .breadcrumb { min-width: 0; }
+  .breadcrumb-current {
+    max-width: 42vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 640px) {
+  .top-header { padding: 0 10px; gap: 6px; }
+  /* back arrow + current page only â€” drop the "Dashboard /" trail */
+  .breadcrumb-prev, .breadcrumb-prev + span { display: none; }
+  /* profile pill: avatar + chevron only */
+  .header-user-info { display: none; }
+  /* desktop keeps invisible placeholders for layout stability; on phones
+     they just waste a row - remove them from flow entirely */
+  [data-vis="hidden"] { display: none !important; }
+}
+
+/* â”€â”€ Mobile bottom navigation â€” the app shell on phones â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+   Desktop keeps the sidebar; phones navigate via a fixed bottom tab bar
+   (Home / Items / Tasks / Buy / Menu) like a native app. Menu opens the
+   sidebar drawer for the rest of the modules. */
+.mobile-nav { display: none; }
+@media (max-width: 900px) {
+  .mobile-nav {
+    display: flex;
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    background: var(--card);
+    border-top: 1px solid var(--line);
+    z-index: 180;
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -4px 24px rgba(0,0,0,.07);
+  }
+  .mobile-nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 9px 0 7px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--muted);
+    font-family: 'Inter', sans-serif;
+    font-size: 10.5px;
+    font-weight: 600;
+  }
+  .mobile-nav-item { transition: background .28s ease, transform .08s ease; border-radius: 10px; }
+  .mobile-nav-item:active { background: var(--mist); transform: scale(0.94); }
+  .mobile-nav-item.active { color: var(--ink); }
+  .mobile-nav-item.active svg { color: hsl(var(--color-green)); }
+  /* content must never hide behind the bar */
+  .main-content { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+}
+
+/* ── adidas-style mobile chrome ──────────────────────────────────────────────
+   Phones get an icon-driven header (hamburger | centered brand | bell/avatar)
+   and a FULL-SCREEN menu with big tappable rows. Desktop untouched. */
+.header-brand { display: none; }
+@media (max-width: 900px) {
+  .top-header { justify-content: flex-start; }
+  .breadcrumb { display: none; }
+  /* Centered wordmark is a real button — tapping it goes home */
+  .header-brand {
+    display: block;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    font-weight: 800;
+    letter-spacing: 0.22em;
+    font-size: 14px;
+    color: var(--ink);
+    background: none;
+    border: none;
+    font-family: inherit;
+    padding: 8px 10px;
+    cursor: pointer;
+  }
+  .header-right { margin-left: auto; }
+}
+
+/* Full-screen menu */
+.mobile-menu {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  /* adidas-style entrance: the whole panel slides in from the left —
+     long enough to actually read as a slide, not a blink */
+  animation: menuIn 0.45s cubic-bezier(.32,.72,0,1);
+}
+.mobile-menu.closing { animation: menuOut 0.36s cubic-bezier(.55,0,.85,.36) forwards; }
+@media (min-width: 901px) { .mobile-menu { display: none; } }
+@keyframes menuIn { from { transform: translateX(-100%); } to { transform: none; } }
+@keyframes menuOut { from { transform: none; } to { transform: translateX(-100%); } }
+
+.mobile-menu-head { display: flex; align-items: center; justify-content: center; position: relative; padding: 18px 16px 12px; }
+.mobile-menu-brand { font-weight: 800; letter-spacing: 0.22em; font-size: 16px; }
+.mobile-menu-close { position: absolute; right: 10px; top: 12px; background: none; border: none; color: var(--ink); padding: 10px; cursor: pointer; }
+
+.mobile-menu-user { display: flex; gap: 12px; align-items: center; padding: 8px 20px 16px; border-bottom: 1px solid var(--line); }
+.mobile-menu-avatar { width: 42px; height: 42px; border-radius: 50%; background: var(--pine); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+.mobile-menu-name { font-weight: 700; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mobile-menu-role { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+
+.mobile-menu-rows { display: flex; flex-direction: column; padding: 8px 8px; }
+.mobile-menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 15px 16px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  border-radius: 10px;
+  text-align: left;
+}
+/* Press feedback (Neil): a quick highlight + slight squish on tap, easing back
+   over a fraction of a second so a mis-tap is visible before the screen moves. */
+.mobile-menu-row { transition: background .28s ease, transform .08s ease; }
+.mobile-menu-row:active { background: var(--mist); transform: scale(0.985); }
+.mobile-menu-row.active { color: hsl(var(--color-green)); }
+.mobile-menu-row svg { color: var(--muted); flex-shrink: 0; }
+.mobile-menu-row.active .mobile-menu-row-label svg { color: hsl(var(--color-green)); }
+/* Label + leading icon group on the left of each row */
+.mobile-menu-row-label { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.mobile-menu-row-label > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-menu-rows.secondary { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+.mobile-menu-rows.secondary .mobile-menu-row { font-size: 13.5px; font-weight: 500; color: var(--muted); padding: 12px 16px; }
+.mobile-menu-row.signout { color: hsl(var(--color-red)); }
+.mobile-menu-divider { height: 1px; background: var(--line); margin: 4px 20px; }
+
+/* ── Mobile usability polish ────────────────────────────────────────────────
+   Full-width drawers, toasts above the tab bar, comfortable touch targets,
+   and 16px inputs (anything smaller makes iOS zoom the page on focus). */
+@media (max-width: 640px) {
+  /* Drawers go edge-to-edge like app screens */
+  .notif-drawer { width: 100vw !important; }
+  .cart-drawer  { width: 100vw !important; }
+
+  /* Toasts: full-width, floating just above the bottom tab bar */
+  .toast-stack {
+    left: 12px !important;
+    right: 12px !important;
+    bottom: calc(72px + env(safe-area-inset-bottom)) !important;
+    max-width: none !important;
+  }
+
+  /* iOS zooms the viewport when a focused input's font is under 16px */
+  .form-input, .search-bar input, input[type="text"], input[type="number"], textarea, select {
+    font-size: 16px !important;
+  }
+
+  /* Comfortable thumb targets */
+  .primary-btn, .secondary-btn { min-height: 40px; }
+  .icon-btn { width: 38px; height: 38px; }
+}
+
+/* ── Mobile v2 fixes (from phone screenshots) ───────────────────────────────
+   1) NOTHING may render wider than the screen — pages were panning/cutting
+   2) Header: Menu button top-left (opens the full-screen menu), NEXUS
+      wordmark centered via the absolute ::before; bottom bar = actions only
+   3) Cart becomes a floating action button above the tab bar
+   4) KPI stat grids everywhere collapse to 2-up (!important beats the inline
+      repeat(4,1fr) used across modules - Tasks/IT/Manage all inherit this) */
+@media (max-width: 900px) {
+  .viewport, .main-content { overflow-x: hidden; max-width: 100vw; }
+  img, svg, video { max-width: 100%; }
+}
+
+@media (max-width: 640px) {
+  .kpi-grid { grid-template-columns: 1fr 1fr !important; }
+
+  /* Cart = floating action button, always in thumb reach */
+  .cart-btn {
+    position: fixed !important;
+    right: 14px;
+    bottom: calc(78px + env(safe-area-inset-bottom));
+    z-index: 170;
+    border-radius: 999px !important;
+    padding: 13px 20px !important;
+    font-size: 13.5px !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.28) !important;
+  }
+}
+
+/* Phone filter bar: with the Cart now floating as a FAB, the dept/type
+   selects split the full row 50/50 - an intentional filter bar instead of
+   controls floating in dead space. (Bottom-sheet Filter & Sort comes with
+   the per-screen design pass.) */
+@media (max-width: 640px) {
+  [data-vis="visible"] { width: 100%; }
+  [data-vis="visible"] > div { flex: 1; }
+  [data-vis="visible"] > div > select { width: 100%; }
+  [data-vis="visible"] > select { flex: 1; width: 100%; }
+}
+
+/* ── Bottom bar v2 + edge-to-edge canvas (Visesh's phone design) ────────────
+   LEFT of the bar = current module ACTIONS (scrollable), RIGHT = Menu with a
+   divider. The on-page Item Management tab strip hides on phones (the bar
+   replaces it), content runs nearly edge-to-edge, and checkout rows wrap so
+   text never squeezes into vertical letters. */
+@media (max-width: 900px) {
+  .mobile-nav { align-items: stretch; }
+  /* All actions share the bar's width — items shrink to fit instead of
+     overflowing past the right edge (Visesh: buttons were getting cut off).
+     Labels ellipsize when a screen has many actions. */
+  .mobile-nav-actions {
+    flex: 1;
+    display: flex;
+    min-width: 0;
+  }
+  .mobile-nav-actions .mobile-nav-item {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-left: 2px;
+    padding-right: 2px;
+  }
+  .mobile-nav-actions .mobile-nav-item span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* 6+ actions: drop to a tighter label so everything stays readable */
+  .mobile-nav-actions .mobile-nav-item:first-child:nth-last-child(n+6),
+  .mobile-nav-actions .mobile-nav-item:first-child:nth-last-child(n+6) ~ .mobile-nav-item {
+    font-size: 9.5px;
+  }
+  .mobile-nav-menu {
+    flex: 0 0 auto;
+    min-width: 64px;
+    border-left: 1px solid var(--line);
+  }
+}
+
+@media (max-width: 640px) {
+  /* The bottom action bar IS the module nav on phones */
+  .im-tabs { display: none !important; }
+
+  /* Maximum canvas: content starts at the page edge */
+  .viewport { padding: 10px 8px 12px; }
+
+  /* Checkout rows: info gets the full line; status + actions wrap below,
+     aligned with the text (was crushing names into one-letter columns) */
+  .co-row { padding: 10px 12px !important; }
+  .co-row > div:last-child {
+    width: 100%;
+    box-sizing: border-box;
+    justify-content: flex-start !important;
+    /* Indent with padding, NOT margin: width:100% + margin-left pushed the
+       block 54px past the card edge and clipped the last button (e.g. the
+       manager's "Hand Over"). border-box keeps the indent inside the row. */
+    padding-left: 54px;
+    flex-wrap: wrap;
+  }
+
+  /* Order header: same treatment — the requester name/meta keeps the full row
+     and the bulk-action buttons (Reject All / Hand Over All) wrap onto their own
+     row below instead of crushing the name into per-word wrapping (Jun 16). */
+  .co-order-head > div:first-child { flex: 1 1 100% !important; }
+  .co-order-actions { width: 100%; margin-left: 22px; }
+}
+
+/* True edge-to-edge on phones - the side gutters go to content instead */
+@media (max-width: 640px) {
+  .viewport { padding: 8px 4px 12px; }
+}
+
+/* ── Kill the phantom left strip on phones (Visesh screenshots) ─────────────
+   1) The off-screen sidebar drawer still painted its 50px box-shadow into
+      the viewport - a soft grey column down the left of EVERY screen.
+   2) .main-content.main-collapsed (2 classes) out-specifies the mobile
+      margin-left: 0, indenting pages 60px when the desktop sidebar was
+      left collapsed. */
+@media (max-width: 900px) {
+  .sidebar { box-shadow: none; }
+  .sidebar.open { box-shadow: 0 0 50px rgba(0,0,0,.3); }
+  .main-content, .main-content.main-collapsed { margin-left: 0; }
+}
+
+/* Phone header rhythm - title/filters/search were stacking with no air.
+   The marketing subtitle is desktop-only; phones get title -> filter bar ->
+   search with consistent 10px breathing room. */
+@media (max-width: 640px) {
+  .view-title-group p { display: none; }
+  .view-title-group h2 { font-size: 18px; }
+  .view-header { margin-bottom: 6px; row-gap: 6px; }
+  [data-vis="visible"] { margin: 4px 0 10px; }
+}
+
+/* Cart: ONE fixed position on every phone screen - pinned to the title row,
+   top right (Visesh: the UI must never be misleading or jumpy). The old
+   .cart-btn FAB rules are retired (no element carries that class anymore). */
+@media (max-width: 640px) {
+  .viewport { position: relative; }
+  .header-cart {
+    position: absolute !important;
+    top: 8px;
+    right: 8px;
+    z-index: 20;
+    padding: 10px 18px !important;
+    font-size: 14px !important;
+    border-radius: 10px !important;
+    min-height: 0 !important;
+  }
+  /* filters drop below the pinned cart's row */
+  [data-vis="visible"] { margin: 14px 0 10px; }
+}
+
+/* Admin panel on phones: full-screen, compact header, role stats 2-up
+   (was a 92vw side panel with five squeezed stat columns) */
+@media (max-width: 640px) {
+  .admin-drawer { width: 100vw !important; }
+  .admin-drawer-sub { display: none; }
+  .role-stat-grid { grid-template-columns: 1fr 1fr !important; }
+}
+
+/* The pinned cart reserves its zone: the title row is always at least as
+   tall as the cart and keeps clear of it horizontally, so first-row content
+   (search bars, segment pills) never slides underneath on any tab */
+@media (max-width: 640px) {
+  .view-header { min-height: 50px; padding-right: 110px; }
+}
+
+/* Swipeable chip rows on phones: segment pills (Active/Past/Permanent,
+   status filters, Temporary/Permanent) scroll horizontally with a peek of
+   the next chip instead of getting cut off or stacking tall. */
+@media (max-width: 640px) {
+  .chip-row {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    margin-right: -4px;        /* let the last chip peek past the gutter */
+    padding-bottom: 2px;
+  }
+  .chip-row::-webkit-scrollbar { display: none; }
+  .chip-row > button { flex: 0 0 auto; white-space: nowrap; }
+}
+
+/* Breathing room restored at every tier - the edge-to-edge experiments
+   overshot; content should never feel glued to the screen edge (Visesh). */
+@media (max-width: 1366px) {
+  .viewport { padding: 28px 30px; }
+}
+@media (max-width: 900px) {
+  .viewport { padding: 20px 18px; }
+}
+@media (max-width: 640px) {
+  .viewport { padding: 14px 12px 16px; }
+}
+
+/* Minimal mobile controls: inputs/selects go quiet - filled, borderless
+   (part of the amazon-style minimal pass) */
+@media (max-width: 640px) {
+  .form-input { border-color: transparent; background: var(--mist); }
+  .form-input:focus { border-color: var(--line); }
+}
+
+/* ── Minimal design language, app-wide on phones (Visesh) ───────────────────
+   Every card in the app draws from the same shadow/line tokens - redefining
+   them at the phone breakpoint flattens ALL cards at once: hairline borders,
+   no drop shadows, flat KPI cards with a thin accent edge, quiet filled
+   buttons. Desktop keeps the full treatment. */
+@media (max-width: 640px) {
+  :root {
+    --shadow-sm: none;
+    --shadow-md: 0 1px 3px rgba(0,0,0,0.06);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+    --line: rgba(0,0,0,0.06);
+  }
+  [data-theme="dark"] { --line: rgba(255,255,255,0.07); }
+
+  /* KPI cards on phones: keep the gradient tint + colored left edge from the
+     June design pass (Visesh, Jun 12: gradients back on all KPI cards) —
+     only the sizing goes compact */
+  .kpi-card {
+    border: 1px solid var(--line) !important;
+    border-left: 3px solid var(--line) !important;
+    border-radius: 12px;
+    padding: 12px 14px;
+  }
+  .kpi-card.card-green  { border-left-color: hsl(var(--color-green)) !important; }
+  .kpi-card.card-blue   { border-left-color: hsl(var(--color-blue)) !important; }
+  .kpi-card.card-orange { border-left-color: hsl(var(--color-orange)) !important; }
+  .kpi-card.card-red    { border-left-color: hsl(var(--color-red)) !important; }
+  .kpi-card.card-purple { border-left-color: hsl(var(--color-purple)) !important; }
+  .kpi-card.card-gold   { border-left-color: hsl(var(--color-gold)) !important; }
+  .kpi-value { font-size: 20px; margin: 4px 0 0; }
+  .kpi-label { font-size: 10px; }
+
+  /* Quiet secondary buttons - filled, borderless (matches the inputs) */
+  .secondary-btn { border-color: transparent; background: var(--mist); }
+
+  /* Hover-lift animations are desktop affordances */
+  .kpi-card:hover, .facility-card:hover, .support-card:hover, .motion-card:hover {
+    transform: none;
+    box-shadow: none;
+  }
+}
+
+/* Phone: flat page background — the ambient 145° gradient reads as a darker
+   band down the right side of the screen (Neil, Jun 12: "harder to see").
+   var(--paper) is what the sticky tab strips already use, so they blend in. */
+@media (max-width: 900px) {
+  body { background: var(--paper); }
+}
+
+/* Tasks on phones: stat cards 2-up, task cards stack vertically with the
+   chips + action icons sharing a bottom row (was a desktop flex row that
+   crushed titles into one-word columns and pushed actions off-screen) */
+@media (max-width: 640px) {
+  .cards-grid { grid-template-columns: 1fr 1fr !important; }
+  .task-card {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 10px !important;
+    padding: 14px 16px !important;
+  }
+  .task-side {
+    width: 100%;
+    justify-content: space-between;
+    align-items: flex-start !important;
+    gap: 10px !important;
+  }
+}
+
+/* Phone forms: single column (two columns crushed labels/values - "Sarah
+   Jol", "Mediu"), and the class-based modals become bottom sheets like the
+   role="dialog" ones, so every dialog in the app behaves identically. */
+@media (max-width: 640px) {
+  .form-grid, .modal-content .form-grid { grid-template-columns: 1fr; }
+
+  .modal-overlay { align-items: flex-end !important; padding: 0 !important; }
+  .modal-content {
+    max-width: 100% !important;
+    border-radius: 18px 18px 0 0 !important;
+    max-height: 92vh;
+    animation: sheetUp 0.26s cubic-bezier(.16,1,.3,1);
+  }
+}
+
+/* PropertyAsset on phones: section tabs live in the bottom action bar */
+@media (max-width: 640px) {
+  .pa-tabs { display: none !important; }
+  .mobile-nav-item.no-icon { font-size: 11.5px; padding: 16px 4px; }
+  .mobile-nav-item.no-icon.active { font-weight: 800; }
+}
+
+/* Manager Dashboard on phones: tabs live in the bottom action bar */
+@media (max-width: 640px) {
+  .md-tabs { display: none !important; }
+}
+
+/* Phone guard: any inline card grid demanding a >=300px column minimum is
+   wider than a phone - collapse such grids to one column. Catches the
+   PropertyAsset summary cards (minmax 320/340) and any future offender. */
+@media (max-width: 640px) {
+  [style*="minmax(3"] { grid-template-columns: 1fr !important; }
+}
+
+/* Phone: wide data tables (.req-table - PropertyAsset sections, requisition
+   logs) scroll sideways inside their card instead of being cut off. */
+@media (max-width: 640px) {
+  .req-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
+
+/* ── Phone: stacked-card tables (mobile-first pass, Jun 12) ─────────────────
+   Tables tagged .stack-table re-flow into a card per row at ≤640px: the
+   header row disappears and each cell renders as a LABEL — VALUE line, the
+   label coming from the cell's data-th attribute. Cells WITHOUT data-th act
+   as the card title (full width, bolder). Desktop rendering is untouched —
+   on wide screens .stack-table behaves exactly like .req-table. */
+@media (max-width: 640px) {
+  table.stack-table { display: block; overflow-x: visible; }
+  .stack-table thead { display: none; }
+  .stack-table tbody { display: flex; flex-direction: column; gap: 10px; }
+  .stack-table tbody tr {
+    display: flex; flex-direction: column; gap: 7px;
+    border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 14px; background: var(--card);
+  }
+  .stack-table tbody tr:hover { background: var(--card); }
+  .stack-table td {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    border-bottom: none; text-align: left;
+    /* !important beats per-cell inline styles meant for the desktop grid */
+    padding: 0 !important;
+    white-space: normal !important;
+    max-width: none !important;
+  }
+  .stack-table td::before {
+    content: attr(data-th);
+    font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--muted); flex-shrink: 0;
+  }
+  .stack-table td:not([data-th])::before,
+  .stack-table td[data-th=""]::before { content: none; }
+  .stack-table td:first-child:not([data-th]) { font-weight: 600; font-size: 14px; }
+}
+
+/* ── Touch & accessibility polish (app-wide) ────────────────────────────────
+   Kill the gray tap flash, keep double-tap zoom off interactive elements,
+   and give keyboard users a consistent focus ring (mouse clicks unaffected —
+   :focus-visible only fires for keyboard/AT focus). */
+button, [role="button"], a, input, select, textarea, label { -webkit-tap-highlight-color: transparent; }
+button, [role="button"], select { touch-action: manipulation; }
+:focus-visible { outline: 2px solid hsl(var(--color-blue)); outline-offset: 2px; }
+
+/* Phone: comfortable thumb targets without blowing up dense desktop rows */
+@media (max-width: 640px) {
+  .primary-btn, .secondary-btn { min-height: 40px; }
+  .form-input, select.form-input { min-height: 44px; }
+}
+
+/* Phone: inline two-column layouts (modal form field pairs, side-by-side
+   cards) and raw three-up stat rows stack instead of crushing into slivers.
+   Matches the inline style text, so desktop is untouched. */
+@media (max-width: 640px) {
+  [style*="1fr 1fr"] { grid-template-columns: 1fr !important; }
+  [style*="repeat(3, 1fr)"] { grid-template-columns: 1fr !important; }
+}
+
+/* Vestibular safety: collapse animations/transitions for users who asked */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Header search trigger: right side on desktop, left of the wordmark on
+   phones (a 4th right-side icon overlapped the centered NEXUS) */
+.header-search-left { display: none; }
+/* Phone-only back button: hidden on desktop (the breadcrumb-back covers that),
+   shown on phones where the breadcrumb is hidden. */
+.header-back-mobile { display: none; }
+@media (max-width: 900px) {
+  .header-search-left  { display: flex; }
+  .header-search-right { display: none; }
+  .header-back-mobile  { display: flex; }
+}
+
+/* Fullscreen + zoom controls live in the desktop top nav only — phones already
+   have native browser zoom/pinch, and a row of extra icons would crowd the
+   compact mobile header (Neil, Jun 16). */
+.header-desktop-tools { display: inline-flex; align-items: center; gap: 4px; }
+.header-zoom-label { font-size: 11px; font-weight: 700; color: var(--muted); min-width: 34px; text-align: center; user-select: none; }
+@media (max-width: 900px) { .header-desktop-tools { display: none; } }
+
+/* ── Global search palette (Ctrl/Cmd+K) ─────────────────────────────────────── */
+.gs-overlay {
+  position: fixed; inset: 0; z-index: 2000;
+  background: rgba(0,0,0,0.45);
+  display: flex; justify-content: center; align-items: flex-start;
+  padding: 12vh 16px 16px;
+  animation: fadeIn 0.12s ease;
+}
+.gs-panel {
+  width: min(620px, 100%);
+  background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.3);
+  overflow: hidden; display: flex; flex-direction: column;
+  max-height: 64vh;
+  animation: fadeInUp 0.18s cubic-bezier(.16,1,.3,1) both;
+}
+.gs-input-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px; border-bottom: 1px solid var(--line); flex-shrink: 0;
+}
+.gs-input {
+  flex: 1; border: none; outline: none; background: transparent;
+  font: 500 15px Inter, sans-serif; color: var(--ink); min-width: 0;
+}
+.gs-input::placeholder { color: var(--muted); }
+.gs-kbd {
+  font: 600 10px Inter, sans-serif; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 5px; padding: 2px 6px;
+  text-transform: uppercase; letter-spacing: .04em; flex-shrink: 0;
+}
+.gs-results { overflow-y: auto; padding: 6px; }
+.gs-section {
+  font: 700 10px Inter, sans-serif; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .07em;
+  padding: 10px 10px 4px;
+}
+.gs-row {
+  width: 100%; display: flex; align-items: center; gap: 10px;
+  padding: 10px 10px; border: none; border-radius: 8px;
+  background: transparent; cursor: pointer; text-align: left;
+  font-family: Inter, sans-serif; color: var(--ink);
+}
+.gs-row[data-active="true"] { background: var(--mist); }
+.gs-row-title { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; max-width: 60%; }
+.gs-row-detail { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+.gs-empty, .gs-hint { padding: 22px 16px; font-size: 13px; color: var(--muted); text-align: center; }
+@media (max-width: 640px) {
+  .gs-overlay { padding: 0; align-items: stretch; }
+  .gs-panel { width: 100%; max-height: none; border-radius: 0; border: none; }
+  .gs-input { font-size: 16px; } /* no iOS zoom */
+  .gs-kbd { display: none; }
+}
+
+/* ── Swipe-action rows (Manager Dashboard approval queues, phones) ──────────── */
+.swipe-row { position: relative; overflow: hidden; border-radius: 8px; }
+.swipe-row-actions { position: absolute; top: 0; bottom: 0; right: 0; display: flex; }
+.swipe-row-actions button {
+  border: none; color: #fff; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+  font: 600 11.5px Inter, sans-serif;
+}
+.swipe-row-content { position: relative; z-index: 1; background: var(--paper); }
+/* Phones get a subtle affordance hint that the row swipes */
+@media (min-width: 901px) {
+  .swipe-row-actions { display: none; } /* desktop never engages touch-drag */
+}
+
+/* ── Floating action button (phones) ────────────────────────────────────────── */
+.fab { display: none; }
+@media (max-width: 900px) {
+  .fab {
+    position: fixed; right: 18px; bottom: calc(20px + env(safe-area-inset-bottom));
+    width: 54px; height: 54px; border-radius: 50%; border: none;
+    background: var(--pine); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.28);
+    cursor: pointer; z-index: 900;
+    transition: transform 0.12s ease;
+  }
+  .fab:active { transform: scale(0.92); }
+}
+
+/* Manager Dashboard phone: pending-action rows wrap (buttons drop below the
+   text), alert cards stack, the week calendar goes single-column */
+@media (max-width: 640px) {
+  .mdb-req-row { flex-wrap: wrap; }
+  .mdb-alert-row { flex-direction: column; align-items: flex-start !important; gap: 10px; }
+  .md-cal-grid { grid-template-columns: 1fr !important; }
+}
+
+/* adidas criss-cross: a module's sub-screens slide in from the RIGHT over
+   the left-slid menu; the back chevron slides them out again */
+.mobile-submenu {
+  position: fixed;
+  inset: 0;
+  z-index: 410;
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  animation: submenuIn 0.30s cubic-bezier(.16,1,.3,1);
+}
+.mobile-submenu.closing { animation: submenuOut 0.26s ease-in forwards; }
+@keyframes submenuIn { from { transform: translateX(100%); } to { transform: none; } }
+@keyframes submenuOut { from { transform: none; } to { transform: translateX(100%); } }
+@media (min-width: 901px) { .mobile-submenu { display: none; } }
+
+.mobile-submenu-head { display: flex; align-items: center; justify-content: center; position: relative; padding: 18px 16px 12px; }
+.mobile-submenu-back { position: absolute; left: 10px; top: 12px; background: none; border: none; color: var(--ink); padding: 10px; cursor: pointer; }
+.mobile-submenu-title { font-weight: 800; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; max-width: 65%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── HR org chart — top-down tree with connector lines (Busacta-style) ───────
+   Classic nested-list chart: each <li> draws its half-width top connector via
+   ::before/::after, each child <ul> drops a vertical line from its parent. */
+.org-tree-wrap { overflow-x: auto; padding: 6px 8px 14px; -webkit-overflow-scrolling: touch; }
+/* width:max-content — the tree must be as wide as its widest rank, otherwise
+   the overflow clips straight through the last card (it sliced Sai's card in
+   half and painted the clip edge as a phantom line). min-width keeps small
+   trees centered in the wrap. */
+.org-tree { width: max-content; min-width: 100%; }
+.org-tree ul { display: flex; justify-content: center; padding: 0; margin: 0; position: relative; }
+.org-tree li { list-style: none; display: flex; flex-direction: column; align-items: center; position: relative; padding: 26px 7px 0; }
+.org-tree li::before, .org-tree li::after {
+  content: ''; position: absolute; top: 0; right: 50%; width: 50%; height: 26px;
+  border-top: 2px solid var(--sage);
+}
+.org-tree li::after  { right: auto; left: 50%; border-left: 2px solid var(--sage); }
+.org-tree li:only-child::before, .org-tree li:only-child::after { border-top: 0 none; }
+.org-tree li:first-child::before, .org-tree li:last-child::after { border-top: 0 none; }
+.org-tree li:last-child::before  { border-right: 2px solid var(--sage); border-radius: 0 8px 0 0; }
+.org-tree li:first-child::after  { border-radius: 8px 0 0 0; }
+/* Nested lists get their own 26px band for the parent drop-line — without it
+   the ::before painted upward INTO the parent card (lines crossed the cards) */
+.org-tree li > ul { padding-top: 26px; }
+.org-tree li > ul::before {
+  content: ''; position: absolute; top: 0; left: 50%; width: 0; height: 26px;
+  border-left: 2px solid var(--sage);
+}
+/* roots: no inbound connectors */
+.org-tree > ul > li { padding-top: 0; }
+.org-tree > ul > li::before, .org-tree > ul > li::after { display: none; }
+
+.org-card {
+  display: inline-flex; align-items: center; gap: 10px; text-align: left;
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 10px 14px; box-shadow: var(--shadow-sm); white-space: nowrap;
+}
