@@ -508,6 +508,46 @@ def delete_item(item_id: str, user: dict = Depends(require_items_delete), db: Se
     return {"ok": True}
 
 
+class BulkDeleteRequest(BaseModel):
+    ids: list[str]
+
+
+@router.post("/bulk-delete")
+def bulk_delete_items(body: BulkDeleteRequest, user: dict = Depends(require_items_delete), db: Session = Depends(get_db)):
+    """Delete many items in ONE transaction instead of one request per item
+    (the client used to loop, which made deleting 30+ items take 10-20s). Items
+    with an active checkout are skipped and reported as `blocked`."""
+    ids = [i for i in (body.ids or []) if i]
+    if not ids:
+        return {"deleted": 0, "blocked": [], "notFound": []}
+
+    # One query each: which of these items still have a live checkout, and which
+    # actually exist — instead of N round-trips.
+    active_item_ids = {
+        row.item_id for row in db.query(ItemCheckout.item_id).filter(
+            ItemCheckout.item_id.in_(ids),
+            ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"]),
+        ).all()
+    }
+    items = db.query(Item).filter(Item.id.in_(ids)).all()
+    found_ids = {it.id for it in items}
+
+    blocked, deleted = [], 0
+    for it in items:
+        if it.id in active_item_ids:
+            blocked.append({"id": it.id, "name": it.name, "reason": "active checkout"})
+            continue
+        db.delete(it)
+        deleted += 1
+    db.commit()  # single commit for the whole batch
+
+    return {
+        "deleted": deleted,
+        "blocked": blocked,
+        "notFound": [i for i in ids if i not in found_ids],
+    }
+
+
 # ── Checkouts ─────────────────────────────────────────────────────────────────
 
 class CheckoutIn(BaseModel):

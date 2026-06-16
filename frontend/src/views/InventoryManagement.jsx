@@ -3556,16 +3556,22 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
   async function executeBatchDelete() {
     setBatchDeleting(true);
     const deletable = selItems.filter(i => !blockedItems.find(b => b.id === i.id));
-    let failed = 0;
-    for (const item of deletable) {
-      try { await api.deleteItem(item.id); } catch { failed++; }
+    try {
+      // One request, one transaction — the old per-item loop made deleting 30+
+      // items take 10-20s (Jun 16).
+      const res = await api.bulkDeleteItems(deletable.map(i => i.id));
+      await refreshItems();
+      setSelected(new Set());
+      setBatchDeleteConfirm(false);
+      const blocked = res?.blocked?.length || 0;
+      const deleted = res?.deleted ?? deletable.length;
+      if (!blocked) toast?.(`Deleted ${deleted} item${deleted !== 1 ? 's' : ''}.`);
+      else toast?.(`Deleted ${deleted} item${deleted !== 1 ? 's' : ''} · ${blocked} skipped (active checkout).`, 'error');
+    } catch {
+      toast?.('Could not delete the selected items. Please try again.', 'error');
+    } finally {
+      setBatchDeleting(false);
     }
-    await refreshItems();
-    setSelected(new Set());
-    setBatchDeleteConfirm(false);
-    setBatchDeleting(false);
-    if (failed === 0) toast?.(`Deleted ${deletable.length} item${deletable.length !== 1 ? 's' : ''}.`);
-    else toast?.(`Deleted ${deletable.length - failed} items · ${failed} failed.`, 'error');
   }
 
   const SortTh = ({ col, label }) => {
