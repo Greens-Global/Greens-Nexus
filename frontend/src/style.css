@@ -1700,8 +1700,13 @@ html { overflow-x: hidden; }
   .co-row { padding: 10px 12px !important; }
   .co-row > div:last-child {
     width: 100%;
+    box-sizing: border-box;
     justify-content: flex-start !important;
-    margin-left: 54px;
+    /* Indent with padding, NOT margin: width:100% + margin-left pushed the
+       block 54px past the card edge and clipped the last button (e.g. the
+       manager's "Hand Over"). border-box keeps the indent inside the row. */
+    padding-left: 54px;
+    flex-wrap: wrap;
   }
 
   /* Order header: same treatment — the requester name/meta keeps the full row
