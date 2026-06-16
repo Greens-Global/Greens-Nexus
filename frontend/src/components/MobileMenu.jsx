@@ -105,6 +105,15 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
     return can?.('manager') ? entry.manager : entry.employee; // inventory
   };
 
+  // Mirror the sidebar's icon rendering (lucide component or custom SVG path)
+  // so menu rows carry the SAME left icon — Neil: icons on the left help people
+  // who fat-finger, and give the eye an anchor per row.
+  const renderIcon = (item, size = 19) => item.icon
+    ? <item.icon style={{ width: size, height: size, flexShrink: 0 }} />
+    : item.svgPath
+      ? <svg className="material-symbol-svg" viewBox="0 -960 960 960" style={{ width: size, height: size, flexShrink: 0 }}><path d={item.svgPath} /></svg>
+      : null;
+
   const visible = NAV.filter(item => item.divider || !item.minRole || can?.(item.minRole) || myGrantedModules?.has(item.view));
   const go = (id, sub = null) => { onNavigate(id, sub); onClose(); };
   const openRow = item => {
@@ -135,7 +144,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
           if (item.divider) return <div key={`d${i}`} className="mobile-menu-divider" />;
           return (
             <button key={item.view} className={`mobile-menu-row${activeView === item.view ? ' active' : ''}`} onClick={() => openRow(item)}>
-              <span>{item.label}</span>
+              <span className="mobile-menu-row-label">{renderIcon(item)}<span>{item.label}</span></span>
               <ChevronRight size={17} />
             </button>
           );

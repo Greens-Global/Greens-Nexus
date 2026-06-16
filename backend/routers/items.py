@@ -321,10 +321,31 @@ def create_item(body: ItemCreate, user: dict = Depends(require_items_admin), db:
     return _item_to_dict(item)
 
 
+def _import_key(name: str, make: str, model: str, department: str) -> tuple:
+    """Natural identity of a catalog row for import de-duplication. Imports carry
+    no serial/asset tag, so name+make+model+department (case-insensitive) is the
+    stable key. Re-uploading the same CSV updates these rows instead of inserting
+    duplicates (Jun 16)."""
+    return (
+        (name or "").strip().lower(),
+        (make or "").strip().lower(),
+        (model or "").strip().lower(),
+        (department or "").strip().lower(),
+    )
+
+
 @router.post("/import")
 def import_items(body: ItemImportRequest, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
     now = datetime.now(timezone.utc).isoformat()
-    created = skipped = 0
+    created = updated = skipped = 0
+
+    # Index existing items so a re-uploaded CSV matches and updates in place. First
+    # row wins for any pre-existing duplicates; the index is also updated as we go
+    # so repeated rows WITHIN one file collapse onto a single item too.
+    index: dict[tuple, Item] = {}
+    for it in db.query(Item).all():
+        index.setdefault(_import_key(it.name, it.make, it.model, it.department), it)
+
     for row in body.items:
         name = (row.name or "").strip()
         if not name:
@@ -336,25 +357,50 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
         item_type = (row.item_type or "Other").strip()
         if item_type not in _ITEM_TYPES:
             item_type = "Other"
-        db.add(Item(
-            id=str(uuid.uuid4()),
-            name=name,
-            item_type=item_type,
-            make=(row.make or "").strip(),
-            model=(row.model or "").strip(),
-            year=(row.year or "").strip(),
-            department=(row.department or "").strip(),
-            default_owner=(row.default_owner or _TYPE_DEFAULT_OWNER.get(item_type, "")).strip(),
-            ownership_type=ownership,
-            status="available",  # assignment flow sets permanently_assigned once accepted
-            location=(row.location or "").strip(),
-            photo_url="",
-            created_by=user["email"],
-            created_at=now,
-        ))
-        created += 1
+        make       = (row.make or "").strip()
+        model      = (row.model or "").strip()
+        year       = (row.year or "").strip()
+        department = (row.department or "").strip()
+        location   = (row.location or "").strip()
+        default_owner = (row.default_owner or _TYPE_DEFAULT_OWNER.get(item_type, "")).strip()
+
+        key = _import_key(name, make, model, department)
+        existing = index.get(key)
+        if existing is not None:
+            # Update descriptive fields in place. Status, photo, and the
+            # assignment lifecycle are deliberately preserved.
+            existing.name          = name
+            existing.item_type     = item_type
+            existing.make          = make
+            existing.model         = model
+            existing.year          = year
+            existing.department    = department
+            existing.default_owner = default_owner
+            existing.ownership_type = ownership
+            existing.location      = location
+            updated += 1
+        else:
+            new_item = Item(
+                id=str(uuid.uuid4()),
+                name=name,
+                item_type=item_type,
+                make=make,
+                model=model,
+                year=year,
+                department=department,
+                default_owner=default_owner,
+                ownership_type=ownership,
+                status="available",  # assignment flow sets permanently_assigned once accepted
+                location=location,
+                photo_url="",
+                created_by=user["email"],
+                created_at=now,
+            )
+            db.add(new_item)
+            index[key] = new_item  # collapse duplicate rows within the same file
+            created += 1
     db.commit()
-    return {"created": created, "skipped": skipped}
+    return {"created": created, "updated": updated, "skipped": skipped}
 
 
 # ── Persistent cart (must be before /{item_id} wildcards) ────────────────────

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, ChevronDown, LayoutDashboard } from "lucide-react";
+import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, ChevronDown, LayoutDashboard, Maximize2, Minimize2, ZoomIn, ZoomOut } from "lucide-react";
 import NotificationBell from "./NotificationBell";
 import { useMsal }        from "@azure/msal-react";
 import { useRole, ROLES, MODULES } from "../contexts/RoleContext";
@@ -19,6 +19,27 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
   const [searchOpen,   setSearchOpen]   = useState(false);
   const dropRef   = useRef(null);
   const searchRef = useRef(null);
+
+  // Page zoom for readability (Neil: "zoom option for old folks"). Persisted so
+  // it survives reloads. Applied to the document root; 80–150% in 10% steps.
+  const [zoom, setZoom] = useState(() => Number(localStorage.getItem('gg-zoom')) || 100);
+  useEffect(() => {
+    document.documentElement.style.zoom = `${zoom}%`;
+    localStorage.setItem('gg-zoom', String(zoom));
+  }, [zoom]);
+  const clampZoom = z => Math.max(80, Math.min(150, z));
+
+  // Fullscreen toggle for the whole app.
+  const [isFull, setIsFull] = useState(false);
+  useEffect(() => {
+    const h = () => setIsFull(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', h);
+    return () => document.removeEventListener('fullscreenchange', h);
+  }, []);
+  function toggleFullscreen() {
+    if (document.fullscreenElement) document.exitFullscreen?.();
+    else document.documentElement.requestFullscreen?.();
+  }
 
   // Restricted view IDs that need at minimum supervisor role
   const RESTRICTED_MIN_SUPERVISOR = new Set([
@@ -142,10 +163,21 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
       </div>
 
       <div className="header-right">
-        <button className="icon-btn header-search-right" aria-label="Search (Ctrl+K)" title="Search (Ctrl+K)"
-          onClick={() => window.dispatchEvent(new CustomEvent('nexus:search-open'))}>
-          <Search style={{ width: 16, height: 16 }} />
-        </button>
+        <div className="header-desktop-tools">
+          <button className="icon-btn" onClick={() => setZoom(z => clampZoom(z - 10))} aria-label="Zoom out" title="Zoom out" disabled={zoom <= 80}>
+            <ZoomOut style={{ width: 16, height: 16 }} />
+          </button>
+          <button className="header-zoom-label" onClick={() => setZoom(100)} title="Reset zoom to 100%"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+            {zoom}%
+          </button>
+          <button className="icon-btn" onClick={() => setZoom(z => clampZoom(z + 10))} aria-label="Zoom in" title="Zoom in" disabled={zoom >= 150}>
+            <ZoomIn style={{ width: 16, height: 16 }} />
+          </button>
+          <button className="icon-btn" onClick={toggleFullscreen} aria-label="Toggle fullscreen" title={isFull ? 'Exit fullscreen' : 'Fullscreen'}>
+            {isFull ? <Minimize2 style={{ width: 16, height: 16 }} /> : <Maximize2 style={{ width: 16, height: 16 }} />}
+          </button>
+        </div>
         <button className="icon-btn" onClick={onThemeToggle} aria-label="Toggle Theme">
           {theme === "dark"
             ? <Sun style={{ width: 16, height: 16 }} />

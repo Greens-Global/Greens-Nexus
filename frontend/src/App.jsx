@@ -133,9 +133,16 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
 // URL ↔ screen sync: the address bar mirrors navigation state
 // (dev.nexus…/inventory/checkouts) so links are shareable and back/forward
 // work. State stays the source of truth; these just translate.
+// The Item Management view keeps its internal id 'inventory' everywhere, but the
+// address bar reads /itemmanagement (Neil, Jun 16). Old /inventory links still
+// resolve to the same view so nothing breaks.
+const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory' };
+const VIEW_TO_PATH = { inventory: 'itemmanagement' };
+
 function parsePath() {
   const segs = window.location.pathname.split('/').filter(Boolean);
-  return { view: segs[0] || 'dashboard', sub: segs[1] || null };
+  const raw = segs[0] || 'dashboard';
+  return { view: PATH_TO_VIEW[raw] || raw, sub: segs[1] || null };
 }
 
 const DEFAULT_SUBS = {
@@ -160,6 +167,12 @@ export default function App() {
   const [mobileMenuOpen,   setMobileMenuOpen]   = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("gg-sidebar-collapsed") === "true");
   const [navHistory,       setNavHistory]       = useState([]);
+  // Refs mirror the live view/sub so navigate() records the REAL current screen
+  // in history even when called from the once-registered nexus:navigate listener
+  // (whose closure would otherwise be stale, sending every back to Dashboard).
+  const activeViewRef = useRef(activeView);
+  const activeSubRef  = useRef(activeSub);
+  useEffect(() => { activeViewRef.current = activeView; activeSubRef.current = activeSub; }, [activeView, activeSub]);
   const [adminPanelOpen,   setAdminPanelOpen]   = useState(false);
   const [adminPanelTab,    setAdminPanelTab]    = useState('access');
   const [backendDown,      setBackendDown]      = useState(false);
@@ -201,9 +214,14 @@ export default function App() {
   }, [sidebarCollapsed]);
 
   function navigate(view, sub = null) {
-    setNavHistory(prev => [...prev.slice(-19), { view: activeView, sub: activeSub }]);
+    const nextSub = sub ?? getDefaultSub(view);
+    const curView = activeViewRef.current, curSub = activeSubRef.current;
+    // Don't record a history step for a no-op navigation to the same screen.
+    if (view !== curView || nextSub !== curSub) {
+      setNavHistory(prev => [...prev.slice(-19), { view: curView, sub: curSub }]);
+    }
     setActiveView(view);
-    setActiveSub(sub ?? getDefaultSub(view));
+    setActiveSub(nextSub);
     setSidebarOpen(false);
   }
 
@@ -238,9 +256,10 @@ export default function App() {
   // State → address bar
   useEffect(() => {
     if (fromPopstate.current) { fromPopstate.current = false; return; }
+    const seg = VIEW_TO_PATH[activeView] || activeView;
     const path = activeView === 'dashboard' && !activeSub
       ? '/'
-      : `/${activeView}${activeSub ? `/${activeSub}` : ''}`;
+      : `/${seg}${activeSub ? `/${activeSub}` : ''}`;
     if (window.location.pathname !== path) window.history.pushState(null, '', path);
   }, [activeView, activeSub]);
 

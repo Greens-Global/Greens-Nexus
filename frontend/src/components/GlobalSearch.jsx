@@ -12,7 +12,7 @@ import { SUBMENUS } from './MobileMenu';
 // items, checkouts, and purchase requisitions — all from data the app already
 // holds in its contexts, so opening it costs no extra requests.
 export default function GlobalSearch({ onNavigate }) {
-  const { can, myGrantedModules } = useRole();
+  const { can, myGrantedModules, myEmail } = useRole();
   const { items = [], checkouts = [] } = useInventory() || {};
   const { requisitions = [] } = useRequisitions() || {};
 
@@ -86,8 +86,13 @@ export default function GlobalSearch({ onNavigate }) {
     }
 
     let n = 0;
+    const isManager = can?.('manager');
     for (const i of items) {
       if (n >= 5) break;
+      // Employees only ever see catalog (temporary) items — permanently-assigned
+      // equipment like assigned laptops must never surface in their search
+      // (Pranshu, Jun 16). Managers+ can search everything.
+      if (!isManager && i.ownershipType !== 'transient') continue;
       if (match(i.name, i.make, i.model, i.itemType, i.location)) {
         n++;
         out.push({
@@ -102,6 +107,8 @@ export default function GlobalSearch({ onNavigate }) {
     n = 0;
     for (const c of checkouts) {
       if (n >= 4) break;
+      // Employees only see their OWN checkouts/orders in search (Pranshu, Jun 16)
+      if (!isManager && (c.requestedByEmail || '').toLowerCase() !== (myEmail || '')) continue;
       if (match(c.itemName, c.requestedBy)) {
         n++;
         out.push({
@@ -128,7 +135,7 @@ export default function GlobalSearch({ onNavigate }) {
     }
 
     return out;
-  }, [query, screens, items, checkouts, requisitions, can, go]);
+  }, [query, screens, items, checkouts, requisitions, can, myEmail, go]);
 
   useEffect(() => { setActiveIdx(0); }, [query]);
 

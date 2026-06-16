@@ -677,7 +677,8 @@ function ImportItemsModal({ onClose, onImport }) {
           <>
             <h3 style={{ fontSize:16, fontWeight:700, marginBottom:10 }}>Import Complete</h3>
             <p style={{ fontSize:13.5, color:'var(--muted)', marginBottom:20 }}>
-              <strong>{done.created}</strong> items added. <strong>{done.skipped}</strong> rows skipped.
+              <strong>{done.created}</strong> items added{done.updated ? <>, <strong>{done.updated}</strong> updated</> : null}. <strong>{done.skipped}</strong> rows skipped.
+              Re-uploading the same file updates existing items in place instead of duplicating them.
               Photos must be added manually in the Manage tab — one item at a time.
             </p>
             <div style={{ display:'flex', justifyContent:'flex-end' }}><button className="primary-btn" onClick={onClose}>Done</button></div>
@@ -1498,6 +1499,14 @@ function BatchReRequestModal({ checkouts, onClose, onSubmit }) {
   const [approverEmail, setApproverEmail] = useState('');
   const [busy,          setBusy]          = useState(false);
   const [error,         setError]         = useState('');
+  // Days are pre-filled from each item's last checkout but stay editable —
+  // users can change the duration before re-submitting (Pranshu, Jun 16).
+  const [days,          setDays]          = useState(() =>
+    Object.fromEntries(checkouts.map(c => [c.id, c.days || 1])));
+  const setItemDays = (id, v) => {
+    const n = parseInt(v, 10);
+    setDays(d => ({ ...d, [id]: Number.isNaN(n) ? '' : Math.max(1, Math.min(365, n)) }));
+  };
   useEscapeKey(onClose);
 
   // Same defaulting as the cart: last-used manager, else the usual manager
@@ -1523,7 +1532,8 @@ function BatchReRequestModal({ checkouts, onClose, onSubmit }) {
     if (!canSubmit) return;
     setBusy(true); setError('');
     localStorage.setItem('nexus-approver-email', approver.email);
-    Promise.resolve(onSubmit({ reason: reason.trim(), approverEmail: approver.email, approverName: approver.name }))
+    const daysMap = Object.fromEntries(Object.entries(days).map(([id, v]) => [id, Math.max(1, parseInt(v, 10) || 1)]));
+    Promise.resolve(onSubmit({ reason: reason.trim(), approverEmail: approver.email, approverName: approver.name, days: daysMap }))
       .catch(err => { setError(err?.message || 'Could not submit the request.'); setBusy(false); });
   }
 
@@ -1534,14 +1544,21 @@ function BatchReRequestModal({ checkouts, onClose, onSubmit }) {
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:440, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'85vh', overflowY:'auto' }}>
         <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Request Again</h3>
         <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:16 }}>
-          {checkouts.length} item{checkouts.length !== 1 ? 's' : ''} from your past checkouts will go in as one new request, each for the same number of days as last time.
+          {checkouts.length} item{checkouts.length !== 1 ? 's' : ''} from your past checkouts will go in as one new request. Days are pre-filled from last time — adjust any of them below before submitting.
         </p>
 
         <div style={{ border:'1px solid var(--line)', borderRadius:10, marginBottom:16, overflow:'hidden' }}>
           {checkouts.map((c, idx) => (
             <div key={c.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', borderTop: idx > 0 ? '1px solid var(--line)' : 'none' }}>
               <span style={{ flex:1, minWidth:0, fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.itemName}</span>
-              <span style={{ fontSize:11.5, fontWeight:700, color:'hsl(var(--color-blue))', flexShrink:0 }}>{c.days || 1} day{(c.days || 1) !== 1 ? 's' : ''}</span>
+              <div style={{ display:'inline-flex', alignItems:'center', gap:6, flexShrink:0 }}>
+                <input type="number" min={1} max={365} value={days[c.id] ?? ''}
+                  onChange={e => setItemDays(c.id, e.target.value)}
+                  onBlur={e => { if (!e.target.value) setItemDays(c.id, 1); }}
+                  className="form-input"
+                  style={{ width:58, padding:'4px 8px', fontSize:12.5, textAlign:'center' }} />
+                <span style={{ fontSize:11.5, color:'var(--muted)' }}>day{(days[c.id] || 1) !== 1 ? 's' : ''}</span>
+              </div>
             </div>
           ))}
         </div>
@@ -1577,9 +1594,9 @@ function BatchReRequestModal({ checkouts, onClose, onSubmit }) {
 // Shared by both views' My Checkouts panels: re-submit a set of past checkouts
 // as ONE fresh order (same days as before, new reason/approver). Mirrors
 // handleSubmitCart's success/failure reporting.
-async function runBatchReRequest(cos, { reason, approverEmail, approverName }, { submitCartCheckouts, userName, userEmail, toast }) {
+async function runBatchReRequest(cos, { reason, approverEmail, approverName, days }, { submitCartCheckouts, userName, userEmail, toast }) {
   const pseudoCart = cos.map(c => ({
-    id: c.id, days: c.days || 1,
+    id: c.id, days: (days && days[c.id]) || c.days || 1,
     item: { id: c.itemId, name: c.itemName, itemType: c.itemType, department: c.department },
   }));
   const results = await submitCartCheckouts(pseudoCart, { reason, raisedBy: userName, raisedByEmail: userEmail, approverEmail, approverName });
@@ -1646,6 +1663,9 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
   const [fType,           setFType]           = useState('All');
   const [fDept,           setFDept]           = useState('All');
   const [sortOldest,      setSortOldest]      = useState(false);
+  // Date-range filter on submission date — both tabs (Pranshu, Jun 16)
+  const [fFrom,           setFFrom]           = useState('');
+  const [fTo,             setFTo]             = useState('');
 
   // Find order groups where ALL items are rejected → auto-move to past, no manual discard needed
   const _orderMap = (() => {
@@ -1689,10 +1709,18 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
   const [acceptingCo, setAcceptingCo] = useState(null);
   const fmtDate = iso => new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
 
-  // Type/dept filters apply per item; status + date sort only matter for Past
+  // Type/dept/date-range filters apply per item; status + date sort only matter for Past
+  const inDateRange = c => {
+    if (!fFrom && !fTo) return true;
+    const t = new Date(c.createdAt);
+    if (fFrom && t < new Date(`${fFrom}T00:00:00`)) return false;
+    if (fTo   && t > new Date(`${fTo}T23:59:59`))   return false;
+    return true;
+  };
   const matchesFilters = c =>
     (fType === 'All' || c.itemType === fType) &&
-    (fDept === 'All' || c.department === fDept);
+    (fDept === 'All' || c.department === fDept) &&
+    inDateRange(c);
   const activeFiltered = active.filter(matchesFilters);
   const completedView  = completed
     .filter(c => matchesFilters(c) && (fStatus === 'All' || c.status === fStatus))
@@ -1780,6 +1808,21 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
               {myDepts.map(d => <option key={d} value={d}>{d === 'All' ? 'All departments' : d}</option>)}
             </select>
           )}
+          {/* Submission date range — jump straight to a period instead of scrolling */}
+          <div style={{ display:'inline-flex', alignItems:'center', gap:5 }}>
+            <span style={{ fontSize:11.5, color:'var(--muted)', fontWeight:600 }}>From</span>
+            <input type="date" className="form-input" value={fFrom} max={fTo || undefined}
+              onChange={e => setFFrom(e.target.value)} style={{ padding:'4px 8px', fontSize:12, height:30 }} />
+            <span style={{ fontSize:11.5, color:'var(--muted)', fontWeight:600 }}>To</span>
+            <input type="date" className="form-input" value={fTo} min={fFrom || undefined}
+              onChange={e => setFTo(e.target.value)} style={{ padding:'4px 8px', fontSize:12, height:30 }} />
+            {(fFrom || fTo) && (
+              <button onClick={() => { setFFrom(''); setFTo(''); }} title="Clear dates"
+                style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'inline-flex', padding:2 }}>
+                <X size={13} />
+              </button>
+            )}
+          </div>
           {panelTab === 'past' && (
             <button onClick={() => setSortOldest(o => !o)}
               style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 12px', borderRadius:20, border:'1px solid var(--line)', background:'transparent', color:'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
@@ -2369,6 +2412,54 @@ const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoadi
   );
 });
 
+// ── Sortable table headers (Catalog + Manage list views) ──────────────────────
+// Click a column to sort asc, click again for desc, third click clears back to
+// the default (available-first, then name). Shared by the employee catalog and
+// the manager catalog/manage tables so the behaviour is identical (Neil, Jun 16).
+const SORT_ACCESSORS = {
+  name:     i => i.name || '',
+  type:     i => i.itemType || '',
+  make:     i => i.make || '',
+  model:    i => i.model || '',
+  location: i => i.location || '',
+  status:   i => displayStatus(i) || i.status || '',
+};
+
+function sortItemsBy(list, sortKey, sortDir) {
+  // Default ordering when no column is chosen: available first, then alpha.
+  if (!sortKey || !SORT_ACCESSORS[sortKey]) {
+    return [...list].sort((a, b) => {
+      const aA = a.status === 'available' ? 0 : 1, bA = b.status === 'available' ? 0 : 1;
+      if (aA !== bA) return aA - bA;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+  }
+  const get = SORT_ACCESSORS[sortKey];
+  const sorted = [...list].sort((a, b) =>
+    String(get(a)).localeCompare(String(get(b)), undefined, { numeric: true, sensitivity: 'base' }));
+  return sortDir === 'desc' ? sorted.reverse() : sorted;
+}
+
+// Advance a column's sort: none → asc → desc → none.
+function nextSort(prev, colKey) {
+  if (prev.key !== colKey) return { key: colKey, dir: 'asc' };
+  if (prev.dir === 'asc')  return { key: colKey, dir: 'desc' };
+  return { key: null, dir: 'asc' };
+}
+
+function SortableTh({ label, colKey, sort, onSort }) {
+  const active = sort.key === colKey;
+  return (
+    <th onClick={() => onSort(s => nextSort(s, colKey))}
+      style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color: active ? 'var(--ink)' : 'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em', whiteSpace:'nowrap', cursor:'pointer', userSelect:'none' }}>
+      <span style={{ display:'inline-flex', alignItems:'center', gap:4 }}>
+        {label}
+        <ArrowUpDown size={11} style={{ opacity: active ? 1 : 0.35, transform: active && sort.dir === 'desc' ? 'rotate(180deg)' : 'none', transition:'transform .15s' }} />
+      </span>
+    </th>
+  );
+}
+
 // ── Employee View ─────────────────────────────────────────────────────────────
 const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, refreshCheckouts, submitCartCheckouts, cancelRequest, allocateItem, confirmReceipt, toast }) {
   const { assignments, refreshAssignments } = useAssignments();
@@ -2393,7 +2484,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
     return () => window.removeEventListener('nexus:navigate', h);
   }, []);
   const [viewMode,       setViewMode]       = useState('tile');
-  const isMobile = useIsMobile();
+  const [catalogSort,    setCatalogSort]    = useState({ key: null, dir: 'asc' });
   const [search,         setSearch]         = useState('');
   const [typeFilter,     setTypeFilter]     = useState('All');
   const [locationFilter, setLocationFilter] = useState('All');
@@ -2591,8 +2682,8 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
           </button>
         ))}
         <button onClick={() => setCartOpen(true)}
-          className={`header-cart ${cart.length ? 'primary-btn' : 'secondary-btn'}`}
-          style={{ marginLeft:'auto', display:'inline-flex', alignItems:'center', gap:7, position:'relative', fontSize:14.5, fontWeight:700, padding:'10px 22px' }}>
+          className="header-cart"
+          style={{ marginLeft:'auto', display:'inline-flex', alignItems:'center', gap:7, position:'relative', fontSize:14.5, fontWeight:700, padding:'10px 22px', background:'#000', color:'#fff', border:'1px solid #000', borderRadius:9, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
           <ShoppingCart size={17} /> Cart
           {cart.length > 0 && <span style={{ position:'absolute', top:-7, right:-1, background:'hsl(var(--color-red))', color:'#fff', borderRadius:'50%', width:17, height:17, fontSize:10, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>{cart.length}</span>}
         </button>
@@ -2621,8 +2712,9 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
                   {filteredItems.filter(i => i.status === 'available').length} available · {filteredItems.length} total
                 </span>
               </div>
-              {/* Phones are always tile — list is a table with off-screen columns */}
-              {!isMobile && <div style={{ display:'flex', gap:4, flexShrink:0 }}>
+              {/* Tile/List toggle shows on phones too — list is a horizontally
+                  scrollable table, reachable in portrait now (Neil, Jun 16) */}
+              <div style={{ display:'flex', gap:4, flexShrink:0 }}>
                 <button onClick={() => setViewMode('tile')}
                   style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:8, border:`1px solid ${viewMode==='tile' ? 'var(--pine)' : 'var(--line)'}`, background: viewMode==='tile' ? 'hsla(var(--color-green),0.1)' : 'transparent', color: viewMode==='tile' ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
                   <LayoutGrid size={13} /> Tile
@@ -2631,7 +2723,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
                   style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:8, border:`1px solid ${viewMode==='list' ? 'var(--pine)' : 'var(--line)'}`, background: viewMode==='list' ? 'hsla(var(--color-green),0.1)' : 'transparent', color: viewMode==='list' ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
                   <ClipboardList size={13} /> List
                 </button>
-              </div>}
+              </div>
             </div>
             {locations.length > 2 && (
               <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
@@ -2649,7 +2741,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
             )}
           </div>
 
-          {(isMobile || viewMode === 'tile') ? (
+          {(viewMode === 'tile') ? (
             <ItemPhotoGrid
               items={filteredItems} checkouts={checkouts}
               itemsLoading={itemsLoading} itemsError={itemsError}
@@ -2669,15 +2761,18 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
                 <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
                   <thead>
                     <tr style={{ background:'var(--mist)' }}>
-                      {['Photo','Name','Type','Make','Model','Location','Status',''].map(h =>
-                        <th key={h} style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em', whiteSpace:'nowrap' }}>{h}</th>)}
+                      <th style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em', whiteSpace:'nowrap' }}>Photo</th>
+                      <SortableTh label="Name"     colKey="name"     sort={catalogSort} onSort={setCatalogSort} />
+                      <SortableTh label="Type"     colKey="type"     sort={catalogSort} onSort={setCatalogSort} />
+                      <SortableTh label="Make"     colKey="make"     sort={catalogSort} onSort={setCatalogSort} />
+                      <SortableTh label="Model"    colKey="model"    sort={catalogSort} onSort={setCatalogSort} />
+                      <SortableTh label="Location" colKey="location" sort={catalogSort} onSort={setCatalogSort} />
+                      <SortableTh label="Status"   colKey="status"   sort={catalogSort} onSort={setCatalogSort} />
+                      <th style={{ padding:'9px 14px' }} />
                     </tr>
                   </thead>
                   <tbody>
-                    {[...filteredItems].sort((a,b) => {
-                      const aA = a.status==='available' ? 0 : 1, bA = b.status==='available' ? 0 : 1;
-                      if (aA!==bA) return aA-bA; return a.name.localeCompare(b.name);
-                    }).map(item => {
+                    {sortItemsBy(filteredItems, catalogSort.key, catalogSort.dir).map(item => {
                       const tm = TYPE_META[item.itemType] || TYPE_META.Other;
                       const alreadyInCart = inCart.has(item.id);
                       const hasPending = item.status==='available' && (
@@ -2790,9 +2885,11 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
 });
 
 // ── Manager Catalog Tab ───────────────────────────────────────────────────────
-const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, searchValue, onSearchChange, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate }) {
-  const [viewMode, setViewMode] = useState('list'); // 'tile' | 'list' (desktop)
-  const isMobile = useIsMobile(); // phones are ALWAYS tile — no table views
+const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', search, searchValue, onSearchChange, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate }) {
+  // Desktop defaults to the list/table; phones default to tiles but can now
+  // switch to the (scrollable) list in portrait too (Neil, Jun 16).
+  const [viewMode, setViewMode] = useState(() => window.matchMedia('(max-width: 640px)').matches ? 'tile' : 'list');
+  const [sort, setSort] = useState({ key: null, dir: 'asc' });
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -2800,17 +2897,15 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
       const mS = !search || i.name.toLowerCase().includes(q) || (i.make||'').toLowerCase().includes(q) || (i.model||'').toLowerCase().includes(q);
       const mD = deptFilter === 'All' || i.department === deptFilter;
       const mT = typeFilter === 'All' || i.itemType === typeFilter;
-      return mS && mD && mT;
+      const mO = ownershipFilter === 'All' || (i.ownershipType || 'transient') === ownershipFilter;
+      return mS && mD && mT && mO;
     });
-  }, [items, search, deptFilter, typeFilter]);
+  }, [items, search, deptFilter, typeFilter, ownershipFilter]);
 
-  // Sorted for list view: available first, then alpha
-  const sortedForList = useMemo(() => [...filtered].sort((a, b) => {
-    const aAvail = a.status === 'available' ? 0 : 1;
-    const bAvail = b.status === 'available' ? 0 : 1;
-    if (aAvail !== bAvail) return aAvail - bAvail;
-    return a.name.localeCompare(b.name);
-  }), [filtered]);
+  // Sorted for list view: chosen column, or default (available first, then alpha)
+  const sortedForList = useMemo(
+    () => sortItemsBy(filtered, sort.key, sort.dir),
+    [filtered, sort]);
 
   const pendingCheckoutIds = useMemo(() => new Set(
     (checkouts || []).filter(c => ['pending','approved','pending_receipt','allocated'].includes(c.status)).map(c => c.itemId)
@@ -2826,7 +2921,7 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
           <Search size={14} style={{ flexShrink:0 }} />
           <input placeholder="Search items…" value={searchValue} onChange={e => onSearchChange(e.target.value)} />
         </div>
-        {!isMobile && <div style={{ display:'flex', gap:4, flexShrink:0 }}>
+        <div style={{ display:'flex', gap:4, flexShrink:0 }}>
           <button onClick={() => setViewMode('tile')}
             style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:8, border:`1px solid ${viewMode === 'tile' ? 'var(--pine)' : 'var(--line)'}`, background: viewMode === 'tile' ? 'hsla(var(--color-green),0.1)' : 'transparent', color: viewMode === 'tile' ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
             <LayoutGrid size={13} /> Tile
@@ -2835,10 +2930,10 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
             style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:8, border:`1px solid ${viewMode === 'list' ? 'var(--pine)' : 'var(--line)'}`, background: viewMode === 'list' ? 'hsla(var(--color-green),0.1)' : 'transparent', color: viewMode === 'list' ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
             <ClipboardList size={13} /> List
           </button>
-        </div>}
+        </div>
       </div>
 
-      {(isMobile || viewMode === 'tile') ? (
+      {(viewMode === 'tile') ? (
         <ItemPhotoGrid
           items={filtered}
           checkouts={checkouts}
@@ -2862,8 +2957,14 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
             <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
               <thead>
                 <tr style={{ background:'var(--mist)' }}>
-                  {['Photo','Name','Type','Make','Model','Location','Status',''].map(h =>
-                    <th key={h} style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, whiteSpace:'nowrap', textTransform:'uppercase', letterSpacing:'.07em' }}>{h}</th>)}
+                  <th style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, whiteSpace:'nowrap', textTransform:'uppercase', letterSpacing:'.07em' }}>Photo</th>
+                  <SortableTh label="Name"     colKey="name"     sort={sort} onSort={setSort} />
+                  <SortableTh label="Type"     colKey="type"     sort={sort} onSort={setSort} />
+                  <SortableTh label="Make"     colKey="make"     sort={sort} onSort={setSort} />
+                  <SortableTh label="Model"    colKey="model"    sort={sort} onSort={setSort} />
+                  <SortableTh label="Location" colKey="location" sort={sort} onSort={setSort} />
+                  <SortableTh label="Status"   colKey="status"   sort={sort} onSort={setSort} />
+                  <th style={{ padding:'9px 14px' }} />
                 </tr>
               </thead>
               <tbody>
@@ -3362,7 +3463,7 @@ function OverdueAlertModal({ checkouts, onClose, toast, onCustomAlert }) {
 }
 
 // ── Manager Manage Tab ────────────────────────────────────────────────────────
-const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign }) {
+const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign }) {
   const [photoPreview,       setPhotoPreview]       = useState(null);
   const [selected,           setSelected]           = useState(new Set());
   const [sortCol,            setSortCol]            = useState('name');
@@ -3414,8 +3515,9 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
     const mS = !search || i.name.toLowerCase().includes(q) || (i.make||'').toLowerCase().includes(q) || (i.model||'').toLowerCase().includes(q);
     const mD = deptFilter === 'All' || i.department === deptFilter;
     const mT = typeFilter === 'All' || i.itemType === typeFilter;
-    return mS && mD && mT;
-  }), [items, search, deptFilter, typeFilter]);
+    const mO = ownershipFilter === 'All' || (i.ownershipType || 'transient') === ownershipFilter;
+    return mS && mD && mT && mO;
+  }), [items, search, deptFilter, typeFilter, ownershipFilter]);
 
   const sorted = useMemo(() => [...filtered].sort((a, b) => {
     let av, bv;
@@ -4556,13 +4658,9 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
         ))}
         </div>
         <div style={{ display:'flex', gap:8, flexShrink:0, flexWrap:'wrap' }}>
-          {isManager && checkouts.filter(c => c.status === 'allocated').length > 0 && (
-            <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7, color:'hsl(var(--color-orange))' }}
-              title="Check every in-use item across all orders back in yourself"
-              onClick={() => setForceReturnBatch(checkouts.filter(c => c.status === 'allocated'))}>
-              <RotateCcw size={14} /> Force Return All ({checkouts.filter(c => c.status === 'allocated').length})
-            </button>
-          )}
+          {/* Company-wide "Force Return All" removed (Neil, Jun 16): too dangerous —
+              one misclick could recall every in-use item across all people. Force
+              return now lives only at the individual order/item level below. */}
           {onSendAlert && (
             <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7, color:'hsl(var(--color-orange))' }} onClick={onSendAlert}>
               <Megaphone size={14} /> Send Alert
@@ -5461,7 +5559,19 @@ export default function InventoryManagement({ activeSub }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [deptFilter,    setDeptFilter]    = useState('All');
   const [typeFilter,    setTypeFilter]    = useState('All');
+  // Master ownership filter: All | transient (temporary) | permanent.
+  // Lets managers filter permanent items out of Catalog/Manage (Neil, Jun 16).
+  const [ownershipFilter, setOwnershipFilter] = useState('All');
   const [search,        setSearch]        = useState('');
+  // Items scoped to the selected department + ownership filter — the KPI tiles
+  // must follow these filters, not always show company-wide totals (Sai, Jun 16).
+  const deptItems = useMemo(
+    () => items.filter(i =>
+      (deptFilter === 'All' || (i.department || '') === deptFilter) &&
+      (ownershipFilter === 'All' || (i.ownershipType || 'transient') === ownershipFilter)
+    ),
+    [items, deptFilter, ownershipFilter]
+  );
   // Deferred copy keeps the input responsive: tabs re-filter at low priority
   // instead of blocking every keystroke.
   const deferredSearch = useDeferredValue(search);
@@ -5510,7 +5620,7 @@ export default function InventoryManagement({ activeSub }) {
   }
   function handleImport(rows) {
     return api.importItems(rows)
-      .then(res => { refreshItems(); toast(`Imported ${res.created} item${res.created !== 1 ? 's' : ''}.`); return res; })
+      .then(res => { refreshItems(); toast(`Imported ${res.created} item${res.created !== 1 ? 's' : ''}${res.updated ? `, updated ${res.updated}` : ''}.`); return res; })
       .catch(err => { toast(err?.message || 'Import failed.', 'error'); throw err; });
   }
 
@@ -5605,21 +5715,26 @@ export default function InventoryManagement({ activeSub }) {
             style={{ display:'flex', alignItems:'center', gap:10, visibility: ['catalog','manage','audit'].includes(mainTab) ? 'visible' : 'hidden' }}>
             <div style={{ display:'flex', alignItems:'center', gap:6 }}>
               <Filter size={13} style={{ color:'var(--muted)' }} />
-              <select className="form-input" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34 }}>
+              <select className="form-input" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:150 }}>
                 {DEPARTMENTS.map(d => <option key={d} value={d}>{d === 'All' ? 'All departments' : d}</option>)}
               </select>
             </div>
-            <select className="form-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34 }}>
+            <select className="form-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:110 }}>
               <option value="All">All types</option>
               {ITEM_TYPES.map(t => <option key={t}>{t}</option>)}
+            </select>
+            <select className="form-input" value={ownershipFilter} onChange={e => setOwnershipFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:130 }}>
+              <option value="All">All ownership</option>
+              <option value="transient">Temporary</option>
+              <option value="permanent">Permanent</option>
             </select>
           </div>
           {/* Cart last: it's the one control visible on every tab, so it anchors
               the right edge instead of floating next to hidden filters */}
           {/* header-cart: phones pin this to ONE fixed spot (title row, top
               right) on every tab — no FAB, no drifting (Visesh) */}
-          <button className={`header-cart ${cart.length ? 'primary-btn' : 'secondary-btn'}`}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, position:'relative' }}
+          <button className="header-cart"
+            style={{ display:'inline-flex', alignItems:'center', gap:7, position:'relative', background:'#000', color:'#fff', border:'1px solid #000', borderRadius:9, fontWeight:700, padding:'8px 18px', cursor:'pointer', fontFamily:'Inter,sans-serif' }}
             onClick={() => setCartOpen(true)}>
             <ShoppingCart size={14} /> Cart
             {cart.length > 0 && (
@@ -5674,11 +5789,11 @@ export default function InventoryManagement({ activeSub }) {
       {/* KPI strip — manage tab only, rendered below the strip for the same reason */}
       {mainTab === 'manage' && <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', margin:'0 0 20px' }}>
         {[
-          { label:'Available',      value: items.filter(i => i.status === 'available').length,    color:'card-green'  },
-          { label:'Total Items',    value: items.length,                                          color:'card-blue'   },
-          { label:'Checked Out',    value: items.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
-          { label:'Missing Photos', value: items.filter(i => !i.photoUrl).length,                 color: items.filter(i => !i.photoUrl).length > 0 ? 'card-red' : '' },
-          { label:'Inventory Value', value: fmtMoney(items.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },
+          { label:'Available',      value: deptItems.filter(i => i.status === 'available').length,    color:'card-green'  },
+          { label:'Total Items',    value: deptItems.length,                                          color:'card-blue'   },
+          { label:'Checked Out',    value: deptItems.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
+          { label:'Missing Photos', value: deptItems.filter(i => !i.photoUrl).length,                 color: deptItems.filter(i => !i.photoUrl).length > 0 ? 'card-red' : '' },
+          { label:'Inventory Value', value: fmtMoney(deptItems.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },
         ].map(({ label, value, color }) => (
           <div key={label} className={`kpi-card ${color}`}>
             <div className="kpi-label">{label}</div>
@@ -5691,7 +5806,7 @@ export default function InventoryManagement({ activeSub }) {
       {mainTab === 'catalog' && (
         <ManagerCatalogTab
           items={items} itemsLoading={itemsLoading} itemsError={itemsError}
-          deptFilter={deptFilter} typeFilter={typeFilter} search={deferredSearch}
+          deptFilter={deptFilter} typeFilter={typeFilter} ownershipFilter={ownershipFilter} search={deferredSearch}
           searchValue={search} onSearchChange={setSearch}
           refreshItems={refreshItems} onAddToCart={addToCart} inCart={inCart}
           checkouts={checkouts} userEmail={userEmail} userName={userName}
@@ -5702,7 +5817,7 @@ export default function InventoryManagement({ activeSub }) {
       {mainTab === 'manage' && (
         <ManagerManageTab
           items={items} itemsLoading={itemsLoading} itemsError={itemsError}
-          deptFilter={deptFilter} typeFilter={typeFilter} search={deferredSearch}
+          deptFilter={deptFilter} typeFilter={typeFilter} ownershipFilter={ownershipFilter} search={deferredSearch}
           searchValue={search} onSearchChange={setSearch}
           refreshItems={refreshItems} canDelete={canDelete}
           onAdd={openAdd} onEdit={setEditingItem}
