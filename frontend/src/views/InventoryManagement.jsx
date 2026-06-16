@@ -2658,13 +2658,25 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
   // ── Catalog / Checkouts view ─────────────────────────────────────────────────
   return (
     <div style={{ animation:'fadeIn var(--transition-normal) ease-in-out' }}>
-      {/* Back to home */}
-      <button onClick={() => setMode('home')}
-        style={{ display:'inline-flex', alignItems:'center', gap:6, marginBottom:18, background:'none', border:'none', cursor:'pointer', color:'var(--muted)', fontSize:13, fontFamily:'Inter,sans-serif', padding:'4px 0', transition:'color 0.15s' }}
-        onMouseEnter={e => e.currentTarget.style.color='var(--ink)'}
-        onMouseLeave={e => e.currentTarget.style.color='var(--muted)'}>
-        <ArrowLeft size={14} /> Back to Home
-      </button>
+      {/* Back-to-home + cart row. The cart MUST live outside the .scroll-tabs
+          strip: that strip is position:sticky on phones, which makes it the
+          containing block for the absolutely-pinned .header-cart and the cart
+          ends up overlapping the tabs. Keeping it here pins it to the viewport,
+          same as the manager view. minHeight reserves the pinned cart's zone. */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, marginBottom:18, minHeight:40 }}>
+        <button onClick={() => setMode('home')}
+          style={{ display:'inline-flex', alignItems:'center', gap:6, background:'none', border:'none', cursor:'pointer', color:'var(--muted)', fontSize:13, fontFamily:'Inter,sans-serif', padding:'4px 0', transition:'color 0.15s' }}
+          onMouseEnter={e => e.currentTarget.style.color='var(--ink)'}
+          onMouseLeave={e => e.currentTarget.style.color='var(--muted)'}>
+          <ArrowLeft size={14} /> Back to Home
+        </button>
+        <button onClick={() => setCartOpen(true)}
+          className="header-cart"
+          style={{ display:'inline-flex', alignItems:'center', gap:7, position:'relative', fontSize:14.5, fontWeight:700, padding:'10px 22px', background:'#000', color:'#fff', border:'1px solid #000', borderRadius:9, cursor:'pointer', fontFamily:'Inter,sans-serif', flexShrink:0 }}>
+          <ShoppingCart size={17} /> Cart
+          {cart.length > 0 && <span style={{ position:'absolute', top:-7, right:-1, background:'hsl(var(--color-red))', color:'#fff', borderRadius:'50%', width:17, height:17, fontSize:10, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>{cart.length}</span>}
+        </button>
+      </div>
 
       {/* Tab strip — scrolls horizontally on phones */}
       <div className="scroll-tabs" style={{ display:'flex', alignItems:'center', borderBottom:'2px solid var(--line)', marginBottom:24 }}>
@@ -2681,12 +2693,6 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
             {badge > 0 && <span style={{ background:'hsl(var(--color-blue))', color:'#fff', borderRadius:20, fontSize:10.5, fontWeight:800, padding:'1px 7px', marginLeft:3 }}>{badge}</span>}
           </button>
         ))}
-        <button onClick={() => setCartOpen(true)}
-          className="header-cart"
-          style={{ marginLeft:'auto', display:'inline-flex', alignItems:'center', gap:7, position:'relative', fontSize:14.5, fontWeight:700, padding:'10px 22px', background:'#000', color:'#fff', border:'1px solid #000', borderRadius:9, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-          <ShoppingCart size={17} /> Cart
-          {cart.length > 0 && <span style={{ position:'absolute', top:-7, right:-1, background:'hsl(var(--color-red))', color:'#fff', borderRadius:'50%', width:17, height:17, fontSize:10, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>{cart.length}</span>}
-        </button>
       </div>
 
       {/* ── CATALOG TAB ── */}
