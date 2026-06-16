@@ -1204,7 +1204,7 @@ const AuditLogPanel = memo(function AuditLogPanel() {
   return (
     <div>
       <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap', alignItems:'center' }}>
-        <div className="search-bar" style={{ width:300 }}>
+        <div className="search-bar" style={{ flex:1, minWidth:0, maxWidth:300 }}>
           <Search size={14} style={{ flexShrink:0 }} />
           <input placeholder="Search by item, user, or action…" value={query} onChange={e => setQuery(e.target.value)} />
         </div>
@@ -4713,7 +4713,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
             return (
               <div key={groupKey} style={{ border:'1px solid var(--line)', borderRadius:12, overflow:'hidden', background:'var(--card)', boxShadow:'var(--shadow-sm)' }}>
                 {/* Order header — click the chevron (or the name area) to collapse */}
-                <div style={{ padding:'14px 18px', display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, flexWrap:'wrap', background: isMulti ? 'var(--mist)' : 'transparent', borderBottom: isCollapsed ? 'none' : '1px solid var(--line)' }}>
+                <div className="co-order-head" style={{ padding:'14px 18px', display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, flexWrap:'wrap', background: isMulti ? 'var(--mist)' : 'transparent', borderBottom: isCollapsed ? 'none' : '1px solid var(--line)' }}>
                   <div onClick={() => toggleCollapsed(groupKey)} style={{ cursor:'pointer', flex:1, minWidth:0 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:7 }}>
                       <ChevronDown size={15} style={{ color:'var(--muted)', flexShrink:0, transform: isCollapsed ? 'rotate(-90deg)' : 'none', transition:'transform 0.18s' }} />
@@ -4738,7 +4738,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
                       ) : null;
                     })()}
                   </div>
-                  <div style={{ display:'flex', gap:6, flexShrink:0, alignItems:'center', flexWrap:'wrap' }}>
+                  <div className="co-order-actions" style={{ display:'flex', gap:6, flexShrink:0, alignItems:'center', flexWrap:'wrap' }}>
                     {pendingItems.length > 1 && (
                       <>
                         <button onClick={() => setRejectingOrder(pendingItems)}

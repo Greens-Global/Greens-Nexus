@@ -1703,6 +1703,12 @@ html { overflow-x: hidden; }
     justify-content: flex-start !important;
     margin-left: 54px;
   }
+
+  /* Order header: same treatment — the requester name/meta keeps the full row
+     and the bulk-action buttons (Reject All / Hand Over All) wrap onto their own
+     row below instead of crushing the name into per-word wrapping (Jun 16). */
+  .co-order-head > div:first-child { flex: 1 1 100% !important; }
+  .co-order-actions { width: 100%; margin-left: 22px; }
 }
 
 /* True edge-to-edge on phones - the side gutters go to content instead */
