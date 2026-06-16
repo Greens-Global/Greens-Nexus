@@ -414,11 +414,14 @@ export default function NotificationBell({ onNavigate }) {
   // header's "Clear all" (or the per-card ×) is the only way to remove them.
   function destinationFor(n) {
     switch (n.type) {
+      case 'allocate_request':
+        // The assigned allocator's handover queue — supervisors land on their
+        // "To Hand Over" tab, managers on the Checkouts queue (both via 'handover').
+        return ['inventory', 'handover'];
       case 'checkout_pending':
       case 'extension_pending':
-      case 'allocate_request':
       case 'item_returned':
-        return ['inventory', 'checkouts'];   // manager / allocator work queue
+        return ['inventory', 'checkouts'];   // manager work queue
       case 'approved':
       case 'rejected':
       case 'allocated':
@@ -431,14 +434,18 @@ export default function NotificationBell({ onNavigate }) {
         // Checkouts — MyCheckoutsPanel switches its own tab on this sub.
         return ['inventory', 'permanent'];
       case 'perm_return':
-        return ['inventory', 'checkouts'];     // the requester's own items
+        // Manager verifies/accepts the return under Checkouts → Assignments
+        // (Permanent) → Returns to Accept, not the Temporary checkouts list.
+        return ['inventory', 'assignment-returns'];
       case 'req_fulfill':
         return ['inventory', 'purchasereqs'];  // allocator's To Fulfill queue
       case 'req_pending':
       case 'req_update':
       case 'req_approved':
       case 'req_rejected':
-        return ['purchase', null];
+        // Land on the Requisition Log (status/steps live there), not the blank
+        // New Request form (Jun 16).
+        return ['purchase', 'log'];
       default:
         return n.action?.view ? [n.action.view, n.action.sub] : null;
     }

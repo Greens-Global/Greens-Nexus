@@ -565,23 +565,15 @@ function DeleteItemModal({ item, onClose, onConfirm }) {
   );
 }
 
-// ── CSV helpers ────────────────────────────────────────────────────────────────
-function parseCsvLine(line) {
-  const out = []; let cur = ''; let inQ = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (inQ) { if (c === '"') { if (line[i+1] === '"') { cur += '"'; i++; } else inQ = false; } else cur += c; }
-    else if (c === '"') inQ = true;
-    else if (c === ',') { out.push(cur); cur = ''; }
-    else cur += c;
-  }
-  out.push(cur); return out;
-}
-
-function parseItemsCsv(text) {
-  const lines = text.split(/\r?\n/).filter(l => l.trim());
-  if (lines.length < 2) return { rows: [], error: 'File looks empty — needs a header row plus at least one item.' };
-  const header = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase());
+// ── Import helpers ──────────────────────────────────────────────────────────────
+// Maps a parsed spreadsheet (array-of-rows, header first) to item rows. Works
+// for CSV, XLSX, and XLS because SheetJS produces the same matrix for all three
+// — and it strips the UTF-8 BOM Excel prepends to the first header cell (the
+// reason "Name column not found" fired on a file that clearly had one). Jun 16.
+function mapItemsMatrix(matrix) {
+  const grid = (matrix || []).filter(r => Array.isArray(r) && r.some(c => String(c ?? '').trim() !== ''));
+  if (grid.length < 2) return { rows: [], error: 'File looks empty — needs a header row plus at least one item.' };
+  const header = grid[0].map(h => String(h ?? '').replace(/^﻿/, '').trim().toLowerCase());
   const idx = {
     name:          header.findIndex(h => ['name','item','item name'].includes(h)),
     item_type:     header.findIndex(h => ['type','item_type','item type'].includes(h)),
@@ -594,9 +586,8 @@ function parseItemsCsv(text) {
     location:      header.findIndex(h => ['location','site'].includes(h)),
   };
   if (idx.name === -1) return { rows: [], error: 'Could not find a "Name" column in the header.' };
-  const rows = lines.slice(1).map(line => {
-    const cells = parseCsvLine(line);
-    const get = i => (i > -1 ? (cells[i] || '').trim() : '');
+  const rows = grid.slice(1).map(cells => {
+    const get = i => (i > -1 ? String(cells[i] ?? '').trim() : '');
     const name = get(idx.name);
     const item_type = get(idx.item_type) || 'Other';
     const ownership_type = get(idx.ownership_type) || 'transient';
@@ -610,6 +601,18 @@ function parseItemsCsv(text) {
     };
   });
   return { rows, error: null };
+}
+
+// Read a spreadsheet file (csv/xlsx/xls) into the item-row shape. SheetJS is
+// dynamically imported so it only loads when someone actually imports a file.
+async function parseItemsFile(file) {
+  const XLSX = await import('xlsx');
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array' });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  if (!sheet) return { rows: [], error: 'That file has no sheets to read.' };
+  const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+  return mapItemsMatrix(matrix);
 }
 
 function csvField(v) { const s = String(v ?? ''); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
@@ -644,15 +647,20 @@ function ImportItemsModal({ onClose, onImport }) {
   const fileRef = useRef(null);
   useEscapeKey(onClose);
 
-  function handleFile(file) {
+  const [parsing, setParsing] = useState(false);
+  async function handleFile(file) {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = e => {
-      const { rows, error } = parseItemsCsv(e.target.result);
+    setParsing(true); setParseErr('');
+    try {
+      const { rows, error } = await parseItemsFile(file);
       if (error) { setParseErr(error); setRows(null); }
       else { setRows(rows); setParseErr(''); }
-    };
-    reader.readAsText(file);
+    } catch {
+      setParseErr('Could not read that file. Upload a .csv, .xlsx, or .xls export.');
+      setRows(null);
+    } finally {
+      setParsing(false);
+    }
   }
 
   function doImport() {
@@ -686,18 +694,18 @@ function ImportItemsModal({ onClose, onImport }) {
         ) : (
           <>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
-              <h3 style={{ fontSize:16, fontWeight:700 }}>Import Items from CSV</h3>
+              <h3 style={{ fontSize:16, fontWeight:700 }}>Import Items from CSV or Excel</h3>
               <button onClick={() => downloadImportTemplate()} className="secondary-btn" style={{ fontSize:12, padding:'5px 12px', display:'inline-flex', alignItems:'center', gap:5 }}>
                 <Download size={13} /> Template
               </button>
             </div>
             <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:16 }}>
-              Each row = one physical item. Photos are always added manually after import. Required columns: <strong>Name</strong>.
+              Each row = one physical item. Accepts .csv, .xlsx, and .xls. Photos are always added manually after import. Required columns: <strong>Name</strong>.
             </p>
 
-            <input ref={fileRef} type="file" accept=".csv" style={{ display:'none' }} onChange={e => handleFile(e.target.files?.[0])} />
-            <button onClick={() => fileRef.current?.click()} className="secondary-btn" style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', marginBottom:14 }}>
-              <UploadCloud size={16} /> Choose CSV file
+            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" style={{ display:'none' }} onChange={e => handleFile(e.target.files?.[0])} />
+            <button onClick={() => fileRef.current?.click()} disabled={parsing} className="secondary-btn" style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', marginBottom:14 }}>
+              {parsing ? <><Loader2 size={16} style={{ animation:'spin 1s linear infinite' }} /> Reading…</> : <><UploadCloud size={16} /> Choose CSV / Excel file</>}
             </button>
 
             {parseErr && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginBottom:12 }}>{parseErr}</p>}
@@ -2461,15 +2469,22 @@ function SortableTh({ label, colKey, sort, onSort }) {
 }
 
 // ── Employee View ─────────────────────────────────────────────────────────────
-const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, refreshCheckouts, submitCartCheckouts, cancelRequest, allocateItem, confirmReceipt, toast }) {
+const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, refreshCheckouts, submitCartCheckouts, cancelRequest, allocateItem, initiateHandover, confirmReceipt, toast }) {
   const { assignments, refreshAssignments } = useAssignments();
+  const { can } = useRole();
+  // Supervisors (level 2) are ALLOCATORS, not managers: they don't approve, but
+  // they hand over items a manager assigned to them. Managers (level 3+) never
+  // reach this view. (Jun 16: allocators were stuck in the employee view with no
+  // way to do handovers.)
+  const isAllocator = can?.('supervisor');
   const [tab,            setTab]            = useState('catalog');
   const [mode,           setMode]           = useState('home');
 
   // Deep-link from notifications: 'myitems'/'checkouts' lands on My Checkouts,
   // 'catalog' on the catalog — skipping the home screen.
   useEffect(() => {
-    if (['myitems','checkouts','permanent','active-checkouts'].includes(activeSub)) { setMode('catalog'); setTab('checkouts'); }
+    if (activeSub === 'handover')                                { setMode('catalog'); setTab('handover'); }
+    else if (['myitems','checkouts','permanent','active-checkouts'].includes(activeSub)) { setMode('catalog'); setTab('checkouts'); }
     else if (activeSub === 'catalog')                            { setMode('catalog'); setTab('catalog'); }
   }, [activeSub]);
   // Window event covers repeat clicks where activeSub doesn't change value
@@ -2477,7 +2492,8 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
     const h = e => {
       const { view, sub } = e.detail || {};
       if (view !== 'inventory') return;
-      if (['myitems','checkouts','permanent','active-checkouts'].includes(sub)) { setMode('catalog'); setTab('checkouts'); }
+      if (sub === 'handover')                                { setMode('catalog'); setTab('handover'); }
+      else if (['myitems','checkouts','permanent','active-checkouts'].includes(sub)) { setMode('catalog'); setTab('checkouts'); }
       else if (sub === 'catalog')                             { setMode('catalog'); setTab('catalog'); }
     };
     window.addEventListener('nexus:navigate', h);
@@ -2491,7 +2507,28 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
   const [cartOpen,       setCartOpen]       = useState(false);
   const [cart,           setCart]           = useState([]);
   const [returningCo,    setReturningCo]    = useState(null);
+  const [allocatingCo,   setAllocatingCo]   = useState(null);
   const [submitting,     setSubmitting]     = useState(false);
+
+  // Items a manager assigned to ME to hand over (I'm the allocator), still
+  // awaiting handover. This is the allocator's work queue.
+  const myAllocations = useMemo(() =>
+    checkouts.filter(c => (c.assignedAllocatorEmail || '').toLowerCase() === userEmail && c.status === 'approved'),
+    [checkouts, userEmail]);
+
+  // Mirrors the manager's handover: either the allocator uploads the photo now,
+  // or hands over and asks the employee to confirm receipt with a photo.
+  function handleAllocate(co, { photoBy, batch, photoMap }) {
+    const p = photoBy === 'employee'
+      ? initiateHandover(co.id, userName)
+      : allocateItem(co.id, userName, photoMap[co.id]?.url || '', photoMap[co.id]?.name || '', { handoverPhotoBy: 'allocator', handoverBatch: batch });
+    return p.then(() => {
+      toast(photoBy === 'employee'
+        ? `${co.requestedBy} has been notified to confirm receipt.`
+        : `Item handed over to ${co.requestedBy} — checkout confirmed.`);
+      refreshItems(); refreshCheckouts();
+    });
+  }
 
   useEffect(() => {
     api.getItemCart().then(rows => {
@@ -2683,6 +2720,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
         {[
           { id:'catalog',   label:'Browse Catalog', Icon: Package,       badge: null },
           { id:'checkouts', label:'My Checkouts',   Icon: ClipboardList, badge: activeCheckouts.length || null },
+          ...(isAllocator ? [{ id:'handover', label:'To Hand Over', Icon: Camera, badge: myAllocations.length || null }] : []),
         ].map(({ id, label, Icon, badge }) => (
           <button key={id} onClick={() => setTab(id)}
             style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 18px', background:'none', border:'none',
@@ -2876,6 +2914,44 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
         </div>
       )}
 
+      {/* ── TO HAND OVER TAB (allocators / supervisors) ── */}
+      {tab === 'handover' && (
+        <div>
+          {myAllocations.length === 0 ? (
+            <div style={{ textAlign:'center', padding:'64px 20px', color:'var(--muted)' }}>
+              <Camera size={36} style={{ opacity:.15, display:'block', margin:'0 auto 14px' }} />
+              <div style={{ fontWeight:600, fontSize:15, marginBottom:6 }}>Nothing to hand over</div>
+              <div style={{ fontSize:13 }}>Items a manager assigns you to hand over will appear here.</div>
+            </div>
+          ) : (
+            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+              {myAllocations.map(co => {
+                const item = items.find(i => i.id === co.itemId);
+                return (
+                  <div key={co.id} className="co-row" style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap', border:'1px solid var(--line)', borderRadius:12, padding:'12px 16px', background:'var(--card)', boxShadow:'var(--shadow-sm)' }}>
+                    {item?.photoUrl
+                      ? <img src={item.photoUrl} alt={co.itemName} loading="lazy" decoding="async" style={{ width:44, height:44, borderRadius:10, objectFit:'cover', border:'1px solid var(--line)', flexShrink:0 }} />
+                      : <div style={{ width:44, height:44, borderRadius:10, background:'var(--mist)', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}><Package size={18} style={{ opacity:.4 }} /></div>}
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:600, fontSize:13 }}>{co.itemName}</div>
+                      <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1 }}>
+                        For {co.requestedBy} · {co.itemType} · {co.days} day{co.days !== 1 ? 's' : ''}
+                      </div>
+                    </div>
+                    <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
+                      <span style={{ display:'inline-flex', alignItems:'center', gap:3, padding:'2px 8px', borderRadius:20, fontSize:10.5, fontWeight:800, background:'hsla(var(--color-blue),0.12)', color:'hsl(var(--color-blue))' }}>Awaiting Handover</span>
+                      <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, background:'hsl(var(--color-orange))' }} onClick={() => setAllocatingCo(co)}>
+                        <Camera size={12} /> Hand Over
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       <CartDrawer
         open={cartOpen} cart={cart} items={items}
         onClose={() => setCartOpen(false)}
@@ -2886,6 +2962,11 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
         showApprover
       />
       {returningCo && <ReturnModal checkout={returningCo} photoOptional={photoOptionalIds.has(returningCo.itemId)} onClose={() => setReturningCo(null)} onSubmit={handleReturnSubmit} />}
+      {allocatingCo && (
+        <AllocateModal checkout={allocatingCo} onClose={() => setAllocatingCo(null)}
+          photoOptional={photoOptionalIds.has(allocatingCo.itemId)}
+          onConfirm={payload => handleAllocate(allocatingCo, payload)} />
+      )}
     </div>
   );
 });
@@ -4445,8 +4526,11 @@ function ForceReturnModal({ checkout, checkouts, onClose, onConfirm }) {
 }
 
 // ── Manager Checkouts Tab ─────────────────────────────────────────────────────
-const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveRequest, rejectRequest, allocateItem, initiateHandover, refreshCheckouts, refreshItems, toast, onSendAlert, assignments = [], refreshAssignments, prefilter }) {
+const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items, userName, userEmail, approveRequest, rejectRequest, allocateItem, initiateHandover, refreshCheckouts, refreshItems, toast, onSendAlert, assignments = [], refreshAssignments, prefilter, activeSub }) {
   const [segment, setSegment] = useState('checkouts'); // 'checkouts' | 'assignments'
+  // When a perm_return notification deep-links here, jump the Assignments queue
+  // straight to its "Returns to Accept" filter. ts forces re-trigger on repeats.
+  const [assignFocus, setAssignFocus] = useState(null);
   const { can } = useRole();
   const isManager = can('manager');
   const isMobile = useIsMobile(); // shorten the segment labels so they fit
@@ -4487,17 +4571,29 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
   // after a visit to Assignments every later notification click looked like it
   // "opened Permanent by default" (handover notifications especially).
   // 'checkouts-completed' additionally lands on the Completed filter
-  // (returned-order notifications).
+  // (returned-order notifications). 'assignment-returns' (dead/lost/reassign
+  // return notifications) lands on the Permanent segment, Returns-to-Accept.
   useEffect(() => {
     const h = e => {
       const { view, sub } = e.detail || {};
       if (view !== 'inventory') return;
       if (sub === 'checkouts') setSegment('checkouts');
       if (sub === 'checkouts-completed') { setSegment('checkouts'); setStatusFilter('completed'); }
+      if (sub === 'assignment-returns') { setSegment('assignments'); setAssignFocus({ chip: 'returns', ts: Date.now() }); }
     };
     window.addEventListener('nexus:navigate', h);
     return () => window.removeEventListener('nexus:navigate', h);
   }, []);
+
+  // Fresh mount / tab-switch: the window event above fires before this tab is
+  // mounted when the click comes from another screen, so also react to the
+  // activeSub prop the parent set from the URL.
+  useEffect(() => {
+    if (activeSub === 'assignment-returns') {
+      setSegment('assignments');
+      setAssignFocus({ chip: 'returns', ts: Date.now() });
+    }
+  }, [activeSub]);
 
   function handleResolveExtension(co, action) {
     setExtBusyId(co.id);
@@ -4654,7 +4750,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
         ))}
       </div>
       {segment === 'assignments' && (
-        <AssignmentsQueue assignments={assignments} refresh={refreshAssignments || (() => {})} toast={toast} />
+        <AssignmentsQueue assignments={assignments} refresh={refreshAssignments || (() => {})} toast={toast} focus={assignFocus} />
       )}
       {segment === 'checkouts' && (<>
       {/* Tab header with Send Alert */}
@@ -5558,7 +5654,7 @@ export default function InventoryManagement({ activeSub }) {
   // (the inner components pick these up from the same event)
   const resolveSub = sub =>
     (sub === 'permanent' || sub === 'active-checkouts') ? 'myitems'
-    : sub === 'checkouts-completed' ? 'checkouts'
+    : (sub === 'checkouts-completed' || sub === 'assignment-returns' || sub === 'handover') ? 'checkouts'
     : sub;
   useEffect(() => {
     const t = resolveSub(activeSub);
@@ -5716,6 +5812,7 @@ export default function InventoryManagement({ activeSub }) {
           submitCartCheckouts={submitCartCheckouts}
           cancelRequest={cancelRequest}
           allocateItem={allocateItem}
+          initiateHandover={initiateHandover}
           confirmReceipt={confirmReceipt}
           addNotification={addNotification}
           toast={toast}
@@ -5884,7 +5981,7 @@ export default function InventoryManagement({ activeSub }) {
           allocateItem={allocateItem} initiateHandover={initiateHandover}
           refreshCheckouts={refreshCheckouts} refreshItems={refreshItems} toast={toast}
           assignments={assignments} refreshAssignments={refreshAssignmentsAndItems}
-          onSendAlert={openSendAlert} prefilter={checkoutsPrefilter}
+          onSendAlert={openSendAlert} prefilter={checkoutsPrefilter} activeSub={activeSub}
         />
       )}
       {mainTab === 'whohasit' && (

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Package, User, ClipboardList, ShoppingCart, Users, FileText, History,
   Building2, Plug, ListChecks, FileCheck, Shield, ClipboardCheck, Folder,
-  MessageSquare, PackageSearch, Calendar, Circle,
+  MessageSquare, PackageSearch, Calendar, Circle, Camera,
 } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 
@@ -31,10 +31,17 @@ const INVENTORY_EMPLOYEE_ACTIONS = [
   { sub: 'catalog', label: 'Catalog',  Icon: Package },
   { sub: 'myitems', label: 'My Items', Icon: User },
 ];
+// Allocators (supervisors) also get a handover queue.
+const INVENTORY_ALLOCATOR_ACTIONS = [
+  { sub: 'catalog',  label: 'Catalog',   Icon: Package },
+  { sub: 'myitems',  label: 'My Items',  Icon: User },
+  { sub: 'handover', label: 'Hand Over', Icon: Camera },
+];
 
 export default function MobileNav({ activeView, activeSub }) {
   const { can } = useRole();
   const isManager = can?.('manager');
+  const isAllocator = can?.('supervisor');
 
   // Views can broadcast their own action set (label + id + active) via
   // 'nexus:mobile-actions'; taps come back as 'nexus:mobile-action'. This is
@@ -50,7 +57,7 @@ export default function MobileNav({ activeView, activeSub }) {
   let actions = null;
   let effSub = activeSub;
   if (activeView === 'inventory') {
-    actions = isManager ? INVENTORY_MANAGER_ACTIONS : INVENTORY_EMPLOYEE_ACTIONS;
+    actions = isManager ? INVENTORY_MANAGER_ACTIONS : isAllocator ? INVENTORY_ALLOCATOR_ACTIONS : INVENTORY_EMPLOYEE_ACTIONS;
     // The view opens on Catalog before any navigation sets a sub; deep-link
     // subs (permanent / active-checkouts) land on the Checkouts screen.
     if (!effSub) effSub = 'catalog';

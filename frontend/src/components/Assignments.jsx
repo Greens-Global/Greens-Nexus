@@ -280,8 +280,11 @@ function AssignmentReturnModal({ a, reason, onClose, onDone, toast }) {
 }
 
 // Manager queue: Checkouts → Assignments segment
-export function AssignmentsQueue({ assignments, refresh, toast }) {
-  const [chip, setChip] = useState('live');
+export function AssignmentsQueue({ assignments, refresh, toast, focus }) {
+  const [chip, setChip] = useState(focus?.chip || 'live');
+  // Deep-link (e.g. perm_return notification) can request a specific filter.
+  // ts on `focus` re-triggers this even when the same chip is requested twice.
+  useEffect(() => { if (focus?.chip) setChip(focus.chip); }, [focus]);
   const [accepting, setAccepting] = useState(null);
   const [preview, setPreview] = useState(null);
   const [cancelling, setCancelling] = useState(null); // assignment pending in-app confirm (no native dialogs)

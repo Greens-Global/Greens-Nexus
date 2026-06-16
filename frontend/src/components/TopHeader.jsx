@@ -92,6 +92,15 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
         <button className="mobile-toggle" onClick={onMobileToggle} aria-label="Toggle Sidebar">
           <Menu style={{ width: 18, height: 18 }} />
         </button>
+        {/* Phone-only back button — the breadcrumb (with its back arrow) is
+            hidden on mobile, leaving no way to step back to the parent screen
+            (Jun 16). Mirrors the desktop breadcrumb-back: same onBack/canGoBack. */}
+        {canGoBack && (
+          <button className="icon-btn header-back-mobile" onClick={onBack}
+            aria-label={prevLabel ? `Back to ${prevLabel}` : 'Back'} title={prevLabel ? `Back to ${prevLabel}` : 'Back'}>
+            <ArrowLeft style={{ width: 18, height: 18 }} />
+          </button>
+        )}
         {/* Phone search lives LEFT of the centered wordmark — a 4th icon on
             the right collided with NEXUS (Visesh screenshot, Jun 12) */}
         <button className="icon-btn header-search-left" aria-label="Search"

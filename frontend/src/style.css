@@ -1989,9 +1989,13 @@ button, [role="button"], select { touch-action: manipulation; }
 /* Header search trigger: right side on desktop, left of the wordmark on
    phones (a 4th right-side icon overlapped the centered NEXUS) */
 .header-search-left { display: none; }
+/* Phone-only back button: hidden on desktop (the breadcrumb-back covers that),
+   shown on phones where the breadcrumb is hidden. */
+.header-back-mobile { display: none; }
 @media (max-width: 900px) {
   .header-search-left  { display: flex; }
   .header-search-right { display: none; }
+  .header-back-mobile  { display: flex; }
 }
 
 /* Fullscreen + zoom controls live in the desktop top nav only — phones already
