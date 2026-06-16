@@ -33,6 +33,9 @@ jobs:
         env:
           VITE_API_BASE: ${{ secrets.VITE_API_BASE }}
           VITE_REDIRECT_URI: ${{ vars.VITE_REDIRECT_URI }}
+      # GitHub Pages has no SPA fallback — serve index.html for unknown client routes
+      # (deep links like /itemmanagement otherwise 404). _redirects is Cloudflare-only.
+      - run: cp dist/index.html dist/404.html
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend/dist
