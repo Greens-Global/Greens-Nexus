@@ -4443,6 +4443,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
   const [segment, setSegment] = useState('checkouts'); // 'checkouts' | 'assignments'
   const { can } = useRole();
   const isManager = can('manager');
+  const isMobile = useIsMobile(); // shorten the segment labels so they fit
   const [statusFilter,   setStatusFilter]   = useState('active');
   const [personQuery,    setPersonQuery]    = useState('');
   const [approvingCo,    setApprovingCo]    = useState(null);
@@ -4633,11 +4634,15 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
   const liveAssignments = assignments.filter(a => ['pending_acceptance','active','return_initiated'].includes(a.status)).length;
   return (
     <div>
-      {/* Transient vs Permanent — Neil's separation */}
-      <div className="chip-row" style={{ display:'flex', gap:8, marginBottom:14 }}>
-        {[['checkouts','Checkouts (Temporary)'], ['assignments', `Assignments (Permanent)${liveAssignments ? ` · ${liveAssignments}` : ''}`]].map(([k, l]) => (
+      {/* Transient vs Permanent — Neil's separation. Phones get the short forms
+          ("Temporary" / "Permanent · N") so the two chips fit one row. */}
+      <div className="chip-row" style={{ display:'flex', gap:8, marginBottom:14, flexWrap:'wrap' }}>
+        {[
+          ['checkouts',   isMobile ? 'Temporary' : 'Checkouts (Temporary)'],
+          ['assignments', `${isMobile ? 'Permanent' : 'Assignments (Permanent)'}${liveAssignments ? ` · ${liveAssignments}` : ''}`],
+        ].map(([k, l]) => (
           <button key={k} onClick={() => setSegment(k)}
-            style={{ padding:'7px 16px', borderRadius:10, border:`1px solid ${segment === k ? 'var(--pine)' : 'var(--line)'}`, background: segment === k ? 'hsla(var(--color-green),0.08)' : 'var(--card)', color: segment === k ? 'hsl(var(--color-green))' : 'var(--muted)', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+            style={{ padding:'7px 16px', borderRadius:10, border:`1px solid ${segment === k ? 'var(--pine)' : 'var(--line)'}`, background: segment === k ? 'hsla(var(--color-green),0.08)' : 'var(--card)', color: segment === k ? 'hsl(var(--color-green))' : 'var(--muted)', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', whiteSpace:'nowrap' }}>
             {l}
           </button>
         ))}
