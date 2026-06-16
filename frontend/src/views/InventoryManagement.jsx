@@ -573,7 +573,7 @@ function DeleteItemModal({ item, onClose, onConfirm }) {
 function mapItemsMatrix(matrix) {
   const grid = (matrix || []).filter(r => Array.isArray(r) && r.some(c => String(c ?? '').trim() !== ''));
   if (grid.length < 2) return { rows: [], error: 'File looks empty — needs a header row plus at least one item.' };
-  const header = grid[0].map(h => String(h ?? '').replace(/^﻿/, '').trim().toLowerCase());
+  const header = grid[0].map(h => String(h ?? '').trim().toLowerCase());
   const idx = {
     name:          header.findIndex(h => ['name','item','item name'].includes(h)),
     item_type:     header.findIndex(h => ['type','item_type','item type'].includes(h)),
