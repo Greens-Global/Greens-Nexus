@@ -66,6 +66,13 @@ def _run_migrations():
         "ALTER TABLE nexus_roles ADD COLUMN IF NOT EXISTS display_name VARCHAR DEFAULT ''",
         # inventory_items: physical site/storage location (e.g. "GSVC", "GSE")
         "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS location VARCHAR DEFAULT ''",
+        # item_checkouts: handover/receipt photo flow (added to model but migration was missed — broke prod SELECTs)
+        "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS order_id VARCHAR DEFAULT ''",
+        "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS handover_photo_by VARCHAR DEFAULT ''",
+        "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS handover_batch BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS receipt_photo_url VARCHAR DEFAULT ''",
+        "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS receipt_photo_name VARCHAR DEFAULT ''",
+        "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS handed_over_at VARCHAR DEFAULT ''",
         # item_checkouts: extension request flow (employee asks for more days, manager approves)
         "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS extension_days INTEGER DEFAULT 0",
         "ALTER TABLE item_checkouts ADD COLUMN IF NOT EXISTS extension_reason VARCHAR DEFAULT ''",
