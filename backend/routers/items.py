@@ -321,17 +321,13 @@ def create_item(body: ItemCreate, user: dict = Depends(require_items_admin), db:
     return _item_to_dict(item)
 
 
-def _import_key(name: str, make: str, model: str, department: str) -> tuple:
-    """Natural identity of a catalog row for import de-duplication. Imports carry
-    no serial/asset tag, so name+make+model+department (case-insensitive) is the
-    stable key. Re-uploading the same CSV updates these rows instead of inserting
-    duplicates (Jun 16)."""
-    return (
-        (name or "").strip().lower(),
-        (make or "").strip().lower(),
-        (model or "").strip().lower(),
-        (department or "").strip().lower(),
-    )
+def _import_key(name: str) -> str:
+    """Identity of a catalog row for import upserts: the item NAME (case-insensitive,
+    trimmed). Name is the asset tag in this inventory and the only field stable
+    across edits — keying on name+make+model+department meant editing any of those
+    in the CSV created a duplicate instead of updating the row (Jun 16). Editing the
+    NAME itself is treated as a new item, which is the expected behaviour."""
+    return (name or "").strip().lower()
 
 
 @router.post("/import")
@@ -342,9 +338,9 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
     # Index existing items so a re-uploaded CSV matches and updates in place. First
     # row wins for any pre-existing duplicates; the index is also updated as we go
     # so repeated rows WITHIN one file collapse onto a single item too.
-    index: dict[tuple, Item] = {}
+    index: dict[str, Item] = {}
     for it in db.query(Item).all():
-        index.setdefault(_import_key(it.name, it.make, it.model, it.department), it)
+        index.setdefault(_import_key(it.name), it)
 
     for row in body.items:
         name = (row.name or "").strip()
@@ -364,7 +360,7 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
         location   = (row.location or "").strip()
         default_owner = (row.default_owner or _TYPE_DEFAULT_OWNER.get(item_type, "")).strip()
 
-        key = _import_key(name, make, model, department)
+        key = _import_key(name)
         existing = index.get(key)
         if existing is not None:
             # Update descriptive fields in place. Status, photo, and the
