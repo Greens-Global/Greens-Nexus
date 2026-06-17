@@ -1,5 +1,6 @@
 import io
 import os
+import re
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -120,6 +121,7 @@ router = APIRouter(prefix="/items", tags=["items"], dependencies=[Depends(get_cu
 def _item_to_dict(i: Item) -> dict:
     return {
         "id":            i.id,
+        "serialNumber":  i.serial_number or "",
         "name":          i.name,
         "itemType":      i.item_type,
         "make":          i.make,
@@ -218,6 +220,7 @@ class ItemUpdate(BaseModel):
 
 class ItemImportRow(BaseModel):
     name:           str
+    serial_number:  Optional[str] = ""
     item_type:      Optional[str] = "Other"
     make:           Optional[str] = ""
     model:          Optional[str] = ""
@@ -289,6 +292,30 @@ def list_items(
     return result
 
 
+# ── Serial numbers ────────────────────────────────────────────────────────────
+# Each physical unit carries a static, Nexus-assigned serial (GG-#####). It is the
+# identity the CSV import upserts on — names are NOT unique (10 identical laptops),
+# so keying on name silently merged distinct units into one row (Sai, Jun 2026).
+
+_SERIAL_RE = re.compile(r"^GG-(\d+)$", re.IGNORECASE)
+
+
+def _serial_start(db: Session) -> int:
+    """Next free auto-serial number. Scanned ONCE per import — autoflush=False means
+    rows added during the loop are not visible to a re-query, so callers keep a local
+    counter and never re-scan mid-batch."""
+    top = 0
+    for (s,) in db.query(Item.serial_number).all():
+        m = _SERIAL_RE.match((s or "").strip())
+        if m:
+            top = max(top, int(m.group(1)))
+    return top + 1
+
+
+def _fmt_serial(n: int) -> str:
+    return f"GG-{n:05d}"
+
+
 @router.post("", status_code=201)
 def create_item(body: ItemCreate, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
     name = body.name.strip()
@@ -297,6 +324,7 @@ def create_item(body: ItemCreate, user: dict = Depends(require_items_admin), db:
     now = datetime.now(timezone.utc).isoformat()
     item = Item(
         id=str(uuid.uuid4()),
+        serial_number=_fmt_serial(_serial_start(db)),
         name=name,
         item_type=(body.item_type or "Other").strip(),
         make=(body.make or "").strip(),
@@ -321,26 +349,23 @@ def create_item(body: ItemCreate, user: dict = Depends(require_items_admin), db:
     return _item_to_dict(item)
 
 
-def _import_key(name: str) -> str:
-    """Identity of a catalog row for import upserts: the item NAME (case-insensitive,
-    trimmed). Name is the asset tag in this inventory and the only field stable
-    across edits — keying on name+make+model+department meant editing any of those
-    in the CSV created a duplicate instead of updating the row (Jun 16). Editing the
-    NAME itself is treated as a new item, which is the expected behaviour."""
-    return (name or "").strip().lower()
-
-
 @router.post("/import")
 def import_items(body: ItemImportRequest, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
     now = datetime.now(timezone.utc).isoformat()
     created = updated = skipped = 0
 
-    # Index existing items so a re-uploaded CSV matches and updates in place. First
-    # row wins for any pre-existing duplicates; the index is also updated as we go
-    # so repeated rows WITHIN one file collapse onto a single item too.
+    # Identity for upserts is the SERIAL, not the name. Names are not unique (10
+    # identical laptops), so keying on name merged distinct units (Sai, Jun 2026).
+    # A row with a serial that matches an existing item updates it in place; a row
+    # with a BLANK serial is always a new unit and gets the next Nexus-assigned
+    # GG-##### — so duplicate names never collapse.
     index: dict[str, Item] = {}
     for it in db.query(Item).all():
-        index.setdefault(_import_key(it.name), it)
+        s = (it.serial_number or "").strip().lower()
+        if s:
+            index.setdefault(s, it)
+
+    next_serial = _serial_start(db)  # scanned once — see _serial_start
 
     for row in body.items:
         name = (row.name or "").strip()
@@ -360,11 +385,11 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
         location   = (row.location or "").strip()
         default_owner = (row.default_owner or _TYPE_DEFAULT_OWNER.get(item_type, "")).strip()
 
-        key = _import_key(name)
-        existing = index.get(key)
+        serial = (row.serial_number or "").strip()
+        existing = index.get(serial.lower()) if serial else None
         if existing is not None:
-            # Update descriptive fields in place. Status, photo, and the
-            # assignment lifecycle are deliberately preserved.
+            # Matched on serial → update descriptive fields in place. Serial,
+            # status, photo, and the assignment lifecycle are deliberately preserved.
             existing.name          = name
             existing.item_type     = item_type
             existing.make          = make
@@ -376,8 +401,13 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
             existing.location      = location
             updated += 1
         else:
+            # Honour a serial the CSV supplied; otherwise assign the next GG-#####.
+            if not serial:
+                serial = _fmt_serial(next_serial)
+                next_serial += 1
             new_item = Item(
                 id=str(uuid.uuid4()),
+                serial_number=serial,
                 name=name,
                 item_type=item_type,
                 make=make,
@@ -393,7 +423,7 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
                 created_at=now,
             )
             db.add(new_item)
-            index[key] = new_item  # collapse duplicate rows within the same file
+            index[serial.lower()] = new_item  # a repeated serial within the file collapses; repeated names do not
             created += 1
     db.commit()
     return {"created": created, "updated": updated, "skipped": skipped}
@@ -542,6 +572,54 @@ def bulk_delete_items(body: BulkDeleteRequest, user: dict = Depends(require_item
         "blocked": blocked,
         "notFound": [i for i in ids if i not in found_ids],
     }
+
+
+class BulkUpdateRequest(BaseModel):
+    ids:    list[str]
+    fields: dict          # only the descriptive fields the user chose to change
+
+
+# Fields a batch edit may touch. Serial is the static identity and is never editable
+# here; status/photo/assignment lifecycle are owned by their own flows.
+_BATCH_EDITABLE = {
+    "name", "item_type", "make", "model", "year",
+    "department", "default_owner", "ownership_type", "location",
+}
+
+
+@router.post("/bulk-update")
+def bulk_update_items(body: BulkUpdateRequest, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    """Apply the SAME field changes to many items in one transaction — the Manage
+    tab's Batch Edit. Only whitelisted descriptive fields are written, and only the
+    keys the user actually chose to change are present in `fields`."""
+    ids = [i for i in (body.ids or []) if i]
+    changes = {k: v for k, v in (body.fields or {}).items() if k in _BATCH_EDITABLE}
+    if not ids or not changes:
+        return {"updated": 0}
+
+    # Normalise the way create/import do, so batch edits stay consistent with them.
+    if "item_type" in changes:
+        t = (changes["item_type"] or "Other").strip()
+        changes["item_type"] = t if t in _ITEM_TYPES else "Other"
+    if "ownership_type" in changes:
+        o = (changes["ownership_type"] or "transient").strip().lower()
+        changes["ownership_type"] = o if o in ("permanent", "transient") else "transient"
+    if "name" in changes:
+        nm = (changes["name"] or "").strip()
+        if not nm:
+            raise HTTPException(400, "Name cannot be empty")
+        changes["name"] = nm
+    for k in ("make", "model", "year", "department", "default_owner", "location"):
+        if k in changes:
+            changes[k] = (changes[k] or "").strip()
+
+    updated = 0
+    for it in db.query(Item).filter(Item.id.in_(ids)).all():
+        for k, v in changes.items():
+            setattr(it, k, v)
+        updated += 1
+    db.commit()
+    return {"updated": updated}
 
 
 # ── Checkouts ─────────────────────────────────────────────────────────────────

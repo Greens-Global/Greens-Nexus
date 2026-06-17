@@ -236,6 +236,7 @@ export const api = {
   updateItem:          (id, data)     => req(`/items/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteItem:          (id)           => req(`/items/${id}`, { method: 'DELETE' }),
   bulkDeleteItems:     (ids)          => req('/items/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+  bulkUpdateItems:     (ids, fields)  => req('/items/bulk-update', { method: 'POST', body: JSON.stringify({ ids, fields }) }),
   getItemsReport:      (params)       => reqBlob(`/items/report?${new URLSearchParams(params)}`),
   getItemsAuditLog:    (params)       => req(`/items/audit-log?${new URLSearchParams(params)}`),
   getItemAllocators:   ()             => req('/items/allocators'),
