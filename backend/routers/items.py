@@ -317,6 +317,16 @@ def _fmt_serial(n: int) -> str:
     return f"GG-{n:05d}"
 
 
+# Spreadsheets use "N/A", "-", "none" etc. to mean "no value" — store them as blank
+# so they don't render as real data (e.g. a Model column showing "... N/A").
+_NA_TOKENS = {"", "n/a", "na", "n.a.", "n.a", "none", "null", "nil", "-", "–", "—"}
+
+
+def _clean_field(v) -> str:
+    s = (v or "").strip()
+    return "" if s.lower() in _NA_TOKENS else s
+
+
 @router.post("", status_code=201)
 def create_item(body: ItemCreate, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
     name = body.name.strip()
@@ -386,12 +396,12 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
         item_type = (row.item_type or "Other").strip()
         if item_type not in _ITEM_TYPES:
             item_type = "Other"
-        make       = (row.make or "").strip()
-        model      = (row.model or "").strip()
-        year       = (row.year or "").strip()
-        department = (row.department or "").strip()
-        location   = (row.location or "").strip()
-        default_owner = (row.default_owner or _TYPE_DEFAULT_OWNER.get(item_type, "")).strip()
+        make       = _clean_field(row.make)
+        model      = _clean_field(row.model)
+        year       = _clean_field(row.year)
+        department = _clean_field(row.department)
+        location   = _clean_field(row.location)
+        default_owner = _clean_field(row.default_owner) or _TYPE_DEFAULT_OWNER.get(item_type, "")
 
         serial = (row.serial_number or "").strip()
         existing = index.get(serial.lower()) if serial else None

@@ -616,6 +616,11 @@ async function parseItemsFile(file) {
   return mapItemsMatrix(matrix);
 }
 
+// Spreadsheets use "N/A", "-", "none" etc. to mean "no value" — treat a whole-field
+// placeholder as blank so it never renders (e.g. Model showing "DS-2CD2143G2-IU N/A").
+const NA_TOKENS = new Set(['', 'n/a', 'na', 'n.a.', 'n.a', 'none', 'null', 'nil', '-', '–', '—']);
+const cleanField = v => { const s = String(v ?? '').trim(); return NA_TOKENS.has(s.toLowerCase()) ? '' : s; };
+
 function csvField(v) { const s = String(v ?? ''); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
 
 function triggerDownload(filename, blob) {
@@ -3657,10 +3662,10 @@ const ManageRow = memo(function ManageRow({ item, isSelected, onToggle, onEdit, 
       <td style={{ padding:'10px 14px', fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace', fontSize:12, color:'var(--muted)', whiteSpace:'nowrap' }}>{item.serialNumber || '—'}</td>
       <td style={{ padding:'10px 14px', fontWeight:600 }}>{item.name}</td>
       <td style={{ padding:'10px 14px' }}><TypeBadge type={item.itemType} /></td>
-      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.make || '—'}</td>
-      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{[item.model, item.year].filter(Boolean).join(' ') || '—'}</td>
-      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.department || '—'}</td>
-      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.location || '—'}</td>
+      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{cleanField(item.make) || '—'}</td>
+      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{[cleanField(item.model), cleanField(item.year)].filter(Boolean).join(' ') || '—'}</td>
+      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{cleanField(item.department) || '—'}</td>
+      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{cleanField(item.location) || '—'}</td>
       <td style={{ padding:'10px 14px' }}>
         <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:20, background: item.ownershipType === 'permanent' ? 'hsla(var(--color-purple),0.1)' : 'hsla(var(--color-blue),0.1)', color: item.ownershipType === 'permanent' ? 'hsl(var(--color-purple))' : 'hsl(var(--color-blue))' }}>
           {item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}
@@ -3708,7 +3713,7 @@ const ManageCard = memo(function ManageCard({ item, isSelected, onToggle, onEdit
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
           <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-            {[item.serialNumber, item.make, item.model, item.location].filter(Boolean).join(' · ') || '—'}
+            {[item.serialNumber, cleanField(item.make), cleanField(item.model), cleanField(item.location)].filter(Boolean).join(' · ') || '—'}
           </div>
         </div>
         <StatusBadge status={displayStatus(item)} />
