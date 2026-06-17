@@ -5854,14 +5854,16 @@ export default function InventoryManagement({ activeSub }) {
     [...new Set(items.map(i => (i.location || '').trim()).filter(Boolean))].sort(),
   [items]);
   const [search,        setSearch]        = useState('');
-  // Items scoped to the selected department + ownership filter — the KPI tiles
-  // must follow these filters, not always show company-wide totals (Sai, Jun 16).
+  // Items scoped to the active filters — the KPI tiles must follow ALL of them
+  // (department, ownership, location, type), not show company-wide totals (Sai).
   const deptItems = useMemo(
     () => items.filter(i =>
       (deptFilter === 'All' || (i.department || '') === deptFilter) &&
-      (ownershipFilter === 'All' || (i.ownershipType || 'transient') === ownershipFilter)
+      (ownershipFilter === 'All' || (i.ownershipType || 'transient') === ownershipFilter) &&
+      (locationFilter === 'All' || (i.location || '') === locationFilter) &&
+      (typeFilter === 'All' || (i.itemType || '') === typeFilter)
     ),
-    [items, deptFilter, ownershipFilter]
+    [items, deptFilter, ownershipFilter, locationFilter, typeFilter]
   );
   // Deferred copy keeps the input responsive: tabs re-filter at low priority
   // instead of blocking every keystroke.
