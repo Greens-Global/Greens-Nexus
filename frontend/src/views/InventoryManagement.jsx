@@ -3634,6 +3634,108 @@ function OverdueAlertModal({ checkouts, onClose, toast, onCustomAlert }) {
 }
 
 // ── Manager Manage Tab ────────────────────────────────────────────────────────
+// Memoised rows so toggling ONE checkbox re-renders only that row, not all 360+
+// (selecting an item used to repaint the whole table — visible mouse lag). isSelected
+// is a boolean and every handler is stable, so memo skips the untouched rows.
+const ManageRow = memo(function ManageRow({ item, isSelected, onToggle, onEdit, onDelete, onAssign, onPreview, canDelete }) {
+  return (
+    <tr style={{ borderTop:'1px solid var(--line)', background: isSelected ? 'hsla(var(--color-blue),0.05)' : 'transparent' }}>
+      <td style={{ padding:'10px 14px' }}>
+        <input type="checkbox" checked={isSelected} onChange={() => onToggle(item.id)}
+          style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
+      </td>
+      <td style={{ padding:'10px 14px' }}>
+        {item.photoUrl
+          ? <PhotoThumb url={item.photoUrl} size={44} onPreview={onPreview} />
+          : (
+            <div style={{ width:44, height:44, borderRadius:10, background:'hsla(var(--color-red),0.08)', border:'1px dashed hsla(var(--color-red),0.4)', display:'flex', alignItems:'center', justifyContent:'center' }} title="Missing photo">
+              <Camera size={18} color="hsl(var(--color-red))" />
+            </div>
+          )
+        }
+      </td>
+      <td style={{ padding:'10px 14px', fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace', fontSize:12, color:'var(--muted)', whiteSpace:'nowrap' }}>{item.serialNumber || '—'}</td>
+      <td style={{ padding:'10px 14px', fontWeight:600 }}>{item.name}</td>
+      <td style={{ padding:'10px 14px' }}><TypeBadge type={item.itemType} /></td>
+      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.make || '—'}</td>
+      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{[item.model, item.year].filter(Boolean).join(' ') || '—'}</td>
+      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.department || '—'}</td>
+      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.location || '—'}</td>
+      <td style={{ padding:'10px 14px' }}>
+        <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:20, background: item.ownershipType === 'permanent' ? 'hsla(var(--color-purple),0.1)' : 'hsla(var(--color-blue),0.1)', color: item.ownershipType === 'permanent' ? 'hsl(var(--color-purple))' : 'hsl(var(--color-blue))' }}>
+          {item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}
+        </span>
+      </td>
+      <td style={{ padding:'10px 14px' }}><StatusBadge status={displayStatus(item)} /></td>
+      <td style={{ padding:'10px 14px' }}>
+        <div style={{ display:'flex', gap:6 }}>
+          {item.ownershipType === 'permanent' && onAssign && (
+            <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
+              title={item.assignedToEmail ? `Currently with ${item.assignedToName || item.assignedToEmail}` : 'Assign to a person'}
+              style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+              <User size={12} /> {item.assignedToEmail ? 'Reassign' : 'Assign'}
+            </button>
+          )}
+          <button onClick={() => onEdit(item)}
+            style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+            <Pencil size={12} /> Edit
+          </button>
+          {canDelete && (
+            <button onClick={() => onDelete(item)}
+              style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-red))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+              <Trash2 size={12} /> Delete
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+});
+
+const ManageCard = memo(function ManageCard({ item, isSelected, onToggle, onEdit, onDelete, onAssign, onPreview, canDelete }) {
+  return (
+    <div style={{ border:'1px solid var(--line)', borderRadius:12, background: isSelected ? 'hsla(var(--color-blue),0.05)' : 'var(--card)', padding:'12px 14px', boxShadow:'var(--shadow-sm)' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+        <input type="checkbox" checked={isSelected} onChange={() => onToggle(item.id)}
+          style={{ cursor:'pointer', accentColor:'var(--pine)', flexShrink:0 }} />
+        {item.photoUrl
+          ? <PhotoThumb url={item.photoUrl} size={44} onPreview={onPreview} />
+          : (
+            <div style={{ width:44, height:44, borderRadius:10, background:'hsla(var(--color-red),0.08)', border:'1px dashed hsla(var(--color-red),0.4)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }} title="Missing photo">
+              <Camera size={18} color="hsl(var(--color-red))" />
+            </div>
+          )}
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
+          <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+            {[item.serialNumber, item.make, item.model, item.location].filter(Boolean).join(' · ') || '—'}
+          </div>
+        </div>
+        <StatusBadge status={displayStatus(item)} />
+      </div>
+      <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:10, flexWrap:'wrap' }}>
+        <TypeBadge type={item.itemType} />
+        <span style={{ fontSize:10.5, fontWeight:600, padding:'2px 8px', borderRadius:20, background: item.ownershipType === 'permanent' ? 'hsla(var(--color-purple),0.1)' : 'hsla(var(--color-blue),0.1)', color: item.ownershipType === 'permanent' ? 'hsl(var(--color-purple))' : 'hsl(var(--color-blue))' }}>
+          {item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}
+        </span>
+        {Number(item.assetValue) > 0 && <span style={{ fontSize:11, fontWeight:700, color:'var(--muted)' }}>{fmtMoney(item.assetValue)}</span>}
+        <div style={{ marginLeft:'auto', display:'flex', gap:6 }}>
+          {item.ownershipType === 'permanent' && onAssign && (
+            <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
+              style={{ background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+              {item.assignedToEmail ? 'Reassign' : 'Assign'}
+            </button>
+          )}
+          <button onClick={() => onEdit(item)} style={{ background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Edit</button>
+          {canDelete && (
+            <button onClick={() => onDelete(item)} style={{ background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-red))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Delete</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
 const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign }) {
   const [photoPreview,       setPhotoPreview]       = useState(null);
   const [selected,           setSelected]           = useState(new Set());
@@ -3710,9 +3812,10 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
     (checkouts || []).some(c => c.itemId === i.id && ['pending','approved','pending_receipt','allocated'].includes(c.status))
   );
 
-  function toggleSelect(id) {
+  // Stable so memoized rows don't all re-render on every checkbox toggle.
+  const toggleSelect = useCallback(id => {
     setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  }
+  }, []);
   function toggleAll() {
     setSelected(selected.size === filtered.length && filtered.length > 0 ? new Set() : new Set(filtered.map(i => i.id)));
   }
@@ -3861,45 +3964,9 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
             </span>
           </label>
           {sorted.map(item => (
-            <div key={item.id} style={{ border:'1px solid var(--line)', borderRadius:12, background: selected.has(item.id) ? 'hsla(var(--color-blue),0.05)' : 'var(--card)', padding:'12px 14px', boxShadow:'var(--shadow-sm)' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)}
-                  style={{ cursor:'pointer', accentColor:'var(--pine)', flexShrink:0 }} />
-                {item.photoUrl
-                  ? <PhotoThumb url={item.photoUrl} size={44} onPreview={url => setPhotoPreview(url)} />
-                  : (
-                    <div style={{ width:44, height:44, borderRadius:10, background:'hsla(var(--color-red),0.08)', border:'1px dashed hsla(var(--color-red),0.4)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }} title="Missing photo">
-                      <Camera size={18} color="hsl(var(--color-red))" />
-                    </div>
-                  )}
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
-                  <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                    {[item.serialNumber, item.make, item.model, item.location].filter(Boolean).join(' · ') || '—'}
-                  </div>
-                </div>
-                <StatusBadge status={displayStatus(item)} />
-              </div>
-              <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:10, flexWrap:'wrap' }}>
-                <TypeBadge type={item.itemType} />
-                <span style={{ fontSize:10.5, fontWeight:600, padding:'2px 8px', borderRadius:20, background: item.ownershipType === 'permanent' ? 'hsla(var(--color-purple),0.1)' : 'hsla(var(--color-blue),0.1)', color: item.ownershipType === 'permanent' ? 'hsl(var(--color-purple))' : 'hsl(var(--color-blue))' }}>
-                  {item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}
-                </span>
-                {Number(item.assetValue) > 0 && <span style={{ fontSize:11, fontWeight:700, color:'var(--muted)' }}>{fmtMoney(item.assetValue)}</span>}
-                <div style={{ marginLeft:'auto', display:'flex', gap:6 }}>
-                  {item.ownershipType === 'permanent' && onAssign && (
-                    <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
-                      style={{ background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-                      {item.assignedToEmail ? 'Reassign' : 'Assign'}
-                    </button>
-                  )}
-                  <button onClick={() => onEdit(item)} style={{ background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Edit</button>
-                  {canDelete && (
-                    <button onClick={() => onDelete(item)} style={{ background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-red))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Delete</button>
-                  )}
-                </div>
-              </div>
-            </div>
+            <ManageCard key={item.id} item={item} isSelected={selected.has(item.id)}
+              onToggle={toggleSelect} onEdit={onEdit} onDelete={onDelete} onAssign={onAssign}
+              onPreview={setPhotoPreview} canDelete={canDelete} />
           ))}
         </div>
       ) : (
@@ -3929,56 +3996,9 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
             </thead>
             <tbody>
               {sorted.map(item => (
-                <tr key={item.id} style={{ borderTop:'1px solid var(--line)', background: selected.has(item.id) ? 'hsla(var(--color-blue),0.05)' : 'transparent' }}>
-                  <td style={{ padding:'10px 14px' }}>
-                    <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)}
-                      style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
-                  </td>
-                  <td style={{ padding:'10px 14px' }}>
-                    {item.photoUrl
-                      ? <PhotoThumb url={item.photoUrl} size={44} onPreview={url => setPhotoPreview(url)} />
-                      : (
-                        <div style={{ width:44, height:44, borderRadius:10, background:'hsla(var(--color-red),0.08)', border:'1px dashed hsla(var(--color-red),0.4)', display:'flex', alignItems:'center', justifyContent:'center' }} title="Missing photo">
-                          <Camera size={18} color="hsl(var(--color-red))" />
-                        </div>
-                      )
-                    }
-                  </td>
-                  <td style={{ padding:'10px 14px', fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace', fontSize:12, color:'var(--muted)', whiteSpace:'nowrap' }}>{item.serialNumber || '—'}</td>
-                  <td style={{ padding:'10px 14px', fontWeight:600 }}>{item.name}</td>
-                  <td style={{ padding:'10px 14px' }}><TypeBadge type={item.itemType} /></td>
-                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.make || '—'}</td>
-                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{[item.model, item.year].filter(Boolean).join(' ') || '—'}</td>
-                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.department || '—'}</td>
-                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.location || '—'}</td>
-                  <td style={{ padding:'10px 14px' }}>
-                    <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:20, background: item.ownershipType === 'permanent' ? 'hsla(var(--color-purple),0.1)' : 'hsla(var(--color-blue),0.1)', color: item.ownershipType === 'permanent' ? 'hsl(var(--color-purple))' : 'hsl(var(--color-blue))' }}>
-                      {item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}
-                    </span>
-                  </td>
-                  <td style={{ padding:'10px 14px' }}><StatusBadge status={displayStatus(item)} /></td>
-                  <td style={{ padding:'10px 14px' }}>
-                    <div style={{ display:'flex', gap:6 }}>
-                      {item.ownershipType === 'permanent' && onAssign && (
-                        <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
-                          title={item.assignedToEmail ? `Currently with ${item.assignedToName || item.assignedToEmail}` : 'Assign to a person'}
-                          style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-                          <User size={12} /> {item.assignedToEmail ? 'Reassign' : 'Assign'}
-                        </button>
-                      )}
-                      <button onClick={() => onEdit(item)}
-                        style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-                        <Pencil size={12} /> Edit
-                      </button>
-                      {canDelete && (
-                        <button onClick={() => onDelete(item)}
-                          style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-red))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-                          <Trash2 size={12} /> Delete
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
+                <ManageRow key={item.id} item={item} isSelected={selected.has(item.id)}
+                  onToggle={toggleSelect} onEdit={onEdit} onDelete={onDelete} onAssign={onAssign}
+                  onPreview={setPhotoPreview} canDelete={canDelete} />
               ))}
             </tbody>
           </table>
