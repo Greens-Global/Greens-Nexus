@@ -91,6 +91,9 @@ def _run_migrations():
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS asset_value DOUBLE PRECISION DEFAULT 0",
         # items: static per-unit serial — the import upsert key (replaces name matching, Jun 2026)
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS serial_number VARCHAR DEFAULT ''",
+        # serial is the identity now — enforce uniqueness (blanks excluded so legacy
+        # rows + not-yet-serialised items are fine; catches concurrent double-assign)
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_items_serial_unique ON items (serial_number) WHERE serial_number <> ''",
         # Permanent items were auto-stamped permanently_assigned at creation even
         # with nobody attached — unstamp the ones that never got a real assignee
         "UPDATE items SET status = 'available' WHERE ownership_type = 'permanent' AND COALESCE(assigned_to_email, '') = '' AND status = 'permanently_assigned'",

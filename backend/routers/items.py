@@ -401,8 +401,12 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
             existing.location      = location
             updated += 1
         else:
-            # Honour a serial the CSV supplied; otherwise assign the next GG-#####.
+            # Honour a serial the CSV supplied; otherwise assign the next GG-#####,
+            # skipping any already taken in the DB or earlier in this same file
+            # (an explicit GG-#### row can otherwise collide with the counter).
             if not serial:
+                while _fmt_serial(next_serial).lower() in index:
+                    next_serial += 1
                 serial = _fmt_serial(next_serial)
                 next_serial += 1
             new_item = Item(
