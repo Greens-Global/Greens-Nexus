@@ -3687,7 +3687,9 @@ const ManageRow = memo(function ManageRow({ item, isSelected, onToggle, onEdit, 
         </span>
       </td>
       <td style={{ padding:'10px 14px' }}><StatusBadge status={displayStatus(item)} /></td>
-      <td style={{ padding:'10px 14px' }}>
+      {/* Actions pinned to the right so they stay reachable when the table is wider
+          than the viewport (narrow laptops clipped Assign/Edit/Delete). */}
+      <td style={{ padding:'10px 14px', position:'sticky', right:0, background:'var(--card)', boxShadow:'-8px 0 10px -8px rgba(0,0,0,0.18)' }}>
         <div style={{ display:'flex', gap:6 }}>
           {item.ownershipType === 'permanent' && onAssign && (
             <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
@@ -3991,7 +3993,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
         </div>
       ) : (
         <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto' }}>
-          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+          <table style={{ width:'100%', minWidth:1080, borderCollapse:'collapse', fontSize:13 }}>
             <thead>
               <tr style={{ background:'var(--mist)' }}>
                 <th style={{ padding:'10px 14px', width:36 }}>
@@ -4011,7 +4013,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
                 <SortTh col="location" label="Location" />
                 <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em' }}>Ownership</th>
                 <SortTh col="status" label="Status" />
-                <th style={{ padding:'10px 14px' }}></th>
+                <th style={{ padding:'10px 14px', position:'sticky', right:0, background:'var(--mist)', boxShadow:'-8px 0 10px -8px rgba(0,0,0,0.18)' }}></th>
               </tr>
             </thead>
             <tbody>
