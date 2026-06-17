@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import or_, func, text as sa_text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -322,31 +323,38 @@ def create_item(body: ItemCreate, user: dict = Depends(require_items_admin), db:
     if not name:
         raise HTTPException(400, "Name cannot be empty")
     now = datetime.now(timezone.utc).isoformat()
-    item = Item(
-        id=str(uuid.uuid4()),
-        serial_number=_fmt_serial(_serial_start(db)),
-        name=name,
-        item_type=(body.item_type or "Other").strip(),
-        make=(body.make or "").strip(),
-        model=(body.model or "").strip(),
-        year=(body.year or "").strip(),
-        department=(body.department or "").strip(),
-        default_owner=(body.default_owner or "").strip(),
-        ownership_type=(body.ownership_type or "transient").strip(),
-        # Permanent items start AVAILABLE too — "permanently_assigned" only
-        # happens via the assignment flow once a real person accepts it.
-        # Auto-stamping it at creation made unassigned items show as assigned.
-        status="available",
-        location=(body.location or "").strip(),
-        photo_url=(body.photo_url or "").strip(),
-        created_by=user["email"],
-        created_at=now,
-        picture_required=True if body.picture_required is None else bool(body.picture_required),
-        asset_value=float(body.asset_value or 0),
-    )
-    db.add(item)
-    db.commit()
-    return _item_to_dict(item)
+    # Retry the rare serial race: two simultaneous adds can compute the same next
+    # GG-##### and collide on the unique index. Recompute and retry a few times.
+    for attempt in range(5):
+        item = Item(
+            id=str(uuid.uuid4()),
+            serial_number=_fmt_serial(_serial_start(db)),
+            name=name,
+            item_type=(body.item_type or "Other").strip(),
+            make=(body.make or "").strip(),
+            model=(body.model or "").strip(),
+            year=(body.year or "").strip(),
+            department=(body.department or "").strip(),
+            default_owner=(body.default_owner or "").strip(),
+            ownership_type=(body.ownership_type or "transient").strip(),
+            # Permanent items start AVAILABLE too — "permanently_assigned" only
+            # happens via the assignment flow once a real person accepts it.
+            # Auto-stamping it at creation made unassigned items show as assigned.
+            status="available",
+            location=(body.location or "").strip(),
+            photo_url=(body.photo_url or "").strip(),
+            created_by=user["email"],
+            created_at=now,
+            picture_required=True if body.picture_required is None else bool(body.picture_required),
+            asset_value=float(body.asset_value or 0),
+        )
+        db.add(item)
+        try:
+            db.commit()
+            return _item_to_dict(item)
+        except IntegrityError:
+            db.rollback()
+    raise HTTPException(409, "Could not assign a unique serial number — please try again.")
 
 
 @router.post("/import")
