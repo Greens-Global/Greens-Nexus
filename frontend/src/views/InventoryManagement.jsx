@@ -3000,7 +3000,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
 });
 
 // ── Manager Catalog Tab ───────────────────────────────────────────────────────
-const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', search, searchValue, onSearchChange, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate }) {
+const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', search, searchValue, onSearchChange, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate }) {
   // Desktop defaults to the list/table; phones default to tiles but can now
   // switch to the (scrollable) list in portrait too (Neil, Jun 16).
   const [viewMode, setViewMode] = useState(() => window.matchMedia('(max-width: 640px)').matches ? 'tile' : 'list');
@@ -3013,9 +3013,10 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
       const mD = deptFilter === 'All' || i.department === deptFilter;
       const mT = typeFilter === 'All' || i.itemType === typeFilter;
       const mO = ownershipFilter === 'All' || (i.ownershipType || 'transient') === ownershipFilter;
-      return mS && mD && mT && mO;
+      const mL = locationFilter === 'All' || i.location === locationFilter;
+      return mS && mD && mT && mO && mL;
     });
-  }, [items, search, deptFilter, typeFilter, ownershipFilter]);
+  }, [items, search, deptFilter, typeFilter, ownershipFilter, locationFilter]);
 
   // Sorted for list view: chosen column, or default (available first, then alpha)
   const sortedForList = useMemo(
@@ -3758,7 +3759,7 @@ const ManageCard = memo(function ManageCard({ item, isSelected, onToggle, onEdit
   );
 });
 
-const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign }) {
+const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign }) {
   const [photoPreview,       setPhotoPreview]       = useState(null);
   const [selected,           setSelected]           = useState(new Set());
   const [sortCol,            setSortCol]            = useState('name');
@@ -3813,8 +3814,9 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
     const mD = deptFilter === 'All' || i.department === deptFilter;
     const mT = typeFilter === 'All' || i.itemType === typeFilter;
     const mO = ownershipFilter === 'All' || (i.ownershipType || 'transient') === ownershipFilter;
-    return mS && mD && mT && mO;
-  }), [items, search, deptFilter, typeFilter, ownershipFilter]);
+    const mL = locationFilter === 'All' || i.location === locationFilter;
+    return mS && mD && mT && mO && mL;
+  }), [items, search, deptFilter, typeFilter, ownershipFilter, locationFilter]);
 
   const sorted = useMemo(() => [...filtered].sort((a, b) => {
     let av, bv;
@@ -5836,6 +5838,7 @@ export default function InventoryManagement({ activeSub }) {
   // Master ownership filter: All | transient (temporary) | permanent.
   // Lets managers filter permanent items out of Catalog/Manage (Neil, Jun 16).
   const [ownershipFilter, setOwnershipFilter] = useState('All');
+  const [locationFilter, setLocationFilter] = useState('All');
   // Type filter auto-populates from the data so imported types (e.g. "IP Camera")
   // appear alongside the built-in ones; "Other" stays last.
   const typeOptions = useMemo(() => {
@@ -5844,6 +5847,10 @@ export default function InventoryManagement({ activeSub }) {
       .filter(t => !ITEM_TYPES.includes(t)).sort();
     return [...base, ...custom, 'Other'];
   }, [items]);
+  // Location filter populates entirely from the data (locations come from the import).
+  const locationOptions = useMemo(() =>
+    [...new Set(items.map(i => (i.location || '').trim()).filter(Boolean))].sort(),
+  [items]);
   const [search,        setSearch]        = useState('');
   // Items scoped to the selected department + ownership filter — the KPI tiles
   // must follow these filters, not always show company-wide totals (Sai, Jun 16).
@@ -6011,6 +6018,10 @@ export default function InventoryManagement({ activeSub }) {
                 {DEPARTMENTS.map(d => <option key={d} value={d}>{d === 'All' ? 'All departments' : d}</option>)}
               </select>
             </div>
+            <select className="form-input" value={locationFilter} onChange={e => setLocationFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:130 }}>
+              <option value="All">All locations</option>
+              {locationOptions.map(l => <option key={l}>{l}</option>)}
+            </select>
             <select className="form-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:110 }}>
               <option value="All">All types</option>
               {typeOptions.map(t => <option key={t}>{t}</option>)}
@@ -6098,7 +6109,7 @@ export default function InventoryManagement({ activeSub }) {
       {mainTab === 'catalog' && (
         <ManagerCatalogTab
           items={items} itemsLoading={itemsLoading} itemsError={itemsError}
-          deptFilter={deptFilter} typeFilter={typeFilter} ownershipFilter={ownershipFilter} search={deferredSearch}
+          deptFilter={deptFilter} typeFilter={typeFilter} ownershipFilter={ownershipFilter} locationFilter={locationFilter} search={deferredSearch}
           searchValue={search} onSearchChange={setSearch}
           refreshItems={refreshItems} onAddToCart={addToCart} inCart={inCart}
           checkouts={checkouts} userEmail={userEmail} userName={userName}
@@ -6109,7 +6120,7 @@ export default function InventoryManagement({ activeSub }) {
       {mainTab === 'manage' && (
         <ManagerManageTab
           items={items} itemsLoading={itemsLoading} itemsError={itemsError}
-          deptFilter={deptFilter} typeFilter={typeFilter} ownershipFilter={ownershipFilter} search={deferredSearch}
+          deptFilter={deptFilter} typeFilter={typeFilter} ownershipFilter={ownershipFilter} locationFilter={locationFilter} search={deferredSearch}
           searchValue={search} onSearchChange={setSearch}
           refreshItems={refreshItems} canDelete={canDelete}
           onAdd={openAdd} onEdit={setEditingItem}
