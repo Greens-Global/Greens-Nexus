@@ -21,6 +21,20 @@ import { renderNotifBody } from '../components/NotificationBell';
 // ── Constants ─────────────────────────────────────────────────────────────────
 const ITEM_TYPES = ['Devices', 'Tools', 'Vehicles', 'Equipment', 'Keys', 'Other'];
 
+// Canonicalise a free-typed item type: case-insensitive + singular→plural
+// ("device" → "Devices"). Unknown types (e.g. "IP Camera") are kept as-is so
+// imported types stay first-class. Mirrors _normalize_type on the backend.
+const _TYPE_CANON = ITEM_TYPES.reduce((m, t) => {
+  m[t.toLowerCase()] = t;
+  if (t.endsWith('s')) m[t.slice(0, -1).toLowerCase()] = t;
+  return m;
+}, {});
+function normalizeType(raw) {
+  const s = cleanField(raw);
+  if (!s) return 'Other';
+  return _TYPE_CANON[s.toLowerCase()] || s;
+}
+
 const TYPE_DEFAULT_OWNER = {
   Devices:   'IT',
   Tools:     'Construction (MCD)',
@@ -456,7 +470,8 @@ function EditItemModal({ item, onClose, onSave }) {
             <div>
               <label style={FL}>TYPE</label>
               <select className="form-input" style={{ width:'100%' }} value={itemType} onChange={e => setItemType(e.target.value)}>
-                {ITEM_TYPES.map(t => <option key={t}>{t}</option>)}
+                {/* include the item's current type even if it's a custom imported one, so editing doesn't silently reset it */}
+                {[...new Set([...ITEM_TYPES, itemType].filter(Boolean))].map(t => <option key={t}>{t}</option>)}
               </select>
             </div>
             <div>
@@ -590,7 +605,7 @@ function mapItemsMatrix(matrix) {
   const rows = grid.slice(1).map(cells => {
     const get = i => (i > -1 ? String(cells[i] ?? '').trim() : '');
     const name = get(idx.name);
-    const item_type = get(idx.item_type) || 'Other';
+    const item_type = normalizeType(get(idx.item_type));
     const ownership_type = get(idx.ownership_type) || 'transient';
     return {
       name, serial_number: get(idx.serial_number), item_type, make: get(idx.make), model: get(idx.model), year: get(idx.year),
@@ -5819,6 +5834,14 @@ export default function InventoryManagement({ activeSub }) {
   // Master ownership filter: All | transient (temporary) | permanent.
   // Lets managers filter permanent items out of Catalog/Manage (Neil, Jun 16).
   const [ownershipFilter, setOwnershipFilter] = useState('All');
+  // Type filter auto-populates from the data so imported types (e.g. "IP Camera")
+  // appear alongside the built-in ones; "Other" stays last.
+  const typeOptions = useMemo(() => {
+    const base = ITEM_TYPES.filter(t => t !== 'Other');
+    const custom = [...new Set(items.map(i => (i.itemType || '').trim()).filter(Boolean))]
+      .filter(t => !ITEM_TYPES.includes(t)).sort();
+    return [...base, ...custom, 'Other'];
+  }, [items]);
   const [search,        setSearch]        = useState('');
   // Items scoped to the selected department + ownership filter — the KPI tiles
   // must follow these filters, not always show company-wide totals (Sai, Jun 16).
@@ -5988,7 +6011,7 @@ export default function InventoryManagement({ activeSub }) {
             </div>
             <select className="form-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:110 }}>
               <option value="All">All types</option>
-              {ITEM_TYPES.map(t => <option key={t}>{t}</option>)}
+              {typeOptions.map(t => <option key={t}>{t}</option>)}
             </select>
             <select className="form-input" value={ownershipFilter} onChange={e => setOwnershipFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:130 }}>
               <option value="All">All ownership</option>

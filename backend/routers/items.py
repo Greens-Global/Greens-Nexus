@@ -327,6 +327,23 @@ def _clean_field(v) -> str:
     return "" if s.lower() in _NA_TOKENS else s
 
 
+# Canonicalise a free-typed item type: case-insensitive and singular→plural, so
+# "device"/"DEVICES" → "Devices". Genuinely new types (e.g. "IP Camera") are kept
+# as-is so imported types are first-class, not flattened to "Other".
+_TYPE_CANON = {}
+for _t in _ITEM_TYPES:
+    _TYPE_CANON[_t.lower()] = _t
+    if _t.endswith("s"):
+        _TYPE_CANON[_t[:-1].lower()] = _t
+
+
+def _normalize_type(raw) -> str:
+    s = _clean_field(raw)
+    if not s:
+        return "Other"
+    return _TYPE_CANON.get(s.lower(), s)
+
+
 @router.post("", status_code=201)
 def create_item(body: ItemCreate, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
     name = body.name.strip()
@@ -340,7 +357,7 @@ def create_item(body: ItemCreate, user: dict = Depends(require_items_admin), db:
             id=str(uuid.uuid4()),
             serial_number=_fmt_serial(_serial_start(db)),
             name=name,
-            item_type=(body.item_type or "Other").strip(),
+            item_type=_normalize_type(body.item_type),
             make=(body.make or "").strip(),
             model=(body.model or "").strip(),
             year=(body.year or "").strip(),
@@ -393,9 +410,7 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
         ownership = (row.ownership_type or "transient").strip().lower()
         if ownership not in ("permanent", "transient"):
             ownership = "transient"
-        item_type = (row.item_type or "Other").strip()
-        if item_type not in _ITEM_TYPES:
-            item_type = "Other"
+        item_type = _normalize_type(row.item_type)
         make       = _clean_field(row.make)
         model      = _clean_field(row.model)
         year       = _clean_field(row.year)
@@ -513,10 +528,7 @@ def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(require_ite
             raise HTTPException(400, "Name cannot be empty")
         item.name = n
     if body.item_type  is not None:
-        t = body.item_type.strip()
-        if t and t not in _ITEM_TYPES:
-            raise HTTPException(400, f"Invalid item_type. Must be one of: {', '.join(_ITEM_TYPES)}")
-        item.item_type = t
+        item.item_type = _normalize_type(body.item_type)
     if body.make           is not None: item.make           = body.make.strip()
     if body.model          is not None: item.model          = body.model.strip()
     if body.year           is not None: item.year           = body.year.strip()
@@ -621,8 +633,7 @@ def bulk_update_items(body: BulkUpdateRequest, user: dict = Depends(require_item
 
     # Normalise the way create/import do, so batch edits stay consistent with them.
     if "item_type" in changes:
-        t = (changes["item_type"] or "Other").strip()
-        changes["item_type"] = t if t in _ITEM_TYPES else "Other"
+        changes["item_type"] = _normalize_type(changes["item_type"])
     if "ownership_type" in changes:
         o = (changes["ownership_type"] or "transient").strip().lower()
         changes["ownership_type"] = o if o in ("permanent", "transient") else "transient"
