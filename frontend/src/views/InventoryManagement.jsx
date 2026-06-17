@@ -711,8 +711,8 @@ function ImportItemsModal({ onClose, onImport }) {
             <h3 style={{ fontSize:16, fontWeight:700, marginBottom:10 }}>Import Complete</h3>
             <p style={{ fontSize:13.5, color:'var(--muted)', marginBottom:20 }}>
               <strong>{done.created}</strong> items added{done.updated ? <>, <strong>{done.updated}</strong> updated</> : null}. <strong>{done.skipped}</strong> rows skipped.
-              New rows each get a Nexus serial. Re-import updates a unit in place only when its <strong>Serial</strong> matches —
-              export the catalog and edit that file (or use Batch Edit) to make changes without creating duplicates.
+              New rows each get a Nexus serial. Re-importing the same file updates units in place — matched by <strong>Serial</strong>,
+              or by content for rows without one — so it won't create duplicates. To change fields, edit the exported file or use Batch Edit.
               Photos must be added manually in the Manage tab — one item at a time.
             </p>
             <div style={{ display:'flex', justifyContent:'flex-end' }}><button className="primary-btn" onClick={onClose}>Done</button></div>

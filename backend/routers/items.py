@@ -3,6 +3,7 @@ import os
 import re
 import threading
 import uuid
+from collections import defaultdict, deque
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -344,6 +345,15 @@ def _normalize_type(raw) -> str:
     return _TYPE_CANON.get(s.lower(), s)
 
 
+def _content_sig(name, item_type, make, model, year, department, location, ownership) -> tuple:
+    """Identity of a serial-less row by its descriptive content (case-insensitive).
+    Re-importing the same file matches each row to one existing unit by this sig, so
+    it updates in place instead of duplicating — while two genuinely identical units
+    still occupy two slots in the multiset and never collapse."""
+    return tuple((x or "").strip().lower()
+                 for x in (name, item_type, make, model, year, department, location, ownership))
+
+
 @router.post("", status_code=201)
 def create_item(body: ItemCreate, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
     name = body.name.strip()
@@ -389,18 +399,31 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
     now = datetime.now(timezone.utc).isoformat()
     created = updated = skipped = 0
 
-    # Identity for upserts is the SERIAL, not the name. Names are not unique (10
-    # identical laptops), so keying on name merged distinct units (Sai, Jun 2026).
-    # A row with a serial that matches an existing item updates it in place; a row
-    # with a BLANK serial is always a new unit and gets the next Nexus-assigned
-    # GG-##### — so duplicate names never collapse.
-    index: dict[str, Item] = {}
+    # Matching order: (1) SERIAL — the stable identity. (2) For rows with a BLANK
+    # serial, a CONTENT signature matched as a MULTISET: re-importing the same file
+    # maps each row onto one existing unit (so it updates in place instead of
+    # duplicating), yet two genuinely identical units keep two slots and never
+    # collapse. A blank-serial row only creates a NEW unit when no unclaimed match
+    # is left — then it gets the next Nexus-assigned GG-#####.
+    by_serial: dict[str, Item] = {}
+    sig_pool: dict[tuple, deque] = defaultdict(deque)
     for it in db.query(Item).all():
         s = (it.serial_number or "").strip().lower()
         if s:
-            index.setdefault(s, it)
+            by_serial.setdefault(s, it)
+        sig_pool[_content_sig(it.name, it.item_type, it.make, it.model, it.year,
+                              it.department, it.location, it.ownership_type)].append(it)
 
-    next_serial = _serial_start(db)  # scanned once — see _serial_start
+    claimed: set[str] = set()          # existing items already matched this import
+    next_serial = _serial_start(db)    # scanned once — see _serial_start
+
+    def _claim_by_sig(sig):
+        pool = sig_pool.get(sig)
+        while pool:
+            cand = pool.popleft()
+            if cand.id not in claimed:
+                return cand
+        return None
 
     for row in body.items:
         name = (row.name or "").strip()
@@ -419,10 +442,15 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
         default_owner = _clean_field(row.default_owner) or _TYPE_DEFAULT_OWNER.get(item_type, "")
 
         serial = (row.serial_number or "").strip()
-        existing = index.get(serial.lower()) if serial else None
+        if serial:
+            existing = by_serial.get(serial.lower())   # same serial = same unit (repeats collapse)
+        else:
+            existing = _claim_by_sig(_content_sig(name, item_type, make, model, year, department, location, ownership))
+
         if existing is not None:
-            # Matched on serial → update descriptive fields in place. Serial,
-            # status, photo, and the assignment lifecycle are deliberately preserved.
+            # Update descriptive fields in place. Serial, status, photo, and the
+            # assignment lifecycle are deliberately preserved.
+            claimed.add(existing.id)   # so a later blank-serial row can't re-match this unit by content
             existing.name          = name
             existing.item_type     = item_type
             existing.make          = make
@@ -435,10 +463,9 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
             updated += 1
         else:
             # Honour a serial the CSV supplied; otherwise assign the next GG-#####,
-            # skipping any already taken in the DB or earlier in this same file
-            # (an explicit GG-#### row can otherwise collide with the counter).
+            # skipping any already taken in the DB or earlier in this same file.
             if not serial:
-                while _fmt_serial(next_serial).lower() in index:
+                while _fmt_serial(next_serial).lower() in by_serial:
                     next_serial += 1
                 serial = _fmt_serial(next_serial)
                 next_serial += 1
@@ -460,7 +487,9 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
                 created_at=now,
             )
             db.add(new_item)
-            index[serial.lower()] = new_item  # a repeated serial within the file collapses; repeated names do not
+            by_serial[serial.lower()] = new_item  # a repeated explicit serial within the file collapses
+            # NOT added to sig_pool: two identical rows in one file are two distinct
+            # new units, so the second must not match the first.
             created += 1
     db.commit()
     return {"created": created, "updated": updated, "skipped": skipped}
