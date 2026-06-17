@@ -176,6 +176,16 @@ export const api = {
   getSops: () => req("/sop-updates"),
   createSop: (data) => req("/sop-updates", { method: "POST", body: JSON.stringify(data) }),
 
+  // Knowledge Base — DB-backed SOP / Manual / Guide library
+  getKbDocs:     ()         => req("/knowledge-base/documents"),
+  getKbDoc:      (id)       => req(`/knowledge-base/documents/${id}`),
+  createKbDoc:   (data)     => req("/knowledge-base/documents", { method: "POST", body: JSON.stringify(data) }),
+  updateKbDoc:   (id, data) => req(`/knowledge-base/documents/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  submitKbDoc:   (id)       => req(`/knowledge-base/documents/${id}/submit`, { method: "POST" }),
+  reviewKbDoc:   (id, data) => req(`/knowledge-base/documents/${id}/review`, { method: "POST", body: JSON.stringify(data) }),
+  archiveKbDoc:  (id)       => req(`/knowledge-base/documents/${id}/archive`, { method: "POST" }),
+  aiFormatKbDoc: (data)     => req("/knowledge-base/ai-format", { method: "POST", body: JSON.stringify(data) }),
+
   // Assets
   getAssets: () => req("/assets"),
   createAsset: (data) => req("/assets", { method: "POST", body: JSON.stringify(data) }),

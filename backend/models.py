@@ -563,3 +563,31 @@ class HrProvisionStep(Base):
     status  = Column(String, default="pending")               # pending|ok|failed|skipped|manual
     detail  = Column(String, default="")
     ordinal = Column(Integer, default=0)
+
+
+class KbDocument(Base):
+    """Knowledge Base document (SOP / Manual / Guide). The rich, nested body
+    (purpose, scope, procedure steps, etc.) is stored as a JSON string in `body`
+    so the template can evolve without a migration per field. Lifecycle:
+    draft -> in_review -> approved (or changes_requested back to the owner);
+    approved docs can later be archived. New table — create_all builds it, no
+    migration line needed."""
+    __tablename__ = "kb_documents"
+    id               = Column(String, primary_key=True)        # uuid
+    doc_code         = Column(String, default="")              # e.g. OPS-014, auto-assigned per department
+    title            = Column(String, nullable=False)
+    doc_type         = Column(String, default="SOP")           # SOP | Manual | Guide
+    departments      = Column(String, default="")              # comma-separated department names ("" = unassigned)
+    status           = Column(String, default="draft")         # draft|in_review|changes_requested|approved|archived
+    owner_email      = Column(String, default="")
+    owner_name       = Column(String, default="")
+    reviewer_email   = Column(String, default="")
+    reviewer_name    = Column(String, default="")
+    version          = Column(String, default="0.1")
+    effective_date   = Column(String, default="")             # ISO date, set on approval
+    body             = Column(String, default="{}")           # JSON: purpose, scopeText, materials, responsibilities, definitions, procedure, safety, references
+    review_note      = Column(String, default="")             # latest reviewer note
+    revision_history = Column(String, default="[]")           # JSON list of {version,date,author,notes}
+    created_by       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_at       = Column(String, default="")
