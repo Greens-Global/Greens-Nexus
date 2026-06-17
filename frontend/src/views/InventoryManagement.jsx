@@ -575,6 +575,7 @@ function mapItemsMatrix(matrix) {
   if (grid.length < 2) return { rows: [], error: 'File looks empty — needs a header row plus at least one item.' };
   const header = grid[0].map(h => String(h ?? '').trim().toLowerCase());
   const idx = {
+    serial_number: header.findIndex(h => ['serial','serial number','serial_number','serial no','asset tag','asset_tag'].includes(h)),
     name:          header.findIndex(h => ['name','item','item name'].includes(h)),
     item_type:     header.findIndex(h => ['type','item_type','item type'].includes(h)),
     make:          header.findIndex(h => h === 'make'),
@@ -592,7 +593,7 @@ function mapItemsMatrix(matrix) {
     const item_type = get(idx.item_type) || 'Other';
     const ownership_type = get(idx.ownership_type) || 'transient';
     return {
-      name, item_type, make: get(idx.make), model: get(idx.model), year: get(idx.year),
+      name, serial_number: get(idx.serial_number), item_type, make: get(idx.make), model: get(idx.model), year: get(idx.year),
       department: get(idx.department), default_owner: get(idx.default_owner),
       ownership_type: ownership_type.toLowerCase(),
       location: get(idx.location),
@@ -623,18 +624,22 @@ function triggerDownload(filename, blob) {
 }
 
 function downloadItemsCsv(items) {
-  const lines = ['Name,Type,Make,Model,Year,Department,Owner,Ownership,Location,Status'];
+  // Serial leads the export so re-importing this file updates rows in place
+  // (the importer matches on serial, not name).
+  const lines = ['Serial,Name,Type,Make,Model,Year,Department,Owner,Ownership,Location,Status'];
   for (const i of items)
-    lines.push([i.name,i.itemType,i.make,i.model,i.year,i.department,i.defaultOwner,i.ownershipType,i.location,i.status].map(csvField).join(','));
+    lines.push([i.serialNumber,i.name,i.itemType,i.make,i.model,i.year,i.department,i.defaultOwner,i.ownershipType,i.location,i.status].map(csvField).join(','));
   triggerDownload(`items-catalog-${new Date().toISOString().slice(0,10)}.csv`, new Blob([lines.join('\r\n')], { type:'text/csv;charset=utf-8;' }));
 }
 
 function downloadImportTemplate() {
+  // Leave Serial blank for new units — Nexus assigns one. Keep a row's serial to
+  // update that exact unit on re-import.
   triggerDownload('items-import-template.csv', new Blob([[
-    'Name,Type,Make,Model,Year,Department,Owner,Ownership,Location',
-    'Dell XPS 15 Laptop,Devices,Dell,XPS 15,2023,IT,IT Department,permanent,GSE',
-    'DeWalt Cordless Drill,Tools,DeWalt,DCD777C2,,Construction,Tool Crib,transient,GSVC',
-    'Ford F-150 Pickup,Vehicles,Ford,F-150,2022,Fleet,Fleet Team,permanent,Yard',
+    'Serial,Name,Type,Make,Model,Year,Department,Owner,Ownership,Location',
+    ',Dell XPS 15 Laptop,Devices,Dell,XPS 15,2023,IT,IT Department,permanent,GSE',
+    ',DeWalt Cordless Drill,Tools,DeWalt,DCD777C2,,Construction,Tool Crib,transient,GSVC',
+    ',Ford F-150 Pickup,Vehicles,Ford,F-150,2022,Construction,Fleet Team,permanent,Yard',
   ].join('\r\n')], { type:'text/csv;charset=utf-8;' }));
 }
 
@@ -686,7 +691,8 @@ function ImportItemsModal({ onClose, onImport }) {
             <h3 style={{ fontSize:16, fontWeight:700, marginBottom:10 }}>Import Complete</h3>
             <p style={{ fontSize:13.5, color:'var(--muted)', marginBottom:20 }}>
               <strong>{done.created}</strong> items added{done.updated ? <>, <strong>{done.updated}</strong> updated</> : null}. <strong>{done.skipped}</strong> rows skipped.
-              Re-uploading the same file updates existing items in place instead of duplicating them.
+              New rows each get a Nexus serial. Re-import updates a unit in place only when its <strong>Serial</strong> matches —
+              export the catalog and edit that file (or use Batch Edit) to make changes without creating duplicates.
               Photos must be added manually in the Manage tab — one item at a time.
             </p>
             <div style={{ display:'flex', justifyContent:'flex-end' }}><button className="primary-btn" onClick={onClose}>Done</button></div>
@@ -701,6 +707,7 @@ function ImportItemsModal({ onClose, onImport }) {
             </div>
             <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:16 }}>
               Each row = one physical item. Accepts .csv, .xlsx, and .xls. Photos are always added manually after import. Required columns: <strong>Name</strong>.
+              Leave <strong>Serial</strong> blank and Nexus assigns one — keep a serial to update that exact unit on re-import.
             </p>
 
             <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" style={{ display:'none' }} onChange={e => handleFile(e.target.files?.[0])} />
@@ -721,13 +728,14 @@ function ImportItemsModal({ onClose, onImport }) {
                   <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
                     <thead>
                       <tr style={{ background:'var(--mist)' }}>
-                        {['Name','Type','Make','Model','Dept','Ownership','Location'].map(h =>
+                        {['Serial','Name','Type','Make','Model','Dept','Ownership','Location'].map(h =>
                           <th key={h} style={{ padding:'7px 10px', textAlign:'left', fontWeight:700, color:'var(--muted)', whiteSpace:'nowrap' }}>{h}</th>)}
                       </tr>
                     </thead>
                     <tbody>
                       {rows.slice(0,50).map((r, i) => (
                         <tr key={i} style={{ borderTop:'1px solid var(--line)', background: !r._valid ? 'hsla(var(--color-red),0.04)' : 'transparent' }}>
+                          <td style={{ padding:'6px 10px', color: r.serial_number ? 'var(--ink)' : 'var(--muted)', whiteSpace:'nowrap' }}>{r.serial_number || <em style={{ color:'var(--muted)' }}>auto</em>}</td>
                           <td style={{ padding:'6px 10px', fontWeight:600 }}>{r.name || <em style={{ color:'hsl(var(--color-red))' }}>missing</em>}</td>
                           <td style={{ padding:'6px 10px', color: r._unknownType ? 'hsl(var(--color-orange))' : 'var(--muted)' }}>{r.item_type}</td>
                           <td style={{ padding:'6px 10px', color:'var(--muted)' }}>{r.make}</td>
@@ -3142,6 +3150,82 @@ function BatchDeleteConfirmModal({ selectedItems, blockedItems, onClose, onConfi
   );
 }
 
+// ── Batch Edit Modal ──────────────────────────────────────────────────────────
+// Change the same descriptive field(s) across many selected items at once — the
+// replacement for editing fields by re-uploading a CSV. Serial is the static
+// identity and is never editable here; only ticked fields are written.
+const BATCH_FIELDS = [
+  { key: 'name',           label: 'Name' },
+  { key: 'item_type',      label: 'Type',       options: ITEM_TYPES },
+  { key: 'make',           label: 'Make' },
+  { key: 'model',          label: 'Model' },
+  { key: 'year',           label: 'Year' },
+  { key: 'department',     label: 'Department', options: DEPARTMENTS.filter(d => d !== 'All') },
+  { key: 'default_owner',  label: 'Owner' },
+  { key: 'ownership_type', label: 'Ownership',  options: ['transient', 'permanent'] },
+  { key: 'location',       label: 'Location' },
+];
+
+function BatchEditModal({ selectedItems, onClose, onSave, saving }) {
+  useEscapeKey(onClose);
+  const [enabled, setEnabled] = useState(new Set());
+  const [vals,    setVals]    = useState({});
+
+  function toggleField(key) {
+    setEnabled(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  }
+  const setVal = (key, v) => setVals(prev => ({ ...prev, [key]: v }));
+
+  const fields = {};
+  for (const f of BATCH_FIELDS) if (enabled.has(f.key)) fields[f.key] = vals[f.key] ?? (f.options ? f.options[0] : '');
+  const nameBlank = enabled.has('name') && !(fields.name || '').trim();
+  const canSave   = enabled.size > 0 && !nameBlank && !saving;
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:16, padding:'28px 28px 20px', width:'100%', maxWidth:480, boxShadow:'var(--shadow-lg)', maxHeight:'min(85dvh, 680px)', display:'flex', flexDirection:'column' }}>
+        <h3 style={{ margin:'0 0 6px', fontSize:16, fontWeight:700 }}>Edit {selectedItems.length} item{selectedItems.length !== 1 ? 's' : ''}</h3>
+        <p style={{ margin:'0 0 16px', fontSize:13, color:'var(--muted)' }}>
+          Tick a field to apply the same value to every selected item. Unticked fields are left untouched. Serials never change.
+        </p>
+        <div style={{ overflowY:'auto', minHeight:0, display:'flex', flexDirection:'column', gap:10 }}>
+          {BATCH_FIELDS.map(f => {
+            const on = enabled.has(f.key);
+            return (
+              <div key={f.key} style={{ display:'flex', alignItems:'center', gap:10 }}>
+                <label style={{ display:'flex', alignItems:'center', gap:8, width:120, flexShrink:0, cursor:'pointer', userSelect:'none' }}>
+                  <input type="checkbox" checked={on} onChange={() => toggleField(f.key)}
+                    style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
+                  <span style={{ fontSize:12.5, fontWeight:600, color: on ? 'var(--ink)' : 'var(--muted)' }}>{f.label}</span>
+                </label>
+                {f.options ? (
+                  <select disabled={!on} value={vals[f.key] ?? f.options[0]} onChange={e => setVal(f.key, e.target.value)}
+                    style={{ flex:1, padding:'8px 10px', borderRadius:8, border:'1px solid var(--line)', background: on ? 'var(--card)' : 'var(--mist)', fontSize:13, fontFamily:'Inter,sans-serif', color: on ? 'var(--ink)' : 'var(--muted)', textTransform: f.key === 'ownership_type' ? 'capitalize' : 'none' }}>
+                    {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                ) : (
+                  <input disabled={!on} value={vals[f.key] ?? ''} onChange={e => setVal(f.key, e.target.value)}
+                    placeholder={on ? `New ${f.label.toLowerCase()}…` : ''}
+                    style={{ flex:1, padding:'8px 10px', borderRadius:8, border:'1px solid var(--line)', background: on ? 'var(--card)' : 'var(--mist)', fontSize:13, fontFamily:'Inter,sans-serif' }} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {nameBlank && <p style={{ margin:'12px 0 0', fontSize:12, color:'hsl(var(--color-red))' }}>Name cannot be blank.</p>}
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', paddingTop:16, flexShrink:0 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={saving}>Cancel</button>
+          <button onClick={() => onSave(fields)} disabled={!canSave}
+            style={{ display:'inline-flex', alignItems:'center', gap:6, background:'var(--pine)', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor: canSave ? 'pointer' : 'default', fontFamily:'Inter,sans-serif', opacity: canSave ? 1 : 0.55 }}>
+            {saving ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <Pencil size={14} />}
+            Apply to {selectedItems.length}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Batch Photo Modal ─────────────────────────────────────────────────────────
 const PHOTO_TYPE_ORDER = ['Vehicles', 'Devices', 'Tools', 'Equipment', 'Keys', 'Other'];
 
@@ -3556,6 +3640,8 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
   const [sortCol,            setSortCol]            = useState('name');
   const [sortDir,            setSortDir]            = useState('asc');
   const [batchPhotoOpen,     setBatchPhotoOpen]     = useState(false);
+  const [batchEditOpen,      setBatchEditOpen]      = useState(false);
+  const [batchEditing,       setBatchEditing]       = useState(false);
   const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false);
   const [batchDeleting,      setBatchDeleting]      = useState(false);
   const [aiPhotoBusy,        setAiPhotoBusy]        = useState(false);
@@ -3608,6 +3694,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
 
   const sorted = useMemo(() => [...filtered].sort((a, b) => {
     let av, bv;
+    if (sortCol === 'serial')   { av = (a.serialNumber || '').toLowerCase();          bv = (b.serialNumber || '').toLowerCase(); }
     if (sortCol === 'name')     { av = a.name.toLowerCase();                          bv = b.name.toLowerCase(); }
     if (sortCol === 'type')     { av = TYPE_ORDER.indexOf(a.itemType);                bv = TYPE_ORDER.indexOf(b.itemType); }
     if (sortCol === 'location') { av = (a.location || '').toLowerCase();              bv = (b.location || '').toLowerCase(); }
@@ -3632,6 +3719,23 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
   function toggleSort(col) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortCol(col); setSortDir('asc'); }
+  }
+
+  async function executeBatchEdit(fields) {
+    setBatchEditing(true);
+    const ids = selItems.map(i => i.id);
+    try {
+      const res = await api.bulkUpdateItems(ids, fields);
+      await refreshItems();
+      setSelected(new Set());
+      setBatchEditOpen(false);
+      const n = res?.updated ?? ids.length;
+      toast?.(`Updated ${n} item${n !== 1 ? 's' : ''}.`);
+    } catch {
+      toast?.('Could not update the selected items. Please try again.', 'error');
+    } finally {
+      setBatchEditing(false);
+    }
   }
 
   async function executeBatchDelete() {
@@ -3713,6 +3817,13 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
               : <><Wand2 size={13} /> AI Photo Fill ({missingPhotos})</>}
           </button>
         )}
+        {/* Batch edit — change the same field(s) across the selection */}
+        {selected.size > 0 && (
+          <button onClick={() => setBatchEditOpen(true)}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, background:'var(--pine)', color:'#fff', border:'none', borderRadius:9, padding:'7px 14px', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+            <Pencil size={13} /> Edit {selected.size}
+          </button>
+        )}
         {/* Batch delete */}
         {canDelete && selected.size > 0 && (
           <button onClick={() => setBatchDeleteConfirm(true)}
@@ -3764,7 +3875,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
                   <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                    {[item.make, item.model, item.location].filter(Boolean).join(' · ') || '—'}
+                    {[item.serialNumber, item.make, item.model, item.location].filter(Boolean).join(' · ') || '—'}
                   </div>
                 </div>
                 <StatusBadge status={displayStatus(item)} />
@@ -3804,6 +3915,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
                     style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
                 </th>
                 <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em' }}>Photo</th>
+                <SortTh col="serial" label="Serial" />
                 <SortTh col="name" label="Name" />
                 <SortTh col="type" label="Type" />
                 <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em', whiteSpace:'nowrap' }}>Make</th>
@@ -3832,6 +3944,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
                       )
                     }
                   </td>
+                  <td style={{ padding:'10px 14px', fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace', fontSize:12, color:'var(--muted)', whiteSpace:'nowrap' }}>{item.serialNumber || '—'}</td>
                   <td style={{ padding:'10px 14px', fontWeight:600 }}>{item.name}</td>
                   <td style={{ padding:'10px 14px' }}><TypeBadge type={item.itemType} /></td>
                   <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.make || '—'}</td>
@@ -3879,6 +3992,12 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
       {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
       {batchPhotoOpen && (
         <BatchPhotoModal items={items} onClose={() => setBatchPhotoOpen(false)} onUpdate={refreshItems} toast={toast} />
+      )}
+      {batchEditOpen && (
+        <BatchEditModal
+          selectedItems={selItems}
+          onClose={() => setBatchEditOpen(false)}
+          onSave={executeBatchEdit} saving={batchEditing} />
       )}
       {batchDeleteConfirm && (
         <BatchDeleteConfirmModal
