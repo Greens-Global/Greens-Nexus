@@ -3,8 +3,8 @@ import { useMsal } from '@azure/msal-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import {
-  BookOpen, CheckSquare, FilePlus, Search, Clock, Sparkles, Play, BadgeCheck,
-  Users, X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, Loader, ChevronUp, ChevronDown,
+  BookOpen, CheckSquare, FilePlus, Search, Clock, Sparkles,
+  X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, Loader, ChevronUp, ChevronDown,
   Image as ImageIcon, Paperclip,
 } from 'lucide-react';
 
@@ -114,15 +114,6 @@ const blankDraft = (name, email) => ({
   require_ack: false, owner_name: name, owner_email: email, _raw: '',
 });
 
-// ── seeded LMS demo data (unchanged — made real in a later PR) ──────────────
-const INIT_COURSES = [
-  { id: 101, title: 'Onsite Safety & Hazard Compliance', category: 'OPS', duration: '2 hours', progress: 100, status: 'Completed' },
-  { id: 102, title: 'Sage Intacct Accounting Basics', category: 'Accounting', duration: '4 hours', progress: 40, status: 'Enrolled' },
-  { id: 103, title: 'GDPR & Corporate IT Security Training', category: 'IT', duration: '1 hour', progress: 0, status: 'Enrolled' },
-  { id: 104, title: 'Construction Blueprint Interpretation', category: 'Development', duration: '3 hours', progress: 100, status: 'Completed' },
-  { id: 105, title: 'HubSpot Lead Routing & Sales Operations', category: 'Marketing', duration: '1.5 hours', progress: 85, status: 'Enrolled' },
-];
-
 const fmtDate = (s) => (s ? new Date(s.length > 10 ? s : s + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—');
 
 export default function SOP({ activeSub, onSubChange }) {
@@ -165,10 +156,12 @@ export default function SOP({ activeSub, onSubChange }) {
   const [snapshots, setSnapshots] = useState([]);
   const [diff, setDiff] = useState(null); // { from, to } indices into snapshots
 
-  // LMS (unchanged)
-  const [courses, setCourses] = useState(INIT_COURSES);
-  const [showCourseModal, setShowCourseModal] = useState(false);
-  const [courseForm, setCourseForm] = useState({ title: '', category: 'OPS', duration: '' });
+  // LMS (Learn)
+  const [lmsCourses, setLmsCourses] = useState([]);
+  const [lmsMode, setLmsMode] = useState('list'); // list | player | editor
+  const [lmsCourse, setLmsCourse] = useState(null); // loaded course detail
+  const [player, setPlayer] = useState(null); // { idx, mode:'lesson'|'quiz'|'result', answers, lastScore, lastPassed, results }
+  const [courseDraft, setCourseDraft] = useState(null);
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -245,7 +238,7 @@ export default function SOP({ activeSub, onSubChange }) {
   };
   const backToList = () => { setMode('list'); setSelected(null); setDraft(null); };
 
-  const switchTab = (key) => { backToList(); onSubChange(key); };
+  const switchTab = (key) => { backToList(); setLmsMode('list'); setLmsCourse(null); setPlayer(null); setCourseDraft(null); onSubChange(key); };
 
   // ── editor body helpers ──
   const setBody = (patch) => setDraft(p => ({ ...p, body: { ...p.body, ...patch } }));
@@ -354,20 +347,62 @@ export default function SOP({ activeSub, onSubChange }) {
   };
   const openSourceById = (id) => { const d = docs.find(x => x.id === id); if (d) openDetail(d); };
 
-  // ── LMS (unchanged) ──
-  const completed = courses.filter(c => c.status === 'Completed').length;
-  const inProgress = courses.filter(c => c.status === 'Enrolled').length;
-  const studyLesson = (id) => setCourses(prev => prev.map(c => {
-    if (c.id !== id) return c;
-    const p = Math.min(c.progress + 20, 100);
-    return { ...c, progress: p, status: p >= 100 ? 'Completed' : 'Enrolled' };
-  }));
-  const submitCourse = (e) => {
-    e.preventDefault();
-    setCourses(prev => [...prev, { id: Math.floor(200 + Math.random() * 800), ...courseForm, progress: 0, status: 'Enrolled' }]);
-    setShowCourseModal(false);
-    setCourseForm({ title: '', category: 'OPS', duration: '' });
+  // ── LMS (Learn) ──
+  useEffect(() => { if (sub === 'lms' && lmsMode === 'list') api.getKbCourses().then(setLmsCourses).catch(() => {}); }, [sub, lmsMode]);
+
+  const coursePct = (c) => {
+    if (c.status_for_me === 'Completed') return 100;
+    const steps = (c.lesson_count || 0) + (c.question_count ? 1 : 0) || 1;
+    const done = (c.progress?.lessons_done?.length || 0) + (c.progress?.passed ? 1 : 0);
+    return Math.min(100, Math.round(done / steps * 100));
   };
+  const openCourse = async (id) => {
+    try { const c = await api.getKbCourse(id); setLmsCourse(c); setPlayer({ idx: 0, mode: 'lesson', answers: {}, lastScore: null, lastPassed: false, results: {} }); setLmsMode('player'); }
+    catch (e) { setErr(e.message || 'Failed to open course'); }
+  };
+  const reloadCourse = async () => { if (lmsCourse) { const c = await api.getKbCourse(lmsCourse.id); setLmsCourse(c); return c; } };
+  const markLessonDone = async () => {
+    const c = lmsCourse, lessons = c.lessons || [];
+    const l = lessons[player.idx];
+    try { await api.kbLessonDone(c.id, l._id); } catch (e) { /* non-fatal */ }
+    const updated = await reloadCourse();
+    if (player.idx < lessons.length - 1) setPlayer(p => ({ ...p, idx: p.idx + 1 }));
+    else if (c.quiz?.questions?.length) setPlayer(p => ({ ...p, mode: 'quiz' }));
+    else setPlayer(p => ({ ...p, mode: 'result', lastPassed: true, lastScore: 100 }));
+    return updated;
+  };
+  const submitQuiz = async () => {
+    const c = lmsCourse, qs = c.quiz?.questions || [];
+    if (qs.some(q => player.answers[q._id] == null)) { setErr('Answer all questions first.'); return; }
+    try {
+      const r = await api.kbSubmitQuiz(c.id, player.answers);
+      setPlayer(p => ({ ...p, mode: 'result', lastScore: r.score, lastPassed: r.passed, results: r.results }));
+      reloadCourse();
+    } catch (e) { setErr(e.message || 'Quiz submission failed'); }
+  };
+  const blankCourse = () => ({ id: null, title: '', description: '', departments: [], est_minutes: 15, lessons: [], quiz: { passPct: 80, questions: [] } });
+  const openCourseEditor = async (id) => {
+    if (!id) { setCourseDraft(blankCourse()); setLmsMode('editor'); return; }
+    try { const c = await api.getKbCourse(id); setCourseDraft({ id: c.id, title: c.title, description: c.description, departments: [...(c.departments || [])], est_minutes: c.est_minutes, lessons: c.lessons || [], quiz: c.quiz?.questions ? c.quiz : { passPct: 80, questions: [] } }); setLmsMode('editor'); }
+    catch (e) { setErr(e.message || 'Failed to open course'); }
+  };
+  const saveCourse = async (publish) => {
+    const d = courseDraft;
+    if (!d.title.trim()) { setErr('Add a course title.'); return; }
+    const payload = { title: d.title, description: d.description, departments: d.departments, est_minutes: parseInt(d.est_minutes, 10) || 15, lessons: d.lessons, quiz: d.quiz, publish };
+    try {
+      if (d.id) await api.updateKbCourse(d.id, payload); else await api.createKbCourse(payload);
+      setCourseDraft(null); setLmsMode('list'); api.getKbCourses().then(setLmsCourses).catch(() => {});
+    } catch (e) { setErr(e.message || 'Save failed'); }
+  };
+  // course-draft mutation helpers
+  const cdSet = (patch) => setCourseDraft(p => ({ ...p, ...patch }));
+  const cdAddLesson = (type) => setCourseDraft(p => ({ ...p, lessons: [...p.lessons, { _id: rid(), type, title: '', body: '', docId: '' }] }));
+  const cdUpdLesson = (id, patch) => setCourseDraft(p => ({ ...p, lessons: p.lessons.map(l => l._id === id ? { ...l, ...patch } : l) }));
+  const cdDelLesson = (id) => setCourseDraft(p => ({ ...p, lessons: p.lessons.filter(l => l._id !== id) }));
+  const cdAddQ = () => setCourseDraft(p => ({ ...p, quiz: { ...p.quiz, questions: [...p.quiz.questions, { _id: rid(), q: '', options: ['', '', '', ''], answer: 0 }] } }));
+  const cdUpdQ = (id, patch) => setCourseDraft(p => ({ ...p, quiz: { ...p.quiz, questions: p.quiz.questions.map(q => q._id === id ? { ...q, ...patch } : q) } }));
+  const cdDelQ = (id) => setCourseDraft(p => ({ ...p, quiz: { ...p.quiz, questions: p.quiz.questions.filter(q => q._id !== id) } }));
 
   const errBanner = err && (
     <div style={{ backgroundColor: 'hsla(0,84%,60%,0.1)', border: '1px solid hsla(0,84%,60%,0.3)', color: 'hsl(0,70%,42%)', padding: '10px 14px', borderRadius: 8, marginBottom: 16, fontSize: '0.85rem' }}>{err}</div>
@@ -1134,76 +1169,174 @@ export default function SOP({ activeSub, onSubChange }) {
         );
       })()}
 
-      {/* LMS — unchanged demo (made real in a later PR) */}
-      {sub === 'lms' && (
-        <>
-          <div className="view-header" style={{ marginBottom: 24 }}>
-            <div className="view-title-group"><h2>Learning Management System (LMS)</h2><p>Assign and monitor professional construction compliance courses and training</p></div>
-            <button className="primary-btn" onClick={() => setShowCourseModal(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>+ Register Course</button>
-          </div>
-          <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
-            {[
-              { label: 'Total Courses', value: courses.length, helper: 'Compliance courses cataloged', color: 'card-blue', Icon: BookOpen },
-              { label: 'Completed Training', value: completed, helper: 'Completed credentials issued', color: 'card-green', Icon: BadgeCheck },
-              { label: 'Ongoing Training', value: inProgress, helper: 'Enrolled course paths in progress', color: 'card-blue', Icon: Users },
-            ].map(({ label, value, helper, color, Icon }) => (
-              <div key={label} className={`kpi-card ${color}`} style={{ cursor: 'default' }}>
-                <div className="kpi-card-header"><span className="kpi-title">{label}</span><div className="kpi-icon-container"><Icon size={20} /></div></div>
-                <div className="kpi-stat" style={{ fontSize: '2rem' }}>{value}</div>
-                <div className="kpi-helper">{helper}</div>
+      {/* Learn (LMS) — list */}
+      {sub === 'lms' && lmsMode === 'list' && (() => {
+        const published = lmsCourses.filter(c => c.status === 'published');
+        const statusChip = (s) => { const m = s === 'Completed' ? STATUS_META.approved : s === 'In progress' ? STATUS_META.in_review : STATUS_META.draft; return <span style={{ backgroundColor: m.bg, color: m.fg, fontSize: '0.72rem', fontWeight: 700, padding: '3px 10px', borderRadius: 999 }}>{s}</span>; };
+        return (
+          <>
+            <div className="view-header" style={{ marginBottom: 16 }}>
+              <div className="view-title-group"><h2>Learn</h2><p>Training built from your SOPs and guides — work through the lessons, pass the quiz, and your completion is recorded.</p></div>
+              {isManager && <button className="primary-btn" onClick={() => openCourseEditor(null)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={15} /> New course</button>}
+            </div>
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, margin: '6px 2px 12px' }}>My learning</div>
+            {published.length === 0
+              ? <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px 14px', fontSize: '0.83rem', color: 'var(--text-secondary)' }}>No courses published yet{isManager ? ' — create one with “New course”.' : '.'}</div>
+              : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
+                  {published.map(c => { const st = c.status_for_me; const pct = coursePct(c); return (
+                    <div key={c.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>{statusChip(st)}<span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{c.est_minutes} min</span></div>
+                      <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text-primary)', lineHeight: 1.3 }}>{c.title}</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{c.description}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{c.lesson_count} lesson{c.lesson_count === 1 ? '' : 's'}{c.question_count ? ` · ${c.question_count}-question quiz` : ''}</div>
+                      <div style={{ height: 8, borderRadius: 999, background: 'var(--bg-secondary)', overflow: 'hidden', margin: '4px 0' }}><div style={{ width: `${pct}%`, height: '100%', background: 'hsl(145,63%,42%)' }} /></div>
+                      <button className={st === 'Completed' ? 'secondary-btn' : 'primary-btn'} onClick={() => openCourse(c.id)} style={{ height: 34, fontSize: '0.82rem' }}>{st === 'Completed' ? 'Review' : st === 'Not started' ? 'Start' : 'Continue'}</button>
+                    </div>
+                  ); })}
+                </div>}
+            {isManager && (<>
+              <div style={{ fontSize: '0.85rem', fontWeight: 700, margin: '24px 2px 10px' }}>Course catalog</div>
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden', background: 'var(--bg-card)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}><tbody>
+                  {lmsCourses.length === 0 ? <tr><td style={{ padding: 16, color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No courses yet.</td></tr> : lmsCourses.map(c => (
+                    <tr key={c.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                      <td style={{ padding: '11px 14px' }}><div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{c.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{c.course_code} · {c.lesson_count} lessons</div></td>
+                      <td style={{ padding: '11px 14px' }}><span style={{ fontSize: '0.7rem', fontWeight: 700, color: c.status === 'published' ? 'hsl(145,55%,30%)' : 'var(--text-secondary)', background: c.status === 'published' ? 'hsla(145,63%,42%,0.12)' : 'var(--bg-secondary)', borderRadius: 999, padding: '3px 10px' }}>{c.status}</span></td>
+                      <td style={{ padding: '11px 14px', textAlign: 'right' }}><button className="secondary-btn" onClick={() => openCourse(c.id)} style={{ height: 30, fontSize: '0.78rem', marginRight: 6 }}>Preview</button><button className="secondary-btn" onClick={() => openCourseEditor(c.id)} style={{ height: 30, fontSize: '0.78rem' }}>Edit</button></td>
+                    </tr>
+                  ))}
+                </tbody></table>
+              </div>
+            </>)}
+          </>
+        );
+      })()}
+
+      {/* Learn — course player */}
+      {sub === 'lms' && lmsMode === 'player' && lmsCourse && (() => {
+        const c = lmsCourse, lessons = c.lessons || [], quiz = c.quiz || {}, hasQuiz = (quiz.questions || []).length > 0, prog = c.progress || { lessons_done: [] };
+        const pct = c.status_for_me === 'Completed' ? 100 : Math.min(100, Math.round(((prog.lessons_done?.length || 0) + (prog.passed ? 1 : 0)) / ((lessons.length + (hasQuiz ? 1 : 0)) || 1) * 100));
+        const navItem = (label, done, on, onClick) => <button key={label} onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '9px 11px', borderRadius: 9, border: '1px solid', borderColor: on ? 'var(--border-color)' : 'transparent', background: on ? 'var(--bg-card)' : 'transparent', color: on ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: on ? 600 : 400, fontSize: '0.83rem', cursor: 'pointer' }}><span style={{ flex: '0 0 auto', width: 22, height: 22, borderRadius: '50%', background: done ? 'hsl(145,63%,42%)' : 'var(--bg-secondary)', color: done ? '#fff' : 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.66rem', fontWeight: 700 }}>{done ? '✓' : label[0]}</span><span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span></button>;
+        let main = null;
+        if (player.mode === 'lesson') {
+          const l = lessons[player.idx] || lessons[0]; const done = (prog.lessons_done || []).includes(l?._id);
+          const sop = l?.type === 'sop' ? docs.find(x => x.id === l.docId) : null;
+          main = (
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 20 }}>
+              <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>Lesson {player.idx + 1} of {lessons.length}</div>
+              <h2 style={{ fontSize: '1.15rem', margin: '4px 0 12px', fontWeight: 700 }}>{l?.title}</h2>
+              {l?.type === 'sop'
+                ? (sop ? <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 14, background: 'var(--bg-secondary)' }}><div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontFamily: 'monospace', marginBottom: 8 }}>Linked SOP · {sop.doc_code} · v{sop.version}</div>{sop.body?.purpose && <p style={{ margin: '0 0 10px', color: 'var(--text-primary)', fontSize: '0.88rem', lineHeight: 1.6 }}>{sop.body.purpose}</p>}{sop.body?.procedure?.length > 0 && <ol style={{ margin: '0 0 10px', paddingLeft: 18, color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.6 }}>{sop.body.procedure.map((s, j) => <li key={j}>{s.text}</li>)}</ol>}<button className="secondary-btn" onClick={() => openDetail(sop)} style={{ height: 30, fontSize: '0.78rem' }}>Open full SOP</button></div> : <div style={{ fontSize: '0.83rem', color: 'var(--text-muted)' }}>Linked SOP not found.</div>)
+                : <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.65 }}>{(l?.body || '').split('\n').map(x => x.trim()).filter(Boolean).map((x, j) => <p key={j} style={{ margin: '0 0 10px' }}>{x}</p>)}</div>}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--border-color)' }}>
+                {player.idx > 0 ? <button className="secondary-btn" onClick={() => setPlayer(p => ({ ...p, idx: p.idx - 1 }))} style={{ height: 34 }}>Previous</button> : <span />}
+                <button className="primary-btn" onClick={markLessonDone} style={{ height: 34 }}>{done ? (player.idx < lessons.length - 1 ? 'Next lesson' : (hasQuiz ? 'Go to quiz' : 'Finish course')) : 'Mark complete & continue'}</button>
+              </div>
+            </div>
+          );
+        } else if (player.mode === 'quiz') {
+          main = (
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 20 }}>
+              <h2 style={{ fontSize: '1.15rem', margin: '0 0 4px', fontWeight: 700 }}>Quiz</h2>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', margin: '0 0 16px' }}>Answer all questions. Pass mark: {quiz.passPct}%.</p>
+              {(quiz.questions || []).map((q, qi) => (
+                <div key={q._id} style={{ padding: '12px 0', borderBottom: '1px solid var(--bg-secondary)' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.88rem', marginBottom: 8 }}>{qi + 1}. {q.q}</div>
+                  {q.options.map((o, oi) => o.trim() && (
+                    <label key={oi} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 11px', border: '1px solid', borderColor: player.answers[q._id] === oi ? 'var(--text-primary)' : 'var(--border-color)', borderRadius: 9, marginBottom: 6, fontSize: '0.85rem', cursor: 'pointer', background: player.answers[q._id] === oi ? 'var(--bg-secondary)' : 'transparent' }}>
+                      <input type="radio" name={`q_${q._id}`} checked={player.answers[q._id] === oi} onChange={() => setPlayer(p => ({ ...p, answers: { ...p.answers, [q._id]: oi } }))} /> {o}
+                    </label>
+                  ))}
+                </div>
+              ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}><button className="secondary-btn" onClick={() => setPlayer(p => ({ ...p, mode: 'lesson' }))} style={{ height: 34 }}>Back to lessons</button><button className="primary-btn" onClick={submitQuiz} style={{ height: 34 }}>Submit quiz</button></div>
+            </div>
+          );
+        } else {
+          main = (
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: '34px 20px', textAlign: 'center' }}>
+              <div style={{ width: 54, height: 54, borderRadius: '50%', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: player.lastPassed ? 'hsla(145,63%,42%,0.14)' : 'hsla(0,84%,60%,0.12)', color: player.lastPassed ? 'hsl(145,55%,30%)' : 'hsl(0,70%,45%)' }}>{player.lastPassed ? <CheckSquare size={26} /> : <X size={26} />}</div>
+              <h2 style={{ fontSize: '1.2rem', margin: '14px 0 6px' }}>{player.lastPassed ? 'Course completed' : 'Not quite — try again'}</h2>
+              <p style={{ color: 'var(--text-secondary)', margin: 0 }}>You scored <b>{player.lastScore}%</b>{hasQuiz ? ` (pass mark ${quiz.passPct}%)` : ''}.</p>
+              <div style={{ marginTop: 16, display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+                {player.lastPassed ? <button className="primary-btn" onClick={() => { setLmsMode('list'); api.getKbCourses().then(setLmsCourses).catch(() => {}); }} style={{ height: 34 }}>Back to Learn</button> : <><button className="primary-btn" onClick={() => setPlayer(p => ({ ...p, mode: 'quiz', answers: {} }))} style={{ height: 34 }}>Retake quiz</button><button className="secondary-btn" onClick={() => setPlayer(p => ({ ...p, mode: 'lesson' }))} style={{ height: 34 }}>Review lessons</button></>}
+              </div>
+            </div>
+          );
+        }
+        return (
+          <>
+            <button className="secondary-btn" onClick={() => { setLmsMode('list'); api.getKbCourses().then(setLmsCourses).catch(() => {}); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, height: 34 }}><ArrowLeft size={15} /> Back to Learn</button>
+            <div style={{ marginBottom: 6 }}><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{c.course_code} · {lessons.length} lessons{hasQuiz ? ' · quiz' : ''}</div><h1 style={{ fontSize: '1.3rem', margin: '4px 0 0', fontWeight: 700 }}>{c.title}</h1></div>
+            <div style={{ height: 8, borderRadius: 999, background: 'var(--bg-secondary)', overflow: 'hidden', margin: '12px 0 18px' }}><div style={{ width: `${pct}%`, height: '100%', background: 'hsl(145,63%,42%)' }} /></div>
+            <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20, alignItems: 'start' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {lessons.map((l, i) => navItem(l.title, (prog.lessons_done || []).includes(l._id), player.mode === 'lesson' && player.idx === i, () => setPlayer(p => ({ ...p, mode: 'lesson', idx: i }))))}
+                {hasQuiz && navItem(`Quiz · ${quiz.questions.length} questions`, prog.passed, player.mode !== 'lesson', () => setPlayer(p => ({ ...p, mode: 'quiz' })))}
+              </div>
+              <div style={{ minWidth: 0 }}>{main}</div>
+            </div>
+          </>
+        );
+      })()}
+
+      {/* Learn — course authoring */}
+      {sub === 'lms' && lmsMode === 'editor' && courseDraft && (() => {
+        const d = courseDraft; const sopOpts = docs.filter(x => x.doc_type !== 'Manual').sort((a, b) => (a.doc_code || '').localeCompare(b.doc_code || ''));
+        return (
+          <div style={{ maxWidth: 820 }}>
+            <button className="secondary-btn" onClick={() => { setCourseDraft(null); setLmsMode('list'); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, height: 34 }}><ArrowLeft size={15} /> {d.id ? 'Back' : 'Cancel'}</button>
+            <h2 style={{ marginBottom: 4 }}>{d.id ? 'Edit course' : 'New course'}</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 18 }}>Assemble lessons from readings or existing SOPs, add an optional quiz, then publish.</p>
+            {errBanner}
+            <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px,1fr))', marginBottom: 14 }}>
+              <div className="form-group"><label>Title</label><input className="form-input" value={d.title} placeholder="e.g. New Hire Orientation" onChange={e => cdSet({ title: e.target.value })} /></div>
+              <div className="form-group"><label>Estimated minutes</label><input className="form-input" value={d.est_minutes} onChange={e => cdSet({ est_minutes: e.target.value })} /></div>
+            </div>
+            <div className="form-group" style={{ marginBottom: 14 }}><label>Description</label><textarea className="form-input" value={d.description} placeholder="What this course covers…" onChange={e => cdSet({ description: e.target.value })} style={{ minHeight: 60, resize: 'vertical' }} /></div>
+            <div className="form-group" style={{ marginBottom: 18 }}><label>Assign to departments</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>{DEPARTMENTS.map(dep => { const on = d.departments.includes(dep); return <button key={dep} onClick={() => cdSet({ departments: on ? d.departments.filter(x => x !== dep) : [...d.departments, dep] })} style={{ fontSize: '0.8rem', padding: '6px 12px', borderRadius: 999, border: '1px solid', borderColor: on ? 'var(--text-primary)' : 'var(--border-color)', background: on ? 'var(--text-primary)' : 'var(--bg-card)', color: on ? 'var(--bg-card)' : 'var(--text-secondary)', cursor: 'pointer' }}>{dep}</button>; })}</div>
+            </div>
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, margin: '6px 0 10px' }}>Lessons</div>
+            {d.lessons.map((l, i) => (
+              <div key={l._id} style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 12, marginBottom: 10, background: 'var(--bg-card)' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ fontWeight: 700, fontSize: '0.8rem', color: 'var(--text-muted)' }}>{i + 1}</span>
+                  <select className="form-select" value={l.type} onChange={e => cdUpdLesson(l._id, { type: e.target.value })} style={{ width: 130, flex: '0 0 auto' }}><option value="text">Reading</option><option value="sop">Linked SOP</option></select>
+                  <input className="form-input" value={l.title} placeholder="Lesson title" onChange={e => cdUpdLesson(l._id, { title: e.target.value })} style={{ flex: 1 }} />
+                  <button className="secondary-btn" onClick={() => cdDelLesson(l._id)} style={{ width: 36, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={15} /></button>
+                </div>
+                {l.type === 'sop'
+                  ? <select className="form-select" value={l.docId || ''} onChange={e => { const o = sopOpts.find(x => x.id === e.target.value); cdUpdLesson(l._id, { docId: e.target.value, title: l.title || (o ? o.title : '') }); }} style={{ width: '100%' }}><option value="">— select an SOP —</option>{sopOpts.map(o => <option key={o.id} value={o.id}>{o.doc_code} · {o.title}</option>)}</select>
+                  : <textarea className="form-input" value={l.body} placeholder="Lesson text… (new lines become paragraphs)" onChange={e => cdUpdLesson(l._id, { body: e.target.value })} style={{ width: '100%', minHeight: 60, resize: 'vertical', fontSize: '0.85rem' }} />}
               </div>
             ))}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}><button className="secondary-btn" onClick={() => cdAddLesson('text')} style={{ height: 32, fontSize: '0.8rem' }}><Plus size={13} /> Add reading</button><button className="secondary-btn" onClick={() => cdAddLesson('sop')} style={{ height: 32, fontSize: '0.8rem' }}><Plus size={13} /> Add SOP lesson</button></div>
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, margin: '6px 0 10px' }}>Quiz <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: '0.78rem' }}>· optional</span></div>
+            <div className="form-group" style={{ maxWidth: 200, marginBottom: 12 }}><label>Pass mark (%)</label><input className="form-input" value={d.quiz.passPct} onChange={e => cdSet({ quiz: { ...d.quiz, passPct: e.target.value } })} /></div>
+            {d.quiz.questions.map((q, qi) => (
+              <div key={q._id} style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 12, marginBottom: 10, background: 'var(--bg-card)' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}><span style={{ fontWeight: 700, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Q{qi + 1}</span><input className="form-input" value={q.q} placeholder="Question text" onChange={e => cdUpdQ(q._id, { q: e.target.value })} style={{ flex: 1 }} /><button className="secondary-btn" onClick={() => cdDelQ(q._id)} style={{ width: 36, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={15} /></button></div>
+                {q.options.map((o, oi) => (
+                  <label key={oi} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <input type="radio" name={`ans_${q._id}`} checked={q.answer === oi} onChange={() => cdUpdQ(q._id, { answer: oi })} title="Mark correct" />
+                    <input className="form-input" value={o} placeholder={`Option ${oi + 1}`} onChange={e => cdUpdQ(q._id, { options: q.options.map((x, j) => j === oi ? e.target.value : x) })} style={{ flex: 1 }} />
+                  </label>
+                ))}
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>Select the radio next to the correct answer.</div>
+              </div>
+            ))}
+            <button className="secondary-btn" onClick={cdAddQ} style={{ height: 32, fontSize: '0.8rem', marginBottom: 18 }}><Plus size={13} /> Add question</button>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', paddingTop: 8, borderTop: '1px solid var(--border-color)' }}>
+              <button className="secondary-btn" onClick={() => { setCourseDraft(null); setLmsMode('list'); }}>Cancel</button>
+              <button className="secondary-btn" onClick={() => saveCourse(false)}>Save draft</button>
+              <button className="primary-btn" onClick={() => saveCourse(true)}>Publish</button>
+            </div>
           </div>
-          <div style={{ marginBottom: 16 }}>
-            <h3 style={{ fontSize: '1.1rem', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 4 }}>Greens Nexus Course Catalog</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Compliance training curricula</p>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-            {courses.map(course => {
-              const isDone = course.status === 'Completed';
-              return (
-                <div key={course.id} style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 20, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 16 }}>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                      <span style={{ backgroundColor: 'var(--border-color)', color: 'var(--text-secondary)', fontSize: '0.7rem', borderRadius: 4, padding: '1px 6px', fontWeight: 600 }}>{course.category}</span>
-                      <span className={`status-badge ${isDone ? 'status-approved' : 'status-pending'}`} style={{ fontSize: '0.7rem', padding: '1px 6px' }}>{course.status}</span>
-                    </div>
-                    <strong style={{ fontSize: '0.95rem', fontFamily: "'Plus Jakarta Sans', sans-serif", display: 'block', marginBottom: 4, color: 'var(--text-primary)', lineHeight: 1.3 }}>{course.title}</strong>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 4 }}><Clock size={12} /> {course.duration} training</span>
-                  </div>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: 4 }}><span style={{ color: 'var(--text-secondary)' }}>Syllabus Progress</span><strong style={{ fontFamily: 'monospace' }}>{course.progress}%</strong></div>
-                    <div style={{ width: '100%', height: 6, backgroundColor: 'var(--border-color)', borderRadius: 3, overflow: 'hidden' }}><div style={{ width: `${course.progress}%`, height: '100%', backgroundColor: isDone ? 'hsl(var(--color-green))' : 'hsl(var(--color-blue))', borderRadius: 3, transition: 'width 0.3s ease' }} /></div>
-                  </div>
-                  <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
-                    {isDone
-                      ? <button className="secondary-btn" disabled style={{ height: 32, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 4 }}><CheckSquare size={12} /> Course Complete</button>
-                      : <button className="primary-btn" onClick={() => studyLesson(course.id)} style={{ height: 32, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 4, padding: '0 12px' }}><Play size={12} /> Study Lesson</button>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
+        );
+      })()}
 
       {reviewModal()}
-
-      {showCourseModal && (
-        <div className="modal-overlay" style={{ display: 'flex' }}>
-          <div className="modal-content" style={{ maxWidth: 500 }}>
-            <div className="modal-header"><h3>Register New Compliance Course</h3><button className="close-btn" onClick={() => setShowCourseModal(false)}><X size={18} /></button></div>
-            <form onSubmit={submitCourse}>
-              <div className="form-grid" style={{ gridTemplateColumns: '1fr' }}>
-                <div className="form-group"><label>Course Title</label><input type="text" className="form-input" required placeholder="e.g. Forklift Certification Training" value={courseForm.title} onChange={e => setCourseForm(p => ({ ...p, title: e.target.value }))} /></div>
-                <div className="form-group"><label>Department Category</label><select className="form-select" value={courseForm.category} onChange={e => setCourseForm(p => ({ ...p, category: e.target.value }))}>{['OPS', 'Accounting', 'IT', 'Development', 'Marketing'].map(c => <option key={c}>{c}</option>)}</select></div>
-                <div className="form-group"><label>Estimated Duration</label><input type="text" className="form-input" required placeholder="e.g. 2 hours" value={courseForm.duration} onChange={e => setCourseForm(p => ({ ...p, duration: e.target.value }))} /></div>
-              </div>
-              <div className="modal-footer"><button type="button" className="secondary-btn" onClick={() => setShowCourseModal(false)}>Cancel</button><button type="submit" className="primary-btn">Create Course</button></div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

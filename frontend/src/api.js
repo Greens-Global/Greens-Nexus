@@ -193,6 +193,13 @@ export const api = {
   getKbComments:    (id)        => req(`/knowledge-base/documents/${id}/comments`),
   addKbComment:     (id, text)  => req(`/knowledge-base/documents/${id}/comments`, { method: "POST", body: JSON.stringify({ text }) }),
   getKbSnapshots:   (id)        => req(`/knowledge-base/documents/${id}/snapshots`),
+  // Learn (LMS)
+  getKbCourses:    ()          => req("/knowledge-base/courses"),
+  getKbCourse:     (id)        => req(`/knowledge-base/courses/${id}`),
+  createKbCourse:  (data)      => req("/knowledge-base/courses", { method: "POST", body: JSON.stringify(data) }),
+  updateKbCourse:  (id, data)  => req(`/knowledge-base/courses/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  kbLessonDone:    (id, lesson_id) => req(`/knowledge-base/courses/${id}/lesson-done`, { method: "POST", body: JSON.stringify({ lesson_id }) }),
+  kbSubmitQuiz:    (id, answers)   => req(`/knowledge-base/courses/${id}/submit-quiz`, { method: "POST", body: JSON.stringify({ answers }) }),
 
   // Assets
   getAssets: () => req("/assets"),

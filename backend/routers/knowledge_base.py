@@ -579,3 +579,227 @@ def ai_format(payload: AiFormatIn, user: dict = Depends(get_current_user)):
     except Exception as e:  # network, key, model, or parse failure — degrade gracefully
         print(f"[kb ai-format] falling back to heuristic: {e}")
         return {"source": "heuristic", "sop": _heuristic_format(payload.content, payload.title)}
+
+
+# ---- Learn (LMS) ----------------------------------------------------------
+class CourseIn(BaseModel):
+    title: str = ""
+    description: str = ""
+    departments: list[str] = []
+    est_minutes: int = 15
+    lessons: list[dict] = []
+    quiz: dict = {}
+    publish: bool | None = None
+
+
+class LessonDoneIn(BaseModel):
+    lesson_id: str = ""
+
+
+class QuizSubmitIn(BaseModel):
+    answers: dict = {}
+
+
+def _course_or_404(cid: str, db: Session) -> models.KbCourse:
+    c = db.query(models.KbCourse).filter(models.KbCourse.id == cid).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Course not found")
+    return c
+
+
+def _jload(s, default):
+    try:
+        v = json.loads(s or "")
+        return v if v else default
+    except (ValueError, TypeError):
+        return default
+
+
+def _clean_lessons(lessons: list) -> list:
+    out = []
+    for l in lessons or []:
+        if not isinstance(l, dict):
+            continue
+        out.append({"_id": l.get("_id") or ("l_" + uuid.uuid4().hex[:8]), "type": l.get("type", "text"),
+                    "title": (l.get("title") or "").strip(), "body": l.get("body", ""), "docId": l.get("docId", "")})
+    return out
+
+
+def _clean_quiz(quiz: dict) -> dict:
+    quiz = quiz or {}
+    qs = []
+    for q in quiz.get("questions", []):
+        if not isinstance(q, dict):
+            continue
+        opts = [str(o) for o in (q.get("options") or [])]
+        qs.append({"_id": q.get("_id") or ("q_" + uuid.uuid4().hex[:8]), "q": (q.get("q") or "").strip(),
+                   "options": opts, "answer": int(q.get("answer", 0)) if isinstance(q.get("answer"), (int, float)) else 0})
+    try:
+        pp = max(1, min(100, int(quiz.get("passPct", 80))))
+    except (ValueError, TypeError):
+        pp = 80
+    return {"passPct": pp, "questions": qs}
+
+
+def _next_course_code(db: Session) -> str:
+    nums = []
+    for (code,) in db.query(models.KbCourse.course_code).all():
+        if code and code.startswith("LRN-"):
+            try:
+                nums.append(int(code.split("-")[1]))
+            except (ValueError, IndexError):
+                pass
+    return f"LRN-{(max(nums) + 1 if nums else 1):03d}"
+
+
+def _progress_row(cid: str, email: str, db: Session) -> models.KbCourseProgress:
+    p = db.query(models.KbCourseProgress).filter(
+        models.KbCourseProgress.course_id == cid, models.KbCourseProgress.user_email == email).first()
+    if not p:
+        p = models.KbCourseProgress(id="prg_" + uuid.uuid4().hex[:12], course_id=cid, user_email=email,
+                                    lessons_done="[]", quiz_score=None, passed=False, started_at=_today(), completed_at="")
+        db.add(p)
+    return p
+
+
+def _progress_dict(p: models.KbCourseProgress | None) -> dict:
+    if not p:
+        return {"lessons_done": [], "quiz_score": None, "passed": False, "started_at": "", "completed_at": ""}
+    return {"lessons_done": _jload(p.lessons_done, []), "quiz_score": p.quiz_score, "passed": bool(p.passed),
+            "started_at": p.started_at or "", "completed_at": p.completed_at or ""}
+
+
+def _is_complete(c: models.KbCourse, prog: dict) -> bool:
+    if prog["completed_at"]:
+        return True
+    lessons = _jload(c.lessons, [])
+    quiz = _jload(c.quiz, {})
+    lessons_all = all(l["_id"] in prog["lessons_done"] for l in lessons) if lessons else True
+    return lessons_all and (not quiz.get("questions") or prog["passed"])
+
+
+def _recompute_complete(c: models.KbCourse, p: models.KbCourseProgress) -> None:
+    if _is_complete(c, _progress_dict(p)) and not p.completed_at:
+        p.completed_at = _today()
+
+
+def _status_for(c: models.KbCourse, prog: dict) -> str:
+    if _is_complete(c, prog):
+        return "Completed"
+    if prog["lessons_done"] or prog["started_at"]:
+        return "In progress"
+    return "Not started"
+
+
+def _serialize_course(c: models.KbCourse, prog: dict, include_answers: bool, full: bool) -> dict:
+    lessons = _jload(c.lessons, [])
+    quiz = _jload(c.quiz, {})
+    out = {
+        "id": c.id, "course_code": c.course_code, "title": c.title, "description": c.description,
+        "departments": [x for x in (c.departments or "").split(",") if x], "status": c.status,
+        "owner_name": c.owner_name, "est_minutes": c.est_minutes,
+        "lesson_count": len(lessons), "question_count": len(quiz.get("questions", [])),
+        "status_for_me": _status_for(c, prog), "progress": prog,
+    }
+    if full:
+        if not include_answers:
+            quiz = {"passPct": quiz.get("passPct", 80),
+                    "questions": [{"_id": q["_id"], "q": q["q"], "options": q["options"]} for q in quiz.get("questions", [])]}
+        out["lessons"] = lessons
+        out["quiz"] = quiz
+    return out
+
+
+@router.get("/courses")
+def list_courses(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    mgr = user["level"] >= 3
+    out = []
+    for c in db.query(models.KbCourse).all():
+        if not mgr and c.status != "published":
+            continue
+        prog = _progress_dict(db.query(models.KbCourseProgress).filter(
+            models.KbCourseProgress.course_id == c.id, models.KbCourseProgress.user_email == user["email"]).first())
+        out.append(_serialize_course(c, prog, include_answers=False, full=False))
+    out.sort(key=lambda x: x["title"].lower())
+    return out
+
+
+@router.get("/courses/{cid}")
+def get_course(cid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    c = _course_or_404(cid, db)
+    prog = _progress_dict(db.query(models.KbCourseProgress).filter(
+        models.KbCourseProgress.course_id == c.id, models.KbCourseProgress.user_email == user["email"]).first())
+    return _serialize_course(c, prog, include_answers=(user["level"] >= 3), full=True)
+
+
+@router.post("/courses", status_code=201)
+def create_course(payload: CourseIn, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    if not payload.title.strip():
+        raise HTTPException(status_code=400, detail="Course title is required")
+    now = _now()
+    c = models.KbCourse(
+        id="crs_" + uuid.uuid4().hex[:12], course_code=_next_course_code(db), title=payload.title.strip(),
+        description=payload.description, departments=",".join(payload.departments),
+        status="published" if payload.publish else "draft", owner_email=user["email"],
+        owner_name=user.get("name") or user["email"], est_minutes=payload.est_minutes or 15,
+        lessons=json.dumps(_clean_lessons(payload.lessons)), quiz=json.dumps(_clean_quiz(payload.quiz)),
+        created_at=now, updated_at=now,
+    )
+    db.add(c)
+    db.commit()
+    db.refresh(c)
+    return _serialize_course(c, _progress_dict(None), include_answers=True, full=True)
+
+
+@router.patch("/courses/{cid}")
+def update_course(cid: str, payload: CourseIn, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    c = _course_or_404(cid, db)
+    if payload.title.strip():
+        c.title = payload.title.strip()
+    c.description = payload.description
+    c.departments = ",".join(payload.departments)
+    c.est_minutes = payload.est_minutes or 15
+    c.lessons = json.dumps(_clean_lessons(payload.lessons))
+    c.quiz = json.dumps(_clean_quiz(payload.quiz))
+    if payload.publish is not None:
+        c.status = "published" if payload.publish else "draft"
+    c.updated_at = _now()
+    db.commit()
+    db.refresh(c)
+    return _serialize_course(c, _progress_dict(None), include_answers=True, full=True)
+
+
+@router.post("/courses/{cid}/lesson-done")
+def lesson_done(cid: str, payload: LessonDoneIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    c = _course_or_404(cid, db)
+    p = _progress_row(c.id, user["email"], db)
+    ld = _jload(p.lessons_done, [])
+    if payload.lesson_id and payload.lesson_id not in ld:
+        ld.append(payload.lesson_id)
+    p.lessons_done = json.dumps(ld)
+    _recompute_complete(c, p)
+    db.commit()
+    return _progress_dict(p)
+
+
+@router.post("/courses/{cid}/submit-quiz")
+def submit_quiz(cid: str, payload: QuizSubmitIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    c = _course_or_404(cid, db)
+    quiz = _jload(c.quiz, {})
+    questions = quiz.get("questions", [])
+    if not questions:
+        raise HTTPException(status_code=400, detail="This course has no quiz")
+    correct = sum(1 for q in questions if payload.answers.get(q["_id"]) == q["answer"])
+    score = round(correct / len(questions) * 100)
+    passed = score >= quiz.get("passPct", 80)
+    p = _progress_row(c.id, user["email"], db)
+    p.quiz_score = score
+    p.passed = passed
+    if passed:
+        p.lessons_done = json.dumps([l["_id"] for l in _jload(c.lessons, [])])
+        if not p.completed_at:
+            p.completed_at = _today()
+    db.commit()
+    return {"score": score, "passed": passed, "pass_pct": quiz.get("passPct", 80),
+            "results": {q["_id"]: (payload.answers.get(q["_id"]) == q["answer"]) for q in questions},
+            "progress": _progress_dict(p)}

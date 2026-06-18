@@ -629,3 +629,36 @@ class KbSnapshot(Base):
     title       = Column(String, default="")
     departments = Column(String, default="")
     body        = Column(String, default="{}")
+
+
+class KbCourse(Base):
+    """A Learn (LMS) course: ordered lessons (reading or linked SOP) + optional
+    quiz. lessons/quiz stored as JSON. Quiz answers are stripped before sending
+    to learners (only managers/authors receive them)."""
+    __tablename__ = "kb_courses"
+    id          = Column(String, primary_key=True)   # uuid
+    course_code = Column(String, default="")          # LRN-001 …
+    title       = Column(String, nullable=False)
+    description = Column(String, default="")
+    departments = Column(String, default="")
+    status      = Column(String, default="draft")     # draft | published
+    owner_email = Column(String, default="")
+    owner_name  = Column(String, default="")
+    est_minutes = Column(Integer, default=15)
+    lessons     = Column(String, default="[]")         # JSON [{_id,type,title,body,docId}]
+    quiz        = Column(String, default="{}")          # JSON {passPct,questions:[{_id,q,options,answer}]}
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+
+
+class KbCourseProgress(Base):
+    """One learner's progress in one course."""
+    __tablename__ = "kb_course_progress"
+    id           = Column(String, primary_key=True)   # uuid
+    course_id    = Column(String, nullable=False)
+    user_email   = Column(String, nullable=False)
+    lessons_done = Column(String, default="[]")        # JSON list of lesson ids
+    quiz_score   = Column(Integer, default=None)        # 0-100, null until taken
+    passed       = Column(Boolean, default=False)
+    started_at   = Column(String, default="")
+    completed_at = Column(String, default="")
