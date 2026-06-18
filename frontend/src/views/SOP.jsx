@@ -982,17 +982,17 @@ export default function SOP({ activeSub, onSubChange }) {
 
   const statsRow = () => {
     const tiles = [
-      ['Documents', docs.length],
-      ['Drafts', docs.filter(d => d.status === 'draft' || d.status === 'changes_requested').length],
-      ['In Review', docs.filter(d => d.status === 'in_review').length],
-      ['Approved', docs.filter(d => d.status === 'approved').length],
+      ['Documents', docs.length, 'var(--text-primary)'],
+      ['Drafts', docs.filter(d => d.status === 'draft' || d.status === 'changes_requested').length, 'var(--text-secondary)'],
+      ['In Review', docs.filter(d => d.status === 'in_review').length, 'hsl(32,80%,40%)'],
+      ['Approved', docs.filter(d => d.status === 'approved').length, 'hsl(145,55%,32%)'],
     ];
     return (
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
-        {tiles.map(([l, v]) => (
-          <div key={l} style={{ flex: '1 1 120px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: '12px 16px', boxShadow: 'var(--shadow-sm)' }}>
-            <div style={{ fontSize: '1.5rem', fontWeight: 700, fontFamily: 'monospace', lineHeight: 1, color: 'var(--text-primary)' }}>{v}</div>
-            <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginTop: 6 }}>{l}</div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+        {tiles.map(([l, v, c]) => (
+          <div key={l} style={{ display: 'flex', alignItems: 'baseline', gap: 7, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 9, padding: '7px 13px' }}>
+            <span style={{ fontSize: '1.05rem', fontWeight: 700, fontFamily: 'monospace', lineHeight: 1, color: c }}>{v}</span>
+            <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)' }}>{l}</span>
           </div>
         ))}
       </div>
@@ -1155,24 +1155,24 @@ export default function SOP({ activeSub, onSubChange }) {
 
           {statsRow()}
 
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
-            <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 200 }}>
-              <Search size={18} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-              <input type="text" className="form-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search title, ID, or document text…" style={{ paddingLeft: 44, width: '100%', height: 42 }} />
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 10, boxShadow: 'var(--shadow-sm)' }}>
+            <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 340 }}>
+              <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input type="text" className="form-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" style={{ paddingLeft: 36, width: '100%', height: 38, fontSize: '0.88rem' }} />
             </div>
-            <select className="form-select" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ height: 42 }}><option value="all">All departments</option>{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select>
-            <select className="form-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ height: 42 }}><option value="all">All types</option>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select>
-            <select className="form-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ height: 42 }}><option value="all">All statuses</option>{Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
-            <button className={ask.open ? 'primary-btn' : 'secondary-btn'} onClick={() => setAsk(a => ({ ...a, open: !a.open }))} style={{ height: 42, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Sparkles size={15} /> Ask AI</button>
+            <select className="form-select" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All departments</option>{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select>
+            <select className="form-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All types</option>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select>
+            <select className="form-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All statuses</option>{Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+              {viewToggle()}
+              <button className={ask.open ? 'primary-btn' : 'secondary-btn'} onClick={() => setAsk(a => ({ ...a, open: !a.open }))} style={{ height: 38, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.85rem' }}><Sparkles size={15} /> Ask AI</button>
+            </div>
           </div>
 
           {ask.open && askPanel()}
           {recentStrip()}
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{filtered.length} document{filtered.length === 1 ? '' : 's'}</div>
-            {viewToggle()}
-          </div>
+          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 10 }}>{filtered.length} document{filtered.length === 1 ? '' : 's'}</div>
 
           {loading
             ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
