@@ -190,6 +190,9 @@ export const api = {
   acknowledgeKbDoc: (id)        => req(`/knowledge-base/documents/${id}/acknowledge`, { method: "POST" }),
   setKbAckRequired: (id, value) => req(`/knowledge-base/documents/${id}/ack-required`, { method: "POST", body: JSON.stringify({ value }) }),
   getKbSignoffs:    ()          => req("/knowledge-base/signoffs"),
+  getKbComments:    (id)        => req(`/knowledge-base/documents/${id}/comments`),
+  addKbComment:     (id, text)  => req(`/knowledge-base/documents/${id}/comments`, { method: "POST", body: JSON.stringify({ text }) }),
+  getKbSnapshots:   (id)        => req(`/knowledge-base/documents/${id}/snapshots`),
 
   // Assets
   getAssets: () => req("/assets"),

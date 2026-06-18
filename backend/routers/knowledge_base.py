@@ -152,6 +152,10 @@ class AskIn(BaseModel):
     question: str = ""
 
 
+class CommentIn(BaseModel):
+    text: str = ""
+
+
 # ---- CRUD -----------------------------------------------------------------
 @router.get("/documents")
 def list_documents(db: Session = Depends(get_db)):
@@ -193,6 +197,7 @@ def create_document(payload: KbDocIn, user: dict = Depends(get_current_user), db
         updated_at=now,
     )
     db.add(d)
+    _snapshot(d, db)
     db.commit()
     db.refresh(d)
     return _serialize(d)
@@ -217,6 +222,7 @@ def update_document(doc_id: str, payload: KbDocIn, user: dict = Depends(get_curr
     if not d.doc_code:
         d.doc_code = _next_doc_code(payload.departments, db)
     d.updated_at = _now()
+    _snapshot(d, db)
     db.commit()
     db.refresh(d)
     return _serialize(d)
@@ -252,6 +258,7 @@ def review_document(doc_id: str, payload: ReviewIn, user: dict = Depends(require
             d.effective_date = _today()
         d.review_note = payload.note
         _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": "Approved & published."})
+        _snapshot(d, db)
     elif payload.decision == "request_changes":
         if not payload.note.strip():
             raise HTTPException(status_code=400, detail="A note is required when requesting changes")
@@ -345,6 +352,52 @@ def signoffs(user: dict = Depends(get_current_user), db: Session = Depends(get_d
             "my_signed": any(r.user_email == user["email"] for r in rows),
         })
     out.sort(key=lambda x: x["title"].lower())
+    return out
+
+
+# ---- comments & version snapshots ----------------------------------------
+def _snapshot(d: models.KbDocument, db: Session) -> None:
+    db.add(models.KbSnapshot(
+        id="snap_" + uuid.uuid4().hex[:12], doc_id=d.id, version=d.version, date=_today(),
+        author=d.owner_name or d.owner_email or "", title=d.title, departments=d.departments or "",
+        body=d.body or "{}",
+    ))
+
+
+@router.get("/documents/{doc_id}/comments")
+def list_comments(doc_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _get_or_404(doc_id, db)
+    rows = db.query(models.KbComment).filter(models.KbComment.doc_id == doc_id).all()
+    rows.sort(key=lambda c: c.created_at or "")
+    return [{"id": c.id, "author_email": c.author_email, "author_name": c.author_name, "text": c.text, "created_at": c.created_at} for c in rows]
+
+
+@router.post("/documents/{doc_id}/comments")
+def add_comment(doc_id: str, payload: CommentIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _get_or_404(doc_id, db)
+    if not (payload.text or "").strip():
+        raise HTTPException(status_code=400, detail="Write a comment first")
+    db.add(models.KbComment(
+        id="cmt_" + uuid.uuid4().hex[:12], doc_id=doc_id, author_email=user["email"],
+        author_name=user.get("name") or user["email"], text=payload.text.strip(), created_at=_now(),
+    ))
+    db.commit()
+    return list_comments(doc_id, user, db)
+
+
+@router.get("/documents/{doc_id}/snapshots")
+def get_snapshots(doc_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    _get_or_404(doc_id, db)
+    rows = db.query(models.KbSnapshot).filter(models.KbSnapshot.doc_id == doc_id).all()
+    rows.sort(key=lambda s: (s.date or "", s.id))
+    out = []
+    for s in rows:
+        try:
+            bd = json.loads(s.body or "{}")
+        except (ValueError, TypeError):
+            bd = {}
+        out.append({"id": s.id, "version": s.version, "date": s.date, "author": s.author, "title": s.title,
+                    "departments": [x for x in (s.departments or "").split(",") if x], "body": bd})
     return out
 
 

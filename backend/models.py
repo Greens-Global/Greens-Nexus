@@ -604,3 +604,28 @@ class KbAcknowledgement(Base):
     user_email = Column(String, nullable=False)
     user_name  = Column(String, default="")
     signed_at  = Column(String, default="")
+
+
+class KbComment(Base):
+    """A discussion comment on a KB document."""
+    __tablename__ = "kb_comments"
+    id           = Column(String, primary_key=True)   # uuid
+    doc_id       = Column(String, nullable=False)
+    author_email = Column(String, default="")
+    author_name  = Column(String, default="")
+    text         = Column(String, nullable=False)
+    created_at   = Column(String, default="")
+
+
+class KbSnapshot(Base):
+    """A point-in-time copy of a KB document's content, captured on create /
+    edit / approve so versions can be compared. Body fields stored as JSON."""
+    __tablename__ = "kb_snapshots"
+    id          = Column(String, primary_key=True)   # uuid
+    doc_id      = Column(String, nullable=False)
+    version     = Column(String, default="")
+    date        = Column(String, default="")
+    author      = Column(String, default="")
+    title       = Column(String, default="")
+    departments = Column(String, default="")
+    body        = Column(String, default="{}")

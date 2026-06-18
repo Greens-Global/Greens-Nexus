@@ -9,6 +9,33 @@ import {
 } from 'lucide-react';
 
 const rid = () => 'r' + Math.random().toString(36).slice(2, 9);
+const initials = (n) => (n || '?').split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
+
+// ── version diff (word-level LCS) ──
+const _diffBox = { fontSize: '0.85rem', lineHeight: 1.6, color: 'var(--text-primary)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '11px 13px', whiteSpace: 'pre-wrap' };
+const _add = { background: 'hsla(145,63%,42%,0.22)', color: 'hsl(145,55%,26%)', textDecoration: 'none', borderRadius: 3, padding: '0 2px' };
+const _del = { background: 'hsla(0,84%,60%,0.18)', color: 'hsl(0,65%,40%)', borderRadius: 3, padding: '0 2px' };
+function lcsDiff(a, b) {
+  const n = a.length, m = b.length;
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const ops = []; let i = 0, j = 0;
+  while (i < n && j < m) { if (a[i] === b[j]) { ops.push({ t: 'eq', v: a[i] }); i++; j++; } else if (dp[i + 1][j] >= dp[i][j + 1]) { ops.push({ t: 'del', v: a[i] }); i++; } else { ops.push({ t: 'add', v: b[j] }); j++; } }
+  while (i < n) ops.push({ t: 'del', v: a[i++] });
+  while (j < m) ops.push({ t: 'add', v: b[j++] });
+  return ops;
+}
+function TextDiff({ oldS, newS }) {
+  const o = oldS || '', nw = newS || '';
+  if (o === nw) return <div style={{ ..._diffBox, color: o ? 'var(--text-secondary)' : 'var(--text-muted)', fontStyle: o ? 'normal' : 'italic' }}>{o || '(empty — unchanged)'}</div>;
+  return <div style={_diffBox}>{lcsDiff(o.split(/(\s+)/), nw.split(/(\s+)/)).map((p, k) => p.t === 'eq' ? <span key={k}>{p.v}</span> : p.t === 'add' ? <ins key={k} style={_add}>{p.v}</ins> : <del key={k} style={_del}>{p.v}</del>)}</div>;
+}
+function ListDiff({ oldArr, newArr, fmt }) {
+  const f = fmt || (x => String(x));
+  const a = (oldArr || []).map(f), b = (newArr || []).map(f);
+  if (JSON.stringify(a) === JSON.stringify(b)) return <div style={{ ..._diffBox, color: a.length ? 'var(--text-secondary)' : 'var(--text-muted)', fontStyle: a.length ? 'normal' : 'italic' }}>{a.length ? a.map((x, k) => <div key={k}>{x}</div>) : '(empty — unchanged)'}</div>;
+  return <div style={_diffBox}>{lcsDiff(a, b).map((p, k) => <div key={k} style={{ padding: '2px 8px', borderRadius: 6, margin: '2px 0', ...(p.t === 'add' ? { background: 'hsla(145,63%,42%,0.14)', color: 'hsl(145,55%,26%)' } : p.t === 'del' ? { background: 'hsla(0,84%,60%,0.12)', color: 'hsl(0,65%,40%)', textDecoration: 'line-through' } : { color: 'var(--text-muted)' }) }}>{(p.t === 'add' ? '+ ' : p.t === 'del' ? '− ' : '  ') + p.v}</div>)}</div>;
+}
 
 // Greens Global's real departments (mirrors backend DEPT_ABBR).
 const DEPARTMENTS = [
@@ -132,6 +159,12 @@ export default function SOP({ activeSub, onSubChange }) {
   const [signoffs, setSignoffs] = useState([]);
   const [lightbox, setLightbox] = useState(null); // image src to zoom
 
+  // comments + version history
+  const [comments, setComments] = useState([]);
+  const [commentText, setCommentText] = useState('');
+  const [snapshots, setSnapshots] = useState([]);
+  const [diff, setDiff] = useState(null); // { from, to } indices into snapshots
+
   // LMS (unchanged)
   const [courses, setCourses] = useState(INIT_COURSES);
   const [showCourseModal, setShowCourseModal] = useState(false);
@@ -147,10 +180,21 @@ export default function SOP({ activeSub, onSubChange }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  // load acknowledgement summary when viewing a document
+  // load acknowledgements, comments and version snapshots when viewing a document
   useEffect(() => {
-    if (mode === 'detail' && selected) { setAckInfo(null); api.getKbAcks(selected.id).then(setAckInfo).catch(() => {}); }
+    if (mode === 'detail' && selected) {
+      setAckInfo(null); setComments([]); setSnapshots([]); setCommentText('');
+      api.getKbAcks(selected.id).then(setAckInfo).catch(() => {});
+      api.getKbComments(selected.id).then(setComments).catch(() => {});
+      api.getKbSnapshots(selected.id).then(setSnapshots).catch(() => {});
+    }
   }, [mode, selected]);
+  const postComment = async () => {
+    const t = commentText.trim();
+    if (!t) return;
+    try { const list = await api.addKbComment(selected.id, t); setComments(list); setCommentText(''); }
+    catch (e) { setErr(e.message || 'Failed to post comment'); }
+  };
   // load sign-offs dashboard when that tab is active
   useEffect(() => {
     if (sub === 'signoffs') api.getKbSignoffs().then(setSignoffs).catch(() => {});
@@ -471,6 +515,26 @@ export default function SOP({ activeSub, onSubChange }) {
               </div>
             ))}
             </>}
+
+            <div style={{ marginTop: 26, borderTop: '2px solid var(--border-color)', paddingTop: 18 }}>
+              <h3 style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'hsl(var(--color-blue))', margin: '0 0 14px', fontWeight: 700 }}>Discussion <span style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>{comments.length}</span></h3>
+              {comments.length === 0
+                ? <div style={{ fontSize: '0.83rem', color: 'var(--text-muted)', marginBottom: 4 }}>No comments yet. Start the discussion below.</div>
+                : comments.map(c => (
+                  <div key={c.id} style={{ display: 'flex', gap: 11, padding: '12px 0', borderBottom: '1px solid var(--bg-secondary)' }}>
+                    <span style={{ flex: '0 0 auto', width: 32, height: 32, borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.72rem' }}>{initials(c.author_name)}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}><span style={{ fontWeight: 600, fontSize: '0.82rem' }}>{c.author_name}</span><span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{fmtDate(c.created_at)}</span></div>
+                      <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)', marginTop: 4, whiteSpace: 'pre-wrap', wordWrap: 'break-word' }}>{c.text}</div>
+                    </div>
+                  </div>
+                ))}
+              <div style={{ display: 'flex', gap: 11, marginTop: 14 }}>
+                <span style={{ flex: '0 0 auto', width: 32, height: 32, borderRadius: '50%', background: 'var(--text-primary)', color: 'var(--bg-card)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.72rem' }}>{initials(myName)}</span>
+                <textarea className="form-input" value={commentText} onChange={e => setCommentText(e.target.value)} placeholder="Add a comment…" style={{ flex: 1, minHeight: 46, resize: 'vertical' }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}><button className="primary-btn" onClick={postComment} style={{ height: 34, fontSize: '0.82rem' }}>Post comment</button></div>
+            </div>
           </div>
 
           {/* rail */}
@@ -528,9 +592,44 @@ export default function SOP({ activeSub, onSubChange }) {
                   ))}
                 </div>
               )}
+              {snapshots.length >= 2 && (
+                <button className="secondary-btn" onClick={() => setDiff({ from: snapshots.length - 2, to: snapshots.length - 1 })} style={{ marginTop: 12, width: '100%', height: 34, fontSize: '0.8rem' }}>Compare versions</button>
+              )}
             </div>
           </div>
         </div>
+        {diff && (() => {
+          const snaps = snapshots;
+          const A = snaps[Math.min(diff.from, snaps.length - 1)], B = snaps[Math.min(diff.to, snaps.length - 1)];
+          const ab = A.body || {}, bb = B.body || {};
+          const opt = (sel) => snaps.map((s, i) => <option key={i} value={i}>v{s.version} · {fmtDate(s.date)}{s.author ? ' · ' + s.author : ''}</option>);
+          const field = (label, node) => <div style={{ marginBottom: 16 }}><h4 style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', margin: '0 0 7px' }}>{label}</h4>{node}</div>;
+          return (
+            <div className="modal-overlay" style={{ display: 'flex' }} onClick={e => { if (e.target === e.currentTarget) setDiff(null); }}>
+              <div className="modal-content" style={{ maxWidth: 660 }}>
+                <div className="modal-header"><h3>Version history &amp; diff</h3><button className="close-btn" onClick={() => setDiff(null)}><X size={18} /></button></div>
+                <div style={{ maxHeight: '66vh', overflow: 'auto', padding: '4px 2px' }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Compare</span>
+                    <select className="form-select" value={diff.from} onChange={e => setDiff(p => ({ ...p, from: +e.target.value }))} style={{ height: 36 }}>{opt(diff.from)}</select>
+                    <span style={{ color: 'var(--text-muted)' }}>→</span>
+                    <select className="form-select" value={diff.to} onChange={e => setDiff(p => ({ ...p, to: +e.target.value }))} style={{ height: 36 }}>{opt(diff.to)}</select>
+                  </div>
+                  {field('Title', <TextDiff oldS={A.title} newS={B.title} />)}
+                  {field('Departments', <ListDiff oldArr={A.departments} newArr={B.departments} />)}
+                  {field('Purpose', <TextDiff oldS={ab.purpose} newS={bb.purpose} />)}
+                  {field('Scope', <TextDiff oldS={ab.scopeText} newS={bb.scopeText} />)}
+                  {field('Materials', <ListDiff oldArr={ab.materials} newArr={bb.materials} />)}
+                  {field('Responsibilities', <ListDiff oldArr={ab.responsibilities} newArr={bb.responsibilities} fmt={r => `${r.role}: ${r.duty}`} />)}
+                  {field('Procedure', <ListDiff oldArr={ab.procedure} newArr={bb.procedure} fmt={s => s.text + (s.detail ? ` — ${s.detail}` : '') + (s.image ? ' [image]' : '')} />)}
+                  {field('Safety', <ListDiff oldArr={ab.safety} newArr={bb.safety} />)}
+                  {field('References', <ListDiff oldArr={ab.references} newArr={bb.references} />)}
+                </div>
+                <div className="modal-footer"><button className="primary-btn" onClick={() => setDiff(null)}>Done</button></div>
+              </div>
+            </div>
+          );
+        })()}
         {lightbox && (
           <div onClick={() => setLightbox(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 30, zIndex: 200, cursor: 'zoom-out' }}>
             <img src={lightbox} alt="" style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 10 }} />
