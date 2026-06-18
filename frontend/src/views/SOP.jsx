@@ -132,6 +132,9 @@ export default function SOP({ activeSub, onSubChange }) {
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
+  const [imp, setImp] = useState({ title: '', text: '', type: 'SOP', fileName: '' }); // import workspace
+  const [impBusy, setImpBusy] = useState(false);
+  const [showCompare, setShowCompare] = useState(true); // imported-source compare panel
 
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('all');
@@ -283,6 +286,7 @@ export default function SOP({ activeSub, onSubChange }) {
   const openDetail = (d) => { setSelected(d); setMode('detail'); };
   const openCreate = () => { setDraft(blankDraft(myName, myEmail)); setMode('editor'); };
   const openCreateManual = () => { setDraft({ ...blankDraft(myName, myEmail), doc_type: 'Manual' }); setMode('editor'); };
+  const openImport = () => { setImp({ title: '', text: '', type: 'SOP', fileName: '' }); setErr(''); setMode('import'); };
   const openEdit = (d) => {
     setDraft({
       id: d.id, title: d.title, doc_type: d.doc_type, departments: [...(d.departments || [])],
@@ -342,6 +346,21 @@ export default function SOP({ activeSub, onSubChange }) {
     finally { setBusy(false); }
   };
 
+  // managers can take a draft straight to published in one step (create → submit → approve)
+  const saveAndPublish = async () => {
+    if (!draft.title.trim()) { setErr('Add a title before publishing.'); return; }
+    setBusy(true); setErr('');
+    try {
+      const payload = { ...payloadFromDraft(), reviewer_email: draft.reviewer_email || myEmail, reviewer_name: draft.reviewer_name || myName };
+      let doc = draft.id ? await api.updateKbDoc(draft.id, payload) : await api.createKbDoc(payload);
+      doc = await api.submitKbDoc(doc.id);
+      doc = await api.reviewKbDoc(doc.id, { decision: 'approve', note: draft._importSource ? 'Imported and published.' : 'Published.' });
+      refresh();
+      setSelected(doc); setMode('detail'); setDraft(null);
+    } catch (e) { setErr(e.message || 'Publish failed'); }
+    finally { setBusy(false); }
+  };
+
   const submitDoc = async (d) => {
     setBusy(true); setErr('');
     try { const doc = await api.submitKbDoc(d.id); refresh(); setSelected(doc); }
@@ -390,6 +409,44 @@ export default function SOP({ activeSub, onSubChange }) {
       }));
     } catch (e) { setErr(e.message || 'AI formatting failed'); }
     finally { setAiBusy(false); }
+  };
+
+  // ── import: read a text-like file, then AI-convert into our SOP format ──
+  const importFile = (file) => {
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { setErr('That file is over 2 MB — paste the relevant text instead.'); return; }
+    const reader = new FileReader();
+    reader.onload = () => setImp(p => ({ ...p, text: String(reader.result || ''), fileName: file.name, title: p.title || file.name.replace(/\.[^.]+$/, '') }));
+    reader.onerror = () => setErr('Could not read that file. Try pasting the text instead.');
+    reader.readAsText(file);
+  };
+  const runImportConvert = async () => {
+    const content = (imp.text || '').trim();
+    if (!content) { setErr('Paste the document text or upload a file first.'); return; }
+    setImpBusy(true); setErr('');
+    let sop = null;
+    try { ({ sop } = await api.aiFormatKbDoc({ content, title: imp.title, departments: [] })); }
+    catch (e) { setErr(e.message || 'AI conversion failed — you can still edit the draft manually.'); }
+    const d = blankDraft(myName, myEmail);
+    d.doc_type = imp.type || 'SOP';
+    d.title = (imp.title || sop?.title || '').trim();
+    d._raw = content;
+    d._importSource = content; // frozen original, kept for side-by-side comparison
+    if (sop) {
+      d.body = {
+        ...d.body,
+        purpose: sop.purpose || '',
+        scopeText: sop.scopeText || '',
+        materials: sop.materials || [],
+        responsibilities: sop.responsibilities || [],
+        definitions: sop.definitions || [],
+        procedure: (sop.procedure || []).length ? sop.procedure : [],
+        safety: sop.safety || [],
+        references: sop.references || [],
+      };
+    }
+    setShowCompare(true);
+    setDraft(d); setMode('editor'); setImpBusy(false);
   };
 
   // ── Ask AI ──
@@ -784,6 +841,39 @@ export default function SOP({ activeSub, onSubChange }) {
     );
   }
 
+  // ════════════════════ IMPORT ════════════════════
+  if (mode === 'import') {
+    return (
+      <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', maxWidth: 760 }}>
+        <button className="secondary-btn" onClick={backToList} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, height: 34 }}>
+          <ArrowLeft size={15} /> Cancel
+        </button>
+        <h2 style={{ marginBottom: 4 }}>Import a document</h2>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Paste an existing SOP or upload a file. Claude converts it into the Greens Global standard format — then you review what was imported against what's proposed and edit every section before it goes through.</p>
+        {errBanner}
+        <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: 16 }}>
+          <div className="form-group"><label>Title <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional — AI can infer it)</span></label><input className="form-input" value={imp.title} placeholder="e.g. Unit Move-In Procedure" onChange={e => setImp(p => ({ ...p, title: e.target.value }))} /></div>
+          <div className="form-group"><label>Type</label><select className="form-select" value={imp.type} onChange={e => setImp(p => ({ ...p, type: e.target.value }))}>{DOC_TYPES.filter(t => t !== 'Manual').map(t => <option key={t}>{t}</option>)}</select></div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+          <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 36, cursor: 'pointer', margin: 0 }}>
+            <Paperclip size={15} /> Upload a file
+            <input type="file" accept=".txt,.md,.markdown,.csv,.json,.html,.htm,.rtf,.log" onChange={e => { importFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
+          </label>
+          {imp.fileName && <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{imp.fileName}</span>}
+          <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Plain text, Markdown, CSV, JSON or HTML. For Word/PDF, paste the text below.</span>
+        </div>
+        <textarea className="form-input" value={imp.text} placeholder="Paste the full SOP or document text here…" onChange={e => setImp(p => ({ ...p, text: e.target.value }))} style={{ width: '100%', minHeight: 240, resize: 'vertical', fontSize: '0.85rem', lineHeight: 1.5 }} />
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', paddingTop: 14 }}>
+          <button className="secondary-btn" onClick={backToList}>Cancel</button>
+          <button className="primary-btn" disabled={impBusy || !imp.text.trim()} onClick={runImportConvert} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {impBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {impBusy ? 'Converting…' : 'Convert with AI'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // ════════════════════ EDITOR ════════════════════
   if (mode === 'editor' && draft) {
     const isNew = !draft.id;
@@ -874,7 +964,48 @@ export default function SOP({ activeSub, onSubChange }) {
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Fill the standard template, or paste raw notes and let Claude format it into the Greens Global standard.</p>
         {errBanner}
 
-        {!isManual && <>{/* AI banner */}
+        {draft._importSource && (
+          <div style={{ border: '1px solid var(--border-color)', background: 'var(--bg-card)', borderRadius: 12, marginBottom: 18, overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderBottom: showCompare ? '1px solid var(--border-color)' : 'none', background: 'var(--bg-secondary)' }}>
+              <Sparkles size={16} style={{ color: 'hsl(var(--color-blue))', flex: '0 0 auto' }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <strong style={{ fontSize: '0.88rem' }}>Imported source ↔ proposed SOP</strong>
+                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>Check that the AI captured everything, then edit the sections below. Nothing is saved until you submit or publish.</div>
+              </div>
+              <button className="secondary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ height: 32, fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5, flex: '0 0 auto' }}>{aiBusy ? <Loader size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />} Re-run AI</button>
+              <button className="secondary-btn" onClick={() => setShowCompare(v => !v)} style={{ height: 32, fontSize: '0.78rem', flex: '0 0 auto' }}>{showCompare ? 'Hide' : 'Compare'}</button>
+            </div>
+            {showCompare && (() => {
+              const b = draft.body;
+              const sec = (label, node) => node ? <div style={{ marginBottom: 12 }}><div style={{ fontSize: '0.64rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, marginBottom: 3 }}>{label}</div>{node}</div> : null;
+              const ul = (arr) => arr?.length ? <ul style={{ margin: 0, paddingLeft: 18, fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{arr.map((x, i) => <li key={i}>{x}</li>)}</ul> : null;
+              const txt = (s) => s ? <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{s}</div> : null;
+              const proposed = [
+                sec('Purpose', txt(b.purpose)),
+                sec('Scope', txt(b.scopeText)),
+                sec('Materials', ul(b.materials)),
+                sec('Responsibilities', b.responsibilities?.length ? ul(b.responsibilities.map(r => `${r.role}: ${r.duty}`)) : null),
+                sec('Procedure', b.procedure?.length ? <ol style={{ margin: 0, paddingLeft: 18, fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{b.procedure.map((s, i) => <li key={i}>{s.text}{s.detail ? <span style={{ color: 'var(--text-muted)' }}> — {s.detail}</span> : null}</li>)}</ol> : null),
+                sec('Safety', ul(b.safety)),
+                sec('References', ul(b.references)),
+              ].filter(Boolean);
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
+                  <div style={{ borderRight: '1px solid var(--border-color)', padding: 14, minWidth: 0 }}>
+                    <div style={{ fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, marginBottom: 8 }}>Imported source</div>
+                    <div style={{ maxHeight: 320, overflow: 'auto', fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{draft._importSource}</div>
+                  </div>
+                  <div style={{ padding: 14, minWidth: 0 }}>
+                    <div style={{ fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, marginBottom: 8 }}>Proposed (editable below)</div>
+                    <div style={{ maxHeight: 320, overflow: 'auto' }}>{proposed.length ? proposed : <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Nothing extracted yet — edit the sections below, or re-run the AI.</div>}</div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {!isManual && !draft._importSource && <>{/* AI banner */}
         <div style={{ border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-card)', borderRadius: 12, padding: 16, marginBottom: 18, boxShadow: 'var(--shadow-sm)' }}>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
             <div style={{ width: 34, height: 34, borderRadius: 9, backgroundColor: 'hsla(215,100%,50%,0.1)', color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Sparkles size={18} /></div>
@@ -965,7 +1096,8 @@ export default function SOP({ activeSub, onSubChange }) {
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', paddingTop: 8, borderTop: '1px solid var(--border-color)', marginTop: 8 }}>
           <button className="secondary-btn" onClick={backToList}>Cancel</button>
           <button className="secondary-btn" disabled={busy} onClick={() => save(false)}>Save draft</button>
-          <button className="primary-btn" disabled={busy} onClick={() => save(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={14} /> Save &amp; submit for review</button>
+          <button className="secondary-btn" disabled={busy} onClick={() => save(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={14} /> Save &amp; submit for review</button>
+          {isManager && <button className="primary-btn" disabled={busy} onClick={saveAndPublish} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><CheckSquare size={14} /> Save &amp; publish</button>}
         </div>
       </div>
     );
@@ -1194,10 +1326,11 @@ export default function SOP({ activeSub, onSubChange }) {
         <>
           <div className="view-header" style={{ marginBottom: 20 }}>
             <div className="view-title-group"><h2>Playbook</h2><p>Your SOPs, manuals, and guides — all in one place</p></div>
-            <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> New SOP</button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="secondary-btn" onClick={openImport} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Paperclip size={15} /> Import</button>
+              <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> New SOP</button>
+            </div>
           </div>
-
-          {statsRow()}
 
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 10, boxShadow: 'var(--shadow-sm)' }}>
             <div style={{ display: 'inline-flex', background: 'var(--bg-secondary)', borderRadius: 9, padding: 3, flex: '0 0 auto' }}>
@@ -1313,8 +1446,13 @@ export default function SOP({ activeSub, onSubChange }) {
         <>
           <div className="view-header" style={{ marginBottom: 18 }}>
             <div className="view-title-group"><h2>Manage</h2><p>Your knowledge-base control center — review, assign, and keep content fresh</p></div>
-            <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> New SOP</button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="secondary-btn" onClick={openImport} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Paperclip size={15} /> Import</button>
+              <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> New SOP</button>
+            </div>
           </div>
+
+          {statsRow()}
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(178px, 1fr))', gap: 12 }}>
             {actionTile('Pending review', reviewQueue.length, 'Awaiting your approval', Send, () => switchTab('review'), reviewQueue.length > 0)}
@@ -1325,6 +1463,7 @@ export default function SOP({ activeSub, onSubChange }) {
 
           {sectionHead('Quick actions')}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 14 }}>
+            {manageCard(Paperclip, 'Import a document', 'Paste or upload an existing SOP — Claude converts it to our format and you review it side-by-side before publishing.', 'Import', openImport)}
             {manageCard(BookOpen, 'New manual', 'Build a chaptered manual that links existing SOPs into one reference.', 'Create manual', openCreateManual)}
             {manageCard(Grid3x3, 'Assignment Matrix', 'Set which departments each document applies to, in one grid.', 'Open matrix', () => switchTab('matrix'))}
             {manageCard(BarChart3, 'Insights', 'Usage, freshness, content gaps, and training completion across the library.', 'Open insights', () => switchTab('insights'))}
