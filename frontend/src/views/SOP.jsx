@@ -941,7 +941,7 @@ export default function SOP({ activeSub, onSubChange }) {
       </>));
 
     return (
-      <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', maxWidth: 920, margin: '0 auto' }}>
+      <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', width: '100%' }}>
         <button className="secondary-btn" onClick={backToList} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 18, height: 34 }}>
           <ArrowLeft size={15} /> {isNew ? 'Cancel' : 'Back'}
         </button>
