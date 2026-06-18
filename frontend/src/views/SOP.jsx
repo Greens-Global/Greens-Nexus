@@ -132,8 +132,6 @@ export default function SOP({ activeSub, onSubChange }) {
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
-  const [imp, setImp] = useState({ title: '', text: '', type: 'SOP', fileName: '' }); // import workspace
-  const [impBusy, setImpBusy] = useState(false);
   const [showCompare, setShowCompare] = useState(true); // imported-source compare panel
 
   const [search, setSearch] = useState('');
@@ -209,9 +207,9 @@ export default function SOP({ activeSub, onSubChange }) {
     try { const list = await api.addKbComment(selected.id, t); setComments(list); setCommentText(''); }
     catch (e) { setErr(e.message || 'Failed to post comment'); }
   };
-  // load sign-offs dashboard when that tab is active
+  // load sign-offs for the Sign-offs tab and the Playbook "For you" strip
   useEffect(() => {
-    if (sub === 'signoffs') api.getKbSignoffs().then(setSignoffs).catch(() => {});
+    if (sub === 'signoffs' || sub === 'index') api.getKbSignoffs().then(setSignoffs).catch(() => {});
   }, [sub, docs]);
   useEffect(() => {
     if (sub === 'insights') api.getKbInsights().then(setInsights).catch(() => {});
@@ -287,7 +285,6 @@ export default function SOP({ activeSub, onSubChange }) {
   const openDetail = (d) => { setSelected(d); setMode('detail'); };
   const openCreate = () => { setDraft(blankDraft(myName, myEmail)); setMode('editor'); };
   const openCreateManual = () => { setDraft({ ...blankDraft(myName, myEmail), doc_type: 'Manual' }); setMode('editor'); };
-  const openImport = () => { setImp({ title: '', text: '', type: 'SOP', fileName: '' }); setErr(''); setMode('import'); };
   const openEdit = (d) => {
     setDraft({
       id: d.id, title: d.title, doc_type: d.doc_type, departments: [...(d.departments || [])],
@@ -389,14 +386,17 @@ export default function SOP({ activeSub, onSubChange }) {
   };
 
   const runAiFormat = async () => {
-    const content = draft._raw?.trim() || [draft.title, draft.body.purpose].filter(Boolean).join('\n');
-    if (!content) { setErr('Add raw notes, a title, or a purpose for the AI to work from.'); return; }
+    const raw = draft._raw?.trim();
+    const content = raw || [draft.title, draft.body.purpose].filter(Boolean).join('\n');
+    if (!content) { setErr('Paste or upload an existing document, or add a title/purpose for the AI to work from.'); return; }
     setAiBusy(true); setErr('');
     try {
       const { sop } = await api.aiFormatKbDoc({ content, title: draft.title, departments: draft.departments });
       setDraft(p => ({
         ...p,
         title: p.title || sop.title || '',
+        // when working from pasted/uploaded source, keep it for the side-by-side compare
+        _importSource: raw ? content : p._importSource,
         body: {
           ...p.body,
           purpose: sop.purpose || p.body.purpose,
@@ -409,46 +409,19 @@ export default function SOP({ activeSub, onSubChange }) {
           references: sop.references?.length ? sop.references : p.body.references,
         },
       }));
+      if (raw) setShowCompare(true);
     } catch (e) { setErr(e.message || 'AI formatting failed'); }
     finally { setAiBusy(false); }
   };
 
-  // ── import: read a text-like file, then AI-convert into our SOP format ──
+  // read a text-like file into the editor's raw-notes box (for importing an existing document)
   const importFile = (file) => {
     if (!file) return;
     if (file.size > 2 * 1024 * 1024) { setErr('That file is over 2 MB — paste the relevant text instead.'); return; }
     const reader = new FileReader();
-    reader.onload = () => setImp(p => ({ ...p, text: String(reader.result || ''), fileName: file.name, title: p.title || file.name.replace(/\.[^.]+$/, '') }));
+    reader.onload = () => setDraft(p => p ? { ...p, _raw: String(reader.result || ''), title: p.title || file.name.replace(/\.[^.]+$/, '') } : p);
     reader.onerror = () => setErr('Could not read that file. Try pasting the text instead.');
     reader.readAsText(file);
-  };
-  const runImportConvert = async () => {
-    const content = (imp.text || '').trim();
-    if (!content) { setErr('Paste the document text or upload a file first.'); return; }
-    setImpBusy(true); setErr('');
-    let sop = null;
-    try { ({ sop } = await api.aiFormatKbDoc({ content, title: imp.title, departments: [] })); }
-    catch (e) { setErr(e.message || 'AI conversion failed — you can still edit the draft manually.'); }
-    const d = blankDraft(myName, myEmail);
-    d.doc_type = imp.type || 'SOP';
-    d.title = (imp.title || sop?.title || '').trim();
-    d._raw = content;
-    d._importSource = content; // frozen original, kept for side-by-side comparison
-    if (sop) {
-      d.body = {
-        ...d.body,
-        purpose: sop.purpose || '',
-        scopeText: sop.scopeText || '',
-        materials: sop.materials || [],
-        responsibilities: sop.responsibilities || [],
-        definitions: sop.definitions || [],
-        procedure: (sop.procedure || []).length ? sop.procedure : [],
-        safety: sop.safety || [],
-        references: sop.references || [],
-      };
-    }
-    setShowCompare(true);
-    setDraft(d); setMode('editor'); setImpBusy(false);
   };
 
   // ── Ask AI ──
@@ -843,39 +816,6 @@ export default function SOP({ activeSub, onSubChange }) {
     );
   }
 
-  // ════════════════════ IMPORT ════════════════════
-  if (mode === 'import') {
-    return (
-      <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', maxWidth: 760 }}>
-        <button className="secondary-btn" onClick={backToList} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, height: 34 }}>
-          <ArrowLeft size={15} /> Cancel
-        </button>
-        <h2 style={{ marginBottom: 4 }}>Import a document</h2>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Paste an existing SOP or upload a file. Claude converts it into the Greens Global standard format — then you review what was imported against what's proposed and edit every section before it goes through.</p>
-        {errBanner}
-        <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: 16 }}>
-          <div className="form-group"><label>Title <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional — AI can infer it)</span></label><input className="form-input" value={imp.title} placeholder="e.g. Unit Move-In Procedure" onChange={e => setImp(p => ({ ...p, title: e.target.value }))} /></div>
-          <div className="form-group"><label>Type</label><select className="form-select" value={imp.type} onChange={e => setImp(p => ({ ...p, type: e.target.value }))}>{DOC_TYPES.filter(t => t !== 'Manual').map(t => <option key={t}>{t}</option>)}</select></div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-          <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 36, cursor: 'pointer', margin: 0 }}>
-            <Paperclip size={15} /> Upload a file
-            <input type="file" accept=".txt,.md,.markdown,.csv,.json,.html,.htm,.rtf,.log" onChange={e => { importFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
-          </label>
-          {imp.fileName && <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{imp.fileName}</span>}
-          <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Plain text, Markdown, CSV, JSON or HTML. For Word/PDF, paste the text below.</span>
-        </div>
-        <textarea className="form-input" value={imp.text} placeholder="Paste the full SOP or document text here…" onChange={e => setImp(p => ({ ...p, text: e.target.value }))} style={{ width: '100%', minHeight: 240, resize: 'vertical', fontSize: '0.85rem', lineHeight: 1.5 }} />
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', paddingTop: 14 }}>
-          <button className="secondary-btn" onClick={backToList}>Cancel</button>
-          <button className="primary-btn" disabled={impBusy || !imp.text.trim()} onClick={runImportConvert} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {impBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {impBusy ? 'Converting…' : 'Convert with AI'}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   // ════════════════════ EDITOR ════════════════════
   if (mode === 'editor' && draft) {
     const isNew = !draft.id;
@@ -1017,19 +957,23 @@ export default function SOP({ activeSub, onSubChange }) {
           </div>
         )}
 
-        {!isManual && !draft._importSource && <>{/* AI banner */}
+        {!isManual && !draft._importSource && <>{/* Import / AI-format panel */}
         <div style={{ border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-card)', borderRadius: 12, padding: 16, marginBottom: 18, boxShadow: 'var(--shadow-sm)' }}>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
             <div style={{ width: 34, height: 34, borderRadius: 9, backgroundColor: 'hsla(215,100%,50%,0.1)', color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Sparkles size={18} /></div>
-            <div style={{ flex: 1 }}>
-              <strong style={{ fontSize: '0.9rem', display: 'block' }}>Format with Claude AI</strong>
-              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Paste an existing document or rough notes, then populate every section.</span>
+            <div style={{ flex: 1, minWidth: 180 }}>
+              <strong style={{ fontSize: '0.9rem', display: 'block' }}>Start from an existing document</strong>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Paste or upload an existing SOP (or rough notes) and Claude formats every section. Optional — you can also just fill it in below.</span>
             </div>
-            <button className="primary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}>
+            <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, cursor: 'pointer', margin: 0, flex: '0 0 auto' }}>
+              <Paperclip size={15} /> Upload file
+              <input type="file" accept=".txt,.md,.markdown,.csv,.json,.html,.htm,.rtf,.log" onChange={e => { importFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
+            </label>
+            <button className="primary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, flex: '0 0 auto' }}>
               {aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Formatting…' : 'Format with Claude'}
             </button>
           </div>
-          <textarea className="form-input" value={draft._raw} placeholder="Paste existing SOP text or bullet notes here…" onChange={e => setDraft(p => ({ ...p, _raw: e.target.value }))} style={{ width: '100%', minHeight: 80, resize: 'vertical' }} />
+          <textarea className="form-input" value={draft._raw} placeholder="Paste existing SOP text or bullet notes here, or upload a file above…" onChange={e => setDraft(p => ({ ...p, _raw: e.target.value }))} style={{ width: '100%', minHeight: 90, resize: 'vertical' }} />
         </div></>}
 
         {/* Prominent title field */}
@@ -1200,6 +1144,31 @@ export default function SOP({ activeSub, onSubChange }) {
     );
   };
 
+  // Employee-facing strip on the Playbook: what each person needs to act on
+  const myTasksStrip = () => {
+    const pending = (signoffs || []).filter(s => !s.my_signed);
+    return (
+      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 14, padding: '14px 14px 16px', marginBottom: 22 }}>
+        <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 7, padding: '0 2px 12px' }}>
+          <CheckSquare size={13} /> For you
+          {pending.length > 0 && <span style={{ background: 'hsla(38,92%,50%,0.16)', color: 'hsl(32,80%,38%)', borderRadius: 999, padding: '1px 8px', fontSize: '0.7rem' }}>{pending.length}</span>}
+        </div>
+        {pending.length === 0
+          ? <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.84rem', color: 'var(--text-secondary)', padding: '0 2px 2px' }}><CheckSquare size={15} style={{ color: 'hsl(145,55%,40%)' }} /> You're all caught up — nothing is waiting on your sign-off.</div>
+          : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
+              {pending.map(s => (
+                <button key={s.id} onClick={() => openSourceById(s.id)} style={{ textAlign: 'left', cursor: 'pointer', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 11, padding: '12px 13px', boxShadow: 'var(--shadow-sm)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span style={{ alignSelf: 'flex-start', fontSize: '0.66rem', fontWeight: 700, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)', borderRadius: 999, padding: '2px 9px' }}>Sign-off required</span>
+                  <div style={{ fontWeight: 600, fontSize: '0.85rem', lineHeight: 1.3, color: 'var(--text-primary)' }}>{s.title}</div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{s.doc_code || '—'} · v{s.version}</div>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'hsl(var(--color-blue))' }}>Review &amp; sign →</span>
+                </button>
+              ))}
+            </div>}
+      </div>
+    );
+  };
+
   const cardGrid = (list, emptyMsg) => (
     list.length === 0
       ? <div style={{ textAlign: 'center', padding: 40, border: '1px dashed var(--border-color)', borderRadius: 8, color: 'var(--text-secondary)' }}>{emptyMsg}</div>
@@ -1351,10 +1320,7 @@ export default function SOP({ activeSub, onSubChange }) {
         <>
           <div className="view-header" style={{ marginBottom: 20 }}>
             <div className="view-title-group"><h2>Playbook</h2><p>Your SOPs, manuals, and guides — all in one place</p></div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="secondary-btn" onClick={openImport} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Paperclip size={15} /> Import</button>
-              <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> New SOP</button>
-            </div>
+            <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> New SOP</button>
           </div>
 
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 10, boxShadow: 'var(--shadow-sm)' }}>
@@ -1379,7 +1345,7 @@ export default function SOP({ activeSub, onSubChange }) {
           </div>
 
           {searchMode === 'ask' && askAnswer()}
-          {searchMode === 'search' && recentStrip()}
+          {searchMode === 'search' && myTasksStrip()}
 
           {searchMode === 'search' && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
@@ -1471,10 +1437,7 @@ export default function SOP({ activeSub, onSubChange }) {
         <>
           <div className="view-header" style={{ marginBottom: 18 }}>
             <div className="view-title-group"><h2>Manage</h2><p>Your knowledge-base control center — review, assign, and keep content fresh</p></div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="secondary-btn" onClick={openImport} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Paperclip size={15} /> Import</button>
-              <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> New SOP</button>
-            </div>
+            <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> New SOP</button>
           </div>
 
           {statsRow()}
@@ -1486,9 +1449,10 @@ export default function SOP({ activeSub, onSubChange }) {
             {actionTile('Drafts in progress', draftCount, 'Not yet submitted for review', Edit3, () => { setStatusFilter('draft'); switchTab('index'); }, false)}
           </div>
 
+          <div style={{ marginTop: 22 }}>{recentStrip()}</div>
+
           {sectionHead('Quick actions')}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 14 }}>
-            {manageCard(Paperclip, 'Import a document', 'Paste or upload an existing SOP — Claude converts it to our format and you review it side-by-side before publishing.', 'Import', openImport)}
             {manageCard(BookOpen, 'New manual', 'Build a chaptered manual that links existing SOPs into one reference.', 'Create manual', openCreateManual)}
             {manageCard(Grid3x3, 'Assignment Matrix', 'Set which departments each document applies to, in one grid.', 'Open matrix', () => switchTab('matrix'))}
             {manageCard(BarChart3, 'Insights', 'Usage, freshness, content gaps, and training completion across the library.', 'Open insights', () => switchTab('insights'))}
