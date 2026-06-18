@@ -169,6 +169,7 @@ export default function SOP({ activeSub, onSubChange }) {
   // LMS (Learn)
   const [lmsCourses, setLmsCourses] = useState([]);
   const [lmsMode, setLmsMode] = useState('list'); // list | player | editor
+  const [lmsManage, setLmsManage] = useState(false); // course-authoring view, entered from Manage
   const [lmsCourse, setLmsCourse] = useState(null); // loaded course detail
   const [player, setPlayer] = useState(null); // { idx, mode:'lesson'|'quiz'|'result', answers, lastScore, lastPassed, results }
   const [courseDraft, setCourseDraft] = useState(null);
@@ -299,7 +300,8 @@ export default function SOP({ activeSub, onSubChange }) {
   };
   const backToList = () => { setMode('list'); setSelected(null); setDraft(null); };
 
-  const switchTab = (key) => { backToList(); setLmsMode('list'); setLmsCourse(null); setPlayer(null); setCourseDraft(null); onSubChange(key); };
+  const switchTab = (key) => { backToList(); setLmsMode('list'); setLmsCourse(null); setPlayer(null); setCourseDraft(null); setLmsManage(false); onSubChange(key); };
+  const openCourseManager = () => { switchTab('lms'); setLmsManage(true); };
 
   // ── editor body helpers ──
   const setBody = (patch) => setDraft(p => ({ ...p, body: { ...p.body, ...patch } }));
@@ -880,6 +882,20 @@ export default function SOP({ activeSub, onSubChange }) {
     const isManual = draft.doc_type === 'Manual';
     const chapters = draft.body.chapters || [];
     const sopOpts = docs.filter(d => d.doc_type !== 'Manual' && d.id !== draft.id).sort((a, b) => (a.doc_code || '').localeCompare(b.doc_code || ''));
+    // editor layout primitives — roomy, card-grouped sections with generous spacing
+    const cardStyle = { background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 16, padding: '22px 24px', marginBottom: 18, boxShadow: 'var(--shadow-sm)' };
+    const secLabel = { fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, display: 'block', marginBottom: 12 };
+    const fieldLabel = { fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 7 };
+    const bigText = { width: '100%', fontSize: '0.95rem', lineHeight: 1.65, padding: '13px 15px', resize: 'vertical' };
+    const section = (title, hint, children) => (
+      <div style={cardStyle}>
+        <div style={{ marginBottom: 16 }}>
+          <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif", color: 'var(--text-primary)' }}>{title}</h3>
+          {hint && <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '3px 0 0' }}>{hint}</p>}
+        </div>
+        {children}
+      </div>
+    );
     const moveBtns = (canUp, canDn, onUp, onDn) => (
       <>
         <button className="secondary-btn" disabled={!canUp} onClick={onUp} style={{ width: 36, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ChevronUp size={15} /></button>
@@ -925,43 +941,39 @@ export default function SOP({ activeSub, onSubChange }) {
         <button className="secondary-btn" onClick={addChapter} style={{ height: 34, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add chapter</button>
       </div>
     );
-    const listEditor = (field, label, placeholder) => (
-      <div className="ed-block" style={{ marginBottom: 16 }}>
-        <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: 8 }}>{label}</label>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    const listEditor = (field, label, placeholder) => section(label, null, (<>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {draft.body[field].map((v, i) => (
             <div key={i} style={{ display: 'flex', gap: 8 }}>
-              <input className="form-input" value={v} placeholder={placeholder} onChange={e => updItem(field, i, e.target.value)} style={{ flex: 1 }} />
-              <button className="secondary-btn" onClick={() => delItem(field, i)} style={{ width: 40, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={15} /></button>
+              <input className="form-input" value={v} placeholder={placeholder} onChange={e => updItem(field, i, e.target.value)} style={{ flex: 1, padding: '11px 14px' }} />
+              <button className="secondary-btn" onClick={() => delItem(field, i)} style={{ width: 44, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Trash2 size={15} /></button>
             </div>
           ))}
+          {draft.body[field].length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>None yet.</p>}
         </div>
-        <button className="secondary-btn" onClick={() => addItem(field, '')} style={{ marginTop: 8, height: 32, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={13} /> Add</button>
-      </div>
-    );
-    const pairEditor = (field, label, k1, k2, p1, p2) => (
-      <div className="ed-block" style={{ marginBottom: 16 }}>
-        <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: 8 }}>{label}</label>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <button className="secondary-btn" onClick={() => addItem(field, '')} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add</button>
+      </>));
+    const pairEditor = (field, label, k1, k2, p1, p2) => section(label, null, (<>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {draft.body[field].map((row, i) => (
             <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 2fr auto', gap: 8 }}>
-              <input className="form-input" value={row[k1] || ''} placeholder={p1} onChange={e => updItem(field, i, { ...row, [k1]: e.target.value })} />
-              <input className="form-input" value={row[k2] || ''} placeholder={p2} onChange={e => updItem(field, i, { ...row, [k2]: e.target.value })} />
-              <button className="secondary-btn" onClick={() => delItem(field, i)} style={{ width: 40, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={15} /></button>
+              <input className="form-input" value={row[k1] || ''} placeholder={p1} onChange={e => updItem(field, i, { ...row, [k1]: e.target.value })} style={{ padding: '11px 14px' }} />
+              <input className="form-input" value={row[k2] || ''} placeholder={p2} onChange={e => updItem(field, i, { ...row, [k2]: e.target.value })} style={{ padding: '11px 14px' }} />
+              <button className="secondary-btn" onClick={() => delItem(field, i)} style={{ width: 44, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Trash2 size={15} /></button>
             </div>
           ))}
+          {draft.body[field].length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>None yet.</p>}
         </div>
-        <button className="secondary-btn" onClick={() => addItem(field, { [k1]: '', [k2]: '' })} style={{ marginTop: 8, height: 32, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={13} /> Add</button>
-      </div>
-    );
+        <button className="secondary-btn" onClick={() => addItem(field, { [k1]: '', [k2]: '' })} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add</button>
+      </>));
 
     return (
-      <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', maxWidth: 860 }}>
-        <button className="secondary-btn" onClick={backToList} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, height: 34 }}>
+      <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', maxWidth: 920, margin: '0 auto' }}>
+        <button className="secondary-btn" onClick={backToList} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 18, height: 34 }}>
           <ArrowLeft size={15} /> {isNew ? 'Cancel' : 'Back'}
         </button>
-        <h2 style={{ marginBottom: 4 }}>{isNew ? 'New' : 'Edit'} {draft.doc_type}</h2>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Fill the standard template, or paste raw notes and let Claude format it into the Greens Global standard.</p>
+        <h2 style={{ marginBottom: 4, fontSize: '1.7rem' }}>{isNew ? 'New' : 'Edit'} {draft.doc_type}</h2>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: 22 }}>Fill in the sections below, or paste raw notes and let Claude format it into the Greens Global standard.</p>
         {errBanner}
 
         {draft._importSource && (
@@ -1020,33 +1032,47 @@ export default function SOP({ activeSub, onSubChange }) {
           <textarea className="form-input" value={draft._raw} placeholder="Paste existing SOP text or bullet notes here…" onChange={e => setDraft(p => ({ ...p, _raw: e.target.value }))} style={{ width: '100%', minHeight: 80, resize: 'vertical' }} />
         </div></>}
 
-        <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', marginBottom: 16 }}>
-          <div className="form-group"><label>Title</label><input className="form-input" value={draft.title} placeholder="e.g. Unit Move-In Procedure" onChange={e => setDraft(p => ({ ...p, title: e.target.value }))} /></div>
-          <div className="form-group"><label>Type</label><select className="form-select" value={draft.doc_type} onChange={e => setDraft(p => ({ ...p, doc_type: e.target.value }))}>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select></div>
-          <div className="form-group"><label>Version</label><input className="form-input" value={draft.version} onChange={e => setDraft(p => ({ ...p, version: e.target.value }))} /></div>
-          <div className="form-group"><label>Effective date</label><input type="date" className="form-input" value={draft.effective_date} onChange={e => setDraft(p => ({ ...p, effective_date: e.target.value }))} /></div>
-          <div className="form-group"><label>Reviewing manager email</label><input className="form-input" value={draft.reviewer_email} placeholder="manager@greensglobal.com" onChange={e => setDraft(p => ({ ...p, reviewer_email: e.target.value }))} /></div>
-          <div className="form-group"><label>Reviewer name <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label><input className="form-input" value={draft.reviewer_name} onChange={e => setDraft(p => ({ ...p, reviewer_name: e.target.value }))} /></div>
-          <div className="form-group"><label>Review cadence (months)</label><input className="form-input" value={draft.review_every_months} onChange={e => setDraft(p => ({ ...p, review_every_months: e.target.value }))} /></div>
-          <div className="form-group"><label>Retention (months)</label><input className="form-input" value={draft.retention_months} onChange={e => setDraft(p => ({ ...p, retention_months: e.target.value }))} /></div>
+        {/* Prominent title field */}
+        <div style={cardStyle}>
+          <label style={fieldLabel}>Document title</label>
+          <input className="form-input" value={draft.title} placeholder="e.g. Unit Move-In Procedure" onChange={e => setDraft(p => ({ ...p, title: e.target.value }))} style={{ fontSize: '1.35rem', fontWeight: 600, padding: '14px 16px', height: 'auto', fontFamily: "'Plus Jakarta Sans', sans-serif" }} />
         </div>
 
-        <div className="form-group" style={{ marginBottom: 20 }}>
-          <label>Applies to departments</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
-            {DEPARTMENTS.map(dep => {
-              const on = draft.departments.includes(dep);
-              return <button key={dep} onClick={() => toggleDept(dep)} style={{ fontSize: '0.8rem', padding: '6px 12px', borderRadius: 999, border: '1px solid', borderColor: on ? 'var(--text-primary)' : 'var(--border-color)', backgroundColor: on ? 'var(--text-primary)' : 'var(--bg-card)', color: on ? 'var(--bg-card)' : 'var(--text-secondary)', fontWeight: 500, cursor: 'pointer' }}>{dep}</button>;
-            })}
+        {section('Document details', null, (<>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 18 }}>
+            <div className="form-group"><label>Type</label><select className="form-select" value={draft.doc_type} onChange={e => setDraft(p => ({ ...p, doc_type: e.target.value }))} style={{ padding: '11px 36px 11px 14px' }}>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select></div>
+            <div className="form-group"><label>Version</label><input className="form-input" value={draft.version} onChange={e => setDraft(p => ({ ...p, version: e.target.value }))} style={{ padding: '11px 14px' }} /></div>
+            <div className="form-group"><label>Effective date</label><input type="date" className="form-input" value={draft.effective_date} onChange={e => setDraft(p => ({ ...p, effective_date: e.target.value }))} style={{ padding: '11px 14px' }} /></div>
+            <div className="form-group"><label>Reviewing manager email</label><input className="form-input" value={draft.reviewer_email} placeholder="manager@greensglobal.com" onChange={e => setDraft(p => ({ ...p, reviewer_email: e.target.value }))} style={{ padding: '11px 14px' }} /></div>
+            <div className="form-group"><label>Reviewer name <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label><input className="form-input" value={draft.reviewer_name} onChange={e => setDraft(p => ({ ...p, reviewer_name: e.target.value }))} style={{ padding: '11px 14px' }} /></div>
+            <div className="form-group"><label>Review cadence (months)</label><input className="form-input" value={draft.review_every_months} onChange={e => setDraft(p => ({ ...p, review_every_months: e.target.value }))} style={{ padding: '11px 14px' }} /></div>
+            <div className="form-group"><label>Retention (months)</label><input className="form-input" value={draft.retention_months} onChange={e => setDraft(p => ({ ...p, retention_months: e.target.value }))} style={{ padding: '11px 14px' }} /></div>
           </div>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 9, marginTop: 14, cursor: 'pointer', fontSize: '0.82rem' }}>
-            <input type="checkbox" checked={!!draft.require_ack} onChange={e => setDraft(p => ({ ...p, require_ack: e.target.checked }))} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+          <div style={{ marginTop: 20 }}>
+            <label style={fieldLabel}>Applies to departments</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {DEPARTMENTS.map(dep => {
+                const on = draft.departments.includes(dep);
+                return <button key={dep} onClick={() => toggleDept(dep)} style={{ fontSize: '0.82rem', padding: '8px 14px', borderRadius: 999, border: '1px solid', borderColor: on ? 'var(--text-primary)' : 'var(--border-color)', backgroundColor: on ? 'var(--text-primary)' : 'var(--bg-card)', color: on ? 'var(--bg-card)' : 'var(--text-secondary)', fontWeight: 500, cursor: 'pointer' }}>{dep}</button>;
+              })}
+            </div>
+          </div>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 10, marginTop: 18, cursor: 'pointer', fontSize: '0.85rem' }}>
+            <input type="checkbox" checked={!!draft.require_ack} onChange={e => setDraft(p => ({ ...p, require_ack: e.target.checked }))} style={{ width: 17, height: 17, cursor: 'pointer' }} />
             Require acknowledgement (e-signature sign-off) from staff once approved
           </label>
-        </div>
+        </>))}
 
-        <div className="form-group" style={{ marginBottom: 16 }}><label>Purpose</label><textarea className="form-input" value={draft.body.purpose} placeholder="Why this document exists…" onChange={e => setBody({ purpose: e.target.value })} style={{ minHeight: 70, resize: 'vertical' }} /></div>
-        <div className="form-group" style={{ marginBottom: 16 }}><label>Scope</label><textarea className="form-input" value={draft.body.scopeText} placeholder="Who and what this applies to…" onChange={e => setBody({ scopeText: e.target.value })} style={{ minHeight: 70, resize: 'vertical' }} /></div>
+        {section('Overview', 'Set the context for this document.', (<>
+          <div style={{ marginBottom: 18 }}>
+            <label style={fieldLabel}>Purpose</label>
+            <textarea className="form-input" value={draft.body.purpose} placeholder="Why this document exists…" onChange={e => setBody({ purpose: e.target.value })} style={{ ...bigText, minHeight: 120 }} />
+          </div>
+          <div>
+            <label style={fieldLabel}>Scope</label>
+            <textarea className="form-input" value={draft.body.scopeText} placeholder="Who and what this applies to…" onChange={e => setBody({ scopeText: e.target.value })} style={{ ...bigText, minHeight: 120 }} />
+          </div>
+        </>))}
 
         {isManual ? chapterBuilder() : (<>
         {listEditor('materials', 'Materials & required items', 'e.g. Master key set')}
@@ -1054,30 +1080,29 @@ export default function SOP({ activeSub, onSubChange }) {
         {pairEditor('definitions', 'Definitions', 'term', 'def', 'Term', 'Definition')}
 
         {/* procedure */}
-        <div className="ed-block" style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: 8 }}>Procedure</label>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {section('Procedure', 'List the steps in order. Add a note or a picture to any step.', (<>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {draft.body.procedure.map((s, i) => (
-              <div key={i} style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 10, backgroundColor: 'var(--bg-secondary)' }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span style={{ width: 26, height: 26, borderRadius: 8, backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'hsl(var(--color-blue))', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>{i + 1}</span>
-                  <input className="form-input" value={s.text} placeholder={`Step ${i + 1}…`} onChange={e => updItem('procedure', i, { ...s, text: e.target.value })} style={{ flex: 1 }} />
-                  <button className="secondary-btn" title="Attach picture" onClick={() => pickFiles(false, ([a]) => { if (a?.type === 'image') updItem('procedure', i, { ...s, image: a.data }); })} style={{ width: 40, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ImageIcon size={15} /></button>
-                  <button className="secondary-btn" onClick={() => delItem('procedure', i)} style={{ width: 40, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={15} /></button>
+              <div key={i} style={{ border: '1px solid var(--border-color)', borderRadius: 12, padding: 14, backgroundColor: 'var(--bg-secondary)' }}>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  <span style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'hsl(var(--color-blue))', fontWeight: 700, fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto', marginTop: 2 }}>{i + 1}</span>
+                  <textarea className="form-input" value={s.text} placeholder={`Step ${i + 1} — what to do…`} onChange={e => updItem('procedure', i, { ...s, text: e.target.value })} style={{ flex: 1, minHeight: 46, resize: 'vertical', fontSize: '0.92rem', lineHeight: 1.55, padding: '11px 14px' }} />
+                  <button className="secondary-btn" title="Attach picture" onClick={() => pickFiles(false, ([a]) => { if (a?.type === 'image') updItem('procedure', i, { ...s, image: a.data }); })} style={{ width: 42, height: 42, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><ImageIcon size={16} /></button>
+                  <button className="secondary-btn" onClick={() => delItem('procedure', i)} style={{ width: 42, height: 42, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Trash2 size={16} /></button>
                 </div>
-                <textarea className="form-input" value={s.detail || ''} placeholder="Optional detail / note for this step…" onChange={e => updItem('procedure', i, { ...s, detail: e.target.value })} style={{ marginTop: 8, marginLeft: 34, width: 'calc(100% - 34px)', minHeight: 38, resize: 'vertical', fontSize: '0.85rem' }} />
-                {s.image && <div style={{ marginTop: 8, marginLeft: 34, display: 'flex', alignItems: 'center', gap: 10 }}><img src={s.image} alt="step" style={{ height: 56, borderRadius: 8, border: '1px solid var(--border-color)' }} /><button className="secondary-btn" onClick={() => updItem('procedure', i, { ...s, image: '' })} style={{ height: 30, fontSize: '0.78rem' }}>Remove picture</button></div>}
+                <textarea className="form-input" value={s.detail || ''} placeholder="Optional detail / note for this step…" onChange={e => updItem('procedure', i, { ...s, detail: e.target.value })} style={{ marginTop: 10, marginLeft: 40, width: 'calc(100% - 40px)', minHeight: 46, resize: 'vertical', fontSize: '0.88rem', lineHeight: 1.55, padding: '10px 14px' }} />
+                {s.image && <div style={{ marginTop: 10, marginLeft: 40, display: 'flex', alignItems: 'center', gap: 10 }}><img src={s.image} alt="step" style={{ height: 60, borderRadius: 8, border: '1px solid var(--border-color)' }} /><button className="secondary-btn" onClick={() => updItem('procedure', i, { ...s, image: '' })} style={{ height: 32, fontSize: '0.8rem' }}>Remove picture</button></div>}
               </div>
             ))}
+            {draft.body.procedure.length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>No steps yet.</p>}
           </div>
-          <button className="secondary-btn" onClick={() => addItem('procedure', { text: '', detail: '' })} style={{ marginTop: 8, height: 32, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={13} /> Add step</button>
-        </div>
+          <button className="secondary-btn" onClick={() => addItem('procedure', { text: '', detail: '' })} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add step</button>
+        </>))}
 
         {listEditor('safety', 'Safety & compliance', 'e.g. Never enter a unit alone if…')}
         {listEditor('references', 'References', 'e.g. OPS-021 Access Control')}
 
-        <div className="ed-block" style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: 8 }}>Attachments &amp; diagrams</label>
+        {section('Attachments & diagrams', null, (<>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
             {(draft.body.attachments || []).map((a, i) => (
               <div key={i} style={{ position: 'relative', border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden', width: 122, background: 'var(--bg-card)' }}>
@@ -1089,8 +1114,8 @@ export default function SOP({ activeSub, onSubChange }) {
               </div>
             ))}
           </div>
-          <button className="secondary-btn" onClick={() => pickFiles(true, assets => setBody({ attachments: [...(draft.body.attachments || []), ...assets] }))} style={{ marginTop: 8, height: 32, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={13} /> Add files / pictures</button>
-        </div>
+          <button className="secondary-btn" onClick={() => pickFiles(true, assets => setBody({ attachments: [...(draft.body.attachments || []), ...assets] }))} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add files / pictures</button>
+        </>))}
         </>)}
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', paddingTop: 8, borderTop: '1px solid var(--border-color)', marginTop: 8 }}>
@@ -1467,7 +1492,7 @@ export default function SOP({ activeSub, onSubChange }) {
             {manageCard(BookOpen, 'New manual', 'Build a chaptered manual that links existing SOPs into one reference.', 'Create manual', openCreateManual)}
             {manageCard(Grid3x3, 'Assignment Matrix', 'Set which departments each document applies to, in one grid.', 'Open matrix', () => switchTab('matrix'))}
             {manageCard(BarChart3, 'Insights', 'Usage, freshness, content gaps, and training completion across the library.', 'Open insights', () => switchTab('insights'))}
-            {manageCard(GraduationCap, 'Training courses', 'Author, edit, and publish Learn courses and quizzes.', 'Manage courses', () => switchTab('lms'))}
+            {manageCard(GraduationCap, 'Training courses', 'Author, edit, and publish Learn courses and quizzes.', 'Manage courses', openCourseManager)}
           </div>
 
           {sectionHead('Activity log')}
@@ -1562,15 +1587,37 @@ export default function SOP({ activeSub, onSubChange }) {
       {sub === 'lms' && lmsMode === 'list' && (() => {
         const published = lmsCourses.filter(c => c.status === 'published');
         const statusChip = (s) => { const m = s === 'Completed' ? STATUS_META.approved : s === 'In progress' ? STATUS_META.in_review : STATUS_META.draft; return <span style={{ backgroundColor: m.bg, color: m.fg, fontSize: '0.72rem', fontWeight: 700, padding: '3px 10px', borderRadius: 999 }}>{s}</span>; };
+        const manageView = isManager && lmsManage;
+        if (manageView) {
+          return (
+            <>
+              <button className="secondary-btn" onClick={() => switchTab('manage')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, height: 34 }}><ArrowLeft size={15} /> Manage</button>
+              <div className="view-header" style={{ marginBottom: 16 }}>
+                <div className="view-title-group"><h2>Training courses</h2><p>Author, edit, and publish courses and quizzes for the Learn tab.</p></div>
+                <button className="primary-btn" onClick={() => openCourseEditor(null)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={15} /> New course</button>
+              </div>
+              <div style={{ border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden', background: 'var(--bg-card)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}><tbody>
+                  {lmsCourses.length === 0 ? <tr><td style={{ padding: 16, color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No courses yet — create one with “New course”.</td></tr> : lmsCourses.map(c => (
+                    <tr key={c.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                      <td style={{ padding: '11px 14px' }}><div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{c.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{c.course_code} · {c.lesson_count} lessons</div></td>
+                      <td style={{ padding: '11px 14px' }}><span style={{ fontSize: '0.7rem', fontWeight: 700, color: c.status === 'published' ? 'hsl(145,55%,30%)' : 'var(--text-secondary)', background: c.status === 'published' ? 'hsla(145,63%,42%,0.12)' : 'var(--bg-secondary)', borderRadius: 999, padding: '3px 10px' }}>{c.status}</span></td>
+                      <td style={{ padding: '11px 14px', textAlign: 'right' }}><button className="secondary-btn" onClick={() => openCourse(c.id)} style={{ height: 30, fontSize: '0.78rem', marginRight: 6 }}>Preview</button><button className="secondary-btn" onClick={() => openCourseEditor(c.id)} style={{ height: 30, fontSize: '0.78rem' }}>Edit</button></td>
+                    </tr>
+                  ))}
+                </tbody></table>
+              </div>
+            </>
+          );
+        }
         return (
           <>
             <div className="view-header" style={{ marginBottom: 16 }}>
               <div className="view-title-group"><h2>Learn</h2><p>Training built from your SOPs and guides — work through the lessons, pass the quiz, and your completion is recorded.</p></div>
-              {isManager && <button className="primary-btn" onClick={() => openCourseEditor(null)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={15} /> New course</button>}
             </div>
             <div style={{ fontSize: '0.85rem', fontWeight: 700, margin: '6px 2px 12px' }}>My learning</div>
             {published.length === 0
-              ? <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px 14px', fontSize: '0.83rem', color: 'var(--text-secondary)' }}>No courses published yet{isManager ? ' — create one with “New course”.' : '.'}</div>
+              ? <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px 14px', fontSize: '0.83rem', color: 'var(--text-secondary)' }}>No courses published yet.</div>
               : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
                   {published.map(c => { const st = c.status_for_me; const pct = coursePct(c); return (
                     <div key={c.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1583,20 +1630,6 @@ export default function SOP({ activeSub, onSubChange }) {
                     </div>
                   ); })}
                 </div>}
-            {isManager && (<>
-              <div style={{ fontSize: '0.85rem', fontWeight: 700, margin: '24px 2px 10px' }}>Course catalog</div>
-              <div style={{ border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden', background: 'var(--bg-card)' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}><tbody>
-                  {lmsCourses.length === 0 ? <tr><td style={{ padding: 16, color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No courses yet.</td></tr> : lmsCourses.map(c => (
-                    <tr key={c.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                      <td style={{ padding: '11px 14px' }}><div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{c.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{c.course_code} · {c.lesson_count} lessons</div></td>
-                      <td style={{ padding: '11px 14px' }}><span style={{ fontSize: '0.7rem', fontWeight: 700, color: c.status === 'published' ? 'hsl(145,55%,30%)' : 'var(--text-secondary)', background: c.status === 'published' ? 'hsla(145,63%,42%,0.12)' : 'var(--bg-secondary)', borderRadius: 999, padding: '3px 10px' }}>{c.status}</span></td>
-                      <td style={{ padding: '11px 14px', textAlign: 'right' }}><button className="secondary-btn" onClick={() => openCourse(c.id)} style={{ height: 30, fontSize: '0.78rem', marginRight: 6 }}>Preview</button><button className="secondary-btn" onClick={() => openCourseEditor(c.id)} style={{ height: 30, fontSize: '0.78rem' }}>Edit</button></td>
-                    </tr>
-                  ))}
-                </tbody></table>
-              </div>
-            </>)}
           </>
         );
       })()}
