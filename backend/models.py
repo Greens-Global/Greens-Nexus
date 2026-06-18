@@ -589,6 +589,11 @@ class KbDocument(Base):
     review_note      = Column(String, default="")             # latest reviewer note
     revision_history = Column(String, default="[]")           # JSON list of {version,date,author,notes}
     require_ack      = Column(Boolean, default=False)          # require e-signature sign-off once approved
+    views            = Column(Integer, default=0)              # detail-view counter (usage analytics)
+    review_every_months = Column(Integer, default=12)          # freshness cadence
+    verified_at      = Column(String, default="")             # last verified (ISO date)
+    verified_by      = Column(String, default="")
+    retention_months = Column(Integer, default=84)            # records-retention window
     created_by       = Column(String, default="")
     created_at       = Column(String, default="")
     updated_at       = Column(String, default="")

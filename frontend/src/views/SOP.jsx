@@ -111,7 +111,8 @@ function mediaEmbed(m, key) {
 const blankDraft = (name, email) => ({
   id: null, title: '', doc_type: 'SOP', departments: [], reviewer_email: '',
   reviewer_name: '', version: '0.1', effective_date: '', body: blankBody(),
-  require_ack: false, owner_name: name, owner_email: email, _raw: '',
+  require_ack: false, review_every_months: 12, retention_months: 84,
+  owner_name: name, owner_email: email, _raw: '',
 });
 
 const fmtDate = (s) => (s ? new Date(s.length > 10 ? s : s + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—');
@@ -148,6 +149,7 @@ export default function SOP({ activeSub, onSubChange }) {
   const [signOpen, setSignOpen] = useState(false);
   const [signName, setSignName] = useState('');
   const [signoffs, setSignoffs] = useState([]);
+  const [insights, setInsights] = useState(null);
   const [lightbox, setLightbox] = useState(null); // image src to zoom
 
   // comments + version history
@@ -192,6 +194,21 @@ export default function SOP({ activeSub, onSubChange }) {
   useEffect(() => {
     if (sub === 'signoffs') api.getKbSignoffs().then(setSignoffs).catch(() => {});
   }, [sub, docs]);
+  useEffect(() => {
+    if (sub === 'insights') api.getKbInsights().then(setInsights).catch(() => {});
+  }, [sub, docs]);
+
+  const toggleMatrix = async (doc, dep) => {
+    const has = (doc.departments || []).includes(dep);
+    const next = has ? doc.departments.filter(x => x !== dep) : [...(doc.departments || []), dep];
+    setDocs(prev => prev.map(x => x.id === doc.id ? { ...x, departments: next } : x));
+    try { await api.setKbDepartments(doc.id, next); } catch (e) { setErr(e.message || 'Failed'); refresh(); }
+  };
+  const toggleMatrixAll = async (doc) => {
+    const next = DEPARTMENTS.length === (doc.departments || []).length ? [] : [...DEPARTMENTS];
+    setDocs(prev => prev.map(x => x.id === doc.id ? { ...x, departments: next } : x));
+    try { await api.setKbDepartments(doc.id, next); } catch (e) { setErr(e.message || 'Failed'); refresh(); }
+  };
 
   const reloadAcks = () => { if (selected) api.getKbAcks(selected.id).then(setAckInfo).catch(() => {}); };
   const doSign = async () => {
@@ -201,6 +218,10 @@ export default function SOP({ activeSub, onSubChange }) {
   const toggleAckRequired = async (val) => {
     try { const doc = await api.setKbAckRequired(selected.id, val); setSelected(doc); refresh(); reloadAcks(); }
     catch (e) { setErr(e.message || 'Failed to update sign-off setting'); }
+  };
+  const verifyDoc = async () => {
+    try { const doc = await api.verifyKbDoc(selected.id); setSelected(doc); refresh(); }
+    catch (e) { setErr(e.message || 'Failed to mark verified'); }
   };
 
   const canEdit = (d) => isManager || (d.owner_email === myEmail && (d.status === 'draft' || d.status === 'changes_requested'));
@@ -232,6 +253,7 @@ export default function SOP({ activeSub, onSubChange }) {
       id: d.id, title: d.title, doc_type: d.doc_type, departments: [...(d.departments || [])],
       reviewer_email: d.reviewer_email || '', reviewer_name: d.reviewer_name || '',
       version: d.version, effective_date: d.effective_date || '', require_ack: !!d.require_ack,
+      review_every_months: d.review_every_months || 12, retention_months: d.retention_months || 84,
       body: { ...blankBody(), ...(d.body || {}) }, owner_name: d.owner_name, owner_email: d.owner_email, _raw: '',
     });
     setMode('editor');
@@ -266,6 +288,8 @@ export default function SOP({ activeSub, onSubChange }) {
     reviewer_email: draft.reviewer_email, reviewer_name: draft.reviewer_name,
     version: draft.version, effective_date: draft.effective_date, body: draft.body,
     require_ack: draft.require_ack,
+    review_every_months: parseInt(draft.review_every_months, 10) || 12,
+    retention_months: parseInt(draft.retention_months, 10) || 84,
   });
 
   const save = async (submit) => {
@@ -479,6 +503,7 @@ export default function SOP({ activeSub, onSubChange }) {
               <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', backgroundColor: 'var(--bg-secondary)', borderRadius: 6, padding: '2px 8px' }}>{d.doc_type}</span>
               <Badge status={d.status} />
               {d.require_ack && <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)', borderRadius: 999, padding: '3px 10px' }}>Sign-off required</span>}
+              {d.is_stale && <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)', borderRadius: 999, padding: '3px 10px' }}>Needs review</span>}
             </div>
             <h2>{d.title}</h2>
           </div>
@@ -581,6 +606,18 @@ export default function SOP({ activeSub, onSubChange }) {
               {d.status === 'changes_requested' && d.review_note && <p style={{ fontSize: '0.8rem', color: 'hsl(0,70%,45%)', margin: '10px 0 0' }}>{d.review_note}</p>}
               {d.status === 'approved' && <p style={{ fontSize: '0.8rem', color: 'hsl(145,55%,32%)', margin: '10px 0 0' }}>Published and live in the library.</p>}
             </div>
+
+            {d.status === 'approved' && (
+              <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, boxShadow: 'var(--shadow-sm)' }}>
+                <h3 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', margin: '0 0 12px' }}>Freshness</h3>
+                {d.is_stale
+                  ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', fontWeight: 700, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)', borderRadius: 999, padding: '4px 10px' }}>Needs review</span>
+                  : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', fontWeight: 700, color: 'hsl(145,55%,30%)', background: 'hsla(145,63%,42%,0.14)', borderRadius: 999, padding: '4px 10px' }}><CheckSquare size={13} /> Verified</span>}
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 8 }}>{d.verified_at ? `Last verified ${fmtDate(d.verified_at)}${d.verified_by ? ` by ${d.verified_by}` : ''}.` : 'Not yet verified.'}</div>
+                <div style={{ fontSize: '0.78rem', color: d.is_stale ? 'hsl(32,80%,38%)' : 'var(--text-muted)', marginTop: 3 }}>Every {d.review_every_months} mo · next due {fmtDate(d.next_review)}.</div>
+                {isManager && <button className={d.is_stale ? 'primary-btn' : 'secondary-btn'} onClick={verifyDoc} style={{ marginTop: 10, width: '100%', height: 32, fontSize: '0.8rem' }}>Mark verified today</button>}
+              </div>
+            )}
 
             {(d.require_ack || isManager) && (() => {
               const myAck = ackInfo?.signed?.find(s => s.user_email === myEmail);
@@ -805,6 +842,8 @@ export default function SOP({ activeSub, onSubChange }) {
           <div className="form-group"><label>Effective date</label><input type="date" className="form-input" value={draft.effective_date} onChange={e => setDraft(p => ({ ...p, effective_date: e.target.value }))} /></div>
           <div className="form-group"><label>Reviewing manager email</label><input className="form-input" value={draft.reviewer_email} placeholder="manager@greensglobal.com" onChange={e => setDraft(p => ({ ...p, reviewer_email: e.target.value }))} /></div>
           <div className="form-group"><label>Reviewer name <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label><input className="form-input" value={draft.reviewer_name} onChange={e => setDraft(p => ({ ...p, reviewer_name: e.target.value }))} /></div>
+          <div className="form-group"><label>Review cadence (months)</label><input className="form-input" value={draft.review_every_months} onChange={e => setDraft(p => ({ ...p, review_every_months: e.target.value }))} /></div>
+          <div className="form-group"><label>Retention (months)</label><input className="form-input" value={draft.retention_months} onChange={e => setDraft(p => ({ ...p, retention_months: e.target.value }))} /></div>
         </div>
 
         <div className="form-group" style={{ marginBottom: 20 }}>
@@ -1067,7 +1106,7 @@ export default function SOP({ activeSub, onSubChange }) {
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       <div style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--border-color)', paddingBottom: 1 }}>
-        {Object.entries(TAB_LABELS).map(([key, label]) => (
+        {[...Object.entries(TAB_LABELS), ...(isManager ? [['matrix', 'Assignment Matrix'], ['insights', 'Insights']] : [])].map(([key, label]) => (
           <button key={key} onClick={() => switchTab(key)} style={{ background: 'none', border: 'none', padding: '10px 18px', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '0.95rem', cursor: 'pointer', color: sub === key ? 'var(--text-primary)' : 'var(--text-secondary)', position: 'relative' }}>
             {label}
             {key === 'review' && reviewQueue.length > 0 && <span style={{ marginLeft: 7, backgroundColor: 'hsl(var(--color-blue))', color: '#fff', borderRadius: 999, padding: '1px 7px', fontSize: '0.7rem' }}>{reviewQueue.length}</span>}
@@ -1165,6 +1204,61 @@ export default function SOP({ activeSub, onSubChange }) {
               {groupHead('All policies requiring sign-off', signoffs.length || null)}
               {signoffs.length ? table(signoffs, 'all') : note('No approved policies currently require sign-off.')}
             </>)}
+          </>
+        );
+      })()}
+
+      {/* Assignment Matrix (managers) */}
+      {sub === 'matrix' && isManager && (() => {
+        const rows = docs.slice().sort((a, b) => (a.doc_code || '').localeCompare(b.doc_code || ''));
+        return (
+          <>
+            <div className="view-header" style={{ marginBottom: 16 }}><div className="view-title-group"><h2>Assignment Matrix</h2><p>Tap a cell to assign or unassign a department. “All” applies or clears every department for that document.</p></div></div>
+            <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: 12, background: 'var(--bg-card)' }}>
+              <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 700 }}>
+                <thead><tr>
+                  <th style={{ position: 'sticky', left: 0, background: 'var(--bg-secondary)', textAlign: 'left', padding: '10px 14px', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)', fontWeight: 700, minWidth: 220, zIndex: 1 }}>Document</th>
+                  <th style={{ background: 'var(--bg-secondary)', padding: '10px 6px', fontSize: '0.62rem', color: 'var(--text-muted)', fontWeight: 700 }}>ALL</th>
+                  {DEPARTMENTS.map(dep => <th key={dep} title={dep} style={{ background: 'var(--bg-secondary)', padding: '10px 6px', fontSize: '0.62rem', color: 'var(--text-muted)', fontWeight: 700 }}>{DEPT_ABBR[dep]}</th>)}
+                </tr></thead>
+                <tbody>{rows.map(d => { const isAll = DEPARTMENTS.length === (d.departments || []).length; return (
+                  <tr key={d.id} style={{ borderTop: '1px solid var(--border-color)' }}>
+                    <td style={{ position: 'sticky', left: 0, background: 'var(--bg-card)', padding: '10px 14px', minWidth: 220 }}><div style={{ fontWeight: 600, fontSize: '0.83rem' }}>{d.title}</div><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{d.doc_code} · {d.doc_type}</div></td>
+                    <td style={{ textAlign: 'center', padding: '6px' }}><button onClick={() => toggleMatrixAll(d)} style={{ fontSize: '0.62rem', fontWeight: 700, padding: '4px 8px', borderRadius: 999, border: '1.5px solid', borderColor: isAll ? 'var(--text-primary)' : 'var(--border-color)', background: isAll ? 'var(--text-primary)' : 'var(--bg-card)', color: isAll ? 'var(--bg-card)' : 'var(--text-muted)', cursor: 'pointer' }}>All</button></td>
+                    {DEPARTMENTS.map(dep => { const on = (d.departments || []).includes(dep); return (
+                      <td key={dep} style={{ textAlign: 'center', padding: '6px' }}>
+                        <button onClick={() => toggleMatrix(d, dep)} title={`${d.title} → ${dep}`} style={{ width: 24, height: 24, borderRadius: 7, border: '1.5px solid', borderColor: on ? 'var(--text-primary)' : 'var(--border-color)', background: on ? 'var(--text-primary)' : 'var(--bg-card)', color: '#fff', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{on ? <CheckSquare size={13} /> : ''}</button>
+                      </td>
+                    ); })}
+                  </tr>
+                ); })}</tbody>
+              </table>
+            </div>
+          </>
+        );
+      })()}
+
+      {/* Insights (managers) */}
+      {sub === 'insights' && isManager && (() => {
+        const i = insights;
+        const tile = (label, value, color) => <div style={{ flex: '1 1 130px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: '14px 16px', boxShadow: 'var(--shadow-sm)' }}><div style={{ fontSize: '0.62rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>{label}</div><div style={{ fontSize: '1.6rem', fontWeight: 700, fontFamily: 'monospace', lineHeight: 1.1, color: color || 'var(--text-primary)' }}>{value}</div></div>;
+        const card = (title, node) => <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 16, boxShadow: 'var(--shadow-sm)' }}><h3 style={{ fontSize: '0.85rem', fontWeight: 700, margin: '0 0 12px' }}>{title}</h3>{node}</div>;
+        const muted = (t) => <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{t}</div>;
+        return (
+          <>
+            <div className="view-header" style={{ marginBottom: 16 }}><div className="view-title-group"><h2>Insights</h2><p>Usage, freshness, and training across the knowledge base</p></div></div>
+            {!i ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div> : (
+              <>
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
+                  {tile('Documents', i.total)}{tile('Approved', i.approved, 'hsl(145,55%,30%)')}{tile('In review', i.in_review)}{tile('Needs review', i.needs_review.length, i.needs_review.length ? 'hsl(32,80%,38%)' : undefined)}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+                  {card(<>Needs review <span style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>{i.needs_review.length}</span></>, i.needs_review.length ? i.needs_review.map(d => <button key={d.id} onClick={() => openSourceById(d.id)} style={{ display: 'flex', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderTop: '1px solid var(--bg-secondary)', padding: '9px 2px', cursor: 'pointer', alignItems: 'center', gap: 8 }}><span style={{ flex: 1, minWidth: 0 }}><span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 500 }}>{d.title}</span><span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{d.doc_code} · last verified {fmtDate(d.verified_at)}</span></span><span style={{ fontSize: '0.66rem', fontWeight: 700, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)', borderRadius: 999, padding: '2px 8px' }}>overdue</span></button>) : muted('Everything is within its review window.'))}
+                  {card('Most viewed', i.most_viewed.length ? i.most_viewed.map(d => <button key={d.id} onClick={() => openSourceById(d.id)} style={{ display: 'flex', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderTop: '1px solid var(--bg-secondary)', padding: '9px 2px', cursor: 'pointer', alignItems: 'center', gap: 8 }}><span style={{ flex: 1, minWidth: 0 }}><span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 500 }}>{d.title}</span><span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{d.doc_code}</span></span><span style={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{d.views}</span></button>) : muted('No views recorded yet.'))}
+                  {card('Training completion', i.courses.length ? i.courses.map(c => <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, borderTop: '1px solid var(--bg-secondary)', padding: '9px 2px' }}><span style={{ flex: 1, minWidth: 0 }}><span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 500 }}>{c.title}</span><span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{c.status}</span></span><span style={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{c.completed}/{c.learners} done</span></div>) : muted('No courses yet.'))}
+                </div>
+              </>
+            )}
           </>
         );
       })()}

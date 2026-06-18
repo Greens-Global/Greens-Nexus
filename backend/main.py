@@ -29,6 +29,11 @@ def _run_migrations():
             "ALTER TABLE requisitions ADD COLUMN fulfillment_note VARCHAR DEFAULT ''",
             "ALTER TABLE requisitions ADD COLUMN fulfilled_item_id VARCHAR DEFAULT ''",
             "ALTER TABLE kb_documents ADD COLUMN require_ack BOOLEAN DEFAULT 0",
+            "ALTER TABLE kb_documents ADD COLUMN views INTEGER DEFAULT 0",
+            "ALTER TABLE kb_documents ADD COLUMN review_every_months INTEGER DEFAULT 12",
+            "ALTER TABLE kb_documents ADD COLUMN verified_at VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN verified_by VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN retention_months INTEGER DEFAULT 84",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -100,8 +105,13 @@ def _run_migrations():
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfilled_at VARCHAR DEFAULT ''",
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfillment_note VARCHAR DEFAULT ''",
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfilled_item_id VARCHAR DEFAULT ''",
-        # knowledge_base: require sign-off flag
+        # knowledge_base: require sign-off flag + analytics/freshness/retention
         "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS require_ack BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS views INTEGER DEFAULT 0",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS review_every_months INTEGER DEFAULT 12",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS verified_at VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS verified_by VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS retention_months INTEGER DEFAULT 84",
     ]
     with engine.connect() as conn:
         for sql in migrations:

@@ -72,6 +72,30 @@ def _next_doc_code(departments: list[str], db: Session) -> str:
     return f"{prefix}-{(max(nums) + 1 if nums else 1):03d}"
 
 
+def _add_months(iso: str, months: int) -> str:
+    if not iso:
+        return ""
+    try:
+        y, m, da = (int(x) for x in iso[:10].split("-"))
+    except (ValueError, IndexError):
+        return ""
+    m0 = (m - 1) + (months or 0)
+    y += m0 // 12
+    m = m0 % 12 + 1
+    return f"{y:04d}-{m:02d}-{min(da, 28):02d}"
+
+
+def _next_review(d: "models.KbDocument") -> str:
+    return _add_months(d.verified_at, d.review_every_months or 12) if d.verified_at else ""
+
+
+def _is_stale(d: "models.KbDocument") -> bool:
+    if d.status != "approved":
+        return False
+    nr = _next_review(d)
+    return (not nr) or (_today() > nr)
+
+
 def _blank_body() -> dict:
     return {
         "purpose": "", "scopeText": "", "materials": [], "responsibilities": [],
@@ -104,6 +128,13 @@ def _serialize(d: models.KbDocument) -> dict:
         "body": {**_blank_body(), **(body if isinstance(body, dict) else {})},
         "review_note": d.review_note or "",
         "require_ack": bool(d.require_ack),
+        "views": d.views or 0,
+        "review_every_months": d.review_every_months or 12,
+        "retention_months": d.retention_months or 84,
+        "verified_at": d.verified_at or "",
+        "verified_by": d.verified_by or "",
+        "next_review": _next_review(d),
+        "is_stale": _is_stale(d),
         "revision_history": history,
         "created_by": d.created_by or "",
         "created_at": d.created_at or "",
@@ -135,6 +166,8 @@ class KbDocIn(BaseModel):
     effective_date: str = ""
     body: dict = {}
     require_ack: bool = False
+    review_every_months: int = 12
+    retention_months: int = 84
 
 
 class ReviewIn(BaseModel):
@@ -166,7 +199,11 @@ def list_documents(db: Session = Depends(get_db)):
 
 @router.get("/documents/{doc_id}")
 def get_document(doc_id: str, db: Session = Depends(get_db)):
-    return _serialize(_get_or_404(doc_id, db))
+    d = _get_or_404(doc_id, db)
+    d.views = (d.views or 0) + 1
+    db.commit()
+    db.refresh(d)
+    return _serialize(d)
 
 
 @router.post("/documents", status_code=201)
@@ -188,6 +225,8 @@ def create_document(payload: KbDocIn, user: dict = Depends(get_current_user), db
         version=payload.version or "0.1",
         effective_date=payload.effective_date,
         require_ack=bool(payload.require_ack),
+        review_every_months=payload.review_every_months or 12,
+        retention_months=payload.retention_months or 84,
         body=json.dumps({**_blank_body(), **(payload.body or {})}),
         revision_history=json.dumps([
             {"version": payload.version or "0.1", "date": _today(), "author": user["email"], "notes": "Created."}
@@ -218,6 +257,8 @@ def update_document(doc_id: str, payload: KbDocIn, user: dict = Depends(get_curr
         d.version = payload.version
     d.effective_date = payload.effective_date
     d.require_ack = bool(payload.require_ack)
+    d.review_every_months = payload.review_every_months or 12
+    d.retention_months = payload.retention_months or 84
     d.body = json.dumps({**_blank_body(), **(payload.body or {})})
     if not d.doc_code:
         d.doc_code = _next_doc_code(payload.departments, db)
@@ -256,6 +297,8 @@ def review_document(doc_id: str, payload: ReviewIn, user: dict = Depends(require
             d.version = "1.0"
         if not d.effective_date:
             d.effective_date = _today()
+        d.verified_at = _today()
+        d.verified_by = user.get("name") or user["email"]
         d.review_note = payload.note
         _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": "Approved & published."})
         _snapshot(d, db)
@@ -280,6 +323,52 @@ def archive_document(doc_id: str, user: dict = Depends(require_level(3)), db: Se
     _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": "Archived."})
     db.commit()
     return _serialize(d)
+
+
+class DepartmentsIn(BaseModel):
+    departments: list[str] = []
+
+
+@router.post("/documents/{doc_id}/verify")
+def verify_document(doc_id: str, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    d = _get_or_404(doc_id, db)
+    d.verified_at = _today()
+    d.verified_by = user.get("name") or user["email"]
+    d.updated_at = _now()
+    db.commit()
+    db.refresh(d)
+    return _serialize(d)
+
+
+@router.post("/documents/{doc_id}/departments")
+def set_departments(doc_id: str, payload: DepartmentsIn, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    d = _get_or_404(doc_id, db)
+    d.departments = ",".join(payload.departments)
+    if not d.doc_code:
+        d.doc_code = _next_doc_code(payload.departments, db)
+    d.updated_at = _now()
+    db.commit()
+    db.refresh(d)
+    return _serialize(d)
+
+
+@router.get("/insights")
+def insights(user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    docs = db.query(models.KbDocument).all()
+    approved = [d for d in docs if d.status == "approved"]
+    needs = [{"id": d.id, "doc_code": d.doc_code, "title": d.title, "verified_at": d.verified_at, "next_review": _next_review(d)}
+             for d in approved if _is_stale(d)]
+    mv = sorted([d for d in docs if d.status != "archived"], key=lambda d: -(d.views or 0))[:6]
+    most_viewed = [{"id": d.id, "doc_code": d.doc_code, "title": d.title, "views": d.views or 0} for d in mv if (d.views or 0) > 0]
+    courses = db.query(models.KbCourse).all()
+    course_stats = []
+    for c in courses:
+        prog = db.query(models.KbCourseProgress).filter(models.KbCourseProgress.course_id == c.id).all()
+        course_stats.append({"id": c.id, "title": c.title, "status": c.status, "learners": len(prog),
+                             "completed": sum(1 for p in prog if p.completed_at)})
+    return {"total": len(docs), "approved": len(approved), "draft": sum(1 for d in docs if d.status in ("draft", "changes_requested")),
+            "in_review": sum(1 for d in docs if d.status == "in_review"), "needs_review": needs,
+            "most_viewed": most_viewed, "courses": course_stats}
 
 
 # ---- sign-offs / e-signature ---------------------------------------------
