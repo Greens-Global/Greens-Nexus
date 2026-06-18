@@ -5,7 +5,7 @@ import { api } from '../api';
 import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, Loader, ChevronUp, ChevronDown,
-  Image as ImageIcon, Paperclip, Settings, Grid3x3, BarChart3, GraduationCap, Eye,
+  Image as ImageIcon, Paperclip, Settings, Grid3x3, BarChart3, GraduationCap, Eye, ChevronRight,
 } from 'lucide-react';
 
 const rid = () => 'r' + Math.random().toString(36).slice(2, 9);
@@ -1183,44 +1183,6 @@ export default function SOP({ activeSub, onSubChange }) {
     );
   };
 
-  const statsRow = () => {
-    const tiles = [
-      ['Documents', docs.length, 'var(--text-primary)'],
-      ['Drafts', docs.filter(d => d.status === 'draft' || d.status === 'changes_requested').length, 'var(--text-secondary)'],
-      ['In Review', docs.filter(d => d.status === 'in_review').length, 'hsl(32,80%,40%)'],
-      ['Approved', docs.filter(d => d.status === 'approved').length, 'hsl(145,55%,32%)'],
-    ];
-    return (
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-        {tiles.map(([l, v, c]) => (
-          <div key={l} style={{ display: 'flex', alignItems: 'baseline', gap: 7, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 9, padding: '7px 13px' }}>
-            <span style={{ fontSize: '1.05rem', fontWeight: 700, fontFamily: 'inherit', lineHeight: 1, color: c }}>{v}</span>
-            <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)' }}>{l}</span>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  const recentStrip = () => {
-    const recent = docs.slice().sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')).slice(0, 5);
-    if (!recent.length) return null;
-    return (
-      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 14, padding: '14px 14px 16px', marginBottom: 22 }}>
-        <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 7, padding: '0 2px 12px' }}><Clock size={13} /> Recently updated</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(208px, 1fr))', gap: 10 }}>
-          {recent.map(d => (
-            <button key={d.id} onClick={() => openDetail(d)} style={{ textAlign: 'left', cursor: 'pointer', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 11, padding: '12px 13px', boxShadow: 'var(--shadow-sm)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}><Badge status={d.status} /><span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{fmtDate(d.updated_at)}</span></div>
-              <div style={{ fontWeight: 600, fontSize: '0.85rem', lineHeight: 1.3, color: 'var(--text-primary)' }}>{d.title}</div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code || '—'} · v{d.version}</div>
-            </button>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
   // Employee-facing strip on the Playbook: what each person needs to act on
   const myTasksStrip = () => {
     const pending = (signoffs || []).filter(s => !s.my_signed);
@@ -1319,15 +1281,6 @@ export default function SOP({ activeSub, onSubChange }) {
       )}
       {!ask.loading && ask.answer == null && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Ask a question in the box above — answers are grounded only in your SOPs and cite their source.</div>}
     </div>
-  );
-
-  const manageCard = (Icon, title, desc, cta, onClick) => (
-    <button onClick={onClick} style={{ textAlign: 'left', cursor: 'pointer', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 16, display: 'flex', flexDirection: 'column', gap: 8, boxShadow: 'var(--shadow-sm)' }}>
-      <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-primary)' }}><Icon size={18} /></div>
-      <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text-primary)' }}>{title}</div>
-      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{desc}</div>
-      <span style={{ marginTop: 2, fontSize: '0.82rem', fontWeight: 600, color: 'hsl(var(--color-blue))' }}>{cta} →</span>
-    </button>
   );
 
   const actionTile = (label, count, hint, Icon, onClick, urgent) => (
@@ -1499,7 +1452,8 @@ export default function SOP({ activeSub, onSubChange }) {
         const staleCount = docs.filter(d => d.is_stale).length;
         const signoffCount = docs.filter(d => d.require_ack && d.status === 'approved').length;
         const draftCount = docs.filter(d => d.status === 'draft' || d.status === 'changes_requested').length;
-        const sectionHead = (txt) => <h3 style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, margin: '26px 2px 12px' }}>{txt}</h3>;
+        const approvedCount = docs.filter(d => d.status === 'approved').length;
+        const recent = docs.slice().sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')).slice(0, 6);
         const ACT = {
           created:   { Icon: Plus,        color: 'hsl(var(--color-blue))' },
           submitted: { Icon: Send,        color: 'hsl(var(--color-blue))' },
@@ -1510,58 +1464,88 @@ export default function SOP({ activeSub, onSubChange }) {
           edited:    { Icon: Edit3,       color: 'var(--text-secondary)' },
           update:    { Icon: Clock,       color: 'var(--text-secondary)' },
         };
+        const panel = { background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, boxShadow: 'var(--shadow-sm)', overflow: 'hidden' };
+        const panelHead = (txt) => <div style={{ padding: '13px 16px', borderBottom: '1px solid var(--border-color)', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, color: 'var(--text-muted)' }}>{txt}</div>;
+        const hoverRow = { onMouseEnter: ev => ev.currentTarget.style.background = 'var(--bg-secondary)', onMouseLeave: ev => ev.currentTarget.style.background = 'transparent' };
+        const tools = [
+          [Grid3x3, 'Assignment Matrix', 'Departments per document', () => switchTab('matrix')],
+          [BarChart3, 'Insights', 'Usage, freshness & training', () => switchTab('insights')],
+          [GraduationCap, 'Training courses', 'Author Learn courses', openCourseManager],
+          [BookOpen, 'New manual', 'Chaptered reference doc', openCreateManual],
+        ];
         return (
         <>
           <div className="view-header" style={{ marginBottom: 18 }}>
-            <div className="view-title-group"><h2>Manage</h2><p>Your knowledge-base control center — review, assign, and keep content fresh</p></div>
+            <div className="view-title-group"><h2>Manage</h2><p>Review, assign, and keep content fresh · {docs.length} document{docs.length === 1 ? '' : 's'} · {approvedCount} approved</p></div>
             <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> New SOP</button>
           </div>
 
-          {statsRow()}
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(178px, 1fr))', gap: 12 }}>
+          {/* KPI row — what needs attention */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
             {actionTile('Pending review', reviewQueue.length, 'Awaiting your approval', Send, () => switchTab('review'), reviewQueue.length > 0)}
-            {actionTile('Needs review', staleCount, 'Past their review date', Clock, () => switchTab('insights'), staleCount > 0)}
-            {actionTile('Sign-offs', signoffCount, 'Policies requiring acknowledgement', CheckSquare, () => switchTab('signoffs'), false)}
-            {actionTile('Drafts in progress', draftCount, 'Not yet submitted for review', Edit3, () => { setStatusFilter('draft'); switchTab('index'); }, false)}
+            {actionTile('Needs review', staleCount, 'Past review date', Clock, () => switchTab('insights'), staleCount > 0)}
+            {actionTile('Sign-offs', signoffCount, 'Require acknowledgement', CheckSquare, () => switchTab('signoffs'), false)}
+            {actionTile('Drafts', draftCount, 'Not yet submitted', Edit3, () => { setStatusFilter('draft'); switchTab('index'); }, false)}
           </div>
 
-          <div style={{ marginTop: 22 }}>{recentStrip()}</div>
+          {/* Activity (left) + Tools & Recent (right) */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
+            <div style={{ flex: '3 1 460px', minWidth: 0, ...panel }}>
+              {panelHead('Activity log')}
+              {activity === null
+                ? <div style={{ textAlign: 'center', padding: 28, color: 'var(--text-secondary)' }}><Loader size={18} style={{ animation: 'spin 0.7s linear infinite' }} /></div>
+                : activity.length === 0
+                  ? <div style={{ textAlign: 'center', padding: 28, color: 'var(--text-muted)', fontSize: '0.85rem' }}>No activity yet.</div>
+                  : <div style={{ maxHeight: 540, overflow: 'auto' }}>
+                      {activity.map((e, i) => {
+                        const a = ACT[e.kind] || ACT.update;
+                        return (
+                          <button key={i} onClick={() => openActivity(e)} title={e.diffable ? 'Open document and show what changed' : 'Open document'} {...hoverRow} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', width: '100%', textAlign: 'left', padding: '11px 16px', background: 'transparent', border: 'none', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}>
+                            <span style={{ marginTop: 1, width: 30, height: 30, borderRadius: 8, flex: '0 0 auto', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: a.color }}><a.Icon size={15} /></span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: '0.86rem', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><span style={{ fontWeight: 600 }}>{e.title}</span> <span style={{ color: 'var(--text-muted)', fontSize: '0.76rem' }}>{e.doc_code}{e.version ? ' · v' + e.version : ''}</span></div>
+                              <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.notes || 'Updated.'}</div>
+                            </div>
+                            <div style={{ flex: '0 0 auto', textAlign: 'right' }}>
+                              <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{fmtDate(e.date)}</div>
+                              {e.diffable && <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'hsl(var(--color-blue))', whiteSpace: 'nowrap' }}>View change →</div>}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>}
+            </div>
 
-          {sectionHead('Quick actions')}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 14 }}>
-            {manageCard(BookOpen, 'New manual', 'Build a chaptered manual that links existing SOPs into one reference.', 'Create manual', openCreateManual)}
-            {manageCard(Grid3x3, 'Assignment Matrix', 'Set which departments each document applies to, in one grid.', 'Open matrix', () => switchTab('matrix'))}
-            {manageCard(BarChart3, 'Insights', 'Usage, freshness, content gaps, and training completion across the library.', 'Open insights', () => switchTab('insights'))}
-            {manageCard(GraduationCap, 'Training courses', 'Author, edit, and publish Learn courses and quizzes.', 'Manage courses', openCourseManager)}
-          </div>
+            <div style={{ flex: '1 1 280px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={panel}>
+                {panelHead('Tools')}
+                {tools.map(([Icon, label, desc, onClick], i) => (
+                  <button key={label} onClick={onClick} {...hoverRow} style={{ display: 'flex', alignItems: 'center', gap: 11, width: '100%', textAlign: 'left', padding: '11px 14px', background: 'transparent', border: 'none', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}>
+                    <span style={{ width: 32, height: 32, borderRadius: 9, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-primary)', flex: '0 0 auto' }}><Icon size={16} /></span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-primary)' }}>{label}</span>
+                      <span style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-muted)' }}>{desc}</span>
+                    </span>
+                    <ChevronRight size={16} style={{ color: 'var(--text-muted)', flex: '0 0 auto' }} />
+                  </button>
+                ))}
+              </div>
 
-          {sectionHead('Activity log')}
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
-            {activity === null
-              ? <div style={{ textAlign: 'center', padding: 28, color: 'var(--text-secondary)' }}><Loader size={18} style={{ animation: 'spin 0.7s linear infinite' }} /></div>
-              : activity.length === 0
-                ? <div style={{ textAlign: 'center', padding: 28, color: 'var(--text-muted)', fontSize: '0.85rem' }}>No activity yet.</div>
-                : <div style={{ maxHeight: 460, overflow: 'auto' }}>
-                    {activity.map((e, i) => {
-                      const a = ACT[e.kind] || ACT.update;
-                      return (
-                        <button key={i} onClick={() => openActivity(e)} title={e.diffable ? 'Open document and show what changed' : 'Open document'} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', width: '100%', textAlign: 'left', padding: '11px 14px', background: 'transparent', border: 'none', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}
-                          onMouseEnter={ev => ev.currentTarget.style.background = 'var(--bg-secondary)'} onMouseLeave={ev => ev.currentTarget.style.background = 'transparent'}>
-                          <span style={{ marginTop: 1, width: 30, height: 30, borderRadius: 8, flex: '0 0 auto', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: a.color }}><a.Icon size={15} /></span>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: '0.86rem', color: 'var(--text-primary)' }}><span style={{ fontWeight: 600 }}>{e.title}</span> <span style={{ color: 'var(--text-muted)', fontSize: '0.76rem' }}>{e.doc_code}{e.version ? ' · v' + e.version : ''}</span></div>
-                            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.notes || 'Updated.'}</div>
-                          </div>
-                          <div style={{ flex: '0 0 auto', textAlign: 'right' }}>
-                            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{fmtDate(e.date)}</div>
-                            {e.author && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{e.author}</div>}
-                            {e.diffable && <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'hsl(var(--color-blue))', whiteSpace: 'nowrap' }}>View change →</div>}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>}
+              <div style={panel}>
+                {panelHead('Recently updated')}
+                {recent.length === 0
+                  ? <div style={{ padding: '16px', fontSize: '0.83rem', color: 'var(--text-muted)' }}>Nothing yet.</div>
+                  : recent.map((d, i) => (
+                      <button key={d.id} onClick={() => openDetail(d)} {...hoverRow} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{d.doc_code || '—'} · v{d.version}</div>
+                        </div>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', flex: '0 0 auto' }}>{fmtDate(d.updated_at)}</span>
+                      </button>
+                    ))}
+              </div>
+            </div>
           </div>
         </>
         );
