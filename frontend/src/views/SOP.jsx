@@ -825,7 +825,8 @@ export default function SOP({ activeSub, onSubChange }) {
     // editor layout primitives — roomy, card-grouped sections with generous spacing
     const cardStyle = { background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 16, padding: '22px 24px', marginBottom: 18, boxShadow: 'var(--shadow-sm)' };
     const secLabel = { fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, display: 'block', marginBottom: 12 };
-    const fieldLabel = { fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 7 };
+    const fieldLabel = { fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 2 };
+    const fieldTip = (text) => <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', margin: '0 0 8px', lineHeight: 1.45 }}>{text}</div>;
     const bigText = { width: '100%', fontSize: '0.95rem', lineHeight: 1.65, padding: '13px 15px', resize: 'vertical' };
     const section = (title, hint, children) => (
       <div style={cardStyle}>
@@ -881,7 +882,7 @@ export default function SOP({ activeSub, onSubChange }) {
         <button className="secondary-btn" onClick={addChapter} style={{ height: 34, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add chapter</button>
       </div>
     );
-    const listEditor = (field, label, placeholder) => section(label, null, (<>
+    const listEditor = (field, label, placeholder, hint) => section(label, hint, (<>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {draft.body[field].map((v, i) => (
             <div key={i} style={{ display: 'flex', gap: 8 }}>
@@ -893,7 +894,7 @@ export default function SOP({ activeSub, onSubChange }) {
         </div>
         <button className="secondary-btn" onClick={() => addItem(field, '')} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add</button>
       </>));
-    const pairEditor = (field, label, k1, k2, p1, p2) => section(label, null, (<>
+    const pairEditor = (field, label, hint, k1, k2, p1, p2) => section(label, hint, (<>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {draft.body[field].map((row, i) => (
             <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 2fr auto', gap: 8 }}>
@@ -979,10 +980,11 @@ export default function SOP({ activeSub, onSubChange }) {
         {/* Prominent title field */}
         <div style={cardStyle}>
           <label style={fieldLabel}>Document title</label>
+          {fieldTip('A clear, specific name people would actually search for.')}
           <input className="form-input" value={draft.title} placeholder="e.g. Unit Move-In Procedure" onChange={e => setDraft(p => ({ ...p, title: e.target.value }))} style={{ fontSize: '1.35rem', fontWeight: 600, padding: '14px 16px', height: 'auto', fontFamily: "'Plus Jakarta Sans', sans-serif" }} />
         </div>
 
-        {section('Document details', null, (<>
+        {section('Document details', 'Who it applies to and how it’s kept current. The reviewing manager approves it before it goes live.', (<>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 18 }}>
             <div className="form-group"><label>Type</label><select className="form-select" value={draft.doc_type} onChange={e => setDraft(p => ({ ...p, doc_type: e.target.value }))} style={{ padding: '11px 36px 11px 14px' }}>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select></div>
             <div className="form-group"><label>Version</label><input className="form-input" value={draft.version} onChange={e => setDraft(p => ({ ...p, version: e.target.value }))} style={{ padding: '11px 14px' }} /></div>
@@ -994,6 +996,7 @@ export default function SOP({ activeSub, onSubChange }) {
           </div>
           <div style={{ marginTop: 20 }}>
             <label style={fieldLabel}>Applies to departments</label>
+            {fieldTip('Tap the teams this document is for — it’ll show up in their Playbook.')}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {DEPARTMENTS.map(dep => {
                 const on = draft.departments.includes(dep);
@@ -1007,24 +1010,26 @@ export default function SOP({ activeSub, onSubChange }) {
           </label>
         </>))}
 
-        {section('Overview', 'Set the context for this document.', (<>
+        {section('Overview', 'Set the context before the steps — what this is for and who it covers.', (<>
           <div style={{ marginBottom: 18 }}>
             <label style={fieldLabel}>Purpose</label>
+            {fieldTip('In a sentence or two, why this document exists and what it should achieve.')}
             <textarea className="form-input" value={draft.body.purpose} placeholder="Why this document exists…" onChange={e => setBody({ purpose: e.target.value })} style={{ ...bigText, minHeight: 120 }} />
           </div>
           <div>
             <label style={fieldLabel}>Scope</label>
+            {fieldTip('Who must follow it, and any situations it does or doesn’t cover.')}
             <textarea className="form-input" value={draft.body.scopeText} placeholder="Who and what this applies to…" onChange={e => setBody({ scopeText: e.target.value })} style={{ ...bigText, minHeight: 120 }} />
           </div>
         </>))}
 
         {isManual ? chapterBuilder() : (<>
-        {listEditor('materials', 'Materials & required items', 'e.g. Master key set')}
-        {pairEditor('responsibilities', 'Responsibilities', 'role', 'duty', 'Role', 'Responsibility')}
-        {pairEditor('definitions', 'Definitions', 'term', 'def', 'Term', 'Definition')}
+        {listEditor('materials', 'Materials & required items', 'e.g. Master key set', 'Anything someone needs on hand before they start — tools, access, forms, or equipment.')}
+        {pairEditor('responsibilities', 'Responsibilities', 'Who does what — list each role and what they’re accountable for in this process.', 'role', 'duty', 'Role', 'Responsibility')}
+        {pairEditor('definitions', 'Definitions', 'Spell out any terms, acronyms, or system names a new reader might not know.', 'term', 'def', 'Term', 'Definition')}
 
         {/* procedure */}
-        {section('Procedure', 'List the steps in order. Add a note or a picture to any step.', (<>
+        {section('Procedure', 'The heart of the document — the steps to follow, in order. Keep each step to one clear action; add a note or picture where it helps.', (<>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {draft.body.procedure.map((s, i) => (
               <div key={i} style={{ border: '1px solid var(--border-color)', borderRadius: 12, padding: 14, backgroundColor: 'var(--bg-secondary)' }}>
@@ -1043,10 +1048,10 @@ export default function SOP({ activeSub, onSubChange }) {
           <button className="secondary-btn" onClick={() => addItem('procedure', { text: '', detail: '' })} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add step</button>
         </>))}
 
-        {listEditor('safety', 'Safety & compliance', 'e.g. Never enter a unit alone if…')}
-        {listEditor('references', 'References', 'e.g. OPS-021 Access Control')}
+        {listEditor('safety', 'Safety & compliance', 'e.g. Never enter a unit alone if…', 'Risks to watch for and any rules, regulations, or policies that must be followed.')}
+        {listEditor('references', 'References', 'e.g. OPS-021 Access Control', 'Related SOPs, policies, or documents someone may need alongside this one.')}
 
-        {section('Attachments & diagrams', null, (<>
+        {section('Attachments & diagrams', 'Supporting files — photos, diagrams, forms, or templates that go with this document.', (<>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
             {(draft.body.attachments || []).map((a, i) => (
               <div key={i} style={{ position: 'relative', border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden', width: 122, background: 'var(--bg-card)' }}>
