@@ -5,7 +5,7 @@ import { api } from '../api';
 import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, Loader, ChevronUp, ChevronDown,
-  Image as ImageIcon, Paperclip, Settings, Grid3x3, BarChart3, GraduationCap, FileText,
+  Image as ImageIcon, Paperclip, Settings, Grid3x3, BarChart3, GraduationCap,
 } from 'lucide-react';
 
 const rid = () => 'r' + Math.random().toString(36).slice(2, 9);
@@ -56,7 +56,7 @@ const STATUS_META = {
   archived:          { label: 'Archived',          bg: 'var(--bg-secondary)',      fg: 'var(--text-muted)' },
 };
 
-const TAB_LABELS = { index: 'Handbook', review: 'Review Queue', signoffs: 'Sign-offs', lms: 'LMS (Learning Portal)' };
+const TAB_LABELS = { index: 'Handbook', review: 'Review Queue', signoffs: 'Sign-offs', lms: 'Learn' };
 
 const Badge = ({ status }) => {
   const m = STATUS_META[status] || STATUS_META.draft;
@@ -1160,6 +1160,7 @@ export default function SOP({ activeSub, onSubChange }) {
         <>
           <div className="view-header" style={{ marginBottom: 20 }}>
             <div className="view-title-group"><h2>Handbook</h2><p>Your SOPs, manuals, and guides — all in one place</p></div>
+            <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> New SOP</button>
           </div>
 
           {statsRow()}
@@ -1180,7 +1181,6 @@ export default function SOP({ activeSub, onSubChange }) {
               <select className="form-select" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All departments</option>{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select>
               <select className="form-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All types</option>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select>
               <select className="form-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All statuses</option>{Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
-              <div style={{ marginLeft: 'auto' }}>{viewToggle()}</div>
             </>) : (
               <button className="primary-btn" disabled={ask.loading} onClick={doAsk} style={{ height: 38, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.85rem' }}>{ask.loading ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {ask.loading ? 'Asking…' : 'Ask'}</button>
             )}
@@ -1189,12 +1189,17 @@ export default function SOP({ activeSub, onSubChange }) {
           {searchMode === 'ask' && askAnswer()}
           {searchMode === 'search' && recentStrip()}
 
-          {searchMode === 'search' && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 10 }}>{filtered.length} document{filtered.length === 1 ? '' : 's'}</div>}
+          {searchMode === 'search' && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{filtered.length} document{filtered.length === 1 ? '' : 's'}</div>
+              {viewToggle()}
+            </div>
+          )}
 
           {loading
             ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
             : (() => {
-                const empty = docs.length === 0 ? (isManager ? 'No documents yet — create one from Manage.' : 'No documents have been published yet.') : 'No documents match your filters.';
+                const empty = docs.length === 0 ? 'No documents yet — click “New SOP” to start your first draft.' : 'No documents match your filters.';
                 if (libView === 'cards') return cardGrid(filtered, empty);
                 if (libView === 'outline') return outlineView(filtered, empty);
                 return docTable(filtered, empty);
@@ -1257,9 +1262,8 @@ export default function SOP({ activeSub, onSubChange }) {
       {/* Manage hub (managers) */}
       {sub === 'manage' && isManager && (
         <>
-          <div className="view-header" style={{ marginBottom: 18 }}><div className="view-title-group"><h2>Manage</h2><p>Create and administer the knowledge base — managers only</p></div></div>
+          <div className="view-header" style={{ marginBottom: 18 }}><div className="view-title-group"><h2>Manage</h2><p>Administer the knowledge base — managers only</p></div></div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 14 }}>
-            {manageCard(FileText, 'New SOP', 'Create a standard operating procedure from the template, or paste notes and let Claude format it.', 'Create SOP', openCreate)}
             {manageCard(BookOpen, 'New manual', 'Build a chaptered manual that links existing SOPs into one reference.', 'Create manual', openCreateManual)}
             {manageCard(Grid3x3, 'Assignment Matrix', 'Set which departments each document applies to, in one grid.', 'Open matrix', () => switchTab('matrix'))}
             {manageCard(BarChart3, 'Insights', 'Usage, freshness, content gaps, and training completion across the library.', 'Open insights', () => switchTab('insights'))}
