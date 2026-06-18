@@ -56,7 +56,7 @@ const STATUS_META = {
   archived:          { label: 'Archived',          bg: 'var(--bg-secondary)',      fg: 'var(--text-muted)' },
 };
 
-const TAB_LABELS = { index: 'SOP Index', review: 'Review Queue', signoffs: 'Sign-offs', lms: 'LMS (Learning Portal)' };
+const TAB_LABELS = { index: 'Handbook', review: 'Review Queue', signoffs: 'Sign-offs', lms: 'LMS (Learning Portal)' };
 
 const Badge = ({ status }) => {
   const m = STATUS_META[status] || STATUS_META.draft;
@@ -1146,7 +1146,7 @@ export default function SOP({ activeSub, onSubChange }) {
       {sub === 'index' && (
         <>
           <div className="view-header" style={{ marginBottom: 20 }}>
-            <div className="view-title-group"><h2>SOP Index</h2><p>Standard Operating Procedures and company documentation</p></div>
+            <div className="view-title-group"><h2>Handbook</h2><p>Your SOPs, manuals, and guides — all in one place</p></div>
             <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><FilePlus size={16} /> New SOP</button>
           </div>
 
