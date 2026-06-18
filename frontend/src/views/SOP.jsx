@@ -3,9 +3,9 @@ import { useMsal } from '@azure/msal-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import {
-  BookOpen, CheckSquare, FilePlus, Search, Clock, Sparkles,
+  BookOpen, CheckSquare, Search, Clock, Sparkles,
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, Loader, ChevronUp, ChevronDown,
-  Image as ImageIcon, Paperclip,
+  Image as ImageIcon, Paperclip, Settings, Grid3x3, BarChart3, GraduationCap, FileText,
 } from 'lucide-react';
 
 const rid = () => 'r' + Math.random().toString(36).slice(2, 9);
@@ -259,6 +259,7 @@ export default function SOP({ activeSub, onSubChange }) {
   // ── navigation ──
   const openDetail = (d) => { setSelected(d); setMode('detail'); };
   const openCreate = () => { setDraft(blankDraft(myName, myEmail)); setMode('editor'); };
+  const openCreateManual = () => { setDraft({ ...blankDraft(myName, myEmail), doc_type: 'Manual' }); setMode('editor'); };
   const openEdit = (d) => {
     setDraft({
       id: d.id, title: d.title, doc_type: d.doc_type, departments: [...(d.departments || [])],
@@ -1094,6 +1095,15 @@ export default function SOP({ activeSub, onSubChange }) {
     </div>
   );
 
+  const manageCard = (Icon, title, desc, cta, onClick) => (
+    <button onClick={onClick} style={{ textAlign: 'left', cursor: 'pointer', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 16, display: 'flex', flexDirection: 'column', gap: 8, boxShadow: 'var(--shadow-sm)' }}>
+      <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-primary)' }}><Icon size={18} /></div>
+      <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text-primary)' }}>{title}</div>
+      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{desc}</div>
+      <span style={{ marginTop: 2, fontSize: '0.82rem', fontWeight: 600, color: 'hsl(var(--color-blue))' }}>{cta} →</span>
+    </button>
+  );
+
   const viewToggle = () => (
     <div style={{ display: 'inline-flex', gap: 6 }}>
       {[['list', 'List'], ['cards', 'Cards'], ['outline', 'By department']].map(([k, l]) => (
@@ -1132,13 +1142,16 @@ export default function SOP({ activeSub, onSubChange }) {
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       <div style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--border-color)', paddingBottom: 1 }}>
-        {[...Object.entries(TAB_LABELS), ...(isManager ? [['matrix', 'Assignment Matrix'], ['insights', 'Insights']] : [])].map(([key, label]) => (
+        {Object.entries(TAB_LABELS).map(([key, label]) => (
           <button key={key} onClick={() => switchTab(key)} style={{ background: 'none', border: 'none', padding: '10px 18px', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '0.95rem', cursor: 'pointer', color: sub === key ? 'var(--text-primary)' : 'var(--text-secondary)', position: 'relative' }}>
             {label}
             {key === 'review' && reviewQueue.length > 0 && <span style={{ marginLeft: 7, backgroundColor: 'hsl(var(--color-blue))', color: '#fff', borderRadius: 999, padding: '1px 7px', fontSize: '0.7rem' }}>{reviewQueue.length}</span>}
             {sub === key && <span style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: 'var(--text-primary)', borderRadius: '4px 4px 0 0' }} />}
           </button>
         ))}
+        {isManager && (
+          <button onClick={() => switchTab('manage')} style={{ marginLeft: 'auto', alignSelf: 'center', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 9, border: '1px solid', borderColor: ['manage', 'matrix', 'insights'].includes(sub) ? 'var(--text-primary)' : 'var(--border-color)', background: ['manage', 'matrix', 'insights'].includes(sub) ? 'var(--text-primary)' : 'var(--bg-card)', color: ['manage', 'matrix', 'insights'].includes(sub) ? 'var(--bg-card)' : 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}><Settings size={15} /> Manage</button>
+        )}
       </div>
       {errBanner}
 
@@ -1147,7 +1160,6 @@ export default function SOP({ activeSub, onSubChange }) {
         <>
           <div className="view-header" style={{ marginBottom: 20 }}>
             <div className="view-title-group"><h2>Handbook</h2><p>Your SOPs, manuals, and guides — all in one place</p></div>
-            <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><FilePlus size={16} /> New SOP</button>
           </div>
 
           {statsRow()}
@@ -1182,7 +1194,7 @@ export default function SOP({ activeSub, onSubChange }) {
           {loading
             ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
             : (() => {
-                const empty = docs.length === 0 ? 'No documents yet. Click “New SOP” to create the first one.' : 'No documents match your filters.';
+                const empty = docs.length === 0 ? (isManager ? 'No documents yet — create one from Manage.' : 'No documents have been published yet.') : 'No documents match your filters.';
                 if (libView === 'cards') return cardGrid(filtered, empty);
                 if (libView === 'outline') return outlineView(filtered, empty);
                 return docTable(filtered, empty);
@@ -1242,11 +1254,26 @@ export default function SOP({ activeSub, onSubChange }) {
         );
       })()}
 
+      {/* Manage hub (managers) */}
+      {sub === 'manage' && isManager && (
+        <>
+          <div className="view-header" style={{ marginBottom: 18 }}><div className="view-title-group"><h2>Manage</h2><p>Create and administer the knowledge base — managers only</p></div></div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 14 }}>
+            {manageCard(FileText, 'New SOP', 'Create a standard operating procedure from the template, or paste notes and let Claude format it.', 'Create SOP', openCreate)}
+            {manageCard(BookOpen, 'New manual', 'Build a chaptered manual that links existing SOPs into one reference.', 'Create manual', openCreateManual)}
+            {manageCard(Grid3x3, 'Assignment Matrix', 'Set which departments each document applies to, in one grid.', 'Open matrix', () => switchTab('matrix'))}
+            {manageCard(BarChart3, 'Insights', 'Usage, freshness, content gaps, and training completion across the library.', 'Open insights', () => switchTab('insights'))}
+            {manageCard(GraduationCap, 'Training courses', 'Author, edit, and publish Learn courses and quizzes.', 'Manage courses', () => switchTab('lms'))}
+          </div>
+        </>
+      )}
+
       {/* Assignment Matrix (managers) */}
       {sub === 'matrix' && isManager && (() => {
         const rows = docs.slice().sort((a, b) => (a.doc_code || '').localeCompare(b.doc_code || ''));
         return (
           <>
+            <button className="secondary-btn" onClick={() => switchTab('manage')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 14, height: 32, fontSize: '0.82rem' }}><ArrowLeft size={14} /> Manage</button>
             <div className="view-header" style={{ marginBottom: 16 }}><div className="view-title-group"><h2>Assignment Matrix</h2><p>Tap a cell to assign or unassign a department. “All” applies or clears every department for that document.</p></div></div>
             <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: 12, background: 'var(--bg-card)' }}>
               <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 700 }}>
@@ -1280,6 +1307,7 @@ export default function SOP({ activeSub, onSubChange }) {
         const muted = (t) => <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{t}</div>;
         return (
           <>
+            <button className="secondary-btn" onClick={() => switchTab('manage')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 14, height: 32, fontSize: '0.82rem' }}><ArrowLeft size={14} /> Manage</button>
             <div className="view-header" style={{ marginBottom: 16 }}><div className="view-title-group"><h2>Insights</h2><p>Usage, freshness, and training across the knowledge base</p></div></div>
             {!i ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div> : (
               <>
