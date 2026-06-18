@@ -1360,7 +1360,7 @@ export default function SOP({ activeSub, onSubChange }) {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 10, boxShadow: 'var(--shadow-sm)' }}>
             <div style={{ display: 'inline-flex', background: 'var(--bg-secondary)', borderRadius: 9, padding: 3, flex: '0 0 auto' }}>
               {[['search', 'Search', Search], ['ask', 'Ask AI', Sparkles]].map(([m, label, Icon]) => (
-                <button key={m} onClick={() => setSearchMode(m)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, background: searchMode === m ? 'var(--bg-card)' : 'transparent', color: searchMode === m ? 'var(--text-primary)' : 'var(--text-secondary)', boxShadow: searchMode === m ? 'var(--shadow-sm)' : 'none' }}><Icon size={14} /> {label}</button>
+                <button key={m} onClick={() => setSearchMode(m)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, background: searchMode === m ? 'var(--bg-card)' : 'transparent', color: searchMode === m ? (m === 'ask' ? 'hsl(266,72%,56%)' : 'var(--text-primary)') : (m === 'ask' ? 'hsl(266,40%,55%)' : 'var(--text-secondary)'), boxShadow: searchMode === m ? 'var(--shadow-sm)' : 'none' }}><Icon size={14} /> {label}</button>
               ))}
             </div>
             <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 200 }}>
@@ -1374,7 +1374,7 @@ export default function SOP({ activeSub, onSubChange }) {
               <select className="form-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All types</option>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select>
               <select className="form-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All statuses</option>{Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
             </>) : (
-              <button className="primary-btn" disabled={ask.loading} onClick={doAsk} style={{ height: 38, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.85rem' }}>{ask.loading ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {ask.loading ? 'Asking…' : 'Ask'}</button>
+              <button className="primary-btn" disabled={ask.loading} onClick={doAsk} style={{ height: 38, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>{ask.loading ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {ask.loading ? 'Asking…' : 'Ask'}</button>
             )}
           </div>
 
