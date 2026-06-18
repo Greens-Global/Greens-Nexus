@@ -263,6 +263,7 @@ def update_document(doc_id: str, payload: KbDocIn, user: dict = Depends(get_curr
     if not d.doc_code:
         d.doc_code = _next_doc_code(payload.departments, db)
     d.updated_at = _now()
+    _push_history(d, {"version": d.version, "date": _today(), "author": user.get("name") or user["email"], "notes": "Edited."})
     _snapshot(d, db)
     db.commit()
     db.refresh(d)
@@ -389,6 +390,7 @@ def verify_document(doc_id: str, user: dict = Depends(require_level(3)), db: Ses
     d.verified_at = _today()
     d.verified_by = user.get("name") or user["email"]
     d.updated_at = _now()
+    _push_history(d, {"version": d.version, "date": _today(), "author": d.verified_by, "notes": "Verified — confirmed still accurate."})
     db.commit()
     db.refresh(d)
     return _serialize(d)
@@ -423,6 +425,51 @@ def insights(user: dict = Depends(require_level(3)), db: Session = Depends(get_d
     return {"total": len(docs), "approved": len(approved), "draft": sum(1 for d in docs if d.status in ("draft", "changes_requested")),
             "in_review": sum(1 for d in docs if d.status == "in_review"), "needs_review": needs,
             "most_viewed": most_viewed, "courses": course_stats}
+
+
+def _activity_kind(notes: str) -> str:
+    n = (notes or "").lower()
+    if n.startswith("created"):
+        return "created"
+    if n.startswith("submitted"):
+        return "submitted"
+    if n.startswith("approved"):
+        return "approved"
+    if n.startswith("changes requested"):
+        return "changes"
+    if n.startswith("archived"):
+        return "archived"
+    if n.startswith("verified"):
+        return "verified"
+    if n.startswith("edited"):
+        return "edited"
+    return "update"
+
+
+@router.get("/activity")
+def activity(limit: int = 80, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    """Unified, time-sorted log of every change across the library (managers only).
+    `diffable` flags entries that can bounce back to a version diff."""
+    docs = db.query(models.KbDocument).all()
+    snap_counts: dict[str, int] = {}
+    for s in db.query(models.KbSnapshot).all():
+        snap_counts[s.doc_id] = snap_counts.get(s.doc_id, 0) + 1
+    events = []
+    for d in docs:
+        try:
+            hist = json.loads(d.revision_history or "[]")
+        except (ValueError, TypeError):
+            hist = []
+        for h in hist:
+            events.append({
+                "doc_id": d.id, "doc_code": d.doc_code or "", "doc_type": d.doc_type,
+                "title": d.title, "status": d.status, "version": h.get("version", ""),
+                "date": h.get("date", ""), "author": h.get("author", ""),
+                "notes": h.get("notes", ""), "kind": _activity_kind(h.get("notes", "")),
+                "diffable": snap_counts.get(d.id, 0) >= 2,
+            })
+    events.sort(key=lambda e: e["date"] or "", reverse=True)
+    return events[:max(1, min(limit, 300))]
 
 
 # ---- sign-offs / e-signature ---------------------------------------------

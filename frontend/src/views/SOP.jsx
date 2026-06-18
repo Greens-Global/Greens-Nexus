@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
@@ -56,7 +56,7 @@ const STATUS_META = {
   archived:          { label: 'Archived',          bg: 'var(--bg-secondary)',      fg: 'var(--text-muted)' },
 };
 
-const TAB_LABELS = { index: 'Handbook', review: 'Review Queue', signoffs: 'Sign-offs', lms: 'Learn' };
+const TAB_LABELS = { index: 'Playbook', review: 'Review Queue', signoffs: 'Sign-offs', lms: 'Learn' };
 
 const Badge = ({ status }) => {
   const m = STATUS_META[status] || STATUS_META.draft;
@@ -151,6 +151,8 @@ export default function SOP({ activeSub, onSubChange }) {
   const [signName, setSignName] = useState('');
   const [signoffs, setSignoffs] = useState([]);
   const [insights, setInsights] = useState(null);
+  const [activity, setActivity] = useState(null); // manager activity log
+  const pendingDiff = useRef(null); // { version } — auto-open diff after a log bounceback
   const [lightbox, setLightbox] = useState(null); // image src to zoom
 
   // comments + version history
@@ -184,7 +186,17 @@ export default function SOP({ activeSub, onSubChange }) {
       setAckInfo(null); setComments([]); setSnapshots([]); setCommentText(''); setDocLang('en');
       api.getKbAcks(selected.id).then(setAckInfo).catch(() => {});
       api.getKbComments(selected.id).then(setComments).catch(() => {});
-      api.getKbSnapshots(selected.id).then(setSnapshots).catch(() => {});
+      api.getKbSnapshots(selected.id).then(snaps => {
+        setSnapshots(snaps);
+        // bounceback from the activity log: jump straight to the diff for this version
+        const want = pendingDiff.current;
+        pendingDiff.current = null;
+        if (want && snaps.length >= 2) {
+          let to = snaps.map(s => s.version).lastIndexOf(want.version);
+          if (to <= 0) to = snaps.length - 1;
+          setDiff({ from: Math.max(0, to - 1), to });
+        }
+      }).catch(() => {});
     }
   }, [mode, selected]);
   const postComment = async () => {
@@ -200,6 +212,17 @@ export default function SOP({ activeSub, onSubChange }) {
   useEffect(() => {
     if (sub === 'insights') api.getKbInsights().then(setInsights).catch(() => {});
   }, [sub, docs]);
+  useEffect(() => {
+    if (sub === 'manage' && isManager) { setActivity(null); api.getKbActivity().then(setActivity).catch(() => setActivity([])); }
+  }, [sub, isManager, docs]);
+
+  // jump from the activity log to a document (and, when diffable, straight to its version diff)
+  const openActivity = (e) => {
+    const d = docs.find(x => x.id === e.doc_id);
+    if (!d) return;
+    pendingDiff.current = e.diffable ? { version: e.version } : null;
+    openDetail(d);
+  };
 
   const toggleMatrix = async (doc, dep) => {
     const has = (doc.departments || []).includes(dep);
@@ -1104,6 +1127,17 @@ export default function SOP({ activeSub, onSubChange }) {
     </button>
   );
 
+  const actionTile = (label, count, hint, Icon, onClick, urgent) => (
+    <button onClick={onClick} style={{ textAlign: 'left', cursor: 'pointer', background: 'var(--bg-card)', border: '1px solid', borderColor: urgent ? 'hsla(38,92%,50%,0.55)' : 'var(--border-color)', borderRadius: 14, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 6, boxShadow: 'var(--shadow-sm)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ width: 32, height: 32, borderRadius: 9, background: urgent ? 'hsla(38,92%,50%,0.16)' : 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: urgent ? 'hsl(32,80%,38%)' : 'var(--text-primary)' }}><Icon size={16} /></span>
+        <span style={{ fontSize: '1.7rem', fontWeight: 700, lineHeight: 1, color: urgent ? 'hsl(32,80%,38%)' : 'var(--text-primary)' }}>{count}</span>
+      </div>
+      <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>{label}</div>
+      <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>{hint}</div>
+    </button>
+  );
+
   const viewToggle = () => (
     <div style={{ display: 'inline-flex', gap: 6 }}>
       {[['list', 'List'], ['cards', 'Cards'], ['outline', 'By department']].map(([k, l]) => (
@@ -1159,7 +1193,7 @@ export default function SOP({ activeSub, onSubChange }) {
       {sub === 'index' && (
         <>
           <div className="view-header" style={{ marginBottom: 20 }}>
-            <div className="view-title-group"><h2>Handbook</h2><p>Your SOPs, manuals, and guides — all in one place</p></div>
+            <div className="view-title-group"><h2>Playbook</h2><p>Your SOPs, manuals, and guides — all in one place</p></div>
             <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> New SOP</button>
           </div>
 
@@ -1259,18 +1293,74 @@ export default function SOP({ activeSub, onSubChange }) {
         );
       })()}
 
-      {/* Manage hub (managers) */}
-      {sub === 'manage' && isManager && (
+      {/* Manage hub (managers) — dashboard */}
+      {sub === 'manage' && isManager && (() => {
+        const staleCount = docs.filter(d => d.is_stale).length;
+        const signoffCount = docs.filter(d => d.require_ack && d.status === 'approved').length;
+        const draftCount = docs.filter(d => d.status === 'draft' || d.status === 'changes_requested').length;
+        const sectionHead = (txt) => <h3 style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, margin: '26px 2px 12px' }}>{txt}</h3>;
+        const ACT = {
+          created:   { Icon: Plus,        color: 'hsl(var(--color-blue))' },
+          submitted: { Icon: Send,        color: 'hsl(var(--color-blue))' },
+          approved:  { Icon: CheckSquare, color: 'hsl(145,55%,38%)' },
+          changes:   { Icon: Edit3,       color: 'hsl(32,80%,42%)' },
+          archived:  { Icon: Archive,     color: 'var(--text-muted)' },
+          verified:  { Icon: CheckSquare, color: 'hsl(145,55%,38%)' },
+          edited:    { Icon: Edit3,       color: 'var(--text-secondary)' },
+          update:    { Icon: Clock,       color: 'var(--text-secondary)' },
+        };
+        return (
         <>
-          <div className="view-header" style={{ marginBottom: 18 }}><div className="view-title-group"><h2>Manage</h2><p>Administer the knowledge base — managers only</p></div></div>
+          <div className="view-header" style={{ marginBottom: 18 }}>
+            <div className="view-title-group"><h2>Manage</h2><p>Your knowledge-base control center — review, assign, and keep content fresh</p></div>
+            <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> New SOP</button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(178px, 1fr))', gap: 12 }}>
+            {actionTile('Pending review', reviewQueue.length, 'Awaiting your approval', Send, () => switchTab('review'), reviewQueue.length > 0)}
+            {actionTile('Needs review', staleCount, 'Past their review date', Clock, () => switchTab('insights'), staleCount > 0)}
+            {actionTile('Sign-offs', signoffCount, 'Policies requiring acknowledgement', CheckSquare, () => switchTab('signoffs'), false)}
+            {actionTile('Drafts in progress', draftCount, 'Not yet submitted for review', Edit3, () => { setStatusFilter('draft'); switchTab('index'); }, false)}
+          </div>
+
+          {sectionHead('Quick actions')}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 14 }}>
             {manageCard(BookOpen, 'New manual', 'Build a chaptered manual that links existing SOPs into one reference.', 'Create manual', openCreateManual)}
             {manageCard(Grid3x3, 'Assignment Matrix', 'Set which departments each document applies to, in one grid.', 'Open matrix', () => switchTab('matrix'))}
             {manageCard(BarChart3, 'Insights', 'Usage, freshness, content gaps, and training completion across the library.', 'Open insights', () => switchTab('insights'))}
             {manageCard(GraduationCap, 'Training courses', 'Author, edit, and publish Learn courses and quizzes.', 'Manage courses', () => switchTab('lms'))}
           </div>
+
+          {sectionHead('Activity log')}
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
+            {activity === null
+              ? <div style={{ textAlign: 'center', padding: 28, color: 'var(--text-secondary)' }}><Loader size={18} style={{ animation: 'spin 0.7s linear infinite' }} /></div>
+              : activity.length === 0
+                ? <div style={{ textAlign: 'center', padding: 28, color: 'var(--text-muted)', fontSize: '0.85rem' }}>No activity yet.</div>
+                : <div style={{ maxHeight: 460, overflow: 'auto' }}>
+                    {activity.map((e, i) => {
+                      const a = ACT[e.kind] || ACT.update;
+                      return (
+                        <button key={i} onClick={() => openActivity(e)} title={e.diffable ? 'Open document and show what changed' : 'Open document'} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', width: '100%', textAlign: 'left', padding: '11px 14px', background: 'transparent', border: 'none', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}
+                          onMouseEnter={ev => ev.currentTarget.style.background = 'var(--bg-secondary)'} onMouseLeave={ev => ev.currentTarget.style.background = 'transparent'}>
+                          <span style={{ marginTop: 1, width: 30, height: 30, borderRadius: 8, flex: '0 0 auto', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: a.color }}><a.Icon size={15} /></span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: '0.86rem', color: 'var(--text-primary)' }}><span style={{ fontWeight: 600 }}>{e.title}</span> <span style={{ color: 'var(--text-muted)', fontSize: '0.76rem' }}>{e.doc_code}{e.version ? ' · v' + e.version : ''}</span></div>
+                            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.notes || 'Updated.'}</div>
+                          </div>
+                          <div style={{ flex: '0 0 auto', textAlign: 'right' }}>
+                            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{fmtDate(e.date)}</div>
+                            {e.author && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{e.author}</div>}
+                            {e.diffable && <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'hsl(var(--color-blue))', whiteSpace: 'nowrap' }}>View change →</div>}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>}
+          </div>
         </>
-      )}
+        );
+      })()}
 
       {/* Assignment Matrix (managers) */}
       {sub === 'matrix' && isManager && (() => {
