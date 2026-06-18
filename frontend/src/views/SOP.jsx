@@ -1374,24 +1374,28 @@ export default function SOP({ activeSub, onSubChange }) {
             )}
           </div>
 
-          {searchMode === 'ask' && askAnswer()}
-          {searchMode === 'search' && myTasksStrip()}
-
-          {searchMode === 'search' && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{filtered.length} document{filtered.length === 1 ? '' : 's'}</div>
-              {viewToggle()}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
+            <div style={{ flex: '3 1 480px', minWidth: 0 }}>
+              {searchMode === 'ask' && askAnswer()}
+              {searchMode === 'search' && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{filtered.length} document{filtered.length === 1 ? '' : 's'}</div>
+                  {viewToggle()}
+                </div>
+              )}
+              {loading
+                ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
+                : (() => {
+                    const empty = docs.length === 0 ? 'No documents yet — click “New SOP” to start your first draft.' : 'No documents match your filters.';
+                    if (libView === 'cards') return cardGrid(filtered, empty);
+                    if (libView === 'outline') return outlineView(filtered, empty);
+                    return docTable(filtered, empty);
+                  })()}
             </div>
-          )}
-
-          {loading
-            ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
-            : (() => {
-                const empty = docs.length === 0 ? 'No documents yet — click “New SOP” to start your first draft.' : 'No documents match your filters.';
-                if (libView === 'cards') return cardGrid(filtered, empty);
-                if (libView === 'outline') return outlineView(filtered, empty);
-                return docTable(filtered, empty);
-              })()}
+            <div style={{ flex: '1 1 280px', minWidth: 0 }}>
+              {myTasksStrip()}
+            </div>
+          </div>
         </>
       )}
 
