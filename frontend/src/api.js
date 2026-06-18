@@ -196,6 +196,7 @@ export const api = {
   verifyKbDoc:      (id)            => req(`/knowledge-base/documents/${id}/verify`, { method: "POST" }),
   setKbDepartments: (id, departments) => req(`/knowledge-base/documents/${id}/departments`, { method: "POST", body: JSON.stringify({ departments }) }),
   getKbInsights:    ()          => req("/knowledge-base/insights"),
+  translateKbDoc:   (id, lang)  => req(`/knowledge-base/documents/${id}/translate`, { method: "POST", body: JSON.stringify({ lang }) }),
   // Learn (LMS)
   getKbCourses:    ()          => req("/knowledge-base/courses"),
   getKbCourse:     (id)        => req(`/knowledge-base/courses/${id}`),

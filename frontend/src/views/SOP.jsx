@@ -157,6 +157,8 @@ export default function SOP({ activeSub, onSubChange }) {
   const [commentText, setCommentText] = useState('');
   const [snapshots, setSnapshots] = useState([]);
   const [diff, setDiff] = useState(null); // { from, to } indices into snapshots
+  const [docLang, setDocLang] = useState('en');
+  const [translating, setTranslating] = useState('');
 
   // LMS (Learn)
   const [lmsCourses, setLmsCourses] = useState([]);
@@ -178,7 +180,7 @@ export default function SOP({ activeSub, onSubChange }) {
   // load acknowledgements, comments and version snapshots when viewing a document
   useEffect(() => {
     if (mode === 'detail' && selected) {
-      setAckInfo(null); setComments([]); setSnapshots([]); setCommentText('');
+      setAckInfo(null); setComments([]); setSnapshots([]); setCommentText(''); setDocLang('en');
       api.getKbAcks(selected.id).then(setAckInfo).catch(() => {});
       api.getKbComments(selected.id).then(setComments).catch(() => {});
       api.getKbSnapshots(selected.id).then(setSnapshots).catch(() => {});
@@ -222,6 +224,14 @@ export default function SOP({ activeSub, onSubChange }) {
   const verifyDoc = async () => {
     try { const doc = await api.verifyKbDoc(selected.id); setSelected(doc); refresh(); }
     catch (e) { setErr(e.message || 'Failed to mark verified'); }
+  };
+  const translateDoc = async (lang) => {
+    if (lang === 'en') { setDocLang('en'); return; }
+    if (selected.body?.translations?.[lang]) { setDocLang(lang); return; }
+    setTranslating(lang); setErr('');
+    try { const doc = await api.translateKbDoc(selected.id, lang); setSelected(doc); setDocLang(lang); }
+    catch (e) { setErr(e.message || 'Translation unavailable'); }
+    finally { setTranslating(''); }
   };
 
   const canEdit = (d) => isManager || (d.owner_email === myEmail && (d.status === 'draft' || d.status === 'changes_requested'));
@@ -491,6 +501,15 @@ export default function SOP({ activeSub, onSubChange }) {
         </div>
       );
     };
+    const LANGS = [['en', 'English'], ['es', 'Español'], ['hi', 'हिन्दी']];
+    const trx = (docLang !== 'en' && b.translations) ? (b.translations[docLang] || {}) : {};
+    const dTitle = trx.title || d.title;
+    const tPurpose = (trx.purpose != null && trx.purpose !== '') ? trx.purpose : b.purpose;
+    const tScope = (trx.scopeText != null && trx.scopeText !== '') ? trx.scopeText : b.scopeText;
+    const tSafety = (docLang !== 'en' && Array.isArray(trx.safety)) ? trx.safety : b.safety;
+    const tProcedure = (docLang !== 'en' && Array.isArray(trx.procedure))
+      ? (b.procedure || []).map((s, i) => ({ ...s, text: trx.procedure[i]?.text || s.text, detail: trx.procedure[i]?.detail || s.detail }))
+      : b.procedure;
     return (
       <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
         <button className="secondary-btn" onClick={backToList} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, height: 34 }}>
@@ -505,7 +524,7 @@ export default function SOP({ activeSub, onSubChange }) {
               {d.require_ack && <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)', borderRadius: 999, padding: '3px 10px' }}>Sign-off required</span>}
               {d.is_stale && <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)', borderRadius: 999, padding: '3px 10px' }}>Needs review</span>}
             </div>
-            <h2>{d.title}</h2>
+            <h2>{dTitle}</h2>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {canEdit(d) && <button className="secondary-btn" onClick={() => openEdit(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Edit3 size={14} /> Edit</button>}
@@ -516,6 +535,16 @@ export default function SOP({ activeSub, onSubChange }) {
             {d.status === 'approved' && isManager && <button className="secondary-btn" onClick={() => archiveDoc(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Archive size={14} /> Archive</button>}
           </div>
         </div>
+
+        {!isMan && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+            <span style={{ fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700 }}>Language</span>
+            {LANGS.map(([code, label]) => { const has = code === 'en' || b.translations?.[code]; return (
+              <button key={code} onClick={() => translateDoc(code)} disabled={translating === code} style={{ padding: '5px 12px', borderRadius: 999, fontSize: '0.78rem', fontWeight: 500, cursor: 'pointer', border: '1px solid', borderStyle: has ? 'solid' : 'dashed', borderColor: docLang === code ? 'var(--text-primary)' : 'var(--border-color)', background: docLang === code ? 'var(--text-primary)' : 'var(--bg-card)', color: docLang === code ? 'var(--bg-card)' : 'var(--text-secondary)' }}>{translating === code ? 'Translating…' : label}{!has ? ' +' : ''}</button>
+            ); })}
+          </div>
+        )}
+        {docLang !== 'en' && <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 9, padding: '8px 11px', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 14 }}>Machine-translated to {({ es: 'Spanish', hi: 'Hindi' })[docLang]}. The English version is authoritative.</div>}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 24, alignItems: 'start' }}>
           <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-sm)', maxWidth: 820 }}>
@@ -533,8 +562,8 @@ export default function SOP({ activeSub, onSubChange }) {
               </div>
             </div>
 
-            {b.purpose && section('Purpose', <p style={{ color: 'var(--text-primary)', margin: 0, lineHeight: 1.6 }}>{b.purpose}</p>)}
-            {b.scopeText && section('Scope', <p style={{ color: 'var(--text-primary)', margin: 0, lineHeight: 1.6 }}>{b.scopeText}</p>)}
+            {tPurpose && section('Purpose', <p style={{ color: 'var(--text-primary)', margin: 0, lineHeight: 1.6 }}>{tPurpose}</p>)}
+            {tScope && section('Scope', <p style={{ color: 'var(--text-primary)', margin: 0, lineHeight: 1.6 }}>{tScope}</p>)}
             {isMan && manualBody()}
             {!isMan && <>
             {b.materials?.length > 0 && section('Materials & required items', <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-primary)', lineHeight: 1.7 }}>{b.materials.map((m, i) => <li key={i}>{m}</li>)}</ul>)}
@@ -552,9 +581,9 @@ export default function SOP({ activeSub, onSubChange }) {
                 ))}</tbody>
               </table>
             ))}
-            {section('Procedure', b.procedure?.length > 0 ? (
+            {section('Procedure', tProcedure?.length > 0 ? (
               <ol style={{ margin: 0, paddingLeft: 0, listStyle: 'none', counterReset: 'step' }}>
-                {b.procedure.map((s, i) => (
+                {tProcedure.map((s, i) => (
                   <li key={i} style={{ position: 'relative', padding: '10px 0 10px 40px', borderBottom: '1px solid var(--bg-secondary)', color: 'var(--text-primary)' }}>
                     <span style={{ position: 'absolute', left: 0, top: 9, width: 26, height: 26, borderRadius: 8, backgroundColor: 'var(--bg-secondary)', color: 'hsl(var(--color-blue))', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
                     {s.text}
@@ -564,7 +593,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 ))}
               </ol>
             ) : <p style={{ color: 'var(--text-muted)', margin: 0 }}>No steps recorded.</p>)}
-            {b.safety?.length > 0 && section('Safety & compliance', <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-primary)', lineHeight: 1.7 }}>{b.safety.map((s, i) => <li key={i}>{s}</li>)}</ul>)}
+            {tSafety?.length > 0 && section('Safety & compliance', <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-primary)', lineHeight: 1.7 }}>{tSafety.map((s, i) => <li key={i}>{s}</li>)}</ul>)}
             {b.references?.length > 0 && section('References', <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-primary)', lineHeight: 1.7 }}>{b.references.map((s, i) => <li key={i}>{s}</li>)}</ul>)}
             {b.media?.length > 0 && section('Training media', <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{b.media.map((m, i) => mediaEmbed(m, i))}</div>)}
             {b.attachments?.length > 0 && section('Attachments & diagrams', (

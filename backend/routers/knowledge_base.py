@@ -329,6 +329,60 @@ class DepartmentsIn(BaseModel):
     departments: list[str] = []
 
 
+class TranslateIn(BaseModel):
+    lang: str = "es"
+
+
+_LANG_NAME = {"es": "Spanish", "hi": "Hindi"}
+
+
+@router.post("/documents/{doc_id}/translate")
+def translate_document(doc_id: str, payload: TranslateIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    d = _get_or_404(doc_id, db)
+    lang = payload.lang
+    if lang not in _LANG_NAME:
+        raise HTTPException(status_code=400, detail="Unsupported language")
+    try:
+        body = json.loads(d.body or "{}")
+    except (ValueError, TypeError):
+        body = {}
+    if not _ANTHROPIC_API_KEY:
+        if (body.get("translations") or {}).get(lang):
+            return _serialize(d)
+        raise HTTPException(status_code=400, detail="Translation needs the AI service — not available offline.")
+    fields = {
+        "title": d.title, "purpose": body.get("purpose", ""), "scopeText": body.get("scopeText", ""),
+        "materials": body.get("materials", []),
+        "responsibilities": [{"role": r.get("role", ""), "duty": r.get("duty", "")} for r in body.get("responsibilities", [])],
+        "procedure": [{"text": s.get("text", ""), "detail": s.get("detail", "")} for s in body.get("procedure", [])],
+        "safety": body.get("safety", []), "references": body.get("references", []),
+    }
+    prompt = (
+        f"Translate the VALUES of this SOP JSON into {_LANG_NAME[lang]}. Return ONLY a JSON object with the exact "
+        "same keys and structure, values translated naturally for a workplace audience. Keep product names and "
+        f"proper nouns (Greens Global, Greens Storage, Nexus, Ramp) as-is.\n\n{json.dumps(fields)}"
+    )
+    try:
+        with httpx.Client(timeout=60) as client:
+            r = client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": _ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json={"model": _AI_MODEL, "max_tokens": 2000, "messages": [{"role": "user", "content": prompt}]},
+            )
+            r.raise_for_status()
+            data = r.json()
+        text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+        translation = json.loads(text.replace("```json", "").replace("```", "").strip())
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Translation failed: {e}")
+    body.setdefault("translations", {})[lang] = translation
+    d.body = json.dumps(body)
+    d.updated_at = _now()
+    db.commit()
+    db.refresh(d)
+    return _serialize(d)
+
+
 @router.post("/documents/{doc_id}/verify")
 def verify_document(doc_id: str, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
     d = _get_or_404(doc_id, db)
