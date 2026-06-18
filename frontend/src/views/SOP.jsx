@@ -5,6 +5,7 @@ import { api } from '../api';
 import {
   BookOpen, CheckSquare, FilePlus, Search, Clock, Sparkles, Play, BadgeCheck,
   Users, X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, Loader, ChevronUp, ChevronDown,
+  Image as ImageIcon, Paperclip,
 } from 'lucide-react';
 
 const rid = () => 'r' + Math.random().toString(36).slice(2, 9);
@@ -42,8 +43,44 @@ const Badge = ({ status }) => {
 
 const blankBody = () => ({
   purpose: '', scopeText: '', materials: [], responsibilities: [],
-  definitions: [], procedure: [], safety: [], references: [],
+  definitions: [], procedure: [], safety: [], references: [], attachments: [], media: [],
 });
+
+// Resize an image file to a JPEG data URL (≤1100px) so it stores inline with the doc.
+function fileToAsset(file) {
+  return new Promise(res => {
+    if (!file.type || !file.type.startsWith('image/')) { res({ name: file.name, type: 'file' }); return; }
+    const img = new Image(); const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const max = 1100; const sc = Math.min(1, max / img.width);
+      const w = Math.max(1, Math.round(img.width * sc)), h = Math.max(1, Math.round(img.height * sc));
+      let data = '';
+      try { const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(img, 0, 0, w, h); data = c.toDataURL('image/jpeg', 0.82); } catch (e) { /* ignore */ }
+      URL.revokeObjectURL(url); res({ name: file.name, type: 'image', data });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); res({ name: file.name, type: 'file' }); };
+    img.src = url;
+  });
+}
+function pickFiles(multiple, cb) {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*'; if (multiple) inp.multiple = true;
+  inp.onchange = async () => { const files = [...(inp.files || [])]; if (files.length) cb(await Promise.all(files.map(fileToAsset))); };
+  inp.click();
+}
+// Embed a training video (YouTube / Loom / Vimeo / direct mp4) or fall back to a link.
+function mediaEmbed(m, key) {
+  const url = (m && m.url) || '';
+  let src = '';
+  const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w-]{6,})/); if (yt) src = 'https://www.youtube.com/embed/' + yt[1];
+  const lo = url.match(/loom\.com\/(?:share|embed)\/([\w-]+)/); if (lo) src = 'https://www.loom.com/embed/' + lo[1];
+  const vm = url.match(/vimeo\.com\/(?:video\/)?(\d+)/); if (vm) src = 'https://player.vimeo.com/video/' + vm[1];
+  const frame = { position: 'relative', width: '100%', maxWidth: 560, aspectRatio: '16 / 9', borderRadius: 11, overflow: 'hidden', border: '1px solid var(--border-color)', background: '#000' };
+  const fill = { position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0 };
+  if (src) return <div key={key} style={frame}><iframe src={src} title={m.title || 'video'} allowFullScreen loading="lazy" style={fill} /></div>;
+  if (/\.(mp4|webm|ogg)$/i.test(url)) return <div key={key} style={frame}><video src={url} controls preload="metadata" style={fill} /></div>;
+  return <a key={key} href={url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: '0.88rem', color: 'hsl(var(--color-blue))', fontWeight: 600 }}>▶ {m.title || url}</a>;
+}
 const blankDraft = (name, email) => ({
   id: null, title: '', doc_type: 'SOP', departments: [], reviewer_email: '',
   reviewer_name: '', version: '0.1', effective_date: '', body: blankBody(),
@@ -93,6 +130,7 @@ export default function SOP({ activeSub, onSubChange }) {
   const [signOpen, setSignOpen] = useState(false);
   const [signName, setSignName] = useState('');
   const [signoffs, setSignoffs] = useState([]);
+  const [lightbox, setLightbox] = useState(null); // image src to zoom
 
   // LMS (unchanged)
   const [courses, setCourses] = useState(INIT_COURSES);
@@ -417,12 +455,21 @@ export default function SOP({ activeSub, onSubChange }) {
                     <span style={{ position: 'absolute', left: 0, top: 9, width: 26, height: 26, borderRadius: 8, backgroundColor: 'var(--bg-secondary)', color: 'hsl(var(--color-blue))', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
                     {s.text}
                     {s.detail && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>{s.detail}</div>}
+                    {s.image && <img src={s.image} alt="step illustration" onClick={() => setLightbox(s.image)} style={{ marginTop: 9, maxWidth: 360, width: '100%', borderRadius: 10, border: '1px solid var(--border-color)', display: 'block', cursor: 'zoom-in' }} />}
                   </li>
                 ))}
               </ol>
             ) : <p style={{ color: 'var(--text-muted)', margin: 0 }}>No steps recorded.</p>)}
             {b.safety?.length > 0 && section('Safety & compliance', <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-primary)', lineHeight: 1.7 }}>{b.safety.map((s, i) => <li key={i}>{s}</li>)}</ul>)}
             {b.references?.length > 0 && section('References', <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-primary)', lineHeight: 1.7 }}>{b.references.map((s, i) => <li key={i}>{s}</li>)}</ul>)}
+            {b.media?.length > 0 && section('Training media', <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{b.media.map((m, i) => mediaEmbed(m, i))}</div>)}
+            {b.attachments?.length > 0 && section('Attachments & diagrams', (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                {b.attachments.map((a, i) => a.type === 'image' && a.data
+                  ? <img key={i} src={a.data} alt={a.name} onClick={() => setLightbox(a.data)} style={{ height: 120, borderRadius: 10, border: '1px solid var(--border-color)', cursor: 'zoom-in' }} />
+                  : <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: '0.8rem', color: 'var(--text-secondary)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '10px 12px' }}><Paperclip size={14} />{a.name}</span>)}
+              </div>
+            ))}
             </>}
           </div>
 
@@ -484,6 +531,11 @@ export default function SOP({ activeSub, onSubChange }) {
             </div>
           </div>
         </div>
+        {lightbox && (
+          <div onClick={() => setLightbox(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.82)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 30, zIndex: 200, cursor: 'zoom-out' }}>
+            <img src={lightbox} alt="" style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 10 }} />
+          </div>
+        )}
         {signOpen && (
           <div className="modal-overlay" style={{ display: 'flex' }}>
             <div className="modal-content">
@@ -652,9 +704,11 @@ export default function SOP({ activeSub, onSubChange }) {
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <span style={{ width: 26, height: 26, borderRadius: 8, backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'hsl(var(--color-blue))', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>{i + 1}</span>
                   <input className="form-input" value={s.text} placeholder={`Step ${i + 1}…`} onChange={e => updItem('procedure', i, { ...s, text: e.target.value })} style={{ flex: 1 }} />
+                  <button className="secondary-btn" title="Attach picture" onClick={() => pickFiles(false, ([a]) => { if (a?.type === 'image') updItem('procedure', i, { ...s, image: a.data }); })} style={{ width: 40, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ImageIcon size={15} /></button>
                   <button className="secondary-btn" onClick={() => delItem('procedure', i)} style={{ width: 40, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={15} /></button>
                 </div>
                 <textarea className="form-input" value={s.detail || ''} placeholder="Optional detail / note for this step…" onChange={e => updItem('procedure', i, { ...s, detail: e.target.value })} style={{ marginTop: 8, marginLeft: 34, width: 'calc(100% - 34px)', minHeight: 38, resize: 'vertical', fontSize: '0.85rem' }} />
+                {s.image && <div style={{ marginTop: 8, marginLeft: 34, display: 'flex', alignItems: 'center', gap: 10 }}><img src={s.image} alt="step" style={{ height: 56, borderRadius: 8, border: '1px solid var(--border-color)' }} /><button className="secondary-btn" onClick={() => updItem('procedure', i, { ...s, image: '' })} style={{ height: 30, fontSize: '0.78rem' }}>Remove picture</button></div>}
               </div>
             ))}
           </div>
@@ -663,6 +717,22 @@ export default function SOP({ activeSub, onSubChange }) {
 
         {listEditor('safety', 'Safety & compliance', 'e.g. Never enter a unit alone if…')}
         {listEditor('references', 'References', 'e.g. OPS-021 Access Control')}
+
+        <div className="ed-block" style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: 8 }}>Attachments &amp; diagrams</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            {(draft.body.attachments || []).map((a, i) => (
+              <div key={i} style={{ position: 'relative', border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden', width: 122, background: 'var(--bg-card)' }}>
+                {a.type === 'image' && a.data
+                  ? <img src={a.data} alt={a.name} style={{ width: 122, height: 80, objectFit: 'cover', display: 'block' }} />
+                  : <div style={{ height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}><Paperclip size={18} /></div>}
+                <div style={{ padding: '6px 8px', fontSize: '0.7rem', borderTop: '1px solid var(--border-color)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.name}</div>
+                <button onClick={() => setBody({ attachments: (draft.body.attachments || []).filter((_, j) => j !== i) })} style={{ position: 'absolute', top: 5, right: 5, width: 22, height: 22, borderRadius: 6, background: 'rgba(0,0,0,.55)', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={12} /></button>
+              </div>
+            ))}
+          </div>
+          <button className="secondary-btn" onClick={() => pickFiles(true, assets => setBody({ attachments: [...(draft.body.attachments || []), ...assets] }))} style={{ marginTop: 8, height: 32, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={13} /> Add files / pictures</button>
+        </div>
         </>)}
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', paddingTop: 8, borderTop: '1px solid var(--border-color)', marginTop: 8 }}>
