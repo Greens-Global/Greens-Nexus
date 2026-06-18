@@ -5,7 +5,7 @@ import { api } from '../api';
 import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, Loader, ChevronUp, ChevronDown,
-  Image as ImageIcon, Paperclip, Settings, Grid3x3, BarChart3, GraduationCap,
+  Image as ImageIcon, Paperclip, Settings, Grid3x3, BarChart3, GraduationCap, Eye,
 } from 'lucide-react';
 
 const rid = () => 'r' + Math.random().toString(36).slice(2, 9);
@@ -132,7 +132,8 @@ export default function SOP({ activeSub, onSubChange }) {
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
-  const [showCompare, setShowCompare] = useState(true); // imported-source compare panel
+  const [aiReview, setAiReview] = useState(null); // full-screen AI review: { open, before, after, source, tab }
+  const [previewOpen, setPreviewOpen] = useState(false); // preview the current draft before publishing
 
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('all');
@@ -392,26 +393,57 @@ export default function SOP({ activeSub, onSubChange }) {
     setAiBusy(true); setErr('');
     try {
       const { sop } = await api.aiFormatKbDoc({ content, title: draft.title, departments: draft.departments });
-      setDraft(p => ({
-        ...p,
-        title: p.title || sop.title || '',
-        // when working from pasted/uploaded source, keep it for the side-by-side compare
-        _importSource: raw ? content : p._importSource,
-        body: {
-          ...p.body,
-          purpose: sop.purpose || p.body.purpose,
-          scopeText: sop.scopeText || p.body.scopeText,
-          materials: sop.materials?.length ? sop.materials : p.body.materials,
-          responsibilities: sop.responsibilities?.length ? sop.responsibilities : p.body.responsibilities,
-          definitions: sop.definitions?.length ? sop.definitions : p.body.definitions,
-          procedure: sop.procedure?.length ? sop.procedure : p.body.procedure,
-          safety: sop.safety?.length ? sop.safety : p.body.safety,
-          references: sop.references?.length ? sop.references : p.body.references,
-        },
-      }));
-      if (raw) setShowCompare(true);
+      const before = { title: draft.title, departments: [...draft.departments], body: JSON.parse(JSON.stringify(draft.body)) };
+      const afterBody = {
+        ...draft.body,
+        purpose: sop.purpose || draft.body.purpose,
+        scopeText: sop.scopeText || draft.body.scopeText,
+        materials: sop.materials?.length ? sop.materials : draft.body.materials,
+        responsibilities: sop.responsibilities?.length ? sop.responsibilities : draft.body.responsibilities,
+        definitions: sop.definitions?.length ? sop.definitions : draft.body.definitions,
+        procedure: sop.procedure?.length ? sop.procedure : draft.body.procedure,
+        safety: sop.safety?.length ? sop.safety : draft.body.safety,
+        references: sop.references?.length ? sop.references : draft.body.references,
+      };
+      const afterTitle = draft.title || sop.title || '';
+      // autofill the draft, then open the full-screen review of what changed
+      setDraft(p => ({ ...p, title: afterTitle, _importSource: raw ? content : p._importSource, body: afterBody }));
+      setAiReview({ open: true, tab: 'changes', source: raw ? content : '',
+        before, after: { title: afterTitle, departments: [...draft.departments], body: afterBody } });
     } catch (e) { setErr(e.message || 'AI formatting failed'); }
     finally { setAiBusy(false); }
+  };
+  const revertAi = () => {
+    if (!aiReview) return;
+    const b = aiReview.before;
+    setDraft(p => ({ ...p, title: b.title, departments: [...b.departments], body: JSON.parse(JSON.stringify(b.body)) }));
+    setAiReview(null);
+  };
+  // Render a draft/body the way it will look once published — used by the preview + AI review.
+  const renderSopPreview = (d) => {
+    const b = d.body || {};
+    const h = (t) => <h4 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, margin: '20px 0 7px' }}>{t}</h4>;
+    const para = (s) => <p style={{ fontSize: '0.92rem', lineHeight: 1.65, color: 'var(--text-primary)', margin: 0, whiteSpace: 'pre-wrap' }}>{s}</p>;
+    const ul = (arr) => <ul style={{ margin: 0, paddingLeft: 20, fontSize: '0.92rem', lineHeight: 1.65, color: 'var(--text-primary)' }}>{arr.map((x, i) => <li key={i} style={{ marginBottom: 3 }}>{x}</li>)}</ul>;
+    const empty = !b.purpose && !b.scopeText && !(b.materials || []).length && !(b.responsibilities || []).length && !(b.procedure || []).length && !(b.safety || []).length && !(b.references || []).length;
+    return (
+      <div>
+        <h2 style={{ margin: '0 0 4px', fontSize: '1.5rem' }}>{d.title || 'Untitled document'}</h2>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 6, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+          <span>{d.doc_type}</span><span>·</span><span>v{d.version || '0.1'}</span>
+          {(d.departments || []).length > 0 && <><span>·</span>{d.departments.map(x => <span key={x} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 999, padding: '1px 8px' }}>{DEPT_ABBR[x] || x}</span>)}</>}
+        </div>
+        {empty && <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Nothing to preview yet — fill in the sections below.</p>}
+        {b.purpose && <>{h('Purpose')}{para(b.purpose)}</>}
+        {b.scopeText && <>{h('Scope')}{para(b.scopeText)}</>}
+        {(b.materials || []).length > 0 && <>{h('Materials & required items')}{ul(b.materials)}</>}
+        {(b.responsibilities || []).length > 0 && <>{h('Responsibilities')}{ul(b.responsibilities.map(r => `${r.role}: ${r.duty}`))}</>}
+        {(b.definitions || []).length > 0 && <>{h('Definitions')}{ul(b.definitions.map(r => `${r.term}: ${r.def}`))}</>}
+        {(b.procedure || []).length > 0 && <>{h('Procedure')}<ol style={{ margin: 0, paddingLeft: 20, fontSize: '0.92rem', lineHeight: 1.65, color: 'var(--text-primary)' }}>{b.procedure.map((s, i) => <li key={i} style={{ marginBottom: 8 }}>{s.text}{s.detail ? <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: 2 }}>{s.detail}</div> : null}{s.image ? <div><img src={s.image} alt="" style={{ height: 72, borderRadius: 8, marginTop: 5, border: '1px solid var(--border-color)' }} /></div> : null}</li>)}</ol></>}
+        {(b.safety || []).length > 0 && <>{h('Safety & compliance')}{ul(b.safety)}</>}
+        {(b.references || []).length > 0 && <>{h('References')}{ul(b.references)}</>}
+      </div>
+    );
   };
 
   // read a text-like file into the editor's raw-notes box (for importing an existing document)
@@ -918,43 +950,12 @@ export default function SOP({ activeSub, onSubChange }) {
         {errBanner}
 
         {draft._importSource && (
-          <div style={{ border: '1px solid var(--border-color)', background: 'var(--bg-card)', borderRadius: 12, marginBottom: 18, overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderBottom: showCompare ? '1px solid var(--border-color)' : 'none', background: 'var(--bg-secondary)' }}>
-              <Sparkles size={16} style={{ color: 'hsl(var(--color-blue))', flex: '0 0 auto' }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <strong style={{ fontSize: '0.88rem' }}>Imported source ↔ proposed SOP</strong>
-                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>Check that the AI captured everything, then edit the sections below. Nothing is saved until you submit or publish.</div>
-              </div>
-              <button className="secondary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ height: 32, fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5, flex: '0 0 auto' }}>{aiBusy ? <Loader size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />} Re-run AI</button>
-              <button className="secondary-btn" onClick={() => setShowCompare(v => !v)} style={{ height: 32, fontSize: '0.78rem', flex: '0 0 auto' }}>{showCompare ? 'Hide' : 'Compare'}</button>
-            </div>
-            {showCompare && (() => {
-              const b = draft.body;
-              const sec = (label, node) => node ? <div style={{ marginBottom: 12 }}><div style={{ fontSize: '0.64rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, marginBottom: 3 }}>{label}</div>{node}</div> : null;
-              const ul = (arr) => arr?.length ? <ul style={{ margin: 0, paddingLeft: 18, fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{arr.map((x, i) => <li key={i}>{x}</li>)}</ul> : null;
-              const txt = (s) => s ? <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{s}</div> : null;
-              const proposed = [
-                sec('Purpose', txt(b.purpose)),
-                sec('Scope', txt(b.scopeText)),
-                sec('Materials', ul(b.materials)),
-                sec('Responsibilities', b.responsibilities?.length ? ul(b.responsibilities.map(r => `${r.role}: ${r.duty}`)) : null),
-                sec('Procedure', b.procedure?.length ? <ol style={{ margin: 0, paddingLeft: 18, fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{b.procedure.map((s, i) => <li key={i}>{s.text}{s.detail ? <span style={{ color: 'var(--text-muted)' }}> — {s.detail}</span> : null}</li>)}</ol> : null),
-                sec('Safety', ul(b.safety)),
-                sec('References', ul(b.references)),
-              ].filter(Boolean);
-              return (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
-                  <div style={{ borderRight: '1px solid var(--border-color)', padding: 14, minWidth: 0 }}>
-                    <div style={{ fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, marginBottom: 8 }}>Imported source</div>
-                    <div style={{ maxHeight: 320, overflow: 'auto', fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{draft._importSource}</div>
-                  </div>
-                  <div style={{ padding: 14, minWidth: 0 }}>
-                    <div style={{ fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, marginBottom: 8 }}>Proposed (editable below)</div>
-                    <div style={{ maxHeight: 320, overflow: 'auto' }}>{proposed.length ? proposed : <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Nothing extracted yet — edit the sections below, or re-run the AI.</div>}</div>
-                  </div>
-                </div>
-              );
-            })()}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.06)', borderRadius: 12, padding: '12px 16px', marginBottom: 18 }}>
+            <Sparkles size={18} style={{ color: 'hsl(266,72%,56%)', flex: '0 0 auto' }} />
+            <div style={{ flex: 1, minWidth: 180, fontSize: '0.84rem', color: 'var(--text-primary)' }}>Claude formatted this draft. Review what changed or preview it before you publish.</div>
+            {aiReview && <button className="secondary-btn" onClick={() => setAiReview(p => ({ ...p, open: true, tab: 'changes' }))} style={{ height: 34, fontSize: '0.8rem', flex: '0 0 auto' }}>Review changes</button>}
+            <button className="secondary-btn" onClick={() => setPreviewOpen(true)} style={{ height: 34, fontSize: '0.8rem', flex: '0 0 auto' }}>Preview</button>
+            <button className="secondary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ height: 34, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5, flex: '0 0 auto' }}>{aiBusy ? <Loader size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />} Re-run AI</button>
           </div>
         )}
 
@@ -1069,10 +1070,81 @@ export default function SOP({ activeSub, onSubChange }) {
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', paddingTop: 8, borderTop: '1px solid var(--border-color)', marginTop: 8 }}>
           <button className="secondary-btn" onClick={backToList}>Cancel</button>
+          <button className="secondary-btn" onClick={() => setPreviewOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 'auto' }}><Eye size={14} /> Preview</button>
           <button className="secondary-btn" disabled={busy} onClick={() => save(false)}>Save draft</button>
           <button className="secondary-btn" disabled={busy} onClick={() => save(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={14} /> Save &amp; submit for review</button>
           {isManager && <button className="primary-btn" disabled={busy} onClick={saveAndPublish} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><CheckSquare size={14} /> Save &amp; publish</button>}
         </div>
+
+        {/* Full-screen AI changes review */}
+        {aiReview?.open && (() => {
+          const A = aiReview.before, B = aiReview.after;
+          const ab = A.body || {}, bb = B.body || {};
+          const field = (label, node) => <div style={{ marginBottom: 18 }}><h4 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, margin: '0 0 7px' }}>{label}</h4>{node}</div>;
+          const close = () => setAiReview(p => p ? { ...p, open: false } : null);
+          return (
+            <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '2.5vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) close(); }}>
+              <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 1180, height: '95vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 22px', borderBottom: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
+                  <Sparkles size={20} style={{ color: 'hsl(266,72%,56%)', flex: '0 0 auto' }} />
+                  <div style={{ flex: 1, minWidth: 160 }}>
+                    <h3 style={{ margin: 0 }}>Review AI changes</h3>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Green is added, red struck-through is removed. Already applied to your draft — revert if it's not right.</div>
+                  </div>
+                  <div style={{ display: 'inline-flex', background: 'var(--bg-secondary)', borderRadius: 9, padding: 3, flex: '0 0 auto' }}>
+                    {[['changes', 'What changed'], ['preview', 'Preview']].map(([k, l]) => (
+                      <button key={k} onClick={() => setAiReview(p => ({ ...p, tab: k }))} style={{ padding: '7px 14px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, background: aiReview.tab === k ? 'var(--bg-card)' : 'transparent', color: aiReview.tab === k ? 'var(--text-primary)' : 'var(--text-secondary)', boxShadow: aiReview.tab === k ? 'var(--shadow-sm)' : 'none' }}>{l}</button>
+                    ))}
+                  </div>
+                  <button className="close-btn" onClick={close} style={{ flex: '0 0 auto' }}><X size={18} /></button>
+                </div>
+                <div style={{ flex: 1, overflow: 'auto', padding: '20px 22px' }}>
+                  {aiReview.tab === 'changes' ? (
+                    <div style={{ maxWidth: 980, margin: '0 auto' }}>
+                      {aiReview.source && field('Original source', <div style={{ fontSize: '0.82rem', lineHeight: 1.6, color: 'var(--text-secondary)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '11px 13px', whiteSpace: 'pre-wrap', maxHeight: 220, overflow: 'auto' }}>{aiReview.source}</div>)}
+                      {field('Title', <TextDiff oldS={A.title} newS={B.title} />)}
+                      {field('Purpose', <TextDiff oldS={ab.purpose} newS={bb.purpose} />)}
+                      {field('Scope', <TextDiff oldS={ab.scopeText} newS={bb.scopeText} />)}
+                      {field('Materials', <ListDiff oldArr={ab.materials} newArr={bb.materials} />)}
+                      {field('Responsibilities', <ListDiff oldArr={ab.responsibilities} newArr={bb.responsibilities} fmt={r => `${r.role}: ${r.duty}`} />)}
+                      {field('Definitions', <ListDiff oldArr={ab.definitions} newArr={bb.definitions} fmt={r => `${r.term}: ${r.def}`} />)}
+                      {field('Procedure', <ListDiff oldArr={ab.procedure} newArr={bb.procedure} fmt={s => s.text + (s.detail ? ` — ${s.detail}` : '')} />)}
+                      {field('Safety', <ListDiff oldArr={ab.safety} newArr={bb.safety} />)}
+                      {field('References', <ListDiff oldArr={ab.references} newArr={bb.references} />)}
+                    </div>
+                  ) : (
+                    <div style={{ maxWidth: 760, margin: '0 auto' }}>{renderSopPreview(B)}</div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '14px 22px', borderTop: '1px solid var(--border-color)' }}>
+                  <button className="secondary-btn" onClick={revertAi} style={{ color: 'hsl(0,70%,45%)' }}>Revert to original</button>
+                  <button className="primary-btn" onClick={close}>Keep changes</button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Full-screen preview of the current draft */}
+        {previewOpen && (
+          <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '2.5vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) setPreviewOpen(false); }}>
+            <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 880, height: '95vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 22px', borderBottom: '1px solid var(--border-color)' }}>
+                <Eye size={18} style={{ flex: '0 0 auto' }} />
+                <h3 style={{ flex: 1, margin: 0 }}>Preview</h3>
+                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', background: 'var(--bg-secondary)', borderRadius: 999, padding: '3px 10px' }}>Not yet published</span>
+                <button className="close-btn" onClick={() => setPreviewOpen(false)}><X size={18} /></button>
+              </div>
+              <div style={{ flex: 1, overflow: 'auto', padding: '24px 28px' }}>
+                <div style={{ maxWidth: 740, margin: '0 auto' }}>{renderSopPreview(draft)}</div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '14px 22px', borderTop: '1px solid var(--border-color)' }}>
+                <button className="secondary-btn" onClick={() => setPreviewOpen(false)}>Close</button>
+                {isManager && <button className="primary-btn" disabled={busy} onClick={() => { setPreviewOpen(false); saveAndPublish(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><CheckSquare size={14} /> Publish</button>}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
