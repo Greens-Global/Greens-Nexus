@@ -28,6 +28,7 @@ def _run_migrations():
             "ALTER TABLE requisitions ADD COLUMN fulfilled_at VARCHAR DEFAULT ''",
             "ALTER TABLE requisitions ADD COLUMN fulfillment_note VARCHAR DEFAULT ''",
             "ALTER TABLE requisitions ADD COLUMN fulfilled_item_id VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN require_ack BOOLEAN DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -99,6 +100,8 @@ def _run_migrations():
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfilled_at VARCHAR DEFAULT ''",
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfillment_note VARCHAR DEFAULT ''",
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfilled_item_id VARCHAR DEFAULT ''",
+        # knowledge_base: require sign-off flag
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS require_ack BOOLEAN DEFAULT FALSE",
     ]
     with engine.connect() as conn:
         for sql in migrations:

@@ -186,6 +186,10 @@ export const api = {
   archiveKbDoc:  (id)       => req(`/knowledge-base/documents/${id}/archive`, { method: "POST" }),
   aiFormatKbDoc: (data)     => req("/knowledge-base/ai-format", { method: "POST", body: JSON.stringify(data) }),
   askKb:         (data)     => req("/knowledge-base/ask", { method: "POST", body: JSON.stringify(data) }),
+  getKbAcks:        (id)        => req(`/knowledge-base/documents/${id}/acknowledgements`),
+  acknowledgeKbDoc: (id)        => req(`/knowledge-base/documents/${id}/acknowledge`, { method: "POST" }),
+  setKbAckRequired: (id, value) => req(`/knowledge-base/documents/${id}/ack-required`, { method: "POST", body: JSON.stringify({ value }) }),
+  getKbSignoffs:    ()          => req("/knowledge-base/signoffs"),
 
   // Assets
   getAssets: () => req("/assets"),

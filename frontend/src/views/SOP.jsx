@@ -28,7 +28,7 @@ const STATUS_META = {
   archived:          { label: 'Archived',          bg: 'var(--bg-secondary)',      fg: 'var(--text-muted)' },
 };
 
-const TAB_LABELS = { index: 'SOP Index', review: 'Review Queue', lms: 'LMS (Learning Portal)' };
+const TAB_LABELS = { index: 'SOP Index', review: 'Review Queue', signoffs: 'Sign-offs', lms: 'LMS (Learning Portal)' };
 
 const Badge = ({ status }) => {
   const m = STATUS_META[status] || STATUS_META.draft;
@@ -47,7 +47,7 @@ const blankBody = () => ({
 const blankDraft = (name, email) => ({
   id: null, title: '', doc_type: 'SOP', departments: [], reviewer_email: '',
   reviewer_name: '', version: '0.1', effective_date: '', body: blankBody(),
-  owner_name: name, owner_email: email, _raw: '',
+  require_ack: false, owner_name: name, owner_email: email, _raw: '',
 });
 
 // ── seeded LMS demo data (unchanged — made real in a later PR) ──────────────
@@ -88,6 +88,12 @@ export default function SOP({ activeSub, onSubChange }) {
   const [reviewDoc, setReviewDoc] = useState(null);
   const [reviewNote, setReviewNote] = useState('');
 
+  // sign-offs
+  const [ackInfo, setAckInfo] = useState(null);
+  const [signOpen, setSignOpen] = useState(false);
+  const [signName, setSignName] = useState('');
+  const [signoffs, setSignoffs] = useState([]);
+
   // LMS (unchanged)
   const [courses, setCourses] = useState(INIT_COURSES);
   const [showCourseModal, setShowCourseModal] = useState(false);
@@ -102,6 +108,25 @@ export default function SOP({ activeSub, onSubChange }) {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // load acknowledgement summary when viewing a document
+  useEffect(() => {
+    if (mode === 'detail' && selected) { setAckInfo(null); api.getKbAcks(selected.id).then(setAckInfo).catch(() => {}); }
+  }, [mode, selected]);
+  // load sign-offs dashboard when that tab is active
+  useEffect(() => {
+    if (sub === 'signoffs') api.getKbSignoffs().then(setSignoffs).catch(() => {});
+  }, [sub, docs]);
+
+  const reloadAcks = () => { if (selected) api.getKbAcks(selected.id).then(setAckInfo).catch(() => {}); };
+  const doSign = async () => {
+    try { const info = await api.acknowledgeKbDoc(selected.id); setAckInfo(info); setSignOpen(false); setSignName(''); }
+    catch (e) { setErr(e.message || 'Sign-off failed'); }
+  };
+  const toggleAckRequired = async (val) => {
+    try { const doc = await api.setKbAckRequired(selected.id, val); setSelected(doc); refresh(); reloadAcks(); }
+    catch (e) { setErr(e.message || 'Failed to update sign-off setting'); }
+  };
 
   const canEdit = (d) => isManager || (d.owner_email === myEmail && (d.status === 'draft' || d.status === 'changes_requested'));
   const canReview = (d) => isManager && d.status === 'in_review';
@@ -131,7 +156,7 @@ export default function SOP({ activeSub, onSubChange }) {
     setDraft({
       id: d.id, title: d.title, doc_type: d.doc_type, departments: [...(d.departments || [])],
       reviewer_email: d.reviewer_email || '', reviewer_name: d.reviewer_name || '',
-      version: d.version, effective_date: d.effective_date || '',
+      version: d.version, effective_date: d.effective_date || '', require_ack: !!d.require_ack,
       body: { ...blankBody(), ...(d.body || {}) }, owner_name: d.owner_name, owner_email: d.owner_email, _raw: '',
     });
     setMode('editor');
@@ -165,6 +190,7 @@ export default function SOP({ activeSub, onSubChange }) {
     title: draft.title, doc_type: draft.doc_type, departments: draft.departments,
     reviewer_email: draft.reviewer_email, reviewer_name: draft.reviewer_name,
     version: draft.version, effective_date: draft.effective_date, body: draft.body,
+    require_ack: draft.require_ack,
   });
 
   const save = async (submit) => {
@@ -335,6 +361,7 @@ export default function SOP({ activeSub, onSubChange }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
               <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', backgroundColor: 'var(--bg-secondary)', borderRadius: 6, padding: '2px 8px' }}>{d.doc_type}</span>
               <Badge status={d.status} />
+              {d.require_ack && <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)', borderRadius: 999, padding: '3px 10px' }}>Sign-off required</span>}
             </div>
             <h2>{d.title}</h2>
           </div>
@@ -408,6 +435,40 @@ export default function SOP({ activeSub, onSubChange }) {
               {d.status === 'changes_requested' && d.review_note && <p style={{ fontSize: '0.8rem', color: 'hsl(0,70%,45%)', margin: '10px 0 0' }}>{d.review_note}</p>}
               {d.status === 'approved' && <p style={{ fontSize: '0.8rem', color: 'hsl(145,55%,32%)', margin: '10px 0 0' }}>Published and live in the library.</p>}
             </div>
+
+            {(d.require_ack || isManager) && (() => {
+              const myAck = ackInfo?.signed?.find(s => s.user_email === myEmail);
+              return (
+                <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, boxShadow: 'var(--shadow-sm)' }}>
+                  <h3 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', margin: '0 0 12px' }}>Acknowledgement</h3>
+                  {isManager && (
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.8rem', marginBottom: d.require_ack ? 12 : 0 }}>
+                      <input type="checkbox" checked={!!d.require_ack} onChange={e => toggleAckRequired(e.target.checked)} style={{ width: 15, height: 15, cursor: 'pointer' }} /> Require sign-off
+                    </label>
+                  )}
+                  {d.require_ack ? (d.status === 'approved' ? (
+                    <>
+                      {myAck
+                        ? <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'hsla(145,63%,42%,0.12)', color: 'hsl(145,55%,30%)', borderRadius: 8, padding: '10px 12px', fontSize: '0.8rem', fontWeight: 500 }}><CheckSquare size={15} /> You acknowledged v{d.version} on {fmtDate(myAck.signed_at)}</div>
+                        : <button className="primary-btn" onClick={() => { setSignName(''); setSignOpen(true); }} style={{ width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}><Edit3 size={14} /> Review &amp; acknowledge</button>}
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 10 }}>{ackInfo?.count ?? 0} acknowledgement{(ackInfo?.count ?? 0) === 1 ? '' : 's'} · v{d.version}</div>
+                      {isManager && ackInfo?.signed?.length > 0 && (
+                        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                          {ackInfo.signed.map((s, i) => (
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: '0.78rem' }}>
+                              <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'hsl(145,63%,42%)', flex: '0 0 auto' }} />
+                              <span style={{ fontWeight: 500 }}>{s.user_name || s.user_email}</span>
+                              <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{fmtDate(s.signed_at)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  ) : <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '4px 0 0' }}>Sign-off will be requested from staff once this is approved.</p>)
+                    : <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: '4px 0 0' }}>No sign-off required for this document.</p>}
+                </div>
+              );
+            })()}
             <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, boxShadow: 'var(--shadow-sm)' }}>
               <h3 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', margin: '0 0 12px' }}>Revision history</h3>
               {(d.revision_history || []).length === 0 ? <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>No activity yet.</p> : (
@@ -423,6 +484,24 @@ export default function SOP({ activeSub, onSubChange }) {
             </div>
           </div>
         </div>
+        {signOpen && (
+          <div className="modal-overlay" style={{ display: 'flex' }}>
+            <div className="modal-content">
+              <div className="modal-header"><h3>Acknowledge &amp; sign off</h3><button className="close-btn" onClick={() => setSignOpen(false)}><X size={18} /></button></div>
+              <div style={{ padding: '4px 0' }}>
+                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 14, fontSize: '0.85rem', color: 'var(--text-primary)', lineHeight: 1.6, marginBottom: 14 }}>
+                  I, <b>{myName}</b>, confirm that I have read and understood <b>{d.title}</b> ({d.doc_code}, version {d.version}), and I agree to follow it in my role.
+                </div>
+                <div className="form-group"><label>Type your full name to sign</label><input className="form-input" autoComplete="off" value={signName} placeholder={myName} onChange={e => setSignName(e.target.value)} /></div>
+                <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '8px 0 0' }}>Signed electronically and recorded with a timestamp against this version.</p>
+              </div>
+              <div className="modal-footer">
+                <button className="secondary-btn" onClick={() => setSignOpen(false)}>Cancel</button>
+                <button className="primary-btn" disabled={signName.trim().toLowerCase() !== myName.toLowerCase()} onClick={doSign}>Sign &amp; acknowledge</button>
+              </div>
+            </div>
+          </div>
+        )}
         {reviewModal()}
       </div>
     );
@@ -550,6 +629,10 @@ export default function SOP({ activeSub, onSubChange }) {
               return <button key={dep} onClick={() => toggleDept(dep)} style={{ fontSize: '0.8rem', padding: '6px 12px', borderRadius: 999, border: '1px solid', borderColor: on ? 'var(--text-primary)' : 'var(--border-color)', backgroundColor: on ? 'var(--text-primary)' : 'var(--bg-card)', color: on ? 'var(--bg-card)' : 'var(--text-secondary)', fontWeight: 500, cursor: 'pointer' }}>{dep}</button>;
             })}
           </div>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 9, marginTop: 14, cursor: 'pointer', fontSize: '0.82rem' }}>
+            <input type="checkbox" checked={!!draft.require_ack} onChange={e => setDraft(p => ({ ...p, require_ack: e.target.checked }))} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+            Require acknowledgement (e-signature sign-off) from staff once approved
+          </label>
         </div>
 
         <div className="form-group" style={{ marginBottom: 16 }}><label>Purpose</label><textarea className="form-input" value={draft.body.purpose} placeholder="Why this document exists…" onChange={e => setBody({ purpose: e.target.value })} style={{ minHeight: 70, resize: 'vertical' }} /></div>
@@ -845,6 +928,42 @@ export default function SOP({ activeSub, onSubChange }) {
             : docTable(reviewQueue, 'Queue is clear — nothing is waiting on review right now.')}
         </>
       )}
+
+      {/* Sign-offs */}
+      {sub === 'signoffs' && (() => {
+        const openDoc = (id) => { const dd = docs.find(x => x.id === id); if (dd) openDetail(dd); };
+        const mine = signoffs.filter(s => !s.my_signed);
+        const groupHead = (txt, n) => <div style={{ fontSize: '0.85rem', fontWeight: 700, margin: '20px 2px 10px', display: 'flex', alignItems: 'center', gap: 8 }}>{txt}{n != null && <span style={{ fontSize: '0.72rem', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderRadius: 999, padding: '2px 9px', fontWeight: 600 }}>{n}</span>}</div>;
+        const note = (txt) => <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px 14px', fontSize: '0.83rem', color: 'var(--text-secondary)' }}>{txt}</div>;
+        const table = (rows, mode2) => (
+          <div style={{ border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden', background: 'var(--bg-card)', boxShadow: 'var(--shadow-sm)' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <tbody>{rows.map(s => (
+                <tr key={s.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                  <td style={{ padding: '11px 14px', cursor: 'pointer' }} onClick={() => openDoc(s.id)}><div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>{s.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{s.doc_code} · v{s.version}</div></td>
+                  <td style={{ padding: '11px 14px', fontSize: '0.78rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{mode2 === 'all' ? `${s.signed_count} signed` : ''}</td>
+                  <td style={{ padding: '11px 14px', textAlign: 'right' }}>
+                    {s.my_signed
+                      ? <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'hsl(145,55%,30%)', background: 'hsla(145,63%,42%,0.12)', borderRadius: 999, padding: '3px 10px' }}>You signed</span>
+                      : <button className="primary-btn" onClick={() => openDoc(s.id)} style={{ height: 32, fontSize: '0.8rem' }}>Review &amp; sign</button>}
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        );
+        return (
+          <>
+            <div className="view-header" style={{ marginBottom: 12 }}><div className="view-title-group"><h2>Sign-offs</h2><p>Policies and SOPs that require an e-signature acknowledgement</p></div></div>
+            {groupHead('Your sign-offs', mine.length || null)}
+            {mine.length ? table(mine, 'mine') : note("You're all caught up — no acknowledgements outstanding.")}
+            {isManager && (<>
+              {groupHead('All policies requiring sign-off', signoffs.length || null)}
+              {signoffs.length ? table(signoffs, 'all') : note('No approved policies currently require sign-off.')}
+            </>)}
+          </>
+        );
+      })()}
 
       {/* LMS — unchanged demo (made real in a later PR) */}
       {sub === 'lms' && (

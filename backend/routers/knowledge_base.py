@@ -103,6 +103,7 @@ def _serialize(d: models.KbDocument) -> dict:
         "effective_date": d.effective_date or "",
         "body": {**_blank_body(), **(body if isinstance(body, dict) else {})},
         "review_note": d.review_note or "",
+        "require_ack": bool(d.require_ack),
         "revision_history": history,
         "created_by": d.created_by or "",
         "created_at": d.created_at or "",
@@ -133,6 +134,7 @@ class KbDocIn(BaseModel):
     version: str = "0.1"
     effective_date: str = ""
     body: dict = {}
+    require_ack: bool = False
 
 
 class ReviewIn(BaseModel):
@@ -181,6 +183,7 @@ def create_document(payload: KbDocIn, user: dict = Depends(get_current_user), db
         reviewer_name=payload.reviewer_name,
         version=payload.version or "0.1",
         effective_date=payload.effective_date,
+        require_ack=bool(payload.require_ack),
         body=json.dumps({**_blank_body(), **(payload.body or {})}),
         revision_history=json.dumps([
             {"version": payload.version or "0.1", "date": _today(), "author": user["email"], "notes": "Created."}
@@ -209,6 +212,7 @@ def update_document(doc_id: str, payload: KbDocIn, user: dict = Depends(get_curr
     if payload.version:
         d.version = payload.version
     d.effective_date = payload.effective_date
+    d.require_ack = bool(payload.require_ack)
     d.body = json.dumps({**_blank_body(), **(payload.body or {})})
     if not d.doc_code:
         d.doc_code = _next_doc_code(payload.departments, db)
@@ -269,6 +273,79 @@ def archive_document(doc_id: str, user: dict = Depends(require_level(3)), db: Se
     _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": "Archived."})
     db.commit()
     return _serialize(d)
+
+
+# ---- sign-offs / e-signature ---------------------------------------------
+class AckRequiredIn(BaseModel):
+    value: bool = True
+
+
+def _ack_summary(d: models.KbDocument, user: dict, db: Session) -> dict:
+    rows = db.query(models.KbAcknowledgement).filter(models.KbAcknowledgement.doc_id == d.id).all()
+    current = [r for r in rows if r.version == d.version]
+    current.sort(key=lambda r: r.signed_at or "", reverse=True)
+    return {
+        "doc_id": d.id,
+        "version": d.version,
+        "required": bool(d.require_ack),
+        "status": d.status,
+        "my_signed": any(r.user_email == user["email"] and r.version == d.version for r in rows),
+        "count": len(current),
+        "signed": [{"user_email": r.user_email, "user_name": r.user_name, "version": r.version, "signed_at": r.signed_at} for r in current],
+    }
+
+
+@router.get("/documents/{doc_id}/acknowledgements")
+def get_acknowledgements(doc_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _ack_summary(_get_or_404(doc_id, db), user, db)
+
+
+@router.post("/documents/{doc_id}/acknowledge")
+def acknowledge(doc_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    d = _get_or_404(doc_id, db)
+    if d.status != "approved" or not d.require_ack:
+        raise HTTPException(status_code=400, detail="This document is not open for sign-off")
+    existing = db.query(models.KbAcknowledgement).filter(
+        models.KbAcknowledgement.doc_id == d.id,
+        models.KbAcknowledgement.user_email == user["email"],
+        models.KbAcknowledgement.version == d.version,
+    ).first()
+    if not existing:
+        db.add(models.KbAcknowledgement(
+            id="ack_" + uuid.uuid4().hex[:12], doc_id=d.id, version=d.version,
+            user_email=user["email"], user_name=user.get("name") or user["email"], signed_at=_now(),
+        ))
+        db.commit()
+    return _ack_summary(d, user, db)
+
+
+@router.post("/documents/{doc_id}/ack-required")
+def set_ack_required(doc_id: str, payload: AckRequiredIn, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    d = _get_or_404(doc_id, db)
+    d.require_ack = bool(payload.value)
+    d.updated_at = _now()
+    db.commit()
+    db.refresh(d)
+    return _serialize(d)
+
+
+@router.get("/signoffs")
+def signoffs(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    out = []
+    for d in db.query(models.KbDocument).all():
+        if d.status != "approved" or not d.require_ack:
+            continue
+        rows = db.query(models.KbAcknowledgement).filter(
+            models.KbAcknowledgement.doc_id == d.id, models.KbAcknowledgement.version == d.version,
+        ).all()
+        out.append({
+            "id": d.id, "doc_code": d.doc_code, "title": d.title, "version": d.version,
+            "departments": [s for s in (d.departments or "").split(",") if s],
+            "signed_count": len(rows),
+            "my_signed": any(r.user_email == user["email"] for r in rows),
+        })
+    out.sort(key=lambda x: x["title"].lower())
+    return out
 
 
 def _push_history(d: models.KbDocument, entry: dict) -> None:

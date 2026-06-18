@@ -588,6 +588,19 @@ class KbDocument(Base):
     body             = Column(String, default="{}")           # JSON: purpose, scopeText, materials, responsibilities, definitions, procedure, safety, references
     review_note      = Column(String, default="")             # latest reviewer note
     revision_history = Column(String, default="[]")           # JSON list of {version,date,author,notes}
+    require_ack      = Column(Boolean, default=False)          # require e-signature sign-off once approved
     created_by       = Column(String, default="")
     created_at       = Column(String, default="")
     updated_at       = Column(String, default="")
+
+
+class KbAcknowledgement(Base):
+    """One e-signature: a user acknowledged a specific version of a KB document.
+    The current-version signers are those whose `version` matches the doc's."""
+    __tablename__ = "kb_acknowledgements"
+    id         = Column(String, primary_key=True)   # uuid
+    doc_id     = Column(String, nullable=False)
+    version    = Column(String, default="")          # doc version acknowledged
+    user_email = Column(String, nullable=False)
+    user_name  = Column(String, default="")
+    signed_at  = Column(String, default="")
