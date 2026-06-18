@@ -185,6 +185,7 @@ export const api = {
   reviewKbDoc:   (id, data) => req(`/knowledge-base/documents/${id}/review`, { method: "POST", body: JSON.stringify(data) }),
   archiveKbDoc:  (id)       => req(`/knowledge-base/documents/${id}/archive`, { method: "POST" }),
   aiFormatKbDoc: (data)     => req("/knowledge-base/ai-format", { method: "POST", body: JSON.stringify(data) }),
+  askKb:         (data)     => req("/knowledge-base/ask", { method: "POST", body: JSON.stringify(data) }),
 
   // Assets
   getAssets: () => req("/assets"),

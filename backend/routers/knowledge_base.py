@@ -146,6 +146,10 @@ class AiFormatIn(BaseModel):
     departments: list[str] = []
 
 
+class AskIn(BaseModel):
+    question: str = ""
+
+
 # ---- CRUD -----------------------------------------------------------------
 @router.get("/documents")
 def list_documents(db: Session = Depends(get_db)):
@@ -339,6 +343,73 @@ def _heuristic_format(text: str, title: str) -> dict:
     out["references"] = refs
     out["procedure"] = [{"text": s, "detail": ""} for s in steps]
     return out
+
+
+def _rank_docs(q: str, db: Session) -> list[models.KbDocument]:
+    terms = [t for t in q.lower().split() if len(t) > 2]
+    if not terms:
+        return []
+    scored = []
+    for d in db.query(models.KbDocument).all():
+        if d.status == "archived":
+            continue
+        hay = (d.title + " " + (d.body or "") + " " + (d.doc_code or "")).lower()
+        s = sum(1 for t in terms if t in hay) + sum(1 for t in terms if t in d.title.lower())
+        if s > 0:
+            scored.append((s, d))
+    scored.sort(key=lambda x: -x[0])
+    return [d for _, d in scored[:3]]
+
+
+def _doc_context(d: models.KbDocument) -> str:
+    try:
+        b = json.loads(d.body or "{}")
+    except (ValueError, TypeError):
+        b = {}
+    steps = "; ".join(s.get("text", "") for s in (b.get("procedure") or []) if isinstance(s, dict))
+    return f"SOP {d.doc_code} — {d.title}\nPurpose: {b.get('purpose','')}\nScope: {b.get('scopeText','')}\nSteps: {steps}"
+
+
+def _offline_answer(q: str, top: list[models.KbDocument]) -> str:
+    if not top:
+        return "I couldn't find an SOP that covers that. It's been noted as a content gap so an owner can fill it."
+    d = top[0]
+    try:
+        b = json.loads(d.body or "{}")
+    except (ValueError, TypeError):
+        b = {}
+    return f"Based on {d.doc_code} — {d.title}: {b.get('purpose','')}".strip()
+
+
+@router.post("/ask")
+def ask(payload: AskIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    q = (payload.question or "").strip()
+    if not q:
+        raise HTTPException(status_code=400, detail="Ask a question")
+    top = _rank_docs(q, db)
+    sources = [{"id": d.id, "doc_code": d.doc_code, "title": d.title} for d in top]
+    if not _ANTHROPIC_API_KEY:
+        return {"answer": _offline_answer(q, top), "sources": sources, "grounded": bool(top)}
+    context = "\n\n".join(_doc_context(d) for d in top) or "(no matching SOPs found)"
+    prompt = (
+        "You are the Greens Global knowledge assistant. Answer the employee's question using ONLY the SOP "
+        "context below. Be concise. Cite the SOP IDs you used in parentheses. If the answer is not in the "
+        f"context, say you couldn't find it in the SOPs.\n\nQUESTION: {q}\n\nCONTEXT:\n{context}"
+    )
+    try:
+        with httpx.Client(timeout=45) as client:
+            r = client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": _ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json={"model": _AI_MODEL, "max_tokens": 700, "messages": [{"role": "user", "content": prompt}]},
+            )
+            r.raise_for_status()
+            data = r.json()
+        text = "".join(blk.get("text", "") for blk in data.get("content", []) if blk.get("type") == "text").strip()
+        return {"answer": text or _offline_answer(q, top), "sources": sources, "grounded": bool(top)}
+    except Exception as e:
+        print(f"[kb ask] falling back to offline: {e}")
+        return {"answer": _offline_answer(q, top), "sources": sources, "grounded": bool(top)}
 
 
 @router.post("/ai-format")

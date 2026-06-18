@@ -13,6 +13,10 @@ const DEPARTMENTS = [
   'Finance & Accounting', 'IT', 'Marketing', 'Admin',
 ];
 const DOC_TYPES = ['SOP', 'Manual', 'Guide'];
+const DEPT_ABBR = {
+  'Operations': 'OPS', 'Revenue Management': 'RM', 'Real Estate Development': 'RED',
+  'People (HR)': 'HR', 'Finance & Accounting': 'FIN', 'IT': 'IT', 'Marketing': 'MKT', 'Admin': 'ADM',
+};
 
 const STATUS_META = {
   draft:             { label: 'Draft',             bg: 'var(--bg-secondary)',      fg: 'var(--text-secondary)' },
@@ -75,6 +79,8 @@ export default function SOP({ activeSub, onSubChange }) {
   const [deptFilter, setDeptFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [libView, setLibView] = useState('list'); // list | cards | outline
+  const [ask, setAsk] = useState({ open: false, q: '', loading: false, answer: null, sources: [], grounded: true });
 
   // review modal
   const [reviewDoc, setReviewDoc] = useState(null);
@@ -212,6 +218,20 @@ export default function SOP({ activeSub, onSubChange }) {
     } catch (e) { setErr(e.message || 'AI formatting failed'); }
     finally { setAiBusy(false); }
   };
+
+  // ── Ask AI ──
+  const doAsk = async () => {
+    const q = ask.q.trim();
+    if (!q) return;
+    setAsk(a => ({ ...a, loading: true, answer: null, sources: [] }));
+    try {
+      const r = await api.askKb({ question: q });
+      setAsk(a => ({ ...a, loading: false, answer: r.answer, sources: r.sources || [], grounded: r.grounded !== false }));
+    } catch (e) {
+      setAsk(a => ({ ...a, loading: false, answer: e.message || 'Something went wrong answering that.', sources: [] }));
+    }
+  };
+  const openSourceById = (id) => { const d = docs.find(x => x.id === id); if (d) openDetail(d); };
 
   // ── LMS (unchanged) ──
   const completed = courses.filter(c => c.status === 'Completed').length;
@@ -479,6 +499,142 @@ export default function SOP({ activeSub, onSubChange }) {
     );
   }
 
+  const deptChips = (d) => {
+    const ds = d.departments || [];
+    if (!ds.length) return <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Unassigned</span>;
+    return (
+      <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
+        {ds.slice(0, 3).map(x => <span key={x} style={{ fontSize: '0.66rem', fontWeight: 600, color: 'var(--text-secondary)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 999, padding: '1px 7px' }}>{DEPT_ABBR[x] || x}</span>)}
+        {ds.length > 3 && <span style={{ fontSize: '0.66rem', color: 'var(--text-muted)' }}>+{ds.length - 3}</span>}
+      </span>
+    );
+  };
+
+  const statsRow = () => {
+    const tiles = [
+      ['Documents', docs.length],
+      ['Drafts', docs.filter(d => d.status === 'draft' || d.status === 'changes_requested').length],
+      ['In Review', docs.filter(d => d.status === 'in_review').length],
+      ['Approved', docs.filter(d => d.status === 'approved').length],
+    ];
+    return (
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
+        {tiles.map(([l, v]) => (
+          <div key={l} style={{ flex: '1 1 120px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: '12px 16px', boxShadow: 'var(--shadow-sm)' }}>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, fontFamily: 'monospace', lineHeight: 1, color: 'var(--text-primary)' }}>{v}</div>
+            <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginTop: 6 }}>{l}</div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const recentStrip = () => {
+    const recent = docs.slice().sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')).slice(0, 5);
+    if (!recent.length) return null;
+    return (
+      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 14, padding: '14px 14px 16px', marginBottom: 22 }}>
+        <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 7, padding: '0 2px 12px' }}><Clock size={13} /> Recently updated</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(208px, 1fr))', gap: 10 }}>
+          {recent.map(d => (
+            <button key={d.id} onClick={() => openDetail(d)} style={{ textAlign: 'left', cursor: 'pointer', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 11, padding: '12px 13px', boxShadow: 'var(--shadow-sm)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}><Badge status={d.status} /><span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{fmtDate(d.updated_at)}</span></div>
+              <div style={{ fontWeight: 600, fontSize: '0.85rem', lineHeight: 1.3, color: 'var(--text-primary)' }}>{d.title}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{d.doc_code || '—'} · v{d.version}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const cardGrid = (list, emptyMsg) => (
+    list.length === 0
+      ? <div style={{ textAlign: 'center', padding: 40, border: '1px dashed var(--border-color)', borderRadius: 8, color: 'var(--text-secondary)' }}>{emptyMsg}</div>
+      : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
+          {list.map(d => {
+            const b = d.body || {};
+            return (
+              <button key={d.id} onClick={() => openDetail(d)} style={{ textAlign: 'left', cursor: 'pointer', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 16, boxShadow: 'var(--shadow-sm)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{d.doc_code || '—'}</div>
+                    <div style={{ fontWeight: 600, fontSize: '0.95rem', lineHeight: 1.3, color: 'var(--text-primary)', marginTop: 2 }}>{d.title}</div>
+                  </div>
+                  <Badge status={d.status} />
+                </div>
+                {b.purpose && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{b.purpose}</div>}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 'auto', paddingTop: 8, borderTop: '1px solid var(--bg-secondary)' }}>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{d.doc_type} · v{d.version}</span>
+                  {deptChips(d)}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )
+  );
+
+  const outlineView = (list, emptyMsg) => {
+    if (!list.length) return <div style={{ textAlign: 'center', padding: 40, border: '1px dashed var(--border-color)', borderRadius: 8, color: 'var(--text-secondary)' }}>{emptyMsg}</div>;
+    const groups = [];
+    DEPARTMENTS.forEach(dep => { const ds = list.filter(d => (d.departments || []).includes(dep)); if (ds.length) groups.push([dep, ds]); });
+    const unassigned = list.filter(d => !(d.departments || []).length);
+    if (unassigned.length) groups.push(['Unassigned', unassigned]);
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {groups.map(([dep, ds]) => (
+          <div key={dep} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 15px', fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid var(--border-color)' }}>
+              <BookOpen size={15} style={{ color: 'var(--text-secondary)' }} /> {dep}
+              <span style={{ marginLeft: 'auto', fontSize: '0.7rem', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderRadius: 999, padding: '2px 9px', fontWeight: 600 }}>{ds.length}</span>
+            </div>
+            {ds.map(d => (
+              <button key={d.id} onClick={() => openDetail(d)} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', padding: '11px 15px', background: 'transparent', border: 'none', borderTop: '1px solid var(--bg-secondary)', cursor: 'pointer' }}>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{d.title}</span>
+                  <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{d.doc_code || '—'} · {d.doc_type} · v{d.version} · {d.owner_name || ''}</span>
+                </span>
+                <Badge status={d.status} />
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const askPanel = () => (
+    <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 14, marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <Sparkles size={17} style={{ color: 'hsl(var(--color-blue))', flex: '0 0 auto' }} />
+        <input className="form-input" value={ask.q} placeholder="Ask the knowledge base… e.g. When do we run the gate audit?" onChange={e => setAsk(a => ({ ...a, q: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') doAsk(); }} style={{ flex: 1, height: 42 }} />
+        <button className="primary-btn" disabled={ask.loading} onClick={doAsk} style={{ height: 42, display: 'inline-flex', alignItems: 'center', gap: 6 }}>{ask.loading ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {ask.loading ? 'Asking…' : 'Ask'}</button>
+      </div>
+      {ask.answer != null && (
+        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 11, padding: 14, marginTop: 12 }}>
+          <div style={{ fontSize: '0.88rem', lineHeight: 1.6, color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>{ask.answer}</div>
+          {ask.sources?.length > 0 ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', marginTop: 12, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              Sources:
+              {ask.sources.map(s => <button key={s.id} onClick={() => openSourceById(s.id)} style={{ fontFamily: 'monospace', fontSize: '0.72rem', background: 'var(--bg-secondary)', color: 'hsl(var(--color-blue))', border: '1px solid var(--border-color)', borderRadius: 999, padding: '3px 10px', cursor: 'pointer', fontWeight: 600 }}>{s.doc_code || s.title}</button>)}
+            </div>
+          ) : <div style={{ marginTop: 12, fontSize: '0.75rem', color: 'hsl(32, 80%, 38%)' }}>No matching SOP found — worth adding one.</div>}
+        </div>
+      )}
+      {ask.answer == null && !ask.loading && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 10 }}>Answers are grounded only in your SOPs and cite their source. Uses Claude server-side; falls back to local matching offline.</div>}
+    </div>
+  );
+
+  const viewToggle = () => (
+    <div style={{ display: 'inline-flex', gap: 6 }}>
+      {[['list', 'List'], ['cards', 'Cards'], ['outline', 'By department']].map(([k, l]) => (
+        <button key={k} onClick={() => setLibView(k)} style={{ padding: '7px 13px', borderRadius: 999, fontSize: '0.78rem', fontWeight: 500, cursor: 'pointer', border: '1px solid', borderColor: libView === k ? 'var(--text-primary)' : 'var(--border-color)', background: libView === k ? 'var(--text-primary)' : 'var(--bg-card)', color: libView === k ? 'var(--bg-card)' : 'var(--text-secondary)' }}>{l}</button>
+      ))}
+    </div>
+  );
+
   const docTable = (list, emptyMsg) => (
     list.length === 0
       ? <div style={{ textAlign: 'center', padding: 40, border: '1px dashed var(--border-color)', borderRadius: 8, color: 'var(--text-secondary)' }}>{emptyMsg}</div>
@@ -522,12 +678,14 @@ export default function SOP({ activeSub, onSubChange }) {
       {/* SOP Index */}
       {sub === 'index' && (
         <>
-          <div className="view-header" style={{ marginBottom: 24 }}>
+          <div className="view-header" style={{ marginBottom: 20 }}>
             <div className="view-title-group"><h2>SOP Index</h2><p>Standard Operating Procedures and company documentation</p></div>
             <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><FilePlus size={16} /> New SOP</button>
           </div>
 
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 20 }}>
+          {statsRow()}
+
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
             <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 200 }}>
               <Search size={18} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               <input type="text" className="form-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search title, ID, or document text…" style={{ paddingLeft: 44, width: '100%', height: 42 }} />
@@ -535,14 +693,25 @@ export default function SOP({ activeSub, onSubChange }) {
             <select className="form-select" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ height: 42 }}><option value="all">All departments</option>{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select>
             <select className="form-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ height: 42 }}><option value="all">All types</option>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select>
             <select className="form-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ height: 42 }}><option value="all">All statuses</option>{Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
+            <button className={ask.open ? 'primary-btn' : 'secondary-btn'} onClick={() => setAsk(a => ({ ...a, open: !a.open }))} style={{ height: 42, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Sparkles size={15} /> Ask AI</button>
+          </div>
+
+          {ask.open && askPanel()}
+          {recentStrip()}
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{filtered.length} document{filtered.length === 1 ? '' : 's'}</div>
+            {viewToggle()}
           </div>
 
           {loading
             ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
-            : <>
-                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 10 }}>{filtered.length} document{filtered.length === 1 ? '' : 's'}</div>
-                {docTable(filtered, docs.length === 0 ? 'No documents yet. Click “New SOP” to create the first one.' : 'No documents match your filters.')}
-              </>}
+            : (() => {
+                const empty = docs.length === 0 ? 'No documents yet. Click “New SOP” to create the first one.' : 'No documents match your filters.';
+                if (libView === 'cards') return cardGrid(filtered, empty);
+                if (libView === 'outline') return outlineView(filtered, empty);
+                return docTable(filtered, empty);
+              })()}
         </>
       )}
 
