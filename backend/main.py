@@ -237,6 +237,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:5174",   # Knowledge Base standalone dev workspace
+        "http://127.0.0.1:5174",
         "https://nexus.greensglobal.com",
         "https://dev.nexus.greensglobal.com",
     ],
