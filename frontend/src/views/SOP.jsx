@@ -138,7 +138,8 @@ export default function SOP({ activeSub, onSubChange }) {
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [libView, setLibView] = useState('list'); // list | cards | outline
-  const [ask, setAsk] = useState({ open: false, q: '', loading: false, answer: null, sources: [], grounded: true });
+  const [searchMode, setSearchMode] = useState('search'); // search | ask
+  const [ask, setAsk] = useState({ q: '', loading: false, answer: null, sources: [], grounded: true });
 
   // review modal
   const [reviewDoc, setReviewDoc] = useState(null);
@@ -480,7 +481,7 @@ export default function SOP({ activeSub, onSubChange }) {
                       <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 8px' }}>{s.title || (sop ? sop.title : 'Linked SOP')}</h3>
                       {sop ? (
                         <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 14, background: 'var(--bg-secondary)' }}>
-                          <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontFamily: 'monospace', marginBottom: 8 }}>Linked SOP · {sop.doc_code} · v{sop.version} · {(STATUS_META[sop.status] || {}).label}</div>
+                          <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontFamily: 'inherit', marginBottom: 8 }}>Linked SOP · {sop.doc_code} · v{sop.version} · {(STATUS_META[sop.status] || {}).label}</div>
                           {sop.body?.purpose && <p style={{ margin: '0 0 10px', color: 'var(--text-primary)', fontSize: '0.88rem', lineHeight: 1.6 }}>{sop.body.purpose}</p>}
                           {sop.body?.procedure?.length > 0 && (
                             <ol style={{ margin: '0 0 10px', paddingLeft: 18, color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.6 }}>
@@ -606,14 +607,14 @@ export default function SOP({ activeSub, onSubChange }) {
             </>}
 
             <div style={{ marginTop: 26, borderTop: '2px solid var(--border-color)', paddingTop: 18 }}>
-              <h3 style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'hsl(var(--color-blue))', margin: '0 0 14px', fontWeight: 700 }}>Discussion <span style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>{comments.length}</span></h3>
+              <h3 style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'hsl(var(--color-blue))', margin: '0 0 14px', fontWeight: 700 }}>Discussion <span style={{ fontFamily: 'inherit', color: 'var(--text-muted)' }}>{comments.length}</span></h3>
               {comments.length === 0
                 ? <div style={{ fontSize: '0.83rem', color: 'var(--text-muted)', marginBottom: 4 }}>No comments yet. Start the discussion below.</div>
                 : comments.map(c => (
                   <div key={c.id} style={{ display: 'flex', gap: 11, padding: '12px 0', borderBottom: '1px solid var(--bg-secondary)' }}>
                     <span style={{ flex: '0 0 auto', width: 32, height: 32, borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.72rem' }}>{initials(c.author_name)}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}><span style={{ fontWeight: 600, fontSize: '0.82rem' }}>{c.author_name}</span><span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{fmtDate(c.created_at)}</span></div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}><span style={{ fontWeight: 600, fontSize: '0.82rem' }}>{c.author_name}</span><span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{fmtDate(c.created_at)}</span></div>
                       <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)', marginTop: 4, whiteSpace: 'pre-wrap', wordWrap: 'break-word' }}>{c.text}</div>
                     </div>
                   </div>
@@ -670,7 +671,7 @@ export default function SOP({ activeSub, onSubChange }) {
                             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: '0.78rem' }}>
                               <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'hsl(145,63%,42%)', flex: '0 0 auto' }} />
                               <span style={{ fontWeight: 500 }}>{s.user_name || s.user_email}</span>
-                              <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{fmtDate(s.signed_at)}</span>
+                              <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{fmtDate(s.signed_at)}</span>
                             </div>
                           ))}
                         </div>
@@ -991,7 +992,7 @@ export default function SOP({ activeSub, onSubChange }) {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         {tiles.map(([l, v, c]) => (
           <div key={l} style={{ display: 'flex', alignItems: 'baseline', gap: 7, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 9, padding: '7px 13px' }}>
-            <span style={{ fontSize: '1.05rem', fontWeight: 700, fontFamily: 'monospace', lineHeight: 1, color: c }}>{v}</span>
+            <span style={{ fontSize: '1.05rem', fontWeight: 700, fontFamily: 'inherit', lineHeight: 1, color: c }}>{v}</span>
             <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)' }}>{l}</span>
           </div>
         ))}
@@ -1008,9 +1009,9 @@ export default function SOP({ activeSub, onSubChange }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(208px, 1fr))', gap: 10 }}>
           {recent.map(d => (
             <button key={d.id} onClick={() => openDetail(d)} style={{ textAlign: 'left', cursor: 'pointer', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 11, padding: '12px 13px', boxShadow: 'var(--shadow-sm)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}><Badge status={d.status} /><span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{fmtDate(d.updated_at)}</span></div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}><Badge status={d.status} /><span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{fmtDate(d.updated_at)}</span></div>
               <div style={{ fontWeight: 600, fontSize: '0.85rem', lineHeight: 1.3, color: 'var(--text-primary)' }}>{d.title}</div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{d.doc_code || '—'} · v{d.version}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code || '—'} · v{d.version}</div>
             </button>
           ))}
         </div>
@@ -1029,7 +1030,7 @@ export default function SOP({ activeSub, onSubChange }) {
               <button key={d.id} onClick={() => openDetail(d)} style={{ textAlign: 'left', cursor: 'pointer', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 16, boxShadow: 'var(--shadow-sm)', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
                   <div>
-                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{d.doc_code || '—'}</div>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code || '—'}</div>
                     <div style={{ fontWeight: 600, fontSize: '0.95rem', lineHeight: 1.3, color: 'var(--text-primary)', marginTop: 2 }}>{d.title}</div>
                   </div>
                   <Badge status={d.status} />
@@ -1064,7 +1065,7 @@ export default function SOP({ activeSub, onSubChange }) {
               <button key={d.id} onClick={() => openDetail(d)} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', padding: '11px 15px', background: 'transparent', border: 'none', borderTop: '1px solid var(--bg-secondary)', cursor: 'pointer' }}>
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{d.title}</span>
-                  <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{d.doc_code || '—'} · {d.doc_type} · v{d.version} · {d.owner_name || ''}</span>
+                  <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code || '—'} · {d.doc_type} · v{d.version} · {d.owner_name || ''}</span>
                 </span>
                 <Badge status={d.status} />
               </button>
@@ -1075,25 +1076,21 @@ export default function SOP({ activeSub, onSubChange }) {
     );
   };
 
-  const askPanel = () => (
+  const askAnswer = () => (
     <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 14, marginBottom: 18 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <Sparkles size={17} style={{ color: 'hsl(var(--color-blue))', flex: '0 0 auto' }} />
-        <input className="form-input" value={ask.q} placeholder="Ask the knowledge base… e.g. When do we run the gate audit?" onChange={e => setAsk(a => ({ ...a, q: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') doAsk(); }} style={{ flex: 1, height: 42 }} />
-        <button className="primary-btn" disabled={ask.loading} onClick={doAsk} style={{ height: 42, display: 'inline-flex', alignItems: 'center', gap: 6 }}>{ask.loading ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {ask.loading ? 'Asking…' : 'Ask'}</button>
-      </div>
-      {ask.answer != null && (
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 11, padding: 14, marginTop: 12 }}>
+      {ask.loading && <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 8 }}><Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> Searching your SOPs…</div>}
+      {!ask.loading && ask.answer != null && (
+        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 11, padding: 14 }}>
           <div style={{ fontSize: '0.88rem', lineHeight: 1.6, color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>{ask.answer}</div>
           {ask.sources?.length > 0 ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', marginTop: 12, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
               Sources:
-              {ask.sources.map(s => <button key={s.id} onClick={() => openSourceById(s.id)} style={{ fontFamily: 'monospace', fontSize: '0.72rem', background: 'var(--bg-secondary)', color: 'hsl(var(--color-blue))', border: '1px solid var(--border-color)', borderRadius: 999, padding: '3px 10px', cursor: 'pointer', fontWeight: 600 }}>{s.doc_code || s.title}</button>)}
+              {ask.sources.map(s => <button key={s.id} onClick={() => openSourceById(s.id)} style={{ fontSize: '0.72rem', background: 'var(--bg-secondary)', color: 'hsl(var(--color-blue))', border: '1px solid var(--border-color)', borderRadius: 999, padding: '3px 10px', cursor: 'pointer', fontWeight: 600 }}>{s.doc_code || s.title}</button>)}
             </div>
           ) : <div style={{ marginTop: 12, fontSize: '0.75rem', color: 'hsl(32, 80%, 38%)' }}>No matching SOP found — worth adding one.</div>}
         </div>
       )}
-      {ask.answer == null && !ask.loading && <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 10 }}>Answers are grounded only in your SOPs and cite their source. Uses Claude server-side; falls back to local matching offline.</div>}
+      {!ask.loading && ask.answer == null && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Ask a question in the box above — answers are grounded only in your SOPs and cite their source.</div>}
     </div>
   );
 
@@ -1119,7 +1116,7 @@ export default function SOP({ activeSub, onSubChange }) {
             <tbody>{list.map(d => (
               <tr key={d.id} onClick={() => openDetail(d)} style={{ cursor: 'pointer', borderBottom: '1px solid var(--border-color)' }}
                 onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-                <td style={{ padding: '11px 14px' }}><div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>{d.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{d.doc_code || '—'} · v{d.version}</div></td>
+                <td style={{ padding: '11px 14px' }}><div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>{d.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code || '—'} · v{d.version}</div></td>
                 <td style={{ padding: '11px 14px', fontSize: '0.82rem' }}>{d.doc_type}</td>
                 <td style={{ padding: '11px 14px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{(d.departments || []).length ? d.departments.join(', ') : 'Unassigned'}</td>
                 <td style={{ padding: '11px 14px' }}><Badge status={d.status} /></td>
@@ -1156,23 +1153,31 @@ export default function SOP({ activeSub, onSubChange }) {
           {statsRow()}
 
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 10, boxShadow: 'var(--shadow-sm)' }}>
-            <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 340 }}>
+            <div style={{ display: 'inline-flex', background: 'var(--bg-secondary)', borderRadius: 9, padding: 3, flex: '0 0 auto' }}>
+              {[['search', 'Search', Search], ['ask', 'Ask AI', Sparkles]].map(([m, label, Icon]) => (
+                <button key={m} onClick={() => setSearchMode(m)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, background: searchMode === m ? 'var(--bg-card)' : 'transparent', color: searchMode === m ? 'var(--text-primary)' : 'var(--text-secondary)', boxShadow: searchMode === m ? 'var(--shadow-sm)' : 'none' }}><Icon size={14} /> {label}</button>
+              ))}
+            </div>
+            <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 200 }}>
               <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-              <input type="text" className="form-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" style={{ paddingLeft: 36, width: '100%', height: 38, fontSize: '0.88rem' }} />
+              {searchMode === 'search'
+                ? <input type="text" className="form-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search title, ID, or document text…" style={{ paddingLeft: 36, width: '100%', height: 38, fontSize: '0.88rem' }} />
+                : <input type="text" className="form-input" value={ask.q} onChange={e => setAsk(a => ({ ...a, q: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') doAsk(); }} placeholder="Ask the knowledge base… e.g. When do we run the gate audit?" style={{ paddingLeft: 36, width: '100%', height: 38, fontSize: '0.88rem' }} />}
             </div>
-            <select className="form-select" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All departments</option>{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select>
-            <select className="form-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All types</option>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select>
-            <select className="form-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All statuses</option>{Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
-            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
-              {viewToggle()}
-              <button className={ask.open ? 'primary-btn' : 'secondary-btn'} onClick={() => setAsk(a => ({ ...a, open: !a.open }))} style={{ height: 38, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.85rem' }}><Sparkles size={15} /> Ask AI</button>
-            </div>
+            {searchMode === 'search' ? (<>
+              <select className="form-select" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All departments</option>{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select>
+              <select className="form-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All types</option>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select>
+              <select className="form-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All statuses</option>{Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
+              <div style={{ marginLeft: 'auto' }}>{viewToggle()}</div>
+            </>) : (
+              <button className="primary-btn" disabled={ask.loading} onClick={doAsk} style={{ height: 38, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.85rem' }}>{ask.loading ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {ask.loading ? 'Asking…' : 'Ask'}</button>
+            )}
           </div>
 
-          {ask.open && askPanel()}
-          {recentStrip()}
+          {searchMode === 'ask' && askAnswer()}
+          {searchMode === 'search' && recentStrip()}
 
-          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 10 }}>{filtered.length} document{filtered.length === 1 ? '' : 's'}</div>
+          {searchMode === 'search' && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 10 }}>{filtered.length} document{filtered.length === 1 ? '' : 's'}</div>}
 
           {loading
             ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
@@ -1212,7 +1217,7 @@ export default function SOP({ activeSub, onSubChange }) {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <tbody>{rows.map(s => (
                 <tr key={s.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                  <td style={{ padding: '11px 14px', cursor: 'pointer' }} onClick={() => openDoc(s.id)}><div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>{s.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{s.doc_code} · v{s.version}</div></td>
+                  <td style={{ padding: '11px 14px', cursor: 'pointer' }} onClick={() => openDoc(s.id)}><div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>{s.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{s.doc_code} · v{s.version}</div></td>
                   <td style={{ padding: '11px 14px', fontSize: '0.78rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{mode2 === 'all' ? `${s.signed_count} signed` : ''}</td>
                   <td style={{ padding: '11px 14px', textAlign: 'right' }}>
                     {s.my_signed
@@ -1252,7 +1257,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 </tr></thead>
                 <tbody>{rows.map(d => { const isAll = DEPARTMENTS.length === (d.departments || []).length; return (
                   <tr key={d.id} style={{ borderTop: '1px solid var(--border-color)' }}>
-                    <td style={{ position: 'sticky', left: 0, background: 'var(--bg-card)', padding: '10px 14px', minWidth: 220 }}><div style={{ fontWeight: 600, fontSize: '0.83rem' }}>{d.title}</div><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{d.doc_code} · {d.doc_type}</div></td>
+                    <td style={{ position: 'sticky', left: 0, background: 'var(--bg-card)', padding: '10px 14px', minWidth: 220 }}><div style={{ fontWeight: 600, fontSize: '0.83rem' }}>{d.title}</div><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code} · {d.doc_type}</div></td>
                     <td style={{ textAlign: 'center', padding: '6px' }}><button onClick={() => toggleMatrixAll(d)} style={{ fontSize: '0.62rem', fontWeight: 700, padding: '4px 8px', borderRadius: 999, border: '1.5px solid', borderColor: isAll ? 'var(--text-primary)' : 'var(--border-color)', background: isAll ? 'var(--text-primary)' : 'var(--bg-card)', color: isAll ? 'var(--bg-card)' : 'var(--text-muted)', cursor: 'pointer' }}>All</button></td>
                     {DEPARTMENTS.map(dep => { const on = (d.departments || []).includes(dep); return (
                       <td key={dep} style={{ textAlign: 'center', padding: '6px' }}>
@@ -1270,7 +1275,7 @@ export default function SOP({ activeSub, onSubChange }) {
       {/* Insights (managers) */}
       {sub === 'insights' && isManager && (() => {
         const i = insights;
-        const tile = (label, value, color) => <div style={{ flex: '1 1 130px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: '14px 16px', boxShadow: 'var(--shadow-sm)' }}><div style={{ fontSize: '0.62rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>{label}</div><div style={{ fontSize: '1.6rem', fontWeight: 700, fontFamily: 'monospace', lineHeight: 1.1, color: color || 'var(--text-primary)' }}>{value}</div></div>;
+        const tile = (label, value, color) => <div style={{ flex: '1 1 130px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: '14px 16px', boxShadow: 'var(--shadow-sm)' }}><div style={{ fontSize: '0.62rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>{label}</div><div style={{ fontSize: '1.6rem', fontWeight: 700, fontFamily: 'inherit', lineHeight: 1.1, color: color || 'var(--text-primary)' }}>{value}</div></div>;
         const card = (title, node) => <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 16, boxShadow: 'var(--shadow-sm)' }}><h3 style={{ fontSize: '0.85rem', fontWeight: 700, margin: '0 0 12px' }}>{title}</h3>{node}</div>;
         const muted = (t) => <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{t}</div>;
         return (
@@ -1282,9 +1287,9 @@ export default function SOP({ activeSub, onSubChange }) {
                   {tile('Documents', i.total)}{tile('Approved', i.approved, 'hsl(145,55%,30%)')}{tile('In review', i.in_review)}{tile('Needs review', i.needs_review.length, i.needs_review.length ? 'hsl(32,80%,38%)' : undefined)}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
-                  {card(<>Needs review <span style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>{i.needs_review.length}</span></>, i.needs_review.length ? i.needs_review.map(d => <button key={d.id} onClick={() => openSourceById(d.id)} style={{ display: 'flex', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderTop: '1px solid var(--bg-secondary)', padding: '9px 2px', cursor: 'pointer', alignItems: 'center', gap: 8 }}><span style={{ flex: 1, minWidth: 0 }}><span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 500 }}>{d.title}</span><span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{d.doc_code} · last verified {fmtDate(d.verified_at)}</span></span><span style={{ fontSize: '0.66rem', fontWeight: 700, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)', borderRadius: 999, padding: '2px 8px' }}>overdue</span></button>) : muted('Everything is within its review window.'))}
-                  {card('Most viewed', i.most_viewed.length ? i.most_viewed.map(d => <button key={d.id} onClick={() => openSourceById(d.id)} style={{ display: 'flex', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderTop: '1px solid var(--bg-secondary)', padding: '9px 2px', cursor: 'pointer', alignItems: 'center', gap: 8 }}><span style={{ flex: 1, minWidth: 0 }}><span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 500 }}>{d.title}</span><span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{d.doc_code}</span></span><span style={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{d.views}</span></button>) : muted('No views recorded yet.'))}
-                  {card('Training completion', i.courses.length ? i.courses.map(c => <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, borderTop: '1px solid var(--bg-secondary)', padding: '9px 2px' }}><span style={{ flex: 1, minWidth: 0 }}><span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 500 }}>{c.title}</span><span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{c.status}</span></span><span style={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{c.completed}/{c.learners} done</span></div>) : muted('No courses yet.'))}
+                  {card(<>Needs review <span style={{ fontFamily: 'inherit', color: 'var(--text-muted)' }}>{i.needs_review.length}</span></>, i.needs_review.length ? i.needs_review.map(d => <button key={d.id} onClick={() => openSourceById(d.id)} style={{ display: 'flex', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderTop: '1px solid var(--bg-secondary)', padding: '9px 2px', cursor: 'pointer', alignItems: 'center', gap: 8 }}><span style={{ flex: 1, minWidth: 0 }}><span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 500 }}>{d.title}</span><span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{d.doc_code} · last verified {fmtDate(d.verified_at)}</span></span><span style={{ fontSize: '0.66rem', fontWeight: 700, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)', borderRadius: 999, padding: '2px 8px' }}>overdue</span></button>) : muted('Everything is within its review window.'))}
+                  {card('Most viewed', i.most_viewed.length ? i.most_viewed.map(d => <button key={d.id} onClick={() => openSourceById(d.id)} style={{ display: 'flex', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderTop: '1px solid var(--bg-secondary)', padding: '9px 2px', cursor: 'pointer', alignItems: 'center', gap: 8 }}><span style={{ flex: 1, minWidth: 0 }}><span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 500 }}>{d.title}</span><span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code}</span></span><span style={{ fontFamily: 'inherit', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{d.views}</span></button>) : muted('No views recorded yet.'))}
+                  {card('Training completion', i.courses.length ? i.courses.map(c => <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, borderTop: '1px solid var(--bg-secondary)', padding: '9px 2px' }}><span style={{ flex: 1, minWidth: 0 }}><span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 500 }}>{c.title}</span><span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{c.status}</span></span><span style={{ fontFamily: 'inherit', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{c.completed}/{c.learners} done</span></div>) : muted('No courses yet.'))}
                 </div>
               </>
             )}
@@ -1323,7 +1328,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}><tbody>
                   {lmsCourses.length === 0 ? <tr><td style={{ padding: 16, color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No courses yet.</td></tr> : lmsCourses.map(c => (
                     <tr key={c.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                      <td style={{ padding: '11px 14px' }}><div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{c.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{c.course_code} · {c.lesson_count} lessons</div></td>
+                      <td style={{ padding: '11px 14px' }}><div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{c.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{c.course_code} · {c.lesson_count} lessons</div></td>
                       <td style={{ padding: '11px 14px' }}><span style={{ fontSize: '0.7rem', fontWeight: 700, color: c.status === 'published' ? 'hsl(145,55%,30%)' : 'var(--text-secondary)', background: c.status === 'published' ? 'hsla(145,63%,42%,0.12)' : 'var(--bg-secondary)', borderRadius: 999, padding: '3px 10px' }}>{c.status}</span></td>
                       <td style={{ padding: '11px 14px', textAlign: 'right' }}><button className="secondary-btn" onClick={() => openCourse(c.id)} style={{ height: 30, fontSize: '0.78rem', marginRight: 6 }}>Preview</button><button className="secondary-btn" onClick={() => openCourseEditor(c.id)} style={{ height: 30, fontSize: '0.78rem' }}>Edit</button></td>
                     </tr>
@@ -1349,7 +1354,7 @@ export default function SOP({ activeSub, onSubChange }) {
               <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>Lesson {player.idx + 1} of {lessons.length}</div>
               <h2 style={{ fontSize: '1.15rem', margin: '4px 0 12px', fontWeight: 700 }}>{l?.title}</h2>
               {l?.type === 'sop'
-                ? (sop ? <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 14, background: 'var(--bg-secondary)' }}><div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontFamily: 'monospace', marginBottom: 8 }}>Linked SOP · {sop.doc_code} · v{sop.version}</div>{sop.body?.purpose && <p style={{ margin: '0 0 10px', color: 'var(--text-primary)', fontSize: '0.88rem', lineHeight: 1.6 }}>{sop.body.purpose}</p>}{sop.body?.procedure?.length > 0 && <ol style={{ margin: '0 0 10px', paddingLeft: 18, color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.6 }}>{sop.body.procedure.map((s, j) => <li key={j}>{s.text}</li>)}</ol>}<button className="secondary-btn" onClick={() => openDetail(sop)} style={{ height: 30, fontSize: '0.78rem' }}>Open full SOP</button></div> : <div style={{ fontSize: '0.83rem', color: 'var(--text-muted)' }}>Linked SOP not found.</div>)
+                ? (sop ? <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 14, background: 'var(--bg-secondary)' }}><div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontFamily: 'inherit', marginBottom: 8 }}>Linked SOP · {sop.doc_code} · v{sop.version}</div>{sop.body?.purpose && <p style={{ margin: '0 0 10px', color: 'var(--text-primary)', fontSize: '0.88rem', lineHeight: 1.6 }}>{sop.body.purpose}</p>}{sop.body?.procedure?.length > 0 && <ol style={{ margin: '0 0 10px', paddingLeft: 18, color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.6 }}>{sop.body.procedure.map((s, j) => <li key={j}>{s.text}</li>)}</ol>}<button className="secondary-btn" onClick={() => openDetail(sop)} style={{ height: 30, fontSize: '0.78rem' }}>Open full SOP</button></div> : <div style={{ fontSize: '0.83rem', color: 'var(--text-muted)' }}>Linked SOP not found.</div>)
                 : <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.65 }}>{(l?.body || '').split('\n').map(x => x.trim()).filter(Boolean).map((x, j) => <p key={j} style={{ margin: '0 0 10px' }}>{x}</p>)}</div>}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--border-color)' }}>
                 {player.idx > 0 ? <button className="secondary-btn" onClick={() => setPlayer(p => ({ ...p, idx: p.idx - 1 }))} style={{ height: 34 }}>Previous</button> : <span />}
@@ -1390,7 +1395,7 @@ export default function SOP({ activeSub, onSubChange }) {
         return (
           <>
             <button className="secondary-btn" onClick={() => { setLmsMode('list'); api.getKbCourses().then(setLmsCourses).catch(() => {}); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, height: 34 }}><ArrowLeft size={15} /> Back to Learn</button>
-            <div style={{ marginBottom: 6 }}><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{c.course_code} · {lessons.length} lessons{hasQuiz ? ' · quiz' : ''}</div><h1 style={{ fontSize: '1.3rem', margin: '4px 0 0', fontWeight: 700 }}>{c.title}</h1></div>
+            <div style={{ marginBottom: 6 }}><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{c.course_code} · {lessons.length} lessons{hasQuiz ? ' · quiz' : ''}</div><h1 style={{ fontSize: '1.3rem', margin: '4px 0 0', fontWeight: 700 }}>{c.title}</h1></div>
             <div style={{ height: 8, borderRadius: 999, background: 'var(--bg-secondary)', overflow: 'hidden', margin: '12px 0 18px' }}><div style={{ width: `${pct}%`, height: '100%', background: 'hsl(145,63%,42%)' }} /></div>
             <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20, alignItems: 'start' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
