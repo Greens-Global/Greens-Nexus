@@ -4,8 +4,10 @@ import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import {
   BookOpen, CheckSquare, FilePlus, Search, Clock, Sparkles, Play, BadgeCheck,
-  Users, X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, Loader,
+  Users, X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, Loader, ChevronUp, ChevronDown,
 } from 'lucide-react';
+
+const rid = () => 'r' + Math.random().toString(36).slice(2, 9);
 
 // Greens Global's real departments (mirrors backend DEPT_ABBR).
 const DEPARTMENTS = [
@@ -147,6 +149,17 @@ export default function SOP({ activeSub, onSubChange }) {
     ...p, departments: p.departments.includes(dep) ? p.departments.filter(x => x !== dep) : [...p.departments, dep],
   }));
 
+  // ── manual chapter helpers (chapters live in body.chapters) ──
+  const setChapters = (fn) => setDraft(p => ({ ...p, body: { ...p.body, chapters: fn(p.body.chapters || []) } }));
+  const addChapter = () => setChapters(chs => [...chs, { _id: rid(), title: `Chapter ${chs.length + 1}`, intro: '', sections: [] }]);
+  const delChapter = (cid) => setChapters(chs => chs.filter(c => c._id !== cid));
+  const moveChapter = (cid, dir) => setChapters(chs => { const i = chs.findIndex(c => c._id === cid); const j = dir === 'up' ? i - 1 : i + 1; if (i < 0 || j < 0 || j >= chs.length) return chs; const a = [...chs]; [a[i], a[j]] = [a[j], a[i]]; return a; });
+  const updChapter = (cid, patch) => setChapters(chs => chs.map(c => c._id === cid ? { ...c, ...patch } : c));
+  const addSection = (cid, kind) => setChapters(chs => chs.map(c => c._id === cid ? { ...c, sections: [...(c.sections || []), { _id: rid(), kind, title: '', body: '', docId: '' }] } : c));
+  const delSection = (cid, sid) => setChapters(chs => chs.map(c => c._id === cid ? { ...c, sections: (c.sections || []).filter(s => s._id !== sid) } : c));
+  const moveSection = (cid, sid, dir) => setChapters(chs => chs.map(c => { if (c._id !== cid) return c; const a = [...(c.sections || [])]; const i = a.findIndex(s => s._id === sid); const j = dir === 'up' ? i - 1 : i + 1; if (i < 0 || j < 0 || j >= a.length) return c; [a[i], a[j]] = [a[j], a[i]]; return { ...c, sections: a }; }));
+  const updSection = (cid, sid, patch) => setChapters(chs => chs.map(c => c._id === cid ? { ...c, sections: (c.sections || []).map(s => s._id === sid ? { ...s, ...patch } : s) } : c));
+
   // ── save / workflow ──
   const payloadFromDraft = () => ({
     title: draft.title, doc_type: draft.doc_type, departments: draft.departments,
@@ -263,6 +276,54 @@ export default function SOP({ activeSub, onSubChange }) {
         {content}
       </div>
     );
+    const isMan = d.doc_type === 'Manual' && (b.chapters || []).length > 0;
+    const manualBody = () => {
+      const chs = b.chapters || [];
+      const sectionCount = chs.reduce((n, c) => n + (c.sections || []).length, 0);
+      const paras = (txt) => (txt || '').split('\n').map(x => x.trim()).filter(Boolean);
+      return (
+        <div>
+          <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, padding: '16px 18px', marginBottom: 24 }}>
+            <div style={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 10 }}>Contents · {chs.length} chapter{chs.length !== 1 ? 's' : ''} · {sectionCount} section{sectionCount !== 1 ? 's' : ''}</div>
+            <ol style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {chs.map(c => <li key={c._id} style={{ fontSize: '0.88rem', color: 'var(--text-primary)', fontWeight: 600 }}>{c.title}</li>)}
+            </ol>
+          </div>
+          {chs.map((c, i) => (
+            <section key={c._id} style={{ marginBottom: 28 }}>
+              <h2 style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: '1.15rem', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 8px', paddingBottom: 10, borderBottom: '2px solid var(--border-color)' }}>
+                <span style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--text-primary)', color: 'var(--bg-card)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>{i + 1}</span>{c.title}
+              </h2>
+              {c.intro && <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.65, margin: '0 0 16px' }}>{c.intro}</p>}
+              {(c.sections || []).map(s => {
+                if (s.kind === 'sop') {
+                  const sop = docs.find(x => x.id === s.docId);
+                  return (
+                    <div key={s._id} style={{ marginBottom: 18 }}>
+                      <h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 8px' }}>{s.title || (sop ? sop.title : 'Linked SOP')}</h3>
+                      {sop ? (
+                        <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 14, background: 'var(--bg-secondary)' }}>
+                          <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontFamily: 'monospace', marginBottom: 8 }}>Linked SOP · {sop.doc_code} · v{sop.version} · {(STATUS_META[sop.status] || {}).label}</div>
+                          {sop.body?.purpose && <p style={{ margin: '0 0 10px', color: 'var(--text-primary)', fontSize: '0.88rem', lineHeight: 1.6 }}>{sop.body.purpose}</p>}
+                          {sop.body?.procedure?.length > 0 && (
+                            <ol style={{ margin: '0 0 10px', paddingLeft: 18, color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.6 }}>
+                              {sop.body.procedure.slice(0, 6).map((st, j) => <li key={j}>{st.text}</li>)}
+                              {sop.body.procedure.length > 6 && <li style={{ listStyle: 'none', color: 'var(--text-muted)' }}>…and {sop.body.procedure.length - 6} more steps</li>}
+                            </ol>
+                          )}
+                          <button className="secondary-btn" onClick={() => openDetail(sop)} style={{ height: 32, fontSize: '0.8rem' }}>Open full SOP</button>
+                        </div>
+                      ) : <div style={{ fontSize: '0.82rem', color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.12)', borderRadius: 8, padding: '8px 12px' }}>Linked SOP not found.</div>}
+                    </div>
+                  );
+                }
+                return <div key={s._id} style={{ marginBottom: 18 }}><h3 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 8px' }}>{s.title || 'Section'}</h3><div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.65 }}>{paras(s.body).map((x, j) => <p key={j} style={{ margin: '0 0 8px' }}>{x}</p>)}</div></div>;
+              })}
+            </section>
+          ))}
+        </div>
+      );
+    };
     return (
       <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
         <button className="secondary-btn" onClick={backToList} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, height: 34 }}>
@@ -305,6 +366,8 @@ export default function SOP({ activeSub, onSubChange }) {
 
             {b.purpose && section('Purpose', <p style={{ color: 'var(--text-primary)', margin: 0, lineHeight: 1.6 }}>{b.purpose}</p>)}
             {b.scopeText && section('Scope', <p style={{ color: 'var(--text-primary)', margin: 0, lineHeight: 1.6 }}>{b.scopeText}</p>)}
+            {isMan && manualBody()}
+            {!isMan && <>
             {b.materials?.length > 0 && section('Materials & required items', <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-primary)', lineHeight: 1.7 }}>{b.materials.map((m, i) => <li key={i}>{m}</li>)}</ul>)}
             {b.responsibilities?.length > 0 && section('Responsibilities', (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
@@ -333,6 +396,7 @@ export default function SOP({ activeSub, onSubChange }) {
             ) : <p style={{ color: 'var(--text-muted)', margin: 0 }}>No steps recorded.</p>)}
             {b.safety?.length > 0 && section('Safety & compliance', <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-primary)', lineHeight: 1.7 }}>{b.safety.map((s, i) => <li key={i}>{s}</li>)}</ul>)}
             {b.references?.length > 0 && section('References', <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--text-primary)', lineHeight: 1.7 }}>{b.references.map((s, i) => <li key={i}>{s}</li>)}</ul>)}
+            </>}
           </div>
 
           {/* rail */}
@@ -367,6 +431,54 @@ export default function SOP({ activeSub, onSubChange }) {
   // ════════════════════ EDITOR ════════════════════
   if (mode === 'editor' && draft) {
     const isNew = !draft.id;
+    const isManual = draft.doc_type === 'Manual';
+    const chapters = draft.body.chapters || [];
+    const sopOpts = docs.filter(d => d.doc_type !== 'Manual' && d.id !== draft.id).sort((a, b) => (a.doc_code || '').localeCompare(b.doc_code || ''));
+    const moveBtns = (canUp, canDn, onUp, onDn) => (
+      <>
+        <button className="secondary-btn" disabled={!canUp} onClick={onUp} style={{ width: 36, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ChevronUp size={15} /></button>
+        <button className="secondary-btn" disabled={!canDn} onClick={onDn} style={{ width: 36, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ChevronDown size={15} /></button>
+      </>
+    );
+    const chapterBuilder = () => (
+      <div className="ed-block" style={{ marginBottom: 16 }}>
+        <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: 8 }}>Chapters <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>— each section is inline text or a live link to an existing SOP</span></label>
+        {chapters.map((c, ci) => (
+          <div key={c._id} style={{ border: '1px solid var(--border-color)', borderRadius: 12, padding: 14, marginBottom: 12, background: 'var(--bg-card)' }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+              <span style={{ width: 26, height: 26, borderRadius: 8, background: 'var(--text-primary)', color: 'var(--bg-card)', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>{ci + 1}</span>
+              <input className="form-input" value={c.title} placeholder="Chapter title" onChange={e => updChapter(c._id, { title: e.target.value })} style={{ flex: 1, fontWeight: 600 }} />
+              {moveBtns(ci > 0, ci < chapters.length - 1, () => moveChapter(c._id, 'up'), () => moveChapter(c._id, 'down'))}
+              <button className="secondary-btn" onClick={() => delChapter(c._id)} style={{ width: 36, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={15} /></button>
+            </div>
+            <textarea className="form-input" value={c.intro || ''} placeholder="Chapter intro (optional)…" onChange={e => updChapter(c._id, { intro: e.target.value })} style={{ width: '100%', minHeight: 50, resize: 'vertical', marginBottom: 10, fontSize: '0.85rem' }} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {(c.sections || []).map((s, si) => (
+                <div key={s._id} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 11 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                    <select className="form-select" value={s.kind} onChange={e => updSection(c._id, s._id, { kind: e.target.value })} style={{ width: 140, flex: '0 0 auto' }}>
+                      <option value="text">Text section</option>
+                      <option value="sop">Linked SOP</option>
+                    </select>
+                    <input className="form-input" value={s.title} placeholder="Section title" onChange={e => updSection(c._id, s._id, { title: e.target.value })} style={{ flex: 1 }} />
+                    {moveBtns(si > 0, si < c.sections.length - 1, () => moveSection(c._id, s._id, 'up'), () => moveSection(c._id, s._id, 'down'))}
+                    <button className="secondary-btn" onClick={() => delSection(c._id, s._id)} style={{ width: 36, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={15} /></button>
+                  </div>
+                  {s.kind === 'sop'
+                    ? <select className="form-select" value={s.docId || ''} onChange={e => { const o = sopOpts.find(x => x.id === e.target.value); updSection(c._id, s._id, { docId: e.target.value, title: s.title || (o ? o.title : '') }); }} style={{ width: '100%' }}><option value="">— select an SOP —</option>{sopOpts.map(o => <option key={o.id} value={o.id}>{o.doc_code || '—'} · {o.title}</option>)}</select>
+                    : <textarea className="form-input" value={s.body || ''} placeholder="Section text…" onChange={e => updSection(c._id, s._id, { body: e.target.value })} style={{ width: '100%', minHeight: 56, resize: 'vertical', fontSize: '0.85rem' }} />}
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <button className="secondary-btn" onClick={() => addSection(c._id, 'text')} style={{ height: 32, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={13} /> Text section</button>
+              <button className="secondary-btn" onClick={() => addSection(c._id, 'sop')} style={{ height: 32, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={13} /> SOP section</button>
+            </div>
+          </div>
+        ))}
+        <button className="secondary-btn" onClick={addChapter} style={{ height: 34, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add chapter</button>
+      </div>
+    );
     const listEditor = (field, label, placeholder) => (
       <div className="ed-block" style={{ marginBottom: 16 }}>
         <label style={{ fontSize: '0.85rem', fontWeight: 600, display: 'block', marginBottom: 8 }}>{label}</label>
@@ -406,7 +518,7 @@ export default function SOP({ activeSub, onSubChange }) {
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 20 }}>Fill the standard template, or paste raw notes and let Claude format it into the Greens Global standard.</p>
         {errBanner}
 
-        {/* AI banner */}
+        {!isManual && <>{/* AI banner */}
         <div style={{ border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-card)', borderRadius: 12, padding: 16, marginBottom: 18, boxShadow: 'var(--shadow-sm)' }}>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
             <div style={{ width: 34, height: 34, borderRadius: 9, backgroundColor: 'hsla(215,100%,50%,0.1)', color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Sparkles size={18} /></div>
@@ -419,7 +531,7 @@ export default function SOP({ activeSub, onSubChange }) {
             </button>
           </div>
           <textarea className="form-input" value={draft._raw} placeholder="Paste existing SOP text or bullet notes here…" onChange={e => setDraft(p => ({ ...p, _raw: e.target.value }))} style={{ width: '100%', minHeight: 80, resize: 'vertical' }} />
-        </div>
+        </div></>}
 
         <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', marginBottom: 16 }}>
           <div className="form-group"><label>Title</label><input className="form-input" value={draft.title} placeholder="e.g. Unit Move-In Procedure" onChange={e => setDraft(p => ({ ...p, title: e.target.value }))} /></div>
@@ -442,6 +554,8 @@ export default function SOP({ activeSub, onSubChange }) {
 
         <div className="form-group" style={{ marginBottom: 16 }}><label>Purpose</label><textarea className="form-input" value={draft.body.purpose} placeholder="Why this document exists…" onChange={e => setBody({ purpose: e.target.value })} style={{ minHeight: 70, resize: 'vertical' }} /></div>
         <div className="form-group" style={{ marginBottom: 16 }}><label>Scope</label><textarea className="form-input" value={draft.body.scopeText} placeholder="Who and what this applies to…" onChange={e => setBody({ scopeText: e.target.value })} style={{ minHeight: 70, resize: 'vertical' }} /></div>
+
+        {isManual ? chapterBuilder() : (<>
         {listEditor('materials', 'Materials & required items', 'e.g. Master key set')}
         {pairEditor('responsibilities', 'Responsibilities', 'role', 'duty', 'Role', 'Responsibility')}
         {pairEditor('definitions', 'Definitions', 'term', 'def', 'Term', 'Definition')}
@@ -466,6 +580,7 @@ export default function SOP({ activeSub, onSubChange }) {
 
         {listEditor('safety', 'Safety & compliance', 'e.g. Never enter a unit alone if…')}
         {listEditor('references', 'References', 'e.g. OPS-021 Access Control')}
+        </>)}
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', paddingTop: 8, borderTop: '1px solid var(--border-color)', marginTop: 8 }}>
           <button className="secondary-btn" onClick={backToList}>Cancel</button>
