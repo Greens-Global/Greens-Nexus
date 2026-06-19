@@ -330,6 +330,7 @@ export default function SOP({ activeSub, onSubChange }) {
 
   const switchTab = (key) => { backToList(); setLmsMode('list'); setLmsCourse(null); setPlayer(null); setCourseDraft(null); setLmsManage(false); onSubChange(key); };
   const openCourseManager = () => { switchTab('lms'); setLmsManage(true); };
+  const openNewCourse = () => { switchTab('lms'); setLmsManage(true); setCourseDraft(blankCourse()); setLmsMode('editor'); };
 
   // ── editor body helpers ──
   const setBody = (patch) => setDraft(p => ({ ...p, body: { ...p.body, ...patch } }));
@@ -1589,7 +1590,10 @@ export default function SOP({ activeSub, onSubChange }) {
         <>
           <div className="view-header" style={{ marginBottom: 18 }}>
             <div className="view-title-group"><h2>Manage</h2><p>Review, assign, and keep content fresh · {docs.length} document{docs.length === 1 ? '' : 's'} · {approvedCount} approved</p></div>
-            <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> New SOP</button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> New SOP</button>
+              <button className="secondary-btn" onClick={openNewCourse} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={15} /> New course</button>
+            </div>
           </div>
 
           {/* KPI row — what needs attention */}
@@ -1600,63 +1604,58 @@ export default function SOP({ activeSub, onSubChange }) {
             {actionTile('Drafts', draftCount, 'Not yet submitted', Edit3, () => { setStatusFilter('draft'); switchTab('index'); }, false)}
           </div>
 
-          {/* Activity (left) + Tools & Recent (right) */}
+          {/* Tools — prominent */}
+          <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, color: 'var(--text-muted)', margin: '4px 2px 12px' }}>Tools</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(232px, 1fr))', gap: 14, marginBottom: 26 }}>
+            {tools.map(([Icon, label, desc, onClick]) => (
+              <button key={label} onClick={onClick} style={{ textAlign: 'left', cursor: 'pointer', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 18, display: 'flex', flexDirection: 'column', gap: 10, boxShadow: 'var(--shadow-sm)', transition: 'border-color var(--transition-fast), box-shadow var(--transition-fast)' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--text-secondary)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.08)'; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.boxShadow = 'var(--shadow-sm)'; }}>
+                <span style={{ width: 40, height: 40, borderRadius: 11, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-primary)' }}><Icon size={20} /></span>
+                <span style={{ fontWeight: 600, fontSize: '0.98rem', color: 'var(--text-primary)' }}>{label}</span>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>{desc}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Recently updated + Activity log — secondary, compact */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
-            <div style={{ flex: '3 1 460px', minWidth: 0, ...panel }}>
+            <div style={{ flex: '1 1 320px', minWidth: 0, ...panel }}>
+              {panelHead('Recently updated')}
+              {recent.length === 0
+                ? <div style={{ padding: '16px', fontSize: '0.83rem', color: 'var(--text-muted)' }}>Nothing yet.</div>
+                : recent.map((d, i) => (
+                    <button key={d.id} onClick={() => openDetail(d)} {...hoverRow} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{d.doc_code || '—'} · v{d.version}</div>
+                      </div>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', flex: '0 0 auto' }}>{fmtDate(d.updated_at)}</span>
+                    </button>
+                  ))}
+            </div>
+
+            <div style={{ flex: '1 1 320px', minWidth: 0, ...panel }}>
               {panelHead('Activity log')}
               {activity === null
-                ? <div style={{ textAlign: 'center', padding: 28, color: 'var(--text-secondary)' }}><Loader size={18} style={{ animation: 'spin 0.7s linear infinite' }} /></div>
+                ? <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-secondary)' }}><Loader size={18} style={{ animation: 'spin 0.7s linear infinite' }} /></div>
                 : activity.length === 0
-                  ? <div style={{ textAlign: 'center', padding: 28, color: 'var(--text-muted)', fontSize: '0.85rem' }}>No activity yet.</div>
-                  : <div style={{ maxHeight: 540, overflow: 'auto' }}>
+                  ? <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)', fontSize: '0.85rem' }}>No activity yet.</div>
+                  : <div style={{ maxHeight: 360, overflow: 'auto' }}>
                       {activity.map((e, i) => {
                         const a = ACT[e.kind] || ACT.update;
                         return (
-                          <button key={i} onClick={() => openActivity(e)} title={e.diffable ? 'Open document and show what changed' : 'Open document'} {...hoverRow} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', width: '100%', textAlign: 'left', padding: '11px 16px', background: 'transparent', border: 'none', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}>
-                            <span style={{ marginTop: 1, width: 30, height: 30, borderRadius: 8, flex: '0 0 auto', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: a.color }}><a.Icon size={15} /></span>
+                          <button key={i} onClick={() => openActivity(e)} title={e.diffable ? 'Open document and show what changed' : 'Open document'} {...hoverRow} style={{ display: 'flex', gap: 11, alignItems: 'flex-start', width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}>
+                            <span style={{ marginTop: 1, width: 28, height: 28, borderRadius: 8, flex: '0 0 auto', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: a.color }}><a.Icon size={14} /></span>
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: '0.86rem', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><span style={{ fontWeight: 600 }}>{e.title}</span> <span style={{ color: 'var(--text-muted)', fontSize: '0.76rem' }}>{e.doc_code}{e.version ? ' · v' + e.version : ''}</span></div>
-                              <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.notes || 'Updated.'}</div>
+                              <div style={{ fontSize: '0.83rem', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><span style={{ fontWeight: 600 }}>{e.title}</span> <span style={{ color: 'var(--text-muted)', fontSize: '0.74rem' }}>{e.doc_code}</span></div>
+                              <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.notes || 'Updated.'}</div>
                             </div>
-                            <div style={{ flex: '0 0 auto', textAlign: 'right' }}>
-                              <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{fmtDate(e.date)}</div>
-                              {e.diffable && <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'hsl(var(--color-blue))', whiteSpace: 'nowrap' }}>View change →</div>}
-                            </div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', flex: '0 0 auto' }}>{fmtDate(e.date)}</div>
                           </button>
                         );
                       })}
                     </div>}
-            </div>
-
-            <div style={{ flex: '1 1 280px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div style={panel}>
-                {panelHead('Tools')}
-                {tools.map(([Icon, label, desc, onClick], i) => (
-                  <button key={label} onClick={onClick} {...hoverRow} style={{ display: 'flex', alignItems: 'center', gap: 11, width: '100%', textAlign: 'left', padding: '11px 14px', background: 'transparent', border: 'none', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}>
-                    <span style={{ width: 32, height: 32, borderRadius: 9, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-primary)', flex: '0 0 auto' }}><Icon size={16} /></span>
-                    <span style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ display: 'block', fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-primary)' }}>{label}</span>
-                      <span style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-muted)' }}>{desc}</span>
-                    </span>
-                    <ChevronRight size={16} style={{ color: 'var(--text-muted)', flex: '0 0 auto' }} />
-                  </button>
-                ))}
-              </div>
-
-              <div style={panel}>
-                {panelHead('Recently updated')}
-                {recent.length === 0
-                  ? <div style={{ padding: '16px', fontSize: '0.83rem', color: 'var(--text-muted)' }}>Nothing yet.</div>
-                  : recent.map((d, i) => (
-                      <button key={d.id} onClick={() => openDetail(d)} {...hoverRow} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{d.doc_code || '—'} · v{d.version}</div>
-                        </div>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', flex: '0 0 auto' }}>{fmtDate(d.updated_at)}</span>
-                      </button>
-                    ))}
-              </div>
             </div>
           </div>
         </>
