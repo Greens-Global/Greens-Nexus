@@ -201,6 +201,7 @@ export const api = {
   toggleKbPin:      (id)        => req(`/knowledge-base/documents/${id}/pin`, { method: "POST" }),
   translateKbDoc:   (id, lang)  => req(`/knowledge-base/documents/${id}/translate`, { method: "POST", body: JSON.stringify({ lang }) }),
   // Learn (LMS)
+  aiCourse:        (data)      => req("/knowledge-base/ai-course", { method: "POST", body: JSON.stringify(data) }),
   getKbCourses:    ()          => req("/knowledge-base/courses"),
   getKbCourse:     (id)        => req(`/knowledge-base/courses/${id}`),
   createKbCourse:  (data)      => req("/knowledge-base/courses", { method: "POST", body: JSON.stringify(data) }),

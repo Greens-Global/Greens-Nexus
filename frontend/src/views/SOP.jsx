@@ -41,12 +41,12 @@ function ListDiff({ oldArr, newArr, fmt }) {
 // Greens Global's real departments (mirrors backend DEPT_ABBR).
 const DEPARTMENTS = [
   'Operations', 'Revenue Management', 'Real Estate Development', 'People (HR)',
-  'Finance & Accounting', 'IT', 'Marketing', 'Admin',
+  'Accounting', 'IT', 'Marketing', 'Administration',
 ];
 const DOC_TYPES = ['SOP', 'Manual', 'Guide'];
 const DEPT_ABBR = {
   'Operations': 'OPS', 'Revenue Management': 'RM', 'Real Estate Development': 'RED',
-  'People (HR)': 'HR', 'Finance & Accounting': 'FIN', 'IT': 'IT', 'Marketing': 'MKT', 'Admin': 'ADM',
+  'People (HR)': 'HR', 'Accounting': 'ACC', 'IT': 'IT', 'Marketing': 'MKT', 'Administration': 'ADM',
 };
 
 const STATUS_META = {
@@ -111,7 +111,7 @@ function mediaEmbed(m, key) {
 }
 const blankDraft = (name, email) => ({
   id: null, title: '', doc_type: 'SOP', departments: [], reviewer_email: '',
-  reviewer_name: '', version: '0.1', effective_date: '', body: blankBody(),
+  reviewer_name: '', version: '1.0', effective_date: '', body: blankBody(),
   require_ack: false, review_every_months: 12, retention_months: 84,
   owner_name: name, owner_email: email, _raw: '',
 });
@@ -175,6 +175,8 @@ export default function SOP({ activeSub, onSubChange }) {
   const [lmsCourse, setLmsCourse] = useState(null); // loaded course detail
   const [player, setPlayer] = useState(null); // { idx, mode:'lesson'|'quiz'|'result', answers, lastScore, lastPassed, results }
   const [courseDraft, setCourseDraft] = useState(null);
+  const [courseAiBusy, setCourseAiBusy] = useState(false);
+  const [coursePreview, setCoursePreview] = useState(false);
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -328,7 +330,7 @@ export default function SOP({ activeSub, onSubChange }) {
   };
   const backToList = () => { setMode('list'); setSelected(null); setDraft(null); };
 
-  const switchTab = (key) => { backToList(); setLmsMode('list'); setLmsCourse(null); setPlayer(null); setCourseDraft(null); setLmsManage(false); onSubChange(key); };
+  const switchTab = (key) => { backToList(); setLmsMode('list'); setLmsCourse(null); setPlayer(null); setCourseDraft(null); setCoursePreview(false); setLmsManage(false); onSubChange(key); };
   const openCourseManager = () => { switchTab('lms'); setLmsManage(true); };
   const openNewCourse = () => { switchTab('lms'); setLmsManage(true); setCourseDraft(blankCourse()); setLmsMode('editor'); };
 
@@ -536,6 +538,7 @@ export default function SOP({ activeSub, onSubChange }) {
   };
   const blankCourse = () => ({ id: null, title: '', description: '', departments: [], est_minutes: 15, lessons: [], quiz: { passPct: 80, questions: [] } });
   const openCourseEditor = async (id) => {
+    setCoursePreview(false);
     if (!id) { setCourseDraft(blankCourse()); setLmsMode('editor'); return; }
     try { const c = await api.getKbCourse(id); setCourseDraft({ id: c.id, title: c.title, description: c.description, departments: [...(c.departments || [])], est_minutes: c.est_minutes, lessons: c.lessons || [], quiz: c.quiz?.questions ? c.quiz : { passPct: 80, questions: [] } }); setLmsMode('editor'); }
     catch (e) { setErr(e.message || 'Failed to open course'); }
@@ -549,6 +552,37 @@ export default function SOP({ activeSub, onSubChange }) {
       setCourseDraft(null); setLmsMode('list'); api.getKbCourses().then(setLmsCourses).catch(() => {});
     } catch (e) { setErr(e.message || 'Save failed'); }
   };
+  // read a text-like file into the course source box
+  const cdImportFile = (file) => {
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { setErr('That file is over 2 MB — paste the relevant text instead.'); return; }
+    const reader = new FileReader();
+    reader.onload = () => setCourseDraft(p => p ? { ...p, _raw: String(reader.result || ''), title: p.title || file.name.replace(/\.[^.]+$/, '') } : p);
+    reader.onerror = () => setErr('Could not read that file. Try pasting the text instead.');
+    reader.readAsText(file);
+  };
+  // generate a full course (lessons + quiz) from the pasted/uploaded source via Claude
+  const runCourseAi = async () => {
+    const content = (courseDraft._raw || '').trim();
+    if (!content) { setErr('Paste or upload the source material first.'); return; }
+    setCourseAiBusy(true); setErr('');
+    let course = null;
+    try { ({ course } = await api.aiCourse({ content, title: courseDraft.title, departments: courseDraft.departments })); }
+    catch (e) { setErr(e.message || 'AI generation failed — you can still build the course by hand.'); }
+    if (course) {
+      setCourseDraft(p => ({
+        ...p,
+        _importSource: content,
+        title: p.title || course.title || '',
+        description: course.description || p.description,
+        est_minutes: course.est_minutes || p.est_minutes,
+        lessons: (course.lessons || []).length ? course.lessons : p.lessons,
+        quiz: course.quiz?.questions?.length ? course.quiz : p.quiz,
+      }));
+    }
+    setCourseAiBusy(false);
+  };
+
   // course-draft mutation helpers
   const cdSet = (patch) => setCourseDraft(p => ({ ...p, ...patch }));
   const cdAddLesson = (type) => setCourseDraft(p => ({ ...p, lessons: [...p.lessons, { _id: rid(), type, title: '', body: '', docId: '' }] }));
@@ -1830,12 +1864,12 @@ export default function SOP({ activeSub, onSubChange }) {
             <button className="secondary-btn" onClick={() => { setLmsMode('list'); api.getKbCourses().then(setLmsCourses).catch(() => {}); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, height: 34 }}><ArrowLeft size={15} /> Back to Learn</button>
             <div style={{ marginBottom: 6 }}><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{c.course_code} · {lessons.length} lessons{hasQuiz ? ' · quiz' : ''}</div><h1 style={{ fontSize: '1.3rem', margin: '4px 0 0', fontWeight: 700 }}>{c.title}</h1></div>
             <div style={{ height: 8, borderRadius: 999, background: 'var(--bg-secondary)', overflow: 'hidden', margin: '12px 0 18px' }}><div style={{ width: `${pct}%`, height: '100%', background: 'hsl(145,63%,42%)' }} /></div>
-            <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: 20, alignItems: 'start' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
+              <div style={{ flex: '1 1 200px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {lessons.map((l, i) => navItem(l.title, (prog.lessons_done || []).includes(l._id), player.mode === 'lesson' && player.idx === i, () => setPlayer(p => ({ ...p, mode: 'lesson', idx: i }))))}
                 {hasQuiz && navItem(`Quiz · ${quiz.questions.length} questions`, prog.passed, player.mode !== 'lesson', () => setPlayer(p => ({ ...p, mode: 'quiz' })))}
               </div>
-              <div style={{ minWidth: 0 }}>{main}</div>
+              <div style={{ flex: '999 1 320px', minWidth: 0 }}>{main}</div>
             </div>
           </>
         );
@@ -1843,56 +1877,173 @@ export default function SOP({ activeSub, onSubChange }) {
 
       {/* Learn — course authoring */}
       {sub === 'lms' && lmsMode === 'editor' && courseDraft && (() => {
-        const d = courseDraft; const sopOpts = docs.filter(x => x.doc_type !== 'Manual').sort((a, b) => (a.doc_code || '').localeCompare(b.doc_code || ''));
+        const d = courseDraft;
+        const sopOpts = docs.filter(x => x.doc_type !== 'Manual').sort((a, b) => (a.doc_code || '').localeCompare(b.doc_code || ''));
+        const cardStyle = { background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 16, padding: '22px 24px', marginBottom: 18, boxShadow: 'var(--shadow-sm)' };
+        const fieldLabel = { fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', display: 'block', marginBottom: 2 };
+        const fieldTip = (t) => <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', margin: '0 0 8px', lineHeight: 1.45 }}>{t}</div>;
+        const csection = (title, hint, children) => (
+          <div style={cardStyle}>
+            <div style={{ marginBottom: 16 }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif", color: 'var(--text-primary)' }}>{title}</h3>
+              {hint && <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '3px 0 0' }}>{hint}</p>}
+            </div>
+            {children}
+          </div>
+        );
         return (
-          <div style={{ maxWidth: 820 }}>
-            <button className="secondary-btn" onClick={() => { setCourseDraft(null); setLmsMode('list'); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, height: 34 }}><ArrowLeft size={15} /> {d.id ? 'Back' : 'Cancel'}</button>
-            <h2 style={{ marginBottom: 4 }}>{d.id ? 'Edit course' : 'New course'}</h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 18 }}>Assemble lessons from readings or existing SOPs, add an optional quiz, then publish.</p>
+          <div style={{ width: '100%' }}>
+            <button className="secondary-btn" onClick={() => { setCourseDraft(null); setLmsMode('list'); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 18, height: 34 }}><ArrowLeft size={15} /> {d.id ? 'Back' : 'Cancel'}</button>
+            <h2 style={{ marginBottom: 4, fontSize: '1.7rem' }}>{d.id ? 'Edit course' : 'New course'}</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: 22 }}>Generate a course from your material, or build it by hand — readings or linked SOPs plus a knowledge-check quiz.</p>
             {errBanner}
-            <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px,1fr))', marginBottom: 14 }}>
-              <div className="form-group"><label>Title</label><input className="form-input" value={d.title} placeholder="e.g. New Hire Orientation" onChange={e => cdSet({ title: e.target.value })} /></div>
-              <div className="form-group"><label>Estimated minutes</label><input className="form-input" value={d.est_minutes} onChange={e => cdSet({ est_minutes: e.target.value })} /></div>
-            </div>
-            <div className="form-group" style={{ marginBottom: 14 }}><label>Description</label><textarea className="form-input" value={d.description} placeholder="What this course covers…" onChange={e => cdSet({ description: e.target.value })} style={{ minHeight: 60, resize: 'vertical' }} /></div>
-            <div className="form-group" style={{ marginBottom: 18 }}><label>Assign to departments</label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>{DEPARTMENTS.map(dep => { const on = d.departments.includes(dep); return <button key={dep} onClick={() => cdSet({ departments: on ? d.departments.filter(x => x !== dep) : [...d.departments, dep] })} style={{ fontSize: '0.8rem', padding: '6px 12px', borderRadius: 999, border: '1px solid', borderColor: on ? 'var(--text-primary)' : 'var(--border-color)', background: on ? 'var(--text-primary)' : 'var(--bg-card)', color: on ? 'var(--bg-card)' : 'var(--text-secondary)', cursor: 'pointer' }}>{dep}</button>; })}</div>
-            </div>
-            <div style={{ fontSize: '0.85rem', fontWeight: 700, margin: '6px 0 10px' }}>Lessons</div>
-            {d.lessons.map((l, i) => (
-              <div key={l._id} style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 12, marginBottom: 10, background: 'var(--bg-card)' }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                  <span style={{ fontWeight: 700, fontSize: '0.8rem', color: 'var(--text-muted)' }}>{i + 1}</span>
-                  <select className="form-select" value={l.type} onChange={e => cdUpdLesson(l._id, { type: e.target.value })} style={{ width: 130, flex: '0 0 auto' }}><option value="text">Reading</option><option value="sop">Linked SOP</option></select>
-                  <input className="form-input" value={l.title} placeholder="Lesson title" onChange={e => cdUpdLesson(l._id, { title: e.target.value })} style={{ flex: 1 }} />
-                  <button className="secondary-btn" onClick={() => cdDelLesson(l._id)} style={{ width: 36, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={15} /></button>
-                </div>
-                {l.type === 'sop'
-                  ? <select className="form-select" value={l.docId || ''} onChange={e => { const o = sopOpts.find(x => x.id === e.target.value); cdUpdLesson(l._id, { docId: e.target.value, title: l.title || (o ? o.title : '') }); }} style={{ width: '100%' }}><option value="">— select an SOP —</option>{sopOpts.map(o => <option key={o.id} value={o.id}>{o.doc_code} · {o.title}</option>)}</select>
-                  : <textarea className="form-input" value={l.body} placeholder="Lesson text… (new lines become paragraphs)" onChange={e => cdUpdLesson(l._id, { body: e.target.value })} style={{ width: '100%', minHeight: 60, resize: 'vertical', fontSize: '0.85rem' }} />}
-              </div>
-            ))}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}><button className="secondary-btn" onClick={() => cdAddLesson('text')} style={{ height: 32, fontSize: '0.8rem' }}><Plus size={13} /> Add reading</button><button className="secondary-btn" onClick={() => cdAddLesson('sop')} style={{ height: 32, fontSize: '0.8rem' }}><Plus size={13} /> Add SOP lesson</button></div>
-            <div style={{ fontSize: '0.85rem', fontWeight: 700, margin: '6px 0 10px' }}>Quiz <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: '0.78rem' }}>· optional</span></div>
-            <div className="form-group" style={{ maxWidth: 200, marginBottom: 12 }}><label>Pass mark (%)</label><input className="form-input" value={d.quiz.passPct} onChange={e => cdSet({ quiz: { ...d.quiz, passPct: e.target.value } })} /></div>
-            {d.quiz.questions.map((q, qi) => (
-              <div key={q._id} style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 12, marginBottom: 10, background: 'var(--bg-card)' }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}><span style={{ fontWeight: 700, fontSize: '0.8rem', color: 'var(--text-muted)' }}>Q{qi + 1}</span><input className="form-input" value={q.q} placeholder="Question text" onChange={e => cdUpdQ(q._id, { q: e.target.value })} style={{ flex: 1 }} /><button className="secondary-btn" onClick={() => cdDelQ(q._id)} style={{ width: 36, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={15} /></button></div>
-                {q.options.map((o, oi) => (
-                  <label key={oi} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                    <input type="radio" name={`ans_${q._id}`} checked={q.answer === oi} onChange={() => cdUpdQ(q._id, { answer: oi })} title="Mark correct" />
-                    <input className="form-input" value={o} placeholder={`Option ${oi + 1}`} onChange={e => cdUpdQ(q._id, { options: q.options.map((x, j) => j === oi ? e.target.value : x) })} style={{ flex: 1 }} />
+
+            {!d._importSource && (
+              <div style={{ border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-card)', borderRadius: 12, padding: 16, marginBottom: 18, boxShadow: 'var(--shadow-sm)' }}>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 9, backgroundColor: 'hsla(266,70%,60%,0.12)', color: 'hsl(266,72%,56%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Sparkles size={18} /></div>
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <strong style={{ fontSize: '0.9rem', display: 'block' }}>Generate with Claude AI</strong>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Paste or upload source material — a policy, manual, or transcript — and Claude writes the lessons and quiz.</span>
+                  </div>
+                  <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, cursor: 'pointer', margin: 0, flex: '0 0 auto' }}>
+                    <Paperclip size={15} /> Upload file
+                    <input type="file" accept=".txt,.md,.markdown,.csv,.json,.html,.htm,.rtf,.log" onChange={e => { cdImportFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
                   </label>
-                ))}
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>Select the radio next to the correct answer.</div>
+                  <button className="primary-btn" disabled={courseAiBusy} onClick={runCourseAi} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, flex: '0 0 auto', background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>
+                    {courseAiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {courseAiBusy ? 'Generating…' : 'Generate course'}
+                  </button>
+                </div>
+                <textarea className="form-input" value={d._raw || ''} placeholder="Paste the source material here, or upload a file above…" onChange={e => cdSet({ _raw: e.target.value })} style={{ width: '100%', minHeight: 110, resize: 'vertical', fontSize: '0.88rem', lineHeight: 1.5 }} />
               </div>
-            ))}
-            <button className="secondary-btn" onClick={cdAddQ} style={{ height: 32, fontSize: '0.8rem', marginBottom: 18 }}><Plus size={13} /> Add question</button>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', paddingTop: 8, borderTop: '1px solid var(--border-color)' }}>
-              <button className="secondary-btn" onClick={() => { setCourseDraft(null); setLmsMode('list'); }}>Cancel</button>
-              <button className="secondary-btn" onClick={() => saveCourse(false)}>Save draft</button>
-              <button className="primary-btn" onClick={() => saveCourse(true)}>Publish</button>
+            )}
+            {d._importSource && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.06)', borderRadius: 12, padding: '12px 16px', marginBottom: 18 }}>
+                <Sparkles size={18} style={{ color: 'hsl(266,72%,56%)', flex: '0 0 auto' }} />
+                <div style={{ flex: 1, minWidth: 160, fontSize: '0.84rem', color: 'var(--text-primary)' }}>Claude generated this course from your source. Review and edit everything below.</div>
+                <button className="secondary-btn" onClick={() => setCoursePreview(true)} style={{ height: 34, fontSize: '0.8rem', flex: '0 0 auto' }}>Preview</button>
+                <button className="secondary-btn" disabled={courseAiBusy} onClick={runCourseAi} style={{ height: 34, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5, flex: '0 0 auto' }}>{courseAiBusy ? <Loader size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />} Re-run</button>
+              </div>
+            )}
+
+            <div style={cardStyle}>
+              <label style={fieldLabel}>Course title</label>
+              {fieldTip('A clear name learners will recognise — e.g. New Hire Orientation.')}
+              <input className="form-input" value={d.title} placeholder="e.g. New Hire Orientation" onChange={e => cdSet({ title: e.target.value })} style={{ fontSize: '1.35rem', fontWeight: 600, padding: '14px 16px', height: 'auto', fontFamily: "'Plus Jakarta Sans', sans-serif" }} />
             </div>
+
+            {csection('Course details', 'What it covers, how long it takes, and who it’s for.', (<>
+              <div style={{ marginBottom: 18 }}>
+                <label style={fieldLabel}>Description</label>
+                {fieldTip('A sentence or two on what this course teaches.')}
+                <textarea className="form-input" value={d.description} placeholder="What this course covers…" onChange={e => cdSet({ description: e.target.value })} style={{ width: '100%', minHeight: 90, resize: 'vertical', fontSize: '0.92rem', lineHeight: 1.6, padding: '12px 14px' }} />
+              </div>
+              <div style={{ marginBottom: 18, maxWidth: 220 }}>
+                <label style={fieldLabel}>Estimated minutes</label>
+                {fieldTip('Roughly how long to complete.')}
+                <input className="form-input" value={d.est_minutes} onChange={e => cdSet({ est_minutes: e.target.value })} style={{ padding: '11px 14px' }} />
+              </div>
+              <div>
+                <label style={fieldLabel}>Assign to departments</label>
+                {fieldTip('Who should take this course.')}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{DEPARTMENTS.map(dep => { const on = d.departments.includes(dep); return <button key={dep} onClick={() => cdSet({ departments: on ? d.departments.filter(x => x !== dep) : [...d.departments, dep] })} style={{ fontSize: '0.82rem', padding: '8px 14px', borderRadius: 999, border: '1px solid', borderColor: on ? 'var(--text-primary)' : 'var(--border-color)', background: on ? 'var(--text-primary)' : 'var(--bg-card)', color: on ? 'var(--bg-card)' : 'var(--text-secondary)', cursor: 'pointer' }}>{dep}</button>; })}</div>
+              </div>
+            </>))}
+
+            {csection('Lessons', 'Break the material into focused lessons — plain readings or links to an existing SOP.', (<>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {d.lessons.map((l, i) => (
+                  <div key={l._id} style={{ border: '1px solid var(--border-color)', borderRadius: 12, padding: 14, background: 'var(--bg-secondary)' }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+                      <span style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'hsl(var(--color-blue))', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>{i + 1}</span>
+                      <select className="form-select" value={l.type} onChange={e => cdUpdLesson(l._id, { type: e.target.value })} style={{ width: 140, flex: '0 0 auto' }}><option value="text">Reading</option><option value="sop">Linked SOP</option></select>
+                      <input className="form-input" value={l.title} placeholder="Lesson title" onChange={e => cdUpdLesson(l._id, { title: e.target.value })} style={{ flex: '1 1 160px', minWidth: 0 }} />
+                      <button className="secondary-btn" onClick={() => cdDelLesson(l._id)} style={{ width: 40, height: 38, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Trash2 size={15} /></button>
+                    </div>
+                    {l.type === 'sop'
+                      ? <select className="form-select" value={l.docId || ''} onChange={e => { const o = sopOpts.find(x => x.id === e.target.value); cdUpdLesson(l._id, { docId: e.target.value, title: l.title || (o ? o.title : '') }); }} style={{ width: '100%' }}><option value="">— select an SOP —</option>{sopOpts.map(o => <option key={o.id} value={o.id}>{o.doc_code} · {o.title}</option>)}</select>
+                      : <textarea className="form-input" value={l.body} placeholder="Lesson text… (blank lines become paragraphs)" onChange={e => cdUpdLesson(l._id, { body: e.target.value })} style={{ width: '100%', minHeight: 90, resize: 'vertical', fontSize: '0.9rem', lineHeight: 1.6, padding: '11px 14px' }} />}
+                  </div>
+                ))}
+                {d.lessons.length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>No lessons yet.</p>}
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}><button className="secondary-btn" onClick={() => cdAddLesson('text')} style={{ height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add reading</button><button className="secondary-btn" onClick={() => cdAddLesson('sop')} style={{ height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add SOP lesson</button></div>
+            </>))}
+
+            {csection('Quiz', 'A knowledge check learners must pass to complete the course. Mark the correct option for each question.', (<>
+              <div style={{ marginBottom: 16, maxWidth: 200 }}>
+                <label style={fieldLabel}>Pass mark (%)</label>
+                {fieldTip('Minimum score to pass.')}
+                <input className="form-input" value={d.quiz.passPct} onChange={e => cdSet({ quiz: { ...d.quiz, passPct: e.target.value } })} style={{ padding: '11px 14px' }} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {d.quiz.questions.map((q, qi) => (
+                  <div key={q._id} style={{ border: '1px solid var(--border-color)', borderRadius: 12, padding: 14, background: 'var(--bg-secondary)' }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}><span style={{ fontWeight: 700, fontSize: '0.8rem', color: 'var(--text-muted)', flex: '0 0 auto' }}>Q{qi + 1}</span><input className="form-input" value={q.q} placeholder="Question text" onChange={e => cdUpdQ(q._id, { q: e.target.value })} style={{ flex: '1 1 160px', minWidth: 0 }} /><button className="secondary-btn" onClick={() => cdDelQ(q._id)} style={{ width: 40, height: 38, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Trash2 size={15} /></button></div>
+                    {q.options.map((o, oi) => (
+                      <label key={oi} style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 7 }}>
+                        <input type="radio" name={`ans_${q._id}`} checked={q.answer === oi} onChange={() => cdUpdQ(q._id, { answer: oi })} title="Mark correct" style={{ flex: '0 0 auto' }} />
+                        <input className="form-input" value={o} placeholder={`Option ${oi + 1}`} onChange={e => cdUpdQ(q._id, { options: q.options.map((x, j) => j === oi ? e.target.value : x) })} style={{ flex: 1, minWidth: 0 }} />
+                      </label>
+                    ))}
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>Select the radio next to the correct answer.</div>
+                  </div>
+                ))}
+                {d.quiz.questions.length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>No questions yet.</p>}
+              </div>
+              <button className="secondary-btn" onClick={cdAddQ} style={{ height: 36, fontSize: '0.82rem', marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add question</button>
+            </>))}
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', paddingTop: 8, borderTop: '1px solid var(--border-color)', marginTop: 8 }}>
+              <button className="secondary-btn" onClick={() => { setCourseDraft(null); setLmsMode('list'); }}>Cancel</button>
+              <button className="secondary-btn" onClick={() => setCoursePreview(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 'auto' }}><Eye size={14} /> Preview</button>
+              <button className="secondary-btn" onClick={() => saveCourse(false)}>Save draft</button>
+              <button className="primary-btn" onClick={() => saveCourse(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><CheckSquare size={14} /> Publish</button>
+            </div>
+
+            {coursePreview && (
+              <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '2.5vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) setCoursePreview(false); }}>
+                <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 820, height: '95vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 22px', borderBottom: '1px solid var(--border-color)' }}>
+                    <Eye size={18} style={{ flex: '0 0 auto' }} /><h3 style={{ flex: 1, margin: 0 }}>Course preview</h3>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', background: 'var(--bg-secondary)', borderRadius: 999, padding: '3px 10px' }}>Not yet published</span>
+                    <button className="close-btn" onClick={() => setCoursePreview(false)}><X size={18} /></button>
+                  </div>
+                  <div style={{ flex: 1, overflow: 'auto', padding: '24px 28px' }}>
+                    <div style={{ maxWidth: 680, margin: '0 auto' }}>
+                      <h2 style={{ margin: '0 0 4px', fontSize: '1.5rem' }}>{d.title || 'Untitled course'}</h2>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 10 }}>{d.est_minutes} min · {d.lessons.length} lesson{d.lessons.length === 1 ? '' : 's'}{d.quiz.questions.length ? ` · ${d.quiz.questions.length}-question quiz` : ''}</div>
+                      {d.description && <p style={{ fontSize: '0.92rem', lineHeight: 1.65, color: 'var(--text-secondary)' }}>{d.description}</p>}
+                      {d.lessons.map((l, i) => (
+                        <div key={l._id} style={{ marginTop: 22 }}>
+                          <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700 }}>Lesson {i + 1}</div>
+                          <h3 style={{ fontSize: '1.05rem', margin: '3px 0 8px' }}>{l.title || 'Untitled lesson'}</h3>
+                          {l.type === 'sop'
+                            ? (() => { const sop = sopOpts.find(x => x.id === l.docId); return <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{sop ? `Linked SOP · ${sop.doc_code} · ${sop.title}` : 'Linked SOP (not selected)'}</div>; })()
+                            : (l.body || '').split('\n').map(x => x.trim()).filter(Boolean).map((x, j) => <p key={j} style={{ fontSize: '0.92rem', lineHeight: 1.65, color: 'var(--text-primary)', margin: '0 0 10px' }}>{x}</p>)}
+                        </div>
+                      ))}
+                      {d.quiz.questions.length > 0 && <div style={{ marginTop: 26 }}>
+                        <h3 style={{ fontSize: '1.05rem', margin: '0 0 4px' }}>Quiz</h3>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 10 }}>Pass mark {d.quiz.passPct}%</div>
+                        {d.quiz.questions.map((q, qi) => (
+                          <div key={q._id} style={{ marginBottom: 14 }}>
+                            <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: 6 }}>{qi + 1}. {q.q}</div>
+                            {q.options.map((o, oi) => o.trim() ? (
+                              <div key={oi} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.86rem', padding: '6px 10px', borderRadius: 8, marginBottom: 4, background: q.answer === oi ? 'hsla(145,63%,42%,0.12)' : 'var(--bg-secondary)', color: q.answer === oi ? 'hsl(145,55%,28%)' : 'var(--text-secondary)', fontWeight: q.answer === oi ? 600 : 400 }}>{q.answer === oi ? <CheckSquare size={14} style={{ flex: '0 0 auto' }} /> : <span style={{ width: 14, flex: '0 0 auto' }} />} {o}</div>
+                            ) : null)}
+                          </div>
+                        ))}
+                      </div>}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '14px 22px', borderTop: '1px solid var(--border-color)' }}>
+                    <button className="secondary-btn" onClick={() => setCoursePreview(false)}>Close</button>
+                    <button className="primary-btn" onClick={() => { setCoursePreview(false); saveCourse(true); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><CheckSquare size={14} /> Publish</button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         );
       })()}

@@ -30,8 +30,8 @@ router = APIRouter(prefix="/knowledge-base", tags=["Knowledge Base"], dependenci
 # Greens Global's real departments (mirrors the frontend DEPARTMENTS list).
 DEPT_ABBR = {
     "Operations": "OPS", "Revenue Management": "RM", "Real Estate Development": "RED",
-    "People (HR)": "HR", "Finance & Accounting": "FIN", "IT": "IT",
-    "Marketing": "MKT", "Admin": "ADM",
+    "People (HR)": "HR", "Accounting": "ACC", "IT": "IT",
+    "Marketing": "MKT", "Administration": "ADM",
 }
 
 _ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
@@ -222,14 +222,14 @@ def create_document(payload: KbDocIn, user: dict = Depends(get_current_user), db
         owner_name=user.get("name") or user["email"],
         reviewer_email=payload.reviewer_email,
         reviewer_name=payload.reviewer_name,
-        version=payload.version or "0.1",
+        version=payload.version or "1.0",
         effective_date=payload.effective_date,
         require_ack=bool(payload.require_ack),
         review_every_months=payload.review_every_months or 12,
         retention_months=payload.retention_months or 84,
         body=json.dumps({**_blank_body(), **(payload.body or {})}),
         revision_history=json.dumps([
-            {"version": payload.version or "0.1", "date": _today(), "author": user["email"], "notes": "Created."}
+            {"version": payload.version or "1.0", "date": _today(), "author": user["email"], "notes": "Created."}
         ]),
         created_by=user["email"],
         created_at=now,
@@ -792,6 +792,116 @@ def ai_format(payload: AiFormatIn, user: dict = Depends(get_current_user)):
     except Exception as e:  # network, key, model, or parse failure — degrade gracefully
         print(f"[kb ai-format] falling back to heuristic: {e}")
         return {"source": "heuristic", "sop": _heuristic_format(payload.content, payload.title)}
+
+
+# ---- AI course generation -------------------------------------------------
+_COURSE_SCHEMA = (
+    'Return ONLY a JSON object (no markdown, no preamble) with this exact shape:\n'
+    '{"title":string,"description":string,"est_minutes":number,'
+    '"lessons":[{"title":string,"body":string}],'
+    '"quiz":{"passPct":number,"questions":[{"q":string,"options":[string,string,string,string],"answer":number}]}}\n'
+    '- Break the material into 2-6 focused lessons; "body" is clear teaching text '
+    '(use blank lines between paragraphs).\n'
+    '- Write a 5-10 question multiple-choice quiz that checks real understanding. Each question has '
+    'EXACTLY 4 options; "answer" is the 0-based index of the correct option. Make distractors plausible.\n'
+    '- "est_minutes" is a realistic completion estimate. Stay faithful to the source; do not invent facts.'
+)
+
+
+def _normalize_course(o: dict) -> dict:
+    o = o or {}
+
+    def arr(x):
+        return x if isinstance(x, list) else []
+    lessons = []
+    for l in arr(o.get("lessons")):
+        if isinstance(l, str):
+            lessons.append({"_id": "l_" + uuid.uuid4().hex[:8], "type": "text", "title": "", "body": l, "docId": ""})
+        elif isinstance(l, dict):
+            lessons.append({"_id": "l_" + uuid.uuid4().hex[:8], "type": "text",
+                            "title": (l.get("title") or "").strip(),
+                            "body": l.get("body") or l.get("content") or "", "docId": ""})
+    quiz_in = o.get("quiz") if isinstance(o.get("quiz"), dict) else {}
+    questions = []
+    for q in arr(quiz_in.get("questions")):
+        if not isinstance(q, dict):
+            continue
+        opts = [str(x) for x in arr(q.get("options"))][:4]
+        while len(opts) < 4:
+            opts.append("")
+        ans = q.get("answer", 0)
+        questions.append({"_id": "q_" + uuid.uuid4().hex[:8], "q": (q.get("q") or q.get("question") or "").strip(),
+                          "options": opts, "answer": int(ans) if isinstance(ans, (int, float)) else 0})
+    try:
+        pp = max(1, min(100, int(quiz_in.get("passPct", 80))))
+    except (ValueError, TypeError):
+        pp = 80
+    try:
+        em = max(1, int(o.get("est_minutes", 15)))
+    except (ValueError, TypeError):
+        em = 15
+    return {"title": o.get("title", ""), "description": o.get("description", ""), "est_minutes": em,
+            "lessons": lessons, "quiz": {"passPct": pp, "questions": questions}}
+
+
+def _heuristic_course(text: str, title: str) -> dict:
+    """Offline fallback — split the source into reading lessons by blank lines."""
+    raw = (text or "").replace("\r\n", "\n")
+    blocks, cur = [], []
+    for line in raw.split("\n"):
+        if line.strip() == "":
+            if cur:
+                blocks.append("\n".join(cur))
+                cur = []
+        else:
+            cur.append(line)
+    if cur:
+        blocks.append("\n".join(cur))
+    lessons = []
+    for b in blocks:
+        lines = b.splitlines()
+        first = lines[0].strip().lstrip("#-*•0123456789.) ").strip()
+        if len(lines) > 1 and len(first) < 80:
+            ltitle, body = first, "\n".join(lines[1:]).strip()
+        else:
+            ltitle, body = (first[:60] + ("…" if len(first) > 60 else "")), b.strip()
+        lessons.append({"_id": "l_" + uuid.uuid4().hex[:8], "type": "text", "title": ltitle or "Lesson", "body": body, "docId": ""})
+    if not lessons and raw.strip():
+        lessons = [{"_id": "l_" + uuid.uuid4().hex[:8], "type": "text", "title": "Overview", "body": raw.strip(), "docId": ""}]
+    return {"title": title, "description": "", "est_minutes": max(5, len(lessons) * 5),
+            "lessons": lessons, "quiz": {"passPct": 80, "questions": []}}
+
+
+@router.post("/ai-course")
+def ai_course(payload: AiFormatIn, user: dict = Depends(require_level(3))):
+    source = (payload.content or "").strip()
+    if not source:
+        raise HTTPException(status_code=400, detail="Provide source content for the AI to build a course from")
+    if not _ANTHROPIC_API_KEY:
+        return {"source": "heuristic", "course": _heuristic_course(payload.content, payload.title)}
+    depts = ", ".join(payload.departments) or "Company-wide"
+    prompt = (
+        "You are an instructional designer for Greens Global, a self-storage and commercial real estate "
+        "operator. Turn the source material into a training course with lessons and a knowledge-check quiz. "
+        "These are compliance-critical courses, so be accurate and thorough.\n\n"
+        f"{_COURSE_SCHEMA}\n\nAudience departments: {depts}\nWorking title: {payload.title or '(none)'}\n\n"
+        f'SOURCE MATERIAL:\n"""\n{payload.content}\n"""'
+    )
+    try:
+        with httpx.Client(timeout=90) as client:
+            r = client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": _ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json={"model": _AI_MODEL, "max_tokens": 3000, "messages": [{"role": "user", "content": prompt}]},
+            )
+            r.raise_for_status()
+            data = r.json()
+        text = "".join(blk.get("text", "") for blk in data.get("content", []) if blk.get("type") == "text")
+        text = text.replace("```json", "").replace("```", "").strip()
+        return {"source": "ai", "course": _normalize_course(json.loads(text))}
+    except Exception as e:
+        print(f"[kb ai-course] falling back to heuristic: {e}")
+        return {"source": "heuristic", "course": _heuristic_course(payload.content, payload.title)}
 
 
 # ---- Learn (LMS) ----------------------------------------------------------
