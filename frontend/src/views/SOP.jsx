@@ -1436,6 +1436,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 : <input type="text" className="form-input" value={ask.q} onChange={e => setAsk(a => ({ ...a, q: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') doAsk(); }} placeholder="Ask the knowledge base… e.g. When do we run the gate audit?" style={{ paddingLeft: 36, width: '100%', height: 38, fontSize: '0.88rem' }} />}
             </div>
             {searchMode === 'search' ? (<>
+              <select className="form-select" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All departments</option>{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select>
               <select className="form-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All types</option>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select>
               <select className="form-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All statuses</option>{Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
             </>) : (
@@ -1446,18 +1447,12 @@ export default function SOP({ activeSub, onSubChange }) {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
             <div style={{ flex: '3 1 480px', minWidth: 0 }}>
               {searchMode === 'ask' && askAnswer()}
-              {searchMode === 'search' && (<>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 12 }}>
-                  {['all', ...DEPARTMENTS].map(dep => {
-                    const on = deptFilter === dep;
-                    return <button key={dep} onClick={() => setDeptFilter(dep)} style={{ fontSize: '0.78rem', padding: '6px 12px', borderRadius: 999, border: '1px solid', borderColor: on ? 'var(--text-primary)' : 'var(--border-color)', background: on ? 'var(--text-primary)' : 'var(--bg-card)', color: on ? 'var(--bg-card)' : 'var(--text-secondary)', fontWeight: 500, cursor: 'pointer' }}>{dep === 'all' ? 'All departments' : dep}</button>;
-                  })}
-                </div>
+              {searchMode === 'search' && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{filtered.length} document{filtered.length === 1 ? '' : 's'}</div>
                   {viewToggle()}
                 </div>
-              </>)}
+              )}
               {loading
                 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
                 : (() => {
