@@ -850,13 +850,15 @@ def ai_revise(payload: AiReviseIn, user: dict = Depends(get_current_user)):
 # ---- AI course generation -------------------------------------------------
 _COURSE_SCHEMA = (
     'Return ONLY a JSON object (no markdown, no preamble) with this exact shape:\n'
-    '{"title":string,"description":string,"est_minutes":number,'
+    '{"title":string,"description":string,"overview":[string],"est_minutes":number,'
     '"lessons":[{"title":string,"body":string}],'
-    '"quiz":{"passPct":number,"questions":[{"q":string,"options":[string,string,string,string],"answer":number}]}}\n'
-    '- Break the material into 2-6 focused lessons; "body" is clear teaching text '
-    '(use blank lines between paragraphs).\n'
-    '- Write a 5-10 question multiple-choice quiz that checks real understanding. Each question has '
-    'EXACTLY 4 options; "answer" is the 0-based index of the correct option. Make distractors plausible.\n'
+    '"quiz":{"passPct":number,"questions":[{"q":string,"options":[string,string,string,string],"answer":number,"explanation":string}]}}\n'
+    '- "overview" is 3-6 short "what you will learn" objectives.\n'
+    '- Break the material into 4-8 focused lessons (be thorough — these are compliance-critical); '
+    '"body" is clear teaching text using blank lines between paragraphs.\n'
+    '- Write an 8-12 question multiple-choice quiz that checks real understanding. Each question has '
+    'EXACTLY 4 options; "answer" is the 0-based index of the correct option; "explanation" explains why the '
+    'correct answer is right (and why common wrong choices are wrong). Make distractors plausible.\n'
     '- "est_minutes" is a realistic completion estimate. Stay faithful to the source; do not invent facts.'
 )
 
@@ -884,7 +886,8 @@ def _normalize_course(o: dict) -> dict:
             opts.append("")
         ans = q.get("answer", 0)
         questions.append({"_id": "q_" + uuid.uuid4().hex[:8], "q": (q.get("q") or q.get("question") or "").strip(),
-                          "options": opts, "answer": int(ans) if isinstance(ans, (int, float)) else 0})
+                          "options": opts, "answer": int(ans) if isinstance(ans, (int, float)) else 0,
+                          "explanation": (q.get("explanation") or "").strip()})
     try:
         pp = max(1, min(100, int(quiz_in.get("passPct", 80))))
     except (ValueError, TypeError):
@@ -893,8 +896,9 @@ def _normalize_course(o: dict) -> dict:
         em = max(1, int(o.get("est_minutes", 15)))
     except (ValueError, TypeError):
         em = 15
-    return {"title": o.get("title", ""), "description": o.get("description", ""), "est_minutes": em,
-            "lessons": lessons, "quiz": {"passPct": pp, "questions": questions}}
+    overview = [str(s).strip() for s in arr(o.get("overview")) if str(s).strip()]
+    return {"title": o.get("title", ""), "description": o.get("description", ""), "overview": overview,
+            "est_minutes": em, "lessons": lessons, "quiz": {"passPct": pp, "questions": questions}}
 
 
 def _heuristic_course(text: str, title: str) -> dict:
@@ -921,7 +925,7 @@ def _heuristic_course(text: str, title: str) -> dict:
         lessons.append({"_id": "l_" + uuid.uuid4().hex[:8], "type": "text", "title": ltitle or "Lesson", "body": body, "docId": ""})
     if not lessons and raw.strip():
         lessons = [{"_id": "l_" + uuid.uuid4().hex[:8], "type": "text", "title": "Overview", "body": raw.strip(), "docId": ""}]
-    return {"title": title, "description": "", "est_minutes": max(5, len(lessons) * 5),
+    return {"title": title, "description": "", "overview": [], "est_minutes": max(5, len(lessons) * 5),
             "lessons": lessons, "quiz": {"passPct": 80, "questions": []}}
 
 
@@ -961,6 +965,7 @@ def ai_course(payload: AiFormatIn, user: dict = Depends(require_level(3))):
 class CourseIn(BaseModel):
     title: str = ""
     description: str = ""
+    overview: list[str] = []          # "what you'll learn" objectives
     departments: list[str] = []
     est_minutes: int = 15
     lessons: list[dict] = []
@@ -1009,7 +1014,8 @@ def _clean_quiz(quiz: dict) -> dict:
             continue
         opts = [str(o) for o in (q.get("options") or [])]
         qs.append({"_id": q.get("_id") or ("q_" + uuid.uuid4().hex[:8]), "q": (q.get("q") or "").strip(),
-                   "options": opts, "answer": int(q.get("answer", 0)) if isinstance(q.get("answer"), (int, float)) else 0})
+                   "options": opts, "answer": int(q.get("answer", 0)) if isinstance(q.get("answer"), (int, float)) else 0,
+                   "explanation": (q.get("explanation") or "").strip()})
     try:
         pp = max(1, min(100, int(quiz.get("passPct", 80))))
     except (ValueError, TypeError):
@@ -1072,6 +1078,7 @@ def _serialize_course(c: models.KbCourse, prog: dict, include_answers: bool, ful
     quiz = _jload(c.quiz, {})
     out = {
         "id": c.id, "course_code": c.course_code, "title": c.title, "description": c.description,
+        "overview": _jload(getattr(c, "overview", "") or "[]", []),
         "departments": [x for x in (c.departments or "").split(",") if x], "status": c.status,
         "owner_name": c.owner_name, "est_minutes": c.est_minutes,
         "lesson_count": len(lessons), "question_count": len(quiz.get("questions", [])),
@@ -1079,6 +1086,7 @@ def _serialize_course(c: models.KbCourse, prog: dict, include_answers: bool, ful
     }
     if full:
         if not include_answers:
+            # learners never receive the correct answer or its explanation up front
             quiz = {"passPct": quiz.get("passPct", 80),
                     "questions": [{"_id": q["_id"], "q": q["q"], "options": q["options"]} for q in quiz.get("questions", [])]}
         out["lessons"] = lessons
@@ -1115,7 +1123,8 @@ def create_course(payload: CourseIn, user: dict = Depends(require_level(3)), db:
     now = _now()
     c = models.KbCourse(
         id="crs_" + uuid.uuid4().hex[:12], course_code=_next_course_code(db), title=payload.title.strip(),
-        description=payload.description, departments=",".join(payload.departments),
+        description=payload.description, overview=json.dumps([s for s in (payload.overview or []) if (s or "").strip()]),
+        departments=",".join(payload.departments),
         status="published" if payload.publish else "draft", owner_email=user["email"],
         owner_name=user.get("name") or user["email"], est_minutes=payload.est_minutes or 15,
         lessons=json.dumps(_clean_lessons(payload.lessons)), quiz=json.dumps(_clean_quiz(payload.quiz)),
@@ -1133,6 +1142,7 @@ def update_course(cid: str, payload: CourseIn, user: dict = Depends(require_leve
     if payload.title.strip():
         c.title = payload.title.strip()
     c.description = payload.description
+    c.overview = json.dumps([s for s in (payload.overview or []) if (s or "").strip()])
     c.departments = ",".join(payload.departments)
     c.est_minutes = payload.est_minutes or 15
     c.lessons = json.dumps(_clean_lessons(payload.lessons))
@@ -1158,6 +1168,10 @@ def lesson_done(cid: str, payload: LessonDoneIn, user: dict = Depends(get_curren
     return _progress_dict(p)
 
 
+def _opt_text(opts: list, i) -> str:
+    return opts[i] if isinstance(i, int) and 0 <= i < len(opts) else ""
+
+
 @router.post("/courses/{cid}/submit-quiz")
 def submit_quiz(cid: str, payload: QuizSubmitIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     c = _course_or_404(cid, db)
@@ -1165,17 +1179,54 @@ def submit_quiz(cid: str, payload: QuizSubmitIn, user: dict = Depends(get_curren
     questions = quiz.get("questions", [])
     if not questions:
         raise HTTPException(status_code=400, detail="This course has no quiz")
-    correct = sum(1 for q in questions if payload.answers.get(q["_id"]) == q["answer"])
+    pass_pct = quiz.get("passPct", 80)
+    detail, missed, correct = {}, [], 0
+    for q in questions:
+        opts = q.get("options", [])
+        your = payload.answers.get(q["_id"])
+        ok = (your == q["answer"])
+        if ok:
+            correct += 1
+        detail[q["_id"]] = {"correct": ok, "your": your, "answer": q["answer"], "explanation": q.get("explanation", "")}
+        if not ok:
+            missed.append({"q": q["q"], "your": _opt_text(opts, your) or "(no answer)",
+                           "correct": _opt_text(opts, q["answer"]), "explanation": q.get("explanation", "")})
     score = round(correct / len(questions) * 100)
-    passed = score >= quiz.get("passPct", 80)
+    passed = score >= pass_pct
     p = _progress_row(c.id, user["email"], db)
-    p.quiz_score = score
-    p.passed = passed
+    p.quiz_score, p.passed = score, passed
+    newly_completed = False
     if passed:
         p.lessons_done = json.dumps([l["_id"] for l in _jload(c.lessons, [])])
         if not p.completed_at:
             p.completed_at = _today()
+            newly_completed = True
+    # back-end record of the attempt for manager reports + remediation
+    who = user.get("name") or user["email"]
+    db.add(models.KbQuizAttempt(
+        id="qa_" + uuid.uuid4().hex[:12], course_id=c.id, course_code=c.course_code or "", course_title=c.title,
+        user_email=user["email"], user_name=who, score=score, passed=passed,
+        missed=json.dumps(missed), created_at=_now(),
+    ))
+    # let managers know when someone completes the module (NULL recipient = all managers)
+    if newly_completed:
+        db.add(models.NexusNotification(
+            id=str(uuid.uuid4()), type="kb_course_complete", recipient="",
+            title="Course completed",
+            body=f"{who} completed “{c.title}” ({c.course_code or 'course'}) with a score of {score}%.",
+            ref_id=c.id, item_name=c.title, requested_by=user["email"], action="",
+            actioned=False, read_by="", created_at=_now(),
+        ))
     db.commit()
-    return {"score": score, "passed": passed, "pass_pct": quiz.get("passPct", 80),
-            "results": {q["_id"]: (payload.answers.get(q["_id"]) == q["answer"]) for q in questions},
-            "progress": _progress_dict(p)}
+    return {"score": score, "passed": passed, "pass_pct": pass_pct, "results": detail, "missed": missed,
+            "completed": bool(p.completed_at), "progress": _progress_dict(p)}
+
+
+@router.get("/courses/{cid}/attempts")
+def course_attempts(cid: str, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    """Manager report: every quiz attempt on a course, with the missed questions."""
+    _course_or_404(cid, db)
+    rows = db.query(models.KbQuizAttempt).filter(models.KbQuizAttempt.course_id == cid).all()
+    rows.sort(key=lambda a: a.created_at or "", reverse=True)
+    return [{"id": a.id, "user_email": a.user_email, "user_name": a.user_name, "score": a.score,
+             "passed": bool(a.passed), "missed": _jload(a.missed, []), "created_at": a.created_at} for a in rows]

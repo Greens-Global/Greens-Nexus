@@ -645,6 +645,7 @@ class KbCourse(Base):
     course_code = Column(String, default="")          # LRN-001 …
     title       = Column(String, nullable=False)
     description = Column(String, default="")
+    overview    = Column(String, default="")           # "what you'll learn" — JSON list of objective strings
     departments = Column(String, default="")
     status      = Column(String, default="draft")     # draft | published
     owner_email = Column(String, default="")
@@ -676,3 +677,19 @@ class KbPin(Base):
     user_email = Column(String, nullable=False)
     doc_id     = Column(String, nullable=False)
     created_at = Column(String, default="")
+
+
+class KbQuizAttempt(Base):
+    """A learner's quiz attempt on a course — the back-end record of how they
+    did and which questions they missed (for manager reports + remediation)."""
+    __tablename__ = "kb_quiz_attempts"
+    id          = Column(String, primary_key=True)   # uuid
+    course_id   = Column(String, nullable=False)
+    course_code = Column(String, default="")
+    course_title = Column(String, default="")
+    user_email  = Column(String, nullable=False)
+    user_name   = Column(String, default="")
+    score       = Column(Integer, default=0)          # 0-100
+    passed      = Column(Boolean, default=False)
+    missed      = Column(String, default="[]")         # JSON: [{q, your, correct, explanation}]
+    created_at  = Column(String, default="")

@@ -34,6 +34,7 @@ def _run_migrations():
             "ALTER TABLE kb_documents ADD COLUMN verified_at VARCHAR DEFAULT ''",
             "ALTER TABLE kb_documents ADD COLUMN verified_by VARCHAR DEFAULT ''",
             "ALTER TABLE kb_documents ADD COLUMN retention_months INTEGER DEFAULT 84",
+            "ALTER TABLE kb_courses ADD COLUMN overview VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -112,6 +113,7 @@ def _run_migrations():
         "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS verified_at VARCHAR DEFAULT ''",
         "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS verified_by VARCHAR DEFAULT ''",
         "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS retention_months INTEGER DEFAULT 84",
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS overview VARCHAR DEFAULT ''",
     ]
     with engine.connect() as conn:
         for sql in migrations:

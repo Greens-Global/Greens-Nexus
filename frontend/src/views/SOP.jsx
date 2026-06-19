@@ -6,7 +6,7 @@ import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, Loader, ChevronUp, ChevronDown,
   Image as ImageIcon, Paperclip, Settings, Grid3x3, BarChart3, GraduationCap, Eye, ChevronRight, Star,
-  List, LayoutGrid, Building2, PanelRight,
+  List, LayoutGrid, Building2, PanelRight, FileText,
 } from 'lucide-react';
 
 const rid = () => 'r' + Math.random().toString(36).slice(2, 9);
@@ -181,6 +181,8 @@ export default function SOP({ activeSub, onSubChange }) {
   const [courseDraft, setCourseDraft] = useState(null);
   const [courseAiBusy, setCourseAiBusy] = useState(false);
   const [coursePreview, setCoursePreview] = useState(false);
+  const [certOpen, setCertOpen] = useState(false); // completion certificate modal
+  const [courseReport, setCourseReport] = useState(null); // { course, attempts } manager report
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -565,21 +567,26 @@ export default function SOP({ activeSub, onSubChange }) {
     if (qs.some(q => player.answers[q._id] == null)) { setErr('Answer all questions first.'); return; }
     try {
       const r = await api.kbSubmitQuiz(c.id, player.answers);
-      setPlayer(p => ({ ...p, mode: 'result', lastScore: r.score, lastPassed: r.passed, results: r.results }));
+      setPlayer(p => ({ ...p, mode: 'result', lastScore: r.score, lastPassed: r.passed, results: r.results, missed: r.missed || [] }));
       reloadCourse();
     } catch (e) { setErr(e.message || 'Quiz submission failed'); }
   };
-  const blankCourse = () => ({ id: null, title: '', description: '', departments: [], est_minutes: 15, lessons: [], quiz: { passPct: 80, questions: [] } });
+  const blankCourse = () => ({ id: null, title: '', description: '', overview: [], departments: [], est_minutes: 15, lessons: [], quiz: { passPct: 80, questions: [] } });
+  const openCourseReport = async (course) => {
+    setCourseReport({ course, attempts: null });
+    try { const attempts = await api.getKbCourseAttempts(course.id); setCourseReport({ course, attempts }); }
+    catch (e) { setErr(e.message || 'Failed to load report'); setCourseReport(null); }
+  };
   const openCourseEditor = async (id) => {
     setCoursePreview(false);
     if (!id) { setCourseDraft(blankCourse()); setLmsMode('editor'); return; }
-    try { const c = await api.getKbCourse(id); setCourseDraft({ id: c.id, title: c.title, description: c.description, departments: [...(c.departments || [])], est_minutes: c.est_minutes, lessons: c.lessons || [], quiz: c.quiz?.questions ? c.quiz : { passPct: 80, questions: [] } }); setLmsMode('editor'); }
+    try { const c = await api.getKbCourse(id); setCourseDraft({ id: c.id, title: c.title, description: c.description, overview: c.overview || [], departments: [...(c.departments || [])], est_minutes: c.est_minutes, lessons: c.lessons || [], quiz: c.quiz?.questions ? c.quiz : { passPct: 80, questions: [] } }); setLmsMode('editor'); }
     catch (e) { setErr(e.message || 'Failed to open course'); }
   };
   const saveCourse = async (publish) => {
     const d = courseDraft;
     if (!d.title.trim()) { setErr('Add a course title.'); return; }
-    const payload = { title: d.title, description: d.description, departments: d.departments, est_minutes: parseInt(d.est_minutes, 10) || 15, lessons: d.lessons, quiz: d.quiz, publish };
+    const payload = { title: d.title, description: d.description, overview: (d.overview || []).filter(s => s && s.trim()), departments: d.departments, est_minutes: parseInt(d.est_minutes, 10) || 15, lessons: d.lessons, quiz: d.quiz, publish };
     try {
       if (d.id) await api.updateKbCourse(d.id, payload); else await api.createKbCourse(payload);
       setCourseDraft(null); setLmsMode('list'); api.getKbCourses().then(setLmsCourses).catch(() => {});
@@ -608,6 +615,7 @@ export default function SOP({ activeSub, onSubChange }) {
         _importSource: content,
         title: p.title || course.title || '',
         description: course.description || p.description,
+        overview: (course.overview || []).length ? course.overview : p.overview,
         est_minutes: course.est_minutes || p.est_minutes,
         lessons: (course.lessons || []).length ? course.lessons : p.lessons,
         quiz: course.quiz?.questions?.length ? course.quiz : p.quiz,
@@ -624,6 +632,10 @@ export default function SOP({ activeSub, onSubChange }) {
   const cdAddQ = () => setCourseDraft(p => ({ ...p, quiz: { ...p.quiz, questions: [...p.quiz.questions, { _id: rid(), q: '', options: ['', '', '', ''], answer: 0 }] } }));
   const cdUpdQ = (id, patch) => setCourseDraft(p => ({ ...p, quiz: { ...p.quiz, questions: p.quiz.questions.map(q => q._id === id ? { ...q, ...patch } : q) } }));
   const cdDelQ = (id) => setCourseDraft(p => ({ ...p, quiz: { ...p.quiz, questions: p.quiz.questions.filter(q => q._id !== id) } }));
+  const cdSetObjectives = (fn) => setCourseDraft(p => ({ ...p, overview: fn(p.overview || []) }));
+  const cdAddObjective = () => cdSetObjectives(o => [...o, '']);
+  const cdUpdObjective = (i, v) => cdSetObjectives(o => o.map((x, j) => (j === i ? v : x)));
+  const cdDelObjective = (i) => cdSetObjectives(o => o.filter((_, j) => j !== i));
 
   const errBanner = err && (
     <div style={{ backgroundColor: 'hsla(0,84%,60%,0.1)', border: '1px solid hsla(0,84%,60%,0.3)', color: 'hsl(0,70%,42%)', padding: '10px 14px', borderRadius: 8, marginBottom: 16, fontSize: '0.85rem' }}>{err}</div>
@@ -1833,11 +1845,53 @@ export default function SOP({ activeSub, onSubChange }) {
                     <tr key={c.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                       <td style={{ padding: '11px 14px' }}><div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{c.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{c.course_code} · {c.lesson_count} lessons</div></td>
                       <td style={{ padding: '11px 14px' }}><span style={{ fontSize: '0.7rem', fontWeight: 700, color: c.status === 'published' ? 'hsl(145,55%,30%)' : 'var(--text-secondary)', background: c.status === 'published' ? 'hsla(145,63%,42%,0.12)' : 'var(--bg-secondary)', borderRadius: 999, padding: '3px 10px' }}>{c.status}</span></td>
-                      <td style={{ padding: '11px 14px', textAlign: 'right' }}><button className="secondary-btn" onClick={() => openCourse(c.id)} style={{ height: 30, fontSize: '0.78rem', marginRight: 6 }}>Preview</button><button className="secondary-btn" onClick={() => openCourseEditor(c.id)} style={{ height: 30, fontSize: '0.78rem' }}>Edit</button></td>
+                      <td style={{ padding: '11px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}><button className="secondary-btn" onClick={() => openCourseReport(c)} style={{ height: 30, fontSize: '0.78rem', marginRight: 6 }}>Report</button><button className="secondary-btn" onClick={() => openCourse(c.id)} style={{ height: 30, fontSize: '0.78rem', marginRight: 6 }}>Preview</button><button className="secondary-btn" onClick={() => openCourseEditor(c.id)} style={{ height: 30, fontSize: '0.78rem' }}>Edit</button></td>
                     </tr>
                   ))}
                 </tbody></table>
               </div>
+              {courseReport && (() => {
+                const att = courseReport.attempts;
+                const passes = att ? att.filter(a => a.passed).length : 0;
+                return (
+                  <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '2.5vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) setCourseReport(null); }}>
+                    <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 860, height: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 22px', borderBottom: '1px solid var(--border-color)' }}>
+                        <BarChart3 size={18} style={{ flex: '0 0 auto' }} />
+                        <div style={{ flex: 1, minWidth: 0 }}><h3 style={{ margin: 0 }}>{courseReport.course.title}</h3><div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{att ? `${att.length} attempt${att.length === 1 ? '' : 's'} · ${passes} passed` : 'Loading…'}</div></div>
+                        <button className="close-btn" onClick={() => setCourseReport(null)}><X size={18} /></button>
+                      </div>
+                      <div style={{ flex: 1, overflow: 'auto', padding: '16px 22px' }}>
+                        {att === null
+                          ? <div style={{ textAlign: 'center', padding: 30, color: 'var(--text-secondary)' }}><Loader size={18} style={{ animation: 'spin 0.7s linear infinite' }} /></div>
+                          : att.length === 0
+                            ? <div style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)', fontSize: '0.86rem' }}>No quiz attempts yet.</div>
+                            : att.map(a => (
+                                <div key={a.id} style={{ border: '1px solid var(--border-color)', borderRadius: 12, padding: '12px 14px', marginBottom: 10, background: 'var(--bg-card)' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{a.user_name}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{a.user_email} · {fmtDate(a.created_at)}</div></div>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: a.passed ? 'hsl(145,55%,30%)' : 'hsl(0,70%,45%)' }}>{a.score}%</span>
+                                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: a.passed ? 'hsl(145,55%,30%)' : 'hsl(0,70%,45%)', background: a.passed ? 'hsla(145,63%,42%,0.12)' : 'hsla(0,84%,60%,0.1)', borderRadius: 999, padding: '3px 10px' }}>{a.passed ? 'Passed' : 'Did not pass'}</span>
+                                  </div>
+                                  {(a.missed || []).length > 0 && (
+                                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--bg-secondary)' }}>
+                                      <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)', fontWeight: 700, marginBottom: 6 }}>Missed {a.missed.length}</div>
+                                      {a.missed.map((m, mi) => (
+                                        <div key={mi} style={{ fontSize: '0.8rem', marginBottom: 8 }}>
+                                          <div style={{ fontWeight: 600 }}>{m.q}</div>
+                                          <div style={{ color: 'var(--text-secondary)' }}>Answered <span style={{ color: 'hsl(0,70%,45%)' }}>{m.your}</span> · Correct <span style={{ color: 'hsl(145,55%,30%)', fontWeight: 600 }}>{m.correct}</span></div>
+                                          {m.explanation && <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>{m.explanation}</div>}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </>
           );
         }
@@ -1891,7 +1945,7 @@ export default function SOP({ activeSub, onSubChange }) {
           main = (
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 20 }}>
               <h2 style={{ fontSize: '1.15rem', margin: '0 0 4px', fontWeight: 700 }}>Quiz</h2>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', margin: '0 0 16px' }}>Answer all questions. Pass mark: {quiz.passPct}%.</p>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', margin: '0 0 16px' }}>Answer all questions to complete the course.</p>
               {(quiz.questions || []).map((q, qi) => (
                 <div key={q._id} style={{ padding: '12px 0', borderBottom: '1px solid var(--bg-secondary)' }}>
                   <div style={{ fontWeight: 600, fontSize: '0.88rem', marginBottom: 8 }}>{qi + 1}. {q.q}</div>
@@ -1907,13 +1961,38 @@ export default function SOP({ activeSub, onSubChange }) {
           );
         } else {
           main = (
-            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: '34px 20px', textAlign: 'center' }}>
-              <div style={{ width: 54, height: 54, borderRadius: '50%', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: player.lastPassed ? 'hsla(145,63%,42%,0.14)' : 'hsla(0,84%,60%,0.12)', color: player.lastPassed ? 'hsl(145,55%,30%)' : 'hsl(0,70%,45%)' }}>{player.lastPassed ? <CheckSquare size={26} /> : <X size={26} />}</div>
-              <h2 style={{ fontSize: '1.2rem', margin: '14px 0 6px' }}>{player.lastPassed ? 'Course completed' : 'Not quite — try again'}</h2>
-              <p style={{ color: 'var(--text-secondary)', margin: 0 }}>You scored <b>{player.lastScore}%</b>{hasQuiz ? ` (pass mark ${quiz.passPct}%)` : ''}.</p>
-              <div style={{ marginTop: 16, display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-                {player.lastPassed ? <button className="primary-btn" onClick={() => { setLmsMode('list'); api.getKbCourses().then(setLmsCourses).catch(() => {}); }} style={{ height: 34 }}>Back to Learn</button> : <><button className="primary-btn" onClick={() => setPlayer(p => ({ ...p, mode: 'quiz', answers: {} }))} style={{ height: 34 }}>Retake quiz</button><button className="secondary-btn" onClick={() => setPlayer(p => ({ ...p, mode: 'lesson' }))} style={{ height: 34 }}>Review lessons</button></>}
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: '28px 22px' }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ width: 54, height: 54, borderRadius: '50%', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', background: player.lastPassed ? 'hsla(145,63%,42%,0.14)' : 'hsla(0,84%,60%,0.12)', color: player.lastPassed ? 'hsl(145,55%,30%)' : 'hsl(0,70%,45%)' }}>{player.lastPassed ? <CheckSquare size={26} /> : <X size={26} />}</div>
+                <h2 style={{ fontSize: '1.2rem', margin: '14px 0 6px' }}>{player.lastPassed ? 'Course completed' : 'Not quite — review and try again'}</h2>
+                <p style={{ color: 'var(--text-secondary)', margin: 0 }}>You scored <b>{player.lastScore}%</b>.</p>
+                <div style={{ marginTop: 16, display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+                  {player.lastPassed
+                    ? <><button className="primary-btn" onClick={() => setCertOpen(true)} style={{ height: 34, display: 'inline-flex', alignItems: 'center', gap: 6 }}><GraduationCap size={15} /> View certificate</button><button className="secondary-btn" onClick={() => { setLmsMode('list'); api.getKbCourses().then(setLmsCourses).catch(() => {}); }} style={{ height: 34 }}>Back to Learn</button></>
+                    : <><button className="primary-btn" onClick={() => setPlayer(p => ({ ...p, mode: 'quiz', answers: {} }))} style={{ height: 34 }}>Retake quiz</button><button className="secondary-btn" onClick={() => setPlayer(p => ({ ...p, mode: 'lesson' }))} style={{ height: 34 }}>Review lessons</button></>}
+                </div>
               </div>
+              {hasQuiz && player.results && (
+                <div style={{ textAlign: 'left', marginTop: 24, borderTop: '1px solid var(--border-color)', paddingTop: 18 }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 12 }}>Your answers</div>
+                  {quiz.questions.map((q, qi) => {
+                    const r = player.results[q._id] || {};
+                    const yourText = r.your != null && q.options[r.your] != null ? q.options[r.your] : '(no answer)';
+                    return (
+                      <div key={q._id} style={{ marginBottom: 12, padding: '12px 14px', borderRadius: 10, border: '1px solid', background: r.correct ? 'hsla(145,63%,42%,0.07)' : 'hsla(0,84%,60%,0.06)', borderColor: r.correct ? 'hsla(145,63%,42%,0.3)' : 'hsla(0,84%,60%,0.25)' }}>
+                        <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start' }}>
+                          {r.correct ? <CheckSquare size={16} style={{ color: 'hsl(145,55%,32%)', flex: '0 0 auto', marginTop: 2 }} /> : <X size={16} style={{ color: 'hsl(0,70%,45%)', flex: '0 0 auto', marginTop: 2 }} />}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 600, fontSize: '0.86rem' }}>{qi + 1}. {q.q}</div>
+                            {!r.correct && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>Your answer: <span style={{ color: 'hsl(0,70%,45%)' }}>{yourText}</span> · Correct: <span style={{ color: 'hsl(145,55%,30%)', fontWeight: 600 }}>{q.options[r.answer]}</span></div>}
+                            {!r.correct && r.explanation && <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', marginTop: 6, lineHeight: 1.5 }}><b>Why:</b> {r.explanation}</div>}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           );
         }
@@ -1922,6 +2001,12 @@ export default function SOP({ activeSub, onSubChange }) {
             <button className="secondary-btn" onClick={() => { setLmsMode('list'); api.getKbCourses().then(setLmsCourses).catch(() => {}); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, height: 34 }}><ArrowLeft size={15} /> Back to Learn</button>
             <div style={{ marginBottom: 6 }}><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{c.course_code} · {lessons.length} lessons{hasQuiz ? ' · quiz' : ''}</div><h1 style={{ fontSize: '1.3rem', margin: '4px 0 0', fontWeight: 700 }}>{c.title}</h1></div>
             <div style={{ height: 8, borderRadius: 999, background: 'var(--bg-secondary)', overflow: 'hidden', margin: '12px 0 18px' }}><div style={{ width: `${pct}%`, height: '100%', background: 'hsl(145,63%,42%)' }} /></div>
+            {(c.overview || []).length > 0 && player.mode === 'lesson' && player.idx === 0 && (
+              <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, padding: '14px 16px', marginBottom: 16 }}>
+                <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, marginBottom: 8 }}>What you’ll learn</div>
+                <ul style={{ margin: 0, paddingLeft: 18, fontSize: '0.86rem', color: 'var(--text-secondary)', lineHeight: 1.65 }}>{c.overview.map((o, i) => <li key={i}>{o}</li>)}</ul>
+              </div>
+            )}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
               <div style={{ flex: '1 1 200px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {lessons.map((l, i) => navItem(l.title, (prog.lessons_done || []).includes(l._id), player.mode === 'lesson' && player.idx === i, () => setPlayer(p => ({ ...p, mode: 'lesson', idx: i }))))}
@@ -1929,6 +2014,31 @@ export default function SOP({ activeSub, onSubChange }) {
               </div>
               <div style={{ flex: '999 1 320px', minWidth: 0 }}>{main}</div>
             </div>
+
+            {certOpen && (
+              <div className="modal-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) setCertOpen(false); }}>
+                <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 720, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
+                  <div id="kb-cert" style={{ padding: 36, textAlign: 'center', border: '10px solid hsl(145,40%,30%)', margin: 14, borderRadius: 10, background: '#fff', color: '#1a2332' }}>
+                    <div style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.18em', fontWeight: 700, color: 'hsl(145,40%,30%)' }}>Greens Global</div>
+                    <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '1.9rem', fontWeight: 800, margin: '10px 0 4px' }}>Certificate of Completion</div>
+                    <div style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: 22 }}>This certifies that</div>
+                    <div style={{ fontSize: '1.6rem', fontWeight: 700, fontFamily: "'Plus Jakarta Sans', sans-serif", borderBottom: '2px solid #e2e8f0', display: 'inline-block', padding: '0 24px 8px' }}>{myName}</div>
+                    <div style={{ fontSize: '0.95rem', color: '#334155', margin: '22px 0 4px' }}>has successfully completed</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>{c.title}</div>
+                    <div style={{ fontSize: '0.82rem', color: '#64748b', marginTop: 4 }}>{c.course_code}{hasQuiz ? ` · scored ${player.lastScore}%` : ''}</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 34, fontSize: '0.8rem', color: '#475569' }}>
+                      <div style={{ textAlign: 'left' }}><div style={{ borderTop: '1px solid #94a3b8', paddingTop: 5, minWidth: 150 }}>Date</div><div style={{ fontWeight: 600 }}>{fmtDate(prog.completed_at || new Date().toISOString().slice(0, 10))}</div></div>
+                      <div style={{ width: 60, height: 60, borderRadius: '50%', border: '2px solid hsl(145,40%,30%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'hsl(145,40%,30%)' }}><GraduationCap size={28} /></div>
+                      <div style={{ textAlign: 'right' }}><div style={{ borderTop: '1px solid #94a3b8', paddingTop: 5, minWidth: 150 }}>Greens Global Learning</div></div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '6px 18px 16px' }}>
+                    <button className="secondary-btn" onClick={() => setCertOpen(false)}>Close</button>
+                    <button className="primary-btn" onClick={() => window.print()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FileText size={14} /> Print / Save PDF</button>
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         );
       })()}
@@ -2008,6 +2118,19 @@ export default function SOP({ activeSub, onSubChange }) {
               </div>
             </>))}
 
+            {csection('What You’ll Learn', 'A few objectives shown on the course intro so learners know what they’ll take away.', (<>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {(d.overview || []).map((obj, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 8 }}>
+                    <input className="form-input" value={obj} placeholder="e.g. Identify the steps of the move-in inspection" onChange={e => cdUpdObjective(i, e.target.value)} style={{ flex: 1, padding: '11px 14px' }} />
+                    <button className="secondary-btn" onClick={() => cdDelObjective(i)} style={{ width: 44, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Trash2 size={15} /></button>
+                  </div>
+                ))}
+                {(d.overview || []).length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>No objectives yet.</p>}
+              </div>
+              <button className="secondary-btn" onClick={cdAddObjective} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add objective</button>
+            </>))}
+
             {csection('Lessons', 'Break the material into focused lessons — plain readings or links to an existing SOP.', (<>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {d.lessons.map((l, i) => (
@@ -2044,7 +2167,8 @@ export default function SOP({ activeSub, onSubChange }) {
                         <input className="form-input" value={o} placeholder={`Option ${oi + 1}`} onChange={e => cdUpdQ(q._id, { options: q.options.map((x, j) => j === oi ? e.target.value : x) })} style={{ flex: 1, minWidth: 0 }} />
                       </label>
                     ))}
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>Select the radio next to the correct answer.</div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '4px 0 8px' }}>Select the radio next to the correct answer.</div>
+                    <textarea className="form-input" value={q.explanation || ''} placeholder="Why this answer is correct — shown to learners who get it wrong…" onChange={e => cdUpdQ(q._id, { explanation: e.target.value })} style={{ width: '100%', minHeight: 52, resize: 'vertical', fontSize: '0.85rem', lineHeight: 1.5, padding: '10px 12px' }} />
                   </div>
                 ))}
                 {d.quiz.questions.length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>No questions yet.</p>}

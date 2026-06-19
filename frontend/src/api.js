@@ -210,6 +210,7 @@ export const api = {
   updateKbCourse:  (id, data)  => req(`/knowledge-base/courses/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   kbLessonDone:    (id, lesson_id) => req(`/knowledge-base/courses/${id}/lesson-done`, { method: "POST", body: JSON.stringify({ lesson_id }) }),
   kbSubmitQuiz:    (id, answers)   => req(`/knowledge-base/courses/${id}/submit-quiz`, { method: "POST", body: JSON.stringify({ answers }) }),
+  getKbCourseAttempts: (id)        => req(`/knowledge-base/courses/${id}/attempts`),
 
   // Assets
   getAssets: () => req("/assets"),

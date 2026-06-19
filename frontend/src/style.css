@@ -1993,6 +1993,13 @@ button, [role="button"], select { touch-action: manipulation; }
 @media (max-width: 1000px) { .kb-c-dept  { display: none; } }
 @media (max-width: 840px)  { .kb-c-type  { display: none; } }
 
+/* Course completion certificate: print only the certificate, full page */
+@media print {
+  body * { visibility: hidden !important; }
+  #kb-cert, #kb-cert * { visibility: visible !important; }
+  #kb-cert { position: fixed; inset: 0; margin: 0 !important; box-shadow: none; }
+}
+
 /* Header search trigger: right side on desktop, left of the wordmark on
    phones (a 4th right-side icon overlapped the centered NEXUS) */
 .header-search-left { display: none; }
