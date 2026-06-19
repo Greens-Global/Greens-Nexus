@@ -56,7 +56,7 @@ const STATUS_META = {
   archived:          { label: 'Archived',          bg: 'var(--bg-secondary)',      fg: 'var(--text-muted)' },
 };
 
-const TAB_LABELS = { index: 'Playbook', review: 'Review Queue', signoffs: 'Sign-offs', lms: 'Learn' };
+const TAB_LABELS = { index: 'Playbook', tasks: 'Tasks', lms: 'Learn' };
 
 const Badge = ({ status }) => {
   const m = STATUS_META[status] || STATUS_META.draft;
@@ -210,9 +210,9 @@ export default function SOP({ activeSub, onSubChange }) {
     try { const list = await api.addKbComment(selected.id, t); setComments(list); setCommentText(''); }
     catch (e) { setErr(e.message || 'Failed to post comment'); }
   };
-  // load sign-offs for the Sign-offs tab and the Playbook "For you" strip
+  // load sign-offs for the Tasks tab, the manager sign-off tracker, and the Playbook "For you" strip
   useEffect(() => {
-    if (sub === 'signoffs' || sub === 'index') api.getKbSignoffs().then(setSignoffs).catch(() => {});
+    if (sub === 'signoffs' || sub === 'index' || sub === 'tasks') api.getKbSignoffs().then(setSignoffs).catch(() => {});
   }, [sub, docs]);
   useEffect(() => {
     if (sub === 'insights') api.getKbInsights().then(setInsights).catch(() => {});
@@ -305,9 +305,11 @@ export default function SOP({ activeSub, onSubChange }) {
     if (search && !docSearchText(d).includes(search.toLowerCase().trim())) return false;
     return true;
   });
-  const reviewQueue = docs.filter(d =>
-    (d.status === 'in_review' && isManager) ||
-    (d.status === 'changes_requested' && d.owner_email === myEmail));
+  // Tasks tab sources — what's waiting on this person
+  const returnedToMe = docs.filter(d => d.status === 'changes_requested' && d.owner_email === myEmail);
+  const awaitingReview = isManager ? docs.filter(d => d.status === 'in_review') : [];
+  const pendingSignoffs = (signoffs || []).filter(s => !s.my_signed);
+  const taskCount = pendingSignoffs.length + returnedToMe.length + awaitingReview.length;
 
   // ── navigation ──
   const openDetail = (d) => { setSelected(d); setMode('detail'); };
@@ -1265,6 +1267,7 @@ export default function SOP({ activeSub, onSubChange }) {
                   <ChevronRight size={15} style={{ color: 'var(--text-muted)', flex: '0 0 auto' }} />
                 </div>
               ))}
+          {pending.length > 0 && <button onClick={() => switchTab('tasks')} style={{ width: '100%', textAlign: 'center', padding: '9px 12px', borderTop: '1px solid var(--bg-secondary)', background: 'transparent', border: 'none', borderTopColor: 'var(--bg-secondary)', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-blue))' }}>View all tasks →</button>}
         </div>
         {popular.length > 0 && (
           <div style={panel}>
@@ -1405,12 +1408,12 @@ export default function SOP({ activeSub, onSubChange }) {
         {Object.entries(TAB_LABELS).map(([key, label]) => (
           <button key={key} onClick={() => switchTab(key)} style={{ background: 'none', border: 'none', padding: '10px 18px', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '0.95rem', cursor: 'pointer', color: sub === key ? 'var(--text-primary)' : 'var(--text-secondary)', position: 'relative' }}>
             {label}
-            {key === 'review' && reviewQueue.length > 0 && <span style={{ marginLeft: 7, backgroundColor: 'hsl(var(--color-blue))', color: '#fff', borderRadius: 999, padding: '1px 7px', fontSize: '0.7rem' }}>{reviewQueue.length}</span>}
+            {key === 'tasks' && taskCount > 0 && <span style={{ marginLeft: 7, backgroundColor: 'hsl(var(--color-blue))', color: '#fff', borderRadius: 999, padding: '1px 7px', fontSize: '0.7rem' }}>{taskCount}</span>}
             {sub === key && <span style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: 'var(--text-primary)', borderRadius: '4px 4px 0 0' }} />}
           </button>
         ))}
         {isManager && (
-          <button onClick={() => switchTab('manage')} style={{ marginLeft: 'auto', alignSelf: 'center', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 9, border: '1px solid', borderColor: ['manage', 'matrix', 'insights'].includes(sub) ? 'var(--text-primary)' : 'var(--border-color)', background: ['manage', 'matrix', 'insights'].includes(sub) ? 'var(--text-primary)' : 'var(--bg-card)', color: ['manage', 'matrix', 'insights'].includes(sub) ? 'var(--bg-card)' : 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}><Settings size={15} /> Manage</button>
+          <button onClick={() => switchTab('manage')} style={{ marginLeft: 'auto', alignSelf: 'center', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 9, border: '1px solid', borderColor: ['manage', 'matrix', 'insights', 'signoffs'].includes(sub) ? 'var(--text-primary)' : 'var(--border-color)', background: ['manage', 'matrix', 'insights', 'signoffs'].includes(sub) ? 'var(--text-primary)' : 'var(--bg-card)', color: ['manage', 'matrix', 'insights', 'signoffs'].includes(sub) ? 'var(--bg-card)' : 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}><Settings size={15} /> Manage</button>
         )}
       </div>
       {errBanner}
@@ -1469,54 +1472,76 @@ export default function SOP({ activeSub, onSubChange }) {
         </>
       )}
 
-      {/* Review Queue */}
-      {sub === 'review' && (
-        <>
-          <div className="view-header" style={{ marginBottom: 24 }}>
-            <div className="view-title-group"><h2>Review Queue</h2><p>SOPs awaiting a manager's approval, plus anything returned to you for changes</p></div>
-          </div>
-          {!isManager && reviewQueue.length === 0 && (
-            <div style={{ backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px 14px', fontSize: '0.83rem', color: 'var(--text-secondary)', marginBottom: 16 }}>
-              The review queue shows SOPs awaiting a manager's approval, plus anything returned to you for changes.
-            </div>
-          )}
-          {loading ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
-            : docTable(reviewQueue, 'Queue is clear — nothing is waiting on review right now.')}
-        </>
-      )}
-
-      {/* Sign-offs */}
-      {sub === 'signoffs' && (() => {
-        const openDoc = (id) => { const dd = docs.find(x => x.id === id); if (dd) openDetail(dd); };
-        const mine = signoffs.filter(s => !s.my_signed);
-        const groupHead = (txt, n) => <div style={{ fontSize: '0.85rem', fontWeight: 700, margin: '20px 2px 10px', display: 'flex', alignItems: 'center', gap: 8 }}>{txt}{n != null && <span style={{ fontSize: '0.72rem', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderRadius: 999, padding: '2px 9px', fontWeight: 600 }}>{n}</span>}</div>;
-        const note = (txt) => <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px 14px', fontSize: '0.83rem', color: 'var(--text-secondary)' }}>{txt}</div>;
-        const table = (rows, mode2) => (
-          <div style={{ border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden', background: 'var(--bg-card)', boxShadow: 'var(--shadow-sm)' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <tbody>{rows.map(s => (
-                <tr key={s.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                  <td style={{ padding: '11px 14px', cursor: 'pointer' }} onClick={() => openDoc(s.id)}><div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>{s.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{s.doc_code} · v{s.version}</div></td>
-                  <td style={{ padding: '11px 14px', fontSize: '0.78rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{mode2 === 'all' ? `${s.signed_count} signed` : ''}</td>
-                  <td style={{ padding: '11px 14px', textAlign: 'right' }}>
-                    {s.my_signed
-                      ? <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'hsl(145,55%,30%)', background: 'hsla(145,63%,42%,0.12)', borderRadius: 999, padding: '3px 10px' }}>You signed</span>
-                      : <button className="primary-btn" onClick={() => openDoc(s.id)} style={{ height: 32, fontSize: '0.8rem' }}>Review &amp; sign</button>}
-                  </td>
-                </tr>
-              ))}</tbody>
-            </table>
+      {/* Tasks — everything waiting on this person */}
+      {sub === 'tasks' && (() => {
+        const hover = { onMouseEnter: ev => ev.currentTarget.style.background = 'var(--bg-secondary)', onMouseLeave: ev => ev.currentTarget.style.background = 'transparent' };
+        const titleCell = (title, meta) => <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{meta}</div></div>;
+        const taskRow = (key, onClick, title, meta, right) => (
+          <div key={key} role="button" tabIndex={0} onClick={onClick} onKeyDown={e => { if (e.key === 'Enter') onClick(); }} {...hover} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderTop: '1px solid var(--bg-secondary)', cursor: 'pointer' }}>
+            {titleCell(title, meta)}{right}
           </div>
         );
+        const section = (Icon, title, hint, accent, rows) => rows.length === 0 ? null : (
+          <div style={{ border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden', background: 'var(--bg-card)', boxShadow: 'var(--shadow-sm)', marginBottom: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '13px 16px' }}>
+              <span style={{ width: 32, height: 32, borderRadius: 9, background: accent.bg, color: accent.fg, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Icon size={16} /></span>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: '0.92rem', fontWeight: 700, color: 'var(--text-primary)' }}>{title}</div><div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{hint}</div></div>
+              <span style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderRadius: 999, padding: '2px 10px', fontSize: '0.78rem', fontWeight: 700 }}>{rows.length}</span>
+            </div>
+            {rows}
+          </div>
+        );
+        const signRows = pendingSignoffs.map(s => taskRow(s.id, () => openSourceById(s.id), s.title, `${s.doc_code || '—'} · v${s.version}`,
+          <button className="primary-btn" onClick={e => { e.stopPropagation(); openSourceById(s.id); }} style={{ height: 32, fontSize: '0.8rem', flex: '0 0 auto' }}>Review &amp; sign</button>));
+        const returnedRows = returnedToMe.map(d => taskRow(d.id, () => openDetail(d), d.title, `${d.doc_code || '—'} · v${d.version}`,
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flex: '0 0 auto' }}><span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'hsl(0,70%,45%)', background: 'hsla(0,84%,60%,0.12)', borderRadius: 999, padding: '3px 10px' }}>Changes requested</span><ChevronRight size={16} style={{ color: 'var(--text-muted)' }} /></span>));
+        const reviewRows = awaitingReview.map(d => taskRow(d.id, () => openDetail(d), d.title, `${d.doc_code || '—'} · v${d.version} · ${d.owner_name || ''}`,
+          <button className="primary-btn" onClick={e => { e.stopPropagation(); openDetail(d); }} style={{ height: 32, fontSize: '0.8rem', flex: '0 0 auto', backgroundColor: 'hsl(var(--color-green))' }}>Review</button>));
         return (
           <>
-            <div className="view-header" style={{ marginBottom: 12 }}><div className="view-title-group"><h2>Sign-offs</h2><p>Policies and SOPs that require an e-signature acknowledgement</p></div></div>
-            {groupHead('Your sign-offs', mine.length || null)}
-            {mine.length ? table(mine, 'mine') : note("You're all caught up — no acknowledgements outstanding.")}
-            {isManager && (<>
-              {groupHead('All policies requiring sign-off', signoffs.length || null)}
-              {signoffs.length ? table(signoffs, 'all') : note('No approved policies currently require sign-off.')}
-            </>)}
+            <div className="view-header" style={{ marginBottom: 18 }}>
+              <div className="view-title-group"><h2>Tasks</h2><p>Everything waiting on you{isManager ? ' — sign-offs, returned drafts, and reviews to approve.' : ' — the policies you need to read and sign, plus any drafts sent back to you.'}</p></div>
+            </div>
+            {loading
+              ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
+              : taskCount === 0
+                ? <div style={{ textAlign: 'center', padding: '48px 20px', border: '1px solid var(--border-color)', borderRadius: 14, background: 'var(--bg-card)', boxShadow: 'var(--shadow-sm)' }}>
+                    <div style={{ width: 52, height: 52, borderRadius: 14, background: 'hsla(145,63%,42%,0.14)', color: 'hsl(145,55%,36%)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}><CheckSquare size={26} /></div>
+                    <div style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: 4 }}>You're all caught up</div>
+                    <div style={{ fontSize: '0.86rem', color: 'var(--text-secondary)' }}>Nothing needs your attention right now.</div>
+                  </div>
+                : <>
+                    {section(CheckSquare, 'Needs your sign-off', 'Read and e-sign these policies.', { bg: 'hsla(38,92%,50%,0.16)', fg: 'hsl(32,80%,38%)' }, signRows)}
+                    {section(Edit3, 'Returned to you', 'Changes were requested — update and resubmit.', { bg: 'hsla(0,84%,60%,0.12)', fg: 'hsl(0,70%,45%)' }, returnedRows)}
+                    {isManager && section(Send, 'Awaiting your review', 'Approve or send back with notes.', { bg: 'hsla(215,100%,50%,0.12)', fg: 'hsl(var(--color-blue))' }, reviewRows)}
+                  </>}
+          </>
+        );
+      })()}
+
+      {/* Sign-off tracking (managers, from Manage) */}
+      {sub === 'signoffs' && isManager && (() => {
+        const openDoc = (id) => { const dd = docs.find(x => x.id === id); if (dd) openDetail(dd); };
+        return (
+          <>
+            <button className="secondary-btn" onClick={() => switchTab('manage')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, height: 34 }}><ArrowLeft size={15} /> Manage</button>
+            <div className="view-header" style={{ marginBottom: 16 }}><div className="view-title-group"><h2>Sign-off tracking</h2><p>Who has acknowledged each policy or SOP that requires an e-signature.</p></div></div>
+            {signoffs.length === 0
+              ? <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px 14px', fontSize: '0.83rem', color: 'var(--text-secondary)' }}>No approved policies currently require sign-off.</div>
+              : <div style={{ border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden', background: 'var(--bg-card)', boxShadow: 'var(--shadow-sm)' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <tbody>{signoffs.map(s => (
+                      <tr key={s.id} style={{ borderBottom: '1px solid var(--border-color)', cursor: 'pointer' }} onClick={() => openDoc(s.id)}
+                        onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+                        <td style={{ padding: '11px 14px' }}><div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>{s.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{s.doc_code} · v{s.version}</div></td>
+                        <td style={{ padding: '11px 14px', fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{s.signed_count} signed</td>
+                        <td style={{ padding: '11px 14px', textAlign: 'right' }}>{s.my_signed
+                          ? <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'hsl(145,55%,30%)', background: 'hsla(145,63%,42%,0.12)', borderRadius: 999, padding: '3px 10px' }}>You signed</span>
+                          : <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)', borderRadius: 999, padding: '3px 10px' }}>Not signed</span>}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>}
           </>
         );
       })()}
@@ -1543,6 +1568,7 @@ export default function SOP({ activeSub, onSubChange }) {
         const hoverRow = { onMouseEnter: ev => ev.currentTarget.style.background = 'var(--bg-secondary)', onMouseLeave: ev => ev.currentTarget.style.background = 'transparent' };
         const tools = [
           [Grid3x3, 'Assignment Matrix', 'Departments per document', () => switchTab('matrix')],
+          [CheckSquare, 'Sign-off tracking', 'Who has acknowledged each policy', () => switchTab('signoffs')],
           [BarChart3, 'Insights', 'Usage, freshness & training', () => switchTab('insights')],
           [GraduationCap, 'Training courses', 'Author Learn courses', openCourseManager],
           [BookOpen, 'New manual', 'Chaptered reference doc', openCreateManual],
@@ -1556,7 +1582,7 @@ export default function SOP({ activeSub, onSubChange }) {
 
           {/* KPI row — what needs attention */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
-            {actionTile('Pending review', reviewQueue.length, 'Awaiting your approval', Send, () => switchTab('review'), reviewQueue.length > 0)}
+            {actionTile('Pending review', awaitingReview.length, 'Awaiting your approval', Send, () => switchTab('tasks'), awaitingReview.length > 0)}
             {actionTile('Needs review', staleCount, 'Past review date', Clock, () => switchTab('insights'), staleCount > 0)}
             {actionTile('Sign-offs', signoffCount, 'Require acknowledgement', CheckSquare, () => switchTab('signoffs'), false)}
             {actionTile('Drafts', draftCount, 'Not yet submitted', Edit3, () => { setStatusFilter('draft'); switchTab('index'); }, false)}
