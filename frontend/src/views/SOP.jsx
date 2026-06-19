@@ -6,7 +6,7 @@ import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, Loader, ChevronUp, ChevronDown,
   Image as ImageIcon, Paperclip, Settings, Grid3x3, BarChart3, GraduationCap, Eye, ChevronRight, Star,
-  List, LayoutGrid, Building2, PanelRight, FileText,
+  List, LayoutGrid, Building2, PanelRight, FileText, HelpCircle,
 } from 'lucide-react';
 
 const rid = () => 'r' + Math.random().toString(36).slice(2, 9);
@@ -58,6 +58,60 @@ const STATUS_META = {
 };
 
 const TAB_LABELS = { index: 'Playbook', lms: 'Learn' };
+
+// In-app documentation. Keep this current as the module changes — it is the
+// single source of the Help drawer ("?" at the top of the module).
+const HELP_SECTIONS = [
+  { title: 'What this module is', body: [
+    'The Knowledge Base is your company handbook: every SOP, manual, and guide in one searchable place, plus a Learn area for training courses.',
+    'It has three tabs — Playbook (browse & search), Learn (courses), and, for managers, a Manage hub. A “?” at the top opens this guide.',
+  ] },
+  { title: 'Playbook — finding things', body: [
+    'Search: type in the search bar (or press “/”) to match titles, IDs, and document text. Filter by department, type, and status.',
+    'Ask AI: switch the toggle to Ask AI and ask a question in plain English — the answer is drawn only from your approved SOPs and cites its sources.',
+    'Views: switch between List, Tiles, and Department (grouped) with the icons above the list. Your choice is remembered.',
+    'Pins: click the star on any document to pin it; pinned docs appear at the top of the right side panel for quick access.',
+    'Side panel: “For You” shows what needs your sign-off, plus Pinned and Popular. Hide it with the panel button to give the document list full width.',
+  ] },
+  { title: 'Creating a document', body: [
+    'Click “New SOP” (anyone can start a draft). Give it a clear title, then fill the card-grouped sections — each has a short tip explaining what it’s for.',
+    'Start from existing material: paste text or upload a file and “Format with Claude” turns it into our standard structure; review the before/after, then keep or revert.',
+    'Edit with Claude: when editing an existing document, describe a change (e.g. “add a safety note about wet floors”) and Claude rewrites it — you review the diff first.',
+    'Preview: use Preview any time to see exactly how the document will look once published.',
+    'Versions start at 1.0. Manuals are chaptered documents that can link other SOPs together.',
+  ] },
+  { title: 'Review & approval', body: [
+    'When a draft is ready, choose a Reviewing manager (dropdown under Document Details) and click “Save & submit for review”.',
+    'The document moves Draft → In Review → Approved (or Changes Requested back to you). Only a manager can approve and publish.',
+    'Managers can “Save & publish” directly. Approved documents are the official, current version everyone sees.',
+  ] },
+  { title: 'Tasks', body: [
+    'For managers, the Manage button shows a count of everything needing action and opens a Tasks view: Needs Your Sign-off, Returned to You, and Awaiting Your Review.',
+    'For everyone, the Playbook “For You” panel surfaces the policies you still need to read and sign, and any drafts returned to you.',
+  ] },
+  { title: 'Sign-offs (e-signatures)', body: [
+    'A document can require acknowledgement. Once approved, assigned staff must read it and e-sign to confirm they’ll follow it.',
+    'Managers track who has signed under Manage → Sign-off Tracking.',
+  ] },
+  { title: 'Manage (managers only)', body: [
+    'KPI tiles show Action Needed, Needs Review (stale docs), Sign-offs, and Drafts — each opens the relevant area.',
+    'Tools: Assignment Matrix (departments per document), Sign-off Tracking, Insights (usage & freshness), Training Courses, and New Manual.',
+    'The Activity Log lists every change; click an entry to jump to the document, and to the exact version diff when one exists. Recently Updated gives quick access to the latest edits.',
+  ] },
+  { title: 'Learn — taking a course', body: [
+    'Open a course to see “What You’ll Learn”, then work through the lessons. Your progress is saved as you go.',
+    'Finish with the quiz. You won’t see the internal pass mark — just answer your best. After submitting you get per-question feedback, with the correct answer and an explanation for anything you missed.',
+    'Passing issues a printable Certificate of Completion, and your manager is notified automatically.',
+  ] },
+  { title: 'Learn — building a course (managers)', body: [
+    'From Manage → Training Courses, click “New Course”. Paste or upload source material and “Generate course” — Claude writes the objectives, lessons, and a quiz with explanations.',
+    'Edit anything: objectives (What You’ll Learn), lessons (readings or linked SOPs), and quiz questions (mark the correct option and add a “why” explanation). Set the pass mark and Preview before publishing.',
+    'Reports: each course has a Report showing every attempt — who took it, their score, and exactly which questions they missed (with explanations) for follow-up.',
+  ] },
+  { title: 'Roles', body: [
+    'Employees can browse, search, take courses, start document drafts, and sign off. Managers (and above) additionally review/approve, run the Manage hub, author courses, and see reports.',
+  ] },
+];
 
 const Badge = ({ status }) => {
   const m = STATUS_META[status] || STATUS_META.draft;
@@ -639,6 +693,31 @@ export default function SOP({ activeSub, onSubChange }) {
 
   const errBanner = err && (
     <div style={{ backgroundColor: 'hsla(0,84%,60%,0.1)', border: '1px solid hsla(0,84%,60%,0.3)', color: 'hsl(0,70%,42%)', padding: '10px 14px', borderRadius: 8, marginBottom: 16, fontSize: '0.85rem' }}>{err}</div>
+  );
+
+  const helpModal = () => helpOpen && (
+    <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '2.5vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) setHelpOpen(false); }}>
+      <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 860, height: '95vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 22px', borderBottom: '1px solid var(--border-color)' }}>
+          <HelpCircle size={20} style={{ color: 'hsl(var(--color-blue))', flex: '0 0 auto' }} />
+          <div style={{ flex: 1, minWidth: 0 }}><h3 style={{ margin: 0 }}>How the Knowledge Base works</h3><div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>A quick guide to every part of this module.</div></div>
+          <button className="close-btn" onClick={() => setHelpOpen(false)}><X size={18} /></button>
+        </div>
+        <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
+          <div style={{ maxWidth: 720, margin: '0 auto' }}>
+            {HELP_SECTIONS.map((s, i) => (
+              <div key={i} style={{ marginBottom: 22 }}>
+                <h4 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 8px', fontFamily: "'Plus Jakarta Sans', sans-serif", color: 'var(--text-primary)' }}>{s.title}</h4>
+                <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  {s.body.map((b, j) => <li key={j} style={{ fontSize: '0.88rem', lineHeight: 1.6, color: 'var(--text-secondary)' }}>{b}</li>)}
+                </ul>
+              </div>
+            ))}
+            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', borderTop: '1px solid var(--border-color)', paddingTop: 14, marginTop: 6 }}>This guide reflects the current version of the module and is kept up to date as features change.</div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 
   // ════════════════════ DETAIL ════════════════════
@@ -1521,16 +1600,20 @@ export default function SOP({ activeSub, onSubChange }) {
             {sub === key && <span style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: 'var(--text-primary)', borderRadius: '4px 4px 0 0' }} />}
           </button>
         ))}
-        {isManager && (() => {
-          const active = ['manage', 'matrix', 'insights', 'signoffs', 'tasks'].includes(sub);
-          return (
-            <button onClick={() => switchTab('manage')} style={{ marginLeft: 'auto', alignSelf: 'center', display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 14px', borderRadius: 9, border: '1px solid', borderColor: active ? 'var(--text-primary)' : 'var(--border-color)', background: active ? 'var(--text-primary)' : 'var(--bg-card)', color: active ? 'var(--bg-card)' : 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}>
-              <Settings size={15} /> Manage
-              {taskCount > 0 && <span style={{ minWidth: 18, textAlign: 'center', backgroundColor: active ? 'var(--bg-card)' : 'hsl(var(--color-blue))', color: active ? 'var(--text-primary)' : '#fff', borderRadius: 999, padding: '1px 6px', fontSize: '0.7rem', fontWeight: 700 }}>{taskCount}</span>}
-            </button>
-          );
-        })()}
+        <div style={{ marginLeft: 'auto', alignSelf: 'center', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          {isManager && (() => {
+            const active = ['manage', 'matrix', 'insights', 'signoffs', 'tasks'].includes(sub);
+            return (
+              <button onClick={() => switchTab('manage')} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 14px', borderRadius: 9, border: '1px solid', borderColor: active ? 'var(--text-primary)' : 'var(--border-color)', background: active ? 'var(--text-primary)' : 'var(--bg-card)', color: active ? 'var(--bg-card)' : 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}>
+                <Settings size={15} /> Manage
+                {taskCount > 0 && <span style={{ minWidth: 18, textAlign: 'center', backgroundColor: active ? 'var(--bg-card)' : 'hsl(var(--color-blue))', color: active ? 'var(--text-primary)' : '#fff', borderRadius: 999, padding: '1px 6px', fontSize: '0.7rem', fontWeight: 700 }}>{taskCount}</span>}
+              </button>
+            );
+          })()}
+          <button onClick={() => setHelpOpen(true)} title="How this module works" aria-label="Help" style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><HelpCircle size={17} /></button>
+        </div>
       </div>
+      {helpModal()}
       {errBanner}
 
       {/* SOP Index */}
