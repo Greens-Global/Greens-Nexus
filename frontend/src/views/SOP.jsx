@@ -1629,7 +1629,7 @@ export default function SOP({ activeSub, onSubChange }) {
             <div className="view-title-group"><h2>Manage</h2><p>Review, assign, and keep content fresh · {docs.length} document{docs.length === 1 ? '' : 's'} · {approvedCount} approved</p></div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> New SOP</button>
-              <button className="secondary-btn" onClick={openNewCourse} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={15} /> New course</button>
+              <button className="secondary-btn" onClick={openNewCourse} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={15} /> New Course</button>
             </div>
           </div>
 
@@ -1767,11 +1767,11 @@ export default function SOP({ activeSub, onSubChange }) {
               <button className="secondary-btn" onClick={() => switchTab('manage')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, height: 34 }}><ArrowLeft size={15} /> Manage</button>
               <div className="view-header" style={{ marginBottom: 16 }}>
                 <div className="view-title-group"><h2>Training courses</h2><p>Author, edit, and publish courses and quizzes for the Learn tab.</p></div>
-                <button className="primary-btn" onClick={() => openCourseEditor(null)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={15} /> New course</button>
+                <button className="primary-btn" onClick={() => openCourseEditor(null)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={15} /> New Course</button>
               </div>
               <div style={{ border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden', background: 'var(--bg-card)' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}><tbody>
-                  {lmsCourses.length === 0 ? <tr><td style={{ padding: 16, color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No courses yet — create one with “New course”.</td></tr> : lmsCourses.map(c => (
+                  {lmsCourses.length === 0 ? <tr><td style={{ padding: 16, color: 'var(--text-secondary)', fontSize: '0.85rem' }}>No courses yet — create one with “New Course”.</td></tr> : lmsCourses.map(c => (
                     <tr key={c.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                       <td style={{ padding: '11px 14px' }}><div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{c.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{c.course_code} · {c.lesson_count} lessons</div></td>
                       <td style={{ padding: '11px 14px' }}><span style={{ fontSize: '0.7rem', fontWeight: 700, color: c.status === 'published' ? 'hsl(145,55%,30%)' : 'var(--text-secondary)', background: c.status === 'published' ? 'hsla(145,63%,42%,0.12)' : 'var(--bg-secondary)', borderRadius: 999, padding: '3px 10px' }}>{c.status}</span></td>
