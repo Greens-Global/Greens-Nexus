@@ -1275,7 +1275,10 @@ export default function SOP({ activeSub, onSubChange }) {
                 {pending.map((s, i) => taskItem('s' + s.id, () => openSourceById(s.id), s.title, 'Sign-off required', 'hsl(32,80%,38%)', i > 0))}
                 {returned.map((d, i) => taskItem('r' + d.id, () => openDetail(d), d.title, 'Returned to you', 'hsl(0,70%,45%)', i > 0 || pending.length > 0))}
               </>}
-          {isManager && forYouCount > 0 && <button onClick={() => switchTab('tasks')} style={{ width: '100%', textAlign: 'center', padding: '9px 12px', borderTop: '1px solid var(--bg-secondary)', background: 'transparent', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-blue))' }}>View all in Manage →</button>}
+          {isManager && forYouCount > 0 && <button onClick={() => switchTab('tasks')}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-secondary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, width: '100%', padding: '9px 12px', borderTop: '1px solid var(--bg-secondary)', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '0.74rem', fontWeight: 500, color: 'var(--text-muted)', transition: 'color var(--transition-fast), background var(--transition-fast)' }}>View all in Manage <ChevronRight size={13} /></button>}
         </div>
         {popular.length > 0 && (
           <div style={panel}>
