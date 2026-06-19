@@ -1986,6 +1986,13 @@ button, [role="button"], select { touch-action: manipulation; }
   }
 }
 
+/* Knowledge Base document table: shed lower-priority columns as the area
+   narrows (it shares the Playbook row with the right sidebar) so it never
+   crushes. Title + Status + Updated always stay. */
+@media (max-width: 1200px) { .kb-c-owner { display: none; } }
+@media (max-width: 1000px) { .kb-c-dept  { display: none; } }
+@media (max-width: 840px)  { .kb-c-type  { display: none; } }
+
 /* Header search trigger: right side on desktop, left of the wordmark on
    phones (a 4th right-side icon overlapped the centered NEXUS) */
 .header-search-left { display: none; }

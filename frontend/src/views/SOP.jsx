@@ -5,7 +5,7 @@ import { api } from '../api';
 import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, Loader, ChevronUp, ChevronDown,
-  Image as ImageIcon, Paperclip, Settings, Grid3x3, BarChart3, GraduationCap, Eye, ChevronRight,
+  Image as ImageIcon, Paperclip, Settings, Grid3x3, BarChart3, GraduationCap, Eye, ChevronRight, Star,
 } from 'lucide-react';
 
 const rid = () => 'r' + Math.random().toString(36).slice(2, 9);
@@ -139,8 +139,10 @@ export default function SOP({ activeSub, onSubChange }) {
   const [deptFilter, setDeptFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [libView, setLibView] = useState('list'); // list | cards | outline
+  const [libView, setLibView] = useState(() => { try { return localStorage.getItem('kbLibView') || 'list'; } catch { return 'list'; } }); // list | cards | outline
   const [searchMode, setSearchMode] = useState('search'); // search | ask
+  const [pins, setPins] = useState([]); // doc ids the user has pinned
+  const searchRef = useRef(null);
   const [ask, setAsk] = useState({ q: '', loading: false, answer: null, sources: [], grounded: true });
 
   // review modal
@@ -218,6 +220,31 @@ export default function SOP({ activeSub, onSubChange }) {
   useEffect(() => {
     if (sub === 'manage' && isManager) { setActivity(null); api.getKbActivity().then(setActivity).catch(() => setActivity([])); }
   }, [sub, isManager, docs]);
+  // pins (favourites) — loaded once
+  useEffect(() => { api.getKbPins().then(setPins).catch(() => {}); }, []);
+  // remember the chosen library view between sessions
+  useEffect(() => { try { localStorage.setItem('kbLibView', libView); } catch { /* ignore */ } }, [libView]);
+  // press "/" to jump to the search box (when not already typing in a field)
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      if (sub !== 'index' || mode !== 'list' || searchMode !== 'search') return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sub, mode, searchMode]);
+
+  const togglePin = async (id, ev) => {
+    if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+    const optimistic = pins.includes(id) ? pins.filter(p => p !== id) : [...pins, id];
+    setPins(optimistic);
+    try { const list = await api.toggleKbPin(id); setPins(list); }
+    catch (e) { setErr(e.message || 'Failed to update pin'); api.getKbPins().then(setPins).catch(() => {}); }
+  };
 
   // jump from the activity log to a document (and, when diffable, straight to its version diff)
   const openActivity = (e) => {
@@ -616,6 +643,7 @@ export default function SOP({ activeSub, onSubChange }) {
             <h2>{dTitle}</h2>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="secondary-btn" onClick={() => togglePin(d.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, color: pins.includes(d.id) ? 'hsl(38,82%,40%)' : undefined }}><Star size={14} fill={pins.includes(d.id) ? 'hsl(38,92%,48%)' : 'none'} /> {pins.includes(d.id) ? 'Pinned' : 'Pin'}</button>
             {canEdit(d) && <button className="secondary-btn" onClick={() => openEdit(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Edit3 size={14} /> Edit</button>}
             {(d.status === 'draft' || d.status === 'changes_requested') && (d.owner_email === myEmail || isManager) && (
               <button className="primary-btn" disabled={busy} onClick={() => submitDoc(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Send size={14} /> Submit for review</button>
@@ -1183,28 +1211,68 @@ export default function SOP({ activeSub, onSubChange }) {
     );
   };
 
-  // Employee-facing strip on the Playbook: what each person needs to act on
-  const myTasksStrip = () => {
-    const pending = (signoffs || []).filter(s => !s.my_signed);
+  // A pin/favourite star toggle, reused in the table, cards, detail and sidebar.
+  const pinStar = (id, size = 15) => {
+    const on = pins.includes(id);
     return (
-      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 14, padding: '14px 14px 16px', marginBottom: 22 }}>
-        <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 7, padding: '0 2px 12px' }}>
-          <CheckSquare size={13} /> For you
-          {pending.length > 0 && <span style={{ background: 'hsla(38,92%,50%,0.16)', color: 'hsl(32,80%,38%)', borderRadius: 999, padding: '1px 8px', fontSize: '0.7rem' }}>{pending.length}</span>}
-        </div>
-        {pending.length === 0
-          ? <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.84rem', color: 'var(--text-secondary)', padding: '0 2px 2px' }}><CheckSquare size={15} style={{ color: 'hsl(145,55%,40%)' }} /> You're all caught up — nothing is waiting on your sign-off.</div>
-          : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
-              {pending.map(s => (
-                <button key={s.id} onClick={() => openSourceById(s.id)} style={{ textAlign: 'left', cursor: 'pointer', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 11, padding: '12px 13px', boxShadow: 'var(--shadow-sm)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <span style={{ alignSelf: 'flex-start', fontSize: '0.66rem', fontWeight: 700, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)', borderRadius: 999, padding: '2px 9px' }}>Sign-off required</span>
-                  <div style={{ fontWeight: 600, fontSize: '0.85rem', lineHeight: 1.3, color: 'var(--text-primary)' }}>{s.title}</div>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{s.doc_code || '—'} · v{s.version}</div>
-                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'hsl(var(--color-blue))' }}>Review &amp; sign →</span>
-                </button>
-              ))}
-            </div>}
+      <button onClick={(e) => togglePin(id, e)} title={on ? 'Unpin' : 'Pin to your favourites'} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, display: 'inline-flex', alignItems: 'center', color: on ? 'hsl(38,92%,48%)' : 'var(--text-muted)', flex: '0 0 auto' }}>
+        <Star size={size} fill={on ? 'hsl(38,92%,48%)' : 'none'} />
+      </button>
+    );
+  };
+
+  // Right-hand Playbook sidebar: your pinned docs, sign-off tasks, and popular reads.
+  const librarySidebar = () => {
+    const pinned = pins.map(id => docs.find(d => d.id === id)).filter(Boolean);
+    const pending = (signoffs || []).filter(s => !s.my_signed);
+    const popScope = deptFilter !== 'all' ? docs.filter(d => (d.departments || []).includes(deptFilter)) : docs;
+    const popular = popScope.filter(d => d.status === 'approved' && (d.views || 0) > 0).sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 5);
+    const panel = { background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, boxShadow: 'var(--shadow-sm)', overflow: 'hidden', marginBottom: 16 };
+    const hover = { onMouseEnter: ev => ev.currentTarget.style.background = 'var(--bg-secondary)', onMouseLeave: ev => ev.currentTarget.style.background = 'transparent' };
+    const head = (Icon, txt, count) => (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '11px 14px', borderBottom: '1px solid var(--border-color)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, color: 'var(--text-muted)' }}>
+        <Icon size={13} /> {txt}
+        {count > 0 && <span style={{ marginLeft: 'auto', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', borderRadius: 999, padding: '1px 8px', fontSize: '0.7rem' }}>{count}</span>}
       </div>
+    );
+    const row = (d, i, right, onClick) => (
+      <div key={d.id} role="button" tabIndex={0} onClick={onClick} onKeyDown={e => { if (e.key === 'Enter') onClick(); }} {...hover} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '10px 12px', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: '0.83rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.title}</div>
+          <div style={{ fontSize: '0.71rem', color: 'var(--text-muted)' }}>{d.doc_code || '—'} · v{d.version}</div>
+        </div>
+        {right}
+      </div>
+    );
+    return (
+      <>
+        {pinned.length > 0 && (
+          <div style={panel}>
+            {head(Star, 'Pinned', 0)}
+            {pinned.map((d, i) => row(d, i, pinStar(d.id, 14), () => openDetail(d)))}
+          </div>
+        )}
+        <div style={panel}>
+          {head(CheckSquare, 'For you', pending.length)}
+          {pending.length === 0
+            ? <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem', color: 'var(--text-secondary)', padding: '12px 14px' }}><CheckSquare size={15} style={{ color: 'hsl(145,55%,40%)', flex: '0 0 auto' }} /> You're all caught up.</div>
+            : pending.map((s, i) => (
+                <div key={s.id} role="button" tabIndex={0} onClick={() => openSourceById(s.id)} onKeyDown={e => { if (e.key === 'Enter') openSourceById(s.id); }} {...hover} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '10px 12px', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '0.83rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.title}</div>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'hsl(32,80%,38%)' }}>Sign-off required</div>
+                  </div>
+                  <ChevronRight size={15} style={{ color: 'var(--text-muted)', flex: '0 0 auto' }} />
+                </div>
+              ))}
+        </div>
+        {popular.length > 0 && (
+          <div style={panel}>
+            {head(BarChart3, deptFilter !== 'all' ? `Popular · ${DEPT_ABBR[deptFilter] || deptFilter}` : 'Popular', 0)}
+            {popular.map((d, i) => row(d, i, <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.72rem', color: 'var(--text-muted)', flex: '0 0 auto' }}><Eye size={12} /> {d.views}</span>, () => openDetail(d)))}
+          </div>
+        )}
+      </>
     );
   };
 
@@ -1216,20 +1284,20 @@ export default function SOP({ activeSub, onSubChange }) {
           {list.map(d => {
             const b = d.body || {};
             return (
-              <button key={d.id} onClick={() => openDetail(d)} style={{ textAlign: 'left', cursor: 'pointer', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 16, boxShadow: 'var(--shadow-sm)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div key={d.id} role="button" tabIndex={0} onClick={() => openDetail(d)} onKeyDown={e => { if (e.key === 'Enter') openDetail(d); }} style={{ textAlign: 'left', cursor: 'pointer', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 16, boxShadow: 'var(--shadow-sm)', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
                   <div>
                     <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code || '—'}</div>
                     <div style={{ fontWeight: 600, fontSize: '0.95rem', lineHeight: 1.3, color: 'var(--text-primary)', marginTop: 2 }}>{d.title}</div>
                   </div>
-                  <Badge status={d.status} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: '0 0 auto' }}>{pinStar(d.id, 15)}<Badge status={d.status} /></div>
                 </div>
                 {b.purpose && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{b.purpose}</div>}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 'auto', paddingTop: 8, borderTop: '1px solid var(--bg-secondary)' }}>
                   <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{d.doc_type} · v{d.version}</span>
                   {deptChips(d)}
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>
@@ -1309,19 +1377,21 @@ export default function SOP({ activeSub, onSubChange }) {
         <div style={{ border: '1px solid var(--border-color)', borderRadius: 12, overflow: 'hidden', backgroundColor: 'var(--bg-card)', boxShadow: 'var(--shadow-sm)' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr style={{ backgroundColor: 'var(--bg-secondary)' }}>
-              {['Document', 'Type', 'Departments', 'Status', 'Owner', 'Updated'].map(h => (
-                <th key={h} style={{ textAlign: 'left', padding: '11px 14px', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)', fontWeight: 700, borderBottom: '1px solid var(--border-color)' }}>{h}</th>
+              <th style={{ width: 36, borderBottom: '1px solid var(--border-color)' }} />
+              {[['Document', null], ['Type', 'kb-c-type'], ['Departments', 'kb-c-dept'], ['Status', null], ['Owner', 'kb-c-owner'], ['Updated', 'kb-c-upd']].map(([h, cls]) => (
+                <th key={h} className={cls || undefined} style={{ textAlign: 'left', padding: '11px 14px', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)', fontWeight: 700, borderBottom: '1px solid var(--border-color)' }}>{h}</th>
               ))}
             </tr></thead>
             <tbody>{list.map(d => (
               <tr key={d.id} onClick={() => openDetail(d)} style={{ cursor: 'pointer', borderBottom: '1px solid var(--border-color)' }}
                 onMouseEnter={e => e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'} onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+                <td style={{ padding: '4px 0 4px 8px', textAlign: 'center' }}>{pinStar(d.id, 15)}</td>
                 <td style={{ padding: '11px 14px' }}><div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>{d.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{d.doc_code || '—'} · v{d.version}</div></td>
-                <td style={{ padding: '11px 14px', fontSize: '0.82rem' }}>{d.doc_type}</td>
-                <td style={{ padding: '11px 14px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{(d.departments || []).length ? d.departments.join(', ') : 'Unassigned'}</td>
+                <td className="kb-c-type" style={{ padding: '11px 14px', fontSize: '0.82rem' }}>{d.doc_type}</td>
+                <td className="kb-c-dept" style={{ padding: '11px 14px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{(d.departments || []).length ? d.departments.join(', ') : 'Unassigned'}</td>
                 <td style={{ padding: '11px 14px' }}><Badge status={d.status} /></td>
-                <td style={{ padding: '11px 14px', fontSize: '0.82rem' }}>{d.owner_name || '—'}</td>
-                <td style={{ padding: '11px 14px', fontSize: '0.78rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{fmtDate(d.updated_at)}</td>
+                <td className="kb-c-owner" style={{ padding: '11px 14px', fontSize: '0.82rem' }}>{d.owner_name || '—'}</td>
+                <td className="kb-c-upd" style={{ padding: '11px 14px', fontSize: '0.78rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{fmtDate(d.updated_at)}</td>
               </tr>
             ))}</tbody>
           </table>
@@ -1362,11 +1432,10 @@ export default function SOP({ activeSub, onSubChange }) {
             <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 200 }}>
               <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               {searchMode === 'search'
-                ? <input type="text" className="form-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search title, ID, or document text…" style={{ paddingLeft: 36, width: '100%', height: 38, fontSize: '0.88rem' }} />
+                ? <input ref={searchRef} type="text" className="form-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search title, ID, or document text…   ( / )" style={{ paddingLeft: 36, width: '100%', height: 38, fontSize: '0.88rem' }} />
                 : <input type="text" className="form-input" value={ask.q} onChange={e => setAsk(a => ({ ...a, q: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') doAsk(); }} placeholder="Ask the knowledge base… e.g. When do we run the gate audit?" style={{ paddingLeft: 36, width: '100%', height: 38, fontSize: '0.88rem' }} />}
             </div>
             {searchMode === 'search' ? (<>
-              <select className="form-select" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All departments</option>{DEPARTMENTS.map(d => <option key={d}>{d}</option>)}</select>
               <select className="form-select" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All types</option>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select>
               <select className="form-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', width: 'auto' }}><option value="all">All statuses</option>{Object.entries(STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select>
             </>) : (
@@ -1377,12 +1446,18 @@ export default function SOP({ activeSub, onSubChange }) {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
             <div style={{ flex: '3 1 480px', minWidth: 0 }}>
               {searchMode === 'ask' && askAnswer()}
-              {searchMode === 'search' && (
+              {searchMode === 'search' && (<>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 12 }}>
+                  {['all', ...DEPARTMENTS].map(dep => {
+                    const on = deptFilter === dep;
+                    return <button key={dep} onClick={() => setDeptFilter(dep)} style={{ fontSize: '0.78rem', padding: '6px 12px', borderRadius: 999, border: '1px solid', borderColor: on ? 'var(--text-primary)' : 'var(--border-color)', background: on ? 'var(--text-primary)' : 'var(--bg-card)', color: on ? 'var(--bg-card)' : 'var(--text-secondary)', fontWeight: 500, cursor: 'pointer' }}>{dep === 'all' ? 'All departments' : dep}</button>;
+                  })}
+                </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{filtered.length} document{filtered.length === 1 ? '' : 's'}</div>
                   {viewToggle()}
                 </div>
-              )}
+              </>)}
               {loading
                 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
                 : (() => {
@@ -1393,7 +1468,7 @@ export default function SOP({ activeSub, onSubChange }) {
                   })()}
             </div>
             <div style={{ flex: '1 1 280px', minWidth: 0 }}>
-              {myTasksStrip()}
+              {librarySidebar()}
             </div>
           </div>
         </>

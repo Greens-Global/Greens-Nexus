@@ -667,3 +667,12 @@ class KbCourseProgress(Base):
     passed       = Column(Boolean, default=False)
     started_at   = Column(String, default="")
     completed_at = Column(String, default="")
+
+
+class KbPin(Base):
+    """One user's pinned/favourited KB document, for quick access."""
+    __tablename__ = "kb_pins"
+    id         = Column(String, primary_key=True)   # uuid
+    user_email = Column(String, nullable=False)
+    doc_id     = Column(String, nullable=False)
+    created_at = Column(String, default="")

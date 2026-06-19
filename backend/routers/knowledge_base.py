@@ -591,6 +591,29 @@ def get_snapshots(doc_id: str, user: dict = Depends(get_current_user), db: Sessi
     return out
 
 
+# ---- pins / favourites ----------------------------------------------------
+@router.get("/pins")
+def list_pins(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The current user's pinned document ids."""
+    rows = db.query(models.KbPin).filter(models.KbPin.user_email == user["email"]).all()
+    return [p.doc_id for p in rows]
+
+
+@router.post("/documents/{doc_id}/pin")
+def toggle_pin(doc_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Toggle a pin for the current user; returns the updated pinned-id list."""
+    _get_or_404(doc_id, db)
+    existing = db.query(models.KbPin).filter(
+        models.KbPin.user_email == user["email"], models.KbPin.doc_id == doc_id).first()
+    if existing:
+        db.delete(existing)
+    else:
+        db.add(models.KbPin(id="pin_" + uuid.uuid4().hex[:12], user_email=user["email"], doc_id=doc_id, created_at=_now()))
+    db.commit()
+    rows = db.query(models.KbPin).filter(models.KbPin.user_email == user["email"]).all()
+    return [p.doc_id for p in rows]
+
+
 def _push_history(d: models.KbDocument, entry: dict) -> None:
     try:
         hist = json.loads(d.revision_history or "[]")
