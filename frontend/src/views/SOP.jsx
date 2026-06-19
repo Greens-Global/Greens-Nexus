@@ -6,6 +6,7 @@ import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, Loader, ChevronUp, ChevronDown,
   Image as ImageIcon, Paperclip, Settings, Grid3x3, BarChart3, GraduationCap, Eye, ChevronRight, Star,
+  List, LayoutGrid, Building2,
 } from 'lucide-react';
 
 const rid = () => 'r' + Math.random().toString(36).slice(2, 9);
@@ -56,7 +57,7 @@ const STATUS_META = {
   archived:          { label: 'Archived',          bg: 'var(--bg-secondary)',      fg: 'var(--text-muted)' },
 };
 
-const TAB_LABELS = { index: 'Playbook', tasks: 'Tasks', lms: 'Learn' };
+const TAB_LABELS = { index: 'Playbook', lms: 'Learn' };
 
 const Badge = ({ status }) => {
   const m = STATUS_META[status] || STATUS_META.draft;
@@ -210,9 +211,9 @@ export default function SOP({ activeSub, onSubChange }) {
     try { const list = await api.addKbComment(selected.id, t); setComments(list); setCommentText(''); }
     catch (e) { setErr(e.message || 'Failed to post comment'); }
   };
-  // load sign-offs for the Tasks tab, the manager sign-off tracker, and the Playbook "For you" strip
+  // load sign-offs for the Tasks view, the manager sign-off tracker, Manage (its counters), and the Playbook "For you" strip
   useEffect(() => {
-    if (sub === 'signoffs' || sub === 'index' || sub === 'tasks') api.getKbSignoffs().then(setSignoffs).catch(() => {});
+    if (['signoffs', 'index', 'tasks', 'manage'].includes(sub)) api.getKbSignoffs().then(setSignoffs).catch(() => {});
   }, [sub, docs]);
   useEffect(() => {
     if (sub === 'insights') api.getKbInsights().then(setInsights).catch(() => {});
@@ -1227,6 +1228,8 @@ export default function SOP({ activeSub, onSubChange }) {
   const librarySidebar = () => {
     const pinned = pins.map(id => docs.find(d => d.id === id)).filter(Boolean);
     const pending = (signoffs || []).filter(s => !s.my_signed);
+    const returned = returnedToMe;
+    const forYouCount = pending.length + returned.length;
     const popScope = deptFilter !== 'all' ? docs.filter(d => (d.departments || []).includes(deptFilter)) : docs;
     const popular = popScope.filter(d => d.status === 'approved' && (d.views || 0) > 0).sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 5);
     const panel = { background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, boxShadow: 'var(--shadow-sm)', overflow: 'hidden', marginBottom: 16 };
@@ -1246,6 +1249,15 @@ export default function SOP({ activeSub, onSubChange }) {
         {right}
       </div>
     );
+    const taskItem = (key, onClick, title, label, color, top) => (
+      <div key={key} role="button" tabIndex={0} onClick={onClick} onKeyDown={e => { if (e.key === 'Enter') onClick(); }} {...hover} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '10px 12px', borderTop: top ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: '0.83rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
+          <div style={{ fontSize: '0.7rem', fontWeight: 700, color }}>{label}</div>
+        </div>
+        <ChevronRight size={15} style={{ color: 'var(--text-muted)', flex: '0 0 auto' }} />
+      </div>
+    );
     return (
       <>
         {pinned.length > 0 && (
@@ -1255,19 +1267,14 @@ export default function SOP({ activeSub, onSubChange }) {
           </div>
         )}
         <div style={panel}>
-          {head(CheckSquare, 'For you', pending.length)}
-          {pending.length === 0
+          {head(CheckSquare, 'For you', forYouCount)}
+          {forYouCount === 0
             ? <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.82rem', color: 'var(--text-secondary)', padding: '12px 14px' }}><CheckSquare size={15} style={{ color: 'hsl(145,55%,40%)', flex: '0 0 auto' }} /> You're all caught up.</div>
-            : pending.map((s, i) => (
-                <div key={s.id} role="button" tabIndex={0} onClick={() => openSourceById(s.id)} onKeyDown={e => { if (e.key === 'Enter') openSourceById(s.id); }} {...hover} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '10px 12px', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '0.83rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.title}</div>
-                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'hsl(32,80%,38%)' }}>Sign-off required</div>
-                  </div>
-                  <ChevronRight size={15} style={{ color: 'var(--text-muted)', flex: '0 0 auto' }} />
-                </div>
-              ))}
-          {pending.length > 0 && <button onClick={() => switchTab('tasks')} style={{ width: '100%', textAlign: 'center', padding: '9px 12px', borderTop: '1px solid var(--bg-secondary)', background: 'transparent', border: 'none', borderTopColor: 'var(--bg-secondary)', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-blue))' }}>View all tasks →</button>}
+            : <>
+                {pending.map((s, i) => taskItem('s' + s.id, () => openSourceById(s.id), s.title, 'Sign-off required', 'hsl(32,80%,38%)', i > 0))}
+                {returned.map((d, i) => taskItem('r' + d.id, () => openDetail(d), d.title, 'Returned to you', 'hsl(0,70%,45%)', i > 0 || pending.length > 0))}
+              </>}
+          {isManager && forYouCount > 0 && <button onClick={() => switchTab('tasks')} style={{ width: '100%', textAlign: 'center', padding: '9px 12px', borderTop: '1px solid var(--bg-secondary)', background: 'transparent', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600, color: 'hsl(var(--color-blue))' }}>View all in Manage →</button>}
         </div>
         {popular.length > 0 && (
           <div style={panel}>
@@ -1366,9 +1373,9 @@ export default function SOP({ activeSub, onSubChange }) {
   );
 
   const viewToggle = () => (
-    <div style={{ display: 'inline-flex', gap: 6 }}>
-      {[['list', 'List'], ['cards', 'Cards'], ['outline', 'By department']].map(([k, l]) => (
-        <button key={k} onClick={() => setLibView(k)} style={{ padding: '7px 13px', borderRadius: 999, fontSize: '0.78rem', fontWeight: 500, cursor: 'pointer', border: '1px solid', borderColor: libView === k ? 'var(--text-primary)' : 'var(--border-color)', background: libView === k ? 'var(--text-primary)' : 'var(--bg-card)', color: libView === k ? 'var(--bg-card)' : 'var(--text-secondary)' }}>{l}</button>
+    <div style={{ display: 'inline-flex', background: 'var(--bg-secondary)', borderRadius: 9, padding: 3 }}>
+      {[['list', 'List', List], ['cards', 'Tiles', LayoutGrid], ['outline', 'Department', Building2]].map(([k, l, Icon]) => (
+        <button key={k} onClick={() => setLibView(k)} title={`${l} view`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, background: libView === k ? 'var(--bg-card)' : 'transparent', color: libView === k ? 'var(--text-primary)' : 'var(--text-secondary)', boxShadow: libView === k ? 'var(--shadow-sm)' : 'none' }}><Icon size={14} /> {l}</button>
       ))}
     </div>
   );
@@ -1408,13 +1415,18 @@ export default function SOP({ activeSub, onSubChange }) {
         {Object.entries(TAB_LABELS).map(([key, label]) => (
           <button key={key} onClick={() => switchTab(key)} style={{ background: 'none', border: 'none', padding: '10px 18px', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '0.95rem', cursor: 'pointer', color: sub === key ? 'var(--text-primary)' : 'var(--text-secondary)', position: 'relative' }}>
             {label}
-            {key === 'tasks' && taskCount > 0 && <span style={{ marginLeft: 7, backgroundColor: 'hsl(var(--color-blue))', color: '#fff', borderRadius: 999, padding: '1px 7px', fontSize: '0.7rem' }}>{taskCount}</span>}
             {sub === key && <span style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: 'var(--text-primary)', borderRadius: '4px 4px 0 0' }} />}
           </button>
         ))}
-        {isManager && (
-          <button onClick={() => switchTab('manage')} style={{ marginLeft: 'auto', alignSelf: 'center', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 9, border: '1px solid', borderColor: ['manage', 'matrix', 'insights', 'signoffs'].includes(sub) ? 'var(--text-primary)' : 'var(--border-color)', background: ['manage', 'matrix', 'insights', 'signoffs'].includes(sub) ? 'var(--text-primary)' : 'var(--bg-card)', color: ['manage', 'matrix', 'insights', 'signoffs'].includes(sub) ? 'var(--bg-card)' : 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}><Settings size={15} /> Manage</button>
-        )}
+        {isManager && (() => {
+          const active = ['manage', 'matrix', 'insights', 'signoffs', 'tasks'].includes(sub);
+          return (
+            <button onClick={() => switchTab('manage')} style={{ marginLeft: 'auto', alignSelf: 'center', display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 14px', borderRadius: 9, border: '1px solid', borderColor: active ? 'var(--text-primary)' : 'var(--border-color)', background: active ? 'var(--text-primary)' : 'var(--bg-card)', color: active ? 'var(--bg-card)' : 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}>
+              <Settings size={15} /> Manage
+              {taskCount > 0 && <span style={{ minWidth: 18, textAlign: 'center', backgroundColor: active ? 'var(--bg-card)' : 'hsl(var(--color-blue))', color: active ? 'var(--text-primary)' : '#fff', borderRadius: 999, padding: '1px 6px', fontSize: '0.7rem', fontWeight: 700 }}>{taskCount}</span>}
+            </button>
+          );
+        })()}
       </div>
       {errBanner}
 
@@ -1426,7 +1438,7 @@ export default function SOP({ activeSub, onSubChange }) {
             <button className="primary-btn" onClick={openCreate} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> New SOP</button>
           </div>
 
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 10, boxShadow: 'var(--shadow-sm)' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: 10, boxShadow: 'var(--shadow-sm)' }}>
             <div style={{ display: 'inline-flex', background: 'var(--bg-secondary)', borderRadius: 9, padding: 3, flex: '0 0 auto' }}>
               {[['search', 'Search', Search], ['ask', 'Ask AI', Sparkles]].map(([m, label, Icon]) => (
                 <button key={m} onClick={() => setSearchMode(m)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, background: searchMode === m ? 'var(--bg-card)' : 'transparent', color: searchMode === m ? (m === 'ask' ? 'hsl(266,72%,56%)' : 'var(--text-primary)') : (m === 'ask' ? 'hsl(266,40%,55%)' : 'var(--text-secondary)'), boxShadow: searchMode === m ? 'var(--shadow-sm)' : 'none' }}><Icon size={14} /> {label}</button>
@@ -1435,7 +1447,8 @@ export default function SOP({ activeSub, onSubChange }) {
             <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 200 }}>
               <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
               {searchMode === 'search'
-                ? <input ref={searchRef} type="text" className="form-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search title, ID, or document text…   ( / )" style={{ paddingLeft: 36, width: '100%', height: 38, fontSize: '0.88rem' }} />
+                ? <><input ref={searchRef} type="text" className="form-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search title, ID, or document text…" style={{ paddingLeft: 36, paddingRight: 34, width: '100%', height: 38, fontSize: '0.88rem' }} />
+                    {!search && <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 6, padding: '1px 7px', pointerEvents: 'none' }}>/</span>}</>
                 : <input type="text" className="form-input" value={ask.q} onChange={e => setAsk(a => ({ ...a, q: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') doAsk(); }} placeholder="Ask the knowledge base… e.g. When do we run the gate audit?" style={{ paddingLeft: 36, width: '100%', height: 38, fontSize: '0.88rem' }} />}
             </div>
             {searchMode === 'search' ? (<>
@@ -1450,12 +1463,10 @@ export default function SOP({ activeSub, onSubChange }) {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
             <div style={{ flex: '3 1 480px', minWidth: 0 }}>
               {searchMode === 'ask' && askAnswer()}
-              {searchMode === 'search' && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{filtered.length} document{filtered.length === 1 ? '' : 's'}</div>
-                  {viewToggle()}
-                </div>
-              )}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{filtered.length} document{filtered.length === 1 ? '' : 's'}</div>
+                {viewToggle()}
+              </div>
               {loading
                 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
                 : (() => {
@@ -1473,7 +1484,7 @@ export default function SOP({ activeSub, onSubChange }) {
       )}
 
       {/* Tasks — everything waiting on this person */}
-      {sub === 'tasks' && (() => {
+      {sub === 'tasks' && isManager && (() => {
         const hover = { onMouseEnter: ev => ev.currentTarget.style.background = 'var(--bg-secondary)', onMouseLeave: ev => ev.currentTarget.style.background = 'transparent' };
         const titleCell = (title, meta) => <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{meta}</div></div>;
         const taskRow = (key, onClick, title, meta, right) => (
@@ -1499,8 +1510,9 @@ export default function SOP({ activeSub, onSubChange }) {
           <button className="primary-btn" onClick={e => { e.stopPropagation(); openDetail(d); }} style={{ height: 32, fontSize: '0.8rem', flex: '0 0 auto', backgroundColor: 'hsl(var(--color-green))' }}>Review</button>));
         return (
           <>
+            <button className="secondary-btn" onClick={() => switchTab('manage')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, height: 34 }}><ArrowLeft size={15} /> Manage</button>
             <div className="view-header" style={{ marginBottom: 18 }}>
-              <div className="view-title-group"><h2>Tasks</h2><p>Everything waiting on you{isManager ? ' — sign-offs, returned drafts, and reviews to approve.' : ' — the policies you need to read and sign, plus any drafts sent back to you.'}</p></div>
+              <div className="view-title-group"><h2>Tasks</h2><p>Everything that needs action — sign-offs, returned drafts, and reviews to approve.</p></div>
             </div>
             {loading
               ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
@@ -1582,7 +1594,7 @@ export default function SOP({ activeSub, onSubChange }) {
 
           {/* KPI row — what needs attention */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
-            {actionTile('Pending review', awaitingReview.length, 'Awaiting your approval', Send, () => switchTab('tasks'), awaitingReview.length > 0)}
+            {actionTile('Action needed', taskCount, 'Sign-offs, reviews & returns', Send, () => switchTab('tasks'), taskCount > 0)}
             {actionTile('Needs review', staleCount, 'Past review date', Clock, () => switchTab('insights'), staleCount > 0)}
             {actionTile('Sign-offs', signoffCount, 'Require acknowledgement', CheckSquare, () => switchTab('signoffs'), false)}
             {actionTile('Drafts', draftCount, 'Not yet submitted', Edit3, () => { setStatusFilter('draft'); switchTab('index'); }, false)}
