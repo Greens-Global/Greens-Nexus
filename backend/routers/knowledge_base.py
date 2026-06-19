@@ -197,6 +197,18 @@ def list_documents(db: Session = Depends(get_db)):
     return [_serialize(d) for d in rows]
 
 
+@router.get("/reviewers")
+def reviewers(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """People who can approve KB documents (manager+) — for the submit-for-review picker."""
+    rows = db.query(models.NexusRole).filter(models.NexusRole.role.in_(["manager", "administrator", "owner"])).all()
+    out = []
+    for r in rows:
+        name = r.display_name or " ".join(p.capitalize() for p in r.email.split("@")[0].replace("_", ".").split(".") if p)
+        out.append({"email": r.email, "name": name, "role": r.role})
+    out.sort(key=lambda x: x["name"].lower())
+    return out
+
+
 @router.get("/documents/{doc_id}")
 def get_document(doc_id: str, db: Session = Depends(get_db)):
     d = _get_or_404(doc_id, db)

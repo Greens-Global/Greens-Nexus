@@ -143,6 +143,7 @@ export default function SOP({ activeSub, onSubChange }) {
   const [libView, setLibView] = useState(() => { try { return localStorage.getItem('kbLibView') || 'list'; } catch { return 'list'; } }); // list | cards | outline
   const [searchMode, setSearchMode] = useState('search'); // search | ask
   const [pins, setPins] = useState([]); // doc ids the user has pinned
+  const [reviewers, setReviewers] = useState([]); // managers who can approve
   const searchRef = useRef(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => { try { return localStorage.getItem('kbSidebar') !== '0'; } catch { return true; } }); // Playbook side panel
   const [helpOpen, setHelpOpen] = useState(false); // help / documentation drawer
@@ -225,8 +226,9 @@ export default function SOP({ activeSub, onSubChange }) {
   useEffect(() => {
     if (sub === 'manage' && isManager) { setActivity(null); api.getKbActivity().then(setActivity).catch(() => setActivity([])); }
   }, [sub, isManager, docs]);
-  // pins (favorites) — loaded once
+  // pins (favorites) + reviewer list — loaded once
   useEffect(() => { api.getKbPins().then(setPins).catch(() => {}); }, []);
+  useEffect(() => { api.getKbReviewers().then(setReviewers).catch(() => {}); }, []);
   // remember the chosen library view between sessions
   useEffect(() => { try { localStorage.setItem('kbLibView', libView); } catch { /* ignore */ } }, [libView]);
   useEffect(() => { try { localStorage.setItem('kbSidebar', sidebarOpen ? '1' : '0'); } catch { /* ignore */ } }, [sidebarOpen]);
@@ -369,7 +371,7 @@ export default function SOP({ activeSub, onSubChange }) {
 
   const save = async (submit) => {
     if (!draft.title.trim()) { setErr('Add a title before saving.'); return; }
-    if (submit && !draft.reviewer_email.trim()) { setErr('Enter a reviewing manager email to submit.'); return; }
+    if (submit && !draft.reviewer_email.trim()) { setErr('Choose a reviewing manager (under Document Details) before submitting for review.'); return; }
     setBusy(true); setErr('');
     try {
       let doc = draft.id
@@ -1059,8 +1061,15 @@ export default function SOP({ activeSub, onSubChange }) {
             <div className="form-group"><label>Type</label><select className="form-select" value={draft.doc_type} onChange={e => setDraft(p => ({ ...p, doc_type: e.target.value }))} style={{ padding: '11px 36px 11px 14px' }}>{DOC_TYPES.map(t => <option key={t}>{t}</option>)}</select></div>
             <div className="form-group"><label>Version</label><input className="form-input" value={draft.version} onChange={e => setDraft(p => ({ ...p, version: e.target.value }))} style={{ padding: '11px 14px' }} /></div>
             <div className="form-group"><label>Effective date</label><input type="date" className="form-input" value={draft.effective_date} onChange={e => setDraft(p => ({ ...p, effective_date: e.target.value }))} style={{ padding: '11px 14px' }} /></div>
-            <div className="form-group"><label>Reviewing manager email</label><input className="form-input" value={draft.reviewer_email} placeholder="manager@greensglobal.com" onChange={e => setDraft(p => ({ ...p, reviewer_email: e.target.value }))} style={{ padding: '11px 14px' }} /></div>
-            <div className="form-group"><label>Reviewer name <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label><input className="form-input" value={draft.reviewer_name} onChange={e => setDraft(p => ({ ...p, reviewer_name: e.target.value }))} style={{ padding: '11px 14px' }} /></div>
+            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+              <label>Reviewing manager <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>— the person who approves &amp; publishes this</span></label>
+              {reviewers.length > 0
+                ? <select className="form-select" value={draft.reviewer_email} onChange={e => { const r = reviewers.find(x => x.email === e.target.value); setDraft(p => ({ ...p, reviewer_email: e.target.value, reviewer_name: r ? r.name : '' })); }} style={{ padding: '11px 36px 11px 14px' }}>
+                    <option value="">— select a manager to review —</option>
+                    {reviewers.map(r => <option key={r.email} value={r.email}>{r.name} · {r.email}</option>)}
+                  </select>
+                : <input className="form-input" value={draft.reviewer_email} placeholder="manager@greensglobal.com" onChange={e => setDraft(p => ({ ...p, reviewer_email: e.target.value }))} style={{ padding: '11px 14px' }} />}
+            </div>
             <div className="form-group"><label>Review cadence (months)</label><input className="form-input" value={draft.review_every_months} onChange={e => setDraft(p => ({ ...p, review_every_months: e.target.value }))} style={{ padding: '11px 14px' }} /></div>
             <div className="form-group"><label>Retention (months)</label><input className="form-input" value={draft.retention_months} onChange={e => setDraft(p => ({ ...p, retention_months: e.target.value }))} style={{ padding: '11px 14px' }} /></div>
           </div>
