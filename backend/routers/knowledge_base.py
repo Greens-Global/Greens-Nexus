@@ -181,6 +181,13 @@ class AiFormatIn(BaseModel):
     departments: list[str] = []
 
 
+class AiReviseIn(BaseModel):
+    body: dict = {}
+    title: str = ""
+    instruction: str = ""
+    departments: list[str] = []
+
+
 class AskIn(BaseModel):
     question: str = ""
 
@@ -804,6 +811,40 @@ def ai_format(payload: AiFormatIn, user: dict = Depends(get_current_user)):
     except Exception as e:  # network, key, model, or parse failure — degrade gracefully
         print(f"[kb ai-format] falling back to heuristic: {e}")
         return {"source": "heuristic", "sop": _heuristic_format(payload.content, payload.title)}
+
+
+@router.post("/ai-revise")
+def ai_revise(payload: AiReviseIn, user: dict = Depends(get_current_user)):
+    """Apply a natural-language change to an existing SOP and return the full revised SOP."""
+    current = _normalize_sop({**(payload.body or {}), "title": payload.title})
+    instruction = (payload.instruction or "").strip()
+    if not instruction:
+        raise HTTPException(status_code=400, detail="Describe the change you want Claude to make")
+    if not _ANTHROPIC_API_KEY:
+        # No key locally — return the document unchanged so the caller can degrade gracefully.
+        return {"source": "offline", "sop": current}
+    depts = ", ".join(payload.departments) or "Company-wide"
+    prompt = (
+        "You are editing an existing Greens Global SOP. Apply the requested change and return the FULL "
+        "revised SOP — keep everything that should stay the same and only change what the request implies.\n\n"
+        f"{_STD_SCHEMA}\n\nWorking title: {payload.title or '(none)'}\nDepartments: {depts}\n\n"
+        f"CURRENT SOP (JSON):\n{json.dumps(current)}\n\nREQUESTED CHANGE:\n{instruction}"
+    )
+    try:
+        with httpx.Client(timeout=75) as client:
+            r = client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": _ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json={"model": _AI_MODEL, "max_tokens": 2500, "messages": [{"role": "user", "content": prompt}]},
+            )
+            r.raise_for_status()
+            data = r.json()
+        text = "".join(blk.get("text", "") for blk in data.get("content", []) if blk.get("type") == "text")
+        text = text.replace("```json", "").replace("```", "").strip()
+        return {"source": "ai", "sop": _normalize_sop(json.loads(text))}
+    except Exception as e:
+        print(f"[kb ai-revise] failed: {e}")
+        return {"source": "offline", "sop": current}
 
 
 # ---- AI course generation -------------------------------------------------

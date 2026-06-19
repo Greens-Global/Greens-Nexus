@@ -133,6 +133,7 @@ export default function SOP({ activeSub, onSubChange }) {
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
+  const [aiInstruction, setAiInstruction] = useState(''); // "Edit with Claude" prompt
   const [aiReview, setAiReview] = useState(null); // full-screen AI review: { open, before, after, source, tab }
   const [previewOpen, setPreviewOpen] = useState(false); // preview the current draft before publishing
 
@@ -449,6 +450,33 @@ export default function SOP({ activeSub, onSubChange }) {
       setAiReview({ open: true, tab: 'changes', source: raw ? content : '',
         before, after: { title: afterTitle, departments: [...draft.departments], body: afterBody } });
     } catch (e) { setErr(e.message || 'AI formatting failed'); }
+    finally { setAiBusy(false); }
+  };
+  // "Edit with Claude": apply a natural-language change to the current draft, then review the diff.
+  const runAiRevise = async () => {
+    const instruction = aiInstruction.trim();
+    if (!instruction) { setErr('Describe the change you want Claude to make.'); return; }
+    setAiBusy(true); setErr('');
+    try {
+      const { sop, source } = await api.aiReviseKbDoc({ body: draft.body, title: draft.title, instruction, departments: draft.departments });
+      if (source === 'offline') { setErr('AI editing needs the Claude API key (unavailable in local dev) — edit the sections manually.'); setAiBusy(false); return; }
+      const before = { title: draft.title, departments: [...draft.departments], body: JSON.parse(JSON.stringify(draft.body)) };
+      const afterBody = {
+        ...draft.body,
+        purpose: sop.purpose ?? draft.body.purpose,
+        scopeText: sop.scopeText ?? draft.body.scopeText,
+        materials: sop.materials || [],
+        responsibilities: sop.responsibilities || [],
+        definitions: sop.definitions || [],
+        procedure: sop.procedure || [],
+        safety: sop.safety || [],
+        references: sop.references || [],
+      };
+      const afterTitle = sop.title || draft.title;
+      setDraft(p => ({ ...p, title: afterTitle, body: afterBody }));
+      setAiReview({ open: true, tab: 'changes', source: `Requested change: ${instruction}`, before, after: { title: afterTitle, departments: [...draft.departments], body: afterBody } });
+      setAiInstruction('');
+    } catch (e) { setErr(e.message || 'AI edit failed'); }
     finally { setAiBusy(false); }
   };
   const revertAi = () => {
@@ -1030,7 +1058,20 @@ export default function SOP({ activeSub, onSubChange }) {
           </div>
         )}
 
-        {!isManual && !draft._importSource && <>{/* Import / AI-format panel */}
+        {!isManual && draft.id && (
+          <div style={{ border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.06)', borderRadius: 12, padding: 14, marginBottom: 18 }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
+              <Sparkles size={17} style={{ color: 'hsl(266,72%,56%)', flex: '0 0 auto' }} />
+              <div style={{ flex: 1, minWidth: 0 }}><strong style={{ fontSize: '0.88rem' }}>Edit with Claude</strong><div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Describe a change and Claude rewrites the document — you review the before/after before keeping it.</div></div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <input className="form-input" value={aiInstruction} onChange={e => setAiInstruction(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') runAiRevise(); }} placeholder="e.g. Add a safety note about wet floors, or tighten the procedure to 6 steps" style={{ flex: '1 1 260px', minWidth: 0 }} />
+              <button className="primary-btn" disabled={aiBusy || !aiInstruction.trim()} onClick={runAiRevise} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff', flex: '0 0 auto' }}>{aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Editing…' : 'Apply with Claude'}</button>
+            </div>
+          </div>
+        )}
+
+        {!isManual && !draft._importSource && !draft.id && <>{/* Import / AI-format panel (new docs only) */}
         <div style={{ border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-card)', borderRadius: 12, padding: 16, marginBottom: 18, boxShadow: 'var(--shadow-sm)' }}>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
             <div style={{ width: 34, height: 34, borderRadius: 9, backgroundColor: 'hsla(215,100%,50%,0.1)', color: 'hsl(var(--color-blue))', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Sparkles size={18} /></div>
