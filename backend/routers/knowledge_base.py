@@ -162,7 +162,7 @@ class KbDocIn(BaseModel):
     departments: list[str] = []
     reviewer_email: str = ""
     reviewer_name: str = ""
-    version: str = "0.1"
+    version: str = "1.0"
     effective_date: str = ""
     body: dict = {}
     require_ack: bool = False
@@ -1185,11 +1185,20 @@ def submit_quiz(cid: str, payload: QuizSubmitIn, user: dict = Depends(get_curren
     if not questions:
         raise HTTPException(status_code=400, detail="This course has no quiz")
     pass_pct = quiz.get("passPct", 80)
+
+    def _idx(v):  # tolerate option indices arriving as ints or numeric strings
+        if isinstance(v, bool):
+            return None
+        if isinstance(v, (int, float)):
+            return int(v)
+        if isinstance(v, str) and v.lstrip("-").isdigit():
+            return int(v)
+        return None
     detail, missed, correct = {}, [], 0
     for q in questions:
         opts = q.get("options", [])
-        your = payload.answers.get(q["_id"])
-        ok = (your == q["answer"])
+        your = _idx(payload.answers.get(q["_id"]))
+        ok = (your is not None and your == q["answer"])
         if ok:
             correct += 1
         detail[q["_id"]] = {"correct": ok, "your": your, "answer": q["answer"], "explanation": q.get("explanation", "")}
