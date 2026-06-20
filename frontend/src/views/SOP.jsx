@@ -6,7 +6,7 @@ import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, Loader, ChevronUp, ChevronDown,
   Image as ImageIcon, Paperclip, Settings, Grid3x3, BarChart3, GraduationCap, Eye, ChevronRight, Star,
-  List, LayoutGrid, Building2, PanelRight, FileText, HelpCircle,
+  List, LayoutGrid, Building2, PanelRight, FileText, HelpCircle, Share2, Link2, Download, Printer,
 } from 'lucide-react';
 
 const rid = () => 'r' + Math.random().toString(36).slice(2, 9);
@@ -236,6 +236,7 @@ export default function SOP({ activeSub, onSubChange }) {
   const [courseAiBusy, setCourseAiBusy] = useState(false);
   const [coursePreview, setCoursePreview] = useState(false);
   const [certOpen, setCertOpen] = useState(false); // completion certificate modal
+  const [shareOpen, setShareOpen] = useState(false); // SOP share/export menu
   const [courseReport, setCourseReport] = useState(null); // { course, attempts } manager report
   const [assign, setAssign] = useState(null); // { course, roster, directory, picks, due, busy, q } assign modal
   const [myAssignments, setMyAssignments] = useState([]); // employee required training
@@ -800,6 +801,40 @@ export default function SOP({ activeSub, onSubChange }) {
       );
     };
     const LANGS = [['en', 'English'], ['es', 'Español'], ['hi', 'हिन्दी']];
+    // ── share / export ──
+    const docUrl = (typeof window !== 'undefined' ? window.location.href : '');
+    const sopAsText = () => {
+      const L = [`${d.title}`, `${d.doc_code || ''}${d.doc_code ? ' · ' : ''}${d.doc_type} · v${d.version}`, ''];
+      const sec = (h, lines) => { if (lines && lines.length) { L.push(`## ${h}`); lines.forEach(x => L.push(x)); L.push(''); } };
+      if (b.purpose) { L.push('## Purpose', b.purpose, ''); }
+      if (b.scopeText) { L.push('## Scope', b.scopeText, ''); }
+      sec('Materials & Required Items', (b.materials || []).map(x => `- ${x}`));
+      sec('Responsibilities', (b.responsibilities || []).map(r => `- ${r.role}: ${r.duty}`));
+      sec('Definitions', (b.definitions || []).map(r => `- ${r.term}: ${r.def}`));
+      sec('Procedure', (b.procedure || []).map((s, i) => `${i + 1}. ${s.text}${s.detail ? ` — ${s.detail}` : ''}`));
+      sec('Safety & Compliance', (b.safety || []).map(x => `- ${x}`));
+      sec('References', (b.references || []).map(x => `- ${x}`));
+      return L.join('\n').trim();
+    };
+    const doShare = async () => {
+      setShareOpen(false);
+      try { if (navigator.share) await navigator.share({ title: d.title, text: `${d.title} (${d.doc_code || d.doc_type})`, url: docUrl }); }
+      catch { /* user cancelled */ }
+    };
+    const copyToClipboard = async (txt) => { setShareOpen(false); try { await navigator.clipboard.writeText(txt); setErr(''); } catch { setErr('Copy failed — your browser blocked clipboard access.'); } };
+    const downloadDoc = () => {
+      setShareOpen(false);
+      try {
+        const blob = new Blob([sopAsText()], { type: 'text/markdown;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = `${(d.doc_code || d.title || 'document').replace(/[^\w.-]+/g, '_')}.md`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(a.href);
+      } catch (e) { setErr('Download failed.'); }
+    };
+    const printDoc = () => { setShareOpen(false); setTimeout(() => window.print(), 60); };
+    const shareItem = (Icon, label, onClick) => (
+      <button onClick={onClick} onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-secondary)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-primary)' }}><Icon size={15} style={{ color: 'var(--text-secondary)', flex: '0 0 auto' }} /> {label}</button>
+    );
     const trx = (docLang !== 'en' && b.translations) ? (b.translations[docLang] || {}) : {};
     const dTitle = trx.title || d.title;
     const tPurpose = (trx.purpose != null && trx.purpose !== '') ? trx.purpose : b.purpose;
@@ -826,6 +861,19 @@ export default function SOP({ activeSub, onSubChange }) {
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button className="secondary-btn" onClick={() => togglePin(d.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, color: pins.includes(d.id) ? 'hsl(38,82%,40%)' : undefined }}><Star size={14} fill={pins.includes(d.id) ? 'hsl(38,92%,48%)' : 'none'} /> {pins.includes(d.id) ? 'Pinned' : 'Pin'}</button>
+            <div style={{ position: 'relative' }}>
+              <button className="secondary-btn" onClick={() => setShareOpen(v => !v)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Share2 size={14} /> Share</button>
+              {shareOpen && (<>
+                <div onClick={() => setShareOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+                <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 50, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,0.18)', minWidth: 210, overflow: 'hidden', padding: '4px 0' }}>
+                  {typeof navigator !== 'undefined' && navigator.share && shareItem(Share2, 'Share…', doShare)}
+                  {shareItem(Link2, 'Copy link', () => copyToClipboard(docUrl))}
+                  {shareItem(FileText, 'Copy as text', () => copyToClipboard(sopAsText()))}
+                  {shareItem(Download, 'Download (.md)', downloadDoc)}
+                  {shareItem(Printer, 'Print / Save PDF', printDoc)}
+                </div>
+              </>)}
+            </div>
             {canEdit(d) && <button className="secondary-btn" onClick={() => openEdit(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Edit3 size={14} /> Edit</button>}
             {(d.status === 'draft' || d.status === 'changes_requested') && (d.owner_email === myEmail || isManager) && (
               <button className="primary-btn" disabled={busy} onClick={() => submitDoc(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Send size={14} /> Submit for review</button>
@@ -846,7 +894,7 @@ export default function SOP({ activeSub, onSubChange }) {
         {docLang !== 'en' && <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 9, padding: '8px 11px', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 14 }}>Machine-translated to {({ es: 'Spanish', hi: 'Hindi' })[docLang]}. The English version is authoritative.</div>}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 24, alignItems: 'start' }}>
-          <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-sm)', maxWidth: 820 }}>
+          <div id="kb-doc" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-sm)', maxWidth: 820 }}>
             {/* header grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 1, backgroundColor: 'var(--border-color)', border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden', marginBottom: 22 }}>
               {[['SOP ID', d.doc_code || '—'], ['Type', d.doc_type], ['Version', 'v' + d.version], ['Owner', d.owner_name || '—'], ['Reviewer', d.reviewer_name || d.reviewer_email || '—'], ['Effective', fmtDate(d.effective_date)], ['Updated', fmtDate(d.updated_at)]].map(([k, v]) => (

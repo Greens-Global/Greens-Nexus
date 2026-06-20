@@ -1993,11 +1993,12 @@ button, [role="button"], select { touch-action: manipulation; }
 @media (max-width: 1000px) { .kb-c-dept  { display: none; } }
 @media (max-width: 840px)  { .kb-c-type  { display: none; } }
 
-/* Course completion certificate: print only the certificate, full page */
+/* Print only the certificate or the open SOP, full page */
 @media print {
   body * { visibility: hidden !important; }
-  #kb-cert, #kb-cert * { visibility: visible !important; }
+  #kb-cert, #kb-cert *, #kb-doc, #kb-doc * { visibility: visible !important; }
   #kb-cert { position: fixed; inset: 0; margin: 0 !important; box-shadow: none; }
+  #kb-doc { position: absolute; inset: 0; margin: 0 !important; border: none !important; box-shadow: none !important; max-width: none !important; }
 }
 
 /* Header search trigger: right side on desktop, left of the wordmark on
