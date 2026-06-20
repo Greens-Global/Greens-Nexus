@@ -59,58 +59,80 @@ const STATUS_META = {
 
 const TAB_LABELS = { index: 'Playbook', lms: 'Learn' };
 
-// In-app documentation. Keep this current as the module changes — it is the
-// single source of the Help drawer ("?" at the top of the module).
-const HELP_SECTIONS = [
-  { title: 'What this module is', body: [
-    'The Knowledge Base is your company handbook: every SOP, manual, and guide in one searchable place, plus a Learn area for training courses.',
-    'It has three tabs — Playbook (browse & search), Learn (courses), and, for managers, a Manage hub. A “?” at the top opens this guide.',
-  ] },
-  { title: 'Playbook — finding things', body: [
-    'Search: type in the search bar (or press “/”) to match titles, IDs, and document text. Filter by department, type, and status.',
-    'Ask AI: switch the toggle to Ask AI and ask a question in plain English — the answer is drawn only from your approved SOPs and cites its sources.',
-    'Views: switch between List, Tiles, and Department (grouped) with the icons above the list. Your choice is remembered.',
-    'Pins: click the star on any document to pin it; pinned docs appear at the top of the right side panel for quick access.',
-    'Side panel: “For You” shows what needs your sign-off, plus Pinned and Popular. Hide it with the panel button to give the document list full width.',
-  ] },
-  { title: 'Creating a document', body: [
-    'Click “New SOP” (anyone can start a draft). Give it a clear title, then fill the card-grouped sections — each has a short tip explaining what it’s for.',
-    'Start from existing material: paste text or upload a file and “Format with Claude” turns it into our standard structure; review the before/after, then keep or revert.',
-    'Edit with Claude: when editing an existing document, describe a change (e.g. “add a safety note about wet floors”) and Claude rewrites it — you review the diff first.',
-    'Preview: use Preview any time to see exactly how the document will look once published.',
-    'Versions start at 1.0. Manuals are chaptered documents that can link other SOPs together.',
-  ] },
-  { title: 'Review & approval', body: [
-    'When a draft is ready, choose a Reviewing manager (dropdown under Document Details) and click “Save & submit for review”.',
-    'The document moves Draft → In Review → Approved (or Changes Requested back to you). Only a manager can approve and publish.',
-    'Managers can “Save & publish” directly. Approved documents are the official, current version everyone sees.',
-  ] },
-  { title: 'Tasks', body: [
-    'For managers, the Manage button shows a count of everything needing action and opens a Tasks view: Needs Your Sign-off, Returned to You, and Awaiting Your Review.',
-    'For everyone, the Playbook “For You” panel surfaces the policies you still need to read and sign, and any drafts returned to you.',
-  ] },
-  { title: 'Sign-offs (e-signatures)', body: [
-    'A document can require acknowledgement. Once approved, assigned staff must read it and e-sign to confirm they’ll follow it.',
-    'Managers track who has signed under Manage → Sign-off Tracking.',
-  ] },
-  { title: 'Manage (managers only)', body: [
-    'KPI tiles show Action Needed, Needs Review (stale docs), Sign-offs, and Drafts — each opens the relevant area.',
-    'Tools: Assignment Matrix (departments per document), Sign-off Tracking, Insights (usage & freshness), Training Courses, and New Manual.',
-    'The Activity Log lists every change; click an entry to jump to the document, and to the exact version diff when one exists. Recently Updated gives quick access to the latest edits.',
-  ] },
-  { title: 'Learn — taking a course', body: [
-    'Open a course to see “What You’ll Learn”, then work through the lessons. Your progress is saved as you go.',
-    'Finish with the quiz. You won’t see the internal pass mark — just answer your best. After submitting you get per-question feedback, with the correct answer and an explanation for anything you missed.',
-    'Passing issues a printable Certificate of Completion, and your manager is notified automatically.',
-  ] },
-  { title: 'Learn — building a course (managers)', body: [
-    'From Manage → Training Courses, click “New Course”. Paste or upload source material and “Generate course” — Claude writes the objectives, lessons, and a quiz with explanations.',
-    'Edit anything: objectives (What You’ll Learn), lessons (readings or linked SOPs), and quiz questions (mark the correct option and add a “why” explanation). Set the pass mark and Preview before publishing.',
-    'Reports: each course has a Report showing every attempt — who took it, their score, and exactly which questions they missed (with explanations) for follow-up.',
-  ] },
-  { title: 'Roles', body: [
-    'Employees can browse, search, take courses, start document drafts, and sign off. Managers (and above) additionally review/approve, run the Manage hub, author courses, and see reports.',
-  ] },
+// In-app, page-by-page documentation. Each "?" button opens the page that
+// matches where the user is. KEEP THIS CURRENT as the module changes — it is
+// the single source for the Help drawer.
+const HELP_PAGES = [
+  { key: 'playbook', label: 'Playbook', title: 'Browsing the Playbook',
+    intro: 'The Playbook is every SOP, manual, and guide in one place. This is where you find and read documents.',
+    steps: [
+      'Search: click the search box (or press “/”) and type a title, document ID, or words from the text. Use the Department, Type, and Status dropdowns to narrow the list.',
+      'Ask AI: flip the toggle from Search to Ask AI, type a question in plain English, and press Ask. The answer comes only from approved SOPs and shows the sources it used.',
+      'Change the view: use List, Tiles, or Department (grouped) above the list — your choice is remembered next time.',
+      'Pin favorites: click the ☆ star on any document to pin it; pinned items jump to the top of the right panel for quick access.',
+      'The right panel: “For You” shows anything waiting on your sign-off, plus Pinned and Popular documents. Press the panel button (top-right of the list) to hide it and give the list full width.',
+      'Open a document by clicking its row or tile.',
+    ] },
+  { key: 'document', label: 'Reading a document', title: 'Reading, sharing & signing a document',
+    intro: 'The document view shows the full, approved procedure plus everything you can do with it.',
+    steps: [
+      'Read top to bottom — purpose, scope, steps, safety, and references. Use the Language bar to switch to a translated version where available.',
+      'Pin it with the Pin button to keep it handy in your side panel.',
+      'Share / export: the Share button offers your device’s share sheet, Copy link, Copy as text, Download (.md), and Print / Save as PDF.',
+      'If the document requires sign-off, read it and click Review & sign to e-sign — your acknowledgement is recorded against this version.',
+      'Revision history (right side) lists every version; “Compare versions” highlights exactly what changed.',
+      'If you own the draft, Edit reopens it; managers see Review/Approve and Archive here.',
+    ] },
+  { key: 'create', label: 'Creating an SOP', title: 'Creating & editing an SOP',
+    intro: 'Anyone can start a draft. It’s a guided form, and Claude can do most of the heavy lifting.',
+    steps: [
+      'Click New SOP. Give it a clear, searchable Document title.',
+      'Fastest start: paste existing text or upload a file in the “Start from an existing document” panel and press Format with Claude. Review the before/after diff, then Keep changes or Revert.',
+      'Or fill the sections by hand — each card (Document Details, Overview, Procedure, Safety, …) has a short tip explaining what belongs there.',
+      'Editing an existing document? Use “Edit with Claude”: describe the change (e.g. “add a step about checking ID”) and Claude rewrites it — you review the diff before keeping it.',
+      'Choose a Reviewing manager under Document Details (required to submit). New documents start at version 1.0.',
+      'Use Preview to see the finished document, then Save draft, Save & submit for review, or — for managers — Save & publish.',
+    ] },
+  { key: 'tasks', label: 'Tasks', title: 'Tasks — what needs your action',
+    intro: 'Everything waiting on you in one place.',
+    steps: [
+      'Needs Your Sign-off: policies you must read and e-sign. Click one to review and sign.',
+      'Returned to You: your drafts a manager sent back with changes — open, fix, and resubmit.',
+      'Awaiting Your Review (managers): documents to approve or send back with a note.',
+      'Employees also see their sign-off tasks in the Playbook “For You” panel; the Manage button shows a live count of open actions.',
+    ] },
+  { key: 'manage', label: 'Manage', title: 'The Manage hub (managers)',
+    intro: 'Your control center for the whole Knowledge Base.',
+    steps: [
+      'KPI tiles: Action Needed (opens Tasks), Needs Review (stale docs), Sign-offs, and Drafts — each jumps to the relevant area.',
+      'Tools: Assignment Matrix (which departments each doc applies to), Sign-off Tracking (who has acknowledged each policy), Insights (usage & freshness), Training Courses, and New Manual.',
+      'Activity Log: every change across the library; click an entry to open the document, or jump straight to the version diff when one exists.',
+      'Use New SOP / New Course from here, or open Training Courses to author and assign training.',
+    ] },
+  { key: 'learn', label: 'Taking training', title: 'Learn — taking a course',
+    intro: 'Your training. Assigned courses appear at the top as Required training with due dates.',
+    steps: [
+      'Open a course to see “What You’ll Learn”, then work through each lesson — your progress saves as you go.',
+      'Finish with the quiz. You won’t see the pass mark; just answer your best.',
+      'After submitting you get per-question feedback: the correct answer and a short explanation for anything you missed.',
+      'Pass and you get a printable Certificate of Completion (Print / Save PDF) — and your manager is notified automatically.',
+      'Required training shows a due date and flags anything overdue, so nothing slips.',
+    ] },
+  { key: 'authoring', label: 'Building a course', title: 'Building & assigning a course (managers)',
+    intro: 'From Manage → Training Courses. Claude can generate a whole course from your material.',
+    steps: [
+      'Click New Course, then paste or upload source material and press Generate course — Claude writes the objectives, lessons, and a quiz with explanations.',
+      'Edit anything: the “What You’ll Learn” objectives, lessons (readings or linked SOPs), and quiz questions — mark the correct option and add a “why” explanation shown to learners who miss it.',
+      'Set the pass mark, Preview, then Save draft or Publish.',
+      'Assign: on any course, Assign opens a people picker and an optional due date — each assignee is notified and the course appears in their Required training.',
+      'Report: each course’s Report shows every attempt — who took it, scores, and exactly which questions were missed (with explanations) for follow-up.',
+    ] },
+  { key: 'roles', label: 'Roles & access', title: 'Who can do what',
+    intro: 'Access follows your Nexus role.',
+    steps: [
+      'Everyone can browse, search, read, take training, pin favorites, start a document draft, and e-sign.',
+      'Managers (and above) additionally review and approve documents, run the Manage hub, author and assign courses, track sign-offs, and see reports.',
+    ] },
 ];
 
 const Badge = ({ status }) => {
@@ -201,7 +223,9 @@ export default function SOP({ activeSub, onSubChange }) {
   const [reviewers, setReviewers] = useState([]); // managers who can approve
   const searchRef = useRef(null);
   const [sidebarOpen, setSidebarOpen] = useState(() => { try { return localStorage.getItem('kbSidebar') !== '0'; } catch { return true; } }); // Playbook side panel
-  const [helpOpen, setHelpOpen] = useState(false); // help / documentation drawer
+  const [help, setHelp] = useState(null); // page key of the contextual help drawer, or null
+  const openHelp = (key) => setHelp(key || 'playbook');
+  const helpBtn = (key) => <button onClick={() => openHelp(key)} title="Help for this page" aria-label="Help" style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><HelpCircle size={16} /></button>;
   const [ask, setAsk] = useState({ q: '', loading: false, answer: null, sources: [], grounded: true });
 
   // review modal
@@ -716,30 +740,43 @@ export default function SOP({ activeSub, onSubChange }) {
     <div style={{ backgroundColor: 'hsla(0,84%,60%,0.1)', border: '1px solid hsla(0,84%,60%,0.3)', color: 'hsl(0,70%,42%)', padding: '10px 14px', borderRadius: 8, marginBottom: 16, fontSize: '0.85rem' }}>{err}</div>
   );
 
-  const helpModal = () => helpOpen && (
-    <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '2.5vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) setHelpOpen(false); }}>
-      <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 860, height: '95vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 22px', borderBottom: '1px solid var(--border-color)' }}>
-          <HelpCircle size={20} style={{ color: 'hsl(var(--color-blue))', flex: '0 0 auto' }} />
-          <div style={{ flex: 1, minWidth: 0 }}><h3 style={{ margin: 0 }}>How the Knowledge Base works</h3><div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>A quick guide to every part of this module.</div></div>
-          <button className="close-btn" onClick={() => setHelpOpen(false)}><X size={18} /></button>
-        </div>
-        <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
-          <div style={{ maxWidth: 720, margin: '0 auto' }}>
-            {HELP_SECTIONS.map((s, i) => (
-              <div key={i} style={{ marginBottom: 22 }}>
-                <h4 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 8px', fontFamily: "'Plus Jakarta Sans', sans-serif", color: 'var(--text-primary)' }}>{s.title}</h4>
-                <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 7 }}>
-                  {s.body.map((b, j) => <li key={j} style={{ fontSize: '0.88rem', lineHeight: 1.6, color: 'var(--text-secondary)' }}>{b}</li>)}
-                </ul>
+  const helpModal = () => {
+    if (!help) return null;
+    const page = HELP_PAGES.find(p => p.key === help) || HELP_PAGES[0];
+    return (
+      <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '2.5vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) setHelp(null); }}>
+        <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 900, height: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 22px', borderBottom: '1px solid var(--border-color)' }}>
+            <HelpCircle size={20} style={{ color: 'hsl(var(--color-blue))', flex: '0 0 auto' }} />
+            <div style={{ flex: 1, minWidth: 0 }}><h3 style={{ margin: 0 }}>Help</h3><div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Showing help for where you are — browse other pages on the left.</div></div>
+            <button className="close-btn" onClick={() => setHelp(null)}><X size={18} /></button>
+          </div>
+          <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+            <div style={{ flex: '0 0 210px', borderRight: '1px solid var(--border-color)', overflow: 'auto', padding: '10px 0', background: 'var(--bg-secondary)' }}>
+              {HELP_PAGES.map(p => {
+                const on = p.key === help;
+                return <button key={p.key} onClick={() => setHelp(p.key)} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 18px', background: on ? 'var(--bg-card)' : 'transparent', border: 'none', borderLeft: '3px solid', borderLeftColor: on ? 'hsl(var(--color-blue))' : 'transparent', cursor: 'pointer', fontSize: '0.85rem', fontWeight: on ? 700 : 500, color: on ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{p.label}</button>;
+              })}
+            </div>
+            <div style={{ flex: 1, overflow: 'auto', padding: '22px 26px', minWidth: 0 }}>
+              <div style={{ maxWidth: 620 }}>
+                <h2 style={{ margin: '0 0 6px', fontSize: '1.35rem' }}>{page.title}</h2>
+                <p style={{ fontSize: '0.92rem', lineHeight: 1.6, color: 'var(--text-secondary)', marginTop: 0 }}>{page.intro}</p>
+                <ol style={{ margin: '14px 0 0', paddingLeft: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {page.steps.map((s, i) => (
+                    <li key={i} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                      <span style={{ flex: '0 0 auto', width: 24, height: 24, borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '0.75rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>{i + 1}</span>
+                      <span style={{ fontSize: '0.9rem', lineHeight: 1.6, color: 'var(--text-primary)' }}>{s}</span>
+                    </li>
+                  ))}
+                </ol>
               </div>
-            ))}
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', borderTop: '1px solid var(--border-color)', paddingTop: 14, marginTop: 6 }}>This guide reflects the current version of the module and is kept up to date as features change.</div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   // ════════════════════ DETAIL ════════════════════
   if (mode === 'detail' && selected) {
@@ -845,9 +882,13 @@ export default function SOP({ activeSub, onSubChange }) {
       : b.procedure;
     return (
       <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-        <button className="secondary-btn" onClick={backToList} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 16, height: 34 }}>
-          <ArrowLeft size={15} /> Back
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+          <button className="secondary-btn" onClick={backToList} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34 }}>
+            <ArrowLeft size={15} /> Back
+          </button>
+          <span style={{ marginLeft: 'auto' }}>{helpBtn('document')}</span>
+        </div>
+        {helpModal()}
         {errBanner}
         <div className="view-header" style={{ marginBottom: 20, alignItems: 'flex-start' }}>
           <div className="view-title-group">
@@ -1200,9 +1241,13 @@ export default function SOP({ activeSub, onSubChange }) {
 
     return (
       <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', width: '100%' }}>
-        <button className="secondary-btn" onClick={backToList} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 18, height: 34 }}>
-          <ArrowLeft size={15} /> {isNew ? 'Cancel' : 'Back'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
+          <button className="secondary-btn" onClick={backToList} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34 }}>
+            <ArrowLeft size={15} /> {isNew ? 'Cancel' : 'Back'}
+          </button>
+          <span style={{ marginLeft: 'auto' }}>{helpBtn('create')}</span>
+        </div>
+        {helpModal()}
         <h2 style={{ marginBottom: 4, fontSize: '1.7rem' }}>{isNew ? 'New' : 'Edit'} {draft.doc_type}</h2>
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: 22 }}>Fill in the sections below, or paste raw notes and let Claude format it into the Greens Global standard.</p>
         {errBanner}
@@ -1678,7 +1723,7 @@ export default function SOP({ activeSub, onSubChange }) {
               </button>
             );
           })()}
-          <button onClick={() => setHelpOpen(true)} title="How this module works" aria-label="Help" style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><HelpCircle size={17} /></button>
+          <button onClick={() => openHelp(sub === 'tasks' ? 'tasks' : ['manage', 'matrix', 'insights', 'signoffs'].includes(sub) ? 'manage' : sub === 'lms' ? (lmsManage ? 'authoring' : 'learn') : 'playbook')} title="Help for this page" aria-label="Help" style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><HelpCircle size={17} /></button>
         </div>
       </div>
       {helpModal()}
