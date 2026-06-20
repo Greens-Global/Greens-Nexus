@@ -646,6 +646,7 @@ class KbCourse(Base):
     title       = Column(String, nullable=False)
     description = Column(String, default="")
     overview    = Column(String, default="")           # "what you'll learn" — JSON list of objective strings
+    recert_months = Column(Integer, default=0)         # 0 = no recertification; else retake every N months
     departments = Column(String, default="")
     status      = Column(String, default="draft")     # draft | published
     owner_email = Column(String, default="")

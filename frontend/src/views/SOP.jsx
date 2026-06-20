@@ -652,7 +652,7 @@ export default function SOP({ activeSub, onSubChange }) {
       reloadCourse();
     } catch (e) { setErr(e.message || 'Quiz submission failed'); }
   };
-  const blankCourse = () => ({ id: null, title: '', description: '', overview: [], departments: [], est_minutes: 15, lessons: [], quiz: { passPct: 80, questions: [] } });
+  const blankCourse = () => ({ id: null, title: '', description: '', overview: [], recert_months: 0, departments: [], est_minutes: 15, lessons: [], quiz: { passPct: 80, questions: [] } });
   const openCourseReport = async (course) => {
     setCourseReport({ course, attempts: null });
     try { const attempts = await api.getKbCourseAttempts(course.id); setCourseReport({ course, attempts }); }
@@ -679,13 +679,13 @@ export default function SOP({ activeSub, onSubChange }) {
   const openCourseEditor = async (id) => {
     setCoursePreview(false);
     if (!id) { setCourseDraft(blankCourse()); setLmsMode('editor'); return; }
-    try { const c = await api.getKbCourse(id); setCourseDraft({ id: c.id, title: c.title, description: c.description, overview: c.overview || [], departments: [...(c.departments || [])], est_minutes: c.est_minutes, lessons: c.lessons || [], quiz: c.quiz?.questions ? c.quiz : { passPct: 80, questions: [] } }); setLmsMode('editor'); }
+    try { const c = await api.getKbCourse(id); setCourseDraft({ id: c.id, title: c.title, description: c.description, overview: c.overview || [], recert_months: c.recert_months || 0, departments: [...(c.departments || [])], est_minutes: c.est_minutes, lessons: c.lessons || [], quiz: c.quiz?.questions ? c.quiz : { passPct: 80, questions: [] } }); setLmsMode('editor'); }
     catch (e) { setErr(e.message || 'Failed to open course'); }
   };
   const saveCourse = async (publish) => {
     const d = courseDraft;
     if (!d.title.trim()) { setErr('Add a course title.'); return; }
-    const payload = { title: d.title, description: d.description, overview: (d.overview || []).filter(s => s && s.trim()), departments: d.departments, est_minutes: parseInt(d.est_minutes, 10) || 15, lessons: d.lessons, quiz: d.quiz, publish };
+    const payload = { title: d.title, description: d.description, overview: (d.overview || []).filter(s => s && s.trim()), recert_months: parseInt(d.recert_months, 10) || 0, departments: d.departments, est_minutes: parseInt(d.est_minutes, 10) || 15, lessons: d.lessons, quiz: d.quiz, publish };
     try {
       if (d.id) await api.updateKbCourse(d.id, payload); else await api.createKbCourse(payload);
       setCourseDraft(null); setLmsMode('list'); api.getKbCourses().then(setLmsCourses).catch(() => {});
@@ -744,34 +744,23 @@ export default function SOP({ activeSub, onSubChange }) {
     if (!help) return null;
     const page = HELP_PAGES.find(p => p.key === help) || HELP_PAGES[0];
     return (
-      <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '2.5vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) setHelp(null); }}>
-        <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 900, height: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
+      <div className="modal-overlay" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '8vh 2vw 2vh' }} onClick={e => { if (e.target === e.currentTarget) setHelp(null); }}>
+        <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 600, maxHeight: '84vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 22px', borderBottom: '1px solid var(--border-color)' }}>
             <HelpCircle size={20} style={{ color: 'hsl(var(--color-blue))', flex: '0 0 auto' }} />
-            <div style={{ flex: 1, minWidth: 0 }}><h3 style={{ margin: 0 }}>Help</h3><div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Showing help for where you are — browse other pages on the left.</div></div>
+            <div style={{ flex: 1, minWidth: 0 }}><h3 style={{ margin: 0 }}>{page.title}</h3></div>
             <button className="close-btn" onClick={() => setHelp(null)}><X size={18} /></button>
           </div>
-          <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-            <div style={{ flex: '0 0 210px', borderRight: '1px solid var(--border-color)', overflow: 'auto', padding: '10px 0', background: 'var(--bg-secondary)' }}>
-              {HELP_PAGES.map(p => {
-                const on = p.key === help;
-                return <button key={p.key} onClick={() => setHelp(p.key)} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 18px', background: on ? 'var(--bg-card)' : 'transparent', border: 'none', borderLeft: '3px solid', borderLeftColor: on ? 'hsl(var(--color-blue))' : 'transparent', cursor: 'pointer', fontSize: '0.85rem', fontWeight: on ? 700 : 500, color: on ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{p.label}</button>;
-              })}
-            </div>
-            <div style={{ flex: 1, overflow: 'auto', padding: '22px 26px', minWidth: 0 }}>
-              <div style={{ maxWidth: 620 }}>
-                <h2 style={{ margin: '0 0 6px', fontSize: '1.35rem' }}>{page.title}</h2>
-                <p style={{ fontSize: '0.92rem', lineHeight: 1.6, color: 'var(--text-secondary)', marginTop: 0 }}>{page.intro}</p>
-                <ol style={{ margin: '14px 0 0', paddingLeft: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {page.steps.map((s, i) => (
-                    <li key={i} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                      <span style={{ flex: '0 0 auto', width: 24, height: 24, borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '0.75rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>{i + 1}</span>
-                      <span style={{ fontSize: '0.9rem', lineHeight: 1.6, color: 'var(--text-primary)' }}>{s}</span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            </div>
+          <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
+            <p style={{ fontSize: '0.92rem', lineHeight: 1.6, color: 'var(--text-secondary)', margin: '0 0 4px' }}>{page.intro}</p>
+            <ol style={{ margin: '16px 0 0', paddingLeft: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {page.steps.map((s, i) => (
+                <li key={i} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                  <span style={{ flex: '0 0 auto', width: 24, height: 24, borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: '0.75rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>{i + 1}</span>
+                  <span style={{ fontSize: '0.9rem', lineHeight: 1.6, color: 'var(--text-primary)' }}>{s}</span>
+                </li>
+              ))}
+            </ol>
           </div>
         </div>
       </div>
@@ -2051,7 +2040,8 @@ export default function SOP({ activeSub, onSubChange }) {
                 const assigned = new Set((roster || []).map(r => r.user_email));
                 const dir = (assign.directory || []).filter(p => !assign.q || (p.name + ' ' + p.email).toLowerCase().includes(assign.q.toLowerCase()));
                 const statusChip = (r) => {
-                  const m = r.overdue ? { t: 'Overdue', c: 'hsl(0,70%,45%)', b: 'hsla(0,84%,60%,0.1)' }
+                  const m = r.expired ? { t: 'Renewal due', c: 'hsl(0,70%,45%)', b: 'hsla(0,84%,60%,0.1)' }
+                    : r.overdue ? { t: 'Overdue', c: 'hsl(0,70%,45%)', b: 'hsla(0,84%,60%,0.1)' }
                     : r.status === 'Completed' ? { t: 'Completed', c: 'hsl(145,55%,30%)', b: 'hsla(145,63%,42%,0.12)' }
                     : r.status === 'In progress' ? { t: 'In progress', c: 'hsl(var(--color-blue))', b: 'var(--bg-secondary)' }
                     : { t: 'Not started', c: 'var(--text-secondary)', b: 'var(--bg-secondary)' };
@@ -2148,8 +2138,8 @@ export default function SOP({ activeSub, onSubChange }) {
             <div className="view-header" style={{ marginBottom: 16 }}>
               <div className="view-title-group"><h2>Learn</h2><p>Training built from your SOPs and guides — work through the lessons, pass the quiz, and your completion is recorded.</p></div>
             </div>
-            {myAssignments.filter(a => a.status !== 'Completed').length > 0 && (() => {
-              const due = myAssignments.filter(a => a.status !== 'Completed');
+            {myAssignments.filter(a => a.status !== 'Completed' || a.expired).length > 0 && (() => {
+              const due = myAssignments.filter(a => a.status !== 'Completed' || a.expired);
               return (
                 <div style={{ background: 'var(--bg-card)', border: '1px solid hsla(38,92%,50%,0.45)', borderRadius: 14, boxShadow: 'var(--shadow-sm)', overflow: 'hidden', marginBottom: 22 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '12px 16px', borderBottom: '1px solid var(--border-color)', background: 'hsla(38,92%,50%,0.08)' }}>
@@ -2161,10 +2151,11 @@ export default function SOP({ activeSub, onSubChange }) {
                     <div key={a.course_id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 16px', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', flexWrap: 'wrap' }}>
                       <div style={{ flex: 1, minWidth: 160 }}>
                         <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{a.title}</div>
-                        <div style={{ fontSize: '0.74rem', color: a.overdue ? 'hsl(0,70%,45%)' : 'var(--text-muted)' }}>{a.est_minutes} min{a.due_date ? ` · due ${fmtDate(a.due_date)}` : ''}{a.overdue ? ' · Overdue' : ''}</div>
+                        <div style={{ fontSize: '0.74rem', color: (a.overdue || a.expired) ? 'hsl(0,70%,45%)' : 'var(--text-muted)' }}>{a.est_minutes} min{a.expired ? ` · renewal due${a.renew_by ? ` (was ${fmtDate(a.renew_by)})` : ''}` : a.due_date ? ` · due ${fmtDate(a.due_date)}` : ''}{a.overdue ? ' · Overdue' : ''}</div>
                       </div>
-                      {a.overdue && <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'hsl(0,70%,45%)', background: 'hsla(0,84%,60%,0.1)', borderRadius: 999, padding: '3px 10px' }}>Overdue</span>}
-                      <button className="primary-btn" onClick={() => openCourse(a.course_id)} style={{ height: 32, fontSize: '0.8rem', flex: '0 0 auto' }}>{a.status === 'In progress' ? 'Continue' : 'Start'}</button>
+                      {a.expired ? <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'hsl(0,70%,45%)', background: 'hsla(0,84%,60%,0.1)', borderRadius: 999, padding: '3px 10px' }}>Renewal due</span>
+                        : a.overdue && <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'hsl(0,70%,45%)', background: 'hsla(0,84%,60%,0.1)', borderRadius: 999, padding: '3px 10px' }}>Overdue</span>}
+                      <button className="primary-btn" onClick={() => openCourse(a.course_id)} style={{ height: 32, fontSize: '0.8rem', flex: '0 0 auto' }}>{a.expired ? 'Retake' : a.status === 'In progress' ? 'Continue' : 'Start'}</button>
                     </div>
                   ))}
                 </div>
@@ -2376,10 +2367,17 @@ export default function SOP({ activeSub, onSubChange }) {
                 {fieldTip('A sentence or two on what this course teaches.')}
                 <textarea className="form-input" value={d.description} placeholder="What this course covers…" onChange={e => cdSet({ description: e.target.value })} style={{ width: '100%', minHeight: 90, resize: 'vertical', fontSize: '0.92rem', lineHeight: 1.6, padding: '12px 14px' }} />
               </div>
-              <div style={{ marginBottom: 18, maxWidth: 220 }}>
-                <label style={fieldLabel}>Estimated minutes</label>
-                {fieldTip('Roughly how long to complete.')}
-                <input className="form-input" value={d.est_minutes} onChange={e => cdSet({ est_minutes: e.target.value })} style={{ padding: '11px 14px' }} />
+              <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginBottom: 18 }}>
+                <div style={{ flex: '1 1 180px', maxWidth: 220 }}>
+                  <label style={fieldLabel}>Estimated minutes</label>
+                  {fieldTip('Roughly how long to complete.')}
+                  <input className="form-input" value={d.est_minutes} onChange={e => cdSet({ est_minutes: e.target.value })} style={{ padding: '11px 14px' }} />
+                </div>
+                <div style={{ flex: '1 1 180px', maxWidth: 240 }}>
+                  <label style={fieldLabel}>Recertify every (months)</label>
+                  {fieldTip('0 = one-time. Otherwise learners must retake it on this cadence.')}
+                  <input className="form-input" value={d.recert_months} onChange={e => cdSet({ recert_months: e.target.value })} style={{ padding: '11px 14px' }} />
+                </div>
               </div>
               <div>
                 <label style={fieldLabel}>Assign to departments</label>

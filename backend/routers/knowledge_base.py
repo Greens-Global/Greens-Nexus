@@ -966,6 +966,7 @@ class CourseIn(BaseModel):
     title: str = ""
     description: str = ""
     overview: list[str] = []          # "what you'll learn" objectives
+    recert_months: int = 0            # 0 = no recertification
     departments: list[str] = []
     est_minutes: int = 15
     lessons: list[dict] = []
@@ -1083,7 +1084,7 @@ def _serialize_course(c: models.KbCourse, prog: dict, include_answers: bool, ful
     quiz = _jload(c.quiz, {})
     out = {
         "id": c.id, "course_code": c.course_code, "title": c.title, "description": c.description,
-        "overview": _jload(getattr(c, "overview", "") or "[]", []),
+        "overview": _jload(getattr(c, "overview", "") or "[]", []), "recert_months": getattr(c, "recert_months", 0) or 0,
         "departments": [x for x in (c.departments or "").split(",") if x], "status": c.status,
         "owner_name": c.owner_name, "est_minutes": c.est_minutes,
         "lesson_count": len(lessons), "question_count": len(quiz.get("questions", [])),
@@ -1129,7 +1130,7 @@ def create_course(payload: CourseIn, user: dict = Depends(require_level(3)), db:
     c = models.KbCourse(
         id="crs_" + uuid.uuid4().hex[:12], course_code=_next_course_code(db), title=payload.title.strip(),
         description=payload.description, overview=json.dumps([s for s in (payload.overview or []) if (s or "").strip()]),
-        departments=",".join(payload.departments),
+        recert_months=max(0, payload.recert_months or 0), departments=",".join(payload.departments),
         status="published" if payload.publish else "draft", owner_email=user["email"],
         owner_name=user.get("name") or user["email"], est_minutes=payload.est_minutes or 15,
         lessons=json.dumps(_clean_lessons(payload.lessons)), quiz=json.dumps(_clean_quiz(payload.quiz)),
@@ -1148,6 +1149,7 @@ def update_course(cid: str, payload: CourseIn, user: dict = Depends(require_leve
         c.title = payload.title.strip()
     c.description = payload.description
     c.overview = json.dumps([s for s in (payload.overview or []) if (s or "").strip()])
+    c.recert_months = max(0, payload.recert_months or 0)
     c.departments = ",".join(payload.departments)
     c.est_minutes = payload.est_minutes or 15
     c.lessons = json.dumps(_clean_lessons(payload.lessons))
@@ -1212,8 +1214,9 @@ def submit_quiz(cid: str, payload: QuizSubmitIn, user: dict = Depends(get_curren
     newly_completed = False
     if passed:
         p.lessons_done = json.dumps([l["_id"] for l in _jload(c.lessons, [])])
-        if not p.completed_at:
-            p.completed_at = _today()
+        expired_now, _ = _recert(c, _progress_dict(p))  # was the prior certification due for renewal?
+        if not p.completed_at or expired_now:
+            p.completed_at = _today()  # first pass, or a renewal — refresh the certification date
             newly_completed = True
     # back-end record of the attempt for manager reports + remediation
     who = user.get("name") or user["email"]
@@ -1251,16 +1254,27 @@ def _name_from_email(email: str) -> str:
     return " ".join(p.capitalize() for p in email.split("@")[0].replace("_", ".").split(".") if p)
 
 
+def _recert(c: models.KbCourse, prog: dict) -> tuple:
+    """(expired, renew_by) — a passed course needs renewal once recert_months elapse."""
+    rm = getattr(c, "recert_months", 0) or 0
+    if rm and prog.get("completed_at"):
+        renew_by = _add_months(prog["completed_at"], rm)
+        return (renew_by < _today(), renew_by)
+    return (False, "")
+
+
 def _assignment_list(c: models.KbCourse, db: Session) -> list:
     rows = db.query(models.KbCourseAssignment).filter(models.KbCourseAssignment.course_id == c.id).all()
     out = []
     for a in rows:
         prog = _progress_dict(db.query(models.KbCourseProgress).filter(
             models.KbCourseProgress.course_id == c.id, models.KbCourseProgress.user_email == a.user_email).first())
+        expired, renew_by = _recert(c, prog)
         out.append({"id": a.id, "user_email": a.user_email, "user_name": a.user_name, "due_date": a.due_date or "",
                     "status": _status_for(c, prog), "completed_at": prog["completed_at"], "score": prog["quiz_score"],
+                    "expired": expired, "renew_by": renew_by,
                     "overdue": bool(a.due_date and not prog["completed_at"] and a.due_date < _today())})
-    out.sort(key=lambda x: (x["status"] == "Completed", x["due_date"] or "9999"))
+    out.sort(key=lambda x: (x["status"] == "Completed" and not x["expired"], x["due_date"] or "9999"))
     return out
 
 
@@ -1315,8 +1329,10 @@ def my_assignments(user: dict = Depends(get_current_user), db: Session = Depends
             continue
         prog = _progress_dict(db.query(models.KbCourseProgress).filter(
             models.KbCourseProgress.course_id == c.id, models.KbCourseProgress.user_email == user["email"]).first())
+        expired, renew_by = _recert(c, prog)
         out.append({"course_id": c.id, "course_code": c.course_code, "title": c.title, "est_minutes": c.est_minutes,
                     "due_date": a.due_date or "", "status": _status_for(c, prog), "completed_at": prog["completed_at"],
+                    "expired": expired, "renew_by": renew_by,
                     "overdue": bool(a.due_date and not prog["completed_at"] and a.due_date < _today())})
-    out.sort(key=lambda x: (x["status"] == "Completed", x["due_date"] or "9999"))
+    out.sort(key=lambda x: (x["status"] == "Completed" and not x["expired"], x["due_date"] or "9999"))
     return out
