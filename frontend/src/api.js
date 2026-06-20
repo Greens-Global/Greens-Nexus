@@ -211,6 +211,10 @@ export const api = {
   kbLessonDone:    (id, lesson_id) => req(`/knowledge-base/courses/${id}/lesson-done`, { method: "POST", body: JSON.stringify({ lesson_id }) }),
   kbSubmitQuiz:    (id, answers)   => req(`/knowledge-base/courses/${id}/submit-quiz`, { method: "POST", body: JSON.stringify({ answers }) }),
   getKbCourseAttempts: (id)        => req(`/knowledge-base/courses/${id}/attempts`),
+  assignKbCourse:   (id, emails, due_date) => req(`/knowledge-base/courses/${id}/assign`, { method: "POST", body: JSON.stringify({ emails, due_date }) }),
+  getKbCourseAssignments: (id)     => req(`/knowledge-base/courses/${id}/assignments`),
+  removeKbAssignment: (aid)        => req(`/knowledge-base/assignments/${aid}`, { method: "DELETE" }),
+  getMyKbAssignments: ()           => req("/knowledge-base/my-assignments"),
 
   // Assets
   getAssets: () => req("/assets"),

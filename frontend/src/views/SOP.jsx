@@ -237,6 +237,8 @@ export default function SOP({ activeSub, onSubChange }) {
   const [coursePreview, setCoursePreview] = useState(false);
   const [certOpen, setCertOpen] = useState(false); // completion certificate modal
   const [courseReport, setCourseReport] = useState(null); // { course, attempts } manager report
+  const [assign, setAssign] = useState(null); // { course, roster, directory, picks, due, busy, q } assign modal
+  const [myAssignments, setMyAssignments] = useState([]); // employee required training
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -392,7 +394,7 @@ export default function SOP({ activeSub, onSubChange }) {
   };
   const backToList = () => { setMode('list'); setSelected(null); setDraft(null); };
 
-  const switchTab = (key) => { backToList(); setLmsMode('list'); setLmsCourse(null); setPlayer(null); setCourseDraft(null); setCoursePreview(false); setLmsManage(false); onSubChange(key); };
+  const switchTab = (key) => { backToList(); setLmsMode('list'); setLmsCourse(null); setPlayer(null); setCourseDraft(null); setCoursePreview(false); setCourseReport(null); setAssign(null); setLmsManage(false); onSubChange(key); };
   const openCourseManager = () => { switchTab('lms'); setLmsManage(true); };
   const openNewCourse = () => { switchTab('lms'); setLmsManage(true); setCourseDraft(blankCourse()); setLmsMode('editor'); };
 
@@ -593,7 +595,7 @@ export default function SOP({ activeSub, onSubChange }) {
   const openSourceById = (id) => { const d = docs.find(x => x.id === id); if (d) openDetail(d); };
 
   // ── LMS (Learn) ──
-  useEffect(() => { if (sub === 'lms' && lmsMode === 'list') api.getKbCourses().then(setLmsCourses).catch(() => {}); }, [sub, lmsMode]);
+  useEffect(() => { if (sub === 'lms' && lmsMode === 'list') { api.getKbCourses().then(setLmsCourses).catch(() => {}); api.getMyKbAssignments().then(setMyAssignments).catch(() => {}); } }, [sub, lmsMode]);
 
   const coursePct = (c) => {
     if (c.status_for_me === 'Completed') return 100;
@@ -630,6 +632,24 @@ export default function SOP({ activeSub, onSubChange }) {
     setCourseReport({ course, attempts: null });
     try { const attempts = await api.getKbCourseAttempts(course.id); setCourseReport({ course, attempts }); }
     catch (e) { setErr(e.message || 'Failed to load report'); setCourseReport(null); }
+  };
+  const openAssign = async (course) => {
+    setAssign({ course, roster: null, directory: [], picks: [], due: '', busy: false, q: '' });
+    try {
+      const [roster, directory] = await Promise.all([api.getKbCourseAssignments(course.id), api.getRolesDirectory()]);
+      setAssign(a => (a ? { ...a, roster, directory } : a));
+    } catch (e) { setErr(e.message || 'Failed to load assignments'); }
+  };
+  const togglePick = (email) => setAssign(a => ({ ...a, picks: a.picks.includes(email) ? a.picks.filter(x => x !== email) : [...a.picks, email] }));
+  const doAssign = async () => {
+    if (!assign.picks.length) { setErr('Pick at least one person to assign.'); return; }
+    setAssign(a => ({ ...a, busy: true })); setErr('');
+    try { const roster = await api.assignKbCourse(assign.course.id, assign.picks, assign.due); setAssign(a => ({ ...a, roster, picks: [], busy: false })); }
+    catch (e) { setErr(e.message || 'Assignment failed'); setAssign(a => ({ ...a, busy: false })); }
+  };
+  const removeAssign = async (aid) => {
+    try { await api.removeKbAssignment(aid); setAssign(a => (a ? { ...a, roster: (a.roster || []).filter(r => r.id !== aid) } : a)); }
+    catch (e) { setErr(e.message || 'Failed to remove'); }
   };
   const openCourseEditor = async (id) => {
     setCoursePreview(false);
@@ -1928,11 +1948,63 @@ export default function SOP({ activeSub, onSubChange }) {
                     <tr key={c.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
                       <td style={{ padding: '11px 14px' }}><div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{c.title}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{c.course_code} · {c.lesson_count} lessons</div></td>
                       <td style={{ padding: '11px 14px' }}><span style={{ fontSize: '0.7rem', fontWeight: 700, color: c.status === 'published' ? 'hsl(145,55%,30%)' : 'var(--text-secondary)', background: c.status === 'published' ? 'hsla(145,63%,42%,0.12)' : 'var(--bg-secondary)', borderRadius: 999, padding: '3px 10px' }}>{c.status}</span></td>
-                      <td style={{ padding: '11px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}><button className="secondary-btn" onClick={() => openCourseReport(c)} style={{ height: 30, fontSize: '0.78rem', marginRight: 6 }}>Report</button><button className="secondary-btn" onClick={() => openCourse(c.id)} style={{ height: 30, fontSize: '0.78rem', marginRight: 6 }}>Preview</button><button className="secondary-btn" onClick={() => openCourseEditor(c.id)} style={{ height: 30, fontSize: '0.78rem' }}>Edit</button></td>
+                      <td style={{ padding: '11px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}><button className="secondary-btn" onClick={() => openAssign(c)} style={{ height: 30, fontSize: '0.78rem', marginRight: 6 }}>Assign</button><button className="secondary-btn" onClick={() => openCourseReport(c)} style={{ height: 30, fontSize: '0.78rem', marginRight: 6 }}>Report</button><button className="secondary-btn" onClick={() => openCourse(c.id)} style={{ height: 30, fontSize: '0.78rem', marginRight: 6 }}>Preview</button><button className="secondary-btn" onClick={() => openCourseEditor(c.id)} style={{ height: 30, fontSize: '0.78rem' }}>Edit</button></td>
                     </tr>
                   ))}
                 </tbody></table>
               </div>
+              {assign && (() => {
+                const roster = assign.roster;
+                const assigned = new Set((roster || []).map(r => r.user_email));
+                const dir = (assign.directory || []).filter(p => !assign.q || (p.name + ' ' + p.email).toLowerCase().includes(assign.q.toLowerCase()));
+                const statusChip = (r) => {
+                  const m = r.overdue ? { t: 'Overdue', c: 'hsl(0,70%,45%)', b: 'hsla(0,84%,60%,0.1)' }
+                    : r.status === 'Completed' ? { t: 'Completed', c: 'hsl(145,55%,30%)', b: 'hsla(145,63%,42%,0.12)' }
+                    : r.status === 'In progress' ? { t: 'In progress', c: 'hsl(var(--color-blue))', b: 'var(--bg-secondary)' }
+                    : { t: 'Not started', c: 'var(--text-secondary)', b: 'var(--bg-secondary)' };
+                  return <span style={{ fontSize: '0.7rem', fontWeight: 700, color: m.c, background: m.b, borderRadius: 999, padding: '3px 10px' }}>{m.t}</span>;
+                };
+                return (
+                  <div className="modal-overlay" style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', padding: '2.5vh 2vw' }} onClick={e => { if (e.target === e.currentTarget) setAssign(null); }}>
+                    <div style={{ background: 'var(--bg-card)', borderRadius: 16, width: '96vw', maxWidth: 760, height: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 22px', borderBottom: '1px solid var(--border-color)' }}>
+                        <Send size={18} style={{ flex: '0 0 auto' }} />
+                        <div style={{ flex: 1, minWidth: 0 }}><h3 style={{ margin: 0 }}>Assign · {assign.course.title}</h3><div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Assign this course to people, with an optional due date.</div></div>
+                        <button className="close-btn" onClick={() => setAssign(null)}><X size={18} /></button>
+                      </div>
+                      <div style={{ flex: 1, overflow: 'auto', padding: '16px 22px' }}>
+                        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
+                          <div className="form-group" style={{ flex: '0 0 auto' }}><label>Due date <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label><input type="date" className="form-input" value={assign.due} onChange={e => setAssign(a => ({ ...a, due: e.target.value }))} style={{ padding: '10px 12px' }} /></div>
+                          <button className="primary-btn" disabled={assign.busy || !assign.picks.length} onClick={doAssign} style={{ height: 40, display: 'inline-flex', alignItems: 'center', gap: 6 }}>{assign.busy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Plus size={15} />} Assign{assign.picks.length ? ` ${assign.picks.length}` : ''}</button>
+                        </div>
+                        <input className="form-input" value={assign.q} onChange={e => setAssign(a => ({ ...a, q: e.target.value }))} placeholder="Search people…" style={{ marginBottom: 8, padding: '10px 12px' }} />
+                        <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, maxHeight: 220, overflow: 'auto', marginBottom: 18 }}>
+                          {dir.length === 0 ? <div style={{ padding: 14, fontSize: '0.83rem', color: 'var(--text-muted)' }}>No people found.</div>
+                            : dir.map((p, i) => (
+                                <label key={p.email} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', cursor: 'pointer' }}>
+                                  <input type="checkbox" checked={assign.picks.includes(p.email)} onChange={() => togglePick(p.email)} style={{ width: 16, height: 16, flex: '0 0 auto' }} />
+                                  <span style={{ flex: 1, minWidth: 0 }}><span style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600 }}>{p.name}</span><span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>{p.email}</span></span>
+                                  {assigned.has(p.email) && <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', background: 'var(--bg-secondary)', borderRadius: 999, padding: '2px 8px', flex: '0 0 auto' }}>assigned</span>}
+                                </label>
+                              ))}
+                        </div>
+                        <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', fontWeight: 700, marginBottom: 8 }}>Assigned · {roster ? roster.length : '…'}</div>
+                        {roster === null ? <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-secondary)' }}><Loader size={16} style={{ animation: 'spin 0.7s linear infinite' }} /></div>
+                          : roster.length === 0 ? <div style={{ fontSize: '0.83rem', color: 'var(--text-muted)' }}>No one assigned yet.</div>
+                            : <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
+                                {roster.map((r, i) => (
+                                  <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderTop: i ? '1px solid var(--bg-secondary)' : 'none' }}>
+                                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: '0.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.user_name}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{r.user_email}{r.due_date ? ` · due ${fmtDate(r.due_date)}` : ''}</div></div>
+                                    {statusChip(r)}
+                                    <button className="secondary-btn" onClick={() => removeAssign(r.id)} title="Remove" style={{ width: 34, height: 32, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><X size={14} /></button>
+                                  </div>
+                                ))}
+                              </div>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
               {courseReport && (() => {
                 const att = courseReport.attempts;
                 const passes = att ? att.filter(a => a.passed).length : 0;
@@ -1983,6 +2055,28 @@ export default function SOP({ activeSub, onSubChange }) {
             <div className="view-header" style={{ marginBottom: 16 }}>
               <div className="view-title-group"><h2>Learn</h2><p>Training built from your SOPs and guides — work through the lessons, pass the quiz, and your completion is recorded.</p></div>
             </div>
+            {myAssignments.filter(a => a.status !== 'Completed').length > 0 && (() => {
+              const due = myAssignments.filter(a => a.status !== 'Completed');
+              return (
+                <div style={{ background: 'var(--bg-card)', border: '1px solid hsla(38,92%,50%,0.45)', borderRadius: 14, boxShadow: 'var(--shadow-sm)', overflow: 'hidden', marginBottom: 22 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '12px 16px', borderBottom: '1px solid var(--border-color)', background: 'hsla(38,92%,50%,0.08)' }}>
+                    <GraduationCap size={16} style={{ color: 'hsl(32,80%,38%)', flex: '0 0 auto' }} />
+                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: '0.92rem', fontWeight: 700 }}>Required training</div><div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Courses assigned to you — please complete these.</div></div>
+                    <span style={{ background: 'hsla(38,92%,50%,0.16)', color: 'hsl(32,80%,38%)', borderRadius: 999, padding: '2px 10px', fontSize: '0.78rem', fontWeight: 700 }}>{due.length}</span>
+                  </div>
+                  {due.map((a, i) => (
+                    <div key={a.course_id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 16px', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', flexWrap: 'wrap' }}>
+                      <div style={{ flex: 1, minWidth: 160 }}>
+                        <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{a.title}</div>
+                        <div style={{ fontSize: '0.74rem', color: a.overdue ? 'hsl(0,70%,45%)' : 'var(--text-muted)' }}>{a.est_minutes} min{a.due_date ? ` · due ${fmtDate(a.due_date)}` : ''}{a.overdue ? ' · Overdue' : ''}</div>
+                      </div>
+                      {a.overdue && <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'hsl(0,70%,45%)', background: 'hsla(0,84%,60%,0.1)', borderRadius: 999, padding: '3px 10px' }}>Overdue</span>}
+                      <button className="primary-btn" onClick={() => openCourse(a.course_id)} style={{ height: 32, fontSize: '0.8rem', flex: '0 0 auto' }}>{a.status === 'In progress' ? 'Continue' : 'Start'}</button>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
             <div style={{ fontSize: '0.85rem', fontWeight: 700, margin: '6px 2px 12px' }}>My Learning</div>
             {published.length === 0
               ? <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '12px 14px', fontSize: '0.83rem', color: 'var(--text-secondary)' }}>No courses published yet.</div>

@@ -981,6 +981,11 @@ class QuizSubmitIn(BaseModel):
     answers: dict = {}
 
 
+class AssignIn(BaseModel):
+    emails: list[str] = []
+    due_date: str = ""
+
+
 def _course_or_404(cid: str, db: Session) -> models.KbCourse:
     c = db.query(models.KbCourse).filter(models.KbCourse.id == cid).first()
     if not c:
@@ -1230,3 +1235,79 @@ def course_attempts(cid: str, user: dict = Depends(require_level(3)), db: Sessio
     rows.sort(key=lambda a: a.created_at or "", reverse=True)
     return [{"id": a.id, "user_email": a.user_email, "user_name": a.user_name, "score": a.score,
              "passed": bool(a.passed), "missed": _jload(a.missed, []), "created_at": a.created_at} for a in rows]
+
+
+# ---- course assignments / required training -------------------------------
+def _name_from_email(email: str) -> str:
+    return " ".join(p.capitalize() for p in email.split("@")[0].replace("_", ".").split(".") if p)
+
+
+def _assignment_list(c: models.KbCourse, db: Session) -> list:
+    rows = db.query(models.KbCourseAssignment).filter(models.KbCourseAssignment.course_id == c.id).all()
+    out = []
+    for a in rows:
+        prog = _progress_dict(db.query(models.KbCourseProgress).filter(
+            models.KbCourseProgress.course_id == c.id, models.KbCourseProgress.user_email == a.user_email).first())
+        out.append({"id": a.id, "user_email": a.user_email, "user_name": a.user_name, "due_date": a.due_date or "",
+                    "status": _status_for(c, prog), "completed_at": prog["completed_at"], "score": prog["quiz_score"],
+                    "overdue": bool(a.due_date and not prog["completed_at"] and a.due_date < _today())})
+    out.sort(key=lambda x: (x["status"] == "Completed", x["due_date"] or "9999"))
+    return out
+
+
+@router.post("/courses/{cid}/assign")
+def assign_course(cid: str, payload: AssignIn, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    c = _course_or_404(cid, db)
+    names = {r.email: (r.display_name or "") for r in db.query(models.NexusRole).all()}
+    for raw in payload.emails:
+        email = (raw or "").lower().strip()
+        if not email:
+            continue
+        a = db.query(models.KbCourseAssignment).filter(
+            models.KbCourseAssignment.course_id == cid, models.KbCourseAssignment.user_email == email).first()
+        if a:
+            a.due_date = payload.due_date or a.due_date
+            continue
+        db.add(models.KbCourseAssignment(
+            id="asn_" + uuid.uuid4().hex[:12], course_id=cid, user_email=email,
+            user_name=names.get(email) or _name_from_email(email), due_date=payload.due_date or "",
+            assigned_by=user["email"], created_at=_now()))
+        due = f" (due {payload.due_date})" if payload.due_date else ""
+        db.add(models.NexusNotification(
+            id=str(uuid.uuid4()), type="kb_course_assigned", recipient=email, title="Training assigned",
+            body=f"You've been assigned the course “{c.title}”{due}.", ref_id=c.id, item_name=c.title,
+            requested_by=user["email"], action="", actioned=False, read_by="", created_at=_now()))
+    db.commit()
+    return _assignment_list(c, db)
+
+
+@router.get("/courses/{cid}/assignments")
+def course_assignments(cid: str, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    return _assignment_list(_course_or_404(cid, db), db)
+
+
+@router.delete("/assignments/{aid}")
+def remove_assignment(aid: str, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    a = db.query(models.KbCourseAssignment).filter(models.KbCourseAssignment.id == aid).first()
+    if a:
+        db.delete(a)
+        db.commit()
+    return {"ok": True}
+
+
+@router.get("/my-assignments")
+def my_assignments(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Courses assigned to the current user — the 'required training' list."""
+    rows = db.query(models.KbCourseAssignment).filter(models.KbCourseAssignment.user_email == user["email"]).all()
+    out = []
+    for a in rows:
+        c = db.query(models.KbCourse).filter(models.KbCourse.id == a.course_id).first()
+        if not c or c.status != "published":
+            continue
+        prog = _progress_dict(db.query(models.KbCourseProgress).filter(
+            models.KbCourseProgress.course_id == c.id, models.KbCourseProgress.user_email == user["email"]).first())
+        out.append({"course_id": c.id, "course_code": c.course_code, "title": c.title, "est_minutes": c.est_minutes,
+                    "due_date": a.due_date or "", "status": _status_for(c, prog), "completed_at": prog["completed_at"],
+                    "overdue": bool(a.due_date and not prog["completed_at"] and a.due_date < _today())})
+    out.sort(key=lambda x: (x["status"] == "Completed", x["due_date"] or "9999"))
+    return out

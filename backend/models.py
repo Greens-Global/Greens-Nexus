@@ -679,6 +679,19 @@ class KbPin(Base):
     created_at = Column(String, default="")
 
 
+class KbCourseAssignment(Base):
+    """A course assigned to a specific person, optionally with a due date —
+    the basis for "required training" and completion tracking."""
+    __tablename__ = "kb_course_assignments"
+    id          = Column(String, primary_key=True)   # uuid
+    course_id   = Column(String, nullable=False)
+    user_email  = Column(String, nullable=False)
+    user_name   = Column(String, default="")
+    due_date    = Column(String, default="")          # YYYY-MM-DD ("" = no due date)
+    assigned_by = Column(String, default="")
+    created_at  = Column(String, default="")
+
+
 class KbQuizAttempt(Base):
     """A learner's quiz attempt on a course — the back-end record of how they
     did and which questions they missed (for manager reports + remediation)."""
