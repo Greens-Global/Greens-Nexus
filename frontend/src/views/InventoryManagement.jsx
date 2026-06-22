@@ -61,6 +61,19 @@ const STATUS_META = {
   retired:              { label: 'Retired',             bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))'    },
 };
 
+// Operational status (Neil) — condition/deployment state of a unit, SEPARATE from
+// the lifecycle `status` above (which checkouts/assignments drive automatically).
+// '' = unset. Mirror _OP_STATUSES in backend/routers/items.py if you change this.
+const OP_STATUSES = ['deployed', 'in_storage', 'in_repair', 'needs_replacement', 'retired', 'lost'];
+const OP_STATUS_META = {
+  deployed:          { label: 'Deployed',          bg:'hsla(var(--color-green),0.12)',  fg:'hsl(var(--color-green))'  },
+  in_storage:        { label: 'In Storage',        bg:'hsla(var(--color-blue),0.12)',   fg:'hsl(var(--color-blue))'   },
+  in_repair:         { label: 'In Repair',         bg:'hsla(var(--color-orange),0.12)', fg:'hsl(var(--color-orange))' },
+  needs_replacement: { label: 'Needs Replacement', bg:'hsla(var(--color-red),0.12)',    fg:'hsl(var(--color-red))'    },
+  retired:           { label: 'Retired',           bg:'var(--mist)',                    fg:'var(--muted)'             },
+  lost:              { label: 'Lost',              bg:'hsla(var(--color-red),0.12)',    fg:'hsl(var(--color-red))'    },
+};
+
 // Display status: a permanent item that nobody holds is "Unassigned", not
 // "Available" — green Available implies it could be checked out, which
 // permanent items can't be.
@@ -162,6 +175,17 @@ function TypeBadge({ type }) {
 
 function StatusBadge({ status }) {
   const m = STATUS_META[status] || { label: status, bg:'var(--mist)', fg:'var(--muted)' };
+  return (
+    <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:20, fontSize:'11px', fontWeight:600, background:m.bg, color:m.fg, whiteSpace:'nowrap' }}>
+      {m.label}
+    </span>
+  );
+}
+
+// Operational status pill (Neil's status column). '' renders as a muted dash.
+function OpStatusBadge({ value }) {
+  if (!value) return <span style={{ fontSize:11, color:'var(--muted)' }}>—</span>;
+  const m = OP_STATUS_META[value] || { label: value, bg:'var(--mist)', fg:'var(--muted)' };
   return (
     <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:20, fontSize:'11px', fontWeight:600, background:m.bg, color:m.fg, whiteSpace:'nowrap' }}>
       {m.label}
@@ -430,6 +454,7 @@ function EditItemModal({ item, onClose, onSave }) {
   const [defaultOwner,  setDefaultOwner]  = useState(item.defaultOwner || '');
   const [ownershipType, setOwnershipType] = useState(item.ownershipType || 'transient');
   const [status,        setStatus]        = useState(item.status || 'available');
+  const [opStatus,      setOpStatus]      = useState(item.opStatus || '');
   const [location,      setLocation]      = useState(item.location || '');
   const [photoUrl,      setPhotoUrl]      = useState(item.photoUrl || '');
   const [pictureRequired, setPictureRequired] = useState(item.pictureRequired !== false);
@@ -444,7 +469,7 @@ function EditItemModal({ item, onClose, onSave }) {
     Promise.resolve(onSave({
       name: name.trim(), item_type: itemType, make: make.trim(), model: model.trim(),
       year: year.trim(), department: department.trim(), default_owner: defaultOwner.trim(),
-      ownership_type: ownershipType, status, location: location.trim(), photo_url: photoUrl,
+      ownership_type: ownershipType, status, op_status: opStatus, location: location.trim(), photo_url: photoUrl,
       picture_required: pictureRequired, asset_value: parseFloat(assetValue) || 0,
     }))
       .then(onClose)
@@ -513,7 +538,7 @@ function EditItemModal({ item, onClose, onSave }) {
               <input className="form-input" style={{ width:'100%' }} value={location} onChange={e => setLocation(e.target.value)} />
             </div>
             <div>
-              <label style={FL}>STATUS</label>
+              <label style={FL}>LIFECYCLE</label>
               <select className="form-input" style={{ width:'100%' }} value={status} onChange={e => setStatus(e.target.value)}>
                 <option value="available">Available</option>
                 <option value="checked_out">Checked Out</option>
@@ -521,6 +546,16 @@ function EditItemModal({ item, onClose, onSave }) {
                 <option value="retired">Retired</option>
               </select>
             </div>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+            <div>
+              <label style={FL}>STATUS <span style={{ fontWeight:400, textTransform:'none' }}>(deployed, in repair…)</span></label>
+              <select className="form-input" style={{ width:'100%' }} value={opStatus} onChange={e => setOpStatus(e.target.value)}>
+                <option value="">— not set —</option>
+                {OP_STATUSES.map(s => <option key={s} value={s}>{OP_STATUS_META[s]?.label || s}</option>)}
+              </select>
+            </div>
+            <div />
           </div>
           <div>
             <label style={FL}>ASSET VALUE ($)</label>
@@ -552,10 +587,15 @@ function EditItemModal({ item, onClose, onSave }) {
 }
 
 // ── Delete Confirm Modal ───────────────────────────────────────────────────────
+// Ankush: deleting must require typing "DELETE" so a stray click can't drop a row.
+// Deletes are now soft — the item moves to the recycle bin and can be restored.
 function DeleteItemModal({ item, onClose, onConfirm }) {
   const [busy, setBusy] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const armed = confirmText.trim().toUpperCase() === 'DELETE';
   useEscapeKey(onClose);
   function confirm() {
+    if (!armed) return;
     setBusy(true);
     Promise.resolve(onConfirm()).catch(() => {}).finally(() => setBusy(false));
   }
@@ -563,15 +603,20 @@ function DeleteItemModal({ item, onClose, onConfirm }) {
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:380, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:400, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
         <h3 style={{ fontSize:16, fontWeight:700, marginBottom:8 }}>Delete Item?</h3>
-        <p style={{ fontSize:13.5, color:'var(--muted)', marginBottom:20 }}>
-          Permanently remove <strong>{item.name}</strong>? This cannot be undone and will fail if the item has an active checkout.
+        <p style={{ fontSize:13.5, color:'var(--muted)', marginBottom:16 }}>
+          Remove <strong>{item.name}</strong>? It moves to the recycle bin and can be restored later. Deleting fails if the item has an active checkout.
         </p>
-        <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
+        <label style={{ ...FL, marginBottom:6 }}>TYPE <strong style={{ color:'var(--ink)' }}>DELETE</strong> TO CONFIRM</label>
+        <input className="form-input" style={{ width:'100%' }} autoFocus value={confirmText}
+          onChange={e => setConfirmText(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && confirm()}
+          placeholder="DELETE" />
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button onClick={confirm} disabled={busy}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 18px', borderRadius:8, border:'none', background:'hsl(var(--color-red))', color:'#fff', fontWeight:700, fontSize:13.5, cursor:'pointer' }}>
+          <button onClick={confirm} disabled={busy || !armed}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 18px', borderRadius:8, border:'none', background:'hsl(var(--color-red))', color:'#fff', fontWeight:700, fontSize:13.5, cursor: (busy || !armed) ? 'default' : 'pointer', opacity: (busy || !armed) ? 0.5 : 1 }}>
             {busy ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Deleting…</> : <><Trash2 size={14} /> Delete</>}
           </button>
         </div>
@@ -3131,12 +3176,16 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
 // ── Batch Delete Confirm Modal ────────────────────────────────────────────────
 function BatchDeleteConfirmModal({ selectedItems, blockedItems, onClose, onConfirm, deleting }) {
   useEscapeKey(onClose);
+  const [confirmText, setConfirmText] = useState('');
   const deletable = selectedItems.filter(i => !blockedItems.find(b => b.id === i.id));
+  // Ankush: "someone can just select all and delete all" — a typed confirmation is
+  // the guard. The bigger the batch, the more this matters.
+  const armed = confirmText.trim().toUpperCase() === 'DELETE';
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:16, padding:'28px 28px 20px', width:'100%', maxWidth:460, boxShadow:'var(--shadow-lg)', maxHeight:'min(85dvh, 640px)', display:'flex', flexDirection:'column' }}>
         <h3 style={{ margin:'0 0 6px', fontSize:16, fontWeight:700 }}>Delete {selectedItems.length} item{selectedItems.length !== 1 ? 's' : ''}?</h3>
-        <p style={{ margin:'0 0 16px', fontSize:13, color:'var(--muted)' }}>This cannot be undone.</p>
+        <p style={{ margin:'0 0 16px', fontSize:13, color:'var(--muted)' }}>Deleted items move to the recycle bin and can be restored later.</p>
         {/* Item lists scroll; title + actions stay pinned so the modal never
             outgrows short screens (30 items overflowed an iPhone SE) */}
         <div style={{ overflowY:'auto', minHeight:0 }}>
@@ -3156,11 +3205,20 @@ function BatchDeleteConfirmModal({ selectedItems, blockedItems, onClose, onConfi
           </div>
         )}
         </div>
-        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', paddingTop:8, flexShrink:0 }}>
+        {deletable.length > 0 && (
+          <div style={{ flexShrink:0, paddingTop:4 }}>
+            <label style={{ ...FL, marginBottom:6 }}>TYPE <strong style={{ color:'var(--ink)' }}>DELETE</strong> TO CONFIRM</label>
+            <input className="form-input" style={{ width:'100%' }} autoFocus value={confirmText}
+              onChange={e => setConfirmText(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && armed && !deleting && onConfirm()}
+              placeholder="DELETE" />
+          </div>
+        )}
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', paddingTop:14, flexShrink:0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={deleting}>Cancel</button>
           {deletable.length > 0 && (
-            <button onClick={onConfirm} disabled={deleting}
-              style={{ display:'inline-flex', alignItems:'center', gap:6, background:'hsl(var(--color-red))', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: deleting ? 0.6 : 1 }}>
+            <button onClick={onConfirm} disabled={deleting || !armed}
+              style={{ display:'inline-flex', alignItems:'center', gap:6, background:'hsl(var(--color-red))', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor: (deleting || !armed) ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', opacity: (deleting || !armed) ? 0.5 : 1 }}>
               {deleting ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <Trash2 size={14} />}
               Delete {deletable.length} item{deletable.length !== 1 ? 's' : ''}
             </button>
@@ -3185,6 +3243,7 @@ const BATCH_FIELDS = [
   { key: 'default_owner',  label: 'Owner' },
   { key: 'ownership_type', label: 'Ownership',  options: ['transient', 'permanent'] },
   { key: 'location',       label: 'Location' },
+  { key: 'op_status',      label: 'Status',     options: OP_STATUSES },
 ];
 
 function BatchEditModal({ selectedItems, onClose, onSave, saving }) {
@@ -3222,7 +3281,7 @@ function BatchEditModal({ selectedItems, onClose, onSave, saving }) {
                 {f.options ? (
                   <select disabled={!on} value={vals[f.key] ?? f.options[0]} onChange={e => setVal(f.key, e.target.value)}
                     style={{ flex:1, padding:'8px 10px', borderRadius:8, border:'1px solid var(--line)', background: on ? 'var(--card)' : 'var(--mist)', fontSize:13, fontFamily:'Inter,sans-serif', color: on ? 'var(--ink)' : 'var(--muted)', textTransform: f.key === 'ownership_type' ? 'capitalize' : 'none' }}>
-                    {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                    {f.options.map(o => <option key={o} value={o}>{f.key === 'op_status' ? (OP_STATUS_META[o]?.label || o) : o}</option>)}
                   </select>
                 ) : (
                   <input disabled={!on} value={vals[f.key] ?? ''} onChange={e => setVal(f.key, e.target.value)}
@@ -3250,12 +3309,21 @@ function BatchEditModal({ selectedItems, onClose, onSave, saving }) {
 // ── Batch Photo Modal ─────────────────────────────────────────────────────────
 const PHOTO_TYPE_ORDER = ['Vehicles', 'Devices', 'Tools', 'Equipment', 'Keys', 'Other'];
 
+// `items` is the CURRENTLY FILTERED list from Manage — Sai: filtering to 34
+// Computers must scope this modal to those 34, not all 437. The master link bar
+// (Visesh) sets one image on every shown item at once, and AI fill now lives here
+// (Neil: AI fill belongs in batch photo edit, never on the Manage bar).
 function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
   useEscapeKey(onClose);
   const [urlInputs,  setUrlInputs]  = useState({});
   const [saving,     setSaving]     = useState({});
   const [uploading,  setUploading]  = useState({});
   const [localUrls,  setLocalUrls]  = useState({});
+  const [aiRow,      setAiRow]      = useState({});      // per-item AI fill in flight
+  const [aiAllBusy,  setAiAllBusy]  = useState(false);
+  const [aiProgress, setAiProgress] = useState('');
+  const [masterUrl,  setMasterUrl]  = useState('');
+  const [applyingMaster, setApplyingMaster] = useState(false);
   const fileRefs = useRef({});
 
   // Sort: missing photos first, then by type hierarchy, then alpha
@@ -3269,7 +3337,78 @@ function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
     return a.name.localeCompare(b.name);
   });
 
-  const withPhotos = items.filter(i => localUrls[i.id] ?? i.photoUrl).length;
+  const withPhotos  = items.filter(i => localUrls[i.id] ?? i.photoUrl).length;
+  const missingShown = items.filter(i => !(localUrls[i.id] ?? i.photoUrl)).length;
+
+  // Master link: apply ONE url to every shown item (Visesh). Sequential so the
+  // dedupe/notification rules that batch updates rely on stay race-safe.
+  async function applyMasterUrl() {
+    const url = masterUrl.trim();
+    if (!url.startsWith('https://') && !url.startsWith('http://')) {
+      toast?.('Master link must start with https://', 'error'); return;
+    }
+    if (!window.confirm(`Set this image on all ${items.length} shown item${items.length !== 1 ? 's' : ''}? This overwrites their current photos.`)) return;
+    setApplyingMaster(true);
+    let ok = 0;
+    for (const item of items) {
+      try {
+        await api.updateItem(item.id, { photo_url: url });
+        setLocalUrls(p => ({ ...p, [item.id]: url }));
+        ok += 1;
+      } catch { /* keep going */ }
+    }
+    setApplyingMaster(false);
+    setMasterUrl('');
+    onUpdate?.();
+    toast?.(`Applied the master photo to ${ok} item${ok !== 1 ? 's' : ''}.`, ok ? 'success' : 'error');
+  }
+
+  // AI fill ONE item. Never replaces an existing photo (replace=false) — Neil's
+  // hard rule. This is also the fix for "can't AI-fill a single item" (the old
+  // Manage button always ran every photo-less item).
+  async function aiFillOne(item) {
+    if (aiRow[item.id]) return;
+    setAiRow(p => ({ ...p, [item.id]: true }));
+    try {
+      const { results } = await api.autoFillItemPhotos([item.id], false);
+      const r = (results || [])[0];
+      if (r?.status === 'ok' && r.photo_url) setLocalUrls(p => ({ ...p, [item.id]: r.photo_url }));
+      else if (r?.status !== 'already_has_photo') toast?.(`No product photo found for ${item.name}.`, 'error');
+      onUpdate?.();
+    } catch {
+      toast?.('AI photo fill failed.', 'error');
+    } finally {
+      setAiRow(p => ({ ...p, [item.id]: false }));
+    }
+  }
+
+  // AI fill every SHOWN item that's missing a photo — scoped to the filtered set,
+  // one request at a time (server rate-limit backoff can take ~a minute per item).
+  async function aiFillAllShown() {
+    const targets = items.filter(i => !(localUrls[i.id] ?? i.photoUrl)).map(i => i.id);
+    if (!targets.length || aiAllBusy) return;
+    setAiAllBusy(true);
+    let ok = 0, failed = 0;
+    try {
+      for (let i = 0; i < targets.length; i += 1) {
+        setAiProgress(`${i + 1}/${targets.length}`);
+        try {
+          const { results } = await api.autoFillItemPhotos([targets[i]], false);
+          const r = (results || [])[0];
+          if (r?.status === 'ok' && r.photo_url) { setLocalUrls(p => ({ ...p, [targets[i]]: r.photo_url })); ok += 1; }
+          else if (r?.status !== 'already_has_photo') failed += 1;
+        } catch { failed += 1; }
+        if ((i + 1) % 3 === 0 || i === targets.length - 1) onUpdate?.();
+      }
+      toast?.(ok > 0
+        ? `AI added ${ok} photo${ok !== 1 ? 's' : ''}${failed ? ` · ${failed} couldn't be found` : ''}. Review and replace any with real unit photos.`
+        : 'No suitable product photos were found.', ok > 0 ? 'success' : 'error');
+    } finally {
+      setAiAllBusy(false);
+      setAiProgress('');
+      onUpdate?.();
+    }
+  }
 
   async function saveUrl(item) {
     const url = (urlInputs[item.id] || '').trim();
@@ -3313,9 +3452,33 @@ function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
         <div style={{ padding:'20px 24px 16px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
           <div>
             <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>Batch Update Photos</h3>
-            <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>{withPhotos} / {items.length} items have photos</p>
+            <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>{withPhotos} / {items.length} shown item{items.length !== 1 ? 's' : ''} have photos · scoped to your current filters</p>
           </div>
           <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
+        </div>
+        {/* Controls: master link applies one image to ALL shown items; AI fill
+            scoped to the shown set (Neil moved AI fill in here) */}
+        <div style={{ padding:'12px 24px', borderBottom:'1px solid var(--line)', display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', flexShrink:0 }}>
+          <Link2 size={15} style={{ color:'var(--muted)', flexShrink:0 }} />
+          <input value={masterUrl} onChange={e => setMasterUrl(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && !applyingMaster && applyMasterUrl()}
+            placeholder="Master image link — applied to all shown items"
+            className="form-input" style={{ flex:1, minWidth:200, fontSize:12.5, padding:'7px 10px', height:34 }} />
+          <button onClick={applyMasterUrl} disabled={!masterUrl.trim() || applyingMaster}
+            title="Set this one image on every item shown above"
+            style={{ height:34, padding:'0 14px', fontSize:12.5, fontWeight:700, background:'var(--pine)', color:'#fff', border:'none', borderRadius:8, cursor:(!masterUrl.trim()||applyingMaster)?'default':'pointer', fontFamily:'Inter,sans-serif', opacity:(!masterUrl.trim()||applyingMaster)?0.5:1, display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}>
+            {applyingMaster ? <Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> : <Link2 size={13} />}
+            Apply to {items.length}
+          </button>
+          {missingShown > 0 && (
+            <button onClick={aiFillAllShown} disabled={aiAllBusy}
+              title="Find product images for the shown items missing a photo — existing photos are never touched"
+              style={{ height:34, padding:'0 14px', fontSize:12.5, fontWeight:700, background:'hsla(var(--color-purple),0.1)', color:'hsl(var(--color-purple))', border:'1px solid hsla(var(--color-purple),0.35)', borderRadius:8, cursor: aiAllBusy ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', opacity: aiAllBusy ? 0.75 : 1, display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}>
+              {aiAllBusy
+                ? <><Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> Finding… {aiProgress}</>
+                : <><Wand2 size={13} /> AI Fill {missingShown} missing</>}
+            </button>
+          )}
         </div>
         {/* Scrollable list */}
         <div style={{ overflowY:'auto', flex:1, padding:'12px 24px' }}>
@@ -3361,6 +3524,13 @@ function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
                     style={{ height:30, padding:'0 10px', fontSize:12, fontWeight:600, background:'none', border:'1px solid var(--line)', borderRadius:7, cursor:'pointer', fontFamily:'Inter,sans-serif', display:'flex', alignItems:'center', gap:4, color:'var(--muted)', opacity: isUploading ? 0.5 : 1 }}>
                     {isUploading ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : <><UploadCloud size={12} /> Upload</>}
                   </button>
+                  {!currentUrl && (
+                    <button onClick={() => aiFillOne(item)} disabled={aiRow[item.id] || aiAllBusy}
+                      title="Find a product photo for this item with AI"
+                      style={{ height:30, padding:'0 10px', fontSize:12, fontWeight:600, background:'hsla(var(--color-purple),0.1)', color:'hsl(var(--color-purple))', border:'1px solid hsla(var(--color-purple),0.35)', borderRadius:7, cursor:(aiRow[item.id]||aiAllBusy)?'default':'pointer', fontFamily:'Inter,sans-serif', display:'flex', alignItems:'center', gap:4, opacity:(aiRow[item.id]||aiAllBusy)?0.6:1 }}>
+                      {aiRow[item.id] ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : <><Wand2 size={12} /> AI</>}
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -3368,6 +3538,333 @@ function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
         </div>
         <div style={{ padding:'14px 24px', borderTop:'1px solid var(--line)', display:'flex', justifyContent:'flex-end', flexShrink:0 }}>
           <button className="secondary-btn" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Item Details Panel ────────────────────────────────────────────────────────
+// Ankush: a Details button per item that opens everything NOT in the main table —
+// operational status, location assignment, and admin-defined custom fields — so
+// the table stays lean. Editable in place.
+function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved, toast }) {
+  useEscapeKey(onClose);
+  const applicable = (customFields || []).filter(f => !f.appliesToType || f.appliesToType === item.itemType);
+  const [op,      setOp]      = useState(item.opStatus || '');
+  const [values,  setValues]  = useState(() => ({ ...(item.customFields || {}) }));
+  const [loc,     setLoc]     = useState(item.assignedToLocation || '');
+  const [saving,  setSaving]  = useState(false);
+  const setVal = (k, v) => setValues(p => ({ ...p, [k]: v }));
+
+  const personHeld = !!item.assignedToEmail;
+
+  async function save() {
+    setSaving(true);
+    try {
+      const cf = {};
+      applicable.forEach(f => { cf[f.fieldKey] = values[f.fieldKey] ?? ''; });
+      await api.updateItem(item.id, { op_status: op, custom_fields: cf });
+      // Location assignment is its own endpoint (no photo-acceptance for a place).
+      if (!personHeld && (loc || '').trim() !== (item.assignedToLocation || '').trim()) {
+        await api.assignItemToLocation(item.id, (loc || '').trim());
+      }
+      toast?.(`Saved details for ${item.name}.`);
+      onSaved?.();
+      onClose();
+    } catch (e) {
+      toast?.(e?.message || 'Could not save item details.', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const Row = ({ label, children }) => (
+    <div style={{ display:'flex', gap:12, padding:'7px 0', borderBottom:'1px solid var(--line)', fontSize:13 }}>
+      <div style={{ width:130, flexShrink:0, color:'var(--muted)', fontWeight:600 }}>{label}</div>
+      <div style={{ flex:1, minWidth:0 }}>{children}</div>
+    </div>
+  );
+
+  return (
+    <div role="dialog" aria-modal="true" style={{ position:'fixed', inset:0, zIndex:1200 }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.4)' }} />
+      <div style={{ position:'absolute', top:0, right:0, height:'100vh', width:'min(520px,96vw)', background:'var(--card)', boxShadow:'-12px 0 48px rgba(0,0,0,0.22)', display:'flex', flexDirection:'column' }}>
+        <div style={{ padding:'18px 22px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
+          <div style={{ width:46, height:46, borderRadius:9, overflow:'hidden', flexShrink:0, border:'1px solid var(--line)', background: item.photoUrl ? 'transparent' : (TYPE_META[item.itemType]||TYPE_META.Other).bg, display:'flex', alignItems:'center', justifyContent:'center' }}>
+            {item.photoUrl ? <img src={item.photoUrl} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+              : React.createElement((TYPE_META[item.itemType]||TYPE_META.Other).Icon, { size:22, color:(TYPE_META[item.itemType]||TYPE_META.Other).color })}
+          </div>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontWeight:700, fontSize:15, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
+            <div style={{ fontSize:11.5, color:'var(--muted)', fontFamily:'ui-monospace,Menlo,monospace' }}>{item.serialNumber || '—'}</div>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
+        </div>
+
+        <div style={{ overflowY:'auto', flex:1, padding:'14px 22px' }}>
+          {/* Core facts — read-only here, edited via the Edit modal */}
+          <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', letterSpacing:'.06em', marginBottom:4 }}>CORE</div>
+          <Row label="Type"><TypeBadge type={item.itemType} /></Row>
+          <Row label="Make / Model">{[cleanField(item.make), cleanField(item.model), cleanField(item.year)].filter(Boolean).join(' ') || '—'}</Row>
+          <Row label="Department">{cleanField(item.department) || '—'}</Row>
+          <Row label="Location">{cleanField(item.location) || '—'}</Row>
+          <Row label="Ownership">{item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}</Row>
+          <Row label="Lifecycle"><StatusBadge status={displayStatus(item)} /></Row>
+          <Row label="Asset value">{Number(item.assetValue) > 0 ? fmtMoney(item.assetValue) : '—'}</Row>
+          {personHeld && <Row label="Held by">{item.assignedToName || item.assignedToEmail}</Row>}
+
+          {/* Operational status (Neil) */}
+          <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', letterSpacing:'.06em', margin:'16px 0 4px' }}>OPERATIONAL STATUS</div>
+          <Row label="Status">
+            {canEdit ? (
+              <select className="form-input" style={{ width:'100%' }} value={op} onChange={e => setOp(e.target.value)}>
+                <option value="">— not set —</option>
+                {OP_STATUSES.map(s => <option key={s} value={s}>{OP_STATUS_META[s]?.label || s}</option>)}
+              </select>
+            ) : <OpStatusBadge value={op} />}
+          </Row>
+
+          {/* Location assignment (Ankush) — only when not held by a person */}
+          {canEdit && item.ownershipType === 'permanent' && !personHeld && (
+            <>
+              <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', letterSpacing:'.06em', margin:'16px 0 4px' }}>ASSIGN TO LOCATION</div>
+              <Row label="Location">
+                <input className="form-input" style={{ width:'100%' }} value={loc} onChange={e => setLoc(e.target.value)}
+                  placeholder="e.g. GSVC Server Room — leave blank to unassign" />
+                <div style={{ fontSize:11, color:'var(--muted)', marginTop:4 }}>Items assigned to a place don't appear under “Who has it”.</div>
+              </Row>
+            </>
+          )}
+
+          {/* Custom fields (Ankush) */}
+          <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', letterSpacing:'.06em', margin:'16px 0 4px' }}>CUSTOM FIELDS</div>
+          {applicable.length === 0 ? (
+            <div style={{ fontSize:12.5, color:'var(--muted)', padding:'6px 0' }}>No custom fields defined for this item type.</div>
+          ) : applicable.map(f => (
+            <Row key={f.id} label={f.label}>
+              {!canEdit ? <span>{String(values[f.fieldKey] ?? '') || '—'}</span>
+                : f.fieldType === 'boolean' ? (
+                  <label style={{ display:'inline-flex', alignItems:'center', gap:7, cursor:'pointer' }}>
+                    <input type="checkbox" checked={!!values[f.fieldKey]} onChange={e => setVal(f.fieldKey, e.target.checked ? 'yes' : '')} style={{ accentColor:'var(--pine)', cursor:'pointer' }} />
+                    <span style={{ fontSize:12.5, color:'var(--muted)' }}>{values[f.fieldKey] ? 'Yes' : 'No'}</span>
+                  </label>
+                ) : f.fieldType === 'select' ? (
+                  <select className="form-input" style={{ width:'100%' }} value={values[f.fieldKey] ?? ''} onChange={e => setVal(f.fieldKey, e.target.value)}>
+                    <option value="">—</option>
+                    {(f.options || []).map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                ) : (
+                  <input className="form-input" style={{ width:'100%' }}
+                    type={f.fieldType === 'number' ? 'number' : f.fieldType === 'date' ? 'date' : 'text'}
+                    value={values[f.fieldKey] ?? ''} onChange={e => setVal(f.fieldKey, e.target.value)}
+                    placeholder={f.fieldType === 'url' ? 'https://…' : ''} />
+                )}
+            </Row>
+          ))}
+        </div>
+
+        {canEdit && (
+          <div style={{ padding:'14px 22px', borderTop:'1px solid var(--line)', display:'flex', justifyContent:'flex-end', gap:10, flexShrink:0 }}>
+            <button className="secondary-btn" onClick={onClose} disabled={saving}>Cancel</button>
+            <button className="primary-btn" onClick={save} disabled={saving}
+              style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:120, justifyContent:'center' }}>
+              {saving ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Saving…</> : 'Save Details'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Custom Fields Admin Modal ─────────────────────────────────────────────────
+// Define the custom fields that show in the Details panel. Flexible by design:
+// any type, optionally scoped to one item type (Ankush).
+const CUSTOM_FIELD_TYPE_OPTS = [
+  { v:'text', label:'Text' }, { v:'number', label:'Number' }, { v:'date', label:'Date' },
+  { v:'select', label:'Dropdown' }, { v:'boolean', label:'Yes / No' }, { v:'url', label:'Link' },
+];
+function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
+  useEscapeKey(onClose);
+  const [label,      setLabel]      = useState('');
+  const [fieldType,  setFieldType]  = useState('text');
+  const [options,    setOptions]    = useState('');
+  const [appliesTo,  setAppliesTo]  = useState('');
+  const [saving,     setSaving]     = useState(false);
+  const [busyId,     setBusyId]     = useState(null);
+
+  async function add() {
+    if (!label.trim() || saving) return;
+    setSaving(true);
+    try {
+      await api.createItemCustomField({
+        label: label.trim(), field_type: fieldType,
+        options: fieldType === 'select' ? options.split(',').map(s => s.trim()).filter(Boolean) : [],
+        applies_to_type: appliesTo,
+      });
+      setLabel(''); setOptions(''); setFieldType('text'); setAppliesTo('');
+      onChanged?.();
+      toast?.('Custom field added.');
+    } catch (e) {
+      toast?.(e?.message || 'Could not add field.', 'error');
+    } finally { setSaving(false); }
+  }
+  async function remove(f) {
+    if (!window.confirm(`Delete the "${f.label}" field? Existing values stay stored but stop showing.`)) return;
+    setBusyId(f.id);
+    try { await api.deleteItemCustomField(f.id); onChanged?.(); }
+    catch (e) { toast?.(e?.message || 'Could not delete field.', 'error'); }
+    finally { setBusyId(null); }
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:560, maxHeight:'88vh', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)' }}>
+        <div style={{ padding:'20px 24px 14px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+          <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>Custom Fields</h3>
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
+        </div>
+        <div style={{ overflowY:'auto', flex:1, padding:'14px 24px' }}>
+          {/* Existing */}
+          {(fields || []).length === 0 ? (
+            <div style={{ fontSize:13, color:'var(--muted)', padding:'4px 0 14px' }}>No custom fields yet. Add one below.</div>
+          ) : (
+            <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:16 }}>
+              {fields.map(f => (
+                <div key={f.id} style={{ display:'flex', alignItems:'center', gap:10, border:'1px solid var(--line)', borderRadius:9, padding:'8px 12px' }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:600, fontSize:13 }}>{f.label}</div>
+                    <div style={{ fontSize:11, color:'var(--muted)' }}>
+                      {(CUSTOM_FIELD_TYPE_OPTS.find(o => o.v === f.fieldType)?.label || f.fieldType)}
+                      {f.appliesToType ? ` · ${f.appliesToType} only` : ' · all types'}
+                      {f.fieldType === 'select' && f.options?.length ? ` · ${f.options.join(', ')}` : ''}
+                    </div>
+                  </div>
+                  <button onClick={() => remove(f)} disabled={busyId === f.id}
+                    style={{ background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 9px', color:'hsl(var(--color-red))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif', display:'inline-flex', alignItems:'center', gap:4 }}>
+                    {busyId === f.id ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : <Trash2 size={12} />}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Add new */}
+          <div style={{ borderTop:'1px solid var(--line)', paddingTop:14 }}>
+            <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', letterSpacing:'.06em', marginBottom:10 }}>ADD A FIELD</div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+              <div>
+                <label style={FL}>LABEL</label>
+                <input className="form-input" style={{ width:'100%' }} value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. Warranty End" />
+              </div>
+              <div>
+                <label style={FL}>TYPE</label>
+                <select className="form-input" style={{ width:'100%' }} value={fieldType} onChange={e => setFieldType(e.target.value)}>
+                  {CUSTOM_FIELD_TYPE_OPTS.map(o => <option key={o.v} value={o.v}>{o.label}</option>)}
+                </select>
+              </div>
+              {fieldType === 'select' && (
+                <div style={{ gridColumn:'1 / -1' }}>
+                  <label style={FL}>OPTIONS (comma-separated)</label>
+                  <input className="form-input" style={{ width:'100%' }} value={options} onChange={e => setOptions(e.target.value)} placeholder="e.g. Good, Fair, Poor" />
+                </div>
+              )}
+              <div style={{ gridColumn:'1 / -1' }}>
+                <label style={FL}>APPLIES TO</label>
+                <select className="form-input" style={{ width:'100%' }} value={appliesTo} onChange={e => setAppliesTo(e.target.value)}>
+                  <option value="">All item types</option>
+                  {ITEM_TYPES.map(t => <option key={t} value={t}>{t} only</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style={{ padding:'14px 24px', borderTop:'1px solid var(--line)', display:'flex', justifyContent:'flex-end', gap:10, flexShrink:0 }}>
+          <button className="secondary-btn" onClick={onClose}>Done</button>
+          <button className="primary-btn" onClick={add} disabled={!label.trim() || saving}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:110, justifyContent:'center', opacity:(!label.trim()||saving)?0.55:1 }}>
+            {saving ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <Plus size={14} />} Add Field
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Recycle Bin (deleted items) ───────────────────────────────────────────────
+// Soft-deleted items, restorable (Ankush). Shows "Deleted In" = location at the
+// time of deletion, plus who/when.
+function DeletedItemsModal({ onClose, onRestored, toast }) {
+  useEscapeKey(onClose);
+  const [rows,      setRows]      = useState(null);
+  const [selected,  setSelected]  = useState(new Set());
+  const [busy,      setBusy]      = useState(false);
+
+  const load = useCallback(() => {
+    api.getDeletedItems().then(setRows).catch(() => setRows([]));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const toggle = id => setSelected(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const fmtWhen = iso => { try { return new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }); } catch { return ''; } };
+
+  async function restore(ids) {
+    if (!ids.length || busy) return;
+    setBusy(true);
+    try {
+      if (ids.length === 1) await api.restoreItem(ids[0]);
+      else await api.bulkRestoreItems(ids);
+      toast?.(`Restored ${ids.length} item${ids.length !== 1 ? 's' : ''}.`);
+      setSelected(new Set());
+      onRestored?.();
+      load();
+    } catch (e) {
+      toast?.(e?.message || 'Could not restore.', 'error');
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:680, maxHeight:'88vh', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)' }}>
+        <div style={{ padding:'20px 24px 14px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+          <div>
+            <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>Recycle Bin</h3>
+            <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>{rows ? `${rows.length} deleted item${rows.length !== 1 ? 's' : ''}` : 'Loading…'} · restore anything deleted by mistake</p>
+          </div>
+          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+            {selected.size > 0 && (
+              <button onClick={() => restore([...selected])} disabled={busy}
+                style={{ display:'inline-flex', alignItems:'center', gap:6, background:'var(--pine)', color:'#fff', border:'none', borderRadius:8, padding:'7px 12px', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+                <RotateCcw size={13} /> Restore {selected.size}
+              </button>
+            )}
+            <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
+          </div>
+        </div>
+        <div style={{ overflowY:'auto', flex:1, padding:'8px 24px 16px' }}>
+          {!rows ? <SkeletonBlocks count={5} height={48} borderRadius={8} />
+            : rows.length === 0 ? (
+              <div style={{ textAlign:'center', padding:'48px 0', color:'var(--muted)' }}>
+                <Trash2 size={30} style={{ opacity:.2, display:'block', margin:'0 auto 10px' }} />
+                The recycle bin is empty.
+              </div>
+            ) : rows.map(item => (
+              <div key={item.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 0', borderBottom:'1px solid var(--line)' }}>
+                <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)} style={{ cursor:'pointer', accentColor:'var(--pine)', flexShrink:0 }} />
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontWeight:600, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
+                  <div style={{ fontSize:11.5, color:'var(--muted)' }}>
+                    {item.serialNumber || '—'} · Deleted in <strong style={{ color:'var(--ink)' }}>{item.deletedLocation || '—'}</strong>
+                    {item.deletedAt && <> · {fmtWhen(item.deletedAt)}</>}
+                    {item.deletedBy && <> · by {item.deletedBy}</>}
+                  </div>
+                </div>
+                <button onClick={() => restore([item.id])} disabled={busy}
+                  style={{ display:'inline-flex', alignItems:'center', gap:5, background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'6px 12px', color:'var(--ink)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+                  <RotateCcw size={12} /> Restore
+                </button>
+              </div>
+            ))}
         </div>
       </div>
     </div>
@@ -3658,7 +4155,7 @@ function OverdueAlertModal({ checkouts, onClose, toast, onCustomAlert }) {
 // Memoised rows so toggling ONE checkbox re-renders only that row, not all 360+
 // (selecting an item used to repaint the whole table — visible mouse lag). isSelected
 // is a boolean and every handler is stable, so memo skips the untouched rows.
-const ManageRow = memo(function ManageRow({ item, isSelected, onToggle, onEdit, onDelete, onAssign, onPreview, canDelete }) {
+const ManageRow = memo(function ManageRow({ item, isSelected, onToggle, onEdit, onDelete, onAssign, onDetails, onPreview, canDelete }) {
   return (
     <tr style={{ borderTop:'1px solid var(--line)', background: isSelected ? 'hsla(var(--color-blue),0.05)' : 'transparent' }}>
       <td style={{ padding:'10px 14px' }}>
@@ -3688,6 +4185,7 @@ const ManageRow = memo(function ManageRow({ item, isSelected, onToggle, onEdit, 
         </span>
       </td>
       <td style={{ padding:'10px 14px' }}><StatusBadge status={displayStatus(item)} /></td>
+      <td style={{ padding:'10px 14px' }}><OpStatusBadge value={item.opStatus} /></td>
       {/* Actions pinned to the right so they stay reachable when the table is wider
           than the viewport (narrow laptops clipped Assign/Edit/Delete). Opaque bg
           masks content scrolling underneath; no shadow so it's seamless when the
@@ -3699,6 +4197,12 @@ const ManageRow = memo(function ManageRow({ item, isSelected, onToggle, onEdit, 
               title={item.assignedToEmail ? `Currently with ${item.assignedToName || item.assignedToEmail}` : 'Assign to a person'}
               style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
               <User size={12} /> {item.assignedToEmail ? 'Reassign' : 'Assign'}
+            </button>
+          )}
+          {onDetails && (
+            <button onClick={() => onDetails(item)} title="View all details & custom fields"
+              style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+              <FileText size={12} /> Details
             </button>
           )}
           <button onClick={() => onEdit(item)}
@@ -3717,7 +4221,7 @@ const ManageRow = memo(function ManageRow({ item, isSelected, onToggle, onEdit, 
   );
 });
 
-const ManageCard = memo(function ManageCard({ item, isSelected, onToggle, onEdit, onDelete, onAssign, onPreview, canDelete }) {
+const ManageCard = memo(function ManageCard({ item, isSelected, onToggle, onEdit, onDelete, onAssign, onDetails, onPreview, canDelete }) {
   return (
     <div style={{ border:'1px solid var(--line)', borderRadius:12, background: isSelected ? 'hsla(var(--color-blue),0.05)' : 'var(--card)', padding:'12px 14px', boxShadow:'var(--shadow-sm)' }}>
       <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -3743,6 +4247,7 @@ const ManageCard = memo(function ManageCard({ item, isSelected, onToggle, onEdit
         <span style={{ fontSize:10.5, fontWeight:600, padding:'2px 8px', borderRadius:20, background: item.ownershipType === 'permanent' ? 'hsla(var(--color-purple),0.1)' : 'hsla(var(--color-blue),0.1)', color: item.ownershipType === 'permanent' ? 'hsl(var(--color-purple))' : 'hsl(var(--color-blue))' }}>
           {item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}
         </span>
+        {item.opStatus && <OpStatusBadge value={item.opStatus} />}
         {Number(item.assetValue) > 0 && <span style={{ fontSize:11, fontWeight:700, color:'var(--muted)' }}>{fmtMoney(item.assetValue)}</span>}
         <div style={{ marginLeft:'auto', display:'flex', gap:6 }}>
           {item.ownershipType === 'permanent' && onAssign && (
@@ -3751,6 +4256,7 @@ const ManageCard = memo(function ManageCard({ item, isSelected, onToggle, onEdit
               {item.assignedToEmail ? 'Reassign' : 'Assign'}
             </button>
           )}
+          {onDetails && <button onClick={() => onDetails(item)} style={{ background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Details</button>}
           <button onClick={() => onEdit(item)} style={{ background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Edit</button>
           {canDelete && (
             <button onClick={() => onDelete(item)} style={{ background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-red))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Delete</button>
@@ -3761,7 +4267,7 @@ const ManageCard = memo(function ManageCard({ item, isSelected, onToggle, onEdit
   );
 });
 
-const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign }) {
+const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, filterControls }) {
   const [photoPreview,       setPhotoPreview]       = useState(null);
   const [selected,           setSelected]           = useState(new Set());
   const [sortCol,            setSortCol]            = useState('name');
@@ -3771,42 +4277,9 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
   const [batchEditing,       setBatchEditing]       = useState(false);
   const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false);
   const [batchDeleting,      setBatchDeleting]      = useState(false);
-  const [aiPhotoBusy,        setAiPhotoBusy]        = useState(false);
-  const [aiPhotoProgress,    setAiPhotoProgress]    = useState('');
   const isMobile = useIsMobile(); // phones render cards, not the table
 
-  // Claude finds and fills product images for items MISSING a photo only.
-  // Neil: AI fill must never overwrite an existing photo — someone adds 150
-  // real photos, an idiot clicks this, and all that work is gone. No replace
-  // mode, regardless of row selection.
-  // ONE item per request — rate-limit backoff on the server can take a minute
-  // per item, and batching 5 into one request blew past Azure's HTTP timeout.
-  async function runAiPhotoFill() {
-    const targets = items.filter(i => !i.photoUrl).map(i => i.id);
-    if (!targets.length || aiPhotoBusy) return;
-    setAiPhotoBusy(true);
-    let ok = 0, failed = 0;
-    try {
-      for (let i = 0; i < targets.length; i += 1) {
-        setAiPhotoProgress(`${i + 1}/${targets.length}`);
-        try {
-          const { results } = await api.autoFillItemPhotos([targets[i]], false);
-          ok     += results.filter(r => r.status === 'ok').length;
-          failed += results.filter(r => !['ok', 'already_has_photo'].includes(r.status)).length;
-        } catch { failed += 1; /* one item failing must not abort the run */ }
-        if ((i + 1) % 3 === 0 || i === targets.length - 1) refreshItems(); // photos appear as they land
-      }
-      toast(ok > 0
-        ? `AI added ${ok} photo${ok !== 1 ? 's' : ''}${failed ? ` · ${failed} couldn't be found` : ''}. Review them and replace any with real unit photos.`
-        : 'No suitable product photos were found.', ok > 0 ? 'success' : 'error');
-    } catch (err) {
-      toast(err?.message || 'AI photo fill failed.', 'error');
-    } finally {
-      setAiPhotoBusy(false);
-      setAiPhotoProgress('');
-      refreshItems();
-    }
-  }
+  // (AI photo fill lives inside BatchPhotoModal now — Neil moved it off this bar.)
 
   const TYPE_ORDER = ['Vehicles', 'Devices', 'Tools', 'Equipment', 'Keys', 'Other'];
 
@@ -3912,6 +4385,9 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
           <input placeholder="Search items…" value={searchValue} onChange={e => onSearchChange(e.target.value)} />
         </div>
       )}
+      {/* Filters live HERE now — right above the items they filter, below the KPI
+          cards (Ankush: they were wrongly at the top, far from the list). */}
+      {filterControls}
       {/* Action bar */}
       <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap', alignItems:'center' }}>
         <button className="primary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onAdd}>
@@ -3926,6 +4402,16 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
         <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onReport}>
           <FileBarChart size={14} /> Export Report
         </button>
+        {onManageCustomFields && (
+          <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onManageCustomFields}>
+            <FileText size={14} /> Custom Fields
+          </button>
+        )}
+        {canDelete && onShowDeleted && (
+          <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onShowDeleted}>
+            <Trash2 size={14} /> Recycle Bin
+          </button>
+        )}
         {/* Batch Update Photos */}
         <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7, position:'relative' }} onClick={() => setBatchPhotoOpen(true)}>
           <Image size={14} /> Batch Update Photos
@@ -3935,17 +4421,10 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
             </span>
           )}
         </button>
-        {/* AI photo fill — Claude web-searches each item's make/model and pulls
-            the product image. Missing-photo items ONLY; never replaces. */}
-        {missingPhotos > 0 && (
-          <button onClick={runAiPhotoFill} disabled={aiPhotoBusy}
-            title="Find product images for items missing a photo — existing photos are never touched"
-            style={{ display:'inline-flex', alignItems:'center', gap:7, background:'hsla(var(--color-purple),0.1)', color:'hsl(var(--color-purple))', border:'1px solid hsla(var(--color-purple),0.35)', borderRadius:9, padding:'7px 14px', fontWeight:700, fontSize:12.5, cursor: aiPhotoBusy ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', opacity: aiPhotoBusy ? 0.75 : 1 }}>
-            {aiPhotoBusy
-              ? <><Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> Finding photos… {aiPhotoProgress}</>
-              : <><Wand2 size={13} /> AI Photo Fill ({missingPhotos})</>}
-          </button>
-        )}
+        {/* AI photo fill moved INTO Batch Update Photos (Neil: it's dangerous on the
+            Manage bar — one click could overwrite a whole catalogue's real photos).
+            It now lives per-row + "AI fill all shown" inside that modal, scoped to
+            the current filter. */}
         {/* Batch edit — change the same field(s) across the selection */}
         {selected.size > 0 && (
           <button onClick={() => setBatchEditOpen(true)}
@@ -3992,12 +4471,12 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
           {sorted.map(item => (
             <ManageCard key={item.id} item={item} isSelected={selected.has(item.id)}
               onToggle={toggleSelect} onEdit={onEdit} onDelete={onDelete} onAssign={onAssign}
-              onPreview={setPhotoPreview} canDelete={canDelete} />
+              onDetails={onDetails} onPreview={setPhotoPreview} canDelete={canDelete} />
           ))}
         </div>
       ) : (
         <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto', background:'var(--card)' }}>
-          <table style={{ width:'100%', minWidth:1080, borderCollapse:'collapse', fontSize:13 }}>
+          <table style={{ width:'100%', minWidth:1180, borderCollapse:'collapse', fontSize:13 }}>
             <thead>
               <tr style={{ background:'var(--mist)' }}>
                 <th style={{ padding:'10px 14px', width:36 }}>
@@ -4016,7 +4495,8 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
                 <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em' }}>Dept</th>
                 <SortTh col="location" label="Location" />
                 <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em' }}>Ownership</th>
-                <SortTh col="status" label="Status" />
+                <SortTh col="status" label="Lifecycle" />
+                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em' }}>Status</th>
                 <th style={{ padding:'10px 14px', position:'sticky', right:0, background:'var(--mist)' }}></th>
               </tr>
             </thead>
@@ -4024,7 +4504,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
               {sorted.map(item => (
                 <ManageRow key={item.id} item={item} isSelected={selected.has(item.id)}
                   onToggle={toggleSelect} onEdit={onEdit} onDelete={onDelete} onAssign={onAssign}
-                  onPreview={setPhotoPreview} canDelete={canDelete} />
+                  onDetails={onDetails} onPreview={setPhotoPreview} canDelete={canDelete} />
               ))}
             </tbody>
           </table>
@@ -4037,7 +4517,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
 
       {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
       {batchPhotoOpen && (
-        <BatchPhotoModal items={items} onClose={() => setBatchPhotoOpen(false)} onUpdate={refreshItems} toast={toast} />
+        <BatchPhotoModal items={sorted} onClose={() => setBatchPhotoOpen(false)} onUpdate={refreshItems} toast={toast} />
       )}
       {batchEditOpen && (
         <BatchEditModal
@@ -5552,6 +6032,9 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
     // it filed unassigned items under whoever added them (Sai's Oneplus bug).
     for (const i of items) {
       if (i.ownershipType !== 'permanent' && i.status !== 'permanently_assigned') continue;
+      // Items assigned to a PLACE (not a person) belong on the location view, not
+      // here — a single site can hold hundreds and would swamp this list (Ankush).
+      if (i.assignedToLocation) continue;
       const email = (i.assignedToEmail || '').toLowerCase();
       const owner = (i.assignedToName || '').trim();
       if (!email && !owner) continue;
@@ -5843,12 +6326,28 @@ export default function InventoryManagement({ activeSub }) {
   const [locationFilter, setLocationFilter] = useState('All');
   // Type filter auto-populates from the data so imported types (e.g. "IP Camera")
   // appear alongside the built-in ones; "Other" stays last.
+  // Ankush: when a DEPARTMENT is selected, hide types that department never has
+  // (Ops has no networking, IT has no vehicles) — derived from the live data so
+  // the full set still exists system-wide. With "All departments" we show
+  // everything, keeping the complexity available.
   const typeOptions = useMemo(() => {
-    const base = ITEM_TYPES.filter(t => t !== 'Other');
-    const custom = [...new Set(items.map(i => (i.itemType || '').trim()).filter(Boolean))]
-      .filter(t => !ITEM_TYPES.includes(t)).sort();
-    return [...base, ...custom, 'Other'];
-  }, [items]);
+    if (deptFilter === 'All') {
+      const base = ITEM_TYPES.filter(t => t !== 'Other');
+      const custom = [...new Set(items.map(i => (i.itemType || '').trim()).filter(Boolean))]
+        .filter(t => !ITEM_TYPES.includes(t)).sort();
+      return [...base, ...custom, 'Other'];
+    }
+    const present = new Set(items.filter(i => (i.department || '') === deptFilter)
+      .map(i => (i.itemType || '').trim()).filter(Boolean));
+    const builtins = ITEM_TYPES.filter(t => t !== 'Other' && present.has(t));
+    const custom   = [...present].filter(t => !ITEM_TYPES.includes(t)).sort();
+    return [...builtins, ...custom, ...(present.has('Other') ? ['Other'] : [])];
+  }, [items, deptFilter]);
+  // If the selected type isn't valid for the chosen department, fall back to All
+  // so the list never shows zero items because of a stale, now-hidden type.
+  useEffect(() => {
+    if (typeFilter !== 'All' && !typeOptions.includes(typeFilter)) setTypeFilter('All');
+  }, [typeOptions, typeFilter]);
   // Location filter populates entirely from the data (locations come from the import).
   const locationOptions = useMemo(() =>
     [...new Set(items.map(i => (i.location || '').trim()).filter(Boolean))].sort(),
@@ -5870,11 +6369,21 @@ export default function InventoryManagement({ activeSub }) {
   const deferredSearch = useDeferredValue(search);
   const [addItemOpen,   setAddItemOpen]   = useState(false);
   const [editingItem,   setEditingItem]   = useState(null);
+  const [detailsItem,   setDetailsItem]   = useState(null);        // item Details slide-over (Ankush)
   const [deletingItem,  setDeletingItem]  = useState(null);
+  const [deletedOpen,   setDeletedOpen]   = useState(false);       // recycle bin
+  const [customFieldsOpen, setCustomFieldsOpen] = useState(false); // custom-field admin
   const [importOpen,    setImportOpen]    = useState(false);
   const [reportOpen,    setReportOpen]    = useState(false);
   const [sendAlertOpen, setSendAlertOpen] = useState(false);       // generic compose-your-own alert
   const [overdueAlertOpen, setOverdueAlertOpen] = useState(false); // person-grouped overdue alert (default)
+  // Admin-defined custom field definitions — loaded once, surfaced in the Details
+  // panel and editable via the Custom Fields modal.
+  const [customFields, setCustomFields] = useState([]);
+  const refreshCustomFields = useCallback(() => {
+    api.getItemCustomFields().then(setCustomFields).catch(() => {});
+  }, []);
+  useEffect(() => { refreshCustomFields(); }, [refreshCustomFields]);
 
   const [toasts, setToasts] = useState([]);
   const toast = useCallback((message, kind = 'success') => {
@@ -6002,6 +6511,32 @@ export default function InventoryManagement({ activeSub }) {
     );
   }
 
+  // The four filter selects, reused in two spots: the header (Catalog/Audit) and
+  // below the KPI cards on Manage (Ankush moved them down, next to the items).
+  const filterSelects = (
+    <>
+      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+        <Filter size={13} style={{ color:'var(--muted)' }} />
+        <select className="form-input" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:150 }}>
+          {DEPARTMENTS.map(d => <option key={d} value={d}>{d === 'All' ? 'All departments' : d}</option>)}
+        </select>
+      </div>
+      <select className="form-input" value={locationFilter} onChange={e => setLocationFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:130 }}>
+        <option value="All">All locations</option>
+        {locationOptions.map(l => <option key={l}>{l}</option>)}
+      </select>
+      <select className="form-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:110 }}>
+        <option value="All">All types</option>
+        {typeOptions.map(t => <option key={t}>{t}</option>)}
+      </select>
+      <select className="form-input" value={ownershipFilter} onChange={e => setOwnershipFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:130 }}>
+        <option value="All">All ownership</option>
+        <option value="transient">Temporary</option>
+        <option value="permanent">Permanent</option>
+      </select>
+    </>
+  );
+
   return (
     <div style={{ animation:'fadeIn var(--transition-normal) ease-in-out' }}>
       {/* Header */}
@@ -6011,30 +6546,11 @@ export default function InventoryManagement({ activeSub }) {
           <p>Browse company assets, check out what you need, or request a purchase</p>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-          {/* Always mounted (hidden, not removed) so the header height never
-              changes between tabs — Neil: the top nav must not jump around.
-              data-vis lets the mobile CSS drop the placeholder from flow. */}
-          <div data-vis={['catalog','manage','audit'].includes(mainTab) ? 'visible' : 'hidden'}
-            style={{ display:'flex', alignItems:'center', gap:10, visibility: ['catalog','manage','audit'].includes(mainTab) ? 'visible' : 'hidden' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-              <Filter size={13} style={{ color:'var(--muted)' }} />
-              <select className="form-input" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:150 }}>
-                {DEPARTMENTS.map(d => <option key={d} value={d}>{d === 'All' ? 'All departments' : d}</option>)}
-              </select>
-            </div>
-            <select className="form-input" value={locationFilter} onChange={e => setLocationFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:130 }}>
-              <option value="All">All locations</option>
-              {locationOptions.map(l => <option key={l}>{l}</option>)}
-            </select>
-            <select className="form-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:110 }}>
-              <option value="All">All types</option>
-              {typeOptions.map(t => <option key={t}>{t}</option>)}
-            </select>
-            <select className="form-input" value={ownershipFilter} onChange={e => setOwnershipFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:130 }}>
-              <option value="All">All ownership</option>
-              <option value="transient">Temporary</option>
-              <option value="permanent">Permanent</option>
-            </select>
+          {/* Catalog/Audit keep filters here; Manage renders them below its KPI
+              cards instead (Ankush). Always mounted so the header height is stable. */}
+          <div data-vis={['catalog','audit'].includes(mainTab) ? 'visible' : 'hidden'}
+            style={{ display:'flex', alignItems:'center', gap:10, visibility: ['catalog','audit'].includes(mainTab) ? 'visible' : 'hidden' }}>
+            {['catalog','audit'].includes(mainTab) && filterSelects}
           </div>
           {/* Cart last: it's the one control visible on every tab, so it anchors
               the right edge instead of floating next to hidden filters */}
@@ -6094,7 +6610,9 @@ export default function InventoryManagement({ activeSub }) {
       )}
 
       {/* KPI strip — manage tab only, rendered below the strip for the same reason */}
-      {mainTab === 'manage' && <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(auto-fit, minmax(150px, 1fr))', margin:'0 0 20px' }}>
+      {/* Compact KPI cards (Ankush: they were too large) — smaller min width,
+          tighter padding and value size. */}
+      {mainTab === 'manage' && <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(auto-fit, minmax(124px, 1fr))', gap:10, margin:'0 0 16px' }}>
         {[
           { label:'Available',      value: deptItems.filter(i => i.status === 'available').length,    color:'card-green'  },
           { label:'Total Items',    value: deptItems.length,                                          color:'card-blue'   },
@@ -6102,9 +6620,9 @@ export default function InventoryManagement({ activeSub }) {
           { label:'Missing Photos', value: deptItems.filter(i => !i.photoUrl).length,                 color: deptItems.filter(i => !i.photoUrl).length > 0 ? 'card-red' : '' },
           { label:'Inventory Value', value: fmtMoney(deptItems.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },
         ].map(({ label, value, color }) => (
-          <div key={label} className={`kpi-card ${color}`}>
-            <div className="kpi-label">{label}</div>
-            <div className="kpi-value">{value}</div>
+          <div key={label} className={`kpi-card ${color}`} style={{ padding:'10px 12px' }}>
+            <div className="kpi-label" style={{ fontSize:11 }}>{label}</div>
+            <div className="kpi-value" style={{ fontSize:20, lineHeight:1.1 }}>{value}</div>
           </div>
         ))}
       </div>}
@@ -6131,7 +6649,10 @@ export default function InventoryManagement({ activeSub }) {
           onDelete={setDeletingItem} onImport={openImport}
           onExport={exportCsv} onReport={openReport}
           checkouts={checkouts} toast={toast}
-          onAssign={openAssign}
+          onAssign={openAssign} onDetails={setDetailsItem}
+          onShowDeleted={() => setDeletedOpen(true)}
+          onManageCustomFields={() => setCustomFieldsOpen(true)}
+          filterControls={<div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', marginBottom:16 }}>{filterSelects}</div>}
         />
       )}
       {mainTab === 'myitems' && (
@@ -6191,6 +6712,17 @@ export default function InventoryManagement({ activeSub }) {
       {addItemOpen  && <AddItemModal   onClose={() => setAddItemOpen(false)}  onSave={handleAddItem} />}
       {editingItem  && <EditItemModal  item={editingItem} onClose={() => setEditingItem(null)} onSave={data => handleEditItem(editingItem, data)} />}
       {deletingItem && <DeleteItemModal item={deletingItem} onClose={() => setDeletingItem(null)} onConfirm={() => handleDeleteItem(deletingItem)} />}
+      {detailsItem && (
+        <ItemDetailsPanel item={detailsItem} customFields={customFields} canEdit={isManager}
+          onClose={() => setDetailsItem(null)} onSaved={refreshItems} toast={toast} />
+      )}
+      {deletedOpen && (
+        <DeletedItemsModal onClose={() => setDeletedOpen(false)} onRestored={refreshItems} toast={toast} />
+      )}
+      {customFieldsOpen && (
+        <CustomFieldsAdminModal fields={customFields} onClose={() => setCustomFieldsOpen(false)}
+          onChanged={refreshCustomFields} toast={toast} />
+      )}
       {importOpen   && <ImportItemsModal onClose={() => setImportOpen(false)} onImport={handleImport} />}
       {reportOpen   && <ReportModal onClose={() => setReportOpen(false)} checkouts={checkouts} />}
       {returningCo  && (

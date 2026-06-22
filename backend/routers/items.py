@@ -15,7 +15,7 @@ from typing import Optional
 import httpx
 from database import get_db
 from auth import get_current_user, require_level_or_module
-from models import Item, ItemCheckout, ItemCartEntry, ItemAssignment, NexusRole, NexusNotification, AuditLog
+from models import Item, ItemCheckout, ItemCartEntry, ItemAssignment, ItemCustomField, NexusRole, NexusNotification, AuditLog
 
 _VALID_TRANSITIONS = {
     "approved":         {"pending"},
@@ -30,6 +30,11 @@ _ROLE_LEVEL = {"employee": 1, "supervisor": 2, "manager": 3, "administrator": 4,
 
 _ITEM_TYPES    = ["Devices", "Tools", "Vehicles", "Equipment", "Keys", "Other"]
 _ITEM_STATUSES = ["available", "checked_out", "permanently_assigned", "retired"]
+# Operational status (Neil) — what condition/deployment state the unit is in. SEPARATE
+# from the lifecycle `status` above (which is auto-driven by checkouts/assignments).
+# '' = unset. Mirror _OP_STATUSES on the frontend if you change this list.
+_OP_STATUSES   = ["deployed", "in_storage", "in_repair", "needs_replacement", "retired", "lost"]
+_CUSTOM_FIELD_TYPES = ["text", "number", "date", "select", "boolean", "url"]
 
 _TYPE_DEFAULT_OWNER = {
     "Devices":   "IT",
@@ -139,10 +144,28 @@ def _item_to_dict(i: Item) -> dict:
         "createdAt":     i.created_at,
         "assignedToEmail": i.assigned_to_email or "",
         "assignedToName":  i.assigned_to_name  or "",
+        "assignedToLocation": i.assigned_to_location or "",
         "assignedAt":      i.assigned_at       or "",
         # NULL (pre-migration rows) must read as True — photos required by default
         "pictureRequired": True if i.picture_required is None else bool(i.picture_required),
         "assetValue":      float(i.asset_value or 0),
+        "opStatus":        i.op_status or "",
+        "customFields":    i.custom_fields if isinstance(i.custom_fields, dict) else {},
+        "deletedAt":       i.deleted_at or "",
+        "deletedBy":       i.deleted_by or "",
+        "deletedLocation": i.deleted_location or "",
+    }
+
+
+def _custom_field_to_dict(f: ItemCustomField) -> dict:
+    return {
+        "id":            f.id,
+        "fieldKey":      f.field_key,
+        "label":         f.label,
+        "fieldType":     f.field_type,
+        "options":       f.options if isinstance(f.options, list) else [],
+        "appliesToType": f.applies_to_type or "",
+        "sortOrder":     f.sort_order or 0,
     }
 
 
@@ -202,6 +225,8 @@ class ItemCreate(BaseModel):
     photo_url:      Optional[str] = ""
     picture_required: Optional[bool]  = True
     asset_value:      Optional[float] = 0
+    op_status:        Optional[str]  = ""
+    custom_fields:    Optional[dict] = None
 
 
 class ItemUpdate(BaseModel):
@@ -218,6 +243,8 @@ class ItemUpdate(BaseModel):
     photo_url:      Optional[str] = None
     picture_required: Optional[bool]  = None
     asset_value:      Optional[float] = None
+    op_status:        Optional[str]  = None
+    custom_fields:    Optional[dict] = None
 
 
 class ItemImportRow(BaseModel):
@@ -244,7 +271,10 @@ def list_items(
     status:     Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    q = db.query(Item).order_by(Item.department, Item.item_type, Item.name)
+    # Soft-deleted items (deleted_at set) are hidden from the normal catalogue —
+    # they live in GET /deleted until restored or purged (Ankush). NULL = legacy row.
+    q = db.query(Item).filter(or_(Item.deleted_at.is_(None), Item.deleted_at == "")) \
+          .order_by(Item.department, Item.item_type, Item.name)
     if department:
         q = q.filter(Item.department == department)
     if item_type:
@@ -384,6 +414,8 @@ def create_item(body: ItemCreate, user: dict = Depends(require_items_admin), db:
             created_at=now,
             picture_required=True if body.picture_required is None else bool(body.picture_required),
             asset_value=float(body.asset_value or 0),
+            op_status=(body.op_status or "").strip() if (body.op_status or "").strip() in _OP_STATUSES else "",
+            custom_fields=body.custom_fields if isinstance(body.custom_fields, dict) else {},
         )
         db.add(item)
         try:
@@ -577,14 +609,37 @@ def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(require_ite
     if body.photo_url is not None: item.photo_url = body.photo_url.strip()
     if body.picture_required is not None: item.picture_required = bool(body.picture_required)
     if body.asset_value      is not None: item.asset_value      = float(body.asset_value)
+    if body.op_status is not None:
+        op = body.op_status.strip()
+        if op and op not in _OP_STATUSES:
+            raise HTTPException(400, f"Invalid op_status. Must be one of: {', '.join(_OP_STATUSES)}")
+        item.op_status = op
+    if body.custom_fields is not None:
+        # Merge: only the keys sent are changed; a key set to '' / None clears that field.
+        merged = dict(item.custom_fields or {})
+        for k, v in body.custom_fields.items():
+            if v in (None, ""):
+                merged.pop(k, None)
+            else:
+                merged[k] = v
+        item.custom_fields = merged
     db.commit()
     return _item_to_dict(item)
+
+
+def _soft_delete(item: Item, user_email: str) -> None:
+    """Mark an item deleted instead of dropping the row, so it can be restored and
+    carries a "Deleted In" (location at deletion time) — Ankush. The serial/index
+    stay reserved until the row is restored or purged."""
+    item.deleted_at = datetime.now(timezone.utc).isoformat()
+    item.deleted_by = user_email
+    item.deleted_location = item.location or ""
 
 
 @router.delete("/{item_id}")
 def delete_item(item_id: str, user: dict = Depends(require_items_delete), db: Session = Depends(get_db)):
     item = db.query(Item).filter(Item.id == item_id).first()
-    if not item:
+    if not item or item.deleted_at:
         raise HTTPException(404, "Item not found")
     active = db.query(ItemCheckout).filter(
         ItemCheckout.item_id == item_id,
@@ -592,7 +647,7 @@ def delete_item(item_id: str, user: dict = Depends(require_items_delete), db: Se
     ).count()
     if active:
         raise HTTPException(409, "Cannot delete an item with an active checkout against it")
-    db.delete(item)
+    _soft_delete(item, user["email"])
     db.commit()
     return {"ok": True}
 
@@ -603,7 +658,7 @@ class BulkDeleteRequest(BaseModel):
 
 @router.post("/bulk-delete")
 def bulk_delete_items(body: BulkDeleteRequest, user: dict = Depends(require_items_delete), db: Session = Depends(get_db)):
-    """Delete many items in ONE transaction instead of one request per item
+    """Soft-delete many items in ONE transaction instead of one request per item
     (the client used to loop, which made deleting 30+ items take 10-20s). Items
     with an active checkout are skipped and reported as `blocked`."""
     ids = [i for i in (body.ids or []) if i]
@@ -618,7 +673,7 @@ def bulk_delete_items(body: BulkDeleteRequest, user: dict = Depends(require_item
             ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"]),
         ).all()
     }
-    items = db.query(Item).filter(Item.id.in_(ids)).all()
+    items = db.query(Item).filter(Item.id.in_(ids), or_(Item.deleted_at.is_(None), Item.deleted_at == "")).all()
     found_ids = {it.id for it in items}
 
     blocked, deleted = [], 0
@@ -626,7 +681,7 @@ def bulk_delete_items(body: BulkDeleteRequest, user: dict = Depends(require_item
         if it.id in active_item_ids:
             blocked.append({"id": it.id, "name": it.name, "reason": "active checkout"})
             continue
-        db.delete(it)
+        _soft_delete(it, user["email"])
         deleted += 1
     db.commit()  # single commit for the whole batch
 
@@ -635,6 +690,48 @@ def bulk_delete_items(body: BulkDeleteRequest, user: dict = Depends(require_item
         "blocked": blocked,
         "notFound": [i for i in ids if i not in found_ids],
     }
+
+
+@router.get("/deleted")
+def list_deleted_items(user: dict = Depends(require_items_delete), db: Session = Depends(get_db)):
+    """The recycle bin — soft-deleted items, most-recently-deleted first, so a
+    bad 'select all + delete' is recoverable (Ankush)."""
+    rows = db.query(Item).filter(Item.deleted_at.isnot(None), Item.deleted_at != "") \
+             .order_by(Item.deleted_at.desc()).limit(2000).all()
+    return [_item_to_dict(i) for i in rows]
+
+
+class RestoreRequest(BaseModel):
+    ids: list[str]
+
+
+def _restore(item: Item) -> None:
+    item.deleted_at = item.deleted_by = item.deleted_location = ""
+
+
+@router.post("/{item_id}/restore")
+def restore_item(item_id: str, user: dict = Depends(require_items_delete), db: Session = Depends(get_db)):
+    item = db.query(Item).filter(Item.id == item_id).first()
+    if not item:
+        raise HTTPException(404, "Item not found")
+    if not item.deleted_at:
+        raise HTTPException(409, "Item is not deleted")
+    _restore(item)
+    db.commit()
+    return _item_to_dict(item)
+
+
+@router.post("/bulk-restore")
+def bulk_restore_items(body: RestoreRequest, user: dict = Depends(require_items_delete), db: Session = Depends(get_db)):
+    ids = [i for i in (body.ids or []) if i]
+    if not ids:
+        return {"restored": 0}
+    restored = 0
+    for it in db.query(Item).filter(Item.id.in_(ids), Item.deleted_at.isnot(None), Item.deleted_at != "").all():
+        _restore(it)
+        restored += 1
+    db.commit()
+    return {"restored": restored}
 
 
 class BulkUpdateRequest(BaseModel):
@@ -646,7 +743,7 @@ class BulkUpdateRequest(BaseModel):
 # here; status/photo/assignment lifecycle are owned by their own flows.
 _BATCH_EDITABLE = {
     "name", "item_type", "make", "model", "year",
-    "department", "default_owner", "ownership_type", "location",
+    "department", "default_owner", "ownership_type", "location", "op_status",
 }
 
 
@@ -666,6 +763,11 @@ def bulk_update_items(body: BulkUpdateRequest, user: dict = Depends(require_item
     if "ownership_type" in changes:
         o = (changes["ownership_type"] or "transient").strip().lower()
         changes["ownership_type"] = o if o in ("permanent", "transient") else "transient"
+    if "op_status" in changes:
+        op = (changes["op_status"] or "").strip()
+        if op and op not in _OP_STATUSES:
+            raise HTTPException(400, f"Invalid op_status. Must be one of: {', '.join(_OP_STATUSES)}")
+        changes["op_status"] = op
     if "name" in changes:
         nm = (changes["name"] or "").strip()
         if not nm:
@@ -676,12 +778,95 @@ def bulk_update_items(body: BulkUpdateRequest, user: dict = Depends(require_item
             changes[k] = (changes[k] or "").strip()
 
     updated = 0
-    for it in db.query(Item).filter(Item.id.in_(ids)).all():
+    for it in db.query(Item).filter(Item.id.in_(ids), or_(Item.deleted_at.is_(None), Item.deleted_at == "")).all():
         for k, v in changes.items():
             setattr(it, k, v)
         updated += 1
     db.commit()
     return {"updated": updated}
+
+
+# ── Custom fields ─────────────────────────────────────────────────────────────
+# Admin-defined extra fields surfaced in the item Details panel (Ankush). The
+# definition lives in item_custom_fields; the per-item value lives in
+# items.custom_fields keyed by field_key, so the main table stays lean.
+
+def _slugify_key(label: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "_", (label or "").strip().lower()).strip("_")
+    return s or "field"
+
+
+class CustomFieldIn(BaseModel):
+    field_key:       Optional[str]  = ""
+    label:           str
+    field_type:      Optional[str]  = "text"
+    options:         Optional[list] = None
+    applies_to_type: Optional[str]  = ""
+    sort_order:      Optional[int]  = 0
+
+
+@router.get("/custom-fields")
+def list_custom_fields(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = db.query(ItemCustomField).order_by(ItemCustomField.sort_order, ItemCustomField.label).all()
+    return [_custom_field_to_dict(f) for f in rows]
+
+
+@router.post("/custom-fields", status_code=201)
+def create_custom_field(body: CustomFieldIn, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    label = (body.label or "").strip()
+    if not label:
+        raise HTTPException(400, "Label cannot be empty")
+    ftype = (body.field_type or "text").strip().lower()
+    if ftype not in _CUSTOM_FIELD_TYPES:
+        raise HTTPException(400, f"Invalid field type. Must be one of: {', '.join(_CUSTOM_FIELD_TYPES)}")
+    # Derive a stable key from the label, kept unique across definitions.
+    base = (body.field_key or "").strip() or _slugify_key(label)
+    existing = {f.field_key for f in db.query(ItemCustomField.field_key).all()}
+    key, n = base, 2
+    while key in existing:
+        key = f"{base}_{n}"; n += 1
+    f = ItemCustomField(
+        id=str(uuid.uuid4()), field_key=key, label=label, field_type=ftype,
+        options=[str(o).strip() for o in (body.options or []) if str(o).strip()] if ftype == "select" else [],
+        applies_to_type=(body.applies_to_type or "").strip(),
+        sort_order=int(body.sort_order or 0),
+        created_by=user["email"], created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    db.add(f)
+    db.commit()
+    return _custom_field_to_dict(f)
+
+
+@router.patch("/custom-fields/{field_id}")
+def update_custom_field(field_id: str, body: CustomFieldIn, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    f = db.query(ItemCustomField).filter(ItemCustomField.id == field_id).first()
+    if not f:
+        raise HTTPException(404, "Custom field not found")
+    if body.label is not None and body.label.strip():
+        f.label = body.label.strip()
+    if body.field_type:
+        ftype = body.field_type.strip().lower()
+        if ftype not in _CUSTOM_FIELD_TYPES:
+            raise HTTPException(400, f"Invalid field type. Must be one of: {', '.join(_CUSTOM_FIELD_TYPES)}")
+        f.field_type = ftype
+    if body.options is not None:
+        f.options = [str(o).strip() for o in body.options if str(o).strip()] if f.field_type == "select" else []
+    if body.applies_to_type is not None:
+        f.applies_to_type = body.applies_to_type.strip()
+    if body.sort_order is not None:
+        f.sort_order = int(body.sort_order or 0)
+    db.commit()
+    return _custom_field_to_dict(f)
+
+
+@router.delete("/custom-fields/{field_id}")
+def delete_custom_field(field_id: str, user: dict = Depends(require_items_delete), db: Session = Depends(get_db)):
+    f = db.query(ItemCustomField).filter(ItemCustomField.id == field_id).first()
+    if not f:
+        raise HTTPException(404, "Custom field not found")
+    db.delete(f)  # per-item values stay in items.custom_fields but stop showing — harmless
+    db.commit()
+    return {"ok": True}
 
 
 # ── Checkouts ─────────────────────────────────────────────────────────────────
@@ -1687,6 +1872,43 @@ def reassign_item(item_id: str, body: AssignmentCreate, user: dict = Depends(req
     return _assignment_to_dict(cur)
 
 
+class AssignLocationIn(BaseModel):
+    location: str = ""
+
+
+@router.post("/{item_id}/assign-location")
+def assign_item_to_location(item_id: str, body: AssignLocationIn, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    """Permanently assign an item to a PLACE rather than a person (Ankush). Unlike
+    a person assignment there's no photo-acceptance step — a location can't accept —
+    so it's a direct field set. Person fields stay empty, which is exactly what keeps
+    location-held items OUT of 'Who has it'. Pass an empty location to unassign."""
+    item = db.query(Item).filter(Item.id == item_id).first()
+    if not item or item.deleted_at:
+        raise HTTPException(404, "Item not found")
+    loc = (body.location or "").strip()
+    # Block if a live person-assignment or active checkout is in flight.
+    live = db.query(ItemAssignment).filter(
+        ItemAssignment.item_id == item_id, ItemAssignment.status.in_(_LIVE_ASSIGN)).first()
+    if live:
+        raise HTTPException(409, "Item has a live person-assignment — recover it first")
+    co = db.query(ItemCheckout).filter(
+        ItemCheckout.item_id == item_id,
+        ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"])).first()
+    if co:
+        raise HTTPException(409, "Item has an active checkout — recover it first")
+    if loc:
+        item.ownership_type = "permanent"
+        item.status = "permanently_assigned"
+        item.assigned_to_location = loc
+        item.assigned_to_email = item.assigned_to_name = item.assigned_at = ""
+    else:
+        item.assigned_to_location = ""
+        if item.status == "permanently_assigned" and not item.assigned_to_email:
+            item.status = "available"
+    db.commit()
+    return _item_to_dict(item)
+
+
 @router.post("/assignments/{assignment_id}/accept")
 def accept_assignment(assignment_id: str, body: AssignmentAccept, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     _validate_photo_url(body.photo_url, "photo_url")
@@ -1707,6 +1929,7 @@ def accept_assignment(assignment_id: str, body: AssignmentAccept, user: dict = D
         item.status = "permanently_assigned"
         item.ownership_type = "permanent"
         item.assigned_to_email, item.assigned_to_name, item.assigned_at = a.assignee_email, a.assignee_name, a.accepted_at
+        item.assigned_to_location = ""  # a person now holds it — drop any prior location assignment
     note_part = f' Condition note: "{a.accept_note}"' if a.accept_note else ""
     _notify(db, type="perm_update", recipient=a.assigned_by_email,
             title=f"Assignment accepted: {a.item_name}",

@@ -28,6 +28,13 @@ def _run_migrations():
             "ALTER TABLE requisitions ADD COLUMN fulfilled_at VARCHAR DEFAULT ''",
             "ALTER TABLE requisitions ADD COLUMN fulfillment_note VARCHAR DEFAULT ''",
             "ALTER TABLE requisitions ADD COLUMN fulfilled_item_id VARCHAR DEFAULT ''",
+            # items: operational status, location-assignment, custom fields, soft-delete (Jun 2026 item-module batch)
+            "ALTER TABLE items ADD COLUMN op_status VARCHAR DEFAULT ''",
+            "ALTER TABLE items ADD COLUMN assigned_to_location VARCHAR DEFAULT ''",
+            "ALTER TABLE items ADD COLUMN custom_fields TEXT DEFAULT '{}'",
+            "ALTER TABLE items ADD COLUMN deleted_at VARCHAR DEFAULT ''",
+            "ALTER TABLE items ADD COLUMN deleted_by VARCHAR DEFAULT ''",
+            "ALTER TABLE items ADD COLUMN deleted_location VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -104,6 +111,16 @@ def _run_migrations():
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfilled_at VARCHAR DEFAULT ''",
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfillment_note VARCHAR DEFAULT ''",
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfilled_item_id VARCHAR DEFAULT ''",
+        # items: operational status column (Neil — deployed/in repair/needs replacement; SEPARATE from lifecycle status)
+        "ALTER TABLE items ADD COLUMN IF NOT EXISTS op_status VARCHAR DEFAULT ''",
+        # items: permanent assignment to a PLACE not a person — excluded from "Who has it" (Ankush)
+        "ALTER TABLE items ADD COLUMN IF NOT EXISTS assigned_to_location VARCHAR DEFAULT ''",
+        # items: admin-defined custom fields, values keyed by field_key (Ankush's Details panel)
+        "ALTER TABLE items ADD COLUMN IF NOT EXISTS custom_fields JSONB DEFAULT '{}'::jsonb",
+        # items: soft-delete so deletions are restorable and carry a "Deleted In" (Ankush)
+        "ALTER TABLE items ADD COLUMN IF NOT EXISTS deleted_at VARCHAR DEFAULT ''",
+        "ALTER TABLE items ADD COLUMN IF NOT EXISTS deleted_by VARCHAR DEFAULT ''",
+        "ALTER TABLE items ADD COLUMN IF NOT EXISTS deleted_location VARCHAR DEFAULT ''",
     ]
     with engine.connect() as conn:
         for sql in migrations:

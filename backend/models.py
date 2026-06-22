@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Float, Integer, String
+from sqlalchemy import Boolean, Column, Float, Integer, JSON, String
 from database import Base
 
 
@@ -307,6 +307,12 @@ class Item(Base):
     assigned_at       = Column(String, default="")
     picture_required  = Column(Boolean, default=True)  # False = photos optional in every flow (e.g. keys) — Neil, Jun 2026
     asset_value       = Column(Float, default=0.0)     # USD value: accountability + per-person holdings total
+    op_status         = Column(String, default="")     # operational status (Neil): deployed|in_storage|in_repair|needs_replacement|retired|lost; '' = unset. SEPARATE from lifecycle `status`
+    assigned_to_location = Column(String, default="")  # set when a permanent item is assigned to a PLACE not a person — kept OUT of "Who has it" (Ankush)
+    custom_fields     = Column(JSON, default=dict)     # {field_key: value} for admin-defined custom fields — see ItemCustomField
+    deleted_at        = Column(String, default="")     # ISO ts; non-empty = soft-deleted (excluded from normal lists, restorable — Ankush)
+    deleted_by        = Column(String, default="")     # email of whoever deleted it
+    deleted_location  = Column(String, default="")     # item's location captured at deletion — Ankush's "Deleted In"
 
 
 class ItemCheckout(Base):
@@ -564,3 +570,20 @@ class HrProvisionStep(Base):
     status  = Column(String, default="pending")               # pending|ok|failed|skipped|manual
     detail  = Column(String, default="")
     ordinal = Column(Integer, default=0)
+
+
+class ItemCustomField(Base):
+    """Admin-defined custom field for items (Ankush's Details panel). The value
+    for each item lives in Item.custom_fields keyed by `field_key`; this table is
+    just the definition/schema so the Details panel stays flexible as fields are
+    added. created via create_all on startup (new table, no migration needed)."""
+    __tablename__ = "item_custom_fields"
+    id              = Column(String, primary_key=True)         # uuid
+    field_key       = Column(String, nullable=False)           # stable key in Item.custom_fields (e.g. "warranty_end")
+    label           = Column(String, nullable=False)           # human label shown in the panel
+    field_type      = Column(String, default="text")           # text|number|date|select|boolean|url
+    options         = Column(JSON, default=list)               # choices for select fields
+    applies_to_type = Column(String, default="")               # '' = all item types, else a specific item_type
+    sort_order      = Column(Integer, default=0)
+    created_by      = Column(String, default="")
+    created_at      = Column(String, default="")
