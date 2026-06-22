@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL, SessionLocal
-from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, inventory_requests, audit, groups, items as items_router, hr
+from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, inventory_requests, audit, groups, items as items_router, hr, knowledge_base
 from audit import AuditMiddleware
 
 
@@ -35,6 +35,15 @@ def _run_migrations():
             "ALTER TABLE items ADD COLUMN deleted_at VARCHAR DEFAULT ''",
             "ALTER TABLE items ADD COLUMN deleted_by VARCHAR DEFAULT ''",
             "ALTER TABLE items ADD COLUMN deleted_location VARCHAR DEFAULT ''",
+            # knowledge_base: require sign-off flag + analytics/freshness/retention
+            "ALTER TABLE kb_documents ADD COLUMN require_ack BOOLEAN DEFAULT 0",
+            "ALTER TABLE kb_documents ADD COLUMN views INTEGER DEFAULT 0",
+            "ALTER TABLE kb_documents ADD COLUMN review_every_months INTEGER DEFAULT 12",
+            "ALTER TABLE kb_documents ADD COLUMN verified_at VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN verified_by VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_documents ADD COLUMN retention_months INTEGER DEFAULT 84",
+            "ALTER TABLE kb_courses ADD COLUMN overview VARCHAR DEFAULT ''",
+            "ALTER TABLE kb_courses ADD COLUMN recert_months INTEGER DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -121,6 +130,15 @@ def _run_migrations():
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS deleted_at VARCHAR DEFAULT ''",
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS deleted_by VARCHAR DEFAULT ''",
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS deleted_location VARCHAR DEFAULT ''",
+        # knowledge_base: require sign-off flag + analytics/freshness/retention
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS require_ack BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS views INTEGER DEFAULT 0",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS review_every_months INTEGER DEFAULT 12",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS verified_at VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS verified_by VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS retention_months INTEGER DEFAULT 84",
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS overview VARCHAR DEFAULT ''",
+        "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS recert_months INTEGER DEFAULT 0",
     ]
     with engine.connect() as conn:
         for sql in migrations:
@@ -246,6 +264,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:5174",   # Knowledge Base standalone dev workspace
+        "http://127.0.0.1:5174",
         "https://nexus.greensglobal.com",
         "https://dev.nexus.greensglobal.com",
     ],
@@ -288,4 +308,5 @@ app.include_router(audit.router)
 app.include_router(groups.router)
 app.include_router(items_router.router)
 app.include_router(hr.router)
+app.include_router(knowledge_base.router)
 

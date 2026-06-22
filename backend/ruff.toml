@@ -18,4 +18,5 @@ ignore = [
   "E712",  # comparison to True / False
   "F541",  # f-string without placeholders
   "F841",  # local variable assigned but never used
+  "E741",  # ambiguous variable name (e.g. `l` as a loop var) — stylistic
 ]
