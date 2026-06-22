@@ -288,6 +288,7 @@ class Item(Base):
     """Individual physical item. Each unit gets its own row; status flips replace qty counters."""
     __tablename__ = "items"
     id             = Column(String, primary_key=True)
+    serial_number  = Column(String, default="")               # static per-unit identity (GG-#####); the CSV import upsert key
     name           = Column(String, nullable=False)
     item_type      = Column(String, default="Other")          # Devices|Tools|Vehicles|Equipment|Keys|Other
     make           = Column(String, default="")

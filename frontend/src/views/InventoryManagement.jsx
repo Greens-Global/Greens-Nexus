@@ -21,6 +21,20 @@ import { renderNotifBody } from '../components/NotificationBell';
 // ── Constants ─────────────────────────────────────────────────────────────────
 const ITEM_TYPES = ['Devices', 'Tools', 'Vehicles', 'Equipment', 'Keys', 'Other'];
 
+// Canonicalise a free-typed item type: case-insensitive + singular→plural
+// ("device" → "Devices"). Unknown types (e.g. "IP Camera") are kept as-is so
+// imported types stay first-class. Mirrors _normalize_type on the backend.
+const _TYPE_CANON = ITEM_TYPES.reduce((m, t) => {
+  m[t.toLowerCase()] = t;
+  if (t.endsWith('s')) m[t.slice(0, -1).toLowerCase()] = t;
+  return m;
+}, {});
+function normalizeType(raw) {
+  const s = cleanField(raw);
+  if (!s) return 'Other';
+  return _TYPE_CANON[s.toLowerCase()] || s;
+}
+
 const TYPE_DEFAULT_OWNER = {
   Devices:   'IT',
   Tools:     'Construction (MCD)',
@@ -456,7 +470,8 @@ function EditItemModal({ item, onClose, onSave }) {
             <div>
               <label style={FL}>TYPE</label>
               <select className="form-input" style={{ width:'100%' }} value={itemType} onChange={e => setItemType(e.target.value)}>
-                {ITEM_TYPES.map(t => <option key={t}>{t}</option>)}
+                {/* include the item's current type even if it's a custom imported one, so editing doesn't silently reset it */}
+                {[...new Set([...ITEM_TYPES, itemType].filter(Boolean))].map(t => <option key={t}>{t}</option>)}
               </select>
             </div>
             <div>
@@ -575,6 +590,7 @@ function mapItemsMatrix(matrix) {
   if (grid.length < 2) return { rows: [], error: 'File looks empty — needs a header row plus at least one item.' };
   const header = grid[0].map(h => String(h ?? '').trim().toLowerCase());
   const idx = {
+    serial_number: header.findIndex(h => ['serial','serial number','serial_number','serial no','asset tag','asset_tag'].includes(h)),
     name:          header.findIndex(h => ['name','item','item name'].includes(h)),
     item_type:     header.findIndex(h => ['type','item_type','item type'].includes(h)),
     make:          header.findIndex(h => h === 'make'),
@@ -589,10 +605,10 @@ function mapItemsMatrix(matrix) {
   const rows = grid.slice(1).map(cells => {
     const get = i => (i > -1 ? String(cells[i] ?? '').trim() : '');
     const name = get(idx.name);
-    const item_type = get(idx.item_type) || 'Other';
+    const item_type = normalizeType(get(idx.item_type));
     const ownership_type = get(idx.ownership_type) || 'transient';
     return {
-      name, item_type, make: get(idx.make), model: get(idx.model), year: get(idx.year),
+      name, serial_number: get(idx.serial_number), item_type, make: get(idx.make), model: get(idx.model), year: get(idx.year),
       department: get(idx.department), default_owner: get(idx.default_owner),
       ownership_type: ownership_type.toLowerCase(),
       location: get(idx.location),
@@ -615,6 +631,11 @@ async function parseItemsFile(file) {
   return mapItemsMatrix(matrix);
 }
 
+// Spreadsheets use "N/A", "-", "none" etc. to mean "no value" — treat a whole-field
+// placeholder as blank so it never renders (e.g. Model showing "DS-2CD2143G2-IU N/A").
+const NA_TOKENS = new Set(['', 'n/a', 'na', 'n.a.', 'n.a', 'none', 'null', 'nil', '-', '–', '—']);
+const cleanField = v => { const s = String(v ?? '').trim(); return NA_TOKENS.has(s.toLowerCase()) ? '' : s; };
+
 function csvField(v) { const s = String(v ?? ''); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }
 
 function triggerDownload(filename, blob) {
@@ -623,18 +644,22 @@ function triggerDownload(filename, blob) {
 }
 
 function downloadItemsCsv(items) {
-  const lines = ['Name,Type,Make,Model,Year,Department,Owner,Ownership,Location,Status'];
+  // Serial leads the export so re-importing this file updates rows in place
+  // (the importer matches on serial, not name).
+  const lines = ['Serial,Name,Type,Make,Model,Year,Department,Owner,Ownership,Location,Status'];
   for (const i of items)
-    lines.push([i.name,i.itemType,i.make,i.model,i.year,i.department,i.defaultOwner,i.ownershipType,i.location,i.status].map(csvField).join(','));
+    lines.push([i.serialNumber,i.name,i.itemType,i.make,i.model,i.year,i.department,i.defaultOwner,i.ownershipType,i.location,i.status].map(csvField).join(','));
   triggerDownload(`items-catalog-${new Date().toISOString().slice(0,10)}.csv`, new Blob([lines.join('\r\n')], { type:'text/csv;charset=utf-8;' }));
 }
 
 function downloadImportTemplate() {
+  // Leave Serial blank for new units — Nexus assigns one. Keep a row's serial to
+  // update that exact unit on re-import.
   triggerDownload('items-import-template.csv', new Blob([[
-    'Name,Type,Make,Model,Year,Department,Owner,Ownership,Location',
-    'Dell XPS 15 Laptop,Devices,Dell,XPS 15,2023,IT,IT Department,permanent,GSE',
-    'DeWalt Cordless Drill,Tools,DeWalt,DCD777C2,,Construction,Tool Crib,transient,GSVC',
-    'Ford F-150 Pickup,Vehicles,Ford,F-150,2022,Fleet,Fleet Team,permanent,Yard',
+    'Serial,Name,Type,Make,Model,Year,Department,Owner,Ownership,Location',
+    ',Dell XPS 15 Laptop,Devices,Dell,XPS 15,2023,IT,IT Department,permanent,GSE',
+    ',DeWalt Cordless Drill,Tools,DeWalt,DCD777C2,,Construction,Tool Crib,transient,GSVC',
+    ',Ford F-150 Pickup,Vehicles,Ford,F-150,2022,Construction,Fleet Team,permanent,Yard',
   ].join('\r\n')], { type:'text/csv;charset=utf-8;' }));
 }
 
@@ -686,7 +711,8 @@ function ImportItemsModal({ onClose, onImport }) {
             <h3 style={{ fontSize:16, fontWeight:700, marginBottom:10 }}>Import Complete</h3>
             <p style={{ fontSize:13.5, color:'var(--muted)', marginBottom:20 }}>
               <strong>{done.created}</strong> items added{done.updated ? <>, <strong>{done.updated}</strong> updated</> : null}. <strong>{done.skipped}</strong> rows skipped.
-              Re-uploading the same file updates existing items in place instead of duplicating them.
+              New rows each get a Nexus serial. Re-importing the same file updates units in place — matched by <strong>Serial</strong>,
+              or by content for rows without one — so it won't create duplicates. To change fields, edit the exported file or use Batch Edit.
               Photos must be added manually in the Manage tab — one item at a time.
             </p>
             <div style={{ display:'flex', justifyContent:'flex-end' }}><button className="primary-btn" onClick={onClose}>Done</button></div>
@@ -701,6 +727,7 @@ function ImportItemsModal({ onClose, onImport }) {
             </div>
             <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:16 }}>
               Each row = one physical item. Accepts .csv, .xlsx, and .xls. Photos are always added manually after import. Required columns: <strong>Name</strong>.
+              Leave <strong>Serial</strong> blank and Nexus assigns one — keep a serial to update that exact unit on re-import.
             </p>
 
             <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" style={{ display:'none' }} onChange={e => handleFile(e.target.files?.[0])} />
@@ -721,13 +748,14 @@ function ImportItemsModal({ onClose, onImport }) {
                   <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
                     <thead>
                       <tr style={{ background:'var(--mist)' }}>
-                        {['Name','Type','Make','Model','Dept','Ownership','Location'].map(h =>
+                        {['Serial','Name','Type','Make','Model','Dept','Ownership','Location'].map(h =>
                           <th key={h} style={{ padding:'7px 10px', textAlign:'left', fontWeight:700, color:'var(--muted)', whiteSpace:'nowrap' }}>{h}</th>)}
                       </tr>
                     </thead>
                     <tbody>
                       {rows.slice(0,50).map((r, i) => (
                         <tr key={i} style={{ borderTop:'1px solid var(--line)', background: !r._valid ? 'hsla(var(--color-red),0.04)' : 'transparent' }}>
+                          <td style={{ padding:'6px 10px', color: r.serial_number ? 'var(--ink)' : 'var(--muted)', whiteSpace:'nowrap' }}>{r.serial_number || <em style={{ color:'var(--muted)' }}>auto</em>}</td>
                           <td style={{ padding:'6px 10px', fontWeight:600 }}>{r.name || <em style={{ color:'hsl(var(--color-red))' }}>missing</em>}</td>
                           <td style={{ padding:'6px 10px', color: r._unknownType ? 'hsl(var(--color-orange))' : 'var(--muted)' }}>{r.item_type}</td>
                           <td style={{ padding:'6px 10px', color:'var(--muted)' }}>{r.make}</td>
@@ -2972,7 +3000,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
 });
 
 // ── Manager Catalog Tab ───────────────────────────────────────────────────────
-const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', search, searchValue, onSearchChange, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate }) {
+const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', search, searchValue, onSearchChange, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate }) {
   // Desktop defaults to the list/table; phones default to tiles but can now
   // switch to the (scrollable) list in portrait too (Neil, Jun 16).
   const [viewMode, setViewMode] = useState(() => window.matchMedia('(max-width: 640px)').matches ? 'tile' : 'list');
@@ -2985,9 +3013,10 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
       const mD = deptFilter === 'All' || i.department === deptFilter;
       const mT = typeFilter === 'All' || i.itemType === typeFilter;
       const mO = ownershipFilter === 'All' || (i.ownershipType || 'transient') === ownershipFilter;
-      return mS && mD && mT && mO;
+      const mL = locationFilter === 'All' || i.location === locationFilter;
+      return mS && mD && mT && mO && mL;
     });
-  }, [items, search, deptFilter, typeFilter, ownershipFilter]);
+  }, [items, search, deptFilter, typeFilter, ownershipFilter, locationFilter]);
 
   // Sorted for list view: chosen column, or default (available first, then alpha)
   const sortedForList = useMemo(
@@ -3136,6 +3165,82 @@ function BatchDeleteConfirmModal({ selectedItems, blockedItems, onClose, onConfi
               Delete {deletable.length} item{deletable.length !== 1 ? 's' : ''}
             </button>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Batch Edit Modal ──────────────────────────────────────────────────────────
+// Change the same descriptive field(s) across many selected items at once — the
+// replacement for editing fields by re-uploading a CSV. Serial is the static
+// identity and is never editable here; only ticked fields are written.
+const BATCH_FIELDS = [
+  { key: 'name',           label: 'Name' },
+  { key: 'item_type',      label: 'Type',       options: ITEM_TYPES },
+  { key: 'make',           label: 'Make' },
+  { key: 'model',          label: 'Model' },
+  { key: 'year',           label: 'Year' },
+  { key: 'department',     label: 'Department', options: DEPARTMENTS.filter(d => d !== 'All') },
+  { key: 'default_owner',  label: 'Owner' },
+  { key: 'ownership_type', label: 'Ownership',  options: ['transient', 'permanent'] },
+  { key: 'location',       label: 'Location' },
+];
+
+function BatchEditModal({ selectedItems, onClose, onSave, saving }) {
+  useEscapeKey(onClose);
+  const [enabled, setEnabled] = useState(new Set());
+  const [vals,    setVals]    = useState({});
+
+  function toggleField(key) {
+    setEnabled(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  }
+  const setVal = (key, v) => setVals(prev => ({ ...prev, [key]: v }));
+
+  const fields = {};
+  for (const f of BATCH_FIELDS) if (enabled.has(f.key)) fields[f.key] = vals[f.key] ?? (f.options ? f.options[0] : '');
+  const nameBlank = enabled.has('name') && !(fields.name || '').trim();
+  const canSave   = enabled.size > 0 && !nameBlank && !saving;
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:16, padding:'28px 28px 20px', width:'100%', maxWidth:480, boxShadow:'var(--shadow-lg)', maxHeight:'min(85dvh, 680px)', display:'flex', flexDirection:'column' }}>
+        <h3 style={{ margin:'0 0 6px', fontSize:16, fontWeight:700 }}>Edit {selectedItems.length} item{selectedItems.length !== 1 ? 's' : ''}</h3>
+        <p style={{ margin:'0 0 16px', fontSize:13, color:'var(--muted)' }}>
+          Tick a field to apply the same value to every selected item. Unticked fields are left untouched. Serials never change.
+        </p>
+        <div style={{ overflowY:'auto', minHeight:0, display:'flex', flexDirection:'column', gap:10 }}>
+          {BATCH_FIELDS.map(f => {
+            const on = enabled.has(f.key);
+            return (
+              <div key={f.key} style={{ display:'flex', alignItems:'center', gap:10 }}>
+                <label style={{ display:'flex', alignItems:'center', gap:8, width:120, flexShrink:0, cursor:'pointer', userSelect:'none' }}>
+                  <input type="checkbox" checked={on} onChange={() => toggleField(f.key)}
+                    style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
+                  <span style={{ fontSize:12.5, fontWeight:600, color: on ? 'var(--ink)' : 'var(--muted)' }}>{f.label}</span>
+                </label>
+                {f.options ? (
+                  <select disabled={!on} value={vals[f.key] ?? f.options[0]} onChange={e => setVal(f.key, e.target.value)}
+                    style={{ flex:1, padding:'8px 10px', borderRadius:8, border:'1px solid var(--line)', background: on ? 'var(--card)' : 'var(--mist)', fontSize:13, fontFamily:'Inter,sans-serif', color: on ? 'var(--ink)' : 'var(--muted)', textTransform: f.key === 'ownership_type' ? 'capitalize' : 'none' }}>
+                    {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                ) : (
+                  <input disabled={!on} value={vals[f.key] ?? ''} onChange={e => setVal(f.key, e.target.value)}
+                    placeholder={on ? `New ${f.label.toLowerCase()}…` : ''}
+                    style={{ flex:1, padding:'8px 10px', borderRadius:8, border:'1px solid var(--line)', background: on ? 'var(--card)' : 'var(--mist)', fontSize:13, fontFamily:'Inter,sans-serif' }} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {nameBlank && <p style={{ margin:'12px 0 0', fontSize:12, color:'hsl(var(--color-red))' }}>Name cannot be blank.</p>}
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', paddingTop:16, flexShrink:0 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={saving}>Cancel</button>
+          <button onClick={() => onSave(fields)} disabled={!canSave}
+            style={{ display:'inline-flex', alignItems:'center', gap:6, background:'var(--pine)', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor: canSave ? 'pointer' : 'default', fontFamily:'Inter,sans-serif', opacity: canSave ? 1 : 0.55 }}>
+            {saving ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <Pencil size={14} />}
+            Apply to {selectedItems.length}
+          </button>
         </div>
       </div>
     </div>
@@ -3550,12 +3655,120 @@ function OverdueAlertModal({ checkouts, onClose, toast, onCustomAlert }) {
 }
 
 // ── Manager Manage Tab ────────────────────────────────────────────────────────
-const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign }) {
+// Memoised rows so toggling ONE checkbox re-renders only that row, not all 360+
+// (selecting an item used to repaint the whole table — visible mouse lag). isSelected
+// is a boolean and every handler is stable, so memo skips the untouched rows.
+const ManageRow = memo(function ManageRow({ item, isSelected, onToggle, onEdit, onDelete, onAssign, onPreview, canDelete }) {
+  return (
+    <tr style={{ borderTop:'1px solid var(--line)', background: isSelected ? 'hsla(var(--color-blue),0.05)' : 'transparent' }}>
+      <td style={{ padding:'10px 14px' }}>
+        <input type="checkbox" checked={isSelected} onChange={() => onToggle(item.id)}
+          style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
+      </td>
+      <td style={{ padding:'10px 14px' }}>
+        {item.photoUrl
+          ? <PhotoThumb url={item.photoUrl} size={44} onPreview={onPreview} />
+          : (
+            <div style={{ width:44, height:44, borderRadius:10, background:'hsla(var(--color-red),0.08)', border:'1px dashed hsla(var(--color-red),0.4)', display:'flex', alignItems:'center', justifyContent:'center' }} title="Missing photo">
+              <Camera size={18} color="hsl(var(--color-red))" />
+            </div>
+          )
+        }
+      </td>
+      <td style={{ padding:'10px 14px', fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace', fontSize:12, color:'var(--muted)', whiteSpace:'nowrap' }}>{item.serialNumber || '—'}</td>
+      <td style={{ padding:'10px 14px', fontWeight:600 }}>{item.name}</td>
+      <td style={{ padding:'10px 14px' }}><TypeBadge type={item.itemType} /></td>
+      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{cleanField(item.make) || '—'}</td>
+      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{[cleanField(item.model), cleanField(item.year)].filter(Boolean).join(' ') || '—'}</td>
+      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{cleanField(item.department) || '—'}</td>
+      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{cleanField(item.location) || '—'}</td>
+      <td style={{ padding:'10px 14px' }}>
+        <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:20, background: item.ownershipType === 'permanent' ? 'hsla(var(--color-purple),0.1)' : 'hsla(var(--color-blue),0.1)', color: item.ownershipType === 'permanent' ? 'hsl(var(--color-purple))' : 'hsl(var(--color-blue))' }}>
+          {item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}
+        </span>
+      </td>
+      <td style={{ padding:'10px 14px' }}><StatusBadge status={displayStatus(item)} /></td>
+      {/* Actions pinned to the right so they stay reachable when the table is wider
+          than the viewport (narrow laptops clipped Assign/Edit/Delete). Opaque bg
+          masks content scrolling underneath; no shadow so it's seamless when the
+          table fits and isn't actually overlapping anything. */}
+      <td style={{ padding:'10px 14px', position:'sticky', right:0, background:'var(--card)' }}>
+        <div style={{ display:'flex', gap:6 }}>
+          {item.ownershipType === 'permanent' && onAssign && (
+            <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
+              title={item.assignedToEmail ? `Currently with ${item.assignedToName || item.assignedToEmail}` : 'Assign to a person'}
+              style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+              <User size={12} /> {item.assignedToEmail ? 'Reassign' : 'Assign'}
+            </button>
+          )}
+          <button onClick={() => onEdit(item)}
+            style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+            <Pencil size={12} /> Edit
+          </button>
+          {canDelete && (
+            <button onClick={() => onDelete(item)}
+              style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-red))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+              <Trash2 size={12} /> Delete
+            </button>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+});
+
+const ManageCard = memo(function ManageCard({ item, isSelected, onToggle, onEdit, onDelete, onAssign, onPreview, canDelete }) {
+  return (
+    <div style={{ border:'1px solid var(--line)', borderRadius:12, background: isSelected ? 'hsla(var(--color-blue),0.05)' : 'var(--card)', padding:'12px 14px', boxShadow:'var(--shadow-sm)' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+        <input type="checkbox" checked={isSelected} onChange={() => onToggle(item.id)}
+          style={{ cursor:'pointer', accentColor:'var(--pine)', flexShrink:0 }} />
+        {item.photoUrl
+          ? <PhotoThumb url={item.photoUrl} size={44} onPreview={onPreview} />
+          : (
+            <div style={{ width:44, height:44, borderRadius:10, background:'hsla(var(--color-red),0.08)', border:'1px dashed hsla(var(--color-red),0.4)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }} title="Missing photo">
+              <Camera size={18} color="hsl(var(--color-red))" />
+            </div>
+          )}
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
+          <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+            {[item.serialNumber, cleanField(item.make), cleanField(item.model), cleanField(item.location)].filter(Boolean).join(' · ') || '—'}
+          </div>
+        </div>
+        <StatusBadge status={displayStatus(item)} />
+      </div>
+      <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:10, flexWrap:'wrap' }}>
+        <TypeBadge type={item.itemType} />
+        <span style={{ fontSize:10.5, fontWeight:600, padding:'2px 8px', borderRadius:20, background: item.ownershipType === 'permanent' ? 'hsla(var(--color-purple),0.1)' : 'hsla(var(--color-blue),0.1)', color: item.ownershipType === 'permanent' ? 'hsl(var(--color-purple))' : 'hsl(var(--color-blue))' }}>
+          {item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}
+        </span>
+        {Number(item.assetValue) > 0 && <span style={{ fontSize:11, fontWeight:700, color:'var(--muted)' }}>{fmtMoney(item.assetValue)}</span>}
+        <div style={{ marginLeft:'auto', display:'flex', gap:6 }}>
+          {item.ownershipType === 'permanent' && onAssign && (
+            <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
+              style={{ background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+              {item.assignedToEmail ? 'Reassign' : 'Assign'}
+            </button>
+          )}
+          <button onClick={() => onEdit(item)} style={{ background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Edit</button>
+          {canDelete && (
+            <button onClick={() => onDelete(item)} style={{ background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-red))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Delete</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign }) {
   const [photoPreview,       setPhotoPreview]       = useState(null);
   const [selected,           setSelected]           = useState(new Set());
   const [sortCol,            setSortCol]            = useState('name');
   const [sortDir,            setSortDir]            = useState('asc');
   const [batchPhotoOpen,     setBatchPhotoOpen]     = useState(false);
+  const [batchEditOpen,      setBatchEditOpen]      = useState(false);
+  const [batchEditing,       setBatchEditing]       = useState(false);
   const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false);
   const [batchDeleting,      setBatchDeleting]      = useState(false);
   const [aiPhotoBusy,        setAiPhotoBusy]        = useState(false);
@@ -3603,11 +3816,13 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
     const mD = deptFilter === 'All' || i.department === deptFilter;
     const mT = typeFilter === 'All' || i.itemType === typeFilter;
     const mO = ownershipFilter === 'All' || (i.ownershipType || 'transient') === ownershipFilter;
-    return mS && mD && mT && mO;
-  }), [items, search, deptFilter, typeFilter, ownershipFilter]);
+    const mL = locationFilter === 'All' || i.location === locationFilter;
+    return mS && mD && mT && mO && mL;
+  }), [items, search, deptFilter, typeFilter, ownershipFilter, locationFilter]);
 
   const sorted = useMemo(() => [...filtered].sort((a, b) => {
     let av, bv;
+    if (sortCol === 'serial')   { av = (a.serialNumber || '').toLowerCase();          bv = (b.serialNumber || '').toLowerCase(); }
     if (sortCol === 'name')     { av = a.name.toLowerCase();                          bv = b.name.toLowerCase(); }
     if (sortCol === 'type')     { av = TYPE_ORDER.indexOf(a.itemType);                bv = TYPE_ORDER.indexOf(b.itemType); }
     if (sortCol === 'location') { av = (a.location || '').toLowerCase();              bv = (b.location || '').toLowerCase(); }
@@ -3623,15 +3838,33 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
     (checkouts || []).some(c => c.itemId === i.id && ['pending','approved','pending_receipt','allocated'].includes(c.status))
   );
 
-  function toggleSelect(id) {
+  // Stable so memoized rows don't all re-render on every checkbox toggle.
+  const toggleSelect = useCallback(id => {
     setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  }
+  }, []);
   function toggleAll() {
     setSelected(selected.size === filtered.length && filtered.length > 0 ? new Set() : new Set(filtered.map(i => i.id)));
   }
   function toggleSort(col) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortCol(col); setSortDir('asc'); }
+  }
+
+  async function executeBatchEdit(fields) {
+    setBatchEditing(true);
+    const ids = selItems.map(i => i.id);
+    try {
+      const res = await api.bulkUpdateItems(ids, fields);
+      await refreshItems();
+      setSelected(new Set());
+      setBatchEditOpen(false);
+      const n = res?.updated ?? ids.length;
+      toast?.(`Updated ${n} item${n !== 1 ? 's' : ''}.`);
+    } catch {
+      toast?.('Could not update the selected items. Please try again.', 'error');
+    } finally {
+      setBatchEditing(false);
+    }
   }
 
   async function executeBatchDelete() {
@@ -3713,6 +3946,13 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
               : <><Wand2 size={13} /> AI Photo Fill ({missingPhotos})</>}
           </button>
         )}
+        {/* Batch edit — change the same field(s) across the selection */}
+        {selected.size > 0 && (
+          <button onClick={() => setBatchEditOpen(true)}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, background:'var(--pine)', color:'#fff', border:'none', borderRadius:9, padding:'7px 14px', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+            <Pencil size={13} /> Edit {selected.size}
+          </button>
+        )}
         {/* Batch delete */}
         {canDelete && selected.size > 0 && (
           <button onClick={() => setBatchDeleteConfirm(true)}
@@ -3750,50 +3990,14 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
             </span>
           </label>
           {sorted.map(item => (
-            <div key={item.id} style={{ border:'1px solid var(--line)', borderRadius:12, background: selected.has(item.id) ? 'hsla(var(--color-blue),0.05)' : 'var(--card)', padding:'12px 14px', boxShadow:'var(--shadow-sm)' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)}
-                  style={{ cursor:'pointer', accentColor:'var(--pine)', flexShrink:0 }} />
-                {item.photoUrl
-                  ? <PhotoThumb url={item.photoUrl} size={44} onPreview={url => setPhotoPreview(url)} />
-                  : (
-                    <div style={{ width:44, height:44, borderRadius:10, background:'hsla(var(--color-red),0.08)', border:'1px dashed hsla(var(--color-red),0.4)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }} title="Missing photo">
-                      <Camera size={18} color="hsl(var(--color-red))" />
-                    </div>
-                  )}
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
-                  <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                    {[item.make, item.model, item.location].filter(Boolean).join(' · ') || '—'}
-                  </div>
-                </div>
-                <StatusBadge status={displayStatus(item)} />
-              </div>
-              <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:10, flexWrap:'wrap' }}>
-                <TypeBadge type={item.itemType} />
-                <span style={{ fontSize:10.5, fontWeight:600, padding:'2px 8px', borderRadius:20, background: item.ownershipType === 'permanent' ? 'hsla(var(--color-purple),0.1)' : 'hsla(var(--color-blue),0.1)', color: item.ownershipType === 'permanent' ? 'hsl(var(--color-purple))' : 'hsl(var(--color-blue))' }}>
-                  {item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}
-                </span>
-                {Number(item.assetValue) > 0 && <span style={{ fontSize:11, fontWeight:700, color:'var(--muted)' }}>{fmtMoney(item.assetValue)}</span>}
-                <div style={{ marginLeft:'auto', display:'flex', gap:6 }}>
-                  {item.ownershipType === 'permanent' && onAssign && (
-                    <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
-                      style={{ background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-                      {item.assignedToEmail ? 'Reassign' : 'Assign'}
-                    </button>
-                  )}
-                  <button onClick={() => onEdit(item)} style={{ background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Edit</button>
-                  {canDelete && (
-                    <button onClick={() => onDelete(item)} style={{ background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-red))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Delete</button>
-                  )}
-                </div>
-              </div>
-            </div>
+            <ManageCard key={item.id} item={item} isSelected={selected.has(item.id)}
+              onToggle={toggleSelect} onEdit={onEdit} onDelete={onDelete} onAssign={onAssign}
+              onPreview={setPhotoPreview} canDelete={canDelete} />
           ))}
         </div>
       ) : (
-        <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto' }}>
-          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+        <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto', background:'var(--card)' }}>
+          <table style={{ width:'100%', minWidth:1080, borderCollapse:'collapse', fontSize:13 }}>
             <thead>
               <tr style={{ background:'var(--mist)' }}>
                 <th style={{ padding:'10px 14px', width:36 }}>
@@ -3804,6 +4008,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
                     style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
                 </th>
                 <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em' }}>Photo</th>
+                <SortTh col="serial" label="Serial" />
                 <SortTh col="name" label="Name" />
                 <SortTh col="type" label="Type" />
                 <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em', whiteSpace:'nowrap' }}>Make</th>
@@ -3812,60 +4017,14 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
                 <SortTh col="location" label="Location" />
                 <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em' }}>Ownership</th>
                 <SortTh col="status" label="Status" />
-                <th style={{ padding:'10px 14px' }}></th>
+                <th style={{ padding:'10px 14px', position:'sticky', right:0, background:'var(--mist)' }}></th>
               </tr>
             </thead>
             <tbody>
               {sorted.map(item => (
-                <tr key={item.id} style={{ borderTop:'1px solid var(--line)', background: selected.has(item.id) ? 'hsla(var(--color-blue),0.05)' : 'transparent' }}>
-                  <td style={{ padding:'10px 14px' }}>
-                    <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)}
-                      style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
-                  </td>
-                  <td style={{ padding:'10px 14px' }}>
-                    {item.photoUrl
-                      ? <PhotoThumb url={item.photoUrl} size={44} onPreview={url => setPhotoPreview(url)} />
-                      : (
-                        <div style={{ width:44, height:44, borderRadius:10, background:'hsla(var(--color-red),0.08)', border:'1px dashed hsla(var(--color-red),0.4)', display:'flex', alignItems:'center', justifyContent:'center' }} title="Missing photo">
-                          <Camera size={18} color="hsl(var(--color-red))" />
-                        </div>
-                      )
-                    }
-                  </td>
-                  <td style={{ padding:'10px 14px', fontWeight:600 }}>{item.name}</td>
-                  <td style={{ padding:'10px 14px' }}><TypeBadge type={item.itemType} /></td>
-                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.make || '—'}</td>
-                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{[item.model, item.year].filter(Boolean).join(' ') || '—'}</td>
-                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.department || '—'}</td>
-                  <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{item.location || '—'}</td>
-                  <td style={{ padding:'10px 14px' }}>
-                    <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:20, background: item.ownershipType === 'permanent' ? 'hsla(var(--color-purple),0.1)' : 'hsla(var(--color-blue),0.1)', color: item.ownershipType === 'permanent' ? 'hsl(var(--color-purple))' : 'hsl(var(--color-blue))' }}>
-                      {item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}
-                    </span>
-                  </td>
-                  <td style={{ padding:'10px 14px' }}><StatusBadge status={displayStatus(item)} /></td>
-                  <td style={{ padding:'10px 14px' }}>
-                    <div style={{ display:'flex', gap:6 }}>
-                      {item.ownershipType === 'permanent' && onAssign && (
-                        <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
-                          title={item.assignedToEmail ? `Currently with ${item.assignedToName || item.assignedToEmail}` : 'Assign to a person'}
-                          style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-                          <User size={12} /> {item.assignedToEmail ? 'Reassign' : 'Assign'}
-                        </button>
-                      )}
-                      <button onClick={() => onEdit(item)}
-                        style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-                        <Pencil size={12} /> Edit
-                      </button>
-                      {canDelete && (
-                        <button onClick={() => onDelete(item)}
-                          style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-red))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-                          <Trash2 size={12} /> Delete
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
+                <ManageRow key={item.id} item={item} isSelected={selected.has(item.id)}
+                  onToggle={toggleSelect} onEdit={onEdit} onDelete={onDelete} onAssign={onAssign}
+                  onPreview={setPhotoPreview} canDelete={canDelete} />
               ))}
             </tbody>
           </table>
@@ -3879,6 +4038,12 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
       {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
       {batchPhotoOpen && (
         <BatchPhotoModal items={items} onClose={() => setBatchPhotoOpen(false)} onUpdate={refreshItems} toast={toast} />
+      )}
+      {batchEditOpen && (
+        <BatchEditModal
+          selectedItems={selItems}
+          onClose={() => setBatchEditOpen(false)}
+          onSave={executeBatchEdit} saving={batchEditing} />
       )}
       {batchDeleteConfirm && (
         <BatchDeleteConfirmModal
@@ -5675,15 +5840,30 @@ export default function InventoryManagement({ activeSub }) {
   // Master ownership filter: All | transient (temporary) | permanent.
   // Lets managers filter permanent items out of Catalog/Manage (Neil, Jun 16).
   const [ownershipFilter, setOwnershipFilter] = useState('All');
+  const [locationFilter, setLocationFilter] = useState('All');
+  // Type filter auto-populates from the data so imported types (e.g. "IP Camera")
+  // appear alongside the built-in ones; "Other" stays last.
+  const typeOptions = useMemo(() => {
+    const base = ITEM_TYPES.filter(t => t !== 'Other');
+    const custom = [...new Set(items.map(i => (i.itemType || '').trim()).filter(Boolean))]
+      .filter(t => !ITEM_TYPES.includes(t)).sort();
+    return [...base, ...custom, 'Other'];
+  }, [items]);
+  // Location filter populates entirely from the data (locations come from the import).
+  const locationOptions = useMemo(() =>
+    [...new Set(items.map(i => (i.location || '').trim()).filter(Boolean))].sort(),
+  [items]);
   const [search,        setSearch]        = useState('');
-  // Items scoped to the selected department + ownership filter — the KPI tiles
-  // must follow these filters, not always show company-wide totals (Sai, Jun 16).
+  // Items scoped to the active filters — the KPI tiles must follow ALL of them
+  // (department, ownership, location, type), not show company-wide totals (Sai).
   const deptItems = useMemo(
     () => items.filter(i =>
       (deptFilter === 'All' || (i.department || '') === deptFilter) &&
-      (ownershipFilter === 'All' || (i.ownershipType || 'transient') === ownershipFilter)
+      (ownershipFilter === 'All' || (i.ownershipType || 'transient') === ownershipFilter) &&
+      (locationFilter === 'All' || (i.location || '') === locationFilter) &&
+      (typeFilter === 'All' || (i.itemType || '') === typeFilter)
     ),
-    [items, deptFilter, ownershipFilter]
+    [items, deptFilter, ownershipFilter, locationFilter, typeFilter]
   );
   // Deferred copy keeps the input responsive: tabs re-filter at low priority
   // instead of blocking every keystroke.
@@ -5842,9 +6022,13 @@ export default function InventoryManagement({ activeSub }) {
                 {DEPARTMENTS.map(d => <option key={d} value={d}>{d === 'All' ? 'All departments' : d}</option>)}
               </select>
             </div>
+            <select className="form-input" value={locationFilter} onChange={e => setLocationFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:130 }}>
+              <option value="All">All locations</option>
+              {locationOptions.map(l => <option key={l}>{l}</option>)}
+            </select>
             <select className="form-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:110 }}>
               <option value="All">All types</option>
-              {ITEM_TYPES.map(t => <option key={t}>{t}</option>)}
+              {typeOptions.map(t => <option key={t}>{t}</option>)}
             </select>
             <select className="form-input" value={ownershipFilter} onChange={e => setOwnershipFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:130 }}>
               <option value="All">All ownership</option>
@@ -5929,7 +6113,7 @@ export default function InventoryManagement({ activeSub }) {
       {mainTab === 'catalog' && (
         <ManagerCatalogTab
           items={items} itemsLoading={itemsLoading} itemsError={itemsError}
-          deptFilter={deptFilter} typeFilter={typeFilter} ownershipFilter={ownershipFilter} search={deferredSearch}
+          deptFilter={deptFilter} typeFilter={typeFilter} ownershipFilter={ownershipFilter} locationFilter={locationFilter} search={deferredSearch}
           searchValue={search} onSearchChange={setSearch}
           refreshItems={refreshItems} onAddToCart={addToCart} inCart={inCart}
           checkouts={checkouts} userEmail={userEmail} userName={userName}
@@ -5940,7 +6124,7 @@ export default function InventoryManagement({ activeSub }) {
       {mainTab === 'manage' && (
         <ManagerManageTab
           items={items} itemsLoading={itemsLoading} itemsError={itemsError}
-          deptFilter={deptFilter} typeFilter={typeFilter} ownershipFilter={ownershipFilter} search={deferredSearch}
+          deptFilter={deptFilter} typeFilter={typeFilter} ownershipFilter={ownershipFilter} locationFilter={locationFilter} search={deferredSearch}
           searchValue={search} onSearchChange={setSearch}
           refreshItems={refreshItems} canDelete={canDelete}
           onAdd={openAdd} onEdit={setEditingItem}
