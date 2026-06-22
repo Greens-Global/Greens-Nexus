@@ -630,7 +630,7 @@ function DeleteItemModal({ item, onClose, onConfirm }) {
 // for CSV, XLSX, and XLS because SheetJS produces the same matrix for all three
 // — and it strips the UTF-8 BOM Excel prepends to the first header cell (the
 // reason "Name column not found" fired on a file that clearly had one). Jun 16.
-function mapItemsMatrix(matrix) {
+function mapItemsMatrix(matrix, customFields = []) {
   const grid = (matrix || []).filter(r => Array.isArray(r) && r.some(c => String(c ?? '').trim() !== ''));
   if (grid.length < 2) return { rows: [], error: 'File looks empty — needs a header row plus at least one item.' };
   const header = grid[0].map(h => String(h ?? '').trim().toLowerCase());
@@ -647,16 +647,26 @@ function mapItemsMatrix(matrix) {
     location:      header.findIndex(h => ['location','site'].includes(h)),
   };
   if (idx.name === -1) return { rows: [], error: 'Could not find a "Name" column in the header.' };
+  // Map any header that matches a custom field's label → that field's key.
+  const cfCols = (customFields || [])
+    .map(f => ({ key: f.fieldKey, col: header.findIndex(h => h === f.label.trim().toLowerCase()) }))
+    .filter(x => x.col > -1);
   const rows = grid.slice(1).map(cells => {
     const get = i => (i > -1 ? String(cells[i] ?? '').trim() : '');
     const name = get(idx.name);
     const item_type = normalizeType(get(idx.item_type));
     const ownership_type = get(idx.ownership_type) || 'transient';
+    const custom_fields = {};
+    for (const { key, col } of cfCols) {
+      const v = get(col);
+      if (v) custom_fields[key] = v;
+    }
     return {
       name, serial_number: get(idx.serial_number), item_type, make: get(idx.make), model: get(idx.model), year: get(idx.year),
       department: get(idx.department), default_owner: get(idx.default_owner),
       ownership_type: ownership_type.toLowerCase(),
       location: get(idx.location),
+      custom_fields,
       _valid: !!name,
       _unknownType: !!item_type && !ITEM_TYPES.includes(item_type),
     };
@@ -666,14 +676,14 @@ function mapItemsMatrix(matrix) {
 
 // Read a spreadsheet file (csv/xlsx/xls) into the item-row shape. SheetJS is
 // dynamically imported so it only loads when someone actually imports a file.
-async function parseItemsFile(file) {
+async function parseItemsFile(file, customFields = []) {
   const XLSX = await import('xlsx');
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: 'array' });
   const sheet = wb.Sheets[wb.SheetNames[0]];
   if (!sheet) return { rows: [], error: 'That file has no sheets to read.' };
   const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
-  return mapItemsMatrix(matrix);
+  return mapItemsMatrix(matrix, customFields);
 }
 
 // Spreadsheets use "N/A", "-", "none" etc. to mean "no value" — treat a whole-field
@@ -688,28 +698,38 @@ function triggerDownload(filename, blob) {
   a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 
-function downloadItemsCsv(items) {
+function downloadItemsCsv(items, customFields = []) {
   // Serial leads the export so re-importing this file updates rows in place
-  // (the importer matches on serial, not name).
-  const lines = ['Serial,Name,Type,Make,Model,Year,Department,Owner,Ownership,Location,Status'];
-  for (const i of items)
-    lines.push([i.serialNumber,i.name,i.itemType,i.make,i.model,i.year,i.department,i.defaultOwner,i.ownershipType,i.location,i.status].map(csvField).join(','));
+  // (the importer matches on serial, not name). Operational status + every custom
+  // field follow the core columns, so a round-trip carries the full record.
+  const cf = customFields || [];
+  const header = ['Serial','Name','Type','Make','Model','Year','Department','Owner','Ownership','Location','Lifecycle','Status', ...cf.map(f => f.label)];
+  const lines = [header.map(csvField).join(',')];
+  for (const i of items) {
+    const base = [i.serialNumber,i.name,i.itemType,i.make,i.model,i.year,i.department,i.defaultOwner,i.ownershipType,i.location,i.status, OP_STATUS_META[i.opStatus]?.label || i.opStatus || ''];
+    const extra = cf.map(f => (i.customFields && i.customFields[f.fieldKey] != null) ? i.customFields[f.fieldKey] : '');
+    lines.push([...base, ...extra].map(csvField).join(','));
+  }
   triggerDownload(`items-catalog-${new Date().toISOString().slice(0,10)}.csv`, new Blob([lines.join('\r\n')], { type:'text/csv;charset=utf-8;' }));
 }
 
-function downloadImportTemplate() {
+function downloadImportTemplate(customFields = []) {
   // Leave Serial blank for new units — Nexus assigns one. Keep a row's serial to
-  // update that exact unit on re-import.
-  triggerDownload('items-import-template.csv', new Blob([[
-    'Serial,Name,Type,Make,Model,Year,Department,Owner,Ownership,Location',
-    ',Dell XPS 15 Laptop,Devices,Dell,XPS 15,2023,IT,IT Department,permanent,GSE',
-    ',DeWalt Cordless Drill,Tools,DeWalt,DCD777C2,,Construction,Tool Crib,transient,GSVC',
-    ',Ford F-150 Pickup,Vehicles,Ford,F-150,2022,Construction,Fleet Team,permanent,Yard',
-  ].join('\r\n')], { type:'text/csv;charset=utf-8;' }));
+  // update that exact unit on re-import. Custom-field columns are appended so the
+  // template stays in sync with whatever fields have been defined.
+  const cf = customFields || [];
+  const header = ['Serial','Name','Type','Make','Model','Year','Department','Owner','Ownership','Location', ...cf.map(f => f.label)];
+  const samples = [
+    ['', 'Dell XPS 15 Laptop','Devices','Dell','XPS 15','2023','IT','IT Department','permanent','GSE'],
+    ['', 'DeWalt Cordless Drill','Tools','DeWalt','DCD777C2','','Construction','Tool Crib','transient','GSVC'],
+    ['', 'Ford F-150 Pickup','Vehicles','Ford','F-150','2022','Construction','Fleet Team','permanent','Yard'],
+  ];
+  const lines = [header, ...samples.map(r => [...r, ...cf.map(() => '')])].map(r => r.map(csvField).join(','));
+  triggerDownload('items-import-template.csv', new Blob([lines.join('\r\n')], { type:'text/csv;charset=utf-8;' }));
 }
 
 // ── Import Modal ───────────────────────────────────────────────────────────────
-function ImportItemsModal({ onClose, onImport }) {
+function ImportItemsModal({ onClose, onImport, customFields = [] }) {
   const [rows,      setRows]      = useState(null);
   const [parseErr,  setParseErr]  = useState('');
   const [importing, setImporting] = useState(false);
@@ -722,7 +742,7 @@ function ImportItemsModal({ onClose, onImport }) {
     if (!file) return;
     setParsing(true); setParseErr('');
     try {
-      const { rows, error } = await parseItemsFile(file);
+      const { rows, error } = await parseItemsFile(file, customFields);
       if (error) { setParseErr(error); setRows(null); }
       else { setRows(rows); setParseErr(''); }
     } catch {
@@ -766,7 +786,7 @@ function ImportItemsModal({ onClose, onImport }) {
           <>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
               <h3 style={{ fontSize:16, fontWeight:700 }}>Import Items from CSV or Excel</h3>
-              <button onClick={() => downloadImportTemplate()} className="secondary-btn" style={{ fontSize:12, padding:'5px 12px', display:'inline-flex', alignItems:'center', gap:5 }}>
+              <button onClick={() => downloadImportTemplate(customFields)} className="secondary-btn" style={{ fontSize:12, padding:'5px 12px', display:'inline-flex', alignItems:'center', gap:5 }}>
                 <Download size={13} /> Template
               </button>
             </div>
@@ -4174,7 +4194,16 @@ const ManageRow = memo(function ManageRow({ item, isSelected, onToggle, onEdit, 
         }
       </td>
       <td style={{ padding:'10px 14px', fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace', fontSize:12, color:'var(--muted)', whiteSpace:'nowrap' }}>{item.serialNumber || '—'}</td>
-      <td style={{ padding:'10px 14px', fontWeight:600 }}>{item.name}</td>
+      <td style={{ padding:'10px 14px', fontWeight:600 }}>
+        {onDetails ? (
+          <button onClick={() => onDetails(item)} title="Open item details"
+            style={{ background:'none', border:'none', padding:0, font:'inherit', fontWeight:600, color:'var(--ink)', cursor:'pointer', textAlign:'left' }}
+            onMouseEnter={e => { e.currentTarget.style.color = 'hsl(var(--color-blue))'; e.currentTarget.style.textDecoration = 'underline'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'var(--ink)'; e.currentTarget.style.textDecoration = 'none'; }}>
+            {item.name}
+          </button>
+        ) : item.name}
+      </td>
       <td style={{ padding:'10px 14px' }}><TypeBadge type={item.itemType} /></td>
       <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{cleanField(item.make) || '—'}</td>
       <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{[cleanField(item.model), cleanField(item.year)].filter(Boolean).join(' ') || '—'}</td>
@@ -4236,7 +4265,10 @@ const ManageCard = memo(function ManageCard({ item, isSelected, onToggle, onEdit
             </div>
           )}
         <div style={{ flex:1, minWidth:0 }}>
-          <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
+          <div onClick={onDetails ? () => onDetails(item) : undefined}
+            style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', cursor: onDetails ? 'pointer' : 'default' }}>
+            {item.name}
+          </div>
           <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
             {[item.serialNumber, cleanField(item.make), cleanField(item.model), cleanField(item.location)].filter(Boolean).join(' · ') || '—'}
           </div>
@@ -6464,7 +6496,7 @@ export default function InventoryManagement({ activeSub }) {
   const openImport    = useCallback(() => setImportOpen(true), []);
   const openReport    = useCallback(() => setReportOpen(true), []);
   const openSendAlert = useCallback(() => setOverdueAlertOpen(true), []);
-  const exportCsv     = useCallback(() => downloadItemsCsv(items), [items]);
+  const exportCsv     = useCallback(() => downloadItemsCsv(items, customFields), [items, customFields]);
   const openAssign    = useCallback((item, mode) => setAssigningItem({ item, mode }), []);
   const refreshAssignmentsAndItems = useCallback(() => { refreshAssignments(); refreshItems(); }, [refreshAssignments, refreshItems]);
   const handleConfirmReceipt = useCallback((co, batch, photoMap) =>
@@ -6743,7 +6775,7 @@ export default function InventoryManagement({ activeSub }) {
         <CustomFieldsAdminModal fields={customFields} onClose={() => setCustomFieldsOpen(false)}
           onChanged={refreshCustomFields} toast={toast} />
       )}
-      {importOpen   && <ImportItemsModal onClose={() => setImportOpen(false)} onImport={handleImport} />}
+      {importOpen   && <ImportItemsModal onClose={() => setImportOpen(false)} onImport={handleImport} customFields={customFields} />}
       {reportOpen   && <ReportModal onClose={() => setReportOpen(false)} checkouts={checkouts} />}
       {returningCo  && (
         <ReturnModal checkout={returningCo} onClose={() => setReturningCo(null)}

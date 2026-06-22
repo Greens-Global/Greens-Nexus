@@ -258,6 +258,7 @@ class ItemImportRow(BaseModel):
     default_owner:  Optional[str] = ""
     ownership_type: Optional[str] = "transient"
     location:       Optional[str] = ""
+    custom_fields:  Optional[dict] = None
 
 
 class ItemImportRequest(BaseModel):
@@ -473,6 +474,10 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
         location   = _clean_field(row.location)
         default_owner = _clean_field(row.default_owner) or _TYPE_DEFAULT_OWNER.get(item_type, "")
 
+        # Custom-field values supplied on the row (keyed by field_key). Blanks are
+        # ignored so a sparse spreadsheet never wipes an existing value.
+        row_cf = {k: v for k, v in (row.custom_fields or {}).items() if v not in (None, "")}
+
         serial = (row.serial_number or "").strip()
         if serial:
             existing = by_serial.get(serial.lower())   # same serial = same unit (repeats collapse)
@@ -492,6 +497,8 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
             existing.default_owner = default_owner
             existing.ownership_type = ownership
             existing.location      = location
+            if row_cf:
+                existing.custom_fields = {**(existing.custom_fields or {}), **row_cf}
             updated += 1
         else:
             # Honour a serial the CSV supplied; otherwise assign the next GG-#####,
@@ -515,6 +522,7 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
                 status="available",  # assignment flow sets permanently_assigned once accepted
                 location=location,
                 photo_url="",
+                custom_fields=row_cf,
                 created_by=user["email"],
                 created_at=now,
             )
