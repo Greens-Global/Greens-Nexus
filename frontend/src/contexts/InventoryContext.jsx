@@ -41,6 +41,33 @@ export function InventoryProvider({ children }) {
       .finally(() => { setItemsLoading(false); itemsInFlight.current = false; });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Optimistic local mutations — apply a known result straight to state instead
+  // of re-fetching all ~440 items after every edit/delete/add. The 10s poll
+  // still reconciles against the server, so any drift self-heals within a cycle.
+  // patch merges (keeps list-only enrichment like hasActiveRequest/activeDueDate
+  // that the PATCH/POST responses don't carry).
+  const patchItemLocal = useCallback((updated) => {
+    if (!updated || !updated.id) return;
+    setItems(prev => prev.map(i => (i.id === updated.id ? { ...i, ...updated } : i)));
+  }, []);
+  const removeItemsLocal = useCallback((ids) => {
+    const gone = new Set(Array.isArray(ids) ? ids : [ids]);
+    if (!gone.size) return;
+    setItems(prev => prev.filter(i => !gone.has(i.id)));
+  }, []);
+  const addItemLocal = useCallback((created) => {
+    if (!created || !created.id) return;
+    setItems(prev => {
+      if (prev.some(i => i.id === created.id)) return prev;
+      // Mirror the server sort (department, itemType, name) so the new row lands
+      // where a refetch would have placed it.
+      return [...prev, created].sort((a, b) =>
+        (a.department || '').localeCompare(b.department || '') ||
+        (a.itemType   || '').localeCompare(b.itemType   || '') ||
+        (a.name       || '').localeCompare(b.name       || ''));
+    });
+  }, []);
+
   const fetchCheckouts = useCallback(() => {
     if (cosInFlight.current) return Promise.resolve(); // deduplicate
     cosInFlight.current = true;
@@ -310,6 +337,7 @@ export function InventoryProvider({ children }) {
     submitCartCheckouts, approveRequest, rejectRequest,
     allocateItem, initiateHandover, confirmReceipt, returnItem, cancelRequest,
     refreshItems: fetchItems, refreshCheckouts: fetchCheckouts,
+    patchItemLocal, removeItemsLocal, addItemLocal,
     // Backward compat aliases for NotificationBell + ManagerDashboard
     requests: checkouts,
     requestsLoading: checkoutsLoading,
@@ -319,6 +347,7 @@ export function InventoryProvider({ children }) {
     items, itemsLoading, itemsError, checkouts, checkoutsLoading, checkoutsError,
     submitCartCheckouts, approveRequest, rejectRequest, allocateItem,
     initiateHandover, confirmReceipt, returnItem, cancelRequest, fetchItems, fetchCheckouts,
+    patchItemLocal, removeItemsLocal, addItemLocal,
   ]);
 
   return (

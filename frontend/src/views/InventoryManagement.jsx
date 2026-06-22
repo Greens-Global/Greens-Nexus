@@ -6247,6 +6247,7 @@ export default function InventoryManagement({ activeSub }) {
     submitCartCheckouts, approveRequest, rejectRequest,
     allocateItem, initiateHandover, confirmReceipt, returnItem, cancelRequest,
     refreshItems, refreshCheckouts,
+    patchItemLocal, removeItemsLocal, addItemLocal,
   } = useInventory();
   const { addNotification } = useNotifications();
   const { can, canAccessModule, loading: roleLoading } = useRole();
@@ -6455,7 +6456,7 @@ export default function InventoryManagement({ activeSub }) {
   function handleAddItem(data, opts = {}) {
     return api.createItem(data)
       .then(created => {
-        refreshItems(); toast(`Added "${data.name}" to the catalog.`);
+        addItemLocal(created); toast(`Added "${data.name}" to the catalog.`);
         // Permanent item + "assign right away" → straight into the normal
         // assign flow (acceptance + photo), same as the Manage-tab button
         if (opts.assignNow && created?.id) setAssigningItem({ item: created, mode: 'assign' });
@@ -6471,12 +6472,12 @@ export default function InventoryManagement({ activeSub }) {
   }
   function handleEditItem(item, data) {
     return api.updateItem(item.id, data)
-      .then(() => { refreshItems(); toast(`Updated "${data.name}".`); })
+      .then(updated => { patchItemLocal(updated); toast(`Updated "${data.name}".`); })
       .catch(err => { toast(err?.message || 'Could not save changes.', 'error'); throw err; });
   }
   function handleDeleteItem(item) {
     return api.deleteItem(item.id)
-      .then(() => { refreshItems(); toast(`Deleted "${item.name}".`); setDeletingItem(null); })
+      .then(() => { removeItemsLocal(item.id); toast(`Deleted "${item.name}".`); setDeletingItem(null); })
       .catch(err => { toast(err?.message || 'Could not delete item.', 'error'); throw err; });
   }
   function handleImport(rows) {
