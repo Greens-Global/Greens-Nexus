@@ -65,6 +65,8 @@ const STATUS_META = {
 // the lifecycle `status` above (which checkouts/assignments drive automatically).
 // '' = unset. Mirror _OP_STATUSES in backend/routers/items.py if you change this.
 const OP_STATUSES = ['deployed', 'in_storage', 'in_repair', 'needs_replacement', 'retired', 'lost'];
+// Recycle bin retention — keep in sync with _RECYCLE_BIN_DAYS in routers/items.py.
+const RECYCLE_BIN_DAYS = 30;
 const OP_STATUS_META = {
   deployed:          { label: 'Deployed',          bg:'hsla(var(--color-green),0.12)',  fg:'hsl(var(--color-green))'  },
   in_storage:        { label: 'In Storage',        bg:'hsla(var(--color-blue),0.12)',   fg:'hsl(var(--color-blue))'   },
@@ -3828,6 +3830,8 @@ function DeletedItemsModal({ onClose, onRestored, toast }) {
 
   const toggle = id => setSelected(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const fmtWhen = iso => { try { return new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }); } catch { return ''; } };
+  // Days remaining before this item is purged for good (deleted_at + retention).
+  const daysLeft = iso => { try { return Math.max(0, Math.ceil((new Date(iso).getTime() + RECYCLE_BIN_DAYS * 864e5 - Date.now()) / 864e5)); } catch { return null; } };
 
   async function restore(ids) {
     if (!ids.length || busy) return;
@@ -3850,7 +3854,7 @@ function DeletedItemsModal({ onClose, onRestored, toast }) {
         <div style={{ padding:'20px 24px 14px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
           <div>
             <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>Recycle Bin</h3>
-            <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>{rows ? `${rows.length} deleted item${rows.length !== 1 ? 's' : ''}` : 'Loading…'} · restore anything deleted by mistake</p>
+            <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>{rows ? `${rows.length} deleted item${rows.length !== 1 ? 's' : ''}` : 'Loading…'} · kept for {RECYCLE_BIN_DAYS} days, then permanently deleted</p>
           </div>
           <div style={{ display:'flex', gap:8, alignItems:'center' }}>
             {selected.size > 0 && (
@@ -3873,7 +3877,14 @@ function DeletedItemsModal({ onClose, onRestored, toast }) {
               <div key={item.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 0', borderBottom:'1px solid var(--line)' }}>
                 <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)} style={{ cursor:'pointer', accentColor:'var(--pine)', flexShrink:0 }} />
                 <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontWeight:600, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</div>
+                  <div style={{ fontWeight:600, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:8 }}>
+                    <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</span>
+                    {item.deletedAt && (() => { const dl = daysLeft(item.deletedAt); return dl == null ? null : (
+                      <span style={{ flexShrink:0, fontSize:10.5, fontWeight:700, padding:'1px 7px', borderRadius:20, background: dl <= 5 ? 'hsla(var(--color-red),0.12)' : 'var(--mist)', color: dl <= 5 ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
+                        {dl === 0 ? 'purges today' : `${dl} day${dl !== 1 ? 's' : ''} left`}
+                      </span>
+                    ); })()}
+                  </div>
                   <div style={{ fontSize:11.5, color:'var(--muted)' }}>
                     {item.serialNumber || '—'} · Deleted in <strong style={{ color:'var(--ink)' }}>{item.deletedLocation || '—'}</strong>
                     {item.deletedAt && <> · {fmtWhen(item.deletedAt)}</>}

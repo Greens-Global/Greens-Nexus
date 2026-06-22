@@ -35,6 +35,8 @@ _ITEM_STATUSES = ["available", "checked_out", "permanently_assigned", "retired"]
 # '' = unset. Mirror _OP_STATUSES on the frontend if you change this list.
 _OP_STATUSES   = ["deployed", "in_storage", "in_repair", "needs_replacement", "retired", "lost"]
 _CUSTOM_FIELD_TYPES = ["text", "number", "date", "select", "boolean", "url"]
+# Soft-deleted items are restorable for this many days, then purged for good.
+_RECYCLE_BIN_DAYS = 30
 
 _TYPE_DEFAULT_OWNER = {
     "Devices":   "IT",
@@ -703,7 +705,17 @@ def bulk_delete_items(body: BulkDeleteRequest, user: dict = Depends(require_item
 @router.get("/deleted")
 def list_deleted_items(user: dict = Depends(require_items_delete), db: Session = Depends(get_db)):
     """The recycle bin — soft-deleted items, most-recently-deleted first, so a
-    bad 'select all + delete' is recoverable (Ankush)."""
+    bad 'select all + delete' is recoverable (Ankush). Items older than the
+    retention window are purged for good first (lazy cleanup — ISO timestamps are
+    all UTC, so a string compare is chronological)."""
+    from datetime import timedelta
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=_RECYCLE_BIN_DAYS)).isoformat()
+    expired = db.query(Item).filter(
+        Item.deleted_at.isnot(None), Item.deleted_at != "", Item.deleted_at < cutoff).all()
+    if expired:
+        for it in expired:
+            db.delete(it)
+        db.commit()
     rows = db.query(Item).filter(Item.deleted_at.isnot(None), Item.deleted_at != "") \
              .order_by(Item.deleted_at.desc()).limit(2000).all()
     return [_item_to_dict(i) for i in rows]
