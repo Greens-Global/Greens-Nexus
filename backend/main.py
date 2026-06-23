@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL, SessionLocal
@@ -263,6 +264,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Greens Nexus API", lifespan=lifespan)
 
+# Gzip every response over ~1 KB. The item list is ~300 KB of JSON that compresses
+# to ~10% — the single biggest win for the slow Item Management load over the wire.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 # AuditMiddleware must be added before CORSMiddleware so it wraps the full request
 app.add_middleware(AuditMiddleware)
 app.add_middleware(

@@ -1396,6 +1396,38 @@ function auditEventMeta(action) {
 const _auditFg = tone => tone === 'muted' ? 'var(--muted)' : `hsl(var(--color-${tone}))`;
 const _auditBg = tone => tone === 'muted' ? 'var(--mist)'  : `hsla(var(--color-${tone}),0.12)`;
 
+// Fields tracked for the "what changed" diff, with friendly labels.
+const _AUDIT_FIELDS = [
+  ['name', 'Name'], ['serial_number', 'Serial'], ['item_type', 'Type'], ['make', 'Make'],
+  ['model', 'Model'], ['year', 'Year'], ['department', 'Department'], ['location', 'Location'],
+  ['default_owner', 'Default owner'], ['ownership_type', 'Ownership'], ['status', 'Lifecycle'],
+  ['op_status', 'Op status'], ['op_status_person_name', 'Declared by'], ['asset_value', 'Asset value'],
+];
+// Walk an item's events oldest→newest and tag each with the fields that CHANGED
+// against the running snapshot, so the timeline can show green (new) / red (old)
+// instead of a flat dump of the current values.
+function buildAuditDiffs(rows) {
+  const prev = {};
+  return rows.map(r => {
+    let d = {}; try { d = JSON.parse(r.details || '{}'); } catch { /* ignore */ }
+    const a = (r.action || '').toLowerCase();
+    const fieldEvent = a.includes('added') || a.includes('updated') || a.includes('edited') || a.includes('imported');
+    let changes = null;
+    if (fieldEvent) {
+      changes = [];
+      for (const [f, label] of _AUDIT_FIELDS) {
+        if (!(f in d)) continue;
+        const to = String(d[f] ?? '');
+        const from = (f in prev) ? String(prev[f] ?? '') : null;
+        if (from === null) { if (to && to !== '0') changes.push({ label, from: null, to }); }
+        else if (from !== to) changes.push({ label, from, to });
+        prev[f] = to;
+      }
+    }
+    return { row: r, changes };
+  });
+}
+
 // Interactive per-item history — clicking a log row opens this: the item's whole
 // life as a top-to-bottom flow (added → checked out → returned → updated →
 // deleted), with who/when and a plain-English note for each step.
@@ -1433,9 +1465,9 @@ function AuditHistoryModal({ item, onClose }) {
           {error ? <div style={{ color:'hsl(var(--color-red))', fontSize:13 }}>{error}</div>
             : rows === null ? <SkeletonBlocks count={4} height={48} borderRadius={8} />
             : rows.length === 0 ? <div style={{ textAlign:'center', color:'var(--muted)', fontSize:13, padding:'30px 0' }}>No recorded history for this item.</div>
-            : rows.map((r, i) => {
+            : buildAuditDiffs(rows).map(({ row: r, changes }, i) => {
                 const m = auditEventMeta(r.action);
-                const det = formatAuditDetails(r.action, r.details);
+                const isAdd = changes && changes.every(c => c.from === null);
                 return (
                   <div key={r.id} style={{ display:'flex', gap:13 }}>
                     <div style={{ display:'flex', flexDirection:'column', alignItems:'center' }}>
@@ -1445,7 +1477,23 @@ function AuditHistoryModal({ item, onClose }) {
                     <div style={{ paddingBottom:18, flex:1, minWidth:0 }}>
                       <div style={{ fontWeight:700, fontSize:13 }}>{m.verb}</div>
                       <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1 }}>by {auditName(r.user_email)} · {fmtAuditStamp(r.timestamp)}</div>
-                      {det && det !== '—' && <div style={{ fontSize:12, color:'var(--muted)', marginTop:4, lineHeight:1.5 }}>{renderNotifBody(det)}</div>}
+                      {changes ? (
+                        changes.length ? (
+                          <div style={{ marginTop:6, display:'flex', flexDirection:'column', gap:3 }}>
+                            {changes.map((c, j) => (
+                              <div key={j} style={{ fontSize:12, lineHeight:1.5 }}>
+                                <span style={{ color:'var(--muted)' }}>{c.label}: </span>
+                                {c.from !== null && c.from !== '' && <><span style={{ color:'hsl(var(--color-red))', textDecoration:'line-through' }}>{c.from}</span> <span style={{ color:'var(--muted)' }}>→</span> </>}
+                                <span style={{ color:'hsl(var(--color-green))', fontWeight:600 }}>{c.to}</span>
+                              </div>
+                            ))}
+                            {!isAdd && <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>only fields that changed are shown</div>}
+                          </div>
+                        ) : <div style={{ fontSize:12, color:'var(--muted)', marginTop:5 }}>No field values changed.</div>
+                      ) : (() => {
+                        const det = formatAuditDetails(r.action, r.details);
+                        return det && det !== '—' ? <div style={{ fontSize:12, color:'var(--muted)', marginTop:4, lineHeight:1.5 }}>{renderNotifBody(det)}</div> : null;
+                      })()}
                     </div>
                   </div>
                 );
