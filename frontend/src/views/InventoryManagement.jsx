@@ -1408,13 +1408,19 @@ const _AUDIT_FIELDS = [
 // instead of a flat dump of the current values.
 function buildAuditDiffs(rows) {
   const prev = {};
+  let firstFieldEvent = true;
   return rows.map(r => {
     let d = {}; try { d = JSON.parse(r.details || '{}'); } catch { /* ignore */ }
     const a = (r.action || '').toLowerCase();
     const fieldEvent = a.includes('added') || a.includes('updated') || a.includes('edited') || a.includes('imported');
-    let changes = null;
+    const isAdd = a.includes('added') || a.includes('imported');
+    let changes = null, baseline = false;
     if (fieldEvent) {
       changes = [];
+      // The first field-event we see is the baseline snapshot — we have no prior
+      // state to diff against, so don't paint the whole thing as "changed". An
+      // actual Add stays green (those values really were set on creation).
+      baseline = firstFieldEvent && !isAdd;
       for (const [f, label] of _AUDIT_FIELDS) {
         if (!(f in d)) continue;
         const to = String(d[f] ?? '');
@@ -1423,8 +1429,9 @@ function buildAuditDiffs(rows) {
         else if (from !== to) changes.push({ label, from, to });
         prev[f] = to;
       }
+      firstFieldEvent = false;
     }
-    return { row: r, changes };
+    return { row: r, changes, baseline, isAdd: fieldEvent ? isAdd : false };
   });
 }
 
@@ -1465,9 +1472,8 @@ function AuditHistoryModal({ item, onClose }) {
           {error ? <div style={{ color:'hsl(var(--color-red))', fontSize:13 }}>{error}</div>
             : rows === null ? <SkeletonBlocks count={4} height={48} borderRadius={8} />
             : rows.length === 0 ? <div style={{ textAlign:'center', color:'var(--muted)', fontSize:13, padding:'30px 0' }}>No recorded history for this item.</div>
-            : buildAuditDiffs(rows).map(({ row: r, changes }, i) => {
+            : buildAuditDiffs(rows).map(({ row: r, changes, baseline, isAdd }, i) => {
                 const m = auditEventMeta(r.action);
-                const isAdd = changes && changes.every(c => c.from === null);
                 return (
                   <div key={r.id} style={{ display:'flex', gap:13 }}>
                     <div style={{ display:'flex', flexDirection:'column', alignItems:'center' }}>
@@ -1475,7 +1481,7 @@ function AuditHistoryModal({ item, onClose }) {
                       {i < rows.length - 1 && <div style={{ width:2, flex:1, minHeight:14, background:'var(--line)', marginTop:2 }} />}
                     </div>
                     <div style={{ paddingBottom:18, flex:1, minWidth:0 }}>
-                      <div style={{ fontWeight:700, fontSize:13 }}>{m.verb}</div>
+                      <div style={{ fontWeight:700, fontSize:13 }}>{m.verb}{baseline ? ' — starting state' : ''}</div>
                       <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1 }}>by {auditName(r.user_email)} · {fmtAuditStamp(r.timestamp)}</div>
                       {changes ? (
                         changes.length ? (
@@ -1483,11 +1489,13 @@ function AuditHistoryModal({ item, onClose }) {
                             {changes.map((c, j) => (
                               <div key={j} style={{ fontSize:12, lineHeight:1.5 }}>
                                 <span style={{ color:'var(--muted)' }}>{c.label}: </span>
-                                {c.from !== null && c.from !== '' && <><span style={{ color:'hsl(var(--color-red))', textDecoration:'line-through' }}>{c.from}</span> <span style={{ color:'var(--muted)' }}>→</span> </>}
-                                <span style={{ color:'hsl(var(--color-green))', fontWeight:600 }}>{c.to}</span>
+                                {!baseline && c.from !== null && c.from !== '' && <><span style={{ color:'hsl(var(--color-red))', textDecoration:'line-through' }}>{c.from}</span> <span style={{ color:'var(--muted)' }}>→</span> </>}
+                                <span style={{ color: baseline ? 'var(--ink)' : 'hsl(var(--color-green))', fontWeight:600 }}>{c.to}</span>
                               </div>
                             ))}
-                            {!isAdd && <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>only fields that changed are shown</div>}
+                            {baseline ? <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>earliest recorded state — changes are tracked from here</div>
+                              : isAdd ? <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>values set when the item was added</div>
+                              : <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>only the fields that changed are shown</div>}
                           </div>
                         ) : <div style={{ fontSize:12, color:'var(--muted)', marginTop:5 }}>No field values changed.</div>
                       ) : (() => {
