@@ -521,8 +521,23 @@ function EditItemModal({ item, onClose, onSave }) {
   const [pictureRequired, setPictureRequired] = useState(item.pictureRequired !== false);
   const [assetValue,    setAssetValue]    = useState(item.assetValue ? String(item.assetValue) : '');
   const [saving,        setSaving]        = useState(false);
+  const [aiFilling,     setAiFilling]     = useState(false);
   const [error,         setError]         = useState('');
   useEscapeKey(onClose);
+
+  async function aiFindPhoto() {
+    setAiFilling(true); setError('');
+    try {
+      const { results } = await api.autoFillItemPhotos([item.id], true);  // replace allowed when editing
+      const r = (results || [])[0];
+      if (r?.status === 'ok' && r.photo_url) setPhotoUrl(r.photo_url);
+      else setError('No product photo found — upload one manually.');
+    } catch {
+      setError('AI photo search failed — try again or upload manually.');
+    } finally {
+      setAiFilling(false);
+    }
+  }
 
   function submit() {
     if (!name.trim() || saving) return;
@@ -640,6 +655,10 @@ function EditItemModal({ item, onClose, onSave }) {
             </span>
           </label>
           <PhotoUpload value={photoUrl} onChange={setPhotoUrl} hint="Replace photo if needed — must clearly identify this specific unit." />
+          <button type="button" onClick={aiFindPhoto} disabled={aiFilling}
+            style={{ marginTop:8, display:'inline-flex', alignItems:'center', gap:6, height:34, padding:'0 14px', fontSize:12.5, fontWeight:700, background:'hsla(var(--color-purple),0.1)', color:'hsl(var(--color-purple))', border:'1px solid hsla(var(--color-purple),0.35)', borderRadius:8, cursor: aiFilling ? 'default' : 'pointer', fontFamily:'Inter,sans-serif' }}>
+            {aiFilling ? <><Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> Finding…</> : <><Wand2 size={13} /> Let AI find a photo</>}
+          </button>
         </div>
 
         {error && <p style={{ display:'flex', alignItems:'center', gap:6, fontSize:12.5, color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:8, padding:'9px 12px', marginTop:14 }}><AlertCircle size={14} style={{ flexShrink:0 }} /> {error}</p>}
@@ -1438,7 +1457,7 @@ function buildAuditDiffs(rows) {
 // Interactive per-item history — clicking a log row opens this: the item's whole
 // life as a top-to-bottom flow (added → checked out → returned → updated →
 // deleted), with who/when and a plain-English note for each step.
-function AuditHistoryModal({ item, onClose }) {
+function AuditHistoryModal({ item, onClose, onOpenItem }) {
   const [rows, setRows]   = useState(null);
   const [error, setError] = useState('');
   useEscapeKey(onClose);
@@ -1507,7 +1526,10 @@ function AuditHistoryModal({ item, onClose }) {
                 );
               })}
         </div>
-        <div style={{ padding:'12px 22px', borderTop:'1px solid var(--line)', display:'flex', justifyContent:'flex-end', flexShrink:0 }}>
+        <div style={{ padding:'12px 22px', borderTop:'1px solid var(--line)', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
+          {onOpenItem
+            ? <button className="secondary-btn" onClick={() => { onOpenItem(item); onClose(); }} style={{ display:'inline-flex', alignItems:'center', gap:6 }}><Pencil size={14} /> Open &amp; edit this item</button>
+            : <span />}
           <button className="secondary-btn" onClick={onClose}>Done</button>
         </div>
       </div>
@@ -1515,7 +1537,7 @@ function AuditHistoryModal({ item, onClose }) {
   );
 }
 
-const AuditLogPanel = memo(function AuditLogPanel({ items = [] }) {
+const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem }) {
   const [query,   setQuery]   = useState('');
   const [logs,    setLogs]    = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1628,7 +1650,7 @@ const AuditLogPanel = memo(function AuditLogPanel({ items = [] }) {
           </table>
         </div>
       )}
-      {history && <AuditHistoryModal item={history} onClose={() => setHistory(null)} />}
+      {history && <AuditHistoryModal item={history} onClose={() => setHistory(null)} onOpenItem={onOpenItem} />}
     </div>
   );
 });
@@ -4740,20 +4762,23 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
         <button className="primary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onAdd}>
           <Plus size={14} /> Add Item
         </button>
+        {onManageCustomFields && (
+          <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onManageCustomFields}>
+            <Plus size={14} /> Add Custom Field
+          </button>
+        )}
         <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onImport}>
           <UploadCloud size={14} /> Import CSV
         </button>
-        <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onExport} disabled={!items.length}>
-          <Download size={14} /> Export CSV
+        {/* Export honors the active filters — exports exactly what's shown (Neil:
+            filtering then exporting "everything" was confusing). */}
+        <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={() => onExport(sorted)} disabled={!sorted.length}
+          title="Export the items currently shown (your filters apply)">
+          <Download size={14} /> Export{filtered.length !== items.length ? ` (${sorted.length})` : ''}
         </button>
-        <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onReport}>
-          <FileBarChart size={14} /> Export Report
+        <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onReport} title="Advanced report — choose fields/people, export as PDF or CSV">
+          <FileBarChart size={14} /> Report (PDF)
         </button>
-        {onManageCustomFields && (
-          <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onManageCustomFields}>
-            <FileText size={14} /> Custom Fields
-          </button>
-        )}
         {canDelete && onShowDeleted && (
           <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onShowDeleted}>
             <Trash2 size={14} /> Recycle Bin
@@ -6858,7 +6883,7 @@ export default function InventoryManagement({ activeSub }) {
   const openImport    = useCallback(() => setImportOpen(true), []);
   const openReport    = useCallback(() => setReportOpen(true), []);
   const openSendAlert = useCallback(() => setOverdueAlertOpen(true), []);
-  const exportCsv     = useCallback(() => downloadItemsCsv(items, customFields), [items, customFields]);
+  const exportCsv     = useCallback((rows) => downloadItemsCsv(Array.isArray(rows) && rows.length ? rows : items, customFields), [items, customFields]);
   const openAssign    = useCallback((item, mode) => setAssigningItem({ item, mode }), []);
   const refreshAssignmentsAndItems = useCallback(() => { refreshAssignments(); refreshItems(); }, [refreshAssignments, refreshItems]);
   const handleConfirmReceipt = useCallback((co, batch, photoMap) =>
@@ -7110,7 +7135,11 @@ export default function InventoryManagement({ activeSub }) {
         <PurchaseRequestsTab userEmail={userEmail} userName={userName} isManager={isManager}
           onAssign={openAssign} toast={toast} />
       )}
-      {mainTab === 'audit' && <AuditLogPanel items={items} />}
+      {mainTab === 'audit' && <AuditLogPanel items={items} onOpenItem={(it) => {
+        const found = items.find(x => x.id === it.id) || items.find(x => x.name === it.name);
+        if (found) { setMainTab('manage'); setEditingItem(found); }
+        else toast('That item no longer exists (it may have been deleted).', 'error');
+      }} />}
 
       {sendAlertOpen && <SendAlertModal onClose={() => setSendAlertOpen(false)} toast={toast} />}
       {overdueAlertOpen && (
