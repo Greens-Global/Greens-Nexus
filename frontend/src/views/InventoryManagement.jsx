@@ -835,12 +835,16 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
   const valid   = rows?.filter(r => r._valid) ?? [];
   const invalid = rows?.filter(r => !r._valid) ?? [];
   const warned  = rows?.filter(r => r._unknownType) ?? [];
+  // The distinct unknown type names (not just a count) — Amy needs to SEE all of
+  // them before importing, not just "14 unknown".
+  const unknownTypes = [...new Set(warned.map(r => (r.item_type || '').trim()).filter(Boolean))];
+  const PREVIEW_CAP = 1000;
 
   return (
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:520, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'90vh', overflowY:'auto' }}>
+      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:920, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'92vh', overflowY:'auto' }}>
         {done ? (
           <>
             <h3 style={{ fontSize:16, fontWeight:700, marginBottom:10 }}>Import Complete</h3>
@@ -877,18 +881,32 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
                 <div style={{ fontSize:12.5, color:'var(--muted)', marginBottom:10 }}>
                   <strong style={{ color:'hsl(var(--color-green))' }}>{valid.length} valid</strong>
                   {invalid.length > 0 && <>, <strong style={{ color:'hsl(var(--color-red))' }}>{invalid.length} missing name (skipped)</strong></>}
-                  {warned.length > 0 && <>, <strong style={{ color:'hsl(var(--color-orange))' }}>{warned.length} unknown type (will save as-is)</strong></>}
+                  {warned.length > 0 && <>, <strong style={{ color:'hsl(var(--color-orange))' }}>{warned.length} row{warned.length !== 1 ? 's' : ''} with an unknown type (saved as-is)</strong></>}
                 </div>
-                <div style={{ border:'1px solid var(--line)', borderRadius:8, overflow:'auto', maxHeight:200, marginBottom:16 }}>
+                {/* Show EVERY distinct unknown type so they can all be reviewed before
+                    importing — not just a count (Amy: "could not see all 14"). */}
+                {unknownTypes.length > 0 && (
+                  <div style={{ border:'1px solid hsla(var(--color-orange),0.35)', background:'hsla(var(--color-orange),0.06)', borderRadius:8, padding:'10px 12px', marginBottom:14 }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:'hsl(var(--color-orange))', marginBottom:7 }}>
+                      {unknownTypes.length} unknown type{unknownTypes.length !== 1 ? 's' : ''} — saved exactly as written:
+                    </div>
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                      {unknownTypes.map(t => (
+                        <span key={t} style={{ fontSize:12, fontWeight:600, background:'var(--card)', border:'1px solid hsla(var(--color-orange),0.4)', color:'var(--ink)', borderRadius:20, padding:'3px 10px' }}>{t}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div style={{ border:'1px solid var(--line)', borderRadius:8, overflow:'auto', maxHeight:'52vh', marginBottom:10 }}>
                   <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
                     <thead>
-                      <tr style={{ background:'var(--mist)' }}>
+                      <tr style={{ background:'var(--mist)', position:'sticky', top:0, zIndex:1 }}>
                         {['Serial','Name','Type','Make','Model','Dept','Ownership','Location'].map(h =>
-                          <th key={h} style={{ padding:'7px 10px', textAlign:'left', fontWeight:700, color:'var(--muted)', whiteSpace:'nowrap' }}>{h}</th>)}
+                          <th key={h} style={{ padding:'7px 10px', textAlign:'left', fontWeight:700, color:'var(--muted)', whiteSpace:'nowrap', background:'var(--mist)' }}>{h}</th>)}
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.slice(0,50).map((r, i) => (
+                      {rows.slice(0, PREVIEW_CAP).map((r, i) => (
                         <tr key={i} style={{ borderTop:'1px solid var(--line)', background: !r._valid ? 'hsla(var(--color-red),0.04)' : 'transparent' }}>
                           <td style={{ padding:'6px 10px', color: r.serial_number ? 'var(--ink)' : 'var(--muted)', whiteSpace:'nowrap' }}>{r.serial_number || <em style={{ color:'var(--muted)' }}>auto</em>}</td>
                           <td style={{ padding:'6px 10px', fontWeight:600 }}>{r.name || <em style={{ color:'hsl(var(--color-red))' }}>missing</em>}</td>
@@ -903,6 +921,11 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
                     </tbody>
                   </table>
                 </div>
+                {rows.length > PREVIEW_CAP && (
+                  <p style={{ fontSize:12, color:'var(--muted)', margin:'0 0 12px' }}>
+                    Previewing the first {PREVIEW_CAP.toLocaleString()} of {rows.length.toLocaleString()} rows — all {valid.length.toLocaleString()} valid rows will still be imported.
+                  </p>
+                )}
                 <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
                   <button className="secondary-btn" onClick={onClose}>Cancel</button>
                   <button className="primary-btn" disabled={!valid.length || importing}
