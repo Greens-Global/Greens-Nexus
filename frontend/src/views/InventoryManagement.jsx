@@ -4330,11 +4330,17 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
 
   const sorted = useMemo(() => [...filtered].sort((a, b) => {
     let av, bv;
-    if (sortCol === 'serial')   { av = (a.serialNumber || '').toLowerCase();          bv = (b.serialNumber || '').toLowerCase(); }
-    if (sortCol === 'name')     { av = a.name.toLowerCase();                          bv = b.name.toLowerCase(); }
-    if (sortCol === 'type')     { av = TYPE_ORDER.indexOf(a.itemType);                bv = TYPE_ORDER.indexOf(b.itemType); }
-    if (sortCol === 'location') { av = (a.location || '').toLowerCase();              bv = (b.location || '').toLowerCase(); }
-    if (sortCol === 'status')   { av = a.status;                                      bv = b.status; }
+    if (sortCol === 'serial')    { av = (a.serialNumber || '').toLowerCase();   bv = (b.serialNumber || '').toLowerCase(); }
+    if (sortCol === 'name')      { av = a.name.toLowerCase();                   bv = b.name.toLowerCase(); }
+    if (sortCol === 'type')      { av = TYPE_ORDER.indexOf(a.itemType);         bv = TYPE_ORDER.indexOf(b.itemType); }
+    if (sortCol === 'make')      { av = (a.make || '').toLowerCase();           bv = (b.make || '').toLowerCase(); }
+    if (sortCol === 'model')     { av = (a.model || '').toLowerCase();          bv = (b.model || '').toLowerCase(); }
+    if (sortCol === 'dept')      { av = (a.department || '').toLowerCase();     bv = (b.department || '').toLowerCase(); }
+    if (sortCol === 'location')  { av = (a.location || '').toLowerCase();       bv = (b.location || '').toLowerCase(); }
+    if (sortCol === 'ownership') { av = (a.ownershipType || 'transient');       bv = (b.ownershipType || 'transient'); }
+    if (sortCol === 'status')    { av = a.status;                               bv = b.status; }
+    if (sortCol === 'opstatus')  { av = (a.opStatus || '').toLowerCase();       bv = (b.opStatus || '').toLowerCase(); }
+    if (sortCol === 'photo')     { av = a.photoUrl ? 1 : 0;                     bv = b.photoUrl ? 1 : 0; }
     if (av === bv) return 0;
     const cmp = av < bv ? -1 : 1;
     return sortDir === 'asc' ? cmp : -cmp;
@@ -4521,17 +4527,17 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
                     onChange={toggleAll}
                     style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
                 </th>
-                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em' }}>Photo</th>
+                <SortTh col="photo" label="Photo" />
                 <SortTh col="serial" label="Serial" />
                 <SortTh col="name" label="Name" />
                 <SortTh col="type" label="Type" />
-                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em', whiteSpace:'nowrap' }}>Make</th>
-                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em', whiteSpace:'nowrap' }}>Model</th>
-                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em' }}>Dept</th>
+                <SortTh col="make" label="Make" />
+                <SortTh col="model" label="Model" />
+                <SortTh col="dept" label="Dept" />
                 <SortTh col="location" label="Location" />
-                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em' }}>Ownership</th>
+                <SortTh col="ownership" label="Ownership" />
                 <SortTh col="status" label="Lifecycle" />
-                <th style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em' }}>Status</th>
+                <SortTh col="opstatus" label="Status" />
                 <th style={{ padding:'10px 14px', position:'sticky', right:0, background:'var(--mist)' }}></th>
               </tr>
             </thead>
