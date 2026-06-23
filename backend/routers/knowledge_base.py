@@ -314,11 +314,10 @@ def submit_document(doc_id: str, user: dict = Depends(get_current_user), db: Ses
     d.status = "in_review"
     d.updated_at = _now()
     _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": "Submitted for review."})
-    if (d.reviewer_email or "").lower() != user["email"].lower():
-        _kb_notify(db, recipient=d.reviewer_email, ntype="kb_review_request",
-                   title="A SOP is awaiting your review",
-                   body=f"{user.get('name') or user['email']} submitted “{d.title}” "
-                        f"({d.doc_code}) for your review.", doc=d)
+    _kb_notify(db, recipient=d.reviewer_email, ntype="kb_review_request",
+               title="A SOP is awaiting your review",
+               body=f"{user.get('name') or user['email']} submitted “{d.title}” "
+                    f"({d.doc_code}) for your review.", doc=d)
     db.commit()
     return _serialize(d)
 
@@ -329,7 +328,6 @@ def review_document(doc_id: str, payload: ReviewIn, user: dict = Depends(require
     if d.status != "in_review":
         raise HTTPException(status_code=400, detail="Document is not awaiting review")
     reviewer = user.get("name") or user["email"]
-    notify_owner = (d.owner_email or "").lower() != user["email"].lower()
     if payload.decision == "approve":
         first_publish = (d.version or "").startswith("0.")
         d.status = "approved"
@@ -342,21 +340,19 @@ def review_document(doc_id: str, payload: ReviewIn, user: dict = Depends(require
         d.review_note = payload.note
         _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": "Approved & published."})
         _snapshot(d, db)
-        if notify_owner:
-            note = f" Note: {payload.note}" if (payload.note or "").strip() else ""
-            _kb_notify(db, recipient=d.owner_email, ntype="kb_approved",
-                       title="Your SOP was approved & published",
-                       body=f"{reviewer} approved “{d.title}” ({d.doc_code}). It's now live.{note}", doc=d)
+        note = f" Note: {payload.note}" if (payload.note or "").strip() else ""
+        _kb_notify(db, recipient=d.owner_email, ntype="kb_approved",
+                   title="Your SOP was approved & published",
+                   body=f"{reviewer} approved “{d.title}” ({d.doc_code}). It's now live.{note}", doc=d)
     elif payload.decision == "request_changes":
         if not payload.note.strip():
             raise HTTPException(status_code=400, detail="A note is required when requesting changes")
         d.status = "changes_requested"
         d.review_note = payload.note
         _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": f"Changes requested: {payload.note}"})
-        if notify_owner:
-            _kb_notify(db, recipient=d.owner_email, ntype="kb_changes_requested",
-                       title="Changes requested on your SOP",
-                       body=f"{reviewer} requested changes on “{d.title}” ({d.doc_code}): {payload.note}", doc=d)
+        _kb_notify(db, recipient=d.owner_email, ntype="kb_changes_requested",
+                   title="Changes requested on your SOP",
+                   body=f"{reviewer} requested changes on “{d.title}” ({d.doc_code}): {payload.note}", doc=d)
     else:
         raise HTTPException(status_code=400, detail="decision must be 'approve' or 'request_changes'")
     d.updated_at = _now()
