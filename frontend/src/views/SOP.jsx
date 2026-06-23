@@ -194,6 +194,40 @@ const blankDraft = (name, email) => ({
 
 const fmtDate = (s) => (s ? new Date(s.length > 10 ? s : s + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—');
 
+// Extensions accepted by the document importers below.
+const IMPORT_ACCEPT = '.txt,.md,.markdown,.csv,.json,.html,.htm,.rtf,.log,.pdf,.doc,.docx';
+
+// Pull plain text out of an uploaded document. Text formats are read directly;
+// Word (.docx) and PDF use on-demand parsers (loaded only when such a file is
+// actually picked, so they never weigh down the main bundle).
+async function extractFileText(file) {
+  const name = (file.name || '').toLowerCase();
+  const ext = name.slice(name.lastIndexOf('.'));
+  if (ext === '.docx') {
+    const mammoth = await import('mammoth');
+    const { value } = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+    return value || '';
+  }
+  if (ext === '.doc') {
+    throw new Error('Old .doc files aren’t supported — open it in Word, “Save As” .docx, and upload that.');
+  }
+  if (ext === '.pdf') {
+    const pdfjs = await import('pdfjs-dist');
+    pdfjs.GlobalWorkerOptions.workerSrc = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
+    const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+    let out = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const content = await (await pdf.getPage(i)).getTextContent();
+      out += content.items.map(it => it.str).join(' ') + '\n\n';
+    }
+    return out.trim();
+  }
+  return await file.text();   // text-like formats
+}
+
+// Binary docs (Word/PDF) are larger than pasted text — allow more headroom.
+const _importLimit = name => (/\.(pdf|docx?)$/i.test(name) ? 15 : 2) * 1024 * 1024;
+
 export default function SOP({ activeSub, onSubChange }) {
   const sub = activeSub || 'index';
   const { accounts } = useMsal();
@@ -595,14 +629,17 @@ export default function SOP({ activeSub, onSubChange }) {
     );
   };
 
-  // read a text-like file into the editor's raw-notes box (for importing an existing document)
-  const importFile = (file) => {
+  // read a document (text, Word, or PDF) into the editor's raw-notes box
+  const importFile = async (file) => {
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) { setErr('That file is over 2 MB — paste the relevant text instead.'); return; }
-    const reader = new FileReader();
-    reader.onload = () => setDraft(p => p ? { ...p, _raw: String(reader.result || ''), title: p.title || file.name.replace(/\.[^.]+$/, '') } : p);
-    reader.onerror = () => setErr('Could not read that file. Try pasting the text instead.');
-    reader.readAsText(file);
+    if (file.size > _importLimit(file.name)) { setErr(`That file is too large — keep it under ${Math.round(_importLimit(file.name) / 1024 / 1024)} MB or paste the text instead.`); return; }
+    try {
+      const text = await extractFileText(file);
+      if (!text.trim()) { setErr('No readable text found in that file (a scanned/image-only PDF has no text). Paste the text instead.'); return; }
+      setDraft(p => p ? { ...p, _raw: text, title: p.title || file.name.replace(/\.[^.]+$/, '') } : p);
+    } catch (e) {
+      setErr(e?.message || 'Could not read that file. Try pasting the text instead.');
+    }
   };
 
   // ── Ask AI ──
@@ -691,14 +728,17 @@ export default function SOP({ activeSub, onSubChange }) {
       setCourseDraft(null); setLmsMode('list'); api.getKbCourses().then(setLmsCourses).catch(() => {});
     } catch (e) { setErr(e.message || 'Save failed'); }
   };
-  // read a text-like file into the course source box
-  const cdImportFile = (file) => {
+  // read a document (text, Word, or PDF) into the course source box
+  const cdImportFile = async (file) => {
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) { setErr('That file is over 2 MB — paste the relevant text instead.'); return; }
-    const reader = new FileReader();
-    reader.onload = () => setCourseDraft(p => p ? { ...p, _raw: String(reader.result || ''), title: p.title || file.name.replace(/\.[^.]+$/, '') } : p);
-    reader.onerror = () => setErr('Could not read that file. Try pasting the text instead.');
-    reader.readAsText(file);
+    if (file.size > _importLimit(file.name)) { setErr(`That file is too large — keep it under ${Math.round(_importLimit(file.name) / 1024 / 1024)} MB or paste the text instead.`); return; }
+    try {
+      const text = await extractFileText(file);
+      if (!text.trim()) { setErr('No readable text found in that file (a scanned/image-only PDF has no text). Paste the text instead.'); return; }
+      setCourseDraft(p => p ? { ...p, _raw: text, title: p.title || file.name.replace(/\.[^.]+$/, '') } : p);
+    } catch (e) {
+      setErr(e?.message || 'Could not read that file. Try pasting the text instead.');
+    }
   };
   // generate a full course (lessons + quiz) from the pasted/uploaded source via Claude
   const runCourseAi = async () => {
@@ -1274,7 +1314,7 @@ export default function SOP({ activeSub, onSubChange }) {
             </div>
             <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, cursor: 'pointer', margin: 0, flex: '0 0 auto' }}>
               <Paperclip size={15} /> Upload file
-              <input type="file" accept=".txt,.md,.markdown,.csv,.json,.html,.htm,.rtf,.log" onChange={e => { importFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
+              <input type="file" accept={IMPORT_ACCEPT} onChange={e => { importFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
             </label>
             <button className="primary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, flex: '0 0 auto' }}>
               {aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Formatting…' : 'Format with Claude'}
@@ -2337,7 +2377,7 @@ export default function SOP({ activeSub, onSubChange }) {
                   </div>
                   <label className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, cursor: 'pointer', margin: 0, flex: '0 0 auto' }}>
                     <Paperclip size={15} /> Upload file
-                    <input type="file" accept=".txt,.md,.markdown,.csv,.json,.html,.htm,.rtf,.log" onChange={e => { cdImportFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
+                    <input type="file" accept={IMPORT_ACCEPT} onChange={e => { cdImportFile(e.target.files[0]); e.target.value = ''; }} style={{ display: 'none' }} />
                   </label>
                   <button className="primary-btn" disabled={courseAiBusy} onClick={runCourseAi} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38, flex: '0 0 auto', background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>
                     {courseAiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {courseAiBusy ? 'Generating…' : 'Generate course'}
