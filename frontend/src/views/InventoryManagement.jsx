@@ -1385,6 +1385,8 @@ function auditEventMeta(action) {
   if (a.includes('deleted'))                               return { Icon: Trash2,      tone: 'red',    verb: 'Deleted' };
   if (a.includes('checked out') || a.includes('checkout')) return { Icon: ShoppingCart, tone: 'orange', verb: 'Checked out' };
   if (a.includes('return'))                                return { Icon: RotateCcw,   tone: 'green',  verb: 'Returned' };
+  if (a.includes('restore'))                               return { Icon: RotateCcw,   tone: 'green',  verb: 'Restored' };
+  if (a.includes('assign'))                                return { Icon: User,        tone: 'blue',   verb: 'Assigned' };
   if (a.includes('allocat') || a.includes('hand'))         return { Icon: Package,     tone: 'blue',   verb: 'Handed over' };
   if (a.includes('approved'))                              return { Icon: CheckCircle, tone: 'green',  verb: 'Approved' };
   if (a.includes('rejected'))                              return { Icon: AlertCircle, tone: 'red',    verb: 'Rejected' };
@@ -1479,10 +1481,12 @@ const AuditLogPanel = memo(function AuditLogPanel({ items = [] }) {
   const actionLabel = (log) => {
     let label = humanizeAuditAction(log.action);
     const rid = log.resource_id;
+    const name = nameMap[rid];
     // Only swap real item ids (a known name or a UUID-shaped id) — leave things
     // like "custom-fields" / "cart" alone.
-    if (rid && (nameMap[rid] || /^[0-9a-f-]{20,}$/i.test(rid))) {
-      label = label.replace(rid, nameMap[rid] || `#${rid.slice(0, 8)}`);
+    if (rid && (name || /^[0-9a-f-]{20,}$/i.test(rid))) {
+      if (label.includes(rid)) label = label.replace(rid, name || `#${rid.slice(0, 8)}`);
+      else if (name && /^(added|imported)/i.test(label.trim())) label = `${label} ${name}`;
     }
     return label;
   };

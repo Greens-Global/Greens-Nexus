@@ -5,7 +5,7 @@ import threading
 import uuid
 from collections import defaultdict, deque
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import or_, func, text as sa_text
 from sqlalchemy.exc import IntegrityError
@@ -419,7 +419,7 @@ def _content_sig(name, item_type, make, model, year, department, location, owner
 
 
 @router.post("", status_code=201)
-def create_item(body: ItemCreate, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+def create_item(body: ItemCreate, response: Response, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
     name = body.name.strip()
     if not name:
         raise HTTPException(400, "Name cannot be empty")
@@ -460,6 +460,10 @@ def create_item(body: ItemCreate, user: dict = Depends(require_items_admin), db:
                 _notify_op_status_declaration(db, op_status=item.op_status, person_email=item.op_status_person_email,
                                               person_name=item.op_status_person_name or "", item_name=item.name)
                 db.commit()
+            # Stamp the new id so the audit middleware can record WHICH item was
+            # added (the path has no id on a POST) — lets the audit log thread an
+            # item's full history by id, not just by name.
+            response.headers["X-Created-Id"] = item.id
             return _item_to_dict(item)
         except IntegrityError:
             db.rollback()
