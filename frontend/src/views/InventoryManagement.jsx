@@ -3558,6 +3558,7 @@ const BATCH_FIELDS = [
   { key: 'ownership_type', label: 'Ownership',  options: ['transient', 'permanent'] },
   { key: 'location',       label: 'Location' },
   { key: 'op_status',      label: 'Status',     options: OP_STATUSES },
+  { key: 'asset_value',    label: 'Asset value ($)' },
 ];
 
 function BatchEditModal({ selectedItems, onClose, onSave, saving }) {
@@ -6394,6 +6395,7 @@ function WhwItemDetailCard({ item, checkout, holderName, onClose, onAct, actLabe
 // assignments and transient checkouts — Neil's "permanent vs transient" ask.
 const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckouts }) {
   const [search, setSearch] = useState('');
+  const [view, setView] = useState('person'); // 'person' | 'location' (Neil: split Who Has What)
   const [photoPreview, setPhotoPreview] = useState(null);
   const [detail, setDetail] = useState(null);
 
@@ -6458,14 +6460,83 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
     h.transient.reduce((s, c) => s + (Number(items.find(i => i.id === c.itemId)?.assetValue) || 0), 0) +
     h.permanent.reduce((s, i) => s + (Number(i.assetValue) || 0), 0);
 
+  // By-location view — everything physically AT a place (Neil: "search GSE, see
+  // everything that's there"). Groups every item by its location field.
+  const places = useMemo(() => {
+    const map = new Map();
+    for (const i of items) {
+      const loc = (i.location || '').trim() || '— No location set —';
+      if (!map.has(loc)) map.set(loc, { location: loc, items: [], value: 0 });
+      const g = map.get(loc);
+      g.items.push(i);
+      g.value += Number(i.assetValue) || 0;
+    }
+    return [...map.values()].sort((a, b) => a.location.localeCompare(b.location));
+  }, [items]);
+  const filteredPlaces = useMemo(() => places.filter(p =>
+    !search || p.location.toLowerCase().includes(search.toLowerCase()) ||
+    p.items.some(i => (i.name || '').toLowerCase().includes(search.toLowerCase()))
+  ), [places, search]);
+  const holderOf = (i) => {
+    if (i.assignedToName || i.assignedToEmail) return i.assignedToName || i.assignedToEmail;
+    const co = checkouts.find(c => c.itemId === i.id && ['approved','pending_receipt','allocated'].includes(c.status));
+    return co ? co.requestedBy : '';
+  };
+
   return (
     <div>
-      <div className="search-bar" style={{ maxWidth:420, marginBottom:20 }}>
-        <Search size={14} style={{ flexShrink:0 }} />
-        <input placeholder="Search by person or item…" value={search} onChange={e => setSearch(e.target.value)} autoFocus />
+      <div style={{ display:'flex', gap:12, alignItems:'center', marginBottom:20, flexWrap:'wrap' }}>
+        <div className="search-bar" style={{ flex:1, minWidth:220, maxWidth:420, marginBottom:0 }}>
+          <Search size={14} style={{ flexShrink:0 }} />
+          <input placeholder={view === 'person' ? 'Search by person or item…' : 'Search by location or item…'} value={search} onChange={e => setSearch(e.target.value)} autoFocus />
+        </div>
+        {/* By Person / By Location (Neil: search GSE → see everything there) */}
+        <div style={{ display:'inline-flex', border:'1px solid var(--line)', borderRadius:9, overflow:'hidden', flexShrink:0 }}>
+          {[['person', 'By Person', User], ['location', 'By Location', MapPin]].map(([k, label, Icon]) => (
+            <button key={k} onClick={() => setView(k)}
+              style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'7px 14px', fontSize:12.5, fontWeight:700, border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif', background: view === k ? 'var(--pine)' : 'var(--card)', color: view === k ? '#fff' : 'var(--muted)' }}>
+              <Icon size={13} /> {label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {view === 'location' ? (
+        filteredPlaces.length === 0 ? (
+          <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)' }}>
+            <MapPin size={32} style={{ opacity:.25, display:'block', margin:'0 auto 10px' }} />
+            {search ? 'No location or item matches your search.' : 'No items yet.'}
+          </div>
+        ) : (
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(330px,1fr))', gap:14 }}>
+            {filteredPlaces.map(p => (
+              <div key={p.location} style={{ border:'1px solid var(--line)', borderRadius:12, background:'var(--card)', boxShadow:'var(--shadow-sm)', overflow:'hidden' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:11, padding:'13px 16px', borderBottom:'1px solid var(--line)', background:'var(--mist)' }}>
+                  <div style={{ width:34, height:34, borderRadius:9, background:'hsla(var(--color-green),0.14)', color:'hsl(var(--color-green))', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><MapPin size={17} /></div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}><HighlightMatch text={p.location} query={search} /></div>
+                    <div style={{ fontSize:11.5, color:'var(--muted)' }}>{p.items.length} item{p.items.length !== 1 ? 's' : ''}{p.value > 0 && <> · <strong style={{ color:'var(--ink)' }}>{fmtMoney(p.value)}</strong></>}</div>
+                  </div>
+                </div>
+                <div style={{ padding:'10px 16px', display:'flex', flexDirection:'column', gap:6, maxHeight:340, overflowY:'auto' }}>
+                  {p.items.map(i => {
+                    const who = holderOf(i);
+                    return (
+                      <div key={i.id} onClick={() => setDetail({ item: i, holderName: who })} title="View item details"
+                        style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5, cursor:'pointer', borderRadius:7, padding:'4px 6px', margin:'0 -6px', transition:'background .12s' }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                        <span style={{ fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}><HighlightMatch text={i.name} query={search} /></span>
+                        <TypeBadge type={i.itemType} />
+                        {who && <span style={{ fontSize:11, color:'var(--muted)', flexShrink:0, maxWidth:90, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{who}</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : filtered.length === 0 ? (
         <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)' }}>
           <Users size={32} style={{ opacity:.25, display:'block', margin:'0 auto 10px' }} />
           {search ? 'Nobody matches your search.' : 'No items are currently allocated to anyone.'}

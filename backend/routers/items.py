@@ -832,6 +832,7 @@ class BulkUpdateRequest(BaseModel):
 _BATCH_EDITABLE = {
     "name", "item_type", "make", "model", "year",
     "department", "default_owner", "ownership_type", "location", "op_status",
+    "asset_value",
 }
 
 
@@ -864,6 +865,11 @@ def bulk_update_items(body: BulkUpdateRequest, user: dict = Depends(require_item
     for k in ("make", "model", "year", "department", "default_owner", "location"):
         if k in changes:
             changes[k] = (changes[k] or "").strip()
+    if "asset_value" in changes:
+        try:
+            changes["asset_value"] = float(changes["asset_value"] or 0)
+        except (ValueError, TypeError):
+            changes["asset_value"] = 0.0
 
     updated = 0
     op_changed = "op_status" in changes
