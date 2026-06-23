@@ -1,8 +1,8 @@
 {
   "id": "greens-escondido-south",
-  "name": "Greens Escondido South",
-  "group": "Greens Escondido",
-  "image": "/assets/properties/greens-escondido-south.jpg",
+  "name": "GS Escondido South",
+  "group": "GS Escondido",
+  "image": "/assets/properties/greens-storage-escondido.png",
   "type": "Storage Facility",
   "address": "25260 N Centre City Parkway, Escondido, CA 92026, Escondido, CA, 92026",
   "assetManager": "Neil Kadakia",
@@ -15,7 +15,7 @@
       "fields": [
         {
           "label": "Project Name",
-          "value": "Greens Escondido South, LLC."
+          "value": "GS Escondido South, LLC."
         },
         {
           "label": "Property Address",
@@ -64,7 +64,7 @@
       "fields": [
         {
           "label": "Ownership Entity",
-          "value": "Greens Escondido, LLC."
+          "value": "GS Escondido, LLC."
         },
         {
           "label": "Seller (if applicable)",
