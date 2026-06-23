@@ -220,7 +220,7 @@ export const api = {
   aiReviseKbDoc:    (data)      => req("/knowledge-base/ai-revise", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
   getKbPins:        ()          => req("/knowledge-base/pins"),
   toggleKbPin:      (id)        => req(`/knowledge-base/documents/${id}/pin`, { method: "POST" }),
-  translateKbDoc:   (id, lang)  => req(`/knowledge-base/documents/${id}/translate`, { method: "POST", body: JSON.stringify({ lang }) }),
+  translateKbDoc:   (id, lang)  => req(`/knowledge-base/documents/${id}/translate`, { method: "POST", body: JSON.stringify({ lang }), timeoutMs: AI_TIMEOUT_MS }),
   // Learn (LMS)
   aiCourse:        (data)      => req("/knowledge-base/ai-course", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
   getKbCourses:    ()          => req("/knowledge-base/courses"),

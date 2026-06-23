@@ -228,6 +228,39 @@ async function extractFileText(file) {
 // Binary docs (Word/PDF) are larger than pasted text — allow more headroom.
 const _importLimit = name => (/\.(pdf|docx?)$/i.test(name) ? 15 : 2) * 1024 * 1024;
 
+// Friendly display name from a possible email ("visesh.lodha@x.com" → "Visesh Lodha")
+// so header cells show a clean name instead of a long, wrapping address.
+function prettyName(s) {
+  const v = (s || '').trim();
+  if (!v) return '—';
+  if (!v.includes('@')) return v;
+  return v.split('@')[0].split(/[._-]+/).filter(Boolean)
+    .map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ') || v;
+}
+
+// Render a procedure step's detail as a lead line (optional) plus indented bullets,
+// splitting on newlines AND inline " - " separators so dense steps don't read as one
+// run-on paragraph.
+function StepDetail({ detail }) {
+  const text = (detail || '').trim();
+  if (!text) return null;
+  const base = { fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.6 };
+  const segs = text.split(/\n|\s+-\s+/).map(s => s.trim().replace(/^[-•]\s*/, '')).filter(Boolean);
+  if (segs.length <= 1) return <div style={{ ...base, marginTop: 4 }}>{text}</div>;
+  // A "key: value" first segment is itself a bullet; otherwise it's a lead sentence.
+  const firstIsKV = /^[^:]{1,35}:\s/.test(segs[0]) && segs[0].length < 90;
+  const lead = firstIsKV ? '' : segs[0];
+  const bullets = firstIsKV ? segs : segs.slice(1);
+  return (
+    <div style={{ marginTop: 4 }}>
+      {lead && <div style={base}>{lead}</div>}
+      <ul style={{ ...base, margin: lead ? '4px 0 0' : 0, paddingLeft: 18 }}>
+        {bullets.map((b, i) => <li key={i} style={{ marginBottom: 2 }}>{b}</li>)}
+      </ul>
+    </div>
+  );
+}
+
 export default function SOP({ activeSub, onSubChange }) {
   const sub = activeSub || 'index';
   const { accounts } = useMsal();
@@ -925,7 +958,7 @@ export default function SOP({ activeSub, onSubChange }) {
       ? (b.procedure || []).map((s, i) => ({ ...s, text: trx.procedure[i]?.text || s.text, detail: trx.procedure[i]?.detail || s.detail }))
       : b.procedure;
     return (
-      <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
+      <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', maxWidth: 1200, margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
           <button className="secondary-btn" onClick={backToList} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34 }}>
             <ArrowLeft size={15} /> Back
@@ -979,13 +1012,16 @@ export default function SOP({ activeSub, onSubChange }) {
         {docLang !== 'en' && <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 9, padding: '8px 11px', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 14 }}>Machine-translated to {({ es: 'Spanish', hi: 'Hindi' })[docLang]}. The English version is authoritative.</div>}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 24, alignItems: 'start' }}>
-          <div id="kb-doc" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-sm)', maxWidth: 820 }}>
+          <div id="kb-doc" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-sm)', minWidth: 0 }}>
             {/* header grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 1, backgroundColor: 'var(--border-color)', border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden', marginBottom: 22 }}>
-              {[['SOP ID', d.doc_code || '—'], ['Type', d.doc_type], ['Version', 'v' + d.version], ['Owner', d.owner_name || '—'], ['Reviewer', d.reviewer_name || d.reviewer_email || '—'], ['Effective', fmtDate(d.effective_date)], ['Updated', fmtDate(d.updated_at)]].map(([k, v]) => (
-                <div key={k} style={{ backgroundColor: 'var(--bg-card)', padding: '10px 13px' }}>
+              {[['SOP ID', d.doc_code || '—'], ['Type', d.doc_type], ['Version', 'v' + d.version],
+                ['Owner', prettyName(d.owner_name || d.owner_email), d.owner_email],
+                ['Reviewer', prettyName(d.reviewer_name || d.reviewer_email), d.reviewer_email],
+                ['Effective', fmtDate(d.effective_date)], ['Updated', fmtDate(d.updated_at)]].map(([k, v, tip]) => (
+                <div key={k} style={{ backgroundColor: 'var(--bg-card)', padding: '10px 13px', minWidth: 0 }}>
                   <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 3 }}>{k}</div>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-primary)', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{v}</div>
+                  <div title={tip || undefined} style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v}</div>
                 </div>
               ))}
               <div style={{ backgroundColor: 'var(--bg-card)', padding: '10px 13px', gridColumn: '1 / -1' }}>
@@ -1019,7 +1055,7 @@ export default function SOP({ activeSub, onSubChange }) {
                   <li key={i} style={{ position: 'relative', padding: '10px 0 10px 40px', borderBottom: '1px solid var(--bg-secondary)', color: 'var(--text-primary)' }}>
                     <span style={{ position: 'absolute', left: 0, top: 9, width: 26, height: 26, borderRadius: 8, backgroundColor: 'var(--bg-secondary)', color: 'hsl(var(--color-blue))', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
                     {s.text}
-                    {s.detail && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>{s.detail}</div>}
+                    <StepDetail detail={s.detail} />
                     {s.image && <img src={s.image} alt="step illustration" onClick={() => setLightbox(s.image)} style={{ marginTop: 9, maxWidth: 360, width: '100%', borderRadius: 10, border: '1px solid var(--border-color)', display: 'block', cursor: 'zoom-in' }} />}
                   </li>
                 ))}

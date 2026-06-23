@@ -412,11 +412,11 @@ def translate_document(doc_id: str, payload: TranslateIn, user: dict = Depends(g
         f"proper nouns (Greens Global, Greens Storage, Nexus, Ramp) as-is.\n\n{json.dumps(fields)}"
     )
     try:
-        with httpx.Client(timeout=60) as client:
+        with httpx.Client(timeout=110) as client:
             r = client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={"x-api-key": _ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                json={"model": _AI_MODEL, "max_tokens": 2000, "messages": [{"role": "user", "content": prompt}]},
+                json={"model": _AI_MODEL, "max_tokens": 6000, "messages": [{"role": "user", "content": prompt}]},
             )
             r.raise_for_status()
             data = r.json()
@@ -696,7 +696,9 @@ _STD_SCHEMA = (
     'concise action ("Configure the Synology reverse proxy"); "detail" (may be several lines) holds that '
     "step's specifics: exact commands, hostnames/IPs/ports, config field values, sub-steps, and expected "
     'results. Preserve ALL technical specifics faithfully — never drop or summarise away a command, IP, '
-    'port, URL, or value. Fold troubleshooting and update/maintenance into their own clearly-titled steps '
+    'port, URL, or value. FORMAT "detail" as readable lines: put each sub-step or key/value on its OWN '
+    'line starting with "- " using real newline characters (\\n) — never run them together inline on one '
+    'line. Fold troubleshooting and update/maintenance into their own clearly-titled steps '
     '(e.g. "Troubleshoot connection timeouts" with the diagnostic commands in detail).\n'
     '- "safety": every warning, "do not"/"never", and compliance rule. "references": referenced docs, links '
     'or standards.\n'
