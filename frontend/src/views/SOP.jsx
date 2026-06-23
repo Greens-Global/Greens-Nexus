@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
+import { supabase } from '../lib/supabase';
 import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, Loader, ChevronUp, ChevronDown,
@@ -197,16 +198,63 @@ const fmtDate = (s) => (s ? new Date(s.length > 10 ? s : s + 'T00:00:00').toLoca
 // Extensions accepted by the document importers below.
 const IMPORT_ACCEPT = '.txt,.md,.markdown,.csv,.json,.html,.htm,.rtf,.log,.pdf,.doc,.docx';
 
-// Pull plain text out of an uploaded document. Text formats are read directly;
-// Word (.docx) and PDF use on-demand parsers (loaded only when such a file is
-// actually picked, so they never weigh down the main bundle).
-async function extractFileText(file) {
+// Resize a data-URL image to a ≤1100px JPEG so it stores inline with the doc
+// (same budget as fileToAsset for hand-uploaded step images).
+function resizeDataUrl(dataUrl) {
+  return new Promise(res => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const max = 1100, sc = Math.min(1, max / img.width);
+        const w = Math.max(1, Math.round(img.width * sc)), h = Math.max(1, Math.round(img.height * sc));
+        const c = document.createElement('canvas'); c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        res(c.toDataURL('image/jpeg', 0.82));
+      } catch { res(dataUrl); }
+    };
+    img.onerror = () => res(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+// Flatten mammoth HTML to text, turning each <img> into its src (an [[IMG#]] marker)
+// inline so the AI sees where every screenshot sits in the step flow.
+function htmlToText(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const out = [];
+  const walk = (node) => node.childNodes.forEach(ch => {
+    if (ch.nodeType === 3) out.push(ch.nodeValue);
+    else if (ch.nodeType === 1) {
+      const tag = ch.tagName.toLowerCase();
+      if (tag === 'img') out.push(' ' + (ch.getAttribute('src') || '') + ' ');
+      else { walk(ch); if (/^(p|div|li|tr|h[1-6]|br|ul|ol)$/.test(tag)) out.push('\n'); }
+    }
+  });
+  walk(doc.body);
+  return out.join('').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// Pull text (and, for Word docs, embedded images) out of an uploaded document.
+// Returns { text, images } — text has inline [[IMG#]] markers, images maps each
+// marker to a resized data URL. Text and PDF return no images.
+async function extractDoc(file) {
   const name = (file.name || '').toLowerCase();
   const ext = name.slice(name.lastIndexOf('.'));
   if (ext === '.docx') {
     const mammoth = await import('mammoth');
-    const { value } = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
-    return value || '';
+    const images = {};
+    let n = 0;
+    const result = await mammoth.convertToHtml({ arrayBuffer: await file.arrayBuffer() }, {
+      convertImage: mammoth.images.imgElement(async (image) => {
+        try {
+          const b64 = await image.read('base64');
+          const marker = `[[IMG${++n}]]`;
+          images[marker] = await resizeDataUrl(`data:${image.contentType};base64,${b64}`);
+          return { src: marker };
+        } catch { return { src: '' }; }
+      }),
+    });
+    return { text: htmlToText(result.value), images };
   }
   if (ext === '.doc') {
     throw new Error('Old .doc files aren’t supported — open it in Word, “Save As” .docx, and upload that.');
@@ -220,9 +268,22 @@ async function extractFileText(file) {
       const content = await (await pdf.getPage(i)).getTextContent();
       out += content.items.map(it => it.str).join(' ') + '\n\n';
     }
-    return out.trim();
+    return { text: out.trim(), images: {} };
   }
-  return await file.text();   // text-like formats
+  return { text: await file.text(), images: {} };   // text-like formats
+}
+
+// Store a step image in Supabase (kb-media bucket) and return its public URL.
+// Falls back to the inline data URL if the bucket/upload isn't available, so an
+// import never fails just because storage is unreachable.
+async function uploadKbImage(dataUrl) {
+  try {
+    const blob = await (await fetch(dataUrl)).blob();
+    const path = `sop/${Date.now()}-${Math.random().toString(36).slice(2, 9)}.jpg`;
+    const { error } = await supabase.storage.from('kb-media').upload(path, blob, { contentType: 'image/jpeg', upsert: false, cacheControl: '31536000' });
+    if (!error) return supabase.storage.from('kb-media').getPublicUrl(path).data.publicUrl;
+  } catch { /* fall back to inline */ }
+  return dataUrl;
 }
 
 // Binary docs (Word/PDF) are larger than pasted text — allow more headroom.
@@ -583,17 +644,27 @@ export default function SOP({ activeSub, onSubChange }) {
     setAiBusy(true); setErr('');
     try {
       const { sop } = await api.aiFormatKbDoc({ content, title: draft.title, departments: draft.departments });
+      // Map the [[IMG#]] markers Claude placed back to the uploaded image URLs, and
+      // scrub any stray markers out of text so they never render as literal "[[IMG1]]".
+      const imgMap = draft._importImages || {};
+      const strip = (t) => (typeof t === 'string' ? t.replace(/\[\[IMG\d+\]\]/g, '').replace(/[ \t]{2,}/g, ' ').trim() : t);
+      const procedure = (sop.procedure?.length ? sop.procedure : draft.body.procedure).map(s => {
+        const m = (s.image || '').trim();
+        const mapped = imgMap[m];
+        return { ...s, text: strip(s.text), detail: strip(s.detail),
+                 image: mapped || (/^\[\[IMG\d+\]\]$/.test(m) ? '' : (s.image || '')) };
+      });
       const before = { title: draft.title, departments: [...draft.departments], body: JSON.parse(JSON.stringify(draft.body)) };
       const afterBody = {
         ...draft.body,
-        purpose: sop.purpose || draft.body.purpose,
-        scopeText: sop.scopeText || draft.body.scopeText,
-        materials: sop.materials?.length ? sop.materials : draft.body.materials,
+        purpose: strip(sop.purpose) || draft.body.purpose,
+        scopeText: strip(sop.scopeText) || draft.body.scopeText,
+        materials: sop.materials?.length ? sop.materials.map(strip) : draft.body.materials,
         responsibilities: sop.responsibilities?.length ? sop.responsibilities : draft.body.responsibilities,
         definitions: sop.definitions?.length ? sop.definitions : draft.body.definitions,
-        procedure: sop.procedure?.length ? sop.procedure : draft.body.procedure,
-        safety: sop.safety?.length ? sop.safety : draft.body.safety,
-        references: sop.references?.length ? sop.references : draft.body.references,
+        procedure,
+        safety: sop.safety?.length ? sop.safety.map(strip) : draft.body.safety,
+        references: sop.references?.length ? sop.references.map(strip) : draft.body.references,
       };
       const afterTitle = draft.title || sop.title || '';
       // autofill the draft, then open the full-screen review of what changed
@@ -682,9 +753,12 @@ export default function SOP({ activeSub, onSubChange }) {
     if (!file) return;
     if (file.size > _importLimit(file.name)) { setErr(`That file is too large — keep it under ${Math.round(_importLimit(file.name) / 1024 / 1024)} MB or paste the text instead.`); return; }
     try {
-      const text = await extractFileText(file);
+      const { text, images } = await extractDoc(file);
       if (!text.trim()) { setErr('No readable text found in that file (a scanned/image-only PDF has no text). Paste the text instead.'); return; }
-      setDraft(p => p ? { ...p, _raw: text, title: p.title || file.name.replace(/\.[^.]+$/, '') } : p);
+      // Store extracted screenshots (Supabase, inline fallback), keyed by their [[IMG#]] marker.
+      const uploaded = {};
+      for (const [marker, dataUrl] of Object.entries(images)) uploaded[marker] = await uploadKbImage(dataUrl);
+      setDraft(p => p ? { ...p, _raw: text, _importImages: uploaded, title: p.title || file.name.replace(/\.[^.]+$/, '') } : p);
     } catch (e) {
       setErr(e?.message || 'Could not read that file. Try pasting the text instead.');
     }
@@ -781,9 +855,9 @@ export default function SOP({ activeSub, onSubChange }) {
     if (!file) return;
     if (file.size > _importLimit(file.name)) { setErr(`That file is too large — keep it under ${Math.round(_importLimit(file.name) / 1024 / 1024)} MB or paste the text instead.`); return; }
     try {
-      const text = await extractFileText(file);
+      const { text } = await extractDoc(file);   // courses are text-only; images aren't used
       if (!text.trim()) { setErr('No readable text found in that file (a scanned/image-only PDF has no text). Paste the text instead.'); return; }
-      setCourseDraft(p => p ? { ...p, _raw: text, title: p.title || file.name.replace(/\.[^.]+$/, '') } : p);
+      setCourseDraft(p => p ? { ...p, _raw: text.replace(/\[\[IMG\d+\]\]/g, '').trim(), title: p.title || file.name.replace(/\.[^.]+$/, '') } : p);
     } catch (e) {
       setErr(e?.message || 'Could not read that file. Try pasting the text instead.');
     }

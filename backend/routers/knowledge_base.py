@@ -680,7 +680,7 @@ _STD_SCHEMA = (
     '{"title":string,"purpose":string,"scopeText":string,"materials":[string],'
     '"responsibilities":[{"role":string,"duty":string}],'
     '"definitions":[{"term":string,"def":string}],'
-    '"procedure":[{"text":string,"detail":string}],"safety":[string],"references":[string]}\n'
+    '"procedure":[{"text":string,"detail":string,"image":string}],"safety":[string],"references":[string]}\n'
     'Build each section by RESTRUCTURING the material — never transcribe it line by line:\n'
     '- IGNORE shallow or placeholder section labels in the source (e.g. a one-line "Purpose: <the title>" '
     'or "Definitions: Plex: a software"). The real, detailed content is often dumped under a single heading '
@@ -696,6 +696,10 @@ _STD_SCHEMA = (
     'line starting with "- " using real newline characters (\\n) — never run them together inline on one '
     'line. Fold troubleshooting and update/maintenance into their own clearly-titled steps '
     '(e.g. "Troubleshoot connection timeouts" with the diagnostic commands in detail).\n'
+    '- IMAGES: the source may contain inline image placeholders like [[IMG1]], [[IMG2]]. Each marks where '
+    'a screenshot belongs. Set the "image" field of the step that screenshot illustrates to the EXACT '
+    'placeholder token (e.g. "[[IMG1]]"), and use "" when a step has no image. NEVER leave a placeholder '
+    'inside text/detail/purpose or any other field — move each one into the right step\'s image, or drop it.\n'
     '- "safety": every warning, "do not"/"never", and compliance rule. "references": referenced docs, links '
     'or standards.\n'
     '- "materials"/"responsibilities"/"definitions": real tools, real role→duty, real term→meaning. '
@@ -715,7 +719,7 @@ def _normalize_sop(o: dict) -> dict:
         "materials": [s if isinstance(s, str) else s.get("text", "") for s in arr(o.get("materials"))],
         "responsibilities": [{"role": r.get("role") or r.get("who", ""), "duty": r.get("duty") or r.get("responsibility", "")} for r in arr(o.get("responsibilities")) if isinstance(r, dict)],
         "definitions": [{"term": r.get("term", ""), "def": r.get("def") or r.get("definition", "")} for r in arr(o.get("definitions")) if isinstance(r, dict)],
-        "procedure": [({"text": s, "detail": ""} if isinstance(s, str) else {"text": s.get("text") or s.get("step", ""), "detail": s.get("detail", "")}) for s in arr(o.get("procedure"))],
+        "procedure": [({"text": s, "detail": "", "image": ""} if isinstance(s, str) else {"text": s.get("text") or s.get("step", ""), "detail": s.get("detail", ""), "image": s.get("image", "")}) for s in arr(o.get("procedure"))],
         "safety": [s if isinstance(s, str) else s.get("text", "") for s in arr(o.get("safety"))],
         "references": [s if isinstance(s, str) else s.get("text", "") for s in arr(o.get("references"))],
     }
