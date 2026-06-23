@@ -28,7 +28,12 @@ _VALID_TRANSITIONS = {
 
 _ROLE_LEVEL = {"employee": 1, "supervisor": 2, "manager": 3, "administrator": 4, "owner": 5}
 
-_ITEM_TYPES    = ["Devices", "Tools", "Vehicles", "Equipment", "Keys", "Other"]
+# Controlled list of item types — add/edit is dropdown-only, and an unrecognised
+# type on IMPORT now lands in "Other" for cleanup rather than spawning a junk type
+# (Neil). To add a real new type, add it here (a deliberate, rare change).
+_ITEM_TYPES    = ["Computer", "Peripheral", "Networking", "Server", "Storage",
+                  "IP Camera", "Devices", "Tools", "Equipment", "Vehicles",
+                  "Furniture", "Keys", "Other"]
 _ITEM_STATUSES = ["available", "checked_out", "permanently_assigned", "retired"]
 # Operational status (Neil) — what condition/deployment state the unit is in. SEPARATE
 # from the lifecycle `status` above (which is auto-driven by checkouts/assignments).
@@ -406,7 +411,9 @@ def _normalize_type(raw) -> str:
     s = _clean_field(raw)
     if not s:
         return "Other"
-    return _TYPE_CANON.get(s.lower(), s)
+    # Unrecognised types are funnelled into "Other" (was: kept as-is) so a typo'd
+    # or invented type on import doesn't create a new category — Neil's rule.
+    return _TYPE_CANON.get(s.lower(), "Other")
 
 
 def _content_sig(name, item_type, make, model, year, department, location, ownership) -> tuple:

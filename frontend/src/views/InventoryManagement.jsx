@@ -19,7 +19,9 @@ import { useAssignments, MyPermanentPanel, AssignmentsQueue, AssignItemModal } f
 import { renderNotifBody } from '../components/NotificationBell';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const ITEM_TYPES = ['Devices', 'Tools', 'Vehicles', 'Equipment', 'Keys', 'Other'];
+// Controlled item types — mirror _ITEM_TYPES in backend/routers/items.py. Add/edit
+// is dropdown-only; unrecognised types on import are saved as "Other" (Neil).
+const ITEM_TYPES = ['Computer', 'Peripheral', 'Networking', 'Server', 'Storage', 'IP Camera', 'Devices', 'Tools', 'Equipment', 'Vehicles', 'Furniture', 'Keys', 'Other'];
 
 // Canonicalise a free-typed item type: case-insensitive + singular→plural
 // ("device" → "Devices"). Unknown types (e.g. "IP Camera") are kept as-is so
@@ -900,14 +902,14 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
                 <div style={{ fontSize:12.5, color:'var(--muted)', marginBottom:10 }}>
                   <strong style={{ color:'hsl(var(--color-green))' }}>{valid.length} valid</strong>
                   {invalid.length > 0 && <>, <strong style={{ color:'hsl(var(--color-red))' }}>{invalid.length} missing name (skipped)</strong></>}
-                  {warned.length > 0 && <>, <strong style={{ color:'hsl(var(--color-orange))' }}>{warned.length} row{warned.length !== 1 ? 's' : ''} with an unknown type (saved as-is)</strong></>}
+                  {warned.length > 0 && <>, <strong style={{ color:'hsl(var(--color-orange))' }}>{warned.length} row{warned.length !== 1 ? 's' : ''} with an unknown type (saved as "Other")</strong></>}
                 </div>
                 {/* Show EVERY distinct unknown type so they can all be reviewed before
                     importing — not just a count (Amy: "could not see all 14"). */}
                 {unknownTypes.length > 0 && (
                   <div style={{ border:'1px solid hsla(var(--color-orange),0.35)', background:'hsla(var(--color-orange),0.06)', borderRadius:8, padding:'10px 12px', marginBottom:14 }}>
                     <div style={{ fontSize:12, fontWeight:700, color:'hsl(var(--color-orange))', marginBottom:7 }}>
-                      {unknownTypes.length} unknown type{unknownTypes.length !== 1 ? 's' : ''} — saved exactly as written:
+                      {unknownTypes.length} unknown type{unknownTypes.length !== 1 ? 's' : ''} — these rows will be saved as "Other":
                     </div>
                     <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
                       {unknownTypes.map(t => (
