@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
-import { supabase } from '../lib/supabase';
 import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
   X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, Loader, ChevronUp, ChevronDown,
@@ -273,15 +272,13 @@ async function extractDoc(file) {
   return { text: await file.text(), images: {} };   // text-like formats
 }
 
-// Store a step image in Supabase (kb-media bucket) and return its public URL.
-// Falls back to the inline data URL if the bucket/upload isn't available, so an
-// import never fails just because storage is unreachable.
+// Store a step image in the PRIVATE kb-media bucket (via the backend, service
+// role) and return its storage path — resolved to a signed URL on view. Falls
+// back to the inline data URL if upload fails, so an import never breaks.
 async function uploadKbImage(dataUrl) {
   try {
-    const blob = await (await fetch(dataUrl)).blob();
-    const path = `sop/${Date.now()}-${Math.random().toString(36).slice(2, 9)}.jpg`;
-    const { error } = await supabase.storage.from('kb-media').upload(path, blob, { contentType: 'image/jpeg', upsert: false, cacheControl: '31536000' });
-    if (!error) return supabase.storage.from('kb-media').getPublicUrl(path).data.publicUrl;
+    const { path } = await api.uploadKbMedia(dataUrl);
+    if (path) return path;
   } catch { /* fall back to inline */ }
   return dataUrl;
 }
@@ -335,6 +332,8 @@ export default function SOP({ activeSub, onSubChange }) {
   const [mode, setMode] = useState('list'); // list | detail | editor
   const [selected, setSelected] = useState(null);
   const [draft, setDraft] = useState(null);
+  const [signedImgs, setSignedImgs] = useState({});   // kb-media path → short-lived signed URL
+  const signedReqRef = useRef(new Set());             // paths already requested (avoid re-signing)
   const [busy, setBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiInstruction, setAiInstruction] = useState(''); // "Edit with Claude" prompt
@@ -444,6 +443,20 @@ export default function SOP({ activeSub, onSubChange }) {
   // remember the chosen library view between sessions
   useEffect(() => { try { localStorage.setItem('kbLibView', libView); } catch { /* ignore */ } }, [libView]);
   useEffect(() => { try { localStorage.setItem('kbSidebar', sidebarOpen ? '1' : '0'); } catch { /* ignore */ } }, [sidebarOpen]);
+  // Resolve private kb-media image PATHS (from the open doc or the editor draft) to
+  // short-lived signed URLs. Inline/http images are left as-is. Each path is signed
+  // once; the ref guards against re-requesting on every keystroke.
+  useEffect(() => {
+    const collect = (body) => (body?.procedure || []).map(s => s?.image).filter(p => p && !/^(https?:|data:)/.test(p));
+    const want = [...new Set([...collect(selected?.body), ...collect(draft?.body)])].filter(p => !signedReqRef.current.has(p));
+    if (!want.length) return;
+    want.forEach(p => signedReqRef.current.add(p));
+    let cancelled = false;
+    api.signKbMedia(want)
+      .then(({ urls }) => { if (!cancelled && urls) setSignedImgs(prev => ({ ...prev, ...urls })); })
+      .catch(() => want.forEach(p => signedReqRef.current.delete(p)));
+    return () => { cancelled = true; };
+  }, [selected, draft]);
   // press "/" to jump to the search box (when not already typing in a field)
   useEffect(() => {
     const onKey = (e) => {
@@ -1130,7 +1143,7 @@ export default function SOP({ activeSub, onSubChange }) {
                     <span style={{ position: 'absolute', left: 0, top: 9, width: 26, height: 26, borderRadius: 8, backgroundColor: 'var(--bg-secondary)', color: 'hsl(var(--color-blue))', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
                     {s.text}
                     <StepDetail detail={s.detail} />
-                    {s.image && <img src={s.image} alt="step illustration" onClick={() => setLightbox(s.image)} style={{ marginTop: 9, maxWidth: 360, width: '100%', borderRadius: 10, border: '1px solid var(--border-color)', display: 'block', cursor: 'zoom-in' }} />}
+                    {s.image && <img src={signedImgs[s.image] || s.image} alt="step illustration" onClick={() => setLightbox(signedImgs[s.image] || s.image)} style={{ marginTop: 9, maxWidth: 360, width: '100%', borderRadius: 10, border: '1px solid var(--border-color)', display: 'block', cursor: 'zoom-in' }} />}
                   </li>
                 ))}
               </ol>
@@ -1527,7 +1540,7 @@ export default function SOP({ activeSub, onSubChange }) {
                   <button className="secondary-btn" onClick={() => delItem('procedure', i)} style={{ width: 42, height: 42, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Trash2 size={16} /></button>
                 </div>
                 <textarea className="form-input" value={s.detail || ''} placeholder="Optional detail / note for this step…" onChange={e => updItem('procedure', i, { ...s, detail: e.target.value })} style={{ marginTop: 10, marginLeft: 40, width: 'calc(100% - 40px)', minHeight: 46, resize: 'vertical', fontSize: '0.88rem', lineHeight: 1.55, padding: '10px 14px' }} />
-                {s.image && <div style={{ marginTop: 10, marginLeft: 40, display: 'flex', alignItems: 'center', gap: 10 }}><img src={s.image} alt="step" style={{ height: 60, borderRadius: 8, border: '1px solid var(--border-color)' }} /><button className="secondary-btn" onClick={() => updItem('procedure', i, { ...s, image: '' })} style={{ height: 32, fontSize: '0.8rem' }}>Remove picture</button></div>}
+                {s.image && <div style={{ marginTop: 10, marginLeft: 40, display: 'flex', alignItems: 'center', gap: 10 }}><img src={signedImgs[s.image] || s.image} alt="step" style={{ height: 60, borderRadius: 8, border: '1px solid var(--border-color)' }} /><button className="secondary-btn" onClick={() => updItem('procedure', i, { ...s, image: '' })} style={{ height: 32, fontSize: '0.8rem' }}>Remove picture</button></div>}
               </div>
             ))}
             {draft.body.procedure.length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>No steps yet.</p>}

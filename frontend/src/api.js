@@ -221,6 +221,8 @@ export const api = {
   getKbPins:        ()          => req("/knowledge-base/pins"),
   toggleKbPin:      (id)        => req(`/knowledge-base/documents/${id}/pin`, { method: "POST" }),
   translateKbDoc:   (id, lang)  => req(`/knowledge-base/documents/${id}/translate`, { method: "POST", body: JSON.stringify({ lang }), timeoutMs: AI_TIMEOUT_MS }),
+  uploadKbMedia:    (data)      => req('/knowledge-base/media/upload', { method: 'POST', body: JSON.stringify({ data }), timeoutMs: 60_000 }),
+  signKbMedia:      (paths)     => req('/knowledge-base/media/sign', { method: 'POST', body: JSON.stringify({ paths }) }),
   // Learn (LMS)
   aiCourse:        (data)      => req("/knowledge-base/ai-course", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
   getKbCourses:    ()          => req("/knowledge-base/courses"),

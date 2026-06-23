@@ -14,6 +14,7 @@ formatter so the editor feature never hard-fails.
 import os
 import json
 import uuid
+import base64
 from datetime import datetime, timezone
 
 import httpx
@@ -38,6 +39,11 @@ _ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 # Quality-sensitive formatting task — kept in one constant so it's trivially
 # swappable (e.g. to claude-haiku-4-5-20251001 to match items.py / cut cost).
 _AI_MODEL = "claude-opus-4-8"
+# Private bucket for SOP images — only the service-role backend writes objects and
+# mints short-lived signed URLs (the bucket is NOT public).
+_SUPABASE_URL         = os.getenv("SUPABASE_URL", "")
+_SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+_KB_BUCKET = "kb-media"
 
 
 def _now() -> str:
@@ -899,6 +905,76 @@ def ai_revise(payload: AiReviseIn, user: dict = Depends(get_current_user)):
     except Exception as e:
         print(f"[kb ai-revise] failed: {e}")
         return {"source": "offline", "sop": current}
+
+
+# ---- Media (private bucket + signed URLs) ---------------------------------
+class MediaUploadIn(BaseModel):
+    data: str            # data URL or raw base64 of an already-resized image
+
+
+class MediaSignIn(BaseModel):
+    paths: list[str] = []
+
+
+@router.post("/media/upload")
+def upload_media(payload: MediaUploadIn, user: dict = Depends(get_current_user)):
+    """Store a KB image in the PRIVATE kb-media bucket via the service role and
+    return its storage path. Views go through /media/sign — never a public URL."""
+    if not (_SUPABASE_URL and _SUPABASE_SERVICE_KEY):
+        raise HTTPException(status_code=503, detail="Storage is not configured")
+    raw = payload.data or ""
+    content_type = "image/jpeg"
+    if raw.startswith("data:"):
+        try:
+            header, raw = raw.split(",", 1)
+            content_type = header.split(";")[0][5:] or "image/jpeg"
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid image data")
+    try:
+        blob = base64.b64decode(raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid image data")
+    if not blob or len(blob) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image is empty or too large")
+    path = f"sop/{uuid.uuid4().hex}.jpg"
+    try:
+        with httpx.Client(timeout=30) as client:
+            r = client.post(
+                f"{_SUPABASE_URL}/storage/v1/object/{_KB_BUCKET}/{path}",
+                headers={"Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}", "apikey": _SUPABASE_SERVICE_KEY,
+                         "Content-Type": content_type, "cache-control": "31536000"},
+                content=blob,
+            )
+            r.raise_for_status()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Image upload failed: {e}")
+    return {"path": path}
+
+
+@router.post("/media/sign")
+def sign_media(payload: MediaSignIn, user: dict = Depends(get_current_user)):
+    """Return short-lived signed URLs for kb-media storage paths (authed users only).
+    Skips anything that's already an http/data URL (legacy inline images)."""
+    out: dict = {}
+    paths = [p for p in (payload.paths or []) if p and not p.startswith(("http", "data:"))][:80]
+    if not (paths and _SUPABASE_URL and _SUPABASE_SERVICE_KEY):
+        return {"urls": out}
+    try:
+        with httpx.Client(timeout=20) as client:
+            r = client.post(
+                f"{_SUPABASE_URL}/storage/v1/object/sign/{_KB_BUCKET}",
+                headers={"Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}", "apikey": _SUPABASE_SERVICE_KEY,
+                         "Content-Type": "application/json"},
+                json={"expiresIn": 3600, "paths": paths},
+            )
+            r.raise_for_status()
+            for item in r.json():
+                p, su = item.get("path"), (item.get("signedURL") or item.get("signedUrl"))
+                if p and su:
+                    out[p] = f"{_SUPABASE_URL}/storage/v1{su}"
+    except Exception as e:
+        print(f"[kb sign] {e}")
+    return {"urls": out}
 
 
 # ---- AI course generation -------------------------------------------------
