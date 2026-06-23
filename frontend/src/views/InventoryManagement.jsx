@@ -1473,7 +1473,7 @@ function AuditHistoryModal({ item, onClose }) {
             : rows === null ? <SkeletonBlocks count={4} height={48} borderRadius={8} />
             : rows.length === 0 ? <div style={{ textAlign:'center', color:'var(--muted)', fontSize:13, padding:'30px 0' }}>No recorded history for this item.</div>
             : buildAuditDiffs(rows).map(({ row: r, changes, baseline, isAdd }, i) => {
-                const m = auditEventMeta(r.action);
+                const m = baseline ? { Icon: Package, tone: 'blue', verb: 'Original values' } : auditEventMeta(r.action);
                 return (
                   <div key={r.id} style={{ display:'flex', gap:13 }}>
                     <div style={{ display:'flex', flexDirection:'column', alignItems:'center' }}>
@@ -1481,7 +1481,7 @@ function AuditHistoryModal({ item, onClose }) {
                       {i < rows.length - 1 && <div style={{ width:2, flex:1, minHeight:14, background:'var(--line)', marginTop:2 }} />}
                     </div>
                     <div style={{ paddingBottom:18, flex:1, minWidth:0 }}>
-                      <div style={{ fontWeight:700, fontSize:13 }}>{m.verb}{baseline ? ' — starting state' : ''}</div>
+                      <div style={{ fontWeight:700, fontSize:13 }}>{m.verb}</div>
                       <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1 }}>by {auditName(r.user_email)} · {fmtAuditStamp(r.timestamp)}</div>
                       {changes ? (
                         changes.length ? (
