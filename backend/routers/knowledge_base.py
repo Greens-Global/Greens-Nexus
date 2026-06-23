@@ -1278,6 +1278,36 @@ def _assignment_list(c: models.KbCourse, db: Session) -> list:
     return out
 
 
+def _emit_due_reminders(db: Session, email: str, assignments: list) -> None:
+    """Drop a deduped bell reminder for any overdue / recert-lapsed course in this
+    user's training list, so required-training nudges reach the bell even without a
+    scheduler. Triggered when the user loads their assignments; capped at one
+    reminder per course per kind per day so it never spams."""
+    today = _today()
+    for a in assignments:
+        if a.get("overdue"):
+            ntype, title = "kb_course_overdue", "Training overdue"
+            body = (f"Your assigned course “{a['title']}” is overdue "
+                    f"(was due {a['due_date']}). Please complete it as soon as you can.")
+        elif a.get("expired"):
+            ntype, title = "kb_course_recert", "Recertification due"
+            body = (f"Your certification for “{a['title']}” has lapsed. "
+                    "Please retake it to stay current.")
+        else:
+            continue
+        already = db.query(models.NexusNotification).filter(
+            models.NexusNotification.recipient == email,
+            models.NexusNotification.type == ntype,
+            models.NexusNotification.ref_id == a["course_id"]).all()
+        if any((n.created_at or "")[:10] == today for n in already):
+            continue
+        db.add(models.NexusNotification(
+            id=str(uuid.uuid4()), type=ntype, recipient=email, title=title, body=body,
+            ref_id=a["course_id"], item_name=a["title"], requested_by="", action="",
+            actioned=False, read_by="", created_at=_now()))
+    db.commit()
+
+
 @router.post("/courses/{cid}/assign")
 def assign_course(cid: str, payload: AssignIn, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
     c = _course_or_404(cid, db)
@@ -1335,4 +1365,5 @@ def my_assignments(user: dict = Depends(get_current_user), db: Session = Depends
                     "expired": expired, "renew_by": renew_by,
                     "overdue": bool(a.due_date and not prog["completed_at"] and a.due_date < _today())})
     out.sort(key=lambda x: (x["status"] == "Completed" and not x["expired"], x["due_date"] or "9999"))
+    _emit_due_reminders(db, user["email"], out)
     return out
