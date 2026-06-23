@@ -106,6 +106,19 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   return res.json();
 }
 
+// Short-lived GET cache + in-flight dedup for reference data that rarely changes
+// (allocators, approvers, people directory). Several tabs/modals each fetch these
+// on mount, firing the same request many times — slow and wasteful on throttled
+// connections. Sharing one promise for a TTL window collapses them into one call.
+const _getCache = new Map(); // path → { ts, promise }
+function cachedGet(path, ttlMs = 60_000) {
+  const hit = _getCache.get(path);
+  if (hit && (Date.now() - hit.ts) < ttlMs) return hit.promise;
+  const promise = req(path).catch(err => { _getCache.delete(path); throw err; });
+  _getCache.set(path, { ts: Date.now(), promise });
+  return promise;
+}
+
 // Like req(), but for endpoints that return a file (Excel/PDF export) rather
 // than JSON — returns the blob plus the filename the server suggested via
 // Content-Disposition, so the caller can trigger a download.
@@ -288,9 +301,9 @@ export const api = {
   deleteItemCustomField: (id)         => req(`/items/custom-fields/${id}`, { method: 'DELETE' }),
   getItemsReport:      (params)       => reqBlob(`/items/report?${new URLSearchParams(params)}`),
   getItemsAuditLog:    (params)       => req(`/items/audit-log?${new URLSearchParams(params)}`),
-  getItemAllocators:   ()             => req('/items/allocators'),
-  getItemApprovers:    ()             => req('/items/approvers'),
-  getRolesDirectory:   ()             => req('/roles/directory'),
+  getItemAllocators:   ()             => cachedGet('/items/allocators'),
+  getItemApprovers:    ()             => cachedGet('/items/approvers'),
+  getRolesDirectory:   ()             => cachedGet('/roles/directory'),
   autoFillItemPhotos:  (item_ids, replace = false) => req('/items/auto-photos', { method: 'POST', body: JSON.stringify({ item_ids, replace }) }),
   // Permanent assignments
   getAssignments:         ()           => req('/items/assignments'),

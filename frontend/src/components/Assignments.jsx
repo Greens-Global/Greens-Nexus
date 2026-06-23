@@ -2,7 +2,7 @@
    manager queue (accept returns, cancel/force-recover) and the assign/reassign
    modal. All state lives in the DB via /items/assignments — components only
    mirror it and poll. */
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Camera, CheckCircle, XCircle, RotateCcw, Loader2, AlertCircle, User, Package, ZoomIn } from 'lucide-react';
 import { api } from '../api';
 import { supabase } from '../lib/supabase';
@@ -24,20 +24,43 @@ const REASON_FLAG = {
   reassign: { label: 'REASSIGNMENT', color: 'var(--color-blue)' },
 };
 
+// Shared across ALL useAssignments() consumers: one poll, one in-flight request,
+// many subscribers. Previously each consumer ran its own mount fetch + 15s poll,
+// so /items/assignments fired several times over (and again every 15s per copy).
+let _asgState = [];
+const _asgSubs = new Set();
+let _asgTimer = null;
+let _asgInFlight = false;
+function _asgFetch() {
+  if (_asgInFlight) return Promise.resolve();   // dedup concurrent callers
+  _asgInFlight = true;
+  return api.getAssignments()
+    .then(rows => {
+      if (JSON.stringify(_asgState) !== JSON.stringify(rows)) {
+        _asgState = rows;
+        _asgSubs.forEach(fn => fn(_asgState));   // broadcast only on real change
+      }
+    })
+    .catch(() => {})
+    .finally(() => { _asgInFlight = false; });
+}
 export function useAssignments() {
-  const [assignments, setAssignments] = useState([]);
-  const timer = useRef(null);
-  // Keep the previous array reference when the poll returns identical data so
-  // React bails out of re-rendering consumers every 15s.
-  const fetchNow = useCallback(() => api.getAssignments()
-    .then(rows => setAssignments(prev => JSON.stringify(prev) === JSON.stringify(rows) ? prev : rows))
-    .catch(() => {}), []);
+  const [assignments, setAssignments] = useState(_asgState);
   useEffect(() => {
-    fetchNow();
-    timer.current = setInterval(fetchNow, 15000);
-    return () => clearInterval(timer.current);
-  }, [fetchNow]);
-  return { assignments, refreshAssignments: fetchNow };
+    _asgSubs.add(setAssignments);
+    setAssignments(_asgState);                   // sync to whatever's already loaded
+    if (_asgSubs.size === 1) {                    // first consumer owns the shared poll
+      _asgFetch();
+      _asgTimer = setInterval(_asgFetch, 15000);
+    } else {
+      _asgFetch();                                // later consumer: in-flight-deduped refresh
+    }
+    return () => {
+      _asgSubs.delete(setAssignments);
+      if (_asgSubs.size === 0 && _asgTimer) { clearInterval(_asgTimer); _asgTimer = null; }
+    };
+  }, []);
+  return { assignments, refreshAssignments: _asgFetch };
 }
 
 async function uploadPhoto(file, prefix) {
