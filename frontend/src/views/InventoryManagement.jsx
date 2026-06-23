@@ -4296,10 +4296,10 @@ const ManageRow = memo(function ManageRow({ item, isSelected, onToggle, onEdit, 
         }
       </td>
       <td style={{ padding:'10px 14px', fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace', fontSize:12, color:'var(--muted)', whiteSpace:'nowrap' }}>{item.serialNumber || '—'}</td>
-      <td style={{ padding:'10px 14px', fontWeight:600 }}>
+      <td style={{ padding:'10px 14px', fontWeight:600, maxWidth:240, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
         {onDetails ? (
           <button onClick={() => onDetails(item)} title="Open item details"
-            style={{ background:'none', border:'none', padding:0, font:'inherit', fontWeight:600, color:'var(--ink)', cursor:'pointer', textAlign:'left' }}
+            style={{ background:'none', border:'none', padding:0, font:'inherit', fontWeight:600, color:'var(--ink)', cursor:'pointer', textAlign:'left', maxWidth:'100%', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
             onMouseEnter={e => { e.currentTarget.style.color = 'hsl(var(--color-blue))'; e.currentTarget.style.textDecoration = 'underline'; }}
             onMouseLeave={e => { e.currentTarget.style.color = 'var(--ink)'; e.currentTarget.style.textDecoration = 'none'; }}>
             {item.name}
@@ -4447,6 +4447,35 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
     return sortDir === 'asc' ? cmp : -cmp;
   }), [filtered, sortCol, sortDir]);
 
+  // ── Row virtualization (desktop table) ──────────────────────────────────────
+  // A catalog of hundreds of rows is slow to scroll/select when every row is in
+  // the DOM. Render only the rows near the viewport (+ overscan) inside a bounded
+  // scroll box; fixed row height + spacer rows keep the scrollbar honest.
+  const ROW_H = 65;
+  const OVERSCAN = 6;
+  const scrollRef = useRef(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportH, setViewportH] = useState(640);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => setViewportH(el.clientHeight || 640);
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+  // Jump back to the top whenever the filtered/sorted set changes, so we never
+  // sit in a now-out-of-range scroll window.
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+    setScrollTop(0);
+  }, [search, deptFilter, typeFilter, ownershipFilter, locationFilter, modelFilter, sortCol, sortDir]);
+  const vStart = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
+  const vEnd   = Math.min(sorted.length, vStart + Math.ceil(viewportH / ROW_H) + OVERSCAN * 2);
+  const vSlice = sorted.slice(vStart, vEnd);
+  const padTop = vStart * ROW_H;
+  const padBot = Math.max(0, (sorted.length - vEnd) * ROW_H);
+
   const missingPhotos = items.filter(i => !i.photoUrl).length;
   const selItems      = filtered.filter(i => selected.has(i.id));
   const blockedItems  = selItems.filter(i =>
@@ -4507,7 +4536,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
     const active = sortCol === col;
     return (
       <th onClick={() => toggleSort(col)}
-        style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color: active ? 'var(--ink)' : 'var(--muted)', whiteSpace:'nowrap', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em', cursor:'pointer', userSelect:'none' }}>
+        style={{ textAlign:'left', padding:'10px 14px', fontWeight:700, color: active ? 'var(--ink)' : 'var(--muted)', whiteSpace:'nowrap', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em', cursor:'pointer', userSelect:'none', background:'var(--mist)' }}>
         <span style={{ display:'inline-flex', alignItems:'center', gap:3 }}>
           {label}
           <ArrowUpDown size={11} style={{ opacity: active ? 1 : 0.35, color: active ? 'var(--pine)' : 'inherit', transform: active && sortDir === 'desc' ? 'scaleY(-1)' : 'none' }} />
@@ -4617,11 +4646,12 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
           ))}
         </div>
       ) : (
-        <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto', background:'var(--card)' }}>
+        <div ref={scrollRef} onScroll={e => setScrollTop(e.currentTarget.scrollTop)}
+          style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto', background:'var(--card)', maxHeight:'70vh' }}>
           <table style={{ width:'100%', minWidth:1180, borderCollapse:'collapse', fontSize:13 }}>
-            <thead>
+            <thead style={{ position:'sticky', top:0, zIndex:2 }}>
               <tr style={{ background:'var(--mist)' }}>
-                <th style={{ padding:'10px 14px', width:36 }}>
+                <th style={{ padding:'10px 14px', width:36, background:'var(--mist)' }}>
                   <input type="checkbox"
                     checked={selected.size === filtered.length && filtered.length > 0}
                     ref={el => { if (el) el.indeterminate = selected.size > 0 && selected.size < filtered.length; }}
@@ -4643,11 +4673,15 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
               </tr>
             </thead>
             <tbody>
-              {sorted.map(item => (
+              {/* Spacer for the rows scrolled past above the viewport */}
+              {padTop > 0 && <tr aria-hidden="true"><td colSpan={13} style={{ height:padTop, padding:0, border:'none' }} /></tr>}
+              {vSlice.map(item => (
                 <ManageRow key={item.id} item={item} isSelected={selected.has(item.id)}
                   onToggle={toggleSelect} onEdit={onEdit} onDelete={onDelete} onAssign={onAssign}
                   onDetails={onDetails} onPreview={setPhotoPreview} canDelete={canDelete} />
               ))}
+              {/* Spacer for the rows still below the viewport */}
+              {padBot > 0 && <tr aria-hidden="true"><td colSpan={13} style={{ height:padBot, padding:0, border:'none' }} /></tr>}
             </tbody>
           </table>
         </div>
