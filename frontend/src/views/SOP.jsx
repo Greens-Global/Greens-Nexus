@@ -448,6 +448,7 @@ export default function SOP({ activeSub, onSubChange }) {
       version: d.version, effective_date: d.effective_date || '', require_ack: !!d.require_ack,
       review_every_months: d.review_every_months || 12, retention_months: d.retention_months || 84,
       body: { ...blankBody(), ...(d.body || {}) }, owner_name: d.owner_name, owner_email: d.owner_email, _raw: '',
+      _status: d.status, _reviewNote: d.review_note || '',
     });
     setMode('editor');
   };
@@ -570,8 +571,9 @@ export default function SOP({ activeSub, onSubChange }) {
     finally { setAiBusy(false); }
   };
   // "Edit with Claude": apply a natural-language change to the current draft, then review the diff.
-  const runAiRevise = async () => {
-    const instruction = aiInstruction.trim();
+  // An optional overrideInstruction lets the "Address reviewer feedback" button drive the same flow.
+  const runAiRevise = async (overrideInstruction) => {
+    const instruction = (typeof overrideInstruction === 'string' ? overrideInstruction : aiInstruction).trim();
     if (!instruction) { setErr('Describe the change you want Claude to make.'); return; }
     setAiBusy(true); setErr('');
     try {
@@ -595,6 +597,19 @@ export default function SOP({ activeSub, onSubChange }) {
       setAiInstruction('');
     } catch (e) { setErr(e.message || 'AI edit failed'); }
     finally { setAiBusy(false); }
+  };
+  // "Address reviewer feedback with Claude": gather the reviewer's change request +
+  // any comments, then let Claude apply them and show the diff to review.
+  const addressFeedback = async () => {
+    setErr('');
+    let comments = [];
+    try { comments = draft.id ? await api.getKbComments(draft.id) : []; } catch { /* best-effort */ }
+    const parts = [];
+    if ((draft._reviewNote || '').trim()) parts.push(`Reviewer's change request:\n${draft._reviewNote.trim()}`);
+    const cs = (comments || []).filter(c => (c.text || '').trim());
+    if (cs.length) parts.push('Comments:\n' + cs.map(c => `- ${c.author_name || c.author_email}: ${c.text}`).join('\n'));
+    if (!parts.length) { setErr('No reviewer feedback found to address — edit the sections, or use Edit with Claude.'); return; }
+    await runAiRevise('A reviewer asked for changes on this SOP. Revise it to FULLY address the following feedback, keeping everything else intact:\n\n' + parts.join('\n\n'));
   };
   const revertAi = () => {
     if (!aiReview) return;
@@ -970,7 +985,7 @@ export default function SOP({ activeSub, onSubChange }) {
               {[['SOP ID', d.doc_code || '—'], ['Type', d.doc_type], ['Version', 'v' + d.version], ['Owner', d.owner_name || '—'], ['Reviewer', d.reviewer_name || d.reviewer_email || '—'], ['Effective', fmtDate(d.effective_date)], ['Updated', fmtDate(d.updated_at)]].map(([k, v]) => (
                 <div key={k} style={{ backgroundColor: 'var(--bg-card)', padding: '10px 13px' }}>
                   <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 3 }}>{k}</div>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-primary)' }}>{v}</div>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-primary)', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{v}</div>
                 </div>
               ))}
               <div style={{ backgroundColor: 'var(--bg-card)', padding: '10px 13px', gridColumn: '1 / -1' }}>
@@ -1288,6 +1303,15 @@ export default function SOP({ activeSub, onSubChange }) {
             {aiReview && <button className="secondary-btn" onClick={() => setAiReview(p => ({ ...p, open: true, tab: 'changes' }))} style={{ height: 34, fontSize: '0.8rem', flex: '0 0 auto' }}>Review changes</button>}
             <button className="secondary-btn" onClick={() => setPreviewOpen(true)} style={{ height: 34, fontSize: '0.8rem', flex: '0 0 auto' }}>Preview</button>
             <button className="secondary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ height: 34, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5, flex: '0 0 auto' }}>{aiBusy ? <Loader size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />} Re-run AI</button>
+          </div>
+        )}
+
+        {!isManual && draft.id && draft._status === 'changes_requested' && (
+          <div style={{ border: '1px solid hsla(0,84%,60%,0.4)', background: 'hsla(0,84%,60%,0.06)', borderRadius: 12, padding: 14, marginBottom: 18 }}>
+            <strong style={{ fontSize: '0.88rem', color: 'hsl(0,70%,45%)' }}>Reviewer requested changes</strong>
+            {draft._reviewNote && <div style={{ fontSize: '0.82rem', color: 'var(--text-primary)', margin: '5px 0 10px', whiteSpace: 'pre-wrap' }}>{draft._reviewNote}</div>}
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '6px 0 10px' }}>Let Claude apply this feedback (and any comments) for you — you'll review the before/after before keeping it.</div>
+            <button className="primary-btn" disabled={aiBusy} onClick={addressFeedback} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>{aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Working…' : 'Address feedback with Claude'}</button>
           </div>
         )}
 

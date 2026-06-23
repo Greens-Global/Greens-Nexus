@@ -52,6 +52,19 @@ def _new_id() -> str:
     return "kb_" + uuid.uuid4().hex[:12]
 
 
+def _kb_notify(db: Session, *, recipient: str, ntype: str, title: str, body: str, doc) -> None:
+    """Server-side bell notification for a KB workflow event (employees can't POST
+    notifications client-side). Empty recipient is skipped so self-actions — a
+    manager reviewing their own SOP — don't ping the actor."""
+    email = (recipient or "").lower().strip()
+    if not email:
+        return
+    db.add(models.NexusNotification(
+        id=str(uuid.uuid4()), type=ntype, recipient=email, title=title, body=body,
+        ref_id=doc.id, item_name=doc.title, requested_by="", action="", actioned=False,
+        read_by="", created_at=_now()))
+
+
 def _dept_prefix(departments: list[str]) -> str:
     if not departments:
         return "COR"
@@ -301,6 +314,11 @@ def submit_document(doc_id: str, user: dict = Depends(get_current_user), db: Ses
     d.status = "in_review"
     d.updated_at = _now()
     _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": "Submitted for review."})
+    if (d.reviewer_email or "").lower() != user["email"].lower():
+        _kb_notify(db, recipient=d.reviewer_email, ntype="kb_review_request",
+                   title="A SOP is awaiting your review",
+                   body=f"{user.get('name') or user['email']} submitted “{d.title}” "
+                        f"({d.doc_code}) for your review.", doc=d)
     db.commit()
     return _serialize(d)
 
@@ -310,6 +328,8 @@ def review_document(doc_id: str, payload: ReviewIn, user: dict = Depends(require
     d = _get_or_404(doc_id, db)
     if d.status != "in_review":
         raise HTTPException(status_code=400, detail="Document is not awaiting review")
+    reviewer = user.get("name") or user["email"]
+    notify_owner = (d.owner_email or "").lower() != user["email"].lower()
     if payload.decision == "approve":
         first_publish = (d.version or "").startswith("0.")
         d.status = "approved"
@@ -322,12 +342,21 @@ def review_document(doc_id: str, payload: ReviewIn, user: dict = Depends(require
         d.review_note = payload.note
         _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": "Approved & published."})
         _snapshot(d, db)
+        if notify_owner:
+            note = f" Note: {payload.note}" if (payload.note or "").strip() else ""
+            _kb_notify(db, recipient=d.owner_email, ntype="kb_approved",
+                       title="Your SOP was approved & published",
+                       body=f"{reviewer} approved “{d.title}” ({d.doc_code}). It's now live.{note}", doc=d)
     elif payload.decision == "request_changes":
         if not payload.note.strip():
             raise HTTPException(status_code=400, detail="A note is required when requesting changes")
         d.status = "changes_requested"
         d.review_note = payload.note
         _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": f"Changes requested: {payload.note}"})
+        if notify_owner:
+            _kb_notify(db, recipient=d.owner_email, ntype="kb_changes_requested",
+                       title="Changes requested on your SOP",
+                       body=f"{reviewer} requested changes on “{d.title}” ({d.doc_code}): {payload.note}", doc=d)
     else:
         raise HTTPException(status_code=400, detail="decision must be 'approve' or 'request_changes'")
     d.updated_at = _now()
@@ -583,13 +612,20 @@ def list_comments(doc_id: str, user: dict = Depends(get_current_user), db: Sessi
 
 @router.post("/documents/{doc_id}/comments")
 def add_comment(doc_id: str, payload: CommentIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    _get_or_404(doc_id, db)
+    d = _get_or_404(doc_id, db)
     if not (payload.text or "").strip():
         raise HTTPException(status_code=400, detail="Write a comment first")
+    text = payload.text.strip()
     db.add(models.KbComment(
         id="cmt_" + uuid.uuid4().hex[:12], doc_id=doc_id, author_email=user["email"],
-        author_name=user.get("name") or user["email"], text=payload.text.strip(), created_at=_now(),
+        author_name=user.get("name") or user["email"], text=text, created_at=_now(),
     ))
+    # Ping the owner and reviewer (whoever isn't the commenter) so review feedback
+    # left as a comment doesn't go unseen.
+    cname = user.get("name") or user["email"]
+    for target in {(d.owner_email or "").lower(), (d.reviewer_email or "").lower()} - {user["email"].lower(), ""}:
+        _kb_notify(db, recipient=target, ntype="kb_comment", title="New comment on a SOP",
+                   body=f"{cname} commented on “{d.title}” ({d.doc_code}): {text[:160]}", doc=d)
     db.commit()
     return list_comments(doc_id, user, db)
 
@@ -649,10 +685,24 @@ _STD_SCHEMA = (
     '"responsibilities":[{"role":string,"duty":string}],'
     '"definitions":[{"term":string,"def":string}],'
     '"procedure":[{"text":string,"detail":string}],"safety":[string],"references":[string]}\n'
-    '- "procedure" is ordered; "text" is a concise imperative step, "detail" is an optional '
-    'clarifying note ("" if none).\n'
-    '- "materials" lists tools/equipment/required items. Keep wording professional and practical. '
-    'Do not invent specifics; leave arrays empty if unknown.'
+    'Build each section by RESTRUCTURING the material — never transcribe it line by line:\n'
+    '- IGNORE shallow or placeholder section labels in the source (e.g. a one-line "Purpose: <the title>" '
+    'or "Definitions: Plex: a software"). The real, detailed content is often dumped under a single heading '
+    '(commonly "Procedure"). Read the WHOLE source and rebuild every section from the substantive content.\n'
+    '- "purpose": 2-4 full sentences on what this SOP accomplishes and why — synthesize it; never just echo '
+    'the title.\n'
+    '- "scopeText": who/what it applies to and its boundaries.\n'
+    '- "procedure": ordered, logically GROUPED imperative steps — not a line-by-line dump. "text" is a '
+    'concise action ("Configure the Synology reverse proxy"); "detail" (may be several lines) holds that '
+    "step's specifics: exact commands, hostnames/IPs/ports, config field values, sub-steps, and expected "
+    'results. Preserve ALL technical specifics faithfully — never drop or summarise away a command, IP, '
+    'port, URL, or value. Fold troubleshooting and update/maintenance into their own clearly-titled steps '
+    '(e.g. "Troubleshoot connection timeouts" with the diagnostic commands in detail).\n'
+    '- "safety": every warning, "do not"/"never", and compliance rule. "references": referenced docs, links '
+    'or standards.\n'
+    '- "materials"/"responsibilities"/"definitions": real tools, real role→duty, real term→meaning. '
+    'Do NOT put document metadata (author, version, date) anywhere — that is header data, not body content.\n'
+    '- Do not invent specifics; leave an array empty only if the source genuinely lacks it.'
 )
 
 
@@ -784,12 +834,14 @@ def ai_format(payload: AiFormatIn, user: dict = Depends(get_current_user)):
     depts = ", ".join(payload.departments) or "Company-wide"
     prompt = (
         "You are a technical-documentation specialist for Greens Global, a self-storage and "
-        "commercial real estate operator. Convert the source material into a standardized SOP.\n\n"
+        "commercial real estate operator. Convert the source material into a standardized, "
+        "well-structured SOP — REORGANISE and synthesise the content into the right sections; "
+        "do not transcribe it line by line.\n\n"
         f"{_STD_SCHEMA}\n\nDepartments: {depts}\nWorking title: {payload.title or '(none)'}\n\n"
         f'SOURCE MATERIAL:\n"""\n{payload.content}\n"""'
     )
     try:
-        with httpx.Client(timeout=60) as client:
+        with httpx.Client(timeout=110) as client:
             r = client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={
@@ -799,7 +851,7 @@ def ai_format(payload: AiFormatIn, user: dict = Depends(get_current_user)):
                 },
                 json={
                     "model": _AI_MODEL,
-                    "max_tokens": 2000,
+                    "max_tokens": 6000,
                     "messages": [{"role": "user", "content": prompt}],
                 },
             )
@@ -831,11 +883,11 @@ def ai_revise(payload: AiReviseIn, user: dict = Depends(get_current_user)):
         f"CURRENT SOP (JSON):\n{json.dumps(current)}\n\nREQUESTED CHANGE:\n{instruction}"
     )
     try:
-        with httpx.Client(timeout=75) as client:
+        with httpx.Client(timeout=110) as client:
             r = client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={"x-api-key": _ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                json={"model": _AI_MODEL, "max_tokens": 2500, "messages": [{"role": "user", "content": prompt}]},
+                json={"model": _AI_MODEL, "max_tokens": 6000, "messages": [{"role": "user", "content": prompt}]},
             )
             r.raise_for_status()
             data = r.json()
