@@ -35,6 +35,9 @@ def _run_migrations():
             "ALTER TABLE items ADD COLUMN deleted_at VARCHAR DEFAULT ''",
             "ALTER TABLE items ADD COLUMN deleted_by VARCHAR DEFAULT ''",
             "ALTER TABLE items ADD COLUMN deleted_location VARCHAR DEFAULT ''",
+            # items: person an op_status (lost/retired) is declared against
+            "ALTER TABLE items ADD COLUMN op_status_person_email VARCHAR DEFAULT ''",
+            "ALTER TABLE items ADD COLUMN op_status_person_name VARCHAR DEFAULT ''",
             # knowledge_base: require sign-off flag + analytics/freshness/retention
             "ALTER TABLE kb_documents ADD COLUMN require_ack BOOLEAN DEFAULT 0",
             "ALTER TABLE kb_documents ADD COLUMN views INTEGER DEFAULT 0",
@@ -130,6 +133,9 @@ def _run_migrations():
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS deleted_at VARCHAR DEFAULT ''",
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS deleted_by VARCHAR DEFAULT ''",
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS deleted_location VARCHAR DEFAULT ''",
+        # items: person an op_status (lost/retired) is declared against — they get the notification + show on "Who has it"
+        "ALTER TABLE items ADD COLUMN IF NOT EXISTS op_status_person_email VARCHAR DEFAULT ''",
+        "ALTER TABLE items ADD COLUMN IF NOT EXISTS op_status_person_name VARCHAR DEFAULT ''",
         # knowledge_base: require sign-off flag + analytics/freshness/retention
         "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS require_ack BOOLEAN DEFAULT FALSE",
         "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS views INTEGER DEFAULT 0",

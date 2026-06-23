@@ -308,6 +308,8 @@ class Item(Base):
     picture_required  = Column(Boolean, default=True)  # False = photos optional in every flow (e.g. keys) — Neil, Jun 2026
     asset_value       = Column(Float, default=0.0)     # USD value: accountability + per-person holdings total
     op_status         = Column(String, default="")     # operational status (Neil): deployed|in_storage|in_repair|needs_replacement|retired|lost; '' = unset. SEPARATE from lifecycle `status`
+    op_status_person_email = Column(String, default="") # person an op_status is declared against (lost/retired) — they get the notification + show on "Who has it"
+    op_status_person_name  = Column(String, default="")
     assigned_to_location = Column(String, default="")  # set when a permanent item is assigned to a PLACE not a person — kept OUT of "Who has it" (Ankush)
     custom_fields     = Column(JSON, default=dict)     # {field_key: value} for admin-defined custom fields — see ItemCustomField
     deleted_at        = Column(String, default="")     # ISO ts; non-empty = soft-deleted (excluded from normal lists, restorable — Ankush)

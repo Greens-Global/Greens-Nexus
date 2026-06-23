@@ -75,6 +75,10 @@ const OP_STATUS_META = {
   retired:           { label: 'Retired',           bg:'var(--mist)',                    fg:'var(--muted)'             },
   lost:              { label: 'Lost',              bg:'hsla(var(--color-red),0.12)',    fg:'hsl(var(--color-red))'    },
 };
+// Op statuses declared AGAINST a person (lost/retired): they show a "Declared by"
+// person field, notify that person, and group on the Who-Has-It board as
+// Person → Status → Item. Mirror _OP_STATUS_PERSON in backend/routers/items.py.
+const OP_STATUS_PERSON = new Set(['lost', 'retired']);
 
 // Display status: a permanent item that nobody holds is "Unassigned", not
 // "Available" — green Available implies it could be checked out, which
@@ -192,6 +196,59 @@ function OpStatusBadge({ value }) {
     <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:20, fontSize:'11px', fontWeight:600, background:m.bg, color:m.fg, whiteSpace:'nowrap' }}>
       {m.label}
     </span>
+  );
+}
+
+// Name typeahead over the people directory — shows closest matches as you type
+// (used for "Declared by" on person-bound op statuses). Picking a match captures
+// the email so the backend can notify them; free-typed text leaves email blank.
+function PersonTypeahead({ valueName, onPick, placeholder = 'Type a name…' }) {
+  const [dir,  setDir]  = useState([]);
+  const [text, setText] = useState(valueName || '');
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef(null);
+  useEffect(() => { api.getRolesDirectory().then(d => setDir(Array.isArray(d) ? d : [])).catch(() => {}); }, []);
+  useEffect(() => { setText(valueName || ''); }, [valueName]);
+  useEffect(() => {
+    function onDoc(e) { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+  const q = text.trim().toLowerCase();
+  const matches = useMemo(() => {
+    if (!q) return [];
+    return dir
+      .filter(d => (d.name || '').toLowerCase().includes(q) || (d.email || '').toLowerCase().includes(q))
+      .sort((a, b) => {
+        // closest match first: a name that STARTS with the query beats a mere contains
+        const as = (a.name || '').toLowerCase().startsWith(q) ? 0 : 1;
+        const bs = (b.name || '').toLowerCase().startsWith(q) ? 0 : 1;
+        return as - bs || (a.name || '').localeCompare(b.name || '');
+      })
+      .slice(0, 6);
+  }, [dir, q]);
+
+  function pick(p) { onPick({ email: p.email || '', name: p.name || '' }); setText(p.name || ''); setOpen(false); }
+
+  return (
+    <div ref={boxRef} style={{ position:'relative' }}>
+      <input className="form-input" style={{ width:'100%' }} value={text} placeholder={placeholder}
+        onChange={e => { setText(e.target.value); setOpen(true); onPick({ email:'', name: e.target.value }); }}
+        onFocus={() => setOpen(true)} />
+      {open && matches.length > 0 && (
+        <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:30, marginTop:4, background:'var(--card)', border:'1px solid var(--line)', borderRadius:8, boxShadow:'var(--shadow-lg)', maxHeight:220, overflowY:'auto' }}>
+          {matches.map(p => (
+            <div key={p.email || p.name} onMouseDown={e => { e.preventDefault(); pick(p); }}
+              style={{ padding:'8px 12px', cursor:'pointer', display:'flex', flexDirection:'column' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--mist)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+              <span style={{ fontWeight:600, fontSize:13 }}>{p.name}</span>
+              <span style={{ fontSize:11, color:'var(--muted)' }}>{p.email}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -457,6 +514,8 @@ function EditItemModal({ item, onClose, onSave }) {
   const [ownershipType, setOwnershipType] = useState(item.ownershipType || 'transient');
   const [status,        setStatus]        = useState(item.status || 'available');
   const [opStatus,      setOpStatus]      = useState(item.opStatus || '');
+  const [opPersonEmail, setOpPersonEmail] = useState(item.opStatusPersonEmail || '');
+  const [opPersonName,  setOpPersonName]  = useState(item.opStatusPersonName  || '');
   const [location,      setLocation]      = useState(item.location || '');
   const [photoUrl,      setPhotoUrl]      = useState(item.photoUrl || '');
   const [pictureRequired, setPictureRequired] = useState(item.pictureRequired !== false);
@@ -472,6 +531,7 @@ function EditItemModal({ item, onClose, onSave }) {
       name: name.trim(), item_type: itemType, make: make.trim(), model: model.trim(),
       year: year.trim(), department: department.trim(), default_owner: defaultOwner.trim(),
       ownership_type: ownershipType, status, op_status: opStatus, location: location.trim(), photo_url: photoUrl,
+      op_status_person_email: opPersonEmail, op_status_person_name: opPersonName,
       picture_required: pictureRequired, asset_value: parseFloat(assetValue) || 0,
     }))
       .then(onClose)
@@ -557,7 +617,15 @@ function EditItemModal({ item, onClose, onSave }) {
                 {OP_STATUSES.map(s => <option key={s} value={s}>{OP_STATUS_META[s]?.label || s}</option>)}
               </select>
             </div>
-            <div />
+            <div>
+              {OP_STATUS_PERSON.has(opStatus) && (
+                <>
+                  <label style={FL}>DECLARED BY <span style={{ fontWeight:400, textTransform:'none' }}>({OP_STATUS_META[opStatus]?.label || opStatus})</span></label>
+                  <PersonTypeahead valueName={opPersonName} placeholder="Type a name…"
+                    onPick={({ email, name }) => { setOpPersonEmail(email); setOpPersonName(name); }} />
+                </>
+              )}
+            </div>
           </div>
           <div>
             <label style={FL}>ASSET VALUE ($)</label>
@@ -3565,6 +3633,8 @@ function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved, toast
   useEscapeKey(onClose);
   const applicable = (customFields || []).filter(f => !f.appliesToType || f.appliesToType === item.itemType);
   const [op,      setOp]      = useState(item.opStatus || '');
+  const [opPersonEmail, setOpPersonEmail] = useState(item.opStatusPersonEmail || '');
+  const [opPersonName,  setOpPersonName]  = useState(item.opStatusPersonName  || '');
   const [values,  setValues]  = useState(() => ({ ...(item.customFields || {}) }));
   const [loc,     setLoc]     = useState(item.assignedToLocation || '');
   const [saving,  setSaving]  = useState(false);
@@ -3577,7 +3647,7 @@ function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved, toast
     try {
       const cf = {};
       applicable.forEach(f => { cf[f.fieldKey] = values[f.fieldKey] ?? ''; });
-      await api.updateItem(item.id, { op_status: op, custom_fields: cf });
+      await api.updateItem(item.id, { op_status: op, custom_fields: cf, op_status_person_email: opPersonEmail, op_status_person_name: opPersonName });
       // Location assignment is its own endpoint (no photo-acceptance for a place).
       if (!personHeld && (loc || '').trim() !== (item.assignedToLocation || '').trim()) {
         await api.assignItemToLocation(item.id, (loc || '').trim());
@@ -3637,6 +3707,14 @@ function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved, toast
               </select>
             ) : <OpStatusBadge value={op} />}
           </Row>
+          {OP_STATUS_PERSON.has(op) && (
+            <Row label="Declared by">
+              {canEdit
+                ? <PersonTypeahead valueName={opPersonName} placeholder="Type a name…"
+                    onPick={({ email, name }) => { setOpPersonEmail(email); setOpPersonName(name); }} />
+                : (opPersonName || opPersonEmail || '—')}
+            </Row>
+          )}
 
           {/* Location assignment (Ankush) — only when not held by a person */}
           {canEdit && item.ownershipType === 'permanent' && !personHeld && (
@@ -6061,11 +6139,11 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
 
   // Transient: live checkouts grouped by holder
   const holders = useMemo(() => {
-    const map = new Map(); // key → { name, transient: [], permanent: [] }
+    const map = new Map(); // key → { name, transient: [], permanent: [], declared: [] }
     for (const c of checkouts) {
       if (!['approved','pending_receipt','allocated'].includes(c.status) || !c.requestedBy) continue;
       const key = (c.requestedByEmail || c.requestedBy).toLowerCase();
-      if (!map.has(key)) map.set(key, { name: c.requestedBy, transient: [], permanent: [] });
+      if (!map.has(key)) map.set(key, { name: c.requestedBy, transient: [], permanent: [], declared: [] });
       map.get(key).transient.push(c);
     }
     // Permanent: only items tagged to a REAL person via the assignment flow.
@@ -6083,9 +6161,24 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
       if (!map.has(key)) {
         const existing = [...map.values()].find(h => h.name.toLowerCase() === owner.toLowerCase());
         if (existing) { existing.permanent.push(i); continue; }
-        map.set(key, { name: owner, transient: [], permanent: [] });
+        map.set(key, { name: owner, transient: [], permanent: [], declared: [] });
       }
       map.get(key).permanent.push(i);
+    }
+    // Declared statuses (lost/retired) tied to a person — show under that person as
+    // Person → Status → Item, so accountability is visible on the same board.
+    for (const i of items) {
+      if (!i.opStatus) continue;
+      const email = (i.opStatusPersonEmail || '').toLowerCase();
+      const owner = (i.opStatusPersonName  || '').trim();
+      if (!email && !owner) continue;
+      const key = email || `decl-${owner.toLowerCase()}`;
+      if (!map.has(key)) {
+        const existing = [...map.values()].find(h => h.name.toLowerCase() === owner.toLowerCase());
+        if (existing) { existing.declared.push(i); continue; }
+        map.set(key, { name: owner, transient: [], permanent: [], declared: [] });
+      }
+      map.get(key).declared.push(i);
     }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [checkouts, items]);
@@ -6094,7 +6187,8 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
     !search ||
     h.name.toLowerCase().includes(search.toLowerCase()) ||
     h.transient.some(c => c.itemName.toLowerCase().includes(search.toLowerCase())) ||
-    h.permanent.some(i => i.name.toLowerCase().includes(search.toLowerCase()))
+    h.permanent.some(i => i.name.toLowerCase().includes(search.toLowerCase())) ||
+    h.declared.some(i => i.name.toLowerCase().includes(search.toLowerCase()))
   ), [holders, search]);
 
   const initials = name => name.split(/\s+/).map(p => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
@@ -6135,6 +6229,8 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
                     {h.transient.length > 0 && `${h.transient.length} checked out`}
                     {h.transient.length > 0 && h.permanent.length > 0 && ' · '}
                     {h.permanent.length > 0 && `${h.permanent.length} permanent`}
+                    {h.declared.length > 0 && ((h.transient.length > 0 || h.permanent.length > 0) ? ' · ' : '')}
+                    {h.declared.length > 0 && `${h.declared.length} declared`}
                     {holderValue(h) > 0 && <> · <strong style={{ color:'var(--ink)' }}>{fmtMoney(holderValue(h))}</strong> in hand</>}
                   </div>
                 </div>
@@ -6213,6 +6309,31 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
                             </button>
                           )}
                           <ChevronRight size={12} style={{ color:'var(--muted)', flexShrink:0, opacity:.6 }} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* Declared (lost / retired) — Person → Status → Item */}
+                {h.declared.length > 0 && (
+                  <div>
+                    <div style={{ fontSize:10.5, fontWeight:800, color:'hsl(var(--color-red))', letterSpacing:'.06em', marginBottom:7 }}>DECLARED</div>
+                    <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                      {h.declared.map(i => (
+                        <div key={i.id} onClick={() => setDetail({ item: i, holderName: h.name })}
+                          title="View item details"
+                          style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5, cursor:'pointer', borderRadius:7, padding:'4px 6px', margin:'0 -6px', transition:'background .12s' }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                          <OpStatusBadge value={i.opStatus} />
+                          <span style={{ fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}><HighlightMatch text={i.name} query={search} /></span>
+                          {i.photoUrl && (
+                            <button onClick={e => { e.stopPropagation(); setPhotoPreview(i.photoUrl); }}
+                              title="See the exact item"
+                              style={{ background:'none', border:'none', cursor:'zoom-in', color:'var(--muted)', display:'flex', padding:2 }}>
+                              <ZoomIn size={12} />
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>

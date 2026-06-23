@@ -34,6 +34,10 @@ _ITEM_STATUSES = ["available", "checked_out", "permanently_assigned", "retired"]
 # from the lifecycle `status` above (which is auto-driven by checkouts/assignments).
 # '' = unset. Mirror _OP_STATUSES on the frontend if you change this list.
 _OP_STATUSES   = ["deployed", "in_storage", "in_repair", "needs_replacement", "retired", "lost"]
+# Op statuses that are declared AGAINST a person — they capture an op_status_person
+# and notify that person. Anything else clears the person. Mirror _OP_STATUS_PERSON
+# on the frontend (OP_STATUS_PERSON) if you change this set.
+_OP_STATUS_PERSON = {"lost", "retired"}
 _CUSTOM_FIELD_TYPES = ["text", "number", "date", "select", "boolean", "url"]
 # Soft-deleted items are restorable for this many days, then purged for good.
 _RECYCLE_BIN_DAYS = 30
@@ -85,6 +89,27 @@ def _notify(db: Session, *, type: str, recipient: str, title: str, body: str,
         created_at=datetime.now(timezone.utc).isoformat(),
     )
     db.add(row)
+
+
+def _notify_op_status_declaration(db: Session, *, op_status: str, person_email: str,
+                                  person_name: str, item_name: str) -> None:
+    """Tell the person an op_status was declared against. Lost carries a friendly
+    keep-it-safe disclaimer; other person-statuses (retired) get a neutral note.
+    Server-side only (employees can't POST notifications) — one per declaration."""
+    email = (person_email or "").lower().strip()
+    if not email or op_status not in _OP_STATUS_PERSON:
+        return
+    if op_status == "lost":
+        title = "An item was reported lost under your name"
+        body  = (f"{item_name} has been recorded as Lost by you. Please take extra "
+                 "care to keep your assigned equipment safe going forward — and if "
+                 "this was logged by mistake, let your manager know.")
+    else:  # retired
+        title = "An item was retired under your name"
+        body  = (f"{item_name} has been retired under your name and taken out of "
+                 "active service. No action needed.")
+    _notify(db, type=f"op_status_{op_status}", recipient=email,
+            title=title, body=body, item_name=item_name)
 
 
 def _title_case_email(email: str) -> str:
@@ -152,6 +177,8 @@ def _item_to_dict(i: Item) -> dict:
         "pictureRequired": True if i.picture_required is None else bool(i.picture_required),
         "assetValue":      float(i.asset_value or 0),
         "opStatus":        i.op_status or "",
+        "opStatusPersonEmail": i.op_status_person_email or "",
+        "opStatusPersonName":  i.op_status_person_name or "",
         "customFields":    i.custom_fields if isinstance(i.custom_fields, dict) else {},
         "deletedAt":       i.deleted_at or "",
         "deletedBy":       i.deleted_by or "",
@@ -228,6 +255,8 @@ class ItemCreate(BaseModel):
     picture_required: Optional[bool]  = True
     asset_value:      Optional[float] = 0
     op_status:        Optional[str]  = ""
+    op_status_person_email: Optional[str] = ""
+    op_status_person_name:  Optional[str] = ""
     custom_fields:    Optional[dict] = None
 
 
@@ -246,6 +275,8 @@ class ItemUpdate(BaseModel):
     picture_required: Optional[bool]  = None
     asset_value:      Optional[float] = None
     op_status:        Optional[str]  = None
+    op_status_person_email: Optional[str] = None
+    op_status_person_name:  Optional[str] = None
     custom_fields:    Optional[dict] = None
 
 
@@ -418,11 +449,17 @@ def create_item(body: ItemCreate, user: dict = Depends(require_items_admin), db:
             picture_required=True if body.picture_required is None else bool(body.picture_required),
             asset_value=float(body.asset_value or 0),
             op_status=(body.op_status or "").strip() if (body.op_status or "").strip() in _OP_STATUSES else "",
+            op_status_person_email=(body.op_status_person_email or "").lower().strip() if (body.op_status or "").strip() in _OP_STATUS_PERSON else "",
+            op_status_person_name=(body.op_status_person_name or "").strip() if (body.op_status or "").strip() in _OP_STATUS_PERSON else "",
             custom_fields=body.custom_fields if isinstance(body.custom_fields, dict) else {},
         )
         db.add(item)
         try:
             db.commit()
+            if (item.op_status or "") in _OP_STATUS_PERSON and item.op_status_person_email:
+                _notify_op_status_declaration(db, op_status=item.op_status, person_email=item.op_status_person_email,
+                                              person_name=item.op_status_person_name or "", item_name=item.name)
+                db.commit()
             return _item_to_dict(item)
         except IntegrityError:
             db.rollback()
@@ -619,11 +656,28 @@ def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(require_ite
     if body.photo_url is not None: item.photo_url = body.photo_url.strip()
     if body.picture_required is not None: item.picture_required = bool(body.picture_required)
     if body.asset_value      is not None: item.asset_value      = float(body.asset_value)
+    # Op status + the person it's declared against (lost/retired). Capture a fresh
+    # declaration so we notify that person exactly once (on status or person change).
+    notify_decl = None
     if body.op_status is not None:
         op = body.op_status.strip()
         if op and op not in _OP_STATUSES:
             raise HTTPException(400, f"Invalid op_status. Must be one of: {', '.join(_OP_STATUSES)}")
+        prev_op    = item.op_status or ""
+        prev_email = (item.op_status_person_email or "").lower()
         item.op_status = op
+        if op in _OP_STATUS_PERSON:
+            if body.op_status_person_email is not None:
+                item.op_status_person_email = body.op_status_person_email.lower().strip()
+            if body.op_status_person_name is not None:
+                item.op_status_person_name = body.op_status_person_name.strip()
+            new_email = (item.op_status_person_email or "").lower()
+            if new_email and (op != prev_op or new_email != prev_email):
+                notify_decl = (op, new_email, item.op_status_person_name or "", item.name)
+        else:
+            # status is no longer person-bound — drop any stale declaration person
+            item.op_status_person_email = ""
+            item.op_status_person_name  = ""
     if body.custom_fields is not None:
         # Merge: only the keys sent are changed; a key set to '' / None clears that field.
         merged = dict(item.custom_fields or {})
@@ -633,6 +687,9 @@ def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(require_ite
             else:
                 merged[k] = v
         item.custom_fields = merged
+    if notify_decl:
+        _notify_op_status_declaration(db, op_status=notify_decl[0], person_email=notify_decl[1],
+                                      person_name=notify_decl[2], item_name=notify_decl[3])
     db.commit()
     return _item_to_dict(item)
 
@@ -798,9 +855,15 @@ def bulk_update_items(body: BulkUpdateRequest, user: dict = Depends(require_item
             changes[k] = (changes[k] or "").strip()
 
     updated = 0
+    op_changed = "op_status" in changes
     for it in db.query(Item).filter(Item.id.in_(ids), or_(Item.deleted_at.is_(None), Item.deleted_at == "")).all():
         for k, v in changes.items():
             setattr(it, k, v)
+        # A batch can't attach a per-item person, so drop any stale declaration when
+        # the op_status is changed in bulk (set the person via single Edit instead).
+        if op_changed:
+            it.op_status_person_email = ""
+            it.op_status_person_name  = ""
         updated += 1
     db.commit()
     return {"updated": updated}
