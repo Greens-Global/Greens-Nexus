@@ -1,8 +1,8 @@
 {
   "id": "greens-escondido-north",
-  "name": "Greens Escondido North",
-  "group": "Greens Escondido",
-  "image": "/assets/properties/greens-escondido-north.jpg",
+  "name": "GS Escondido North",
+  "group": "GS Escondido",
+  "image": "/assets/properties/greens-storage-escondido.png",
   "type": "Stock pilling",
   "address": "North Center City Northway North, County of San Diego, CA 92026, Escondido, CA, 92026",
   "assetManager": "Sahil Desai",
@@ -15,7 +15,7 @@
       "fields": [
         {
           "label": "Project Name",
-          "value": "Greens Escondido North, LLC."
+          "value": "GS Escondido North, LLC."
         },
         {
           "label": "Property Address",
@@ -64,7 +64,7 @@
       "fields": [
         {
           "label": "Ownership Entity",
-          "value": "Greens Escondido, LLC."
+          "value": "GS Escondido, LLC."
         },
         {
           "label": "Seller (if applicable)",

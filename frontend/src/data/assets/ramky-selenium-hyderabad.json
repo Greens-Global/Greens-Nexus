@@ -1,0 +1,20 @@
+{
+  "id": "ramky-selenium-hyderabad",
+  "name": "Ramky Selenium",
+  "type": "Commercial — Office",
+  "address": "Hyderabad, India",
+  "snapshot": [
+    {
+      "group": "Project Details",
+      "fields": [
+        { "label": "Project Name", "value": "Ramky Selenium" },
+        { "label": "Property Address", "value": "Hyderabad, India" },
+        { "label": "City", "value": "" },
+        { "label": "State", "value": "" },
+        { "label": "Zip", "value": "" },
+        { "label": "Current Use", "value": "Commercial — Office" },
+        { "label": "Development Stage (Feasibility / Entitlement / Permitting / Construction / Stabilized)", "value": "Stabilized" }
+      ]
+    }
+  ]
+}
