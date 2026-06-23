@@ -29,7 +29,11 @@ const MAX_NET_ATTEMPTS = 3;
 const MAX_5XX_ATTEMPTS = 4;
 // Each individual fetch is capped at 18s. Without this, a hung backend means
 // the browser never resolves the request and the UI appears frozen indefinitely.
+// AI endpoints (Claude formats/generates an SOP or course) routinely run longer
+// than 18s — they pass a much higher timeout via options.timeoutMs so they don't
+// abort with "signal is aborted without reason".
 const FETCH_TIMEOUT_MS = 18_000;
+const AI_TIMEOUT_MS = 120_000;
 
 // Global health state — broadcast to the rest of the app when the backend goes
 // down or comes back so a single reconnecting banner can appear rather than
@@ -52,10 +56,11 @@ export function isBackendDown() { return _backendDown; }
 
 async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   const authHeader = await getAuthHeader(tokenRefreshed);
+  const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
   let res;
   try {
     const controller = new AbortController();
-    const tid = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    const tid = setTimeout(() => controller.abort(), timeoutMs);
     try {
       res = await fetch(`${BASE}${path}`, {
         ...options,
@@ -124,10 +129,11 @@ function cachedGet(path, ttlMs = 60_000) {
 // Content-Disposition, so the caller can trigger a download.
 async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) {
   const authHeader = await getAuthHeader(tokenRefreshed);
+  const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
   let res;
   try {
     const controller = new AbortController();
-    const tid = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    const tid = setTimeout(() => controller.abort(), timeoutMs);
     try {
       res = await fetch(`${BASE}${path}`, {
         ...options,
@@ -197,8 +203,8 @@ export const api = {
   submitKbDoc:   (id)       => req(`/knowledge-base/documents/${id}/submit`, { method: "POST" }),
   reviewKbDoc:   (id, data) => req(`/knowledge-base/documents/${id}/review`, { method: "POST", body: JSON.stringify(data) }),
   archiveKbDoc:  (id)       => req(`/knowledge-base/documents/${id}/archive`, { method: "POST" }),
-  aiFormatKbDoc: (data)     => req("/knowledge-base/ai-format", { method: "POST", body: JSON.stringify(data) }),
-  askKb:         (data)     => req("/knowledge-base/ask", { method: "POST", body: JSON.stringify(data) }),
+  aiFormatKbDoc: (data)     => req("/knowledge-base/ai-format", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
+  askKb:         (data)     => req("/knowledge-base/ask", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
   getKbAcks:        (id)        => req(`/knowledge-base/documents/${id}/acknowledgements`),
   acknowledgeKbDoc: (id)        => req(`/knowledge-base/documents/${id}/acknowledge`, { method: "POST" }),
   setKbAckRequired: (id, value) => req(`/knowledge-base/documents/${id}/ack-required`, { method: "POST", body: JSON.stringify({ value }) }),
@@ -211,12 +217,12 @@ export const api = {
   getKbInsights:    ()          => req("/knowledge-base/insights"),
   getKbActivity:    (limit = 80) => req(`/knowledge-base/activity?limit=${limit}`),
   getKbReviewers:   ()          => req("/knowledge-base/reviewers"),
-  aiReviseKbDoc:    (data)      => req("/knowledge-base/ai-revise", { method: "POST", body: JSON.stringify(data) }),
+  aiReviseKbDoc:    (data)      => req("/knowledge-base/ai-revise", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
   getKbPins:        ()          => req("/knowledge-base/pins"),
   toggleKbPin:      (id)        => req(`/knowledge-base/documents/${id}/pin`, { method: "POST" }),
   translateKbDoc:   (id, lang)  => req(`/knowledge-base/documents/${id}/translate`, { method: "POST", body: JSON.stringify({ lang }) }),
   // Learn (LMS)
-  aiCourse:        (data)      => req("/knowledge-base/ai-course", { method: "POST", body: JSON.stringify(data) }),
+  aiCourse:        (data)      => req("/knowledge-base/ai-course", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
   getKbCourses:    ()          => req("/knowledge-base/courses"),
   getKbCourse:     (id)        => req(`/knowledge-base/courses/${id}`),
   createKbCourse:  (data)      => req("/knowledge-base/courses", { method: "POST", body: JSON.stringify(data) }),
