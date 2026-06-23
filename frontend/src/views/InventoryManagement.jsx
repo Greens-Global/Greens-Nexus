@@ -3621,6 +3621,38 @@ function BatchEditModal({ selectedItems, onClose, onSave, saving }) {
   );
 }
 
+// ── Batch Assign Modal ────────────────────────────────────────────────────────
+// "Assign all these to GSE" — for permanent site inventory, an item's location IS
+// its assignment, so this just sets the location across the selection. Person
+// assignment (accountability) stays the per-item flow.
+function BatchAssignModal({ count, locations, onClose, onAssign, saving }) {
+  const [loc, setLoc] = useState('');
+  useEscapeKey(onClose);
+  const go = () => { if (loc.trim() && !saving) onAssign(loc); };
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:16, padding:28, width:'100%', maxWidth:440, boxShadow:'var(--shadow-lg)' }}>
+        <h3 style={{ margin:'0 0 6px', fontSize:16, fontWeight:700 }}>Assign {count} item{count !== 1 ? 's' : ''} to a location</h3>
+        <p style={{ margin:'0 0 16px', fontSize:13, color:'var(--muted)' }}>
+          Set where these items physically live. They’ll appear under this location in <strong>Who Has What → By Location</strong>. (To assign an item to a person, use the Assign button on that item.)
+        </p>
+        <label style={{ display:'block', fontSize:10.5, fontWeight:700, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--muted)', marginBottom:5 }}>Location</label>
+        <input className="form-input" list="batch-assign-locs" value={loc} autoFocus
+          onChange={e => setLoc(e.target.value)} onKeyDown={e => e.key === 'Enter' && go()}
+          placeholder="e.g. GSE, GG Corp, GST…" style={{ width:'100%' }} />
+        <datalist id="batch-assign-locs">{locations.map(l => <option key={l} value={l} />)}</datalist>
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:22 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={saving}>Cancel</button>
+          <button onClick={go} disabled={!loc.trim() || saving}
+            style={{ display:'inline-flex', alignItems:'center', gap:6, background:'hsl(var(--color-blue))', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor:(!loc.trim()||saving)?'default':'pointer', fontFamily:'Inter,sans-serif', opacity:(!loc.trim()||saving)?0.55:1 }}>
+            {saving ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <MapPin size={14} />} Assign {count}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Batch Photo Modal ─────────────────────────────────────────────────────────
 const PHOTO_TYPE_ORDER = ['Vehicles', 'Devices', 'Tools', 'Equipment', 'Keys', 'Other'];
 
@@ -4611,6 +4643,8 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
   const [batchPhotoOpen,     setBatchPhotoOpen]     = useState(false);
   const [batchEditOpen,      setBatchEditOpen]      = useState(false);
   const [batchEditing,       setBatchEditing]       = useState(false);
+  const [batchAssignOpen,    setBatchAssignOpen]    = useState(false);
+  const [batchAssigning,     setBatchAssigning]     = useState(false);
   const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false);
   const [batchDeleting,      setBatchDeleting]      = useState(false);
   const isMobile = useIsMobile(); // phones render cards, not the table
@@ -4712,6 +4746,26 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
     }
   }
 
+  // Batch assign = set the location on the selection ("assign all to GSE"). A
+  // permanent item that nobody personally holds simply lives at a place — that
+  // place IS its assignment (Neil). Person-assignment stays the per-item flow.
+  async function executeBatchAssign(location) {
+    setBatchAssigning(true);
+    const ids = selItems.map(i => i.id);
+    const loc = (location || '').trim();
+    try {
+      await api.bulkUpdateItems(ids, { location: loc });
+      await refreshItems();
+      setSelected(new Set());
+      setBatchAssignOpen(false);
+      toast?.(`Assigned ${ids.length} item${ids.length !== 1 ? 's' : ''} to ${loc || 'no location'}.`);
+    } catch {
+      toast?.('Could not assign the selected items. Please try again.', 'error');
+    } finally {
+      setBatchAssigning(false);
+    }
+  }
+
   async function executeBatchDelete() {
     setBatchDeleting(true);
     const deletable = selItems.filter(i => !blockedItems.find(b => b.id === i.id));
@@ -4805,6 +4859,13 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
           <button onClick={() => setBatchEditOpen(true)}
             style={{ display:'inline-flex', alignItems:'center', gap:7, background:'var(--pine)', color:'#fff', border:'none', borderRadius:9, padding:'7px 14px', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
             <Pencil size={13} /> Edit {selected.size}
+          </button>
+        )}
+        {/* Batch assign to a location — Neil: "select all → assign to GSE" */}
+        {selected.size > 0 && (
+          <button onClick={() => setBatchAssignOpen(true)}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, background:'hsl(var(--color-blue))', color:'#fff', border:'none', borderRadius:9, padding:'7px 14px', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+            <MapPin size={13} /> Assign {selected.size}
           </button>
         )}
         {/* Batch delete */}
@@ -4904,6 +4965,13 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
           selectedItems={selItems}
           onClose={() => setBatchEditOpen(false)}
           onSave={executeBatchEdit} saving={batchEditing} />
+      )}
+      {batchAssignOpen && (
+        <BatchAssignModal
+          count={selItems.length}
+          locations={[...new Set(items.map(i => i.location).filter(Boolean))].sort()}
+          onClose={() => setBatchAssignOpen(false)}
+          onAssign={executeBatchAssign} saving={batchAssigning} />
       )}
       {batchDeleteConfirm && (
         <BatchDeleteConfirmModal
