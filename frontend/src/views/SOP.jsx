@@ -1166,9 +1166,9 @@ export default function SOP({ activeSub, onSubChange }) {
                 ? <div style={{ fontSize: '0.83rem', color: 'var(--text-muted)', marginBottom: 4 }}>No comments yet. Start the discussion below.</div>
                 : comments.map(c => (
                   <div key={c.id} style={{ display: 'flex', gap: 11, padding: '12px 0', borderBottom: '1px solid var(--bg-secondary)' }}>
-                    <span style={{ flex: '0 0 auto', width: 32, height: 32, borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.72rem' }}>{initials(c.author_name)}</span>
+                    <span style={{ flex: '0 0 auto', width: 32, height: 32, borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.72rem' }}>{initials(prettyName(c.author_name || c.author_email))}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}><span style={{ fontWeight: 600, fontSize: '0.82rem' }}>{c.author_name}</span><span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{fmtDate(c.created_at)}</span></div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}><span style={{ fontWeight: 600, fontSize: '0.82rem' }}>{prettyName(c.author_name || c.author_email)}</span><span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{fmtDate(c.created_at)}</span></div>
                       <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)', marginTop: 4, whiteSpace: 'pre-wrap', wordWrap: 'break-word' }}>{c.text}</div>
                     </div>
                   </div>
@@ -1186,7 +1186,7 @@ export default function SOP({ activeSub, onSubChange }) {
             <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, boxShadow: 'var(--shadow-sm)' }}>
               <h3 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', margin: '0 0 12px' }}>Status</h3>
               <Badge status={d.status} />
-              {d.status === 'in_review' && <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '10px 0 0' }}>Submitted to {d.reviewer_name || d.reviewer_email} for approval.</p>}
+              {d.status === 'in_review' && <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '10px 0 0' }}>Submitted to {prettyName(d.reviewer_name || d.reviewer_email)} for approval.</p>}
               {d.status === 'changes_requested' && d.review_note && <p style={{ fontSize: '0.8rem', color: 'hsl(0,70%,45%)', margin: '10px 0 0' }}>{d.review_note}</p>}
               {d.status === 'approved' && <p style={{ fontSize: '0.8rem', color: 'hsl(145,55%,32%)', margin: '10px 0 0' }}>Published and live in the library.</p>}
             </div>
@@ -1197,7 +1197,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 {d.is_stale
                   ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', fontWeight: 700, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)', borderRadius: 999, padding: '4px 10px' }}>Needs Review</span>
                   : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', fontWeight: 700, color: 'hsl(145,55%,30%)', background: 'hsla(145,63%,42%,0.14)', borderRadius: 999, padding: '4px 10px' }}><CheckSquare size={13} /> Verified</span>}
-                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 8 }}>{d.verified_at ? `Last verified ${fmtDate(d.verified_at)}${d.verified_by ? ` by ${d.verified_by}` : ''}.` : 'Not yet verified.'}</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 8 }}>{d.verified_at ? `Last verified ${fmtDate(d.verified_at)}${d.verified_by ? ` by ${prettyName(d.verified_by)}` : ''}.` : 'Not yet verified.'}</div>
                 <div style={{ fontSize: '0.78rem', color: d.is_stale ? 'hsl(32,80%,38%)' : 'var(--text-muted)', marginTop: 3 }}>Every {d.review_every_months} mo · next due {fmtDate(d.next_review)}.</div>
                 {isManager && <button className={d.is_stale ? 'primary-btn' : 'secondary-btn'} onClick={verifyDoc} style={{ marginTop: 10, width: '100%', height: 32, fontSize: '0.8rem' }}>Mark verified today</button>}
               </div>
@@ -1224,7 +1224,7 @@ export default function SOP({ activeSub, onSubChange }) {
                           {ackInfo.signed.map((s, i) => (
                             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: '0.78rem' }}>
                               <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'hsl(145,63%,42%)', flex: '0 0 auto' }} />
-                              <span style={{ fontWeight: 500 }}>{s.user_name || s.user_email}</span>
+                              <span style={{ fontWeight: 500 }}>{prettyName(s.user_name || s.user_email)}</span>
                               <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{fmtDate(s.signed_at)}</span>
                             </div>
                           ))}
@@ -1258,7 +1258,7 @@ export default function SOP({ activeSub, onSubChange }) {
           const snaps = snapshots;
           const A = snaps[Math.min(diff.from, snaps.length - 1)], B = snaps[Math.min(diff.to, snaps.length - 1)];
           const ab = A.body || {}, bb = B.body || {};
-          const opt = (sel) => snaps.map((s, i) => <option key={i} value={i}>v{s.version} · {fmtDate(s.date)}{s.author ? ' · ' + s.author : ''}</option>);
+          const opt = (sel) => snaps.map((s, i) => <option key={i} value={i}>v{s.version} · {fmtDate(s.date)}{s.author ? ' · ' + prettyName(s.author) : ''}</option>);
           const field = (label, node) => <div style={{ marginBottom: 16 }}><h4 style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', margin: '0 0 7px' }}>{label}</h4>{node}</div>;
           return (
             <div className="modal-overlay" style={{ display: 'flex' }} onClick={e => { if (e.target === e.currentTarget) setDiff(null); }}>
@@ -2294,7 +2294,7 @@ export default function SOP({ activeSub, onSubChange }) {
                             : att.map(a => (
                                 <div key={a.id} style={{ border: '1px solid var(--border-color)', borderRadius: 12, padding: '12px 14px', marginBottom: 10, background: 'var(--bg-card)' }}>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{a.user_name}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{a.user_email} · {fmtDate(a.created_at)}</div></div>
+                                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{prettyName(a.user_name || a.user_email)}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{a.user_email} · {fmtDate(a.created_at)}</div></div>
                                     <span style={{ fontSize: '0.8rem', fontWeight: 700, color: a.passed ? 'hsl(145,55%,30%)' : 'hsl(0,70%,45%)' }}>{a.score}%</span>
                                     <span style={{ fontSize: '0.7rem', fontWeight: 700, color: a.passed ? 'hsl(145,55%,30%)' : 'hsl(0,70%,45%)', background: a.passed ? 'hsla(145,63%,42%,0.12)' : 'hsla(0,84%,60%,0.1)', borderRadius: 999, padding: '3px 10px' }}>{a.passed ? 'Passed' : 'Did not pass'}</span>
                                   </div>
