@@ -965,9 +965,9 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
 }
 
 // ── Report Modal ───────────────────────────────────────────────────────────────
-function ReportModal({ onClose, checkouts }) {
-  const [dept,      setDept]      = useState('All');
-  const [itemType,  setItemType]  = useState('All');
+function ReportModal({ onClose, checkouts, initial }) {
+  const [dept,      setDept]      = useState(initial?.dept && initial.dept !== 'All' ? initial.dept : 'All');
+  const [itemType,  setItemType]  = useState(initial?.itemType && initial.itemType !== 'All' ? initial.itemType : 'All');
   const [status,    setStatus]    = useState('All');
   const [person,    setPerson]    = useState('');
   const [exporting, setExporting] = useState(null);
@@ -997,7 +997,10 @@ function ReportModal({ onClose, checkouts }) {
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:16 }}>Export Checkout Report</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom: (initial?.dept && initial.dept !== 'All') || (initial?.itemType && initial.itemType !== 'All') ? 6 : 16 }}>Export Report</h3>
+        {((initial?.dept && initial.dept !== 'All') || (initial?.itemType && initial.itemType !== 'All')) && (
+          <p style={{ fontSize:12, color:'var(--muted)', marginBottom:16 }}>Pre-filled from your current filters — adjust below, then export as PDF or Excel.</p>
+        )}
         <div style={{ display:'flex', flexDirection:'column', gap:14, marginBottom:20 }}>
           <div>
             <label style={FL}>DEPARTMENT</label>
@@ -3561,7 +3564,28 @@ const BATCH_FIELDS = [
   { key: 'asset_value',    label: 'Asset value ($)' },
 ];
 
-function BatchEditModal({ selectedItems, onClose, onSave, saving }) {
+// Shared Fields/Photos toggle that sits at the top of the unified Batch modal
+// (Neil: one batch feature, two tabs). The active tab is just a render; clicking
+// the other swaps which face shows via onTab — both operate on the same scope.
+function BatchTabs({ tab, onTab }) {
+  const Tab = ({ k, label, Icon }) => (
+    <button onClick={() => k !== tab && onTab(k)}
+      style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'6px 14px', borderRadius:8,
+        border:'1px solid', borderColor: tab === k ? 'var(--pine)' : 'var(--line)', cursor:'pointer',
+        fontFamily:'Inter,sans-serif', fontSize:12.5, fontWeight:700,
+        background: tab === k ? 'var(--pine)' : 'transparent', color: tab === k ? '#fff' : 'var(--muted)' }}>
+      <Icon size={13} /> {label}
+    </button>
+  );
+  return (
+    <div style={{ display:'flex', gap:8 }}>
+      <Tab k="fields" label="Fields" Icon={Pencil} />
+      <Tab k="photos" label="Photos" Icon={Image} />
+    </div>
+  );
+}
+
+function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, onSave, saving }) {
   useEscapeKey(onClose);
   const [enabled, setEnabled] = useState(new Set());
   const [vals,    setVals]    = useState({});
@@ -3578,10 +3602,18 @@ function BatchEditModal({ selectedItems, onClose, onSave, saving }) {
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:16, padding:'28px 28px 20px', width:'100%', maxWidth:480, boxShadow:'var(--shadow-lg)', maxHeight:'min(85dvh, 680px)', display:'flex', flexDirection:'column' }}>
-        <h3 style={{ margin:'0 0 6px', fontSize:16, fontWeight:700 }}>Edit {selectedItems.length} item{selectedItems.length !== 1 ? 's' : ''}</h3>
+      <div style={{ background:'var(--card)', borderRadius:16, padding:'22px 28px 20px', width:'100%', maxWidth:480, boxShadow:'var(--shadow-lg)', maxHeight:'min(85dvh, 680px)', display:'flex', flexDirection:'column' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
+          <BatchTabs tab="fields" onTab={onSwitchTab} />
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
+        </div>
+        <h3 style={{ margin:'0 0 6px', fontSize:16, fontWeight:700 }}>
+          Edit {selectedItems.length} {usingSelection ? 'selected' : 'shown'} item{selectedItems.length !== 1 ? 's' : ''}
+        </h3>
         <p style={{ margin:'0 0 16px', fontSize:13, color:'var(--muted)' }}>
-          Tick a field to apply the same value to every selected item. Unticked fields are left untouched. Serials never change.
+          {usingSelection
+            ? 'Tick a field to apply the same value to every selected item.'
+            : 'No rows selected — this applies to every item the current filters show. Tick rows first to narrow it.'} Unticked fields are left untouched. Serials never change.
         </p>
         <div style={{ overflowY:'auto', minHeight:0, display:'flex', flexDirection:'column', gap:10 }}>
           {BATCH_FIELDS.map(f => {
@@ -3660,7 +3692,7 @@ const PHOTO_TYPE_ORDER = ['Vehicles', 'Devices', 'Tools', 'Equipment', 'Keys', '
 // Computers must scope this modal to those 34, not all 437. The master link bar
 // (Visesh) sets one image on every shown item at once, and AI fill now lives here
 // (Neil: AI fill belongs in batch photo edit, never on the Manage bar).
-function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
+function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate, toast }) {
   useEscapeKey(onClose);
   const [urlInputs,  setUrlInputs]  = useState({});
   const [saving,     setSaving]     = useState({});
@@ -3786,12 +3818,13 @@ function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:680, maxHeight:'90vh', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)' }}>
         {/* Header */}
-        <div style={{ padding:'20px 24px 16px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
-          <div>
-            <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>Batch Update Photos</h3>
-            <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>{withPhotos} / {items.length} shown item{items.length !== 1 ? 's' : ''} have photos · scoped to your current filters</p>
+        <div style={{ padding:'18px 24px 16px', borderBottom:'1px solid var(--line)', flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+            <BatchTabs tab="photos" onTab={onSwitchTab} />
+            <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
           </div>
-          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
+          <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>Photos · {items.length} {usingSelection ? 'selected' : 'shown'} item{items.length !== 1 ? 's' : ''}</h3>
+          <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>{withPhotos} / {items.length} have a photo · {usingSelection ? 'your selection' : 'everything the current filters show'}</p>
         </div>
         {/* Controls: a single master image — pasted as a link OR uploaded —
             applied to every shown item. Apply sits on the right; Upload to all
@@ -4637,11 +4670,14 @@ const ManageCard = memo(function ManageCard({ item, isSelected, onToggle, onEdit
 
 const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, filterControls }) {
   const [photoPreview,       setPhotoPreview]       = useState(null);
+  const [exportMenu,         setExportMenu]         = useState(false); // Export ▾ dropdown
   const [selected,           setSelected]           = useState(new Set());
   const [sortCol,            setSortCol]            = useState('name');
   const [sortDir,            setSortDir]            = useState('asc');
-  const [batchPhotoOpen,     setBatchPhotoOpen]     = useState(false);
-  const [batchEditOpen,      setBatchEditOpen]      = useState(false);
+  // One unified Batch modal with two tabs (Neil: merge "Batch Update Photos" and
+  // "Edit" into a single feature). batchTab picks which face shows.
+  const [batchOpen,          setBatchOpen]          = useState(false);
+  const [batchTab,           setBatchTab]           = useState('fields'); // 'fields' | 'photos'
   const [batchEditing,       setBatchEditing]       = useState(false);
   const [batchAssignOpen,    setBatchAssignOpen]    = useState(false);
   const [batchAssigning,     setBatchAssigning]     = useState(false);
@@ -4716,6 +4752,11 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
   const blockedItems  = selItems.filter(i =>
     (checkouts || []).some(c => c.itemId === i.id && ['pending','approved','pending_receipt','allocated'].includes(c.status))
   );
+  // What a batch action operates on: the explicit selection if any rows are
+  // ticked, otherwise everything currently shown under the filters (Neil: never
+  // forced to all 500 — selecting six, or filtering to a type, scopes the batch).
+  const usingSelection = selItems.length > 0;
+  const batchScope     = usingSelection ? selItems : sorted;
 
   // Stable so memoized rows don't all re-render on every checkbox toggle.
   const toggleSelect = useCallback(id => {
@@ -4731,12 +4772,12 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
 
   async function executeBatchEdit(fields) {
     setBatchEditing(true);
-    const ids = selItems.map(i => i.id);
+    const ids = batchScope.map(i => i.id);
     try {
       const res = await api.bulkUpdateItems(ids, fields);
       await refreshItems();
       setSelected(new Set());
-      setBatchEditOpen(false);
+      setBatchOpen(false);
       const n = res?.updated ?? ids.length;
       toast?.(`Updated ${n} item${n !== 1 ? 's' : ''}.`);
     } catch {
@@ -4827,38 +4868,52 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
         <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onImport}>
           <UploadCloud size={14} /> Import CSV
         </button>
-        {/* Export honors the active filters — exports exactly what's shown (Neil:
-            filtering then exporting "everything" was confusing). */}
-        <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={() => onExport(sorted)} disabled={!sorted.length}
-          title="Export the items currently shown (your filters apply)">
-          <Download size={14} /> Export{filtered.length !== items.length ? ` (${sorted.length})` : ''}
-        </button>
-        <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onReport} title="Advanced report — choose fields/people, export as PDF or CSV">
-          <FileBarChart size={14} /> Report (PDF)
-        </button>
+        {/* Export ▾ — one button, two choices (Neil): the whole inventory as a
+            flat CSV, or a report (CSV/PDF) honoring the filters currently applied. */}
+        <div style={{ position:'relative' }}>
+          <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={() => setExportMenu(o => !o)}>
+            <Download size={14} /> Export <ChevronDown size={13} style={{ opacity:.6 }} />
+          </button>
+          {exportMenu && (
+            <>
+              {/* click-away backdrop */}
+              <div style={{ position:'fixed', inset:0, zIndex:40 }} onClick={() => setExportMenu(false)} />
+              <div style={{ position:'absolute', top:'calc(100% + 6px)', left:0, zIndex:41, background:'var(--card)', border:'1px solid var(--line)', borderRadius:10, boxShadow:'var(--shadow-lg)', minWidth:262, overflow:'hidden', padding:5 }}>
+                <button onClick={() => { setExportMenu(false); onExport(items); }}
+                  style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:1, width:'100%', textAlign:'left', background:'none', border:'none', cursor:'pointer', padding:'9px 11px', borderRadius:7, fontFamily:'Inter,sans-serif' }}
+                  onMouseEnter={e => e.currentTarget.style.background='var(--mist)'} onMouseLeave={e => e.currentTarget.style.background='none'}>
+                  <span style={{ display:'inline-flex', alignItems:'center', gap:7, fontSize:13, fontWeight:700, color:'var(--ink)' }}><FileSpreadsheet size={14} /> Full inventory (CSV)</span>
+                  <span style={{ fontSize:11.5, color:'var(--muted)', paddingLeft:21 }}>Every item — all {items.length}, filters ignored</span>
+                </button>
+                <button onClick={() => { setExportMenu(false); onReport({ dept: deptFilter, itemType: typeFilter }); }}
+                  style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:1, width:'100%', textAlign:'left', background:'none', border:'none', cursor:'pointer', padding:'9px 11px', borderRadius:7, fontFamily:'Inter,sans-serif' }}
+                  onMouseEnter={e => e.currentTarget.style.background='var(--mist)'} onMouseLeave={e => e.currentTarget.style.background='none'}>
+                  <span style={{ display:'inline-flex', alignItems:'center', gap:7, fontSize:13, fontWeight:700, color:'var(--ink)' }}><FileBarChart size={14} /> Report (CSV / PDF)…</span>
+                  <span style={{ fontSize:11.5, color:'var(--muted)', paddingLeft:21 }}>Formatted, honoring your current filters</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
         {canDelete && onShowDeleted && (
           <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onShowDeleted}>
             <Trash2 size={14} /> Recycle Bin
           </button>
         )}
-        {/* Batch Update Photos */}
-        <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7, position:'relative' }} onClick={() => setBatchPhotoOpen(true)}>
-          <Image size={14} /> Batch Update Photos
-          {missingPhotos > 0 && (
-            <span style={{ position:'absolute', top:-6, right:-6, background:'hsl(var(--color-red))', color:'#fff', borderRadius:'50%', width:16, height:16, fontSize:9.5, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>
-              {missingPhotos > 99 ? '99+' : missingPhotos}
-            </span>
-          )}
-        </button>
-        {/* AI photo fill moved INTO Batch Update Photos (Neil: it's dangerous on the
-            Manage bar — one click could overwrite a whole catalogue's real photos).
-            It now lives per-row + "AI fill all shown" inside that modal, scoped to
-            the current filter. */}
-        {/* Batch edit — change the same field(s) across the selection */}
-        {selected.size > 0 && (
-          <button onClick={() => setBatchEditOpen(true)}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, background:'var(--pine)', color:'#fff', border:'none', borderRadius:9, padding:'7px 14px', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-            <Pencil size={13} /> Edit {selected.size}
+        {/* Batch Edit — one feature, two tabs (Fields / Photos). Works on the
+            selection if rows are ticked, else on everything the filters show.
+            (AI photo fill lives inside the Photos tab — Neil: it's dangerous on the
+            Manage bar, one click could overwrite a whole catalogue's real photos.) */}
+        {sorted.length > 0 && (
+          <button onClick={() => { setBatchTab('fields'); setBatchOpen(true); }}
+            title={usingSelection ? `Batch edit the ${selItems.length} selected item${selItems.length !== 1 ? 's' : ''}` : `Batch edit the ${sorted.length} item${sorted.length !== 1 ? 's' : ''} shown (your filters apply)`}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, position:'relative', background:'var(--pine)', color:'#fff', border:'none', borderRadius:9, padding:'7px 14px', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+            <Pencil size={13} /> Batch Edit{usingSelection ? ` (${selItems.length})` : sorted.length !== items.length ? ` (${sorted.length})` : ''}
+            {missingPhotos > 0 && (
+              <span style={{ position:'absolute', top:-6, right:-6, background:'hsl(var(--color-red))', color:'#fff', borderRadius:'50%', width:16, height:16, fontSize:9.5, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', border:'1.5px solid var(--card)' }} title={`${missingPhotos} item${missingPhotos !== 1 ? 's' : ''} missing a photo`}>
+                {missingPhotos > 99 ? '99+' : missingPhotos}
+              </span>
+            )}
           </button>
         )}
         {/* Batch assign to a location — Neil: "select all → assign to GSE" */}
@@ -4957,14 +5012,20 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
       </p>
 
       {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
-      {batchPhotoOpen && (
-        <BatchPhotoModal items={sorted} onClose={() => setBatchPhotoOpen(false)} onUpdate={refreshItems} toast={toast} />
-      )}
-      {batchEditOpen && (
+      {batchOpen && batchTab === 'fields' && (
         <BatchEditModal
-          selectedItems={selItems}
-          onClose={() => setBatchEditOpen(false)}
+          selectedItems={batchScope}
+          usingSelection={usingSelection}
+          onSwitchTab={setBatchTab}
+          onClose={() => setBatchOpen(false)}
           onSave={executeBatchEdit} saving={batchEditing} />
+      )}
+      {batchOpen && batchTab === 'photos' && (
+        <BatchPhotoModal
+          items={batchScope}
+          usingSelection={usingSelection}
+          onSwitchTab={setBatchTab}
+          onClose={() => setBatchOpen(false)} onUpdate={refreshItems} toast={toast} />
       )}
       {batchAssignOpen && (
         <BatchAssignModal
@@ -6951,6 +7012,7 @@ export default function InventoryManagement({ activeSub }) {
   const [customFieldsOpen, setCustomFieldsOpen] = useState(false); // custom-field admin
   const [importOpen,    setImportOpen]    = useState(false);
   const [reportOpen,    setReportOpen]    = useState(false);
+  const [reportInitial, setReportInitial] = useState(null); // seeds the report with the active filters
   const [sendAlertOpen, setSendAlertOpen] = useState(false);       // generic compose-your-own alert
   const [overdueAlertOpen, setOverdueAlertOpen] = useState(false); // person-grouped overdue alert (default)
   // Admin-defined custom field definitions — loaded once, surfaced in the Details
@@ -7022,7 +7084,7 @@ export default function InventoryManagement({ activeSub }) {
     [allocateItem, userName, toast]);
   const openAdd       = useCallback(() => setAddItemOpen(true), []);
   const openImport    = useCallback(() => setImportOpen(true), []);
-  const openReport    = useCallback(() => setReportOpen(true), []);
+  const openReport    = useCallback((ctx) => { setReportInitial(ctx || null); setReportOpen(true); }, []);
   const openSendAlert = useCallback(() => setOverdueAlertOpen(true), []);
   const exportCsv     = useCallback((rows) => downloadItemsCsv(Array.isArray(rows) && rows.length ? rows : items, customFields), [items, customFields]);
   const openAssign    = useCallback((item, mode) => setAssigningItem({ item, mode }), []);
@@ -7308,7 +7370,7 @@ export default function InventoryManagement({ activeSub }) {
           onChanged={refreshCustomFields} toast={toast} />
       )}
       {importOpen   && <ImportItemsModal onClose={() => setImportOpen(false)} onImport={handleImport} customFields={customFields} />}
-      {reportOpen   && <ReportModal onClose={() => setReportOpen(false)} checkouts={checkouts} />}
+      {reportOpen   && <ReportModal onClose={() => setReportOpen(false)} checkouts={checkouts} initial={reportInitial} />}
       {returningCo  && (
         <ReturnModal checkout={returningCo} onClose={() => setReturningCo(null)}
           photoOptional={photoOptionalIds.has(returningCo.itemId)}
