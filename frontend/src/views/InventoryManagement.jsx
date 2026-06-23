@@ -1376,12 +1376,124 @@ function humanizeAuditAction(action) {
     .replace(/ASG-([A-Z0-9]{4,})/i, (_, t) => `· #${t.slice(-8).toUpperCase()}`);
 }
 
-const AuditLogPanel = memo(function AuditLogPanel() {
+// Icon + tone + plain-English verb for an audit action, so the log reads like a
+// story instead of a code dump.
+function auditEventMeta(action) {
+  const a = (action || '').toLowerCase();
+  if (a.includes('imported'))                              return { Icon: UploadCloud, tone: 'green',  verb: 'Imported' };
+  if (a.includes('added'))                                 return { Icon: Plus,        tone: 'green',  verb: 'Added' };
+  if (a.includes('deleted'))                               return { Icon: Trash2,      tone: 'red',    verb: 'Deleted' };
+  if (a.includes('checked out') || a.includes('checkout')) return { Icon: ShoppingCart, tone: 'orange', verb: 'Checked out' };
+  if (a.includes('return'))                                return { Icon: RotateCcw,   tone: 'green',  verb: 'Returned' };
+  if (a.includes('allocat') || a.includes('hand'))         return { Icon: Package,     tone: 'blue',   verb: 'Handed over' };
+  if (a.includes('approved'))                              return { Icon: CheckCircle, tone: 'green',  verb: 'Approved' };
+  if (a.includes('rejected'))                              return { Icon: AlertCircle, tone: 'red',    verb: 'Rejected' };
+  if (a.includes('updated') || a.includes('edited'))       return { Icon: Pencil,      tone: 'blue',   verb: 'Updated' };
+  return { Icon: History, tone: 'muted', verb: action || 'Event' };
+}
+const _auditFg = tone => tone === 'muted' ? 'var(--muted)' : `hsl(var(--color-${tone}))`;
+const _auditBg = tone => tone === 'muted' ? 'var(--mist)'  : `hsla(var(--color-${tone}),0.12)`;
+
+// Interactive per-item history — clicking a log row opens this: the item's whole
+// life as a top-to-bottom flow (added → checked out → returned → updated →
+// deleted), with who/when and a plain-English note for each step.
+function AuditHistoryModal({ item, onClose }) {
+  const [rows, setRows]   = useState(null);
+  const [error, setError] = useState('');
+  useEscapeKey(onClose);
+  useEffect(() => {
+    api.getItemsAuditLog({ q: item.name || item.id, limit: 100 })
+      .then(res => {
+        const all = res.rows || [];
+        const seen = (item.name || '').toLowerCase();
+        const match = all.filter(r =>
+          (item.id && r.resource_id === item.id) ||
+          (seen && ((r.details || '').toLowerCase().includes(seen) || (r.action || '').toLowerCase().includes(seen)))
+        );
+        match.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || '')); // oldest → newest
+        setRows(match);
+      })
+      .catch(() => setError('Could not load this item’s history.'));
+  }, [item]);
+
+  return (
+    <div role="dialog" aria-modal="true" onClick={e => e.target === e.currentTarget && onClose()}
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+      <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:560, maxHeight:'88vh', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)' }}>
+        <div style={{ padding:'18px 22px 14px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'flex-start', justifyContent:'space-between', flexShrink:0 }}>
+          <div style={{ minWidth:0 }}>
+            <h3 style={{ margin:0, fontSize:16, fontWeight:700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name || 'Item history'}</h3>
+            <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>Full activity timeline — newest at the bottom</p>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4, flexShrink:0 }}><X size={18} /></button>
+        </div>
+        <div style={{ overflowY:'auto', padding:'18px 22px', flex:1 }}>
+          {error ? <div style={{ color:'hsl(var(--color-red))', fontSize:13 }}>{error}</div>
+            : rows === null ? <SkeletonBlocks count={4} height={48} borderRadius={8} />
+            : rows.length === 0 ? <div style={{ textAlign:'center', color:'var(--muted)', fontSize:13, padding:'30px 0' }}>No recorded history for this item.</div>
+            : rows.map((r, i) => {
+                const m = auditEventMeta(r.action);
+                const det = formatAuditDetails(r.action, r.details);
+                return (
+                  <div key={r.id} style={{ display:'flex', gap:13 }}>
+                    <div style={{ display:'flex', flexDirection:'column', alignItems:'center' }}>
+                      <div style={{ width:32, height:32, borderRadius:'50%', flexShrink:0, background:_auditBg(m.tone), color:_auditFg(m.tone), display:'flex', alignItems:'center', justifyContent:'center' }}><m.Icon size={15} /></div>
+                      {i < rows.length - 1 && <div style={{ width:2, flex:1, minHeight:14, background:'var(--line)', marginTop:2 }} />}
+                    </div>
+                    <div style={{ paddingBottom:18, flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:700, fontSize:13 }}>{m.verb}</div>
+                      <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1 }}>by {auditName(r.user_email)} · {fmtAuditStamp(r.timestamp)}</div>
+                      {det && det !== '—' && <div style={{ fontSize:12, color:'var(--muted)', marginTop:4, lineHeight:1.5 }}>{renderNotifBody(det)}</div>}
+                    </div>
+                  </div>
+                );
+              })}
+        </div>
+        <div style={{ padding:'12px 22px', borderTop:'1px solid var(--line)', display:'flex', justifyContent:'flex-end', flexShrink:0 }}>
+          <button className="secondary-btn" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const AuditLogPanel = memo(function AuditLogPanel({ items = [] }) {
   const [query,   setQuery]   = useState('');
   const [logs,    setLogs]    = useState([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
+  const [history, setHistory] = useState(null); // { id, name } → opens the timeline modal
   const isMobile = useIsMobile(); // phones render cards, not the table
+
+  // resource_id → item name: current items first, then any log that named the item.
+  const nameMap = useMemo(() => {
+    const m = {};
+    for (const it of items) if (it.id) m[it.id] = it.name;
+    for (const log of logs) {
+      if (!log.resource_id || m[log.resource_id]) continue;
+      try { const d = JSON.parse(log.details || '{}'); const nm = d.name || d.item_name; if (nm) m[log.resource_id] = nm; } catch { /* skip */ }
+    }
+    return m;
+  }, [items, logs]);
+  // "Updated item <uuid>" → "Updated item 100-C01" (or a short #id if unknown).
+  const actionLabel = (log) => {
+    let label = humanizeAuditAction(log.action);
+    const rid = log.resource_id;
+    // Only swap real item ids (a known name or a UUID-shaped id) — leave things
+    // like "custom-fields" / "cart" alone.
+    if (rid && (nameMap[rid] || /^[0-9a-f-]{20,}$/i.test(rid))) {
+      label = label.replace(rid, nameMap[rid] || `#${rid.slice(0, 8)}`);
+    }
+    return label;
+  };
+  // The item a row is about, for the history modal.
+  const rowItem = (log) => {
+    const name = nameMap[log.resource_id];
+    if (name) return { id: log.resource_id || '', name };
+    try { const d = JSON.parse(log.details || '{}'); const nm = d.name || d.item_name; if (nm) return { id: log.resource_id || '', name: nm }; } catch { /* skip */ }
+    return log.resource_id ? { id: log.resource_id, name: '' } : null;
+  };
+  const openRow = (log) => { const it = rowItem(log); if (it) setHistory(it); };
 
   const load = useCallback(() => {
     setLoading(true);
@@ -1402,7 +1514,7 @@ const AuditLogPanel = memo(function AuditLogPanel() {
           <Search size={14} style={{ flexShrink:0 }} />
           <input placeholder="Search by item, user, or action…" value={query} onChange={e => setQuery(e.target.value)} />
         </div>
-        <span style={{ fontSize:13, color:'var(--muted)' }}>{logs.length} entr{logs.length !== 1 ? 'ies' : 'y'}</span>
+        <span style={{ fontSize:13, color:'var(--muted)' }}>{logs.length} entr{logs.length !== 1 ? 'ies' : 'y'} · <span style={{ fontStyle:'italic' }}>click any row to see that item’s full history</span></span>
       </div>
       {error ? (
         <ErrorBanner message="Could not load the audit log." onRetry={load} />
@@ -1418,9 +1530,9 @@ const AuditLogPanel = memo(function AuditLogPanel() {
           {logs.map(log => {
             const det = formatAuditDetails(log.action, log.details);
             return (
-              <div key={log.id} style={{ border:'1px solid var(--line)', borderRadius:12, background:'var(--card)', padding:'11px 14px', boxShadow:'var(--shadow-sm)' }}>
+              <div key={log.id} onClick={() => openRow(log)} style={{ border:'1px solid var(--line)', borderRadius:12, background:'var(--card)', padding:'11px 14px', boxShadow:'var(--shadow-sm)', cursor:'pointer' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', gap:8, alignItems:'baseline' }}>
-                  <span style={{ fontWeight:700, fontSize:13, minWidth:0 }}>{humanizeAuditAction(log.action)}</span>
+                  <span style={{ fontWeight:700, fontSize:13, minWidth:0 }}>{actionLabel(log)}</span>
                   <span style={{ fontSize:10.5, color:'var(--muted)', flexShrink:0, whiteSpace:'nowrap' }}>{fmtAuditStamp(log.timestamp)}</span>
                 </div>
                 <div title={log.user_email} style={{ fontSize:12, fontWeight:700, color:'var(--ink)', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{auditName(log.user_email)}</div>
@@ -1442,10 +1554,13 @@ const AuditLogPanel = memo(function AuditLogPanel() {
             </thead>
             <tbody>
               {logs.map(log => (
-                <tr key={log.id} style={{ borderTop:'1px solid var(--line)' }}>
+                <tr key={log.id} onClick={() => openRow(log)}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  style={{ borderTop:'1px solid var(--line)', cursor:'pointer', transition:'background .12s' }}>
                   <td style={{ padding:'9px 14px', color:'var(--muted)', whiteSpace:'nowrap' }}>{fmtAuditStamp(log.timestamp)}</td>
                   <td style={{ padding:'9px 14px', fontWeight:700 }} title={log.user_email}>{auditName(log.user_email)}</td>
-                  <td style={{ padding:'9px 14px', fontWeight:600 }}>{humanizeAuditAction(log.action)}</td>
+                  <td style={{ padding:'9px 14px', fontWeight:600 }}>{actionLabel(log)}</td>
                   <td style={{ padding:'9px 14px', color:'var(--muted)' }}>{renderNotifBody(formatAuditDetails(log.action, log.details))}</td>
                 </tr>
               ))}
@@ -1453,6 +1568,7 @@ const AuditLogPanel = memo(function AuditLogPanel() {
           </table>
         </div>
       )}
+      {history && <AuditHistoryModal item={history} onClose={() => setHistory(null)} />}
     </div>
   );
 });
@@ -6934,7 +7050,7 @@ export default function InventoryManagement({ activeSub }) {
         <PurchaseRequestsTab userEmail={userEmail} userName={userName} isManager={isManager}
           onAssign={openAssign} toast={toast} />
       )}
-      {mainTab === 'audit' && <AuditLogPanel />}
+      {mainTab === 'audit' && <AuditLogPanel items={items} />}
 
       {sendAlertOpen && <SendAlertModal onClose={() => setSendAlertOpen(false)} toast={toast} />}
       {overdueAlertOpen && (
