@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Float, Integer, String
+from sqlalchemy import Boolean, Column, Float, Integer, JSON, String
 from database import Base
 
 
@@ -307,6 +307,14 @@ class Item(Base):
     assigned_at       = Column(String, default="")
     picture_required  = Column(Boolean, default=True)  # False = photos optional in every flow (e.g. keys) — Neil, Jun 2026
     asset_value       = Column(Float, default=0.0)     # USD value: accountability + per-person holdings total
+    op_status         = Column(String, default="")     # operational status (Neil): deployed|in_storage|in_repair|needs_replacement|retired|lost; '' = unset. SEPARATE from lifecycle `status`
+    op_status_person_email = Column(String, default="") # person an op_status is declared against (lost/retired) — they get the notification + show on "Who has it"
+    op_status_person_name  = Column(String, default="")
+    assigned_to_location = Column(String, default="")  # set when a permanent item is assigned to a PLACE not a person — kept OUT of "Who has it" (Ankush)
+    custom_fields     = Column(JSON, default=dict)     # {field_key: value} for admin-defined custom fields — see ItemCustomField
+    deleted_at        = Column(String, default="")     # ISO ts; non-empty = soft-deleted (excluded from normal lists, restorable — Ankush)
+    deleted_by        = Column(String, default="")     # email of whoever deleted it
+    deleted_location  = Column(String, default="")     # item's location captured at deletion — Ankush's "Deleted In"
 
 
 class ItemCheckout(Base):
@@ -564,3 +572,164 @@ class HrProvisionStep(Base):
     status  = Column(String, default="pending")               # pending|ok|failed|skipped|manual
     detail  = Column(String, default="")
     ordinal = Column(Integer, default=0)
+
+
+class ItemCustomField(Base):
+    """Admin-defined custom field for items (Ankush's Details panel). The value
+    for each item lives in Item.custom_fields keyed by `field_key`; this table is
+    just the definition/schema so the Details panel stays flexible as fields are
+    added. created via create_all on startup (new table, no migration needed)."""
+    __tablename__ = "item_custom_fields"
+    id              = Column(String, primary_key=True)         # uuid
+    field_key       = Column(String, nullable=False)           # stable key in Item.custom_fields (e.g. "warranty_end")
+    label           = Column(String, nullable=False)           # human label shown in the panel
+    field_type      = Column(String, default="text")           # text|number|date|select|boolean|url
+    options         = Column(JSON, default=list)               # choices for select fields
+    applies_to_type = Column(String, default="")               # '' = all item types, else a specific item_type
+    sort_order      = Column(Integer, default=0)
+    created_by      = Column(String, default="")
+    created_at      = Column(String, default="")
+
+
+class KbDocument(Base):
+    """Knowledge Base document (SOP / Manual / Guide). The rich, nested body
+    (purpose, scope, procedure steps, etc.) is stored as a JSON string in `body`
+    so the template can evolve without a migration per field. Lifecycle:
+    draft -> in_review -> approved (or changes_requested back to the owner);
+    approved docs can later be archived. New table — create_all builds it, no
+    migration line needed."""
+    __tablename__ = "kb_documents"
+    id               = Column(String, primary_key=True)        # uuid
+    doc_code         = Column(String, default="")              # e.g. OPS-014, auto-assigned per department
+    title            = Column(String, nullable=False)
+    doc_type         = Column(String, default="SOP")           # SOP | Manual | Guide
+    departments      = Column(String, default="")              # comma-separated department names ("" = unassigned)
+    status           = Column(String, default="draft")         # draft|in_review|changes_requested|approved|archived
+    owner_email      = Column(String, default="")
+    owner_name       = Column(String, default="")
+    reviewer_email   = Column(String, default="")
+    reviewer_name    = Column(String, default="")
+    version          = Column(String, default="0.1")
+    effective_date   = Column(String, default="")             # ISO date, set on approval
+    body             = Column(String, default="{}")           # JSON: purpose, scopeText, materials, responsibilities, definitions, procedure, safety, references
+    review_note      = Column(String, default="")             # latest reviewer note
+    revision_history = Column(String, default="[]")           # JSON list of {version,date,author,notes}
+    require_ack      = Column(Boolean, default=False)          # require e-signature sign-off once approved
+    views            = Column(Integer, default=0)              # detail-view counter (usage analytics)
+    review_every_months = Column(Integer, default=12)          # freshness cadence
+    verified_at      = Column(String, default="")             # last verified (ISO date)
+    verified_by      = Column(String, default="")
+    retention_months = Column(Integer, default=84)            # records-retention window
+    created_by       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class KbAcknowledgement(Base):
+    """One e-signature: a user acknowledged a specific version of a KB document.
+    The current-version signers are those whose `version` matches the doc's."""
+    __tablename__ = "kb_acknowledgements"
+    id         = Column(String, primary_key=True)   # uuid
+    doc_id     = Column(String, nullable=False)
+    version    = Column(String, default="")          # doc version acknowledged
+    user_email = Column(String, nullable=False)
+    user_name  = Column(String, default="")
+    signed_at  = Column(String, default="")
+
+
+class KbComment(Base):
+    """A discussion comment on a KB document."""
+    __tablename__ = "kb_comments"
+    id           = Column(String, primary_key=True)   # uuid
+    doc_id       = Column(String, nullable=False)
+    author_email = Column(String, default="")
+    author_name  = Column(String, default="")
+    text         = Column(String, nullable=False)
+    created_at   = Column(String, default="")
+
+
+class KbSnapshot(Base):
+    """A point-in-time copy of a KB document's content, captured on create /
+    edit / approve so versions can be compared. Body fields stored as JSON."""
+    __tablename__ = "kb_snapshots"
+    id          = Column(String, primary_key=True)   # uuid
+    doc_id      = Column(String, nullable=False)
+    version     = Column(String, default="")
+    date        = Column(String, default="")
+    author      = Column(String, default="")
+    title       = Column(String, default="")
+    departments = Column(String, default="")
+    body        = Column(String, default="{}")
+
+
+class KbCourse(Base):
+    """A Learn (LMS) course: ordered lessons (reading or linked SOP) + optional
+    quiz. lessons/quiz stored as JSON. Quiz answers are stripped before sending
+    to learners (only managers/authors receive them)."""
+    __tablename__ = "kb_courses"
+    id          = Column(String, primary_key=True)   # uuid
+    course_code = Column(String, default="")          # LRN-001 …
+    title       = Column(String, nullable=False)
+    description = Column(String, default="")
+    overview    = Column(String, default="")           # "what you'll learn" — JSON list of objective strings
+    recert_months = Column(Integer, default=0)         # 0 = no recertification; else retake every N months
+    departments = Column(String, default="")
+    status      = Column(String, default="draft")     # draft | published
+    owner_email = Column(String, default="")
+    owner_name  = Column(String, default="")
+    est_minutes = Column(Integer, default=15)
+    lessons     = Column(String, default="[]")         # JSON [{_id,type,title,body,docId}]
+    quiz        = Column(String, default="{}")          # JSON {passPct,questions:[{_id,q,options,answer}]}
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+
+
+class KbCourseProgress(Base):
+    """One learner's progress in one course."""
+    __tablename__ = "kb_course_progress"
+    id           = Column(String, primary_key=True)   # uuid
+    course_id    = Column(String, nullable=False)
+    user_email   = Column(String, nullable=False)
+    lessons_done = Column(String, default="[]")        # JSON list of lesson ids
+    quiz_score   = Column(Integer, default=None)        # 0-100, null until taken
+    passed       = Column(Boolean, default=False)
+    started_at   = Column(String, default="")
+    completed_at = Column(String, default="")
+
+
+class KbPin(Base):
+    """One user's pinned/favourited KB document, for quick access."""
+    __tablename__ = "kb_pins"
+    id         = Column(String, primary_key=True)   # uuid
+    user_email = Column(String, nullable=False)
+    doc_id     = Column(String, nullable=False)
+    created_at = Column(String, default="")
+
+
+class KbCourseAssignment(Base):
+    """A course assigned to a specific person, optionally with a due date —
+    the basis for "required training" and completion tracking."""
+    __tablename__ = "kb_course_assignments"
+    id          = Column(String, primary_key=True)   # uuid
+    course_id   = Column(String, nullable=False)
+    user_email  = Column(String, nullable=False)
+    user_name   = Column(String, default="")
+    due_date    = Column(String, default="")          # YYYY-MM-DD ("" = no due date)
+    assigned_by = Column(String, default="")
+    created_at  = Column(String, default="")
+
+
+class KbQuizAttempt(Base):
+    """A learner's quiz attempt on a course — the back-end record of how they
+    did and which questions they missed (for manager reports + remediation)."""
+    __tablename__ = "kb_quiz_attempts"
+    id          = Column(String, primary_key=True)   # uuid
+    course_id   = Column(String, nullable=False)
+    course_code = Column(String, default="")
+    course_title = Column(String, default="")
+    user_email  = Column(String, nullable=False)
+    user_name   = Column(String, default="")
+    score       = Column(Integer, default=0)          # 0-100
+    passed      = Column(Boolean, default=False)
+    missed      = Column(String, default="[]")         # JSON: [{q, your, correct, explanation}]
+    created_at  = Column(String, default="")

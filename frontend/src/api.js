@@ -106,6 +106,19 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   return res.json();
 }
 
+// Short-lived GET cache + in-flight dedup for reference data that rarely changes
+// (allocators, approvers, people directory). Several tabs/modals each fetch these
+// on mount, firing the same request many times — slow and wasteful on throttled
+// connections. Sharing one promise for a TTL window collapses them into one call.
+const _getCache = new Map(); // path → { ts, promise }
+function cachedGet(path, ttlMs = 60_000) {
+  const hit = _getCache.get(path);
+  if (hit && (Date.now() - hit.ts) < ttlMs) return hit.promise;
+  const promise = req(path).catch(err => { _getCache.delete(path); throw err; });
+  _getCache.set(path, { ts: Date.now(), promise });
+  return promise;
+}
+
 // Like req(), but for endpoints that return a file (Excel/PDF export) rather
 // than JSON — returns the blob plus the filename the server suggested via
 // Content-Disposition, so the caller can trigger a download.
@@ -176,6 +189,46 @@ export const api = {
   getSops: () => req("/sop-updates"),
   createSop: (data) => req("/sop-updates", { method: "POST", body: JSON.stringify(data) }),
 
+  // Knowledge Base — DB-backed SOP / Manual / Guide library
+  getKbDocs:     ()         => req("/knowledge-base/documents"),
+  getKbDoc:      (id)       => req(`/knowledge-base/documents/${id}`),
+  createKbDoc:   (data)     => req("/knowledge-base/documents", { method: "POST", body: JSON.stringify(data) }),
+  updateKbDoc:   (id, data) => req(`/knowledge-base/documents/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  submitKbDoc:   (id)       => req(`/knowledge-base/documents/${id}/submit`, { method: "POST" }),
+  reviewKbDoc:   (id, data) => req(`/knowledge-base/documents/${id}/review`, { method: "POST", body: JSON.stringify(data) }),
+  archiveKbDoc:  (id)       => req(`/knowledge-base/documents/${id}/archive`, { method: "POST" }),
+  aiFormatKbDoc: (data)     => req("/knowledge-base/ai-format", { method: "POST", body: JSON.stringify(data) }),
+  askKb:         (data)     => req("/knowledge-base/ask", { method: "POST", body: JSON.stringify(data) }),
+  getKbAcks:        (id)        => req(`/knowledge-base/documents/${id}/acknowledgements`),
+  acknowledgeKbDoc: (id)        => req(`/knowledge-base/documents/${id}/acknowledge`, { method: "POST" }),
+  setKbAckRequired: (id, value) => req(`/knowledge-base/documents/${id}/ack-required`, { method: "POST", body: JSON.stringify({ value }) }),
+  getKbSignoffs:    ()          => req("/knowledge-base/signoffs"),
+  getKbComments:    (id)        => req(`/knowledge-base/documents/${id}/comments`),
+  addKbComment:     (id, text)  => req(`/knowledge-base/documents/${id}/comments`, { method: "POST", body: JSON.stringify({ text }) }),
+  getKbSnapshots:   (id)        => req(`/knowledge-base/documents/${id}/snapshots`),
+  verifyKbDoc:      (id)            => req(`/knowledge-base/documents/${id}/verify`, { method: "POST" }),
+  setKbDepartments: (id, departments) => req(`/knowledge-base/documents/${id}/departments`, { method: "POST", body: JSON.stringify({ departments }) }),
+  getKbInsights:    ()          => req("/knowledge-base/insights"),
+  getKbActivity:    (limit = 80) => req(`/knowledge-base/activity?limit=${limit}`),
+  getKbReviewers:   ()          => req("/knowledge-base/reviewers"),
+  aiReviseKbDoc:    (data)      => req("/knowledge-base/ai-revise", { method: "POST", body: JSON.stringify(data) }),
+  getKbPins:        ()          => req("/knowledge-base/pins"),
+  toggleKbPin:      (id)        => req(`/knowledge-base/documents/${id}/pin`, { method: "POST" }),
+  translateKbDoc:   (id, lang)  => req(`/knowledge-base/documents/${id}/translate`, { method: "POST", body: JSON.stringify({ lang }) }),
+  // Learn (LMS)
+  aiCourse:        (data)      => req("/knowledge-base/ai-course", { method: "POST", body: JSON.stringify(data) }),
+  getKbCourses:    ()          => req("/knowledge-base/courses"),
+  getKbCourse:     (id)        => req(`/knowledge-base/courses/${id}`),
+  createKbCourse:  (data)      => req("/knowledge-base/courses", { method: "POST", body: JSON.stringify(data) }),
+  updateKbCourse:  (id, data)  => req(`/knowledge-base/courses/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  kbLessonDone:    (id, lesson_id) => req(`/knowledge-base/courses/${id}/lesson-done`, { method: "POST", body: JSON.stringify({ lesson_id }) }),
+  kbSubmitQuiz:    (id, answers)   => req(`/knowledge-base/courses/${id}/submit-quiz`, { method: "POST", body: JSON.stringify({ answers }) }),
+  getKbCourseAttempts: (id)        => req(`/knowledge-base/courses/${id}/attempts`),
+  assignKbCourse:   (id, emails, due_date) => req(`/knowledge-base/courses/${id}/assign`, { method: "POST", body: JSON.stringify({ emails, due_date }) }),
+  getKbCourseAssignments: (id)     => req(`/knowledge-base/courses/${id}/assignments`),
+  removeKbAssignment: (aid)        => req(`/knowledge-base/assignments/${aid}`, { method: "DELETE" }),
+  getMyKbAssignments: ()           => req("/knowledge-base/my-assignments"),
+
   // Assets
   getAssets: () => req("/assets"),
   createAsset: (data) => req("/assets", { method: "POST", body: JSON.stringify(data) }),
@@ -237,16 +290,26 @@ export const api = {
   deleteItem:          (id)           => req(`/items/${id}`, { method: 'DELETE' }),
   bulkDeleteItems:     (ids)          => req('/items/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
   bulkUpdateItems:     (ids, fields)  => req('/items/bulk-update', { method: 'POST', body: JSON.stringify({ ids, fields }) }),
+  // Soft-delete recycle bin (Ankush) — deleted items are restorable
+  getDeletedItems:     ()             => req('/items/deleted'),
+  restoreItem:         (id)           => req(`/items/${id}/restore`, { method: 'POST', body: JSON.stringify({}) }),
+  bulkRestoreItems:    (ids)          => req('/items/bulk-restore', { method: 'POST', body: JSON.stringify({ ids }) }),
+  // Admin-defined custom fields surfaced in the item Details panel (Ankush)
+  getItemCustomFields: ()             => req('/items/custom-fields'),
+  createItemCustomField: (d)          => req('/items/custom-fields', { method: 'POST', body: JSON.stringify(d) }),
+  updateItemCustomField: (id, d)      => req(`/items/custom-fields/${id}`, { method: 'PATCH', body: JSON.stringify(d) }),
+  deleteItemCustomField: (id)         => req(`/items/custom-fields/${id}`, { method: 'DELETE' }),
   getItemsReport:      (params)       => reqBlob(`/items/report?${new URLSearchParams(params)}`),
   getItemsAuditLog:    (params)       => req(`/items/audit-log?${new URLSearchParams(params)}`),
-  getItemAllocators:   ()             => req('/items/allocators'),
-  getItemApprovers:    ()             => req('/items/approvers'),
-  getRolesDirectory:   ()             => req('/roles/directory'),
+  getItemAllocators:   ()             => cachedGet('/items/allocators'),
+  getItemApprovers:    ()             => cachedGet('/items/approvers'),
+  getRolesDirectory:   ()             => cachedGet('/roles/directory'),
   autoFillItemPhotos:  (item_ids, replace = false) => req('/items/auto-photos', { method: 'POST', body: JSON.stringify({ item_ids, replace }) }),
   // Permanent assignments
   getAssignments:         ()           => req('/items/assignments'),
   assignItem:             (itemId, d)  => req(`/items/${itemId}/assign`,   { method: 'POST', body: JSON.stringify(d) }),
   reassignItem:           (itemId, d)  => req(`/items/${itemId}/reassign`, { method: 'POST', body: JSON.stringify(d) }),
+  assignItemToLocation:   (itemId, location) => req(`/items/${itemId}/assign-location`, { method: 'POST', body: JSON.stringify({ location }) }),
   acceptAssignment:       (id, d)      => req(`/items/assignments/${id}/accept`,          { method: 'POST', body: JSON.stringify(d) }),
   declineAssignment:      (id, d)      => req(`/items/assignments/${id}/decline`,         { method: 'POST', body: JSON.stringify(d) }),
   initAssignmentReturn:   (id, d)      => req(`/items/assignments/${id}/initiate-return`, { method: 'POST', body: JSON.stringify(d) }),

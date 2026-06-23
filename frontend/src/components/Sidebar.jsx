@@ -4,7 +4,7 @@ import { useMsal } from "@azure/msal-react";
 import { useRole, ROLES } from "../contexts/RoleContext";
 import {
   LayoutDashboard, UserCheck, ShoppingCart, CheckSquare, BookOpen,
-  GraduationCap, Monitor, Wifi, Home, LayoutGrid, Shield, FileText,
+  Monitor, Wifi, Home, LayoutGrid, Shield, FileText,
   ClipboardCheck, Calculator, ArrowRightLeft, PieChart, Download,
   CreditCard, Building, Server, FileSpreadsheet, Landmark, BarChart3,
   Users, LogIn, PenTool, Files, Megaphone, Star, ExternalLink,
@@ -18,14 +18,7 @@ export const NAV = [
   { view: "manager-dashboard", label: "Manager Dashboard",  icon: UserCheck,    minRole: 'supervisor' },
   { divider: true },
   { view: "tasks",             label: "Tasks",               icon: CheckSquare,  minRole: 'supervisor' },
-  {
-    view: "sop", label: "Knowledge Base", icon: BookOpen, minRole: 'supervisor',
-    sub: [
-      { subview: "index",  label: "SOP Index",  icon: BookOpen },
-      { subview: "review", label: "Review SOP", icon: CheckSquare },
-      { subview: "lms",    label: "LMS",        icon: GraduationCap },
-    ],
-  },
+  { view: "sop", label: "Knowledge Base", icon: BookOpen, minRole: 'supervisor' },
   { divider: true },
   {
     view: "it", label: "IT", icon: Monitor, minRole: 'supervisor',
