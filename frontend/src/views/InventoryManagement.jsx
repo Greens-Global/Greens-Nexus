@@ -3343,11 +3343,11 @@ function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
   const [uploading,  setUploading]  = useState({});
   const [localUrls,  setLocalUrls]  = useState({});
   const [aiRow,      setAiRow]      = useState({});      // per-item AI fill in flight
-  const [aiAllBusy,  setAiAllBusy]  = useState(false);
-  const [aiProgress, setAiProgress] = useState('');
   const [masterUrl,  setMasterUrl]  = useState('');
-  const [applyingMaster, setApplyingMaster] = useState(false);
+  const [applyingMaster,  setApplyingMaster]  = useState(false); // master-link apply in flight
+  const [uploadingMaster, setUploadingMaster] = useState(false); // master-upload apply in flight
   const fileRefs = useRef({});
+  const masterFileRef = useRef(null);
 
   // Sort: missing photos first, then by type hierarchy, then alpha
   const sortedItems = [...items].sort((a, b) => {
@@ -3361,17 +3361,10 @@ function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
   });
 
   const withPhotos  = items.filter(i => localUrls[i.id] ?? i.photoUrl).length;
-  const missingShown = items.filter(i => !(localUrls[i.id] ?? i.photoUrl)).length;
 
-  // Master link: apply ONE url to every shown item (Visesh). Sequential so the
+  // Push ONE url onto every shown item (Visesh). Sequential so the
   // dedupe/notification rules that batch updates rely on stay race-safe.
-  async function applyMasterUrl() {
-    const url = masterUrl.trim();
-    if (!url.startsWith('https://') && !url.startsWith('http://')) {
-      toast?.('Master link must start with https://', 'error'); return;
-    }
-    if (!window.confirm(`Set this image on all ${items.length} shown item${items.length !== 1 ? 's' : ''}? This overwrites their current photos.`)) return;
-    setApplyingMaster(true);
+  async function pushUrlToAll(url) {
     let ok = 0;
     for (const item of items) {
       try {
@@ -3380,10 +3373,35 @@ function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
         ok += 1;
       } catch { /* keep going */ }
     }
+    onUpdate?.();
+    return ok;
+  }
+
+  // Master LINK: apply a pasted url to every shown item.
+  async function applyMasterUrl() {
+    const url = masterUrl.trim();
+    if (!url.startsWith('https://') && !url.startsWith('http://')) {
+      toast?.('Master link must start with https://', 'error'); return;
+    }
+    if (!window.confirm(`Set this image on all ${items.length} shown item${items.length !== 1 ? 's' : ''}? This overwrites their current photos.`)) return;
+    setApplyingMaster(true);
+    const ok = await pushUrlToAll(url);
     setApplyingMaster(false);
     setMasterUrl('');
-    onUpdate?.();
     toast?.(`Applied the master photo to ${ok} item${ok !== 1 ? 's' : ''}.`, ok ? 'success' : 'error');
+  }
+
+  // Master UPLOAD: upload ONE image, then apply it to every shown item.
+  async function applyMasterFile(file) {
+    if (!file) return;
+    if (!window.confirm(`Upload this image and set it on all ${items.length} shown item${items.length !== 1 ? 's' : ''}? This overwrites their current photos.`)) return;
+    setUploadingMaster(true);
+    const path = `items/_batch/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const { url, error } = await uploadToSupabase(file, 'item-photos', path);
+    if (error) { toast?.(error, 'error'); setUploadingMaster(false); return; }
+    const ok = await pushUrlToAll(url);
+    setUploadingMaster(false);
+    toast?.(`Applied the uploaded photo to ${ok} item${ok !== 1 ? 's' : ''}.`, ok ? 'success' : 'error');
   }
 
   // AI fill ONE item. Never replaces an existing photo (replace=false) — Neil's
@@ -3402,34 +3420,6 @@ function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
       toast?.('AI photo fill failed.', 'error');
     } finally {
       setAiRow(p => ({ ...p, [item.id]: false }));
-    }
-  }
-
-  // AI fill every SHOWN item that's missing a photo — scoped to the filtered set,
-  // one request at a time (server rate-limit backoff can take ~a minute per item).
-  async function aiFillAllShown() {
-    const targets = items.filter(i => !(localUrls[i.id] ?? i.photoUrl)).map(i => i.id);
-    if (!targets.length || aiAllBusy) return;
-    setAiAllBusy(true);
-    let ok = 0, failed = 0;
-    try {
-      for (let i = 0; i < targets.length; i += 1) {
-        setAiProgress(`${i + 1}/${targets.length}`);
-        try {
-          const { results } = await api.autoFillItemPhotos([targets[i]], false);
-          const r = (results || [])[0];
-          if (r?.status === 'ok' && r.photo_url) { setLocalUrls(p => ({ ...p, [targets[i]]: r.photo_url })); ok += 1; }
-          else if (r?.status !== 'already_has_photo') failed += 1;
-        } catch { failed += 1; }
-        if ((i + 1) % 3 === 0 || i === targets.length - 1) onUpdate?.();
-      }
-      toast?.(ok > 0
-        ? `AI added ${ok} photo${ok !== 1 ? 's' : ''}${failed ? ` · ${failed} couldn't be found` : ''}. Review and replace any with real unit photos.`
-        : 'No suitable product photos were found.', ok > 0 ? 'success' : 'error');
-    } finally {
-      setAiAllBusy(false);
-      setAiProgress('');
-      onUpdate?.();
     }
   }
 
@@ -3479,29 +3469,29 @@ function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
           </div>
           <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
         </div>
-        {/* Controls: master link applies one image to ALL shown items; AI fill
-            scoped to the shown set (Neil moved AI fill in here) */}
+        {/* Controls: a single master image — pasted as a link OR uploaded —
+            applied to every shown item. Apply sits on the right; Upload to all
+            beside it on the left. */}
         <div style={{ padding:'12px 24px', borderBottom:'1px solid var(--line)', display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', flexShrink:0 }}>
           <Link2 size={15} style={{ color:'var(--muted)', flexShrink:0 }} />
           <input value={masterUrl} onChange={e => setMasterUrl(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && !applyingMaster && applyMasterUrl()}
+            onKeyDown={e => e.key === 'Enter' && !applyingMaster && !uploadingMaster && applyMasterUrl()}
             placeholder="Master image link — applied to all shown items"
             className="form-input" style={{ flex:1, minWidth:200, fontSize:12.5, padding:'7px 10px', height:34 }} />
-          <button onClick={applyMasterUrl} disabled={!masterUrl.trim() || applyingMaster}
-            title="Set this one image on every item shown above"
-            style={{ height:34, padding:'0 14px', fontSize:12.5, fontWeight:700, background:'var(--pine)', color:'#fff', border:'none', borderRadius:8, cursor:(!masterUrl.trim()||applyingMaster)?'default':'pointer', fontFamily:'Inter,sans-serif', opacity:(!masterUrl.trim()||applyingMaster)?0.5:1, display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}>
+          <input type="file" accept="image/*" style={{ display:'none' }} ref={masterFileRef}
+            onChange={e => { const f = e.target.files?.[0]; if (f) applyMasterFile(f); e.target.value = ''; }} />
+          <button onClick={() => masterFileRef.current?.click()} disabled={applyingMaster || uploadingMaster}
+            title="Upload one image and apply it to every item shown above"
+            style={{ height:34, padding:'0 14px', fontSize:12.5, fontWeight:700, background:'none', color:'var(--muted)', border:'1px solid var(--line)', borderRadius:8, cursor:(applyingMaster||uploadingMaster)?'default':'pointer', fontFamily:'Inter,sans-serif', opacity:(applyingMaster||uploadingMaster)?0.5:1, display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}>
+            {uploadingMaster ? <Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> : <UploadCloud size={13} />}
+            Upload to all
+          </button>
+          <button onClick={applyMasterUrl} disabled={!masterUrl.trim() || applyingMaster || uploadingMaster}
+            title="Set this one image link on every item shown above"
+            style={{ height:34, padding:'0 14px', fontSize:12.5, fontWeight:700, background:'var(--pine)', color:'#fff', border:'none', borderRadius:8, cursor:(!masterUrl.trim()||applyingMaster||uploadingMaster)?'default':'pointer', fontFamily:'Inter,sans-serif', opacity:(!masterUrl.trim()||applyingMaster||uploadingMaster)?0.5:1, display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}>
             {applyingMaster ? <Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> : <Link2 size={13} />}
             Apply to {items.length}
           </button>
-          {missingShown > 0 && (
-            <button onClick={aiFillAllShown} disabled={aiAllBusy}
-              title="Find product images for the shown items missing a photo — existing photos are never touched"
-              style={{ height:34, padding:'0 14px', fontSize:12.5, fontWeight:700, background:'hsla(var(--color-purple),0.1)', color:'hsl(var(--color-purple))', border:'1px solid hsla(var(--color-purple),0.35)', borderRadius:8, cursor: aiAllBusy ? 'default' : 'pointer', fontFamily:'Inter,sans-serif', opacity: aiAllBusy ? 0.75 : 1, display:'inline-flex', alignItems:'center', gap:6, whiteSpace:'nowrap' }}>
-              {aiAllBusy
-                ? <><Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> Finding… {aiProgress}</>
-                : <><Wand2 size={13} /> AI Fill {missingShown} missing</>}
-            </button>
-          )}
         </div>
         {/* Scrollable list */}
         <div style={{ overflowY:'auto', flex:1, padding:'12px 24px' }}>
@@ -3548,9 +3538,9 @@ function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
                     {isUploading ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : <><UploadCloud size={12} /> Upload</>}
                   </button>
                   {!currentUrl && (
-                    <button onClick={() => aiFillOne(item)} disabled={aiRow[item.id] || aiAllBusy}
+                    <button onClick={() => aiFillOne(item)} disabled={aiRow[item.id]}
                       title="Find a product photo for this item with AI"
-                      style={{ height:30, padding:'0 10px', fontSize:12, fontWeight:600, background:'hsla(var(--color-purple),0.1)', color:'hsl(var(--color-purple))', border:'1px solid hsla(var(--color-purple),0.35)', borderRadius:7, cursor:(aiRow[item.id]||aiAllBusy)?'default':'pointer', fontFamily:'Inter,sans-serif', display:'flex', alignItems:'center', gap:4, opacity:(aiRow[item.id]||aiAllBusy)?0.6:1 }}>
+                      style={{ height:30, padding:'0 10px', fontSize:12, fontWeight:600, background:'hsla(var(--color-purple),0.1)', color:'hsl(var(--color-purple))', border:'1px solid hsla(var(--color-purple),0.35)', borderRadius:7, cursor:aiRow[item.id]?'default':'pointer', fontFamily:'Inter,sans-serif', display:'flex', alignItems:'center', gap:4, opacity:aiRow[item.id]?0.6:1 }}>
                       {aiRow[item.id] ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : <><Wand2 size={12} /> AI</>}
                     </button>
                   )}
