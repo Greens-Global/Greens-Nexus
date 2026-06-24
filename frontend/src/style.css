@@ -448,14 +448,9 @@ h1,h2,h3,h4,h5,h6,
 }
 .icon-btn:hover { background: var(--mist); }
 
-/* Per-page Help: a labelled pill that floats at the top-right of the page content
-   (in the page, not in the header — Neil wanted help on every page). Collapses to
-   an icon-only button on narrow screens. */
+/* Per-page Help: a labelled pill in the header so it's easy to find (Neil wanted
+   a help icon on every page). Collapses to an icon-only button on narrow screens. */
 .help-pill {
-  position: fixed;
-  top: 64px;
-  right: 30px;
-  z-index: 120;
   width: auto;
   padding: 0 13px;
   gap: 7px;
@@ -463,15 +458,12 @@ h1,h2,h3,h4,h5,h6,
   font-size: 13px;
   font-weight: 600;
   color: hsl(var(--color-blue));
-  background: hsla(var(--color-blue), 0.12);
-  border: 1px solid hsla(var(--color-blue), 0.28);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.10);
-  backdrop-filter: blur(4px);
+  background: hsla(var(--color-blue), 0.10);
 }
-.help-pill:hover { background: hsla(var(--color-blue), 0.2); }
+.help-pill:hover { background: hsla(var(--color-blue), 0.18); }
 .help-pill-label { white-space: nowrap; }
-@media (max-width: 900px) {
-  .help-pill { top: 60px; right: 14px; width: 34px; padding: 0; }
+@media (max-width: 700px) {
+  .help-pill { width: 34px; padding: 0; }
   .help-pill-label { display: none; }
 }
 

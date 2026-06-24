@@ -8,7 +8,6 @@ import Sidebar from "./components/Sidebar";
 import MobileNav from "./components/MobileNav";
 import MobileMenu from "./components/MobileMenu";
 import TopHeader from "./components/TopHeader";
-import PageHelp from "./components/PageHelp";
 import AdminPanel from "./components/AdminPanel";
 import NotificationToasts from "./components/NotificationToasts";
 import GlobalSearch from "./components/GlobalSearch";
@@ -309,6 +308,8 @@ export default function App() {
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
             <TopHeader
               title={viewLabel(activeView)}
+              helpKey={activeSub ? `${activeView}:${activeSub}` : activeView}
+              helpLabel={viewLabel(activeView)}
               theme={theme}
               onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")}
               onMobileToggle={() => setMobileMenuOpen(true)}
@@ -319,9 +320,6 @@ export default function App() {
               onOpenAdmin={tab => { setAdminPanelTab(tab); setAdminPanelOpen(true); }}
             />
             <div className="viewport">
-              {/* In-page Help — floats at the top-right of the page content
-                  (out of the header), one per page (Neil: help on every page). */}
-              <PageHelp pageKey={activeSub ? `${activeView}:${activeSub}` : activeView} label={viewLabel(activeView)} />
               <ViewErrorBoundary resetKey={`${activeView}/${activeSub}`}>
               <Suspense fallback={
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
