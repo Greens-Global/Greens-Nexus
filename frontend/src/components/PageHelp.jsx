@@ -85,8 +85,9 @@ export default function PageHelp({ pageKey, label }) {
 
   return (
     <>
-      <button className="icon-btn" onClick={() => setOpen(true)} aria-label="Help for this page" title="How to use this page">
-        <HelpCircle style={{ width: 16, height: 16 }} />
+      <button className="icon-btn help-pill" onClick={() => setOpen(true)} aria-label="Help for this page" title="How to use this page">
+        <HelpCircle style={{ width: 16, height: 16, flexShrink: 0 }} />
+        <span className="help-pill-label">Help</span>
       </button>
       {open && (
         <div onClick={e => e.target === e.currentTarget && setOpen(false)}
