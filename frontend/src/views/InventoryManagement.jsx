@@ -7199,6 +7199,8 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
 });
 
 // ── Main view ─────────────────────────────────────────────────────────────────
+const INV_VALID_TABS = ['myitems','catalog','manage','checkouts','whohasit','purchasereqs','audit'];
+
 export default function InventoryManagement({ activeSub }) {
   const {
     items, itemsLoading, itemsError,
@@ -7290,7 +7292,14 @@ export default function InventoryManagement({ activeSub }) {
   }
 
   // Manager-only tab/modal state
-  const [mainTab,       setMainTab]       = useState('catalog');
+  // Remember the last tab so a page refresh keeps you where you were instead of
+  // bouncing back to Catalog. Explicit navigation (activeSub / nexus:navigate)
+  // still wins over this saved default below.
+  const [mainTab, setMainTab] = useState(() => {
+    try { const s = localStorage.getItem('nexus_inv_tab'); if (s && INV_VALID_TABS.includes(s)) return s; } catch { /* ignore */ }
+    return 'catalog';
+  });
+  useEffect(() => { try { localStorage.setItem('nexus_inv_tab', mainTab); } catch { /* ignore */ } }, [mainTab]);
   // Who Has What → Checkouts deep-link: carries the person/item to prefill the
   // search so the landing view is already scoped to what was clicked.
   const [checkoutsPrefilter, setCheckoutsPrefilter] = useState(null);
@@ -7301,7 +7310,7 @@ export default function InventoryManagement({ activeSub }) {
 
   // Deep-link: NotificationBell navigates with ('inventory', subTab) — land on
   // that tab instead of the default Catalog so the click shows the relevant info.
-  const VALID_SUBTABS = ['myitems','catalog','manage','checkouts','whohasit','purchasereqs','audit'];
+  const VALID_SUBTABS = INV_VALID_TABS;
   // 'permanent' / 'active-checkouts' are sub-tabs inside My Items;
   // 'checkouts-completed' is the Completed filter inside Checkouts
   // (the inner components pick these up from the same event)
