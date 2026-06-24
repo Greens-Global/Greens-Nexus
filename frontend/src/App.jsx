@@ -308,6 +308,8 @@ export default function App() {
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
             <TopHeader
               title={viewLabel(activeView)}
+              helpKey={activeSub ? `${activeView}:${activeSub}` : activeView}
+              helpLabel={viewLabel(activeView)}
               theme={theme}
               onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")}
               onMobileToggle={() => setMobileMenuOpen(true)}
