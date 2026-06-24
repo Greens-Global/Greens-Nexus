@@ -3998,6 +3998,8 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
   const [applyingMaster,  setApplyingMaster]  = useState(false); // master-link apply in flight
   const [uploadingMaster, setUploadingMaster] = useState(false); // master-upload apply in flight
   const [pasteFocusId, setPasteFocusId] = useState(null);        // slot armed for Ctrl+V paste
+  const [confirmState, setConfirmState] = useState(null);        // in-app confirm: { message, fn }
+  const askConfirm = (message, fn) => setConfirmState({ message, fn });
   const fileRefs = useRef({});
   const masterFileRef = useRef(null);
 
@@ -4029,32 +4031,34 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
     return ok;
   }
 
-  // Master LINK: apply a pasted url to every shown item.
-  async function applyMasterUrl() {
+  // Master LINK: apply a pasted url to every shown item (one in-app confirm).
+  function applyMasterUrl() {
     const url = masterUrl.trim();
     if (!url.startsWith('https://') && !url.startsWith('http://')) {
       toast?.('Master link must start with https://', 'error'); return;
     }
-    if (!window.confirm(`Set this image on all ${items.length} shown item${items.length !== 1 ? 's' : ''}? This overwrites their current photos.`)) return;
-    setApplyingMaster(true);
-    const ok = await pushUrlToAll(url);
-    setApplyingMaster(false);
-    setMasterUrl('');
-    toast?.(`Applied the master photo to ${ok} item${ok !== 1 ? 's' : ''}.`, ok ? 'success' : 'error');
+    askConfirm('This sets the linked image on every item and overwrites their current photos.', async () => {
+      setApplyingMaster(true);
+      const ok = await pushUrlToAll(url);
+      setApplyingMaster(false);
+      setMasterUrl('');
+      toast?.(`Applied the master photo to ${ok} item${ok !== 1 ? 's' : ''}.`, ok ? 'success' : 'error');
+    });
   }
 
-  // Master UPLOAD: upload ONE image, then apply it to every shown item.
-  async function applyMasterFile(file) {
+  // Master UPLOAD: upload ONE image, then apply it to every shown item (one confirm).
+  function applyMasterFile(file) {
     if (!file) return;
-    if (!window.confirm(`Upload this image and set it on all ${items.length} item${items.length !== 1 ? 's' : ''}? This overwrites their current photos.`)) return;
-    setUploadingMaster(true);
-    const name = (file.name || 'photo.png').replace(/[^a-zA-Z0-9._-]/g, '_');
-    const path = `items/_batch/${Date.now()}-${name}`;
-    const { url, error } = await uploadToSupabase(file, 'item-photos', path);
-    if (error) { toast?.(error, 'error'); setUploadingMaster(false); return; }
-    const ok = await pushUrlToAll(url);
-    setUploadingMaster(false);
-    toast?.(`Applied the uploaded photo to ${ok} item${ok !== 1 ? 's' : ''}.`, ok ? 'success' : 'error');
+    askConfirm('This uploads the image and sets it on every item, overwriting their current photos.', async () => {
+      setUploadingMaster(true);
+      const name = (file.name || 'photo.png').replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `items/_batch/${Date.now()}-${name}`;
+      const { url, error } = await uploadToSupabase(file, 'item-photos', path);
+      if (error) { toast?.(error, 'error'); setUploadingMaster(false); return; }
+      const ok = await pushUrlToAll(url);
+      setUploadingMaster(false);
+      toast?.(`Applied the uploaded photo to ${ok} item${ok !== 1 ? 's' : ''}.`, ok ? 'success' : 'error');
+    });
   }
 
   // Paste an image onto the master bar → upload once and apply it to every item
@@ -4164,7 +4168,7 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
             beside it on the left. */}
         <div onPaste={handleMasterPaste} style={{ padding:'12px 24px', borderBottom:'1px solid var(--line)', display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', flexShrink:0 }}>
           <Link2 size={15} style={{ color:'var(--muted)', flexShrink:0 }} />
-          <input value={masterUrl} onChange={e => setMasterUrl(e.target.value)} onPaste={handleMasterPaste}
+          <input value={masterUrl} onChange={e => setMasterUrl(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !applyingMaster && !uploadingMaster && applyMasterUrl()}
             placeholder="Master image link, or paste an image to apply to all"
             className="form-input" style={{ flex:1, minWidth:200, fontSize:12.5, padding:'7px 10px', height:34 }} />
@@ -4256,6 +4260,24 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
           <button className="secondary-btn" onClick={onClose}>Done</button>
         </div>
       </div>
+      {/* In-app confirm for the master "apply to all" actions — one prompt, Nexus
+          styled, never the browser's native dialog. */}
+      {confirmState && (
+        <div onClick={e => e.target === e.currentTarget && setConfirmState(null)}
+          style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:1300, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          <div style={{ background:'var(--card)', borderRadius:14, padding:'22px 24px', width:'100%', maxWidth:400, boxShadow:'var(--shadow-lg)' }}>
+            <h3 style={{ margin:'0 0 7px', fontSize:15, fontWeight:700 }}>Apply to all {items.length} item{items.length !== 1 ? 's' : ''}?</h3>
+            <p style={{ margin:'0 0 18px', fontSize:13, color:'var(--muted)', lineHeight:1.55 }}>{confirmState.message}</p>
+            <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
+              <button className="secondary-btn" onClick={() => setConfirmState(null)}>Cancel</button>
+              <button onClick={() => { const fn = confirmState.fn; setConfirmState(null); fn?.(); }}
+                style={{ background:'var(--pine)', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+                Apply to {items.length}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
