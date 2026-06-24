@@ -12,6 +12,19 @@ import {
 const rid = () => 'r' + Math.random().toString(36).slice(2, 9);
 const initials = (n) => (n || '?').split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
 
+// Phones render a stacked, single-column layout (Neil: the SOP view was unusable
+// on mobile). 640px matches the app-wide breakpoint and the .stack-table CSS.
+function useIsMobile(bp = 640) {
+  const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia(`(max-width: ${bp}px)`).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${bp}px)`);
+    const h = e => setMobile(e.matches);
+    mq.addEventListener('change', h);
+    return () => mq.removeEventListener('change', h);
+  }, [bp]);
+  return mobile;
+}
+
 // ── version diff (word-level LCS) ──
 const _diffBox = { fontSize: '0.85rem', lineHeight: 1.6, color: 'var(--text-primary)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '11px 13px', whiteSpace: 'pre-wrap' };
 const _add = { background: 'hsla(145,63%,42%,0.22)', color: 'hsl(145,55%,26%)', textDecoration: 'none', borderRadius: 3, padding: '0 2px' };
@@ -335,6 +348,7 @@ export default function SOP({ activeSub, onSubChange }) {
   const [signedImgs, setSignedImgs] = useState({});   // kb-media path → short-lived signed URL
   const signedReqRef = useRef(new Set());             // paths already requested (avoid re-signing)
   const [busy, setBusy] = useState(false);
+  const isMobile = useIsMobile();
   const [aiBusy, setAiBusy] = useState(false);
   const [aiInstruction, setAiInstruction] = useState(''); // "Edit with Claude" prompt
   const [aiReview, setAiReview] = useState(null); // full-screen AI review: { open, before, after, source, tab }
@@ -1106,7 +1120,7 @@ export default function SOP({ activeSub, onSubChange }) {
         )}
         {docLang !== 'en' && <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 9, padding: '8px 11px', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 14 }}>Machine-translated to {({ es: 'Spanish', hi: 'Hindi' })[docLang]}. The English version is authoritative.</div>}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 24, alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) 280px', gap: isMobile ? 16 : 24, alignItems: 'start' }}>
           <div id="kb-doc" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-sm)', minWidth: 0 }}>
             {/* header grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 1, backgroundColor: 'var(--border-color)', border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden', marginBottom: 22 }}>
@@ -1403,8 +1417,8 @@ export default function SOP({ activeSub, onSubChange }) {
     const pairEditor = (field, label, hint, k1, k2, p1, p2) => section(label, hint, (<>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {draft.body[field].map((row, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 2fr auto', gap: 8 }}>
-              <input className="form-input" value={row[k1] || ''} placeholder={p1} onChange={e => updItem(field, i, { ...row, [k1]: e.target.value })} style={{ padding: '11px 14px' }} />
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr auto' : '1fr 2fr auto', gap: 8 }}>
+              <input className="form-input" value={row[k1] || ''} placeholder={p1} onChange={e => updItem(field, i, { ...row, [k1]: e.target.value })} style={{ padding: '11px 14px', ...(isMobile ? { gridColumn: '1 / -1' } : {}) }} />
               <input className="form-input" value={row[k2] || ''} placeholder={p2} onChange={e => updItem(field, i, { ...row, [k2]: e.target.value })} style={{ padding: '11px 14px' }} />
               <button className="secondary-btn" onClick={() => delItem(field, i)} style={{ width: 44, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Trash2 size={15} /></button>
             </div>
@@ -1944,7 +1958,7 @@ export default function SOP({ activeSub, onSubChange }) {
           </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
-            <div style={{ flex: '3 1 480px', minWidth: 0 }}>
+            <div style={{ flex: isMobile ? '1 1 100%' : '3 1 480px', minWidth: 0, width: isMobile ? '100%' : undefined }}>
               {searchMode === 'ask' && askAnswer()}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
                 <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{filtered.length} Document{filtered.length === 1 ? '' : 's'}</div>
@@ -1957,13 +1971,14 @@ export default function SOP({ activeSub, onSubChange }) {
                 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
                 : (() => {
                     const empty = docs.length === 0 ? 'No documents yet — click “New SOP” to start your first draft.' : 'No documents match your filters.';
-                    if (libView === 'cards') return cardGrid(filtered, empty);
+                    // The list table doesn't fit a phone — fall back to cards there.
+                    if (isMobile || libView === 'cards') return cardGrid(filtered, empty);
                     if (libView === 'outline') return outlineView(filtered, empty);
                     return docTable(filtered, empty);
                   })()}
             </div>
             {sidebarOpen && (
-              <div style={{ flex: '1 1 280px', minWidth: 0 }}>
+              <div style={{ flex: isMobile ? '1 1 100%' : '1 1 280px', minWidth: 0, width: isMobile ? '100%' : undefined }}>
                 {librarySidebar()}
               </div>
             )}
