@@ -203,6 +203,7 @@ export const api = {
   submitKbDoc:   (id)       => req(`/knowledge-base/documents/${id}/submit`, { method: "POST" }),
   reviewKbDoc:   (id, data) => req(`/knowledge-base/documents/${id}/review`, { method: "POST", body: JSON.stringify(data) }),
   archiveKbDoc:  (id)       => req(`/knowledge-base/documents/${id}/archive`, { method: "POST" }),
+  unarchiveKbDoc:(id)       => req(`/knowledge-base/documents/${id}/unarchive`, { method: "POST" }),
   aiFormatKbDoc: (data)     => req("/knowledge-base/ai-format", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
   askKb:         (data)     => req("/knowledge-base/ask", { method: "POST", body: JSON.stringify(data), timeoutMs: AI_TIMEOUT_MS }),
   getKbAcks:        (id)        => req(`/knowledge-base/documents/${id}/acknowledgements`),

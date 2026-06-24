@@ -376,6 +376,20 @@ def archive_document(doc_id: str, user: dict = Depends(require_level(3)), db: Se
     return _serialize(d)
 
 
+@router.post("/documents/{doc_id}/unarchive")
+def unarchive_document(doc_id: str, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    """Restore an archived doc back to its live (approved) state — archive was a
+    one-way street, leaving no way to bring a doc back (Visesh)."""
+    d = _get_or_404(doc_id, db)
+    if d.status != "archived":
+        raise HTTPException(status_code=400, detail="Only archived documents can be unarchived")
+    d.status = "approved"
+    d.updated_at = _now()
+    _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": "Unarchived — restored to approved."})
+    db.commit()
+    return _serialize(d)
+
+
 class DepartmentsIn(BaseModel):
     departments: list[str] = []
 
@@ -705,7 +719,12 @@ _STD_SCHEMA = (
     '- IMAGES: the source may contain inline image placeholders like [[IMG1]], [[IMG2]]. Each marks where '
     'a screenshot belongs. Set the "image" field of the step that screenshot illustrates to the EXACT '
     'placeholder token (e.g. "[[IMG1]]"), and use "" when a step has no image. NEVER leave a placeholder '
-    'inside text/detail/purpose or any other field — move each one into the right step\'s image, or drop it.\n'
+    'inside text/detail/purpose or any other field — move each one into the right step\'s image, or drop it. '
+    'DROP (do not attach anywhere) any placeholder that is clearly a company logo, letterhead, header/footer '
+    'banner, watermark, signature, or decoration rather than an instructional screenshot — in particular a '
+    'placeholder that appears at the very TOP of the source (before any real procedure content) or right next '
+    'to the title/author/date is almost always a logo/letterhead: omit it entirely. Only attach images that '
+    'actually illustrate a specific step (screenshots, diagrams, photos of the work).\n'
     '- "safety": every warning, "do not"/"never", and compliance rule. "references": referenced docs, links '
     'or standards.\n'
     '- "materials"/"responsibilities"/"definitions": real tools, real role→duty, real term→meaning. '

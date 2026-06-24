@@ -4,7 +4,7 @@ import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
-  X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, Loader, ChevronUp, ChevronDown,
+  X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, ArchiveRestore, Loader, ChevronUp, ChevronDown,
   Image as ImageIcon, Paperclip, Settings, Grid3x3, BarChart3, GraduationCap, Eye, ChevronRight, Star,
   List, LayoutGrid, Building2, PanelRight, FileText, HelpCircle, Share2, Link2, Download, Printer,
 } from 'lucide-react';
@@ -650,6 +650,13 @@ export default function SOP({ activeSub, onSubChange }) {
     finally { setBusy(false); }
   };
 
+  const unarchiveDoc = async (d) => {
+    setBusy(true);
+    try { const doc = await api.unarchiveKbDoc(d.id); refresh(); setSelected(doc); }
+    catch (e) { setErr(e.message || 'Unarchive failed'); }
+    finally { setBusy(false); }
+  };
+
   const runAiFormat = async () => {
     const raw = draft._raw?.trim();
     const content = raw || [draft.title, draft.body.purpose].filter(Boolean).join('\n');
@@ -1085,6 +1092,7 @@ export default function SOP({ activeSub, onSubChange }) {
             )}
             {canReview(d) && <button className="primary-btn" onClick={() => { setReviewDoc(d); setReviewNote(''); }} style={{ backgroundColor: 'hsl(var(--color-green))', display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><CheckSquare size={14} /> Review</button>}
             {d.status === 'approved' && isManager && <button className="secondary-btn" onClick={() => archiveDoc(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Archive size={14} /> Archive</button>}
+            {d.status === 'archived' && isManager && <button className="secondary-btn" disabled={busy} onClick={() => unarchiveDoc(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><ArchiveRestore size={14} /> Unarchive</button>}
           </div>
         </div>
 
