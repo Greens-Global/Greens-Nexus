@@ -5050,8 +5050,11 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
   // What a batch action operates on: the explicit selection if any rows are
   // ticked, otherwise everything currently shown under the filters (Neil: never
   // forced to all 500 — selecting six, or filtering to a type, scopes the batch).
+  // Batch acts ONLY on the explicit selection — never "everything shown" by
+  // default (Neil: people will mass-edit by accident; make them tick rows first.
+  // Select-all is one click away when they really want every row).
   const usingSelection = selItems.length > 0;
-  const batchScope     = usingSelection ? selItems : sorted;
+  const batchScope     = selItems;
 
   // Stable so memoized rows don't all re-render on every checkbox toggle.
   const toggleSelect = useCallback(id => {
@@ -5195,20 +5198,15 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
             <Trash2 size={14} /> Recycle Bin
           </button>
         )}
-        {/* Batch Edit — one feature, two tabs (Fields / Photos). Works on the
-            selection if rows are ticked, else on everything the filters show.
-            (AI photo fill lives inside the Photos tab — Neil: it's dangerous on the
-            Manage bar, one click could overwrite a whole catalogue's real photos.) */}
-        {sorted.length > 0 && (
+        {/* Batch Edit — one feature, two tabs (Fields / Photos). Only available
+            once rows are ticked (Neil: never act on everything by default). The
+            "select all" header checkbox + Batch Edit covers the whole-list case.
+            (AI photo fill lives inside the Photos tab.) */}
+        {selected.size > 0 && (
           <button onClick={() => { setBatchTab('fields'); setBatchOpen(true); }}
-            title={usingSelection ? `Batch edit the ${selItems.length} selected item${selItems.length !== 1 ? 's' : ''}` : `Batch edit the ${sorted.length} item${sorted.length !== 1 ? 's' : ''} shown (your filters apply)`}
+            title={`Batch edit the ${selItems.length} selected item${selItems.length !== 1 ? 's' : ''}`}
             style={{ display:'inline-flex', alignItems:'center', gap:7, position:'relative', background:'var(--pine)', color:'#fff', border:'none', borderRadius:9, padding:'7px 14px', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-            <Pencil size={13} /> Batch Edit{usingSelection ? ` (${selItems.length})` : sorted.length !== items.length ? ` (${sorted.length})` : ''}
-            {missingPhotos > 0 && (
-              <span style={{ position:'absolute', top:-6, right:-6, background:'hsl(var(--color-red))', color:'#fff', borderRadius:'50%', width:16, height:16, fontSize:9.5, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center', border:'1.5px solid var(--card)' }} title={`${missingPhotos} item${missingPhotos !== 1 ? 's' : ''} missing a photo`}>
-                {missingPhotos > 99 ? '99+' : missingPhotos}
-              </span>
-            )}
+            <Pencil size={13} /> Batch Edit ({selItems.length})
           </button>
         )}
         {/* Batch assign to a location — Neil: "select all → assign to GSE" */}
@@ -7240,7 +7238,9 @@ export default function InventoryManagement({ activeSub }) {
   const [typeFilter,    setTypeFilter]    = useState('All');
   // Master ownership filter: All | transient (temporary) | permanent.
   // Lets managers filter permanent items out of Catalog/Manage (Neil, Jun 16).
-  const [ownershipFilter, setOwnershipFilter] = useState('All');
+  // Default the ownership filter to Temporary (Neil: opening to hundreds of items
+  // is overwhelming; lead with the checkout-able/temporary ones). One click to All.
+  const [ownershipFilter, setOwnershipFilter] = useState('transient');
   const [locationFilter, setLocationFilter] = useState('All');
   const [modelFilter,    setModelFilter]    = useState('All');
   // Type filter auto-populates from the data so imported types (e.g. "IP Camera")

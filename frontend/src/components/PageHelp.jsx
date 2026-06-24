@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { HelpCircle, X, RefreshCw, Loader2 } from 'lucide-react';
+import { HelpCircle, X, Loader2, LifeBuoy } from 'lucide-react';
 import { api } from '../api';
-import { useRole } from '../contexts/RoleContext';
 
 // Per-page "how to use this page" help. The "?" lives in the header on every page;
 // clicking it opens a drawer with an AI-written guide for the current page
@@ -41,12 +40,9 @@ function renderMarkdown(md) {
 }
 
 export default function PageHelp({ pageKey, label }) {
-  const { can } = useRole();
-  const canRegen = can?.('manager') || can?.('administrator');
   const [open, setOpen] = useState(false);
   const [data, setData] = useState(null);   // { content, title, source, updated_at }
   const [loading, setLoading] = useState(false);
-  const [regening, setRegening] = useState(false);
   const [error, setError] = useState('');
   const lastKey = useRef(null);
 
@@ -71,16 +67,9 @@ export default function PageHelp({ pageKey, label }) {
     return () => window.removeEventListener('keydown', h);
   }, [open]);
 
-  async function regenerate() {
-    setRegening(true); setError('');
-    try {
-      const d = await api.regeneratePageHelp(pageKey, label);
-      _cache.set(pageKey, d); setData(d);
-    } catch {
-      setError('Could not regenerate.');
-    } finally {
-      setRegening(false);
-    }
+  function goToAccessHelp() {
+    setOpen(false);
+    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'support' } }));
   }
 
   return (
@@ -114,16 +103,11 @@ export default function PageHelp({ pageKey, label }) {
                 renderMarkdown(data.content)
               ) : null}
             </div>
-            <div style={{ padding: '11px 20px', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexShrink: 0 }}>
-              <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>
-                {data?.source === 'fallback' ? 'Generated help unavailable' : 'AI-generated · always improving'}
-              </span>
-              {canRegen && (
-                <button onClick={regenerate} disabled={regening || loading}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', cursor: regening ? 'default' : 'pointer', fontSize: 12, fontWeight: 700, color: 'var(--muted)', fontFamily: 'Inter,sans-serif' }}>
-                  {regening ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={13} />} Regenerate
-                </button>
-              )}
+            <div style={{ padding: '11px 16px', borderTop: '1px solid var(--line)', flexShrink: 0 }}>
+              <button onClick={goToAccessHelp}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, width: '100%', padding: '9px 12px', borderRadius: 9, border: '1px solid var(--line)', background: 'var(--card)', cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: 'hsl(var(--color-blue))', fontFamily: 'Inter,sans-serif' }}>
+                <LifeBuoy size={14} /> Help with access &amp; all of Nexus →
+              </button>
             </div>
           </div>
         </div>
