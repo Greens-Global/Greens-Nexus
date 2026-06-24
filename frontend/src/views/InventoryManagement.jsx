@@ -1627,6 +1627,26 @@ function feedUndoInfo(entry) {
   return null;
 }
 
+// One-line plain-English summary for the collapsed card. The field/value detail
+// (with the red→green animation) lives behind "Show details". Returns null for
+// non-field events so the caller falls back to the humanised details text.
+function feedSummary(entry) {
+  const ch = entry.changes;
+  if (ch) {
+    const n = ch.length;
+    if (entry.baseline) return `Earliest recorded state — ${n} value${n !== 1 ? 's' : ''} on record`;
+    if (entry.isAdd)    return n ? `Added to the catalogue with ${n} detail${n !== 1 ? 's' : ''} filled in` : 'Added to the catalogue';
+    if (n === 0)        return 'Saved — no field values changed';
+    if (n === 1)        return `Changed ${ch[0].label.toLowerCase()}`;
+    const labels = ch.map(c => c.label.toLowerCase());
+    return `Updated ${n} fields — ${labels.slice(0, 3).join(', ')}${labels.length > 3 ? ` +${labels.length - 3} more` : ''}`;
+  }
+  const a = (entry.row.action || '').toLowerCase();
+  if (a.startsWith('deleted item'))  return 'Moved to the Recycle Bin';
+  if (a.startsWith('restored item')) return 'Restored from the Recycle Bin';
+  return null;
+}
+
 const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onChanged }) {
   const [query,   setQuery]   = useState('');
   const [logs,    setLogs]    = useState([]);
@@ -1637,6 +1657,8 @@ const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onCh
   const [to,      setTo]      = useState('');
   const [confirmUndo, setConfirmUndo] = useState(null); // audit row id awaiting confirm
   const [undoing,     setUndoing]     = useState(null); // audit row id in flight
+  const [expanded,    setExpanded]    = useState(() => new Set()); // cards showing field detail
+  const toggleExpand = (id) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   // resource_id → { name, type }: current items first, then anything a log named.
   const meta = useMemo(() => {
@@ -1711,6 +1733,13 @@ const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onCh
 
   return (
     <div>
+      {/* Detail-reveal animation: rows slide in, the new value flashes green and
+          the old value flashes red so the change is obvious at a glance. */}
+      <style>{`
+        @keyframes auditReveal   { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes auditNewFlash { 0% { background:hsla(145,63%,45%,0.30); } 100% { background:transparent; } }
+        @keyframes auditOldFlash { 0% { background:hsla(2,72%,55%,0.24); } 100% { background:transparent; } }
+      `}</style>
       <div style={{ display:'flex', gap:10, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
         <div className="search-bar" style={{ flex:1, minWidth:180, maxWidth:300 }}>
           <Search size={14} style={{ flexShrink:0 }} />
@@ -1751,7 +1780,10 @@ const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onCh
                   const it = itemFor(r);
                   const typeBadge = meta[r.resource_id]?.type;
                   const undo = feedUndoInfo(e);
+                  const summary = feedSummary(e);
                   const det = e.changes ? null : formatAuditDetails(r.action, r.details);
+                  const hasDetail = !!(e.changes && e.changes.length);
+                  const open = expanded.has(r.id);
                   return (
                     <div key={r.id} style={{ display:'flex', gap:11, padding:'12px 13px', borderRadius:11, border:'1px solid var(--line)', background:'var(--card)', opacity: r.undone_at ? 0.62 : 1 }}>
                       <span style={{ flexShrink:0, width:9, height:9, marginTop:5, borderRadius:'50%', background:_auditFg(t), boxShadow:`0 0 0 3px ${_auditBg(t)}` }} />
@@ -1768,23 +1800,35 @@ const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onCh
                           <span style={{ marginLeft:'auto', fontSize:11.5, color:'var(--muted)', whiteSpace:'nowrap' }}>{auditTime(r.timestamp)}</span>
                         </div>
 
-                        {/* Field diffs */}
-                        {e.changes && e.changes.length > 0 && (
-                          <div style={{ display:'flex', flexDirection:'column', gap:3, padding:'7px 10px', borderRadius:8, background:'var(--mist)', border:'1px solid var(--line)', marginTop:7 }}>
+                        {/* Plain-English summary + a Show details toggle for the field changes */}
+                        <div style={{ display:'flex', alignItems:'baseline', gap:8, marginTop:6, flexWrap:'wrap' }}>
+                          <span style={{ fontSize:12.5, color:'var(--ink)', lineHeight:1.5, minWidth:0 }}>
+                            {summary != null ? summary : (det && det !== '—' ? renderNotifBody(det) : auditEventMeta(r.action).verb)}
+                          </span>
+                          {hasDetail && (
+                            <button onClick={() => toggleExpand(r.id)}
+                              style={{ display:'inline-flex', alignItems:'center', gap:3, padding:'2px 8px', borderRadius:6, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', fontSize:11, fontWeight:700, color:'var(--muted)', fontFamily:'Inter,sans-serif', flexShrink:0 }}>
+                              {open ? 'Hide details' : 'Show details'} <ChevronDown size={12} style={{ transform: open ? 'rotate(180deg)' : 'none', transition:'transform .2s' }} />
+                            </button>
+                          )}
+                        </div>
+                        {hasDetail && open && (
+                          <div style={{ display:'flex', flexDirection:'column', gap:5, padding:'9px 11px', borderRadius:8, background:'var(--mist)', border:'1px solid var(--line)', marginTop:7, animation:'auditReveal .22s ease' }}>
                             {e.changes.map((c, ci) => (
-                              <div key={ci} style={{ fontSize:12, lineHeight:1.5, wordBreak:'break-word' }}>
-                                <span style={{ color:'var(--muted)', fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'.05em' }}>{c.label}</span>{'  '}
+                              <div key={ci} style={{ fontSize:12.5, lineHeight:1.6, wordBreak:'break-word', display:'flex', flexWrap:'wrap', alignItems:'baseline', gap:7, animation:'auditReveal .3s ease both', animationDelay:`${ci * 45}ms` }}>
+                                <span style={{ color:'var(--muted)', fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'.05em', minWidth:96 }}>{c.label}</span>
                                 {!e.baseline && c.from !== null && (
-                                  <><span style={{ color:'hsl(var(--color-red))', textDecoration:'line-through' }}>{c.from === '' ? EMPTY : c.from}</span> <span style={{ color:'var(--muted)' }}>→</span> </>
+                                  <>
+                                    <span style={{ color:'hsl(var(--color-red))', textDecoration:'line-through', padding:'1px 5px', borderRadius:4, animation:'auditOldFlash 1s ease both', animationDelay:`${ci * 45}ms` }}>{c.from === '' ? EMPTY : c.from}</span>
+                                    <span style={{ color:'var(--muted)' }}>→</span>
+                                  </>
                                 )}
-                                <span style={{ fontWeight:600, color: e.baseline ? 'var(--ink)' : 'hsl(var(--color-green))' }}>{c.to === '' ? EMPTY : c.to}</span>
+                                <span style={{ fontWeight:700, color: e.baseline ? 'var(--ink)' : 'hsl(var(--color-green))', padding:'1px 5px', borderRadius:4, animation: e.baseline ? 'none' : 'auditNewFlash 1.1s ease both', animationDelay:`${ci * 45}ms` }}>{c.to === '' ? EMPTY : c.to}</span>
                               </div>
                             ))}
-                            {e.baseline && <div style={{ fontSize:10, color:'var(--muted)', fontStyle:'italic', marginTop:1 }}>earliest recorded state — changes are tracked from here</div>}
+                            {e.baseline && <div style={{ fontSize:10.5, color:'var(--muted)', fontStyle:'italic', marginTop:2 }}>earliest recorded state — changes are tracked from here</div>}
                           </div>
                         )}
-                        {/* Non-field events (checkout / return / assign …) */}
-                        {det && det !== '—' && <div style={{ fontSize:12, color:'var(--muted)', marginTop:6, lineHeight:1.5 }}>{renderNotifBody(det)}</div>}
 
                         {/* Undo reason trail */}
                         {e.reason && (
