@@ -1,11 +1,10 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, ChevronDown, LayoutDashboard, Maximize2, Minimize2, ZoomIn, ZoomOut } from "lucide-react";
 import NotificationBell from "./NotificationBell";
-import PageHelp from "./PageHelp";
 import { useMsal }        from "@azure/msal-react";
 import { useRole, ROLES, MODULES } from "../contexts/RoleContext";
 
-export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, onOpenAdmin, helpKey, helpLabel }) {
+export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, onOpenAdmin }) {
   const { instance, accounts } = useMsal();
   const { myRole, can, myGrantedModules } = useRole();
   const account  = accounts[0];
@@ -190,7 +189,6 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
             {isFull ? <Minimize2 style={{ width: 16, height: 16 }} /> : <Maximize2 style={{ width: 16, height: 16 }} />}
           </button>
         </div>
-        {helpKey && <PageHelp pageKey={helpKey} label={helpLabel} />}
         <button className="icon-btn" onClick={onThemeToggle} aria-label="Toggle Theme">
           {theme === "dark"
             ? <Sun style={{ width: 16, height: 16 }} />
