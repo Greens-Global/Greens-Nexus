@@ -1,11 +1,12 @@
 import io
+import json
 import os
 import re
 import threading
 import uuid
 from collections import defaultdict, deque
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import or_, func, text as sa_text
 from sqlalchemy.exc import IntegrityError
@@ -28,7 +29,12 @@ _VALID_TRANSITIONS = {
 
 _ROLE_LEVEL = {"employee": 1, "supervisor": 2, "manager": 3, "administrator": 4, "owner": 5}
 
-_ITEM_TYPES    = ["Devices", "Tools", "Vehicles", "Equipment", "Keys", "Other"]
+# Controlled list of item types — add/edit is dropdown-only, and an unrecognised
+# type on IMPORT now lands in "Other" for cleanup rather than spawning a junk type
+# (Neil). To add a real new type, add it here (a deliberate, rare change).
+_ITEM_TYPES    = ["Computer", "Peripheral", "Networking", "Server", "Storage",
+                  "IP Camera", "Devices", "Tools", "Equipment", "Vehicles",
+                  "Furniture", "Keys", "Other"]
 _ITEM_STATUSES = ["available", "checked_out", "permanently_assigned", "retired"]
 # Operational status (Neil) — what condition/deployment state the unit is in. SEPARATE
 # from the lifecycle `status` above (which is auto-driven by checkouts/assignments).
@@ -406,7 +412,9 @@ def _normalize_type(raw) -> str:
     s = _clean_field(raw)
     if not s:
         return "Other"
-    return _TYPE_CANON.get(s.lower(), s)
+    # Unrecognised types are funnelled into "Other" (was: kept as-is) so a typo'd
+    # or invented type on import doesn't create a new category — Neil's rule.
+    return _TYPE_CANON.get(s.lower(), "Other")
 
 
 def _content_sig(name, item_type, make, model, year, department, location, ownership) -> tuple:
@@ -419,7 +427,7 @@ def _content_sig(name, item_type, make, model, year, department, location, owner
 
 
 @router.post("", status_code=201)
-def create_item(body: ItemCreate, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+def create_item(body: ItemCreate, response: Response, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
     name = body.name.strip()
     if not name:
         raise HTTPException(400, "Name cannot be empty")
@@ -460,6 +468,10 @@ def create_item(body: ItemCreate, user: dict = Depends(require_items_admin), db:
                 _notify_op_status_declaration(db, op_status=item.op_status, person_email=item.op_status_person_email,
                                               person_name=item.op_status_person_name or "", item_name=item.name)
                 db.commit()
+            # Stamp the new id so the audit middleware can record WHICH item was
+            # added (the path has no id on a POST) — lets the audit log thread an
+            # item's full history by id, not just by name.
+            response.headers["X-Created-Id"] = item.id
             return _item_to_dict(item)
         except IntegrityError:
             db.rollback()
@@ -821,6 +833,7 @@ class BulkUpdateRequest(BaseModel):
 _BATCH_EDITABLE = {
     "name", "item_type", "make", "model", "year",
     "department", "default_owner", "ownership_type", "location", "op_status",
+    "asset_value",
 }
 
 
@@ -853,6 +866,11 @@ def bulk_update_items(body: BulkUpdateRequest, user: dict = Depends(require_item
     for k in ("make", "model", "year", "department", "default_owner", "location"):
         if k in changes:
             changes[k] = (changes[k] or "").strip()
+    if "asset_value" in changes:
+        try:
+            changes["asset_value"] = float(changes["asset_value"] or 0)
+        except (ValueError, TypeError):
+            changes["asset_value"] = 0.0
 
     updated = 0
     op_changed = "op_status" in changes
@@ -2306,8 +2324,106 @@ def items_audit_log(
         "rows": [
             {"id": r.id, "timestamp": r.timestamp, "user_email": r.user_email,
              "user_role": r.user_role, "action": r.action,
-             "resource_id": r.resource_id, "details": r.details}
+             "resource_id": r.resource_id, "details": r.details,
+             "undone_at": r.undone_at or "", "undone_by": r.undone_by or ""}
             for r in rows
         ],
     }
+
+
+# Columns the audit Undo is allowed to restore (1:1 with the audit field names the
+# frontend tracks). Scalar columns only — no relations, no side effects.
+_UNDO_ITEM_COLS = {
+    "name", "item_type", "make", "model", "year", "department", "location",
+    "default_owner", "ownership_type", "status", "serial_number",
+    "op_status", "op_status_person_name", "asset_value", "photo_url",
+}
+
+
+class AuditUndoRequest(BaseModel):
+    audit_id: int
+    fields: Optional[dict] = None   # {audit_field_name: previous_value} for an edit reversal
+
+
+@router.post("/audit-undo")
+def undo_audit_entry(body: AuditUndoRequest, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    """Revert a single item add / edit / delete recorded in the audit log.
+
+    Edits restore the previous values the client reconstructed from the log;
+    adds are soft-deleted; deletes are restored. The original entry is marked
+    undone and a new canonical entry (carrying a "reason") records the reversal.
+    """
+    row = db.query(AuditLog).filter(AuditLog.id == body.audit_id).first()
+    if not row or row.resource_type != "items":
+        raise HTTPException(404, "Audit entry not found")
+    if row.undone_at:
+        raise HTTPException(409, "This change was already undone")
+
+    action = (row.action or "").lower()
+    iid    = row.resource_id or ""
+    email  = user["email"]
+    now    = datetime.now(timezone.utc).isoformat()
+    item   = db.query(Item).filter(Item.id == iid).first() if iid else None
+
+    applied, reason, new_action = {}, "", ""
+
+    if action.startswith("added item"):
+        if not item:
+            raise HTTPException(404, "That item no longer exists")
+        if item.deleted_at:
+            raise HTTPException(409, "That item is already deleted")
+        active = db.query(ItemCheckout).filter(
+            ItemCheckout.item_id == iid,
+            ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"]),
+        ).count()
+        if active:
+            raise HTTPException(409, "Can't undo — the item has an active checkout against it")
+        _soft_delete(item, email)
+        reason, new_action = "Undo — removed the added item", f"Deleted item {iid}"
+
+    elif action.startswith("deleted item"):
+        if not item:
+            raise HTTPException(404, "That item no longer exists")
+        if not item.deleted_at:
+            raise HTTPException(409, "That item is not deleted")
+        item.deleted_at = ""
+        item.deleted_by = ""
+        reason, new_action = "Undo — restored the deleted item", f"Restored item {iid}"
+
+    elif action.startswith("updated item"):
+        if not item:
+            raise HTTPException(404, "That item no longer exists")
+        for k, v in (body.fields or {}).items():
+            if k not in _UNDO_ITEM_COLS:
+                continue
+            if k == "asset_value":
+                try:
+                    v = float(v or 0)
+                except (TypeError, ValueError):
+                    v = 0.0
+            setattr(item, k, v)
+            applied[k] = v
+        if not applied:
+            raise HTTPException(400, "Nothing to restore for this change")
+        # If op_status was reverted off a person-bound state, drop the stale person.
+        if "op_status" in applied and applied["op_status"] not in _OP_STATUS_PERSON:
+            item.op_status_person_email = ""
+            item.op_status_person_name  = ""
+        reason, new_action = "Undo — restored previous value(s)", f"Updated item {iid}"
+
+    else:
+        raise HTTPException(400, "This kind of change can't be undone")
+
+    row.undone_at = now
+    row.undone_by = email
+
+    details = {"path": "/items/audit-undo", "status": 200, "reason": reason, "undo_of": row.id}
+    details.update(applied)
+    db.add(AuditLog(
+        timestamp=now, user_email=email, user_role="",
+        action=new_action, resource_type="items", resource_id=iid,
+        details=json.dumps(details), ip_address="",
+    ))
+    db.commit()
+    return {"ok": True, "undone_id": row.id}
 

@@ -4,13 +4,26 @@ import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import {
   BookOpen, CheckSquare, Search, Clock, Sparkles,
-  X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, Loader, ChevronUp, ChevronDown,
+  X, ArrowLeft, Plus, Trash2, Edit3, Send, Archive, ArchiveRestore, Loader, ChevronUp, ChevronDown,
   Image as ImageIcon, Paperclip, Settings, Grid3x3, BarChart3, GraduationCap, Eye, ChevronRight, Star,
   List, LayoutGrid, Building2, PanelRight, FileText, HelpCircle, Share2, Link2, Download, Printer,
 } from 'lucide-react';
 
 const rid = () => 'r' + Math.random().toString(36).slice(2, 9);
 const initials = (n) => (n || '?').split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
+
+// Phones render a stacked, single-column layout (Neil: the SOP view was unusable
+// on mobile). 640px matches the app-wide breakpoint and the .stack-table CSS.
+function useIsMobile(bp = 640) {
+  const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia(`(max-width: ${bp}px)`).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${bp}px)`);
+    const h = e => setMobile(e.matches);
+    mq.addEventListener('change', h);
+    return () => mq.removeEventListener('change', h);
+  }, [bp]);
+  return mobile;
+}
 
 // ── version diff (word-level LCS) ──
 const _diffBox = { fontSize: '0.85rem', lineHeight: 1.6, color: 'var(--text-primary)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '11px 13px', whiteSpace: 'pre-wrap' };
@@ -197,16 +210,63 @@ const fmtDate = (s) => (s ? new Date(s.length > 10 ? s : s + 'T00:00:00').toLoca
 // Extensions accepted by the document importers below.
 const IMPORT_ACCEPT = '.txt,.md,.markdown,.csv,.json,.html,.htm,.rtf,.log,.pdf,.doc,.docx';
 
-// Pull plain text out of an uploaded document. Text formats are read directly;
-// Word (.docx) and PDF use on-demand parsers (loaded only when such a file is
-// actually picked, so they never weigh down the main bundle).
-async function extractFileText(file) {
+// Resize a data-URL image to a ≤1100px JPEG so it stores inline with the doc
+// (same budget as fileToAsset for hand-uploaded step images).
+function resizeDataUrl(dataUrl) {
+  return new Promise(res => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const max = 1100, sc = Math.min(1, max / img.width);
+        const w = Math.max(1, Math.round(img.width * sc)), h = Math.max(1, Math.round(img.height * sc));
+        const c = document.createElement('canvas'); c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        res(c.toDataURL('image/jpeg', 0.82));
+      } catch { res(dataUrl); }
+    };
+    img.onerror = () => res(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+// Flatten mammoth HTML to text, turning each <img> into its src (an [[IMG#]] marker)
+// inline so the AI sees where every screenshot sits in the step flow.
+function htmlToText(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const out = [];
+  const walk = (node) => node.childNodes.forEach(ch => {
+    if (ch.nodeType === 3) out.push(ch.nodeValue);
+    else if (ch.nodeType === 1) {
+      const tag = ch.tagName.toLowerCase();
+      if (tag === 'img') out.push(' ' + (ch.getAttribute('src') || '') + ' ');
+      else { walk(ch); if (/^(p|div|li|tr|h[1-6]|br|ul|ol)$/.test(tag)) out.push('\n'); }
+    }
+  });
+  walk(doc.body);
+  return out.join('').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// Pull text (and, for Word docs, embedded images) out of an uploaded document.
+// Returns { text, images } — text has inline [[IMG#]] markers, images maps each
+// marker to a resized data URL. Text and PDF return no images.
+async function extractDoc(file) {
   const name = (file.name || '').toLowerCase();
   const ext = name.slice(name.lastIndexOf('.'));
   if (ext === '.docx') {
     const mammoth = await import('mammoth');
-    const { value } = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
-    return value || '';
+    const images = {};
+    let n = 0;
+    const result = await mammoth.convertToHtml({ arrayBuffer: await file.arrayBuffer() }, {
+      convertImage: mammoth.images.imgElement(async (image) => {
+        try {
+          const b64 = await image.read('base64');
+          const marker = `[[IMG${++n}]]`;
+          images[marker] = await resizeDataUrl(`data:${image.contentType};base64,${b64}`);
+          return { src: marker };
+        } catch { return { src: '' }; }
+      }),
+    });
+    return { text: htmlToText(result.value), images };
   }
   if (ext === '.doc') {
     throw new Error('Old .doc files aren’t supported — open it in Word, “Save As” .docx, and upload that.');
@@ -220,13 +280,57 @@ async function extractFileText(file) {
       const content = await (await pdf.getPage(i)).getTextContent();
       out += content.items.map(it => it.str).join(' ') + '\n\n';
     }
-    return out.trim();
+    return { text: out.trim(), images: {} };
   }
-  return await file.text();   // text-like formats
+  return { text: await file.text(), images: {} };   // text-like formats
+}
+
+// Store a step image in the PRIVATE kb-media bucket (via the backend, service
+// role) and return its storage path — resolved to a signed URL on view. Falls
+// back to the inline data URL if upload fails, so an import never breaks.
+async function uploadKbImage(dataUrl) {
+  try {
+    const { path } = await api.uploadKbMedia(dataUrl);
+    if (path) return path;
+  } catch { /* fall back to inline */ }
+  return dataUrl;
 }
 
 // Binary docs (Word/PDF) are larger than pasted text — allow more headroom.
 const _importLimit = name => (/\.(pdf|docx?)$/i.test(name) ? 15 : 2) * 1024 * 1024;
+
+// Friendly display name from a possible email ("visesh.lodha@x.com" → "Visesh Lodha")
+// so header cells show a clean name instead of a long, wrapping address.
+function prettyName(s) {
+  const v = (s || '').trim();
+  if (!v) return '—';
+  if (!v.includes('@')) return v;
+  return v.split('@')[0].split(/[._-]+/).filter(Boolean)
+    .map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ') || v;
+}
+
+// Render a procedure step's detail as a lead line (optional) plus indented bullets,
+// splitting on newlines AND inline " - " separators so dense steps don't read as one
+// run-on paragraph.
+function StepDetail({ detail }) {
+  const text = (detail || '').trim();
+  if (!text) return null;
+  const base = { fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.6 };
+  const segs = text.split(/\n|\s+-\s+/).map(s => s.trim().replace(/^[-•]\s*/, '')).filter(Boolean);
+  if (segs.length <= 1) return <div style={{ ...base, marginTop: 4 }}>{text}</div>;
+  // A "key: value" first segment is itself a bullet; otherwise it's a lead sentence.
+  const firstIsKV = /^[^:]{1,35}:\s/.test(segs[0]) && segs[0].length < 90;
+  const lead = firstIsKV ? '' : segs[0];
+  const bullets = firstIsKV ? segs : segs.slice(1);
+  return (
+    <div style={{ marginTop: 4 }}>
+      {lead && <div style={base}>{lead}</div>}
+      <ul style={{ ...base, margin: lead ? '4px 0 0' : 0, paddingLeft: 18 }}>
+        {bullets.map((b, i) => <li key={i} style={{ marginBottom: 2 }}>{b}</li>)}
+      </ul>
+    </div>
+  );
+}
 
 export default function SOP({ activeSub, onSubChange }) {
   const sub = activeSub || 'index';
@@ -241,7 +345,10 @@ export default function SOP({ activeSub, onSubChange }) {
   const [mode, setMode] = useState('list'); // list | detail | editor
   const [selected, setSelected] = useState(null);
   const [draft, setDraft] = useState(null);
+  const [signedImgs, setSignedImgs] = useState({});   // kb-media path → short-lived signed URL
+  const signedReqRef = useRef(new Set());             // paths already requested (avoid re-signing)
   const [busy, setBusy] = useState(false);
+  const isMobile = useIsMobile();
   const [aiBusy, setAiBusy] = useState(false);
   const [aiInstruction, setAiInstruction] = useState(''); // "Edit with Claude" prompt
   const [aiReview, setAiReview] = useState(null); // full-screen AI review: { open, before, after, source, tab }
@@ -350,6 +457,20 @@ export default function SOP({ activeSub, onSubChange }) {
   // remember the chosen library view between sessions
   useEffect(() => { try { localStorage.setItem('kbLibView', libView); } catch { /* ignore */ } }, [libView]);
   useEffect(() => { try { localStorage.setItem('kbSidebar', sidebarOpen ? '1' : '0'); } catch { /* ignore */ } }, [sidebarOpen]);
+  // Resolve private kb-media image PATHS (from the open doc or the editor draft) to
+  // short-lived signed URLs. Inline/http images are left as-is. Each path is signed
+  // once; the ref guards against re-requesting on every keystroke.
+  useEffect(() => {
+    const collect = (body) => (body?.procedure || []).map(s => s?.image).filter(p => p && !/^(https?:|data:)/.test(p));
+    const want = [...new Set([...collect(selected?.body), ...collect(draft?.body)])].filter(p => !signedReqRef.current.has(p));
+    if (!want.length) return;
+    want.forEach(p => signedReqRef.current.add(p));
+    let cancelled = false;
+    api.signKbMedia(want)
+      .then(({ urls }) => { if (!cancelled && urls) setSignedImgs(prev => ({ ...prev, ...urls })); })
+      .catch(() => want.forEach(p => signedReqRef.current.delete(p)));
+    return () => { cancelled = true; };
+  }, [selected, draft]);
   // press "/" to jump to the search box (when not already typing in a field)
   useEffect(() => {
     const onKey = (e) => {
@@ -448,6 +569,7 @@ export default function SOP({ activeSub, onSubChange }) {
       version: d.version, effective_date: d.effective_date || '', require_ack: !!d.require_ack,
       review_every_months: d.review_every_months || 12, retention_months: d.retention_months || 84,
       body: { ...blankBody(), ...(d.body || {}) }, owner_name: d.owner_name, owner_email: d.owner_email, _raw: '',
+      _status: d.status, _reviewNote: d.review_note || '',
     });
     setMode('editor');
   };
@@ -542,6 +664,13 @@ export default function SOP({ activeSub, onSubChange }) {
     finally { setBusy(false); }
   };
 
+  const unarchiveDoc = async (d) => {
+    setBusy(true);
+    try { const doc = await api.unarchiveKbDoc(d.id); refresh(); setSelected(doc); }
+    catch (e) { setErr(e.message || 'Unarchive failed'); }
+    finally { setBusy(false); }
+  };
+
   const runAiFormat = async () => {
     const raw = draft._raw?.trim();
     const content = raw || [draft.title, draft.body.purpose].filter(Boolean).join('\n');
@@ -549,17 +678,27 @@ export default function SOP({ activeSub, onSubChange }) {
     setAiBusy(true); setErr('');
     try {
       const { sop } = await api.aiFormatKbDoc({ content, title: draft.title, departments: draft.departments });
+      // Map the [[IMG#]] markers Claude placed back to the uploaded image URLs, and
+      // scrub any stray markers out of text so they never render as literal "[[IMG1]]".
+      const imgMap = draft._importImages || {};
+      const strip = (t) => (typeof t === 'string' ? t.replace(/\[\[IMG\d+\]\]/g, '').replace(/[ \t]{2,}/g, ' ').trim() : t);
+      const procedure = (sop.procedure?.length ? sop.procedure : draft.body.procedure).map(s => {
+        const m = (s.image || '').trim();
+        const mapped = imgMap[m];
+        return { ...s, text: strip(s.text), detail: strip(s.detail),
+                 image: mapped || (/^\[\[IMG\d+\]\]$/.test(m) ? '' : (s.image || '')) };
+      });
       const before = { title: draft.title, departments: [...draft.departments], body: JSON.parse(JSON.stringify(draft.body)) };
       const afterBody = {
         ...draft.body,
-        purpose: sop.purpose || draft.body.purpose,
-        scopeText: sop.scopeText || draft.body.scopeText,
-        materials: sop.materials?.length ? sop.materials : draft.body.materials,
+        purpose: strip(sop.purpose) || draft.body.purpose,
+        scopeText: strip(sop.scopeText) || draft.body.scopeText,
+        materials: sop.materials?.length ? sop.materials.map(strip) : draft.body.materials,
         responsibilities: sop.responsibilities?.length ? sop.responsibilities : draft.body.responsibilities,
         definitions: sop.definitions?.length ? sop.definitions : draft.body.definitions,
-        procedure: sop.procedure?.length ? sop.procedure : draft.body.procedure,
-        safety: sop.safety?.length ? sop.safety : draft.body.safety,
-        references: sop.references?.length ? sop.references : draft.body.references,
+        procedure,
+        safety: sop.safety?.length ? sop.safety.map(strip) : draft.body.safety,
+        references: sop.references?.length ? sop.references.map(strip) : draft.body.references,
       };
       const afterTitle = draft.title || sop.title || '';
       // autofill the draft, then open the full-screen review of what changed
@@ -570,8 +709,9 @@ export default function SOP({ activeSub, onSubChange }) {
     finally { setAiBusy(false); }
   };
   // "Edit with Claude": apply a natural-language change to the current draft, then review the diff.
-  const runAiRevise = async () => {
-    const instruction = aiInstruction.trim();
+  // An optional overrideInstruction lets the "Address reviewer feedback" button drive the same flow.
+  const runAiRevise = async (overrideInstruction) => {
+    const instruction = (typeof overrideInstruction === 'string' ? overrideInstruction : aiInstruction).trim();
     if (!instruction) { setErr('Describe the change you want Claude to make.'); return; }
     setAiBusy(true); setErr('');
     try {
@@ -595,6 +735,19 @@ export default function SOP({ activeSub, onSubChange }) {
       setAiInstruction('');
     } catch (e) { setErr(e.message || 'AI edit failed'); }
     finally { setAiBusy(false); }
+  };
+  // "Address reviewer feedback with Claude": gather the reviewer's change request +
+  // any comments, then let Claude apply them and show the diff to review.
+  const addressFeedback = async () => {
+    setErr('');
+    let comments = [];
+    try { comments = draft.id ? await api.getKbComments(draft.id) : []; } catch { /* best-effort */ }
+    const parts = [];
+    if ((draft._reviewNote || '').trim()) parts.push(`Reviewer's change request:\n${draft._reviewNote.trim()}`);
+    const cs = (comments || []).filter(c => (c.text || '').trim());
+    if (cs.length) parts.push('Comments:\n' + cs.map(c => `- ${c.author_name || c.author_email}: ${c.text}`).join('\n'));
+    if (!parts.length) { setErr('No reviewer feedback found to address — edit the sections, or use Edit with Claude.'); return; }
+    await runAiRevise('A reviewer asked for changes on this SOP. Revise it to FULLY address the following feedback, keeping everything else intact:\n\n' + parts.join('\n\n'));
   };
   const revertAi = () => {
     if (!aiReview) return;
@@ -634,9 +787,12 @@ export default function SOP({ activeSub, onSubChange }) {
     if (!file) return;
     if (file.size > _importLimit(file.name)) { setErr(`That file is too large — keep it under ${Math.round(_importLimit(file.name) / 1024 / 1024)} MB or paste the text instead.`); return; }
     try {
-      const text = await extractFileText(file);
+      const { text, images } = await extractDoc(file);
       if (!text.trim()) { setErr('No readable text found in that file (a scanned/image-only PDF has no text). Paste the text instead.'); return; }
-      setDraft(p => p ? { ...p, _raw: text, title: p.title || file.name.replace(/\.[^.]+$/, '') } : p);
+      // Store extracted screenshots (Supabase, inline fallback), keyed by their [[IMG#]] marker.
+      const uploaded = {};
+      for (const [marker, dataUrl] of Object.entries(images)) uploaded[marker] = await uploadKbImage(dataUrl);
+      setDraft(p => p ? { ...p, _raw: text, _importImages: uploaded, title: p.title || file.name.replace(/\.[^.]+$/, '') } : p);
     } catch (e) {
       setErr(e?.message || 'Could not read that file. Try pasting the text instead.');
     }
@@ -733,9 +889,9 @@ export default function SOP({ activeSub, onSubChange }) {
     if (!file) return;
     if (file.size > _importLimit(file.name)) { setErr(`That file is too large — keep it under ${Math.round(_importLimit(file.name) / 1024 / 1024)} MB or paste the text instead.`); return; }
     try {
-      const text = await extractFileText(file);
+      const { text } = await extractDoc(file);   // courses are text-only; images aren't used
       if (!text.trim()) { setErr('No readable text found in that file (a scanned/image-only PDF has no text). Paste the text instead.'); return; }
-      setCourseDraft(p => p ? { ...p, _raw: text, title: p.title || file.name.replace(/\.[^.]+$/, '') } : p);
+      setCourseDraft(p => p ? { ...p, _raw: text.replace(/\[\[IMG\d+\]\]/g, '').trim(), title: p.title || file.name.replace(/\.[^.]+$/, '') } : p);
     } catch (e) {
       setErr(e?.message || 'Could not read that file. Try pasting the text instead.');
     }
@@ -910,7 +1066,7 @@ export default function SOP({ activeSub, onSubChange }) {
       ? (b.procedure || []).map((s, i) => ({ ...s, text: trx.procedure[i]?.text || s.text, detail: trx.procedure[i]?.detail || s.detail }))
       : b.procedure;
     return (
-      <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
+      <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', maxWidth: 1200, margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
           <button className="secondary-btn" onClick={backToList} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 34 }}>
             <ArrowLeft size={15} /> Back
@@ -950,6 +1106,7 @@ export default function SOP({ activeSub, onSubChange }) {
             )}
             {canReview(d) && <button className="primary-btn" onClick={() => { setReviewDoc(d); setReviewNote(''); }} style={{ backgroundColor: 'hsl(var(--color-green))', display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><CheckSquare size={14} /> Review</button>}
             {d.status === 'approved' && isManager && <button className="secondary-btn" onClick={() => archiveDoc(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Archive size={14} /> Archive</button>}
+            {d.status === 'archived' && isManager && <button className="secondary-btn" disabled={busy} onClick={() => unarchiveDoc(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><ArchiveRestore size={14} /> Unarchive</button>}
           </div>
         </div>
 
@@ -963,14 +1120,17 @@ export default function SOP({ activeSub, onSubChange }) {
         )}
         {docLang !== 'en' && <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 9, padding: '8px 11px', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 14 }}>Machine-translated to {({ es: 'Spanish', hi: 'Hindi' })[docLang]}. The English version is authoritative.</div>}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 24, alignItems: 'start' }}>
-          <div id="kb-doc" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-sm)', maxWidth: 820 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) 280px', gap: isMobile ? 16 : 24, alignItems: 'start' }}>
+          <div id="kb-doc" style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 24, boxShadow: 'var(--shadow-sm)', minWidth: 0 }}>
             {/* header grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 1, backgroundColor: 'var(--border-color)', border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden', marginBottom: 22 }}>
-              {[['SOP ID', d.doc_code || '—'], ['Type', d.doc_type], ['Version', 'v' + d.version], ['Owner', d.owner_name || '—'], ['Reviewer', d.reviewer_name || d.reviewer_email || '—'], ['Effective', fmtDate(d.effective_date)], ['Updated', fmtDate(d.updated_at)]].map(([k, v]) => (
-                <div key={k} style={{ backgroundColor: 'var(--bg-card)', padding: '10px 13px' }}>
+              {[['SOP ID', d.doc_code || '—'], ['Type', d.doc_type], ['Version', 'v' + d.version],
+                ['Owner', prettyName(d.owner_name || d.owner_email), d.owner_email],
+                ['Reviewer', prettyName(d.reviewer_name || d.reviewer_email), d.reviewer_email],
+                ['Effective', fmtDate(d.effective_date)], ['Updated', fmtDate(d.updated_at)]].map(([k, v, tip]) => (
+                <div key={k} style={{ backgroundColor: 'var(--bg-card)', padding: '10px 13px', minWidth: 0 }}>
                   <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 3 }}>{k}</div>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-primary)' }}>{v}</div>
+                  <div title={tip || undefined} style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v}</div>
                 </div>
               ))}
               <div style={{ backgroundColor: 'var(--bg-card)', padding: '10px 13px', gridColumn: '1 / -1' }}>
@@ -1004,8 +1164,8 @@ export default function SOP({ activeSub, onSubChange }) {
                   <li key={i} style={{ position: 'relative', padding: '10px 0 10px 40px', borderBottom: '1px solid var(--bg-secondary)', color: 'var(--text-primary)' }}>
                     <span style={{ position: 'absolute', left: 0, top: 9, width: 26, height: 26, borderRadius: 8, backgroundColor: 'var(--bg-secondary)', color: 'hsl(var(--color-blue))', fontWeight: 700, fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
                     {s.text}
-                    {s.detail && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>{s.detail}</div>}
-                    {s.image && <img src={s.image} alt="step illustration" onClick={() => setLightbox(s.image)} style={{ marginTop: 9, maxWidth: 360, width: '100%', borderRadius: 10, border: '1px solid var(--border-color)', display: 'block', cursor: 'zoom-in' }} />}
+                    <StepDetail detail={s.detail} />
+                    {s.image && <img src={signedImgs[s.image] || s.image} alt="step illustration" onClick={() => setLightbox(signedImgs[s.image] || s.image)} style={{ marginTop: 9, maxWidth: 360, width: '100%', borderRadius: 10, border: '1px solid var(--border-color)', display: 'block', cursor: 'zoom-in' }} />}
                   </li>
                 ))}
               </ol>
@@ -1028,9 +1188,9 @@ export default function SOP({ activeSub, onSubChange }) {
                 ? <div style={{ fontSize: '0.83rem', color: 'var(--text-muted)', marginBottom: 4 }}>No comments yet. Start the discussion below.</div>
                 : comments.map(c => (
                   <div key={c.id} style={{ display: 'flex', gap: 11, padding: '12px 0', borderBottom: '1px solid var(--bg-secondary)' }}>
-                    <span style={{ flex: '0 0 auto', width: 32, height: 32, borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.72rem' }}>{initials(c.author_name)}</span>
+                    <span style={{ flex: '0 0 auto', width: 32, height: 32, borderRadius: '50%', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.72rem' }}>{initials(prettyName(c.author_name || c.author_email))}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}><span style={{ fontWeight: 600, fontSize: '0.82rem' }}>{c.author_name}</span><span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{fmtDate(c.created_at)}</span></div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}><span style={{ fontWeight: 600, fontSize: '0.82rem' }}>{prettyName(c.author_name || c.author_email)}</span><span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{fmtDate(c.created_at)}</span></div>
                       <div style={{ fontSize: '0.85rem', color: 'var(--text-primary)', marginTop: 4, whiteSpace: 'pre-wrap', wordWrap: 'break-word' }}>{c.text}</div>
                     </div>
                   </div>
@@ -1048,7 +1208,7 @@ export default function SOP({ activeSub, onSubChange }) {
             <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, boxShadow: 'var(--shadow-sm)' }}>
               <h3 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', margin: '0 0 12px' }}>Status</h3>
               <Badge status={d.status} />
-              {d.status === 'in_review' && <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '10px 0 0' }}>Submitted to {d.reviewer_name || d.reviewer_email} for approval.</p>}
+              {d.status === 'in_review' && <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '10px 0 0' }}>Submitted to {prettyName(d.reviewer_name || d.reviewer_email)} for approval.</p>}
               {d.status === 'changes_requested' && d.review_note && <p style={{ fontSize: '0.8rem', color: 'hsl(0,70%,45%)', margin: '10px 0 0' }}>{d.review_note}</p>}
               {d.status === 'approved' && <p style={{ fontSize: '0.8rem', color: 'hsl(145,55%,32%)', margin: '10px 0 0' }}>Published and live in the library.</p>}
             </div>
@@ -1059,7 +1219,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 {d.is_stale
                   ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', fontWeight: 700, color: 'hsl(32,80%,38%)', background: 'hsla(38,92%,50%,0.14)', borderRadius: 999, padding: '4px 10px' }}>Needs Review</span>
                   : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', fontWeight: 700, color: 'hsl(145,55%,30%)', background: 'hsla(145,63%,42%,0.14)', borderRadius: 999, padding: '4px 10px' }}><CheckSquare size={13} /> Verified</span>}
-                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 8 }}>{d.verified_at ? `Last verified ${fmtDate(d.verified_at)}${d.verified_by ? ` by ${d.verified_by}` : ''}.` : 'Not yet verified.'}</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 8 }}>{d.verified_at ? `Last verified ${fmtDate(d.verified_at)}${d.verified_by ? ` by ${prettyName(d.verified_by)}` : ''}.` : 'Not yet verified.'}</div>
                 <div style={{ fontSize: '0.78rem', color: d.is_stale ? 'hsl(32,80%,38%)' : 'var(--text-muted)', marginTop: 3 }}>Every {d.review_every_months} mo · next due {fmtDate(d.next_review)}.</div>
                 {isManager && <button className={d.is_stale ? 'primary-btn' : 'secondary-btn'} onClick={verifyDoc} style={{ marginTop: 10, width: '100%', height: 32, fontSize: '0.8rem' }}>Mark verified today</button>}
               </div>
@@ -1086,7 +1246,7 @@ export default function SOP({ activeSub, onSubChange }) {
                           {ackInfo.signed.map((s, i) => (
                             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: '0.78rem' }}>
                               <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'hsl(145,63%,42%)', flex: '0 0 auto' }} />
-                              <span style={{ fontWeight: 500 }}>{s.user_name || s.user_email}</span>
+                              <span style={{ fontWeight: 500 }}>{prettyName(s.user_name || s.user_email)}</span>
                               <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'inherit' }}>{fmtDate(s.signed_at)}</span>
                             </div>
                           ))}
@@ -1120,7 +1280,7 @@ export default function SOP({ activeSub, onSubChange }) {
           const snaps = snapshots;
           const A = snaps[Math.min(diff.from, snaps.length - 1)], B = snaps[Math.min(diff.to, snaps.length - 1)];
           const ab = A.body || {}, bb = B.body || {};
-          const opt = (sel) => snaps.map((s, i) => <option key={i} value={i}>v{s.version} · {fmtDate(s.date)}{s.author ? ' · ' + s.author : ''}</option>);
+          const opt = (sel) => snaps.map((s, i) => <option key={i} value={i}>v{s.version} · {fmtDate(s.date)}{s.author ? ' · ' + prettyName(s.author) : ''}</option>);
           const field = (label, node) => <div style={{ marginBottom: 16 }}><h4 style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', margin: '0 0 7px' }}>{label}</h4>{node}</div>;
           return (
             <div className="modal-overlay" style={{ display: 'flex' }} onClick={e => { if (e.target === e.currentTarget) setDiff(null); }}>
@@ -1257,8 +1417,8 @@ export default function SOP({ activeSub, onSubChange }) {
     const pairEditor = (field, label, hint, k1, k2, p1, p2) => section(label, hint, (<>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {draft.body[field].map((row, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 2fr auto', gap: 8 }}>
-              <input className="form-input" value={row[k1] || ''} placeholder={p1} onChange={e => updItem(field, i, { ...row, [k1]: e.target.value })} style={{ padding: '11px 14px' }} />
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr auto' : '1fr 2fr auto', gap: 8 }}>
+              <input className="form-input" value={row[k1] || ''} placeholder={p1} onChange={e => updItem(field, i, { ...row, [k1]: e.target.value })} style={{ padding: '11px 14px', ...(isMobile ? { gridColumn: '1 / -1' } : {}) }} />
               <input className="form-input" value={row[k2] || ''} placeholder={p2} onChange={e => updItem(field, i, { ...row, [k2]: e.target.value })} style={{ padding: '11px 14px' }} />
               <button className="secondary-btn" onClick={() => delItem(field, i)} style={{ width: 44, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Trash2 size={15} /></button>
             </div>
@@ -1288,6 +1448,15 @@ export default function SOP({ activeSub, onSubChange }) {
             {aiReview && <button className="secondary-btn" onClick={() => setAiReview(p => ({ ...p, open: true, tab: 'changes' }))} style={{ height: 34, fontSize: '0.8rem', flex: '0 0 auto' }}>Review changes</button>}
             <button className="secondary-btn" onClick={() => setPreviewOpen(true)} style={{ height: 34, fontSize: '0.8rem', flex: '0 0 auto' }}>Preview</button>
             <button className="secondary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ height: 34, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5, flex: '0 0 auto' }}>{aiBusy ? <Loader size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />} Re-run AI</button>
+          </div>
+        )}
+
+        {!isManual && draft.id && draft._status === 'changes_requested' && (
+          <div style={{ border: '1px solid hsla(0,84%,60%,0.4)', background: 'hsla(0,84%,60%,0.06)', borderRadius: 12, padding: 14, marginBottom: 18 }}>
+            <strong style={{ fontSize: '0.88rem', color: 'hsl(0,70%,45%)' }}>Reviewer requested changes</strong>
+            {draft._reviewNote && <div style={{ fontSize: '0.82rem', color: 'var(--text-primary)', margin: '5px 0 10px', whiteSpace: 'pre-wrap' }}>{draft._reviewNote}</div>}
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '6px 0 10px' }}>Let Claude apply this feedback (and any comments) for you — you'll review the before/after before keeping it.</div>
+            <button className="primary-btn" disabled={aiBusy} onClick={addressFeedback} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg, hsl(258,82%,62%), hsl(288,70%,58%))', border: 'none', color: '#fff' }}>{aiBusy ? <Loader size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={15} />} {aiBusy ? 'Working…' : 'Address feedback with Claude'}</button>
           </div>
         )}
 
@@ -1393,7 +1562,7 @@ export default function SOP({ activeSub, onSubChange }) {
                   <button className="secondary-btn" onClick={() => delItem('procedure', i)} style={{ width: 42, height: 42, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Trash2 size={16} /></button>
                 </div>
                 <textarea className="form-input" value={s.detail || ''} placeholder="Optional detail / note for this step…" onChange={e => updItem('procedure', i, { ...s, detail: e.target.value })} style={{ marginTop: 10, marginLeft: 40, width: 'calc(100% - 40px)', minHeight: 46, resize: 'vertical', fontSize: '0.88rem', lineHeight: 1.55, padding: '10px 14px' }} />
-                {s.image && <div style={{ marginTop: 10, marginLeft: 40, display: 'flex', alignItems: 'center', gap: 10 }}><img src={s.image} alt="step" style={{ height: 60, borderRadius: 8, border: '1px solid var(--border-color)' }} /><button className="secondary-btn" onClick={() => updItem('procedure', i, { ...s, image: '' })} style={{ height: 32, fontSize: '0.8rem' }}>Remove picture</button></div>}
+                {s.image && <div style={{ marginTop: 10, marginLeft: 40, display: 'flex', alignItems: 'center', gap: 10 }}><img src={signedImgs[s.image] || s.image} alt="step" style={{ height: 60, borderRadius: 8, border: '1px solid var(--border-color)' }} /><button className="secondary-btn" onClick={() => updItem('procedure', i, { ...s, image: '' })} style={{ height: 32, fontSize: '0.8rem' }}>Remove picture</button></div>}
               </div>
             ))}
             {draft.body.procedure.length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>No steps yet.</p>}
@@ -1789,7 +1958,7 @@ export default function SOP({ activeSub, onSubChange }) {
           </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
-            <div style={{ flex: '3 1 480px', minWidth: 0 }}>
+            <div style={{ flex: isMobile ? '1 1 100%' : '3 1 480px', minWidth: 0, width: isMobile ? '100%' : undefined }}>
               {searchMode === 'ask' && askAnswer()}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
                 <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{filtered.length} Document{filtered.length === 1 ? '' : 's'}</div>
@@ -1802,13 +1971,14 @@ export default function SOP({ activeSub, onSubChange }) {
                 ? <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}><Loader size={20} style={{ animation: 'spin 0.7s linear infinite' }} /> Loading…</div>
                 : (() => {
                     const empty = docs.length === 0 ? 'No documents yet — click “New SOP” to start your first draft.' : 'No documents match your filters.';
-                    if (libView === 'cards') return cardGrid(filtered, empty);
+                    // The list table doesn't fit a phone — fall back to cards there.
+                    if (isMobile || libView === 'cards') return cardGrid(filtered, empty);
                     if (libView === 'outline') return outlineView(filtered, empty);
                     return docTable(filtered, empty);
                   })()}
             </div>
             {sidebarOpen && (
-              <div style={{ flex: '1 1 280px', minWidth: 0 }}>
+              <div style={{ flex: isMobile ? '1 1 100%' : '1 1 280px', minWidth: 0, width: isMobile ? '100%' : undefined }}>
                 {librarySidebar()}
               </div>
             )}
@@ -2147,7 +2317,7 @@ export default function SOP({ activeSub, onSubChange }) {
                             : att.map(a => (
                                 <div key={a.id} style={{ border: '1px solid var(--border-color)', borderRadius: 12, padding: '12px 14px', marginBottom: 10, background: 'var(--bg-card)' }}>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{a.user_name}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{a.user_email} · {fmtDate(a.created_at)}</div></div>
+                                    <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{prettyName(a.user_name || a.user_email)}</div><div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{a.user_email} · {fmtDate(a.created_at)}</div></div>
                                     <span style={{ fontSize: '0.8rem', fontWeight: 700, color: a.passed ? 'hsl(145,55%,30%)' : 'hsl(0,70%,45%)' }}>{a.score}%</span>
                                     <span style={{ fontSize: '0.7rem', fontWeight: 700, color: a.passed ? 'hsl(145,55%,30%)' : 'hsl(0,70%,45%)', background: a.passed ? 'hsla(145,63%,42%,0.12)' : 'hsla(0,84%,60%,0.1)', borderRadius: 999, padding: '3px 10px' }}>{a.passed ? 'Passed' : 'Did not pass'}</span>
                                   </div>

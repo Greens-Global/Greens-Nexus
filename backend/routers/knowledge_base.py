@@ -14,6 +14,7 @@ formatter so the editor feature never hard-fails.
 import os
 import json
 import uuid
+import base64
 from datetime import datetime, timezone
 
 import httpx
@@ -38,6 +39,11 @@ _ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 # Quality-sensitive formatting task — kept in one constant so it's trivially
 # swappable (e.g. to claude-haiku-4-5-20251001 to match items.py / cut cost).
 _AI_MODEL = "claude-opus-4-8"
+# Private bucket for SOP images — only the service-role backend writes objects and
+# mints short-lived signed URLs (the bucket is NOT public).
+_SUPABASE_URL         = os.getenv("SUPABASE_URL", "")
+_SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+_KB_BUCKET = "kb-media"
 
 
 def _now() -> str:
@@ -50,6 +56,19 @@ def _today() -> str:
 
 def _new_id() -> str:
     return "kb_" + uuid.uuid4().hex[:12]
+
+
+def _kb_notify(db: Session, *, recipient: str, ntype: str, title: str, body: str, doc) -> None:
+    """Server-side bell notification for a KB workflow event (employees can't POST
+    notifications client-side). Empty recipient is skipped so self-actions — a
+    manager reviewing their own SOP — don't ping the actor."""
+    email = (recipient or "").lower().strip()
+    if not email:
+        return
+    db.add(models.NexusNotification(
+        id=str(uuid.uuid4()), type=ntype, recipient=email, title=title, body=body,
+        ref_id=doc.id, item_name=doc.title, requested_by="", action="", actioned=False,
+        read_by="", created_at=_now()))
 
 
 def _dept_prefix(departments: list[str]) -> str:
@@ -301,6 +320,10 @@ def submit_document(doc_id: str, user: dict = Depends(get_current_user), db: Ses
     d.status = "in_review"
     d.updated_at = _now()
     _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": "Submitted for review."})
+    _kb_notify(db, recipient=d.reviewer_email, ntype="kb_review_request",
+               title="A SOP is awaiting your review",
+               body=f"{user.get('name') or user['email']} submitted “{d.title}” "
+                    f"({d.doc_code}) for your review.", doc=d)
     db.commit()
     return _serialize(d)
 
@@ -310,6 +333,7 @@ def review_document(doc_id: str, payload: ReviewIn, user: dict = Depends(require
     d = _get_or_404(doc_id, db)
     if d.status != "in_review":
         raise HTTPException(status_code=400, detail="Document is not awaiting review")
+    reviewer = user.get("name") or user["email"]
     if payload.decision == "approve":
         first_publish = (d.version or "").startswith("0.")
         d.status = "approved"
@@ -322,12 +346,19 @@ def review_document(doc_id: str, payload: ReviewIn, user: dict = Depends(require
         d.review_note = payload.note
         _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": "Approved & published."})
         _snapshot(d, db)
+        note = f" Note: {payload.note}" if (payload.note or "").strip() else ""
+        _kb_notify(db, recipient=d.owner_email, ntype="kb_approved",
+                   title="Your SOP was approved & published",
+                   body=f"{reviewer} approved “{d.title}” ({d.doc_code}). It's now live.{note}", doc=d)
     elif payload.decision == "request_changes":
         if not payload.note.strip():
             raise HTTPException(status_code=400, detail="A note is required when requesting changes")
         d.status = "changes_requested"
         d.review_note = payload.note
         _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": f"Changes requested: {payload.note}"})
+        _kb_notify(db, recipient=d.owner_email, ntype="kb_changes_requested",
+                   title="Changes requested on your SOP",
+                   body=f"{reviewer} requested changes on “{d.title}” ({d.doc_code}): {payload.note}", doc=d)
     else:
         raise HTTPException(status_code=400, detail="decision must be 'approve' or 'request_changes'")
     d.updated_at = _now()
@@ -341,6 +372,20 @@ def archive_document(doc_id: str, user: dict = Depends(require_level(3)), db: Se
     d.status = "archived"
     d.updated_at = _now()
     _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": "Archived."})
+    db.commit()
+    return _serialize(d)
+
+
+@router.post("/documents/{doc_id}/unarchive")
+def unarchive_document(doc_id: str, user: dict = Depends(require_level(3)), db: Session = Depends(get_db)):
+    """Restore an archived doc back to its live (approved) state — archive was a
+    one-way street, leaving no way to bring a doc back (Visesh)."""
+    d = _get_or_404(doc_id, db)
+    if d.status != "archived":
+        raise HTTPException(status_code=400, detail="Only archived documents can be unarchived")
+    d.status = "approved"
+    d.updated_at = _now()
+    _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": "Unarchived — restored to approved."})
     db.commit()
     return _serialize(d)
 
@@ -383,11 +428,11 @@ def translate_document(doc_id: str, payload: TranslateIn, user: dict = Depends(g
         f"proper nouns (Greens Global, Greens Storage, Nexus, Ramp) as-is.\n\n{json.dumps(fields)}"
     )
     try:
-        with httpx.Client(timeout=60) as client:
+        with httpx.Client(timeout=110) as client:
             r = client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={"x-api-key": _ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                json={"model": _AI_MODEL, "max_tokens": 2000, "messages": [{"role": "user", "content": prompt}]},
+                json={"model": _AI_MODEL, "max_tokens": 6000, "messages": [{"role": "user", "content": prompt}]},
             )
             r.raise_for_status()
             data = r.json()
@@ -583,13 +628,20 @@ def list_comments(doc_id: str, user: dict = Depends(get_current_user), db: Sessi
 
 @router.post("/documents/{doc_id}/comments")
 def add_comment(doc_id: str, payload: CommentIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    _get_or_404(doc_id, db)
+    d = _get_or_404(doc_id, db)
     if not (payload.text or "").strip():
         raise HTTPException(status_code=400, detail="Write a comment first")
+    text = payload.text.strip()
     db.add(models.KbComment(
         id="cmt_" + uuid.uuid4().hex[:12], doc_id=doc_id, author_email=user["email"],
-        author_name=user.get("name") or user["email"], text=payload.text.strip(), created_at=_now(),
+        author_name=user.get("name") or user["email"], text=text, created_at=_now(),
     ))
+    # Ping the owner and reviewer (whoever isn't the commenter) so review feedback
+    # left as a comment doesn't go unseen.
+    cname = user.get("name") or user["email"]
+    for target in {(d.owner_email or "").lower(), (d.reviewer_email or "").lower()} - {user["email"].lower(), ""}:
+        _kb_notify(db, recipient=target, ntype="kb_comment", title="New comment on a SOP",
+                   body=f"{cname} commented on “{d.title}” ({d.doc_code}): {text[:160]}", doc=d)
     db.commit()
     return list_comments(doc_id, user, db)
 
@@ -648,11 +700,36 @@ _STD_SCHEMA = (
     '{"title":string,"purpose":string,"scopeText":string,"materials":[string],'
     '"responsibilities":[{"role":string,"duty":string}],'
     '"definitions":[{"term":string,"def":string}],'
-    '"procedure":[{"text":string,"detail":string}],"safety":[string],"references":[string]}\n'
-    '- "procedure" is ordered; "text" is a concise imperative step, "detail" is an optional '
-    'clarifying note ("" if none).\n'
-    '- "materials" lists tools/equipment/required items. Keep wording professional and practical. '
-    'Do not invent specifics; leave arrays empty if unknown.'
+    '"procedure":[{"text":string,"detail":string,"image":string}],"safety":[string],"references":[string]}\n'
+    'Build each section by RESTRUCTURING the material — never transcribe it line by line:\n'
+    '- IGNORE shallow or placeholder section labels in the source (e.g. a one-line "Purpose: <the title>" '
+    'or "Definitions: Plex: a software"). The real, detailed content is often dumped under a single heading '
+    '(commonly "Procedure"). Read the WHOLE source and rebuild every section from the substantive content.\n'
+    '- "purpose": 2-4 full sentences on what this SOP accomplishes and why — synthesize it; never just echo '
+    'the title.\n'
+    '- "scopeText": who/what it applies to and its boundaries.\n'
+    '- "procedure": ordered, logically GROUPED imperative steps — not a line-by-line dump. "text" is a '
+    'concise action ("Configure the Synology reverse proxy"); "detail" (may be several lines) holds that '
+    "step's specifics: exact commands, hostnames/IPs/ports, config field values, sub-steps, and expected "
+    'results. Preserve ALL technical specifics faithfully — never drop or summarise away a command, IP, '
+    'port, URL, or value. FORMAT "detail" as readable lines: put each sub-step or key/value on its OWN '
+    'line starting with "- " using real newline characters (\\n) — never run them together inline on one '
+    'line. Fold troubleshooting and update/maintenance into their own clearly-titled steps '
+    '(e.g. "Troubleshoot connection timeouts" with the diagnostic commands in detail).\n'
+    '- IMAGES: the source may contain inline image placeholders like [[IMG1]], [[IMG2]]. Each marks where '
+    'a screenshot belongs. Set the "image" field of the step that screenshot illustrates to the EXACT '
+    'placeholder token (e.g. "[[IMG1]]"), and use "" when a step has no image. NEVER leave a placeholder '
+    'inside text/detail/purpose or any other field — move each one into the right step\'s image, or drop it. '
+    'DROP (do not attach anywhere) any placeholder that is clearly a company logo, letterhead, header/footer '
+    'banner, watermark, signature, or decoration rather than an instructional screenshot — in particular a '
+    'placeholder that appears at the very TOP of the source (before any real procedure content) or right next '
+    'to the title/author/date is almost always a logo/letterhead: omit it entirely. Only attach images that '
+    'actually illustrate a specific step (screenshots, diagrams, photos of the work).\n'
+    '- "safety": every warning, "do not"/"never", and compliance rule. "references": referenced docs, links '
+    'or standards.\n'
+    '- "materials"/"responsibilities"/"definitions": real tools, real role→duty, real term→meaning. '
+    'Do NOT put document metadata (author, version, date) anywhere — that is header data, not body content.\n'
+    '- Do not invent specifics; leave an array empty only if the source genuinely lacks it.'
 )
 
 
@@ -667,7 +744,7 @@ def _normalize_sop(o: dict) -> dict:
         "materials": [s if isinstance(s, str) else s.get("text", "") for s in arr(o.get("materials"))],
         "responsibilities": [{"role": r.get("role") or r.get("who", ""), "duty": r.get("duty") or r.get("responsibility", "")} for r in arr(o.get("responsibilities")) if isinstance(r, dict)],
         "definitions": [{"term": r.get("term", ""), "def": r.get("def") or r.get("definition", "")} for r in arr(o.get("definitions")) if isinstance(r, dict)],
-        "procedure": [({"text": s, "detail": ""} if isinstance(s, str) else {"text": s.get("text") or s.get("step", ""), "detail": s.get("detail", "")}) for s in arr(o.get("procedure"))],
+        "procedure": [({"text": s, "detail": "", "image": ""} if isinstance(s, str) else {"text": s.get("text") or s.get("step", ""), "detail": s.get("detail", ""), "image": s.get("image", "")}) for s in arr(o.get("procedure"))],
         "safety": [s if isinstance(s, str) else s.get("text", "") for s in arr(o.get("safety"))],
         "references": [s if isinstance(s, str) else s.get("text", "") for s in arr(o.get("references"))],
     }
@@ -784,12 +861,14 @@ def ai_format(payload: AiFormatIn, user: dict = Depends(get_current_user)):
     depts = ", ".join(payload.departments) or "Company-wide"
     prompt = (
         "You are a technical-documentation specialist for Greens Global, a self-storage and "
-        "commercial real estate operator. Convert the source material into a standardized SOP.\n\n"
+        "commercial real estate operator. Convert the source material into a standardized, "
+        "well-structured SOP — REORGANISE and synthesise the content into the right sections; "
+        "do not transcribe it line by line.\n\n"
         f"{_STD_SCHEMA}\n\nDepartments: {depts}\nWorking title: {payload.title or '(none)'}\n\n"
         f'SOURCE MATERIAL:\n"""\n{payload.content}\n"""'
     )
     try:
-        with httpx.Client(timeout=60) as client:
+        with httpx.Client(timeout=110) as client:
             r = client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={
@@ -799,7 +878,7 @@ def ai_format(payload: AiFormatIn, user: dict = Depends(get_current_user)):
                 },
                 json={
                     "model": _AI_MODEL,
-                    "max_tokens": 2000,
+                    "max_tokens": 6000,
                     "messages": [{"role": "user", "content": prompt}],
                 },
             )
@@ -831,11 +910,11 @@ def ai_revise(payload: AiReviseIn, user: dict = Depends(get_current_user)):
         f"CURRENT SOP (JSON):\n{json.dumps(current)}\n\nREQUESTED CHANGE:\n{instruction}"
     )
     try:
-        with httpx.Client(timeout=75) as client:
+        with httpx.Client(timeout=110) as client:
             r = client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={"x-api-key": _ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                json={"model": _AI_MODEL, "max_tokens": 2500, "messages": [{"role": "user", "content": prompt}]},
+                json={"model": _AI_MODEL, "max_tokens": 6000, "messages": [{"role": "user", "content": prompt}]},
             )
             r.raise_for_status()
             data = r.json()
@@ -845,6 +924,76 @@ def ai_revise(payload: AiReviseIn, user: dict = Depends(get_current_user)):
     except Exception as e:
         print(f"[kb ai-revise] failed: {e}")
         return {"source": "offline", "sop": current}
+
+
+# ---- Media (private bucket + signed URLs) ---------------------------------
+class MediaUploadIn(BaseModel):
+    data: str            # data URL or raw base64 of an already-resized image
+
+
+class MediaSignIn(BaseModel):
+    paths: list[str] = []
+
+
+@router.post("/media/upload")
+def upload_media(payload: MediaUploadIn, user: dict = Depends(get_current_user)):
+    """Store a KB image in the PRIVATE kb-media bucket via the service role and
+    return its storage path. Views go through /media/sign — never a public URL."""
+    if not (_SUPABASE_URL and _SUPABASE_SERVICE_KEY):
+        raise HTTPException(status_code=503, detail="Storage is not configured")
+    raw = payload.data or ""
+    content_type = "image/jpeg"
+    if raw.startswith("data:"):
+        try:
+            header, raw = raw.split(",", 1)
+            content_type = header.split(";")[0][5:] or "image/jpeg"
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid image data")
+    try:
+        blob = base64.b64decode(raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid image data")
+    if not blob or len(blob) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image is empty or too large")
+    path = f"sop/{uuid.uuid4().hex}.jpg"
+    try:
+        with httpx.Client(timeout=30) as client:
+            r = client.post(
+                f"{_SUPABASE_URL}/storage/v1/object/{_KB_BUCKET}/{path}",
+                headers={"Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}", "apikey": _SUPABASE_SERVICE_KEY,
+                         "Content-Type": content_type, "cache-control": "31536000"},
+                content=blob,
+            )
+            r.raise_for_status()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Image upload failed: {e}")
+    return {"path": path}
+
+
+@router.post("/media/sign")
+def sign_media(payload: MediaSignIn, user: dict = Depends(get_current_user)):
+    """Return short-lived signed URLs for kb-media storage paths (authed users only).
+    Skips anything that's already an http/data URL (legacy inline images)."""
+    out: dict = {}
+    paths = [p for p in (payload.paths or []) if p and not p.startswith(("http", "data:"))][:80]
+    if not (paths and _SUPABASE_URL and _SUPABASE_SERVICE_KEY):
+        return {"urls": out}
+    try:
+        with httpx.Client(timeout=20) as client:
+            r = client.post(
+                f"{_SUPABASE_URL}/storage/v1/object/sign/{_KB_BUCKET}",
+                headers={"Authorization": f"Bearer {_SUPABASE_SERVICE_KEY}", "apikey": _SUPABASE_SERVICE_KEY,
+                         "Content-Type": "application/json"},
+                json={"expiresIn": 3600, "paths": paths},
+            )
+            r.raise_for_status()
+            for item in r.json():
+                p, su = item.get("path"), (item.get("signedURL") or item.get("signedUrl"))
+                if p and su:
+                    out[p] = f"{_SUPABASE_URL}/storage/v1{su}"
+    except Exception as e:
+        print(f"[kb sign] {e}")
+    return {"urls": out}
 
 
 # ---- AI course generation -------------------------------------------------

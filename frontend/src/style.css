@@ -448,6 +448,25 @@ h1,h2,h3,h4,h5,h6,
 }
 .icon-btn:hover { background: var(--mist); }
 
+/* Per-page Help: a labelled pill in the header so it's easy to find (Neil wanted
+   a help icon on every page). Collapses to an icon-only button on narrow screens. */
+.help-pill {
+  width: auto;
+  padding: 0 13px;
+  gap: 7px;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: hsl(var(--color-blue));
+  background: hsla(var(--color-blue), 0.10);
+}
+.help-pill:hover { background: hsla(var(--color-blue), 0.18); }
+.help-pill-label { white-space: nowrap; }
+@media (max-width: 700px) {
+  .help-pill { width: 34px; padding: 0; }
+  .help-pill-label { display: none; }
+}
+
 /* â”€â”€ Header user pill + dropdown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .header-user-wrap { position: relative; }
 

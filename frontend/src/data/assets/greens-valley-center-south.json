@@ -1,9 +1,9 @@
 {
   "id": "greens-valley-center-south",
   "name": "Greens Valley Center South",
-  "image": "/assets/properties/greens-valley-center-south.jpg",
+  "image": "/assets/properties/greens-storage-valley-center.png",
   "type": "Self-Storage Facility",
-  "address": "28407 Lizard Rocks Road, Valley Center, CA 92082, Valley Center, CA, 92082",
+  "address": "28407 Lizard Rocks Road, Valley Center, CA 92082",
   "assetManager": "Sahil Desai",
   "buildingSf": "88,253 SF",
   "yearBuilt": "2012",

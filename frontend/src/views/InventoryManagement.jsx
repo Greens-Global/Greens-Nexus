@@ -15,11 +15,14 @@ import { api }              from '../api';
 import { supabase }         from '../lib/supabase';
 import { useMsal }          from '@azure/msal-react';
 import { cleanName }        from '../lib/utils';
+import { useNameResolver }  from '../lib/useNameResolver';
 import { useAssignments, MyPermanentPanel, AssignmentsQueue, AssignItemModal } from '../components/Assignments';
 import { renderNotifBody } from '../components/NotificationBell';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const ITEM_TYPES = ['Devices', 'Tools', 'Vehicles', 'Equipment', 'Keys', 'Other'];
+// Controlled item types — mirror _ITEM_TYPES in backend/routers/items.py. Add/edit
+// is dropdown-only; unrecognised types on import are saved as "Other" (Neil).
+const ITEM_TYPES = ['Computer', 'Peripheral', 'Networking', 'Server', 'Storage', 'IP Camera', 'Devices', 'Tools', 'Equipment', 'Vehicles', 'Furniture', 'Keys', 'Other'];
 
 // Canonicalise a free-typed item type: case-insensitive + singular→plural
 // ("device" → "Devices"). Unknown types (e.g. "IP Camera") are kept as-is so
@@ -503,6 +506,36 @@ function AddItemModal({ onClose, onSave, initial = {} }) {
 }
 
 // ── Edit Item Modal ────────────────────────────────────────────────────────────
+// The Edit form submits every field; send only the ones that actually changed so
+// the audit log reflects the real edit (not "changed everything"). Maps the
+// snake_case payload keys to the camelCase item fields for comparison.
+const _EDIT_FIELD_MAP = {
+  name: 'name', item_type: 'itemType', make: 'make', model: 'model', year: 'year',
+  department: 'department', default_owner: 'defaultOwner', ownership_type: 'ownershipType',
+  status: 'status', op_status: 'opStatus', location: 'location', photo_url: 'photoUrl',
+  op_status_person_email: 'opStatusPersonEmail', op_status_person_name: 'opStatusPersonName',
+  picture_required: 'pictureRequired', asset_value: 'assetValue',
+};
+function diffItemEdit(item, data) {
+  const out = {};
+  for (const [k, camel] of Object.entries(_EDIT_FIELD_MAP)) {
+    if (!(k in data)) continue;
+    const nv = data[k], ov = item[camel];
+    let same;
+    if (k === 'asset_value')           same = (Number(nv) || 0) === (Number(ov) || 0);
+    else if (k === 'picture_required') same = !!nv === (ov !== false);
+    else                               same = String(nv ?? '') === String(ov ?? '');
+    if (!same) out[k] = nv;
+  }
+  // If op_status changed to a person-bound status, carry the person fields too so
+  // the server can record/notify, even if those strings happened to match.
+  if ('op_status' in out && OP_STATUS_PERSON.has(out.op_status)) {
+    if ('op_status_person_email' in data) out.op_status_person_email = data.op_status_person_email;
+    if ('op_status_person_name'  in data) out.op_status_person_name  = data.op_status_person_name;
+  }
+  return out;
+}
+
 function EditItemModal({ item, onClose, onSave }) {
   const [name,          setName]          = useState(item.name);
   const [itemType,      setItemType]      = useState(item.itemType || 'Other');
@@ -521,8 +554,23 @@ function EditItemModal({ item, onClose, onSave }) {
   const [pictureRequired, setPictureRequired] = useState(item.pictureRequired !== false);
   const [assetValue,    setAssetValue]    = useState(item.assetValue ? String(item.assetValue) : '');
   const [saving,        setSaving]        = useState(false);
+  const [aiFilling,     setAiFilling]     = useState(false);
   const [error,         setError]         = useState('');
   useEscapeKey(onClose);
+
+  async function aiFindPhoto() {
+    setAiFilling(true); setError('');
+    try {
+      const { results } = await api.autoFillItemPhotos([item.id], true);  // replace allowed when editing
+      const r = (results || [])[0];
+      if (r?.status === 'ok' && r.photo_url) setPhotoUrl(r.photo_url);
+      else setError('No product photo found — upload one manually.');
+    } catch {
+      setError('AI photo search failed — try again or upload manually.');
+    } finally {
+      setAiFilling(false);
+    }
+  }
 
   function submit() {
     if (!name.trim() || saving) return;
@@ -640,6 +688,10 @@ function EditItemModal({ item, onClose, onSave }) {
             </span>
           </label>
           <PhotoUpload value={photoUrl} onChange={setPhotoUrl} hint="Replace photo if needed — must clearly identify this specific unit." />
+          <button type="button" onClick={aiFindPhoto} disabled={aiFilling}
+            style={{ marginTop:8, display:'inline-flex', alignItems:'center', gap:6, height:34, padding:'0 14px', fontSize:12.5, fontWeight:700, background:'hsla(var(--color-purple),0.1)', color:'hsl(var(--color-purple))', border:'1px solid hsla(var(--color-purple),0.35)', borderRadius:8, cursor: aiFilling ? 'default' : 'pointer', fontFamily:'Inter,sans-serif' }}>
+            {aiFilling ? <><Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> Finding…</> : <><Wand2 size={13} /> Let AI find a photo</>}
+          </button>
         </div>
 
         {error && <p style={{ display:'flex', alignItems:'center', gap:6, fontSize:12.5, color:'hsl(var(--color-red))', background:'hsla(var(--color-red),0.08)', borderRadius:8, padding:'9px 12px', marginTop:14 }}><AlertCircle size={14} style={{ flexShrink:0 }} /> {error}</p>}
@@ -881,14 +933,14 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
                 <div style={{ fontSize:12.5, color:'var(--muted)', marginBottom:10 }}>
                   <strong style={{ color:'hsl(var(--color-green))' }}>{valid.length} valid</strong>
                   {invalid.length > 0 && <>, <strong style={{ color:'hsl(var(--color-red))' }}>{invalid.length} missing name (skipped)</strong></>}
-                  {warned.length > 0 && <>, <strong style={{ color:'hsl(var(--color-orange))' }}>{warned.length} row{warned.length !== 1 ? 's' : ''} with an unknown type (saved as-is)</strong></>}
+                  {warned.length > 0 && <>, <strong style={{ color:'hsl(var(--color-orange))' }}>{warned.length} row{warned.length !== 1 ? 's' : ''} with an unknown type (saved as "Other")</strong></>}
                 </div>
                 {/* Show EVERY distinct unknown type so they can all be reviewed before
                     importing — not just a count (Amy: "could not see all 14"). */}
                 {unknownTypes.length > 0 && (
                   <div style={{ border:'1px solid hsla(var(--color-orange),0.35)', background:'hsla(var(--color-orange),0.06)', borderRadius:8, padding:'10px 12px', marginBottom:14 }}>
                     <div style={{ fontSize:12, fontWeight:700, color:'hsl(var(--color-orange))', marginBottom:7 }}>
-                      {unknownTypes.length} unknown type{unknownTypes.length !== 1 ? 's' : ''} — saved exactly as written:
+                      {unknownTypes.length} unknown type{unknownTypes.length !== 1 ? 's' : ''} — these rows will be saved as "Other":
                     </div>
                     <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
                       {unknownTypes.map(t => (
@@ -944,9 +996,9 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
 }
 
 // ── Report Modal ───────────────────────────────────────────────────────────────
-function ReportModal({ onClose, checkouts }) {
-  const [dept,      setDept]      = useState('All');
-  const [itemType,  setItemType]  = useState('All');
+function ReportModal({ onClose, checkouts, initial }) {
+  const [dept,      setDept]      = useState(initial?.dept && initial.dept !== 'All' ? initial.dept : 'All');
+  const [itemType,  setItemType]  = useState(initial?.itemType && initial.itemType !== 'All' ? initial.itemType : 'All');
   const [status,    setStatus]    = useState('All');
   const [person,    setPerson]    = useState('');
   const [exporting, setExporting] = useState(null);
@@ -976,7 +1028,10 @@ function ReportModal({ onClose, checkouts }) {
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:16 }}>Export Checkout Report</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom: (initial?.dept && initial.dept !== 'All') || (initial?.itemType && initial.itemType !== 'All') ? 6 : 16 }}>Export Report</h3>
+        {((initial?.dept && initial.dept !== 'All') || (initial?.itemType && initial.itemType !== 'All')) && (
+          <p style={{ fontSize:12, color:'var(--muted)', marginBottom:16 }}>Pre-filled from your current filters — adjust below, then export as PDF or Excel.</p>
+        )}
         <div style={{ display:'flex', flexDirection:'column', gap:14, marginBottom:20 }}>
           <div>
             <label style={FL}>DEPARTMENT</label>
@@ -1370,89 +1425,532 @@ function auditName(email) {
   const local = (email || '').split('@')[0];
   return local.split(/[._]/).filter(Boolean).map(p => p[0].toUpperCase() + p.slice(1)).join(' ') || email || '—';
 }
-function humanizeAuditAction(action) {
-  return (action || '')
-    .replace(/ICHK-[A-Z0-9]+-([A-Z0-9]{4,})/i, (_, tail) => `· Req #${tail.slice(-8).toUpperCase()}`)
-    .replace(/ASG-([A-Z0-9]{4,})/i, (_, t) => `· #${t.slice(-8).toUpperCase()}`);
+
+// Icon + tone + plain-English verb for an audit action, so the log reads like a
+// story instead of a code dump.
+function auditEventMeta(action) {
+  const a = (action || '').toLowerCase();
+  if (a.includes('imported'))                              return { Icon: UploadCloud, tone: 'green',  verb: 'Imported' };
+  if (a.includes('added'))                                 return { Icon: Plus,        tone: 'green',  verb: 'Added' };
+  if (a.includes('deleted'))                               return { Icon: Trash2,      tone: 'red',    verb: 'Deleted' };
+  if (a.includes('checked out') || a.includes('checkout')) return { Icon: ShoppingCart, tone: 'orange', verb: 'Checked out' };
+  if (a.includes('return'))                                return { Icon: RotateCcw,   tone: 'green',  verb: 'Returned' };
+  if (a.includes('restore'))                               return { Icon: RotateCcw,   tone: 'green',  verb: 'Restored' };
+  if (a.includes('assign'))                                return { Icon: User,        tone: 'blue',   verb: 'Assigned' };
+  if (a.includes('allocat') || a.includes('hand'))         return { Icon: Package,     tone: 'blue',   verb: 'Handed over' };
+  if (a.includes('approved'))                              return { Icon: CheckCircle, tone: 'green',  verb: 'Approved' };
+  if (a.includes('rejected'))                              return { Icon: AlertCircle, tone: 'red',    verb: 'Rejected' };
+  if (a.includes('updated') || a.includes('edited'))       return { Icon: Pencil,      tone: 'blue',   verb: 'Updated' };
+  return { Icon: History, tone: 'muted', verb: action || 'Event' };
+}
+const _auditFg = tone => tone === 'muted' ? 'var(--muted)' : `hsl(var(--color-${tone}))`;
+const _auditBg = tone => tone === 'muted' ? 'var(--mist)'  : `hsla(var(--color-${tone}),0.12)`;
+
+// Fields tracked for the "what changed" diff, with friendly labels.
+const _AUDIT_FIELDS = [
+  ['name', 'Name'], ['serial_number', 'Serial'], ['item_type', 'Type'], ['make', 'Make'],
+  ['model', 'Model'], ['year', 'Year'], ['department', 'Department'], ['location', 'Location'],
+  ['default_owner', 'Default owner'], ['ownership_type', 'Ownership'], ['status', 'Lifecycle'],
+  ['op_status', 'Op status'], ['op_status_person_name', 'Declared by'], ['asset_value', 'Asset value'],
+  ['photo_url', 'Photo'],
+];
+// Walk an item's events oldest→newest and tag each with the fields that CHANGED
+// against the running snapshot, so the timeline can show green (new) / red (old)
+// instead of a flat dump of the current values.
+function buildAuditDiffs(rows) {
+  const prev = {};
+  let firstFieldEvent = true;
+  return rows.map(r => {
+    let d = {}; try { d = JSON.parse(r.details || '{}'); } catch { /* ignore */ }
+    const a = (r.action || '').toLowerCase();
+    const fieldEvent = a.includes('added') || a.includes('updated') || a.includes('edited') || a.includes('imported');
+    const isAdd = a.includes('added') || a.includes('imported');
+    let changes = null, baseline = false;
+    if (fieldEvent) {
+      changes = [];
+      // The first field-event we see is the baseline snapshot — we have no prior
+      // state to diff against, so don't paint the whole thing as "changed". An
+      // actual Add stays green (those values really were set on creation).
+      baseline = firstFieldEvent && !isAdd;
+      for (const [f, label] of _AUDIT_FIELDS) {
+        if (!(f in d)) continue;
+        const to = String(d[f] ?? '');
+        const from = (f in prev) ? String(prev[f] ?? '') : null;
+        if (from === null) { if (to && to !== '0') changes.push({ field: f, label, from: null, to }); }
+        else if (from !== to) changes.push({ field: f, label, from, to });
+        prev[f] = to;
+      }
+      firstFieldEvent = false;
+    }
+    return { row: r, changes, baseline, isAdd: fieldEvent ? isAdd : false };
+  });
 }
 
-const AuditLogPanel = memo(function AuditLogPanel() {
+// Interactive per-item history — clicking a log row opens this: the item's whole
+// life as a top-to-bottom flow (added → checked out → returned → updated →
+// deleted), with who/when and a plain-English note for each step.
+function AuditHistoryModal({ item, onClose, onOpenItem }) {
+  const [rows, setRows]   = useState(null);
+  const [error, setError] = useState('');
+  const nameOf = useNameResolver();
+  useEscapeKey(onClose);
+  useEffect(() => {
+    api.getItemsAuditLog({ q: item.name || item.id, limit: 100 })
+      .then(res => {
+        const all = res.rows || [];
+        const seen = (item.name || '').toLowerCase();
+        const match = all.filter(r =>
+          (item.id && r.resource_id === item.id) ||
+          (seen && ((r.details || '').toLowerCase().includes(seen) || (r.action || '').toLowerCase().includes(seen)))
+        );
+        match.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || '')); // oldest → newest
+        setRows(match);
+      })
+      .catch(() => setError('Could not load this item’s history.'));
+  }, [item]);
+
+  return (
+    <div role="dialog" aria-modal="true" onClick={e => e.target === e.currentTarget && onClose()}
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+      <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:560, maxHeight:'88vh', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)' }}>
+        <div style={{ padding:'18px 22px 14px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'flex-start', justifyContent:'space-between', flexShrink:0 }}>
+          <div style={{ minWidth:0 }}>
+            <h3 style={{ margin:0, fontSize:16, fontWeight:700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name || 'Item history'}</h3>
+            <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>Full activity timeline — newest at the bottom</p>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4, flexShrink:0 }}><X size={18} /></button>
+        </div>
+        <div style={{ overflowY:'auto', padding:'18px 22px', flex:1 }}>
+          {error ? <div style={{ color:'hsl(var(--color-red))', fontSize:13 }}>{error}</div>
+            : rows === null ? <SkeletonBlocks count={4} height={48} borderRadius={8} />
+            : rows.length === 0 ? <div style={{ textAlign:'center', color:'var(--muted)', fontSize:13, padding:'30px 0' }}>No recorded history for this item.</div>
+            : buildAuditDiffs(rows).map(({ row: r, changes, baseline, isAdd }, i) => {
+                const m = baseline ? { Icon: Package, tone: 'blue', verb: 'Original values' } : auditEventMeta(r.action);
+                return (
+                  <div key={r.id} style={{ display:'flex', gap:13 }}>
+                    <div style={{ display:'flex', flexDirection:'column', alignItems:'center' }}>
+                      <div style={{ width:32, height:32, borderRadius:'50%', flexShrink:0, background:_auditBg(m.tone), color:_auditFg(m.tone), display:'flex', alignItems:'center', justifyContent:'center' }}><m.Icon size={15} /></div>
+                      {i < rows.length - 1 && <div style={{ width:2, flex:1, minHeight:14, background:'var(--line)', marginTop:2 }} />}
+                    </div>
+                    <div style={{ paddingBottom:18, flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:700, fontSize:13 }}>{m.verb}</div>
+                      <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1 }}>by {nameOf(r.user_email, r.user_name)} · {fmtAuditStamp(r.timestamp)}</div>
+                      {changes ? (
+                        changes.length ? (
+                          <div style={{ marginTop:6, display:'flex', flexDirection:'column', gap:3 }}>
+                            {changes.map((c, j) => (
+                              <div key={j} style={{ fontSize:12, lineHeight:1.5 }}>
+                                <span style={{ color:'var(--muted)' }}>{c.label}: </span>
+                                {!baseline && c.from !== null && c.from !== '' && <><span style={{ color:'hsl(var(--color-red))', textDecoration: c.field === 'photo_url' ? 'none' : 'line-through' }}>{auditVal(c.field, c.from, 'from')}</span> <span style={{ color:'var(--muted)' }}>→</span> </>}
+                                <span style={{ color: baseline ? 'var(--ink)' : 'hsl(var(--color-green))', fontWeight:600 }}>{auditVal(c.field, c.to, baseline ? 'baseline' : 'to')}</span>
+                              </div>
+                            ))}
+                            {baseline ? <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>earliest recorded state — changes are tracked from here</div>
+                              : isAdd ? <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>values set when the item was added</div>
+                              : <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>only the fields that changed are shown</div>}
+                          </div>
+                        ) : <div style={{ fontSize:12, color:'var(--muted)', marginTop:5 }}>No field values changed.</div>
+                      ) : (() => {
+                        const det = formatAuditDetails(r.action, r.details);
+                        return det && det !== '—' ? <div style={{ fontSize:12, color:'var(--muted)', marginTop:4, lineHeight:1.5 }}>{renderNotifBody(det)}</div> : null;
+                      })()}
+                    </div>
+                  </div>
+                );
+              })}
+        </div>
+        <div style={{ padding:'12px 22px', borderTop:'1px solid var(--line)', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
+          {onOpenItem
+            ? <button className="secondary-btn" onClick={() => { onOpenItem(item); onClose(); }} style={{ display:'inline-flex', alignItems:'center', gap:6 }}><Pencil size={14} /> Open &amp; edit this item</button>
+            : <span />}
+          <button className="secondary-btn" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Activity feed helpers ─────────────────────────────────────────────────────
+// Day bucket for grouping (PT — same zone the timestamps render in). en-CA gives
+// YYYY-MM-DD which both sorts and compares against <input type="date"> values.
+function auditDayKey(iso) {
+  if (!iso) return '';
+  const d = new Date(/[zZ]$|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso + 'Z');
+  return d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+}
+function auditDayLabel(key) {
+  if (!key) return '';
+  const todayKey = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+  const yKey = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+  if (key === todayKey) return 'Today';
+  if (key === yKey)     return 'Yesterday';
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday:'short', day:'numeric', month:'short', year:'numeric' });
+}
+function auditTime(iso) {
+  if (!iso) return '';
+  const d = new Date(/[zZ]$|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso + 'Z');
+  return d.toLocaleTimeString('en-US', { timeZone:'America/Los_Angeles', hour:'numeric', minute:'2-digit', hour12:true });
+}
+function auditInitials(email) {
+  return (email || '?').split(/[\s@._]+/).filter(Boolean).slice(0, 2).map(s => s[0]).join('').toUpperCase() || '?';
+}
+const EMPTY = '∅';
+
+// Render an audit field value: photos show as a thumbnail (old = dim/red ring,
+// new = green ring), everything else as text. Broken images fall back to a label.
+function PhotoChip({ url, kind }) {
+  const [err, setErr] = useState(false);
+  if (err) return <span style={{ fontSize:11.5, color:'var(--muted)' }}>image</span>;
+  return <img src={url} alt="item photo" loading="lazy" onError={() => setErr(true)}
+    onClick={() => window.open(url, '_blank', 'noopener')} title="Open full image"
+    style={{ width:40, height:40, objectFit:'cover', borderRadius:7, cursor:'zoom-in', verticalAlign:'middle',
+      border: `2px solid ${kind === 'from' ? 'hsla(var(--color-red),0.55)' : kind === 'to' ? 'hsl(var(--color-green))' : 'var(--line)'}`,
+      opacity: kind === 'from' ? 0.65 : 1 }} />;
+}
+function auditVal(field, value, kind) {
+  if (field === 'photo_url') return value ? <PhotoChip url={value} kind={kind} /> : EMPTY;
+  return value === '' || value == null ? EMPTY : value;
+}
+
+// Walk EVERY item's events oldest→newest, keeping a per-item running snapshot so
+// each edit can be shown as "old → new" (the backend only records new values).
+// Returns newest-first, each entry tagged with field changes, baseline flag, and
+// the undo "reason" carried on reverse entries.
+function buildGlobalFeed(rows) {
+  const asc  = [...rows].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+  const snap = {};   // resource_id → { field: value }
+  const seen = {};   // resource_id → have we set a baseline yet?
+  const out = asc.map(r => {
+    let d = {}; try { d = JSON.parse(r.details || '{}'); } catch { /* ignore */ }
+    const a = (r.action || '').toLowerCase();
+    const rid = r.resource_id || '';
+    const fieldEvent = a.includes('added') || a.includes('updated') || a.includes('edited') || a.includes('imported');
+    const isAdd = a.includes('added') || a.includes('imported');
+    let changes = null, baseline = false;
+    if (fieldEvent && rid) {
+      const s = snap[rid] || (snap[rid] = {});
+      baseline = !seen[rid] && !isAdd;
+      changes = [];
+      for (const [f, label] of _AUDIT_FIELDS) {
+        if (!(f in d)) continue;
+        const to = String(d[f] ?? '');
+        const from = (f in s) ? String(s[f] ?? '') : null;
+        if (from === null) { if (to && to !== '0') changes.push({ field:f, label, from:null, to }); }
+        else if (from !== to) changes.push({ field:f, label, from, to });
+        s[f] = to;
+      }
+      seen[rid] = true;
+    } else if (fieldEvent) {
+      // Bulk add/edit (no single resource_id) — show the submitted values flat.
+      changes = [];
+      for (const [f, label] of _AUDIT_FIELDS) {
+        if (!(f in d)) continue;
+        const to = String(d[f] ?? '');
+        if (to && to !== '0') changes.push({ field:f, label, from:null, to });
+      }
+    }
+    return { row:r, details:d, changes, baseline, isAdd, reason: d.reason || '' };
+  });
+  return out.reverse();
+}
+
+// Which entries can be undone, and the reverse payload to send. Edits restore the
+// reconstructed previous values; single-item adds delete; single-item deletes
+// restore. Bulk ops and the baseline (no known "before") are not undoable.
+function feedUndoInfo(entry) {
+  const r = entry.row;
+  if (r.undone_at) return null;
+  const rid = r.resource_id || '';
+  if (!rid) return null;
+  const a = (r.action || '').toLowerCase();
+  if (a.startsWith('added item'))   return { kind:'add', confirm:'Undo this? The item will be moved to the Recycle Bin.' };
+  if (a.startsWith('deleted item')) return { kind:'del', confirm:'Undo this? The item will be restored from the Recycle Bin.' };
+  if (a.startsWith('updated item')) {
+    if (entry.baseline || !entry.changes) return null;
+    const fields = {};
+    for (const c of entry.changes) if (c.from !== null) fields[c.field] = c.from;
+    if (!Object.keys(fields).length) return null;
+    return { kind:'edit', confirm:'Undo this? The previous value(s) will be put back.', fields };
+  }
+  return null;
+}
+
+// "make, model and location" / "make, model, year and 2 others"
+function humanList(arr, max = 4) {
+  if (arr.length <= 1) return arr[0] || '';
+  if (arr.length > max) {
+    const extra = arr.length - max;
+    return `${arr.slice(0, max).join(', ')} and ${extra} other${extra !== 1 ? 's' : ''}`;
+  }
+  return `${arr.slice(0, -1).join(', ')} and ${arr[arr.length - 1]}`;
+}
+const _q = (v) => `“${v}”`;
+
+// One-line plain-English summary for the collapsed card — written like a sentence
+// a non-technical user can read. The full field/value detail (with the red→green
+// animation) lives behind "Show details". Returns null for non-field events so
+// the caller falls back to the humanised details text.
+function feedSummary(entry) {
+  const ch = entry.changes;
+  if (ch) {
+    const n = ch.length;
+    // An item created with its values set.
+    if (entry.isAdd) return n ? `Added to inventory with ${n} detail${n !== 1 ? 's' : ''} filled in.` : 'Added to inventory.';
+    // A photo change is the action people recognise — always name it, even on a
+    // first record (don't bury it under a generic "first record" message).
+    const photo = ch.find(c => c.field === 'photo_url');
+    if (photo) {
+      const verb = photo.to === '' ? 'Removed the photo'
+        : (entry.baseline || photo.from == null || photo.from === '') ? 'Added the photo'
+        : 'Updated the photo';
+      const others = ch.filter(c => c.field !== 'photo_url');
+      if (!others.length || entry.baseline) return verb + '.';
+      return `${verb}, and ${others.length === 1 ? `changed the ${others[0].label.toLowerCase()}` : `updated ${others.length} other fields`}.`;
+    }
+    if (entry.baseline) return `This is the first record we have for this item — here’s what it looked like (${n} detail${n !== 1 ? 's' : ''}).`;
+    if (n === 0)        return 'Saved with no changes.';
+    if (n === 1) {
+      const c = ch[0];
+      const label = c.label.toLowerCase();
+      if (c.to === '')      return `Cleared the ${label}${c.from ? ` (was ${_q(c.from)})` : ''}.`;
+      if (c.from == null || c.from === '') return `Set the ${label} to ${_q(c.to)}.`;
+      return `Changed the ${label} from ${_q(c.from)} to ${_q(c.to)}.`;
+    }
+    return `Changed ${humanList(ch.map(c => c.label.toLowerCase()))}.`;
+  }
+  const a = (entry.row.action || '').toLowerCase();
+  if (a.startsWith('deleted item'))  return 'Moved to the Recycle Bin.';
+  if (a.startsWith('restored item')) return 'Restored from the Recycle Bin.';
+  return null;
+}
+
+const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onLocate, onChanged }) {
   const [query,   setQuery]   = useState('');
   const [logs,    setLogs]    = useState([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
-  const isMobile = useIsMobile(); // phones render cards, not the table
+  const [history, setHistory] = useState(null);   // { id, name } → per-item timeline modal
+  const [from,    setFrom]    = useState('');
+  const [to,      setTo]      = useState('');
+  const [confirmUndo, setConfirmUndo] = useState(null); // audit row id awaiting confirm
+  const [undoing,     setUndoing]     = useState(null); // audit row id in flight
+  const [expanded,    setExpanded]    = useState(() => new Set()); // cards showing field detail
+  const toggleExpand = (id) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const nameOf = useNameResolver(); // email → real display name (never show a raw email)
+
+  // resource_id → { name, type }: current items first, then anything a log named.
+  const meta = useMemo(() => {
+    const m = {};
+    for (const it of items) if (it.id) m[it.id] = { name: it.name, type: it.itemType };
+    for (const log of logs) {
+      const rid = log.resource_id;
+      if (!rid) continue;
+      try { const d = JSON.parse(log.details || '{}'); const nm = d.name || d.item_name; const ty = d.item_type;
+        if (!m[rid]) m[rid] = { name: nm || '', type: ty || '' };
+        else { if (!m[rid].name && nm) m[rid].name = nm; if (!m[rid].type && ty) m[rid].type = ty; }
+      } catch { /* skip */ }
+    }
+    return m;
+  }, [items, logs]);
+
+  const itemFor = (log) => {
+    const info = meta[log.resource_id];
+    if (info?.name) return { id: log.resource_id || '', name: info.name };
+    return log.resource_id ? { id: log.resource_id, name: '' } : null;
+  };
 
   const load = useCallback(() => {
     setLoading(true);
-    const params = { limit: 200 };
+    const params = { limit: 300 };
     if (query.trim()) params.q = query.trim();
     api.getItemsAuditLog(params)
       .then(res => { setLogs(res.rows || []); setError(''); })
       .catch(() => setError('Could not load audit log.'))
       .finally(() => setLoading(false));
   }, [query]);
-
   useEffect(() => { const t = setTimeout(load, query ? 350 : 0); return () => clearTimeout(t); }, [load, query]);
+
+  async function doUndo(entry) {
+    const info = feedUndoInfo(entry);
+    if (!info) return;
+    setConfirmUndo(null);
+    setUndoing(entry.row.id);
+    try {
+      await api.undoAuditEntry(entry.row.id, info.fields || null);
+      await load();
+      onChanged?.();
+    } catch (e) {
+      setError(e?.message || 'Could not undo that change.');
+    } finally {
+      setUndoing(null);
+    }
+  }
+
+  // Build → date-filter → group by day (newest first).
+  const groups = useMemo(() => {
+    const feed = buildGlobalFeed(logs).filter(e => {
+      const k = auditDayKey(e.row.timestamp);
+      if (from && k < from) return false;
+      if (to   && k > to)   return false;
+      return true;
+    });
+    const gs = [];
+    for (const e of feed) {
+      const k = auditDayKey(e.row.timestamp);
+      let g = gs.find(x => x.k === k);
+      if (!g) { g = { k, list: [] }; gs.push(g); }
+      g.list.push(e);
+    }
+    return gs;
+  }, [logs, from, to]);
+
+  const shown = groups.reduce((n, g) => n + g.list.length, 0);
+
+  const tone = (action, baseline) => baseline ? 'blue' : auditEventMeta(action).tone;
+  const verb = (action, baseline) => baseline ? 'First record' : auditEventMeta(action).verb;
 
   return (
     <div>
-      <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap', alignItems:'center' }}>
-        <div className="search-bar" style={{ flex:1, minWidth:0, maxWidth:300 }}>
+      {/* Detail-reveal animation: rows slide in, the new value flashes green and
+          the old value flashes red so the change is obvious at a glance. */}
+      <style>{`
+        @keyframes auditReveal   { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes auditNewFlash { 0% { background:hsla(145,63%,45%,0.30); } 100% { background:transparent; } }
+        @keyframes auditOldFlash { 0% { background:hsla(2,72%,55%,0.24); } 100% { background:transparent; } }
+      `}</style>
+      <div style={{ display:'flex', gap:10, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
+        <div className="search-bar" style={{ flex:1, minWidth:180, maxWidth:300 }}>
           <Search size={14} style={{ flexShrink:0 }} />
           <input placeholder="Search by item, user, or action…" value={query} onChange={e => setQuery(e.target.value)} />
         </div>
-        <span style={{ fontSize:13, color:'var(--muted)' }}>{logs.length} entr{logs.length !== 1 ? 'ies' : 'y'}</span>
+        <div style={{ marginLeft:'auto', display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+          <label style={{ fontSize:10.5, fontWeight:700, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:5 }}>
+            From <input type="date" className="form-input" value={from} max={to || undefined} onChange={e => setFrom(e.target.value)} style={{ height:32, fontSize:12, padding:'0 8px' }} />
+          </label>
+          <label style={{ fontSize:10.5, fontWeight:700, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:5 }}>
+            To <input type="date" className="form-input" value={to} min={from || undefined} onChange={e => setTo(e.target.value)} style={{ height:32, fontSize:12, padding:'0 8px' }} />
+          </label>
+          {(from || to) && <button className="secondary-btn" style={{ height:32, padding:'0 12px', fontSize:12 }} onClick={() => { setFrom(''); setTo(''); }}>Clear</button>}
+        </div>
       </div>
+      <p style={{ fontSize:12.5, color:'var(--muted)', margin:'0 0 14px' }}>
+        {shown} {shown === 1 ? 'entry' : 'entries'}{(from || to) ? ' in range' : ''} · newest first · edits show <span style={{ color:'hsl(var(--color-red))' }}>old</span> → <span style={{ color:'hsl(var(--color-green))' }}>new</span>, and most changes can be undone
+      </p>
+
       {error ? (
         <ErrorBanner message="Could not load the audit log." onRetry={load} />
       ) : loading ? (
-        <SkeletonBlocks count={5} height={44} borderRadius={8} />
-      ) : logs.length === 0 ? (
+        <SkeletonBlocks count={5} height={56} borderRadius={10} />
+      ) : shown === 0 ? (
         <div style={{ textAlign:'center', padding:'48px 0', color:'var(--muted)', fontSize:13 }}>
           <History size={28} style={{ opacity:.3, display:'block', margin:'0 auto 8px' }} />
-          {query ? 'No entries match your search.' : 'No audit entries yet.'}
-        </div>
-      ) : isMobile ? (
-        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-          {logs.map(log => {
-            const det = formatAuditDetails(log.action, log.details);
-            return (
-              <div key={log.id} style={{ border:'1px solid var(--line)', borderRadius:12, background:'var(--card)', padding:'11px 14px', boxShadow:'var(--shadow-sm)' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', gap:8, alignItems:'baseline' }}>
-                  <span style={{ fontWeight:700, fontSize:13, minWidth:0 }}>{humanizeAuditAction(log.action)}</span>
-                  <span style={{ fontSize:10.5, color:'var(--muted)', flexShrink:0, whiteSpace:'nowrap' }}>{fmtAuditStamp(log.timestamp)}</span>
-                </div>
-                <div title={log.user_email} style={{ fontSize:12, fontWeight:700, color:'var(--ink)', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{auditName(log.user_email)}</div>
-                {det && det !== '—' && (
-                  <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:4, lineHeight:1.45 }}>{renderNotifBody(det)}</div>
-                )}
-              </div>
-            );
-          })}
+          {query || from || to ? 'No entries match your filters.' : 'No audit entries yet.'}
         </div>
       ) : (
-        <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto' }}>
-          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12.5 }}>
-            <thead>
-              <tr style={{ background:'var(--mist)' }}>
-                {['Timestamp','User','Action','Details'].map(h =>
-                  <th key={h} style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em' }}>{h}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {logs.map(log => (
-                <tr key={log.id} style={{ borderTop:'1px solid var(--line)' }}>
-                  <td style={{ padding:'9px 14px', color:'var(--muted)', whiteSpace:'nowrap' }}>{fmtAuditStamp(log.timestamp)}</td>
-                  <td style={{ padding:'9px 14px', fontWeight:700 }} title={log.user_email}>{auditName(log.user_email)}</td>
-                  <td style={{ padding:'9px 14px', fontWeight:600 }}>{humanizeAuditAction(log.action)}</td>
-                  <td style={{ padding:'9px 14px', color:'var(--muted)' }}>{renderNotifBody(formatAuditDetails(log.action, log.details))}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div style={{ display:'flex', flexDirection:'column', gap:18 }}>
+          {groups.map(g => (
+            <div key={g.k}>
+              <div style={{ fontSize:10.5, fontWeight:800, letterSpacing:'.08em', textTransform:'uppercase', color:'var(--muted)', margin:'0 0 9px 2px' }}>{auditDayLabel(g.k)}</div>
+              <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
+                {g.list.map(e => {
+                  const r = e.row;
+                  const t = tone(r.action, e.baseline);
+                  const it = itemFor(r);
+                  const typeBadge = meta[r.resource_id]?.type;
+                  const undo = feedUndoInfo(e);
+                  const summary = feedSummary(e);
+                  const det = e.changes ? null : formatAuditDetails(r.action, r.details);
+                  const hasDetail = !!(e.changes && e.changes.length);
+                  const open = expanded.has(r.id);
+                  return (
+                    <div key={r.id} style={{ display:'flex', gap:11, padding:'12px 13px', borderRadius:11, border:'1px solid var(--line)', background:'var(--card)', opacity: r.undone_at ? 0.62 : 1 }}>
+                      <span style={{ flexShrink:0, width:9, height:9, marginTop:5, borderRadius:'50%', background:_auditFg(t), boxShadow:`0 0 0 3px ${_auditBg(t)}` }} />
+                      <div style={{ minWidth:0, flex:1 }}>
+                        {/* Header: badge · item name · type · time */}
+                        <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                          <span style={{ fontSize:10, fontWeight:800, textTransform:'uppercase', letterSpacing:'.04em', padding:'2px 7px', borderRadius:5, color:_auditFg(t), background:_auditBg(t) }}>{verb(r.action, e.baseline)}</span>
+                          {it && (it.name
+                            ? <span onClick={() => setHistory(it)} title="Open this item’s full history"
+                                style={{ fontSize:13, fontWeight:700, color:'var(--ink)', cursor:'pointer', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'46vw' }}>{it.name}</span>
+                            : <span style={{ fontSize:12.5, color:'var(--muted)' }}>#{(it.id || '').slice(0, 8)}</span>)}
+                          {typeBadge && <span style={{ fontSize:10.5, fontWeight:600, padding:'2px 7px', borderRadius:5, color:'hsl(var(--color-blue))', background:'hsla(var(--color-blue),0.10)' }}>{typeBadge}</span>}
+                          {r.details && (() => { try { const d = JSON.parse(r.details); return d.items ? <span style={{ fontSize:11.5, color:'var(--muted)' }}>· {d.items} items</span> : null; } catch { return null; } })()}
+                          <span style={{ marginLeft:'auto', fontSize:11.5, color:'var(--muted)', whiteSpace:'nowrap' }}>{auditTime(r.timestamp)}</span>
+                        </div>
+
+                        {/* Plain-English summary + a Show details toggle for the field changes */}
+                        <div style={{ display:'flex', alignItems:'baseline', gap:8, marginTop:6, flexWrap:'wrap' }}>
+                          <span style={{ fontSize:12.5, color:'var(--ink)', lineHeight:1.5, minWidth:0 }}>
+                            {summary != null ? summary : (det && det !== '—' ? renderNotifBody(det) : auditEventMeta(r.action).verb)}
+                          </span>
+                          {hasDetail && (
+                            <button onClick={() => toggleExpand(r.id)}
+                              style={{ display:'inline-flex', alignItems:'center', gap:3, padding:'2px 8px', borderRadius:6, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', fontSize:11, fontWeight:700, color:'var(--muted)', fontFamily:'Inter,sans-serif', flexShrink:0 }}>
+                              {open ? 'Hide details' : 'Show details'} <ChevronDown size={12} style={{ transform: open ? 'rotate(180deg)' : 'none', transition:'transform .2s' }} />
+                            </button>
+                          )}
+                        </div>
+                        {hasDetail && open && (
+                          <div style={{ display:'flex', flexDirection:'column', gap:5, padding:'9px 11px', borderRadius:8, background:'var(--mist)', border:'1px solid var(--line)', marginTop:7, animation:'auditReveal .22s ease' }}>
+                            {e.changes.map((c, ci) => (
+                              <div key={ci} style={{ fontSize:12.5, lineHeight:1.6, wordBreak:'break-word', display:'flex', flexWrap:'wrap', alignItems:'baseline', gap:7, animation:'auditReveal .3s ease both', animationDelay:`${ci * 45}ms` }}>
+                                <span style={{ color:'var(--muted)', fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'.05em', minWidth:96 }}>{c.label}</span>
+                                {!e.baseline && c.from !== null && (
+                                  <>
+                                    <span style={{ color:'hsl(var(--color-red))', textDecoration: c.field === 'photo_url' ? 'none' : 'line-through', padding:'1px 5px', borderRadius:4, animation:'auditOldFlash 1s ease both', animationDelay:`${ci * 45}ms` }}>{auditVal(c.field, c.from, 'from')}</span>
+                                    <span style={{ color:'var(--muted)' }}>→</span>
+                                  </>
+                                )}
+                                <span style={{ fontWeight:700, color: e.baseline ? 'var(--ink)' : 'hsl(var(--color-green))', padding:'1px 5px', borderRadius:4, animation: e.baseline ? 'none' : 'auditNewFlash 1.1s ease both', animationDelay:`${ci * 45}ms` }}>{auditVal(c.field, c.to, e.baseline ? 'baseline' : 'to')}</span>
+                              </div>
+                            ))}
+                            {e.baseline && <div style={{ fontSize:10.5, color:'var(--muted)', fontStyle:'italic', marginTop:2 }}>This is the oldest record we have for this item. Anything changed later shows up as an update above.</div>}
+                          </div>
+                        )}
+
+                        {/* Undo reason trail */}
+                        {e.reason && (
+                          <div style={{ marginTop:7, padding:'6px 10px', borderRadius:8, fontSize:12, background:'hsla(40,90%,50%,0.10)', border:'1px solid hsla(40,90%,45%,0.32)', wordBreak:'break-word' }}>
+                            <strong style={{ color:'hsl(36,92%,38%)' }}>Reason:</strong> <span style={{ fontStyle:'italic' }}>{e.reason}</span>
+                          </div>
+                        )}
+
+                        {/* Footer: actor + actions */}
+                        <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:8, flexWrap:'wrap' }}>
+                          <span title={r.user_email} style={{ flexShrink:0, width:20, height:20, borderRadius:'50%', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:800, color:'hsl(var(--color-purple))', background:'hsla(var(--color-purple),0.14)' }}>{auditInitials(nameOf(r.user_email, r.user_name))}</span>
+                          <span title={r.user_email} style={{ fontSize:12, color:'var(--muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{nameOf(r.user_email, r.user_name)}</span>
+                          <div style={{ marginLeft:'auto', display:'inline-flex', alignItems:'center', gap:6 }}>
+                            {r.undone_at && <span style={{ fontSize:11, fontWeight:700, color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:4 }}><RotateCcw size={12} /> Undone</span>}
+                            {it && (it.id || it.name) && onLocate && <button onClick={() => onLocate(it)} title="Find this item in the list"
+                              style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'4px 10px', borderRadius:7, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', fontSize:11.5, fontWeight:600, color:'hsl(var(--color-blue))', whiteSpace:'nowrap' }}>Open item →</button>}
+                            {undo && (undoing === r.id
+                              ? <span style={{ fontSize:11.5, color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:5 }}><Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> Undoing…</span>
+                              : <button onClick={() => setConfirmUndo(r.id)} title="Undo this change"
+                                  style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'4px 10px', borderRadius:7, border:'1px solid hsla(40,90%,45%,0.5)', background:'hsla(40,90%,50%,0.10)', cursor:'pointer', fontSize:11.5, fontWeight:700, color:'hsl(36,92%,38%)', whiteSpace:'nowrap' }}><RotateCcw size={12} /> Undo</button>)}
+                          </div>
+                        </div>
+
+                        {/* Inline undo confirmation */}
+                        {confirmUndo === r.id && undo && (
+                          <div style={{ marginTop:8, padding:'11px 13px', borderRadius:9, border:'1px solid hsla(40,90%,45%,0.5)', background:'hsla(40,90%,50%,0.08)' }}>
+                            <div style={{ fontSize:12.5, marginBottom:9 }}>{undo.confirm}</div>
+                            <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
+                              <button className="secondary-btn" style={{ fontSize:12.5, padding:'5px 12px' }} onClick={() => setConfirmUndo(null)}>Cancel</button>
+                              <button onClick={() => doUndo(e)} style={{ fontSize:12.5, padding:'5px 14px', display:'inline-flex', alignItems:'center', gap:5, background:'hsl(36,92%,42%)', color:'#fff', border:'none', borderRadius:8, fontWeight:700, cursor:'pointer', fontFamily:'Inter,sans-serif' }}><RotateCcw size={13} /> Undo</button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
+      {history && <AuditHistoryModal item={history} onClose={() => setHistory(null)} onOpenItem={onOpenItem} />}
     </div>
   );
 });
@@ -3358,9 +3856,31 @@ const BATCH_FIELDS = [
   { key: 'ownership_type', label: 'Ownership',  options: ['transient', 'permanent'] },
   { key: 'location',       label: 'Location' },
   { key: 'op_status',      label: 'Status',     options: OP_STATUSES },
+  { key: 'asset_value',    label: 'Asset value ($)' },
 ];
 
-function BatchEditModal({ selectedItems, onClose, onSave, saving }) {
+// Shared Fields/Photos toggle that sits at the top of the unified Batch modal
+// (Neil: one batch feature, two tabs). The active tab is just a render; clicking
+// the other swaps which face shows via onTab — both operate on the same scope.
+function BatchTabs({ tab, onTab }) {
+  const Tab = ({ k, label, Icon }) => (
+    <button onClick={() => k !== tab && onTab(k)}
+      style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'6px 14px', borderRadius:8,
+        border:'1px solid', borderColor: tab === k ? 'var(--pine)' : 'var(--line)', cursor:'pointer',
+        fontFamily:'Inter,sans-serif', fontSize:12.5, fontWeight:700,
+        background: tab === k ? 'var(--pine)' : 'transparent', color: tab === k ? '#fff' : 'var(--muted)' }}>
+      <Icon size={13} /> {label}
+    </button>
+  );
+  return (
+    <div style={{ display:'flex', gap:8 }}>
+      <Tab k="fields" label="Fields" Icon={Pencil} />
+      <Tab k="photos" label="Photos" Icon={Image} />
+    </div>
+  );
+}
+
+function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, onSave, saving }) {
   useEscapeKey(onClose);
   const [enabled, setEnabled] = useState(new Set());
   const [vals,    setVals]    = useState({});
@@ -3377,10 +3897,18 @@ function BatchEditModal({ selectedItems, onClose, onSave, saving }) {
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:16, padding:'28px 28px 20px', width:'100%', maxWidth:480, boxShadow:'var(--shadow-lg)', maxHeight:'min(85dvh, 680px)', display:'flex', flexDirection:'column' }}>
-        <h3 style={{ margin:'0 0 6px', fontSize:16, fontWeight:700 }}>Edit {selectedItems.length} item{selectedItems.length !== 1 ? 's' : ''}</h3>
+      <div style={{ background:'var(--card)', borderRadius:16, padding:'22px 28px 20px', width:'100%', maxWidth:480, boxShadow:'var(--shadow-lg)', maxHeight:'min(85dvh, 680px)', display:'flex', flexDirection:'column' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
+          <BatchTabs tab="fields" onTab={onSwitchTab} />
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
+        </div>
+        <h3 style={{ margin:'0 0 6px', fontSize:16, fontWeight:700 }}>
+          Edit {selectedItems.length} {usingSelection ? 'selected' : 'shown'} item{selectedItems.length !== 1 ? 's' : ''}
+        </h3>
         <p style={{ margin:'0 0 16px', fontSize:13, color:'var(--muted)' }}>
-          Tick a field to apply the same value to every selected item. Unticked fields are left untouched. Serials never change.
+          {usingSelection
+            ? 'Tick a field to apply the same value to every selected item.'
+            : 'No rows selected — this applies to every item the current filters show. Tick rows first to narrow it.'} Unticked fields are left untouched. Serials never change.
         </p>
         <div style={{ overflowY:'auto', minHeight:0, display:'flex', flexDirection:'column', gap:10 }}>
           {BATCH_FIELDS.map(f => {
@@ -3420,6 +3948,38 @@ function BatchEditModal({ selectedItems, onClose, onSave, saving }) {
   );
 }
 
+// ── Batch Assign Modal ────────────────────────────────────────────────────────
+// "Assign all these to GSE" — for permanent site inventory, an item's location IS
+// its assignment, so this just sets the location across the selection. Person
+// assignment (accountability) stays the per-item flow.
+function BatchAssignModal({ count, locations, onClose, onAssign, saving }) {
+  const [loc, setLoc] = useState('');
+  useEscapeKey(onClose);
+  const go = () => { if (loc.trim() && !saving) onAssign(loc); };
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:16, padding:28, width:'100%', maxWidth:440, boxShadow:'var(--shadow-lg)' }}>
+        <h3 style={{ margin:'0 0 6px', fontSize:16, fontWeight:700 }}>Assign {count} item{count !== 1 ? 's' : ''} to a location</h3>
+        <p style={{ margin:'0 0 16px', fontSize:13, color:'var(--muted)' }}>
+          Set where these items physically live. They’ll appear under this location in <strong>Who Has What → By Location</strong>. (To assign an item to a person, use the Assign button on that item.)
+        </p>
+        <label style={{ display:'block', fontSize:10.5, fontWeight:700, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--muted)', marginBottom:5 }}>Location</label>
+        <input className="form-input" list="batch-assign-locs" value={loc} autoFocus
+          onChange={e => setLoc(e.target.value)} onKeyDown={e => e.key === 'Enter' && go()}
+          placeholder="e.g. GSE, GG Corp, GST…" style={{ width:'100%' }} />
+        <datalist id="batch-assign-locs">{locations.map(l => <option key={l} value={l} />)}</datalist>
+        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:22 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={saving}>Cancel</button>
+          <button onClick={go} disabled={!loc.trim() || saving}
+            style={{ display:'inline-flex', alignItems:'center', gap:6, background:'hsl(var(--color-blue))', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor:(!loc.trim()||saving)?'default':'pointer', fontFamily:'Inter,sans-serif', opacity:(!loc.trim()||saving)?0.55:1 }}>
+            {saving ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <MapPin size={14} />} Assign {count}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Batch Photo Modal ─────────────────────────────────────────────────────────
 const PHOTO_TYPE_ORDER = ['Vehicles', 'Devices', 'Tools', 'Equipment', 'Keys', 'Other'];
 
@@ -3427,7 +3987,7 @@ const PHOTO_TYPE_ORDER = ['Vehicles', 'Devices', 'Tools', 'Equipment', 'Keys', '
 // Computers must scope this modal to those 34, not all 437. The master link bar
 // (Visesh) sets one image on every shown item at once, and AI fill now lives here
 // (Neil: AI fill belongs in batch photo edit, never on the Manage bar).
-function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
+function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate, toast }) {
   useEscapeKey(onClose);
   const [urlInputs,  setUrlInputs]  = useState({});
   const [saving,     setSaving]     = useState({});
@@ -3437,6 +3997,9 @@ function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
   const [masterUrl,  setMasterUrl]  = useState('');
   const [applyingMaster,  setApplyingMaster]  = useState(false); // master-link apply in flight
   const [uploadingMaster, setUploadingMaster] = useState(false); // master-upload apply in flight
+  const [pasteFocusId, setPasteFocusId] = useState(null);        // slot armed for Ctrl+V paste
+  const [confirmState, setConfirmState] = useState(null);        // in-app confirm: { message, fn }
+  const askConfirm = (message, fn) => setConfirmState({ message, fn });
   const fileRefs = useRef({});
   const masterFileRef = useRef(null);
 
@@ -3468,31 +4031,51 @@ function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
     return ok;
   }
 
-  // Master LINK: apply a pasted url to every shown item.
-  async function applyMasterUrl() {
+  // Master LINK: apply a pasted url to every shown item (one in-app confirm).
+  function applyMasterUrl() {
     const url = masterUrl.trim();
     if (!url.startsWith('https://') && !url.startsWith('http://')) {
       toast?.('Master link must start with https://', 'error'); return;
     }
-    if (!window.confirm(`Set this image on all ${items.length} shown item${items.length !== 1 ? 's' : ''}? This overwrites their current photos.`)) return;
-    setApplyingMaster(true);
-    const ok = await pushUrlToAll(url);
-    setApplyingMaster(false);
-    setMasterUrl('');
-    toast?.(`Applied the master photo to ${ok} item${ok !== 1 ? 's' : ''}.`, ok ? 'success' : 'error');
+    askConfirm('This sets the linked image on every item and overwrites their current photos.', async () => {
+      setApplyingMaster(true);
+      const ok = await pushUrlToAll(url);
+      setApplyingMaster(false);
+      setMasterUrl('');
+      toast?.(`Applied the master photo to ${ok} item${ok !== 1 ? 's' : ''}.`, ok ? 'success' : 'error');
+    });
   }
 
-  // Master UPLOAD: upload ONE image, then apply it to every shown item.
-  async function applyMasterFile(file) {
+  // Master UPLOAD: upload ONE image, then apply it to every shown item (one confirm).
+  function applyMasterFile(file) {
     if (!file) return;
-    if (!window.confirm(`Upload this image and set it on all ${items.length} shown item${items.length !== 1 ? 's' : ''}? This overwrites their current photos.`)) return;
-    setUploadingMaster(true);
-    const path = `items/_batch/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-    const { url, error } = await uploadToSupabase(file, 'item-photos', path);
-    if (error) { toast?.(error, 'error'); setUploadingMaster(false); return; }
-    const ok = await pushUrlToAll(url);
-    setUploadingMaster(false);
-    toast?.(`Applied the uploaded photo to ${ok} item${ok !== 1 ? 's' : ''}.`, ok ? 'success' : 'error');
+    askConfirm('This uploads the image and sets it on every item, overwriting their current photos.', async () => {
+      setUploadingMaster(true);
+      const name = (file.name || 'photo.png').replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `items/_batch/${Date.now()}-${name}`;
+      const { url, error } = await uploadToSupabase(file, 'item-photos', path);
+      if (error) { toast?.(error, 'error'); setUploadingMaster(false); return; }
+      const ok = await pushUrlToAll(url);
+      setUploadingMaster(false);
+      toast?.(`Applied the uploaded photo to ${ok} item${ok !== 1 ? 's' : ''}.`, ok ? 'success' : 'error');
+    });
+  }
+
+  // Paste an image onto the master bar → upload once and apply it to every item
+  // (after a confirm). Pasting text (a URL) into the link box still works normally.
+  function handleMasterPaste(e) {
+    const list = e.clipboardData?.items || [];
+    for (const it of list) {
+      if (it.type && it.type.startsWith('image/')) {
+        const blob = it.getAsFile();
+        if (blob) {
+          e.preventDefault();
+          const file = blob.name ? blob : new File([blob], `paste-${Date.now()}.png`, { type: blob.type || 'image/png' });
+          applyMasterFile(file);
+          return;
+        }
+      }
+    }
   }
 
   // AI fill ONE item. Never replaces an existing photo (replace=false) — Neil's
@@ -3535,7 +4118,8 @@ function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
   async function handleFile(item, file) {
     if (!file) return;
     setUploading(p => ({ ...p, [item.id]: true }));
-    const path = `items/${item.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const name = (file.name || 'photo.png').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `items/${item.id}/${Date.now()}-${name}`;
     const { url, error } = await uploadToSupabase(file, 'item-photos', path);
     if (error) { toast?.(error, 'error'); setUploading(p => ({ ...p, [item.id]: false })); return; }
     try {
@@ -3549,25 +4133,44 @@ function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
     }
   }
 
+  // Paste an image straight onto a slot (Ctrl/Cmd+V) — copy a screenshot or an
+  // image file, click the photo box, and paste. Clipboard images often arrive as
+  // a nameless blob, so give them a filename for the upload.
+  function handlePaste(item, e) {
+    const list = e.clipboardData?.items || [];
+    for (const it of list) {
+      if (it.type && it.type.startsWith('image/')) {
+        const blob = it.getAsFile();
+        if (blob) {
+          e.preventDefault();
+          const file = blob.name ? blob : new File([blob], `paste-${Date.now()}.png`, { type: blob.type || 'image/png' });
+          handleFile(item, file);
+          return;
+        }
+      }
+    }
+  }
+
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:680, maxHeight:'90vh', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)' }}>
         {/* Header */}
-        <div style={{ padding:'20px 24px 16px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
-          <div>
-            <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>Batch Update Photos</h3>
-            <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>{withPhotos} / {items.length} shown item{items.length !== 1 ? 's' : ''} have photos · scoped to your current filters</p>
+        <div style={{ padding:'18px 24px 16px', borderBottom:'1px solid var(--line)', flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+            <BatchTabs tab="photos" onTab={onSwitchTab} />
+            <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
           </div>
-          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
+          <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>Photos · {items.length} {usingSelection ? 'selected' : 'shown'} item{items.length !== 1 ? 's' : ''}</h3>
+          <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>{withPhotos} / {items.length} have a photo · click a photo box and press <strong>Ctrl/Cmd+V</strong> to paste an image</p>
         </div>
         {/* Controls: a single master image — pasted as a link OR uploaded —
             applied to every shown item. Apply sits on the right; Upload to all
             beside it on the left. */}
-        <div style={{ padding:'12px 24px', borderBottom:'1px solid var(--line)', display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', flexShrink:0 }}>
+        <div onPaste={handleMasterPaste} style={{ padding:'12px 24px', borderBottom:'1px solid var(--line)', display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', flexShrink:0 }}>
           <Link2 size={15} style={{ color:'var(--muted)', flexShrink:0 }} />
           <input value={masterUrl} onChange={e => setMasterUrl(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !applyingMaster && !uploadingMaster && applyMasterUrl()}
-            placeholder="Master image link — applied to all shown items"
+            placeholder="Master image link, or paste an image to apply to all"
             className="form-input" style={{ flex:1, minWidth:200, fontSize:12.5, padding:'7px 10px', height:34 }} />
           <input type="file" accept="image/*" style={{ display:'none' }} ref={masterFileRef}
             onChange={e => { const f = e.target.files?.[0]; if (f) applyMasterFile(f); e.target.value = ''; }} />
@@ -3593,11 +4196,24 @@ function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
             const isUploading = uploading[item.id];
             return (
               <div key={item.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 0', borderBottom:'1px solid var(--line)' }}>
-                {/* Thumb */}
-                <div style={{ width:44, height:44, borderRadius:8, flexShrink:0, overflow:'hidden', background: currentUrl ? 'transparent' : tm.bg, border:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                  {currentUrl
+                {/* Thumb — also a paste target: click it, then Ctrl/Cmd+V to paste an image */}
+                <div tabIndex={0} role="button"
+                  title="Click, then press Ctrl/Cmd+V to paste an image"
+                  onPaste={e => handlePaste(item, e)}
+                  onFocus={() => setPasteFocusId(item.id)}
+                  onBlur={() => setPasteFocusId(p => p === item.id ? null : p)}
+                  style={{ position:'relative', width:44, height:44, borderRadius:8, flexShrink:0, overflow:'hidden', background: currentUrl ? 'transparent' : tm.bg, cursor:'pointer', outline:'none',
+                    border: pasteFocusId === item.id ? '2px solid var(--pine)' : '1px solid var(--line)',
+                    boxShadow: pasteFocusId === item.id ? '0 0 0 3px hsla(var(--color-green),0.18)' : 'none',
+                    display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  {isUploading
+                    ? <Loader2 size={18} style={{ animation:'spin 1s linear infinite', color:'var(--muted)' }} />
+                    : currentUrl
                     ? <img src={currentUrl} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
                     : <tm.Icon size={20} color={tm.color} />}
+                  {pasteFocusId === item.id && !isUploading && (
+                    <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', background:'hsla(var(--color-green),0.15)', fontSize:8.5, fontWeight:800, color:'var(--pine)', letterSpacing:'.02em' }}>⌘/Ctrl V</span>
+                  )}
                 </div>
                 {/* Name + location */}
                 <div style={{ flex:1, minWidth:0 }}>
@@ -3644,6 +4260,24 @@ function BatchPhotoModal({ items, onClose, onUpdate, toast }) {
           <button className="secondary-btn" onClick={onClose}>Done</button>
         </div>
       </div>
+      {/* In-app confirm for the master "apply to all" actions — one prompt, Nexus
+          styled, never the browser's native dialog. */}
+      {confirmState && (
+        <div onClick={e => e.target === e.currentTarget && setConfirmState(null)}
+          style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', zIndex:1300, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          <div style={{ background:'var(--card)', borderRadius:14, padding:'22px 24px', width:'100%', maxWidth:400, boxShadow:'var(--shadow-lg)' }}>
+            <h3 style={{ margin:'0 0 7px', fontSize:15, fontWeight:700 }}>Apply to all {items.length} item{items.length !== 1 ? 's' : ''}?</h3>
+            <p style={{ margin:'0 0 18px', fontSize:13, color:'var(--muted)', lineHeight:1.55 }}>{confirmState.message}</p>
+            <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
+              <button className="secondary-btn" onClick={() => setConfirmState(null)}>Cancel</button>
+              <button onClick={() => { const fn = confirmState.fn; setConfirmState(null); fn?.(); }}
+                style={{ background:'var(--pine)', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+                Apply to {items.length}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3718,7 +4352,7 @@ function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved, toast
           <Row label="Ownership">{item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}</Row>
           <Row label="Lifecycle"><StatusBadge status={displayStatus(item)} /></Row>
           <Row label="Asset value">{Number(item.assetValue) > 0 ? fmtMoney(item.assetValue) : '—'}</Row>
-          {personHeld && <Row label="Held by">{item.assignedToName || item.assignedToEmail}</Row>}
+          {personHeld && <Row label="Held by">{item.assignedToName || auditName(item.assignedToEmail)}</Row>}
 
           {/* Operational status (Neil) */}
           <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', letterSpacing:'.06em', margin:'16px 0 4px' }}>OPERATIONAL STATUS</div>
@@ -3908,16 +4542,30 @@ function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
 // ── Recycle Bin (deleted items) ───────────────────────────────────────────────
 // Soft-deleted items, restorable (Ankush). Shows "Deleted In" = location at the
 // time of deletion, plus who/when.
-function DeletedItemsModal({ onClose, onRestored, toast }) {
+function DeletedItemsModal({ onClose, onRestored, toast, highlightId }) {
   useEscapeKey(onClose);
   const [rows,      setRows]      = useState(null);
   const [selected,  setSelected]  = useState(new Set());
   const [busy,      setBusy]      = useState(false);
+  const [flash,     setFlash]     = useState(null);   // item id glowing (from "Open item →")
+  const highlightRef = useRef(null);
+  const nameOf = useNameResolver();
 
   const load = useCallback(() => {
     api.getDeletedItems().then(setRows).catch(() => setRows([]));
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  // Once the list loads, scroll to + select + glow the item we were sent here for.
+  useEffect(() => {
+    if (!highlightId || !rows) return;
+    if (!rows.some(r => r.id === highlightId)) return; // not in the bin (e.g. purged)
+    setFlash(highlightId);
+    setSelected(new Set([highlightId]));
+    if (highlightRef.current) highlightRef.current.scrollIntoView({ behavior:'smooth', block:'center' });
+    const t = setTimeout(() => setFlash(null), 2800);
+    return () => clearTimeout(t);
+  }, [highlightId, rows]);
 
   const toggle = id => setSelected(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const fmtWhen = iso => { try { return new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }); } catch { return ''; } };
@@ -3965,7 +4613,8 @@ function DeletedItemsModal({ onClose, onRestored, toast }) {
                 The recycle bin is empty.
               </div>
             ) : rows.map(item => (
-              <div key={item.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 0', borderBottom:'1px solid var(--line)' }}>
+              <div key={item.id} ref={item.id === highlightId ? highlightRef : null}
+                style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 12px', margin:'0 -12px', borderBottom:'1px solid var(--line)', background: flash === item.id ? 'hsla(40,92%,55%,0.18)' : 'transparent', boxShadow: flash === item.id ? 'inset 4px 0 0 hsl(40,92%,50%)' : 'none', borderRadius: flash === item.id ? 8 : 0, transition:'background .9s ease, box-shadow .9s ease' }}>
                 <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)} style={{ cursor:'pointer', accentColor:'var(--pine)', flexShrink:0 }} />
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontWeight:600, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:8 }}>
@@ -3979,7 +4628,7 @@ function DeletedItemsModal({ onClose, onRestored, toast }) {
                   <div style={{ fontSize:11.5, color:'var(--muted)' }}>
                     {item.serialNumber || '—'} · Deleted in <strong style={{ color:'var(--ink)' }}>{item.deletedLocation || '—'}</strong>
                     {item.deletedAt && <> · {fmtWhen(item.deletedAt)}</>}
-                    {item.deletedBy && <> · by {item.deletedBy}</>}
+                    {item.deletedBy && <> · by {nameOf(item.deletedBy)}</>}
                   </div>
                 </div>
                 <button onClick={() => restore([item.id])} disabled={busy}
@@ -4082,7 +4731,7 @@ function SendAlertModal({ onClose, toast }) {
                   <label key={u.email} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 14px', cursor:'pointer', borderBottom:'1px solid var(--line)', background: checked ? 'hsla(var(--color-green),0.06)' : 'transparent' }}>
                     <input type="checkbox" checked={checked} onChange={() => toggleUser(u.email)} style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
                     <div style={{ flex:1 }}>
-                      <div style={{ fontWeight:600, fontSize:13 }}>{u.display_name || u.email}</div>
+                      <div style={{ fontWeight:600, fontSize:13 }}>{u.display_name || auditName(u.email)}</div>
                       <div style={{ fontSize:11.5, color:'var(--muted)' }}>{u.email}</div>
                     </div>
                   </label>
@@ -4278,9 +4927,11 @@ function OverdueAlertModal({ checkouts, onClose, toast, onCustomAlert }) {
 // Memoised rows so toggling ONE checkbox re-renders only that row, not all 360+
 // (selecting an item used to repaint the whole table — visible mouse lag). isSelected
 // is a boolean and every handler is stable, so memo skips the untouched rows.
-const ManageRow = memo(function ManageRow({ item, isSelected, onToggle, onEdit, onDelete, onAssign, onDetails, onPreview, canDelete }) {
+const ManageRow = memo(function ManageRow({ item, isSelected, highlight, onToggle, onEdit, onDelete, onAssign, onDetails, onPreview, canDelete }) {
+  const ref = useRef(null);
+  useEffect(() => { if (highlight && ref.current) ref.current.scrollIntoView({ behavior:'smooth', block:'center' }); }, [highlight]);
   return (
-    <tr style={{ borderTop:'1px solid var(--line)', background: isSelected ? 'hsla(var(--color-blue),0.05)' : 'transparent' }}>
+    <tr ref={ref} style={{ borderTop:'1px solid var(--line)', background: highlight ? 'hsla(40,92%,55%,0.22)' : isSelected ? 'hsla(var(--color-blue),0.05)' : 'transparent', boxShadow: highlight ? 'inset 4px 0 0 hsl(40,92%,50%)' : 'none', transition:'background .9s ease, box-shadow .9s ease' }}>
       <td style={{ padding:'10px 14px' }}>
         <input type="checkbox" checked={isSelected} onChange={() => onToggle(item.id)}
           style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
@@ -4353,9 +5004,11 @@ const ManageRow = memo(function ManageRow({ item, isSelected, onToggle, onEdit, 
   );
 });
 
-const ManageCard = memo(function ManageCard({ item, isSelected, onToggle, onEdit, onDelete, onAssign, onDetails, onPreview, canDelete }) {
+const ManageCard = memo(function ManageCard({ item, isSelected, highlight, onToggle, onEdit, onDelete, onAssign, onDetails, onPreview, canDelete }) {
+  const ref = useRef(null);
+  useEffect(() => { if (highlight && ref.current) ref.current.scrollIntoView({ behavior:'smooth', block:'center' }); }, [highlight]);
   return (
-    <div style={{ border:'1px solid var(--line)', borderRadius:12, background: isSelected ? 'hsla(var(--color-blue),0.05)' : 'var(--card)', padding:'12px 14px', boxShadow:'var(--shadow-sm)' }}>
+    <div ref={ref} style={{ border:'1px solid', borderColor: highlight ? 'hsl(40,92%,50%)' : 'var(--line)', borderRadius:12, background: highlight ? 'hsla(40,92%,55%,0.16)' : isSelected ? 'hsla(var(--color-blue),0.05)' : 'var(--card)', padding:'12px 14px', boxShadow: highlight ? '0 0 0 3px hsla(40,92%,50%,0.2)' : 'var(--shadow-sm)', transition:'background .9s ease, box-shadow .9s ease, border-color .9s ease' }}>
       <div style={{ display:'flex', alignItems:'center', gap:10 }}>
         <input type="checkbox" checked={isSelected} onChange={() => onToggle(item.id)}
           style={{ cursor:'pointer', accentColor:'var(--pine)', flexShrink:0 }} />
@@ -4402,14 +5055,19 @@ const ManageCard = memo(function ManageCard({ item, isSelected, onToggle, onEdit
   );
 });
 
-const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, filterControls }) {
+const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, filterControls, highlightId, onHighlightDone }) {
   const [photoPreview,       setPhotoPreview]       = useState(null);
+  const [exportMenu,         setExportMenu]         = useState(false); // Export ▾ dropdown
   const [selected,           setSelected]           = useState(new Set());
   const [sortCol,            setSortCol]            = useState('name');
   const [sortDir,            setSortDir]            = useState('asc');
-  const [batchPhotoOpen,     setBatchPhotoOpen]     = useState(false);
-  const [batchEditOpen,      setBatchEditOpen]      = useState(false);
+  // One unified Batch modal with two tabs (Neil: merge "Batch Update Photos" and
+  // "Edit" into a single feature). batchTab picks which face shows.
+  const [batchOpen,          setBatchOpen]          = useState(false);
+  const [batchTab,           setBatchTab]           = useState('fields'); // 'fields' | 'photos'
   const [batchEditing,       setBatchEditing]       = useState(false);
+  const [batchAssignOpen,    setBatchAssignOpen]    = useState(false);
+  const [batchAssigning,     setBatchAssigning]     = useState(false);
   const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false);
   const [batchDeleting,      setBatchDeleting]      = useState(false);
   const isMobile = useIsMobile(); // phones render cards, not the table
@@ -4476,11 +5134,38 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
   const padTop = vStart * ROW_H;
   const padBot = Math.max(0, (sorted.length - vEnd) * ROW_H);
 
+  // Jump to + flash a specific item (the Audit Log "Open item →"). The parent
+  // clears the filters first so the row is guaranteed visible; we scroll the
+  // virtualized list to it (the row's own ref then centres it) and glow for ~2.5s.
+  const [flashId, setFlashId] = useState(null);
+  useEffect(() => {
+    if (!highlightId) return;
+    const idx = sorted.findIndex(i => i.id === highlightId);
+    if (idx < 0) { onHighlightDone?.(); return; }
+    setFlashId(highlightId);
+    if (!isMobile && scrollRef.current) {
+      const target = Math.max(0, idx * ROW_H - viewportH / 2 + ROW_H / 2);
+      scrollRef.current.scrollTop = target;
+      setScrollTop(target);
+    }
+    const t = setTimeout(() => { setFlashId(null); onHighlightDone?.(); }, 2600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightId]);
+
   const missingPhotos = items.filter(i => !i.photoUrl).length;
   const selItems      = filtered.filter(i => selected.has(i.id));
   const blockedItems  = selItems.filter(i =>
     (checkouts || []).some(c => c.itemId === i.id && ['pending','approved','pending_receipt','allocated'].includes(c.status))
   );
+  // What a batch action operates on: the explicit selection if any rows are
+  // ticked, otherwise everything currently shown under the filters (Neil: never
+  // forced to all 500 — selecting six, or filtering to a type, scopes the batch).
+  // Batch acts ONLY on the explicit selection — never "everything shown" by
+  // default (Neil: people will mass-edit by accident; make them tick rows first.
+  // Select-all is one click away when they really want every row).
+  const usingSelection = selItems.length > 0;
+  const batchScope     = selItems;
 
   // Stable so memoized rows don't all re-render on every checkbox toggle.
   const toggleSelect = useCallback(id => {
@@ -4496,18 +5181,38 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
 
   async function executeBatchEdit(fields) {
     setBatchEditing(true);
-    const ids = selItems.map(i => i.id);
+    const ids = batchScope.map(i => i.id);
     try {
       const res = await api.bulkUpdateItems(ids, fields);
       await refreshItems();
       setSelected(new Set());
-      setBatchEditOpen(false);
+      setBatchOpen(false);
       const n = res?.updated ?? ids.length;
       toast?.(`Updated ${n} item${n !== 1 ? 's' : ''}.`);
     } catch {
       toast?.('Could not update the selected items. Please try again.', 'error');
     } finally {
       setBatchEditing(false);
+    }
+  }
+
+  // Batch assign = set the location on the selection ("assign all to GSE"). A
+  // permanent item that nobody personally holds simply lives at a place — that
+  // place IS its assignment (Neil). Person-assignment stays the per-item flow.
+  async function executeBatchAssign(location) {
+    setBatchAssigning(true);
+    const ids = selItems.map(i => i.id);
+    const loc = (location || '').trim();
+    try {
+      await api.bulkUpdateItems(ids, { location: loc });
+      await refreshItems();
+      setSelected(new Set());
+      setBatchAssignOpen(false);
+      toast?.(`Assigned ${ids.length} item${ids.length !== 1 ? 's' : ''} to ${loc || 'no location'}.`);
+    } catch {
+      toast?.('Could not assign the selected items. Please try again.', 'error');
+    } finally {
+      setBatchAssigning(false);
     }
   }
 
@@ -4564,43 +5269,62 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
         <button className="primary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onAdd}>
           <Plus size={14} /> Add Item
         </button>
+        {onManageCustomFields && (
+          <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onManageCustomFields}>
+            <Plus size={14} /> Add Custom Field
+          </button>
+        )}
         <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onImport}>
           <UploadCloud size={14} /> Import CSV
         </button>
-        <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onExport} disabled={!items.length}>
-          <Download size={14} /> Export CSV
-        </button>
-        <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onReport}>
-          <FileBarChart size={14} /> Export Report
-        </button>
-        {onManageCustomFields && (
-          <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onManageCustomFields}>
-            <FileText size={14} /> Custom Fields
+        {/* Export ▾ — one button, two choices (Neil): the whole inventory as a
+            flat CSV, or a report (CSV/PDF) honoring the filters currently applied. */}
+        <div style={{ position:'relative' }}>
+          <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={() => setExportMenu(o => !o)}>
+            <Download size={14} /> Export <ChevronDown size={13} style={{ opacity:.6 }} />
           </button>
-        )}
+          {exportMenu && (
+            <>
+              {/* click-away backdrop */}
+              <div style={{ position:'fixed', inset:0, zIndex:40 }} onClick={() => setExportMenu(false)} />
+              <div style={{ position:'absolute', top:'calc(100% + 6px)', left:0, zIndex:41, background:'var(--card)', border:'1px solid var(--line)', borderRadius:10, boxShadow:'var(--shadow-lg)', minWidth:262, overflow:'hidden', padding:5 }}>
+                <button onClick={() => { setExportMenu(false); onExport(items); }}
+                  style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:1, width:'100%', textAlign:'left', background:'none', border:'none', cursor:'pointer', padding:'9px 11px', borderRadius:7, fontFamily:'Inter,sans-serif' }}
+                  onMouseEnter={e => e.currentTarget.style.background='var(--mist)'} onMouseLeave={e => e.currentTarget.style.background='none'}>
+                  <span style={{ display:'inline-flex', alignItems:'center', gap:7, fontSize:13, fontWeight:700, color:'var(--ink)' }}><FileSpreadsheet size={14} /> Full inventory (CSV)</span>
+                  <span style={{ fontSize:11.5, color:'var(--muted)', paddingLeft:21 }}>Every item — all {items.length}, filters ignored</span>
+                </button>
+                <button onClick={() => { setExportMenu(false); onReport({ dept: deptFilter, itemType: typeFilter }); }}
+                  style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:1, width:'100%', textAlign:'left', background:'none', border:'none', cursor:'pointer', padding:'9px 11px', borderRadius:7, fontFamily:'Inter,sans-serif' }}
+                  onMouseEnter={e => e.currentTarget.style.background='var(--mist)'} onMouseLeave={e => e.currentTarget.style.background='none'}>
+                  <span style={{ display:'inline-flex', alignItems:'center', gap:7, fontSize:13, fontWeight:700, color:'var(--ink)' }}><FileBarChart size={14} /> Report (CSV / PDF)…</span>
+                  <span style={{ fontSize:11.5, color:'var(--muted)', paddingLeft:21 }}>Formatted, honoring your current filters</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
         {canDelete && onShowDeleted && (
           <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onShowDeleted}>
             <Trash2 size={14} /> Recycle Bin
           </button>
         )}
-        {/* Batch Update Photos */}
-        <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7, position:'relative' }} onClick={() => setBatchPhotoOpen(true)}>
-          <Image size={14} /> Batch Update Photos
-          {missingPhotos > 0 && (
-            <span style={{ position:'absolute', top:-6, right:-6, background:'hsl(var(--color-red))', color:'#fff', borderRadius:'50%', width:16, height:16, fontSize:9.5, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>
-              {missingPhotos > 99 ? '99+' : missingPhotos}
-            </span>
-          )}
-        </button>
-        {/* AI photo fill moved INTO Batch Update Photos (Neil: it's dangerous on the
-            Manage bar — one click could overwrite a whole catalogue's real photos).
-            It now lives per-row + "AI fill all shown" inside that modal, scoped to
-            the current filter. */}
-        {/* Batch edit — change the same field(s) across the selection */}
+        {/* Batch Edit — one feature, two tabs (Fields / Photos). Only available
+            once rows are ticked (Neil: never act on everything by default). The
+            "select all" header checkbox + Batch Edit covers the whole-list case.
+            (AI photo fill lives inside the Photos tab.) */}
         {selected.size > 0 && (
-          <button onClick={() => setBatchEditOpen(true)}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, background:'var(--pine)', color:'#fff', border:'none', borderRadius:9, padding:'7px 14px', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-            <Pencil size={13} /> Edit {selected.size}
+          <button onClick={() => { setBatchTab('fields'); setBatchOpen(true); }}
+            title={`Batch edit the ${selItems.length} selected item${selItems.length !== 1 ? 's' : ''}`}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, position:'relative', background:'var(--pine)', color:'#fff', border:'none', borderRadius:9, padding:'7px 14px', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+            <Pencil size={13} /> Batch Edit ({selItems.length})
+          </button>
+        )}
+        {/* Batch assign to a location — Neil: "select all → assign to GSE" */}
+        {selected.size > 0 && (
+          <button onClick={() => setBatchAssignOpen(true)}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, background:'hsl(var(--color-blue))', color:'#fff', border:'none', borderRadius:9, padding:'7px 14px', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+            <MapPin size={13} /> Assign {selected.size}
           </button>
         )}
         {/* Batch delete */}
@@ -4640,7 +5364,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
             </span>
           </label>
           {sorted.map(item => (
-            <ManageCard key={item.id} item={item} isSelected={selected.has(item.id)}
+            <ManageCard key={item.id} item={item} isSelected={selected.has(item.id)} highlight={flashId === item.id}
               onToggle={toggleSelect} onEdit={onEdit} onDelete={onDelete} onAssign={onAssign}
               onDetails={onDetails} onPreview={setPhotoPreview} canDelete={canDelete} />
           ))}
@@ -4676,7 +5400,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
               {/* Spacer for the rows scrolled past above the viewport */}
               {padTop > 0 && <tr aria-hidden="true"><td colSpan={13} style={{ height:padTop, padding:0, border:'none' }} /></tr>}
               {vSlice.map(item => (
-                <ManageRow key={item.id} item={item} isSelected={selected.has(item.id)}
+                <ManageRow key={item.id} item={item} isSelected={selected.has(item.id)} highlight={flashId === item.id}
                   onToggle={toggleSelect} onEdit={onEdit} onDelete={onDelete} onAssign={onAssign}
                   onDetails={onDetails} onPreview={setPhotoPreview} canDelete={canDelete} />
               ))}
@@ -4692,14 +5416,27 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
       </p>
 
       {photoPreview && <ImageLightbox src={photoPreview} onClose={() => setPhotoPreview(null)} />}
-      {batchPhotoOpen && (
-        <BatchPhotoModal items={sorted} onClose={() => setBatchPhotoOpen(false)} onUpdate={refreshItems} toast={toast} />
-      )}
-      {batchEditOpen && (
+      {batchOpen && batchTab === 'fields' && (
         <BatchEditModal
-          selectedItems={selItems}
-          onClose={() => setBatchEditOpen(false)}
+          selectedItems={batchScope}
+          usingSelection={usingSelection}
+          onSwitchTab={setBatchTab}
+          onClose={() => setBatchOpen(false)}
           onSave={executeBatchEdit} saving={batchEditing} />
+      )}
+      {batchOpen && batchTab === 'photos' && (
+        <BatchPhotoModal
+          items={batchScope}
+          usingSelection={usingSelection}
+          onSwitchTab={setBatchTab}
+          onClose={() => setBatchOpen(false)} onUpdate={refreshItems} toast={toast} />
+      )}
+      {batchAssignOpen && (
+        <BatchAssignModal
+          count={selItems.length}
+          locations={[...new Set(items.map(i => i.location).filter(Boolean))].sort()}
+          onClose={() => setBatchAssignOpen(false)}
+          onAssign={executeBatchAssign} saving={batchAssigning} />
       )}
       {batchDeleteConfirm && (
         <BatchDeleteConfirmModal
@@ -6191,6 +6928,7 @@ function WhwItemDetailCard({ item, checkout, holderName, onClose, onAct, actLabe
 // assignments and transient checkouts — Neil's "permanent vs transient" ask.
 const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckouts }) {
   const [search, setSearch] = useState('');
+  const [view, setView] = useState('person'); // 'person' | 'location' (Neil: split Who Has What)
   const [photoPreview, setPhotoPreview] = useState(null);
   const [detail, setDetail] = useState(null);
 
@@ -6255,14 +6993,83 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
     h.transient.reduce((s, c) => s + (Number(items.find(i => i.id === c.itemId)?.assetValue) || 0), 0) +
     h.permanent.reduce((s, i) => s + (Number(i.assetValue) || 0), 0);
 
+  // By-location view — everything physically AT a place (Neil: "search GSE, see
+  // everything that's there"). Groups every item by its location field.
+  const places = useMemo(() => {
+    const map = new Map();
+    for (const i of items) {
+      const loc = (i.location || '').trim() || '— No location set —';
+      if (!map.has(loc)) map.set(loc, { location: loc, items: [], value: 0 });
+      const g = map.get(loc);
+      g.items.push(i);
+      g.value += Number(i.assetValue) || 0;
+    }
+    return [...map.values()].sort((a, b) => a.location.localeCompare(b.location));
+  }, [items]);
+  const filteredPlaces = useMemo(() => places.filter(p =>
+    !search || p.location.toLowerCase().includes(search.toLowerCase()) ||
+    p.items.some(i => (i.name || '').toLowerCase().includes(search.toLowerCase()))
+  ), [places, search]);
+  const holderOf = (i) => {
+    if (i.assignedToName || i.assignedToEmail) return i.assignedToName || i.assignedToEmail;
+    const co = checkouts.find(c => c.itemId === i.id && ['approved','pending_receipt','allocated'].includes(c.status));
+    return co ? co.requestedBy : '';
+  };
+
   return (
     <div>
-      <div className="search-bar" style={{ maxWidth:420, marginBottom:20 }}>
-        <Search size={14} style={{ flexShrink:0 }} />
-        <input placeholder="Search by person or item…" value={search} onChange={e => setSearch(e.target.value)} autoFocus />
+      <div style={{ display:'flex', gap:12, alignItems:'center', marginBottom:20, flexWrap:'wrap' }}>
+        <div className="search-bar" style={{ flex:1, minWidth:220, maxWidth:420, marginBottom:0 }}>
+          <Search size={14} style={{ flexShrink:0 }} />
+          <input placeholder={view === 'person' ? 'Search by person or item…' : 'Search by location or item…'} value={search} onChange={e => setSearch(e.target.value)} autoFocus />
+        </div>
+        {/* By Person / By Location (Neil: search GSE → see everything there) */}
+        <div style={{ display:'inline-flex', border:'1px solid var(--line)', borderRadius:9, overflow:'hidden', flexShrink:0 }}>
+          {[['person', 'By Person', User], ['location', 'By Location', MapPin]].map(([k, label, Icon]) => (
+            <button key={k} onClick={() => setView(k)}
+              style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'7px 14px', fontSize:12.5, fontWeight:700, border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif', background: view === k ? 'var(--pine)' : 'var(--card)', color: view === k ? '#fff' : 'var(--muted)' }}>
+              <Icon size={13} /> {label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {view === 'location' ? (
+        filteredPlaces.length === 0 ? (
+          <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)' }}>
+            <MapPin size={32} style={{ opacity:.25, display:'block', margin:'0 auto 10px' }} />
+            {search ? 'No location or item matches your search.' : 'No items yet.'}
+          </div>
+        ) : (
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(330px,1fr))', gap:14 }}>
+            {filteredPlaces.map(p => (
+              <div key={p.location} style={{ border:'1px solid var(--line)', borderRadius:12, background:'var(--card)', boxShadow:'var(--shadow-sm)', overflow:'hidden' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:11, padding:'13px 16px', borderBottom:'1px solid var(--line)', background:'var(--mist)' }}>
+                  <div style={{ width:34, height:34, borderRadius:9, background:'hsla(var(--color-green),0.14)', color:'hsl(var(--color-green))', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}><MapPin size={17} /></div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:700, fontSize:13.5, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}><HighlightMatch text={p.location} query={search} /></div>
+                    <div style={{ fontSize:11.5, color:'var(--muted)' }}>{p.items.length} item{p.items.length !== 1 ? 's' : ''}{p.value > 0 && <> · <strong style={{ color:'var(--ink)' }}>{fmtMoney(p.value)}</strong></>}</div>
+                  </div>
+                </div>
+                <div style={{ padding:'10px 16px', display:'flex', flexDirection:'column', gap:6, maxHeight:340, overflowY:'auto' }}>
+                  {p.items.map(i => {
+                    const who = holderOf(i);
+                    return (
+                      <div key={i.id} onClick={() => setDetail({ item: i, holderName: who })} title="View item details"
+                        style={{ display:'flex', alignItems:'center', gap:8, fontSize:12.5, cursor:'pointer', borderRadius:7, padding:'4px 6px', margin:'0 -6px', transition:'background .12s' }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                        <span style={{ fontWeight:600, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}><HighlightMatch text={i.name} query={search} /></span>
+                        <TypeBadge type={i.itemType} />
+                        {who && <span style={{ fontSize:11, color:'var(--muted)', flexShrink:0, maxWidth:90, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{who}</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : filtered.length === 0 ? (
         <div style={{ textAlign:'center', padding:'56px 0', color:'var(--muted)' }}>
           <Users size={32} style={{ opacity:.25, display:'block', margin:'0 auto 10px' }} />
           {search ? 'Nobody matches your search.' : 'No items are currently allocated to anyone.'}
@@ -6414,6 +7221,8 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
 });
 
 // ── Main view ─────────────────────────────────────────────────────────────────
+const INV_VALID_TABS = ['myitems','catalog','manage','checkouts','whohasit','purchasereqs','audit'];
+
 export default function InventoryManagement({ activeSub }) {
   const {
     items, itemsLoading, itemsError,
@@ -6505,7 +7314,14 @@ export default function InventoryManagement({ activeSub }) {
   }
 
   // Manager-only tab/modal state
-  const [mainTab,       setMainTab]       = useState('catalog');
+  // Remember the last tab so a page refresh keeps you where you were instead of
+  // bouncing back to Catalog. Explicit navigation (activeSub / nexus:navigate)
+  // still wins over this saved default below.
+  const [mainTab, setMainTab] = useState(() => {
+    try { const s = localStorage.getItem('nexus_inv_tab'); if (s && INV_VALID_TABS.includes(s)) return s; } catch { /* ignore */ }
+    return 'catalog';
+  });
+  useEffect(() => { try { localStorage.setItem('nexus_inv_tab', mainTab); } catch { /* ignore */ } }, [mainTab]);
   // Who Has What → Checkouts deep-link: carries the person/item to prefill the
   // search so the landing view is already scoped to what was clicked.
   const [checkoutsPrefilter, setCheckoutsPrefilter] = useState(null);
@@ -6516,7 +7332,7 @@ export default function InventoryManagement({ activeSub }) {
 
   // Deep-link: NotificationBell navigates with ('inventory', subTab) — land on
   // that tab instead of the default Catalog so the click shows the relevant info.
-  const VALID_SUBTABS = ['myitems','catalog','manage','checkouts','whohasit','purchasereqs','audit'];
+  const VALID_SUBTABS = INV_VALID_TABS;
   // 'permanent' / 'active-checkouts' are sub-tabs inside My Items;
   // 'checkouts-completed' is the Completed filter inside Checkouts
   // (the inner components pick these up from the same event)
@@ -6542,9 +7358,21 @@ export default function InventoryManagement({ activeSub }) {
   const [typeFilter,    setTypeFilter]    = useState('All');
   // Master ownership filter: All | transient (temporary) | permanent.
   // Lets managers filter permanent items out of Catalog/Manage (Neil, Jun 16).
-  const [ownershipFilter, setOwnershipFilter] = useState('All');
+  // Default the ownership filter to Temporary (Neil: opening to hundreds of items
+  // is overwhelming; lead with the checkout-able/temporary ones). One click to All.
+  // Catalog is the employee browse view — they check out Temporary items and have
+  // no reason to see Permanent ones, so it leads with Temporary. Manage is the
+  // manager view and shows All ownership. The default resets per tab when you
+  // switch between the two (Neil).
+  const [ownershipFilter, setOwnershipFilter] = useState('transient');
   const [locationFilter, setLocationFilter] = useState('All');
   const [modelFilter,    setModelFilter]    = useState('All');
+  // Reset the ownership default when moving between the employee (Catalog) and
+  // manager (Manage) views — Temporary-only vs All.
+  useEffect(() => {
+    if (mainTab === 'catalog')     setOwnershipFilter('transient');
+    else if (mainTab === 'manage') setOwnershipFilter('All');
+  }, [mainTab]);
   // Type filter auto-populates from the data so imported types (e.g. "IP Camera")
   // appear alongside the built-in ones; "Other" stays last.
   // Ankush: when a DEPARTMENT is selected, hide types that department never has
@@ -6606,9 +7434,12 @@ export default function InventoryManagement({ activeSub }) {
   const [detailsItem,   setDetailsItem]   = useState(null);        // item Details slide-over (Ankush)
   const [deletingItem,  setDeletingItem]  = useState(null);
   const [deletedOpen,   setDeletedOpen]   = useState(false);       // recycle bin
+  const [highlightItemId,    setHighlightItemId]    = useState(null); // Manage row to glow (Audit "Open item")
+  const [deletedHighlightId, setDeletedHighlightId] = useState(null); // Recycle Bin row to glow
   const [customFieldsOpen, setCustomFieldsOpen] = useState(false); // custom-field admin
   const [importOpen,    setImportOpen]    = useState(false);
   const [reportOpen,    setReportOpen]    = useState(false);
+  const [reportInitial, setReportInitial] = useState(null); // seeds the report with the active filters
   const [sendAlertOpen, setSendAlertOpen] = useState(false);       // generic compose-your-own alert
   const [overdueAlertOpen, setOverdueAlertOpen] = useState(false); // person-grouped overdue alert (default)
   // Admin-defined custom field definitions — loaded once, surfaced in the Details
@@ -6645,7 +7476,10 @@ export default function InventoryManagement({ activeSub }) {
       .catch(err => { toast(err?.message || 'Could not add item.', 'error'); throw err; });
   }
   function handleEditItem(item, data) {
-    return api.updateItem(item.id, data)
+    // Only send what actually changed, so the audit log shows the real edit.
+    const changed = diffItemEdit(item, data);
+    if (Object.keys(changed).length === 0) { toast('No changes to save.'); return Promise.resolve(); }
+    return api.updateItem(item.id, changed)
       .then(updated => { patchItemLocal(updated); toast(`Updated "${data.name}".`); })
       .catch(err => { toast(err?.message || 'Could not save changes.', 'error'); throw err; });
   }
@@ -6680,9 +7514,9 @@ export default function InventoryManagement({ activeSub }) {
     [allocateItem, userName, toast]);
   const openAdd       = useCallback(() => setAddItemOpen(true), []);
   const openImport    = useCallback(() => setImportOpen(true), []);
-  const openReport    = useCallback(() => setReportOpen(true), []);
+  const openReport    = useCallback((ctx) => { setReportInitial(ctx || null); setReportOpen(true); }, []);
   const openSendAlert = useCallback(() => setOverdueAlertOpen(true), []);
-  const exportCsv     = useCallback(() => downloadItemsCsv(items, customFields), [items, customFields]);
+  const exportCsv     = useCallback((rows) => downloadItemsCsv(Array.isArray(rows) && rows.length ? rows : items, customFields), [items, customFields]);
   const openAssign    = useCallback((item, mode) => setAssigningItem({ item, mode }), []);
   const refreshAssignmentsAndItems = useCallback(() => { refreshAssignments(); refreshItems(); }, [refreshAssignments, refreshItems]);
   const handleConfirmReceipt = useCallback((co, batch, photoMap) =>
@@ -6890,6 +7724,7 @@ export default function InventoryManagement({ activeSub }) {
           onAssign={openAssign} onDetails={setDetailsItem}
           onShowDeleted={() => setDeletedOpen(true)}
           onManageCustomFields={() => setCustomFieldsOpen(true)}
+          highlightId={highlightItemId} onHighlightDone={() => setHighlightItemId(null)}
           filterControls={<div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', marginBottom:16 }}>{filterSelects}</div>}
         />
       )}
@@ -6934,7 +7769,28 @@ export default function InventoryManagement({ activeSub }) {
         <PurchaseRequestsTab userEmail={userEmail} userName={userName} isManager={isManager}
           onAssign={openAssign} toast={toast} />
       )}
-      {mainTab === 'audit' && <AuditLogPanel />}
+      {mainTab === 'audit' && <AuditLogPanel items={items} onChanged={refreshItems}
+        onOpenItem={(it) => {
+          const found = items.find(x => x.id === it.id) || items.find(x => x.name === it.name);
+          if (found) { setMainTab('manage'); setEditingItem(found); }
+          else toast('That item no longer exists (it may have been deleted).', 'error');
+        }}
+        onLocate={(it) => {
+          const found = items.find(x => x.id === it.id) || (it.name && items.find(x => x.name === it.name));
+          if (found) {
+            // Clear filters so the row is guaranteed visible, jump to Manage, glow
+            // it in the background, and open it for editing on top.
+            setSearch(''); setDeptFilter('All'); setTypeFilter('All'); setOwnershipFilter('All'); setLocationFilter('All'); setModelFilter('All');
+            setMainTab('manage');
+            setHighlightItemId(null);
+            setTimeout(() => setHighlightItemId(found.id), 0); // re-trigger even if same id
+            setEditingItem(found);
+          } else {
+            // Deleted / purged → open the Recycle Bin, select + glow it there.
+            setDeletedHighlightId(it.id || '');
+            setDeletedOpen(true);
+          }
+        }} />}
 
       {sendAlertOpen && <SendAlertModal onClose={() => setSendAlertOpen(false)} toast={toast} />}
       {overdueAlertOpen && (
@@ -6955,14 +7811,15 @@ export default function InventoryManagement({ activeSub }) {
           onClose={() => setDetailsItem(null)} onSaved={refreshItems} toast={toast} />
       )}
       {deletedOpen && (
-        <DeletedItemsModal onClose={() => setDeletedOpen(false)} onRestored={refreshItems} toast={toast} />
+        <DeletedItemsModal onClose={() => { setDeletedOpen(false); setDeletedHighlightId(null); }}
+          onRestored={refreshItems} toast={toast} highlightId={deletedHighlightId} />
       )}
       {customFieldsOpen && (
         <CustomFieldsAdminModal fields={customFields} onClose={() => setCustomFieldsOpen(false)}
           onChanged={refreshCustomFields} toast={toast} />
       )}
       {importOpen   && <ImportItemsModal onClose={() => setImportOpen(false)} onImport={handleImport} customFields={customFields} />}
-      {reportOpen   && <ReportModal onClose={() => setReportOpen(false)} checkouts={checkouts} />}
+      {reportOpen   && <ReportModal onClose={() => setReportOpen(false)} checkouts={checkouts} initial={reportInitial} />}
       {returningCo  && (
         <ReturnModal checkout={returningCo} onClose={() => setReturningCo(null)}
           photoOptional={photoOptionalIds.has(returningCo.itemId)}

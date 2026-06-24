@@ -47,6 +47,19 @@ def _describe(method: str, path: str) -> tuple[str, str]:
             if method == "POST":   return "Checked out item", ""
             if method == "PATCH":  return f"Updated checkout {checkout_id}".strip(), checkout_id
         if rid == "import":        return "Imported items (CSV)", ""
+        # Bulk + sub-action POSTs were ALL mislabeled "Added item" — name them.
+        if rid == "bulk-update":   return "Edited multiple items", ""
+        if rid == "bulk-delete":   return "Deleted multiple items", ""
+        if rid == "bulk-restore":  return "Restored multiple items", ""
+        if rid == "auto-photos":   return "AI-filled item photos", ""
+        if rid == "custom-fields":
+            if method == "POST":   return "Added a custom field", ""
+            if method == "PATCH":  return "Updated a custom field", sub
+            if method == "DELETE": return "Deleted a custom field", sub
+        if sub == "assign":          return _fmt("Assigned item"), rid
+        if sub == "reassign":        return _fmt("Reassigned item"), rid
+        if sub == "assign-location": return _fmt("Assigned item to a location"), rid
+        if sub == "restore":         return _fmt("Restored item"), rid
         if method == "POST":       return "Added item", ""
         if method == "PATCH":      return f"Updated item {rid}".strip(), rid
         if method == "DELETE":     return f"Deleted item {rid}".strip(), rid
@@ -152,10 +165,12 @@ def _extract_email(request: Request) -> str:
 # auditor can see *what* changed, not just that *something* changed.
 _BODY_FIELDS_BY_RESOURCE = {
     "items": (
-        "name", "item_type", "make", "model", "department", "location",
-        "ownership_type", "status", "item_name", "reason", "days",
+        "name", "item_type", "make", "model", "year", "department", "location",
+        "default_owner", "ownership_type", "status", "serial_number", "op_status",
+        "op_status_person_name", "item_name", "reason", "days",
         "requested_by", "condition_note", "return_photo_name",
         "asset_value",  # checkout/add value — "who took out how much worth"
+        "photo_url",     # so adding/changing an item photo shows in the audit log
     ),
     "inventory-requests": (
         "status", "item_id", "item_name", "quantity", "days", "reason",
@@ -183,7 +198,13 @@ async def _read_body_fields(request: Request, resource: str) -> dict:
         body = json.loads(raw)
         if not isinstance(body, dict):
             return {}
-        return {k: body[k] for k in fields if k in body and body[k] not in (None, "")}
+        # Bulk edits nest the changed columns under "fields" — surface those too,
+        # and note how many items the batch touched.
+        src = {**body, **(body["fields"] if isinstance(body.get("fields"), dict) else {})}
+        out = {k: src[k] for k in fields if k in src and src[k] not in (None, "")}
+        if isinstance(body.get("ids"), list) and body["ids"]:
+            out["items"] = len(body["ids"])
+        return out
     except Exception:
         return {}
 
@@ -203,6 +224,12 @@ class AuditMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
 
         if request.method in ("GET", "HEAD", "OPTIONS"):
+            return response
+
+        # The audit-undo endpoint writes its own canonical entries (the reverse
+        # change + marking the original undone) — let it, don't double-log the
+        # POST here (the generic describer would mislabel it "Added item").
+        if path == "/items/audit-undo":
             return response
 
         # Resolve IP once — used for both security logs and normal audit rows.
@@ -243,6 +270,10 @@ class AuditMiddleware(BaseHTTPMiddleware):
 
         try:
             action, resource_id = _describe(method, path)
+            # Create endpoints have no id in the URL — they stamp the new id on the
+            # response (X-Created-Id) so the row records WHICH record was added.
+            if not resource_id:
+                resource_id = response.headers.get("x-created-id", "")
             user_email = _extract_email(request)
 
             details = {"path": path, "status": response.status_code}

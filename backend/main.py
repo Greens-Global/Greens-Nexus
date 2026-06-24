@@ -3,10 +3,11 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL, SessionLocal
-from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, inventory_requests, audit, groups, items as items_router, hr, knowledge_base
+from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, inventory_requests, audit, groups, items as items_router, hr, knowledge_base, help as help_router
 from audit import AuditMiddleware
 
 
@@ -47,6 +48,9 @@ def _run_migrations():
             "ALTER TABLE kb_documents ADD COLUMN retention_months INTEGER DEFAULT 84",
             "ALTER TABLE kb_courses ADD COLUMN overview VARCHAR DEFAULT ''",
             "ALTER TABLE kb_courses ADD COLUMN recert_months INTEGER DEFAULT 0",
+            # audit_logs: track when an entry was reverted via the Undo action
+            "ALTER TABLE audit_logs ADD COLUMN undone_at VARCHAR DEFAULT ''",
+            "ALTER TABLE audit_logs ADD COLUMN undone_by VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -145,6 +149,8 @@ def _run_migrations():
         "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS retention_months INTEGER DEFAULT 84",
         "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS overview VARCHAR DEFAULT ''",
         "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS recert_months INTEGER DEFAULT 0",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS undone_at VARCHAR DEFAULT ''",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS undone_by VARCHAR DEFAULT ''",
     ]
     with engine.connect() as conn:
         for sql in migrations:
@@ -263,6 +269,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Greens Nexus API", lifespan=lifespan)
 
+# Gzip every response over ~1 KB. The item list is ~300 KB of JSON that compresses
+# to ~10% — the single biggest win for the slow Item Management load over the wire.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 # AuditMiddleware must be added before CORSMiddleware so it wraps the full request
 app.add_middleware(AuditMiddleware)
 app.add_middleware(
@@ -315,4 +324,5 @@ app.include_router(groups.router)
 app.include_router(items_router.router)
 app.include_router(hr.router)
 app.include_router(knowledge_base.router)
+app.include_router(help_router.router)
 

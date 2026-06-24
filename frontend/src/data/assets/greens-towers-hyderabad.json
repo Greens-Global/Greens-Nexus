@@ -1,0 +1,20 @@
+{
+  "id": "greens-towers-hyderabad",
+  "name": "Greens Towers",
+  "type": "Commercial — Office / Mixed-Use",
+  "address": "Hyderabad, India",
+  "snapshot": [
+    {
+      "group": "Project Details",
+      "fields": [
+        { "label": "Project Name", "value": "Greens Towers" },
+        { "label": "Property Address", "value": "Hyderabad, India" },
+        { "label": "City", "value": "" },
+        { "label": "State", "value": "" },
+        { "label": "Zip", "value": "" },
+        { "label": "Current Use", "value": "Commercial — Office / Mixed-Use" },
+        { "label": "Development Stage (Feasibility / Entitlement / Permitting / Construction / Stabilized)", "value": "Stabilized" }
+      ]
+    }
+  ]
+}

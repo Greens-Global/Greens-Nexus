@@ -56,6 +56,13 @@ const TYPE_META = {
   perm_assign:        { icon: User,         label: 'Item Assignment',      color: 'var(--color-blue)'   },
   perm_update:        { icon: CheckCircle,  label: 'Assignment Update',    color: 'var(--color-green)'  },
   perm_return:        { icon: RotateCcw,    label: 'Assignment Return',    color: 'var(--color-orange)' },
+  kb_review_request:    { icon: Clock,       label: 'SOP Review',           color: 'var(--color-orange)' },
+  kb_approved:          { icon: CheckCircle, label: 'SOP Approved',         color: 'var(--color-green)'  },
+  kb_changes_requested: { icon: AlertCircle, label: 'Changes Requested',    color: 'var(--color-orange)' },
+  kb_comment:           { icon: User,        label: 'SOP Comment',          color: 'var(--color-blue)'   },
+  kb_course_assigned:   { icon: HelpCircle,  label: 'Training Assigned',    color: 'var(--color-blue)'   },
+  kb_course_overdue:    { icon: AlertCircle, label: 'Training Overdue',      color: 'var(--color-red)'    },
+  kb_course_recert:     { icon: RotateCcw,   label: 'Recertification Due',   color: 'var(--color-orange)' },
 };
 
 // Short stage labels/colors for chips on cards and the lifecycle "trail" strip
