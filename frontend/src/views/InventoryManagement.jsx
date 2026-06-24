@@ -1627,27 +1627,44 @@ function feedUndoInfo(entry) {
   return null;
 }
 
-// One-line plain-English summary for the collapsed card. The field/value detail
-// (with the red→green animation) lives behind "Show details". Returns null for
-// non-field events so the caller falls back to the humanised details text.
+// "make, model and location" / "make, model, year and 2 others"
+function humanList(arr, max = 4) {
+  if (arr.length <= 1) return arr[0] || '';
+  if (arr.length > max) {
+    const extra = arr.length - max;
+    return `${arr.slice(0, max).join(', ')} and ${extra} other${extra !== 1 ? 's' : ''}`;
+  }
+  return `${arr.slice(0, -1).join(', ')} and ${arr[arr.length - 1]}`;
+}
+const _q = (v) => `“${v}”`;
+
+// One-line plain-English summary for the collapsed card — written like a sentence
+// a non-technical user can read. The full field/value detail (with the red→green
+// animation) lives behind "Show details". Returns null for non-field events so
+// the caller falls back to the humanised details text.
 function feedSummary(entry) {
   const ch = entry.changes;
   if (ch) {
     const n = ch.length;
-    if (entry.baseline) return `Earliest recorded state — ${n} value${n !== 1 ? 's' : ''} on record`;
-    if (entry.isAdd)    return n ? `Added to the catalogue with ${n} detail${n !== 1 ? 's' : ''} filled in` : 'Added to the catalogue';
-    if (n === 0)        return 'Saved — no field values changed';
-    if (n === 1)        return `Changed ${ch[0].label.toLowerCase()}`;
-    const labels = ch.map(c => c.label.toLowerCase());
-    return `Updated ${n} fields — ${labels.slice(0, 3).join(', ')}${labels.length > 3 ? ` +${labels.length - 3} more` : ''}`;
+    if (entry.baseline) return `This is the first record we have for this item — here’s what it looked like (${n} detail${n !== 1 ? 's' : ''}).`;
+    if (entry.isAdd)    return n ? `Added to inventory with ${n} detail${n !== 1 ? 's' : ''} filled in.` : 'Added to inventory.';
+    if (n === 0)        return 'Saved with no changes.';
+    if (n === 1) {
+      const c = ch[0];
+      const label = c.label.toLowerCase();
+      if (c.to === '')      return `Cleared the ${label}${c.from ? ` (was ${_q(c.from)})` : ''}.`;
+      if (c.from == null || c.from === '') return `Set the ${label} to ${_q(c.to)}.`;
+      return `Changed the ${label} from ${_q(c.from)} to ${_q(c.to)}.`;
+    }
+    return `Changed ${humanList(ch.map(c => c.label.toLowerCase()))}.`;
   }
   const a = (entry.row.action || '').toLowerCase();
-  if (a.startsWith('deleted item'))  return 'Moved to the Recycle Bin';
-  if (a.startsWith('restored item')) return 'Restored from the Recycle Bin';
+  if (a.startsWith('deleted item'))  return 'Moved to the Recycle Bin.';
+  if (a.startsWith('restored item')) return 'Restored from the Recycle Bin.';
   return null;
 }
 
-const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onChanged }) {
+const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onLocate, onChanged }) {
   const [query,   setQuery]   = useState('');
   const [logs,    setLogs]    = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1729,7 +1746,7 @@ const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onCh
   const shown = groups.reduce((n, g) => n + g.list.length, 0);
 
   const tone = (action, baseline) => baseline ? 'blue' : auditEventMeta(action).tone;
-  const verb = (action, baseline) => baseline ? 'Baseline' : auditEventMeta(action).verb;
+  const verb = (action, baseline) => baseline ? 'First record' : auditEventMeta(action).verb;
 
   return (
     <div>
@@ -1826,7 +1843,7 @@ const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onCh
                                 <span style={{ fontWeight:700, color: e.baseline ? 'var(--ink)' : 'hsl(var(--color-green))', padding:'1px 5px', borderRadius:4, animation: e.baseline ? 'none' : 'auditNewFlash 1.1s ease both', animationDelay:`${ci * 45}ms` }}>{c.to === '' ? EMPTY : c.to}</span>
                               </div>
                             ))}
-                            {e.baseline && <div style={{ fontSize:10.5, color:'var(--muted)', fontStyle:'italic', marginTop:2 }}>earliest recorded state — changes are tracked from here</div>}
+                            {e.baseline && <div style={{ fontSize:10.5, color:'var(--muted)', fontStyle:'italic', marginTop:2 }}>This is the oldest record we have for this item. Anything changed later shows up as an update above.</div>}
                           </div>
                         )}
 
@@ -1843,7 +1860,7 @@ const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onCh
                           <span title={r.user_email} style={{ fontSize:12, color:'var(--muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{auditName(r.user_email)}</span>
                           <div style={{ marginLeft:'auto', display:'inline-flex', alignItems:'center', gap:6 }}>
                             {r.undone_at && <span style={{ fontSize:11, fontWeight:700, color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:4 }}><RotateCcw size={12} /> Undone</span>}
-                            {it?.id && onOpenItem && <button onClick={() => { onOpenItem(it); }} title="Open this item"
+                            {it && (it.id || it.name) && onLocate && <button onClick={() => onLocate(it)} title="Find this item in the list"
                               style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'4px 10px', borderRadius:7, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', fontSize:11.5, fontWeight:600, color:'hsl(var(--color-blue))', whiteSpace:'nowrap' }}>Open item →</button>}
                             {undo && (undoing === r.id
                               ? <span style={{ fontSize:11.5, color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:5 }}><Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> Undoing…</span>
@@ -4390,16 +4407,27 @@ function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
 // ── Recycle Bin (deleted items) ───────────────────────────────────────────────
 // Soft-deleted items, restorable (Ankush). Shows "Deleted In" = location at the
 // time of deletion, plus who/when.
-function DeletedItemsModal({ onClose, onRestored, toast }) {
+function DeletedItemsModal({ onClose, onRestored, toast, highlightId }) {
   useEscapeKey(onClose);
   const [rows,      setRows]      = useState(null);
   const [selected,  setSelected]  = useState(new Set());
   const [busy,      setBusy]      = useState(false);
+  const [flash,     setFlash]     = useState(null);   // item id glowing (from "Open item →")
+  const highlightRef = useRef(null);
 
   const load = useCallback(() => {
     api.getDeletedItems().then(setRows).catch(() => setRows([]));
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  // Once the list loads, scroll to + glow the item we were sent here to find.
+  useEffect(() => {
+    if (!highlightId || !rows) return;
+    setFlash(highlightId);
+    if (highlightRef.current) highlightRef.current.scrollIntoView({ behavior:'smooth', block:'center' });
+    const t = setTimeout(() => setFlash(null), 2800);
+    return () => clearTimeout(t);
+  }, [highlightId, rows]);
 
   const toggle = id => setSelected(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const fmtWhen = iso => { try { return new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }); } catch { return ''; } };
@@ -4447,7 +4475,8 @@ function DeletedItemsModal({ onClose, onRestored, toast }) {
                 The recycle bin is empty.
               </div>
             ) : rows.map(item => (
-              <div key={item.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 0', borderBottom:'1px solid var(--line)' }}>
+              <div key={item.id} ref={item.id === highlightId ? highlightRef : null}
+                style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 12px', margin:'0 -12px', borderBottom:'1px solid var(--line)', background: flash === item.id ? 'hsla(40,92%,55%,0.18)' : 'transparent', boxShadow: flash === item.id ? 'inset 4px 0 0 hsl(40,92%,50%)' : 'none', borderRadius: flash === item.id ? 8 : 0, transition:'background .9s ease, box-shadow .9s ease' }}>
                 <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id)} style={{ cursor:'pointer', accentColor:'var(--pine)', flexShrink:0 }} />
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontWeight:600, fontSize:13, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', display:'flex', alignItems:'center', gap:8 }}>
@@ -4760,9 +4789,11 @@ function OverdueAlertModal({ checkouts, onClose, toast, onCustomAlert }) {
 // Memoised rows so toggling ONE checkbox re-renders only that row, not all 360+
 // (selecting an item used to repaint the whole table — visible mouse lag). isSelected
 // is a boolean and every handler is stable, so memo skips the untouched rows.
-const ManageRow = memo(function ManageRow({ item, isSelected, onToggle, onEdit, onDelete, onAssign, onDetails, onPreview, canDelete }) {
+const ManageRow = memo(function ManageRow({ item, isSelected, highlight, onToggle, onEdit, onDelete, onAssign, onDetails, onPreview, canDelete }) {
+  const ref = useRef(null);
+  useEffect(() => { if (highlight && ref.current) ref.current.scrollIntoView({ behavior:'smooth', block:'center' }); }, [highlight]);
   return (
-    <tr style={{ borderTop:'1px solid var(--line)', background: isSelected ? 'hsla(var(--color-blue),0.05)' : 'transparent' }}>
+    <tr ref={ref} style={{ borderTop:'1px solid var(--line)', background: highlight ? 'hsla(40,92%,55%,0.22)' : isSelected ? 'hsla(var(--color-blue),0.05)' : 'transparent', boxShadow: highlight ? 'inset 4px 0 0 hsl(40,92%,50%)' : 'none', transition:'background .9s ease, box-shadow .9s ease' }}>
       <td style={{ padding:'10px 14px' }}>
         <input type="checkbox" checked={isSelected} onChange={() => onToggle(item.id)}
           style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
@@ -4835,9 +4866,11 @@ const ManageRow = memo(function ManageRow({ item, isSelected, onToggle, onEdit, 
   );
 });
 
-const ManageCard = memo(function ManageCard({ item, isSelected, onToggle, onEdit, onDelete, onAssign, onDetails, onPreview, canDelete }) {
+const ManageCard = memo(function ManageCard({ item, isSelected, highlight, onToggle, onEdit, onDelete, onAssign, onDetails, onPreview, canDelete }) {
+  const ref = useRef(null);
+  useEffect(() => { if (highlight && ref.current) ref.current.scrollIntoView({ behavior:'smooth', block:'center' }); }, [highlight]);
   return (
-    <div style={{ border:'1px solid var(--line)', borderRadius:12, background: isSelected ? 'hsla(var(--color-blue),0.05)' : 'var(--card)', padding:'12px 14px', boxShadow:'var(--shadow-sm)' }}>
+    <div ref={ref} style={{ border:'1px solid', borderColor: highlight ? 'hsl(40,92%,50%)' : 'var(--line)', borderRadius:12, background: highlight ? 'hsla(40,92%,55%,0.16)' : isSelected ? 'hsla(var(--color-blue),0.05)' : 'var(--card)', padding:'12px 14px', boxShadow: highlight ? '0 0 0 3px hsla(40,92%,50%,0.2)' : 'var(--shadow-sm)', transition:'background .9s ease, box-shadow .9s ease, border-color .9s ease' }}>
       <div style={{ display:'flex', alignItems:'center', gap:10 }}>
         <input type="checkbox" checked={isSelected} onChange={() => onToggle(item.id)}
           style={{ cursor:'pointer', accentColor:'var(--pine)', flexShrink:0 }} />
@@ -4884,7 +4917,7 @@ const ManageCard = memo(function ManageCard({ item, isSelected, onToggle, onEdit
   );
 });
 
-const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, filterControls }) {
+const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, filterControls, highlightId, onHighlightDone }) {
   const [photoPreview,       setPhotoPreview]       = useState(null);
   const [exportMenu,         setExportMenu]         = useState(false); // Export ▾ dropdown
   const [selected,           setSelected]           = useState(new Set());
@@ -4962,6 +4995,25 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
   const vSlice = sorted.slice(vStart, vEnd);
   const padTop = vStart * ROW_H;
   const padBot = Math.max(0, (sorted.length - vEnd) * ROW_H);
+
+  // Jump to + flash a specific item (the Audit Log "Open item →"). The parent
+  // clears the filters first so the row is guaranteed visible; we scroll the
+  // virtualized list to it (the row's own ref then centres it) and glow for ~2.5s.
+  const [flashId, setFlashId] = useState(null);
+  useEffect(() => {
+    if (!highlightId) return;
+    const idx = sorted.findIndex(i => i.id === highlightId);
+    if (idx < 0) { onHighlightDone?.(); return; }
+    setFlashId(highlightId);
+    if (!isMobile && scrollRef.current) {
+      const target = Math.max(0, idx * ROW_H - viewportH / 2 + ROW_H / 2);
+      scrollRef.current.scrollTop = target;
+      setScrollTop(target);
+    }
+    const t = setTimeout(() => { setFlashId(null); onHighlightDone?.(); }, 2600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightId]);
 
   const missingPhotos = items.filter(i => !i.photoUrl).length;
   const selItems      = filtered.filter(i => selected.has(i.id));
@@ -5176,7 +5228,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
             </span>
           </label>
           {sorted.map(item => (
-            <ManageCard key={item.id} item={item} isSelected={selected.has(item.id)}
+            <ManageCard key={item.id} item={item} isSelected={selected.has(item.id)} highlight={flashId === item.id}
               onToggle={toggleSelect} onEdit={onEdit} onDelete={onDelete} onAssign={onAssign}
               onDetails={onDetails} onPreview={setPhotoPreview} canDelete={canDelete} />
           ))}
@@ -5212,7 +5264,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
               {/* Spacer for the rows scrolled past above the viewport */}
               {padTop > 0 && <tr aria-hidden="true"><td colSpan={13} style={{ height:padTop, padding:0, border:'none' }} /></tr>}
               {vSlice.map(item => (
-                <ManageRow key={item.id} item={item} isSelected={selected.has(item.id)}
+                <ManageRow key={item.id} item={item} isSelected={selected.has(item.id)} highlight={flashId === item.id}
                   onToggle={toggleSelect} onEdit={onEdit} onDelete={onDelete} onAssign={onAssign}
                   onDetails={onDetails} onPreview={setPhotoPreview} canDelete={canDelete} />
               ))}
@@ -7225,6 +7277,8 @@ export default function InventoryManagement({ activeSub }) {
   const [detailsItem,   setDetailsItem]   = useState(null);        // item Details slide-over (Ankush)
   const [deletingItem,  setDeletingItem]  = useState(null);
   const [deletedOpen,   setDeletedOpen]   = useState(false);       // recycle bin
+  const [highlightItemId,    setHighlightItemId]    = useState(null); // Manage row to glow (Audit "Open item")
+  const [deletedHighlightId, setDeletedHighlightId] = useState(null); // Recycle Bin row to glow
   const [customFieldsOpen, setCustomFieldsOpen] = useState(false); // custom-field admin
   const [importOpen,    setImportOpen]    = useState(false);
   const [reportOpen,    setReportOpen]    = useState(false);
@@ -7510,6 +7564,7 @@ export default function InventoryManagement({ activeSub }) {
           onAssign={openAssign} onDetails={setDetailsItem}
           onShowDeleted={() => setDeletedOpen(true)}
           onManageCustomFields={() => setCustomFieldsOpen(true)}
+          highlightId={highlightItemId} onHighlightDone={() => setHighlightItemId(null)}
           filterControls={<div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', marginBottom:16 }}>{filterSelects}</div>}
         />
       )}
@@ -7554,11 +7609,26 @@ export default function InventoryManagement({ activeSub }) {
         <PurchaseRequestsTab userEmail={userEmail} userName={userName} isManager={isManager}
           onAssign={openAssign} toast={toast} />
       )}
-      {mainTab === 'audit' && <AuditLogPanel items={items} onChanged={refreshItems} onOpenItem={(it) => {
-        const found = items.find(x => x.id === it.id) || items.find(x => x.name === it.name);
-        if (found) { setMainTab('manage'); setEditingItem(found); }
-        else toast('That item no longer exists (it may have been deleted).', 'error');
-      }} />}
+      {mainTab === 'audit' && <AuditLogPanel items={items} onChanged={refreshItems}
+        onOpenItem={(it) => {
+          const found = items.find(x => x.id === it.id) || items.find(x => x.name === it.name);
+          if (found) { setMainTab('manage'); setEditingItem(found); }
+          else toast('That item no longer exists (it may have been deleted).', 'error');
+        }}
+        onLocate={(it) => {
+          const found = items.find(x => x.id === it.id) || (it.name && items.find(x => x.name === it.name));
+          if (found) {
+            // Clear filters so the row is guaranteed visible, jump to Manage, then glow it.
+            setSearch(''); setDeptFilter('All'); setTypeFilter('All'); setOwnershipFilter('All'); setLocationFilter('All'); setModelFilter('All');
+            setMainTab('manage');
+            setHighlightItemId(null);
+            setTimeout(() => setHighlightItemId(found.id), 0); // re-trigger even if same id
+          } else {
+            // Deleted / purged → open the Recycle Bin and glow it there.
+            setDeletedHighlightId(it.id || '');
+            setDeletedOpen(true);
+          }
+        }} />}
 
       {sendAlertOpen && <SendAlertModal onClose={() => setSendAlertOpen(false)} toast={toast} />}
       {overdueAlertOpen && (
@@ -7579,7 +7649,8 @@ export default function InventoryManagement({ activeSub }) {
           onClose={() => setDetailsItem(null)} onSaved={refreshItems} toast={toast} />
       )}
       {deletedOpen && (
-        <DeletedItemsModal onClose={() => setDeletedOpen(false)} onRestored={refreshItems} toast={toast} />
+        <DeletedItemsModal onClose={() => { setDeletedOpen(false); setDeletedHighlightId(null); }}
+          onRestored={refreshItems} toast={toast} highlightId={deletedHighlightId} />
       )}
       {customFieldsOpen && (
         <CustomFieldsAdminModal fields={customFields} onClose={() => setCustomFieldsOpen(false)}
