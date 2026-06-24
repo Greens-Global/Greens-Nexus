@@ -3959,6 +3959,7 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
   const [masterUrl,  setMasterUrl]  = useState('');
   const [applyingMaster,  setApplyingMaster]  = useState(false); // master-link apply in flight
   const [uploadingMaster, setUploadingMaster] = useState(false); // master-upload apply in flight
+  const [pasteFocusId, setPasteFocusId] = useState(null);        // slot armed for Ctrl+V paste
   const fileRefs = useRef({});
   const masterFileRef = useRef(null);
 
@@ -4057,7 +4058,8 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
   async function handleFile(item, file) {
     if (!file) return;
     setUploading(p => ({ ...p, [item.id]: true }));
-    const path = `items/${item.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const name = (file.name || 'photo.png').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `items/${item.id}/${Date.now()}-${name}`;
     const { url, error } = await uploadToSupabase(file, 'item-photos', path);
     if (error) { toast?.(error, 'error'); setUploading(p => ({ ...p, [item.id]: false })); return; }
     try {
@@ -4071,6 +4073,24 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
     }
   }
 
+  // Paste an image straight onto a slot (Ctrl/Cmd+V) — copy a screenshot or an
+  // image file, click the photo box, and paste. Clipboard images often arrive as
+  // a nameless blob, so give them a filename for the upload.
+  function handlePaste(item, e) {
+    const list = e.clipboardData?.items || [];
+    for (const it of list) {
+      if (it.type && it.type.startsWith('image/')) {
+        const blob = it.getAsFile();
+        if (blob) {
+          e.preventDefault();
+          const file = blob.name ? blob : new File([blob], `paste-${Date.now()}.png`, { type: blob.type || 'image/png' });
+          handleFile(item, file);
+          return;
+        }
+      }
+    }
+  }
+
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:680, maxHeight:'90vh', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)' }}>
@@ -4081,7 +4101,7 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
             <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
           </div>
           <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>Photos · {items.length} {usingSelection ? 'selected' : 'shown'} item{items.length !== 1 ? 's' : ''}</h3>
-          <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>{withPhotos} / {items.length} have a photo · {usingSelection ? 'your selection' : 'everything the current filters show'}</p>
+          <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>{withPhotos} / {items.length} have a photo · click a photo box and press <strong>Ctrl/Cmd+V</strong> to paste an image</p>
         </div>
         {/* Controls: a single master image — pasted as a link OR uploaded —
             applied to every shown item. Apply sits on the right; Upload to all
@@ -4116,11 +4136,24 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
             const isUploading = uploading[item.id];
             return (
               <div key={item.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 0', borderBottom:'1px solid var(--line)' }}>
-                {/* Thumb */}
-                <div style={{ width:44, height:44, borderRadius:8, flexShrink:0, overflow:'hidden', background: currentUrl ? 'transparent' : tm.bg, border:'1px solid var(--line)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                  {currentUrl
+                {/* Thumb — also a paste target: click it, then Ctrl/Cmd+V to paste an image */}
+                <div tabIndex={0} role="button"
+                  title="Click, then press Ctrl/Cmd+V to paste an image"
+                  onPaste={e => handlePaste(item, e)}
+                  onFocus={() => setPasteFocusId(item.id)}
+                  onBlur={() => setPasteFocusId(p => p === item.id ? null : p)}
+                  style={{ position:'relative', width:44, height:44, borderRadius:8, flexShrink:0, overflow:'hidden', background: currentUrl ? 'transparent' : tm.bg, cursor:'pointer', outline:'none',
+                    border: pasteFocusId === item.id ? '2px solid var(--pine)' : '1px solid var(--line)',
+                    boxShadow: pasteFocusId === item.id ? '0 0 0 3px hsla(var(--color-green),0.18)' : 'none',
+                    display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  {isUploading
+                    ? <Loader2 size={18} style={{ animation:'spin 1s linear infinite', color:'var(--muted)' }} />
+                    : currentUrl
                     ? <img src={currentUrl} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
                     : <tm.Icon size={20} color={tm.color} />}
+                  {pasteFocusId === item.id && !isUploading && (
+                    <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', background:'hsla(var(--color-green),0.15)', fontSize:8.5, fontWeight:800, color:'var(--pine)', letterSpacing:'.02em' }}>⌘/Ctrl V</span>
+                  )}
                 </div>
                 {/* Name + location */}
                 <div style={{ flex:1, minWidth:0 }}>
