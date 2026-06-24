@@ -4016,14 +4016,32 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
   // Master UPLOAD: upload ONE image, then apply it to every shown item.
   async function applyMasterFile(file) {
     if (!file) return;
-    if (!window.confirm(`Upload this image and set it on all ${items.length} shown item${items.length !== 1 ? 's' : ''}? This overwrites their current photos.`)) return;
+    if (!window.confirm(`Upload this image and set it on all ${items.length} item${items.length !== 1 ? 's' : ''}? This overwrites their current photos.`)) return;
     setUploadingMaster(true);
-    const path = `items/_batch/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const name = (file.name || 'photo.png').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `items/_batch/${Date.now()}-${name}`;
     const { url, error } = await uploadToSupabase(file, 'item-photos', path);
     if (error) { toast?.(error, 'error'); setUploadingMaster(false); return; }
     const ok = await pushUrlToAll(url);
     setUploadingMaster(false);
     toast?.(`Applied the uploaded photo to ${ok} item${ok !== 1 ? 's' : ''}.`, ok ? 'success' : 'error');
+  }
+
+  // Paste an image onto the master bar → upload once and apply it to every item
+  // (after a confirm). Pasting text (a URL) into the link box still works normally.
+  function handleMasterPaste(e) {
+    const list = e.clipboardData?.items || [];
+    for (const it of list) {
+      if (it.type && it.type.startsWith('image/')) {
+        const blob = it.getAsFile();
+        if (blob) {
+          e.preventDefault();
+          const file = blob.name ? blob : new File([blob], `paste-${Date.now()}.png`, { type: blob.type || 'image/png' });
+          applyMasterFile(file);
+          return;
+        }
+      }
+    }
   }
 
   // AI fill ONE item. Never replaces an existing photo (replace=false) — Neil's
@@ -4114,11 +4132,11 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
         {/* Controls: a single master image — pasted as a link OR uploaded —
             applied to every shown item. Apply sits on the right; Upload to all
             beside it on the left. */}
-        <div style={{ padding:'12px 24px', borderBottom:'1px solid var(--line)', display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', flexShrink:0 }}>
+        <div onPaste={handleMasterPaste} style={{ padding:'12px 24px', borderBottom:'1px solid var(--line)', display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', flexShrink:0 }}>
           <Link2 size={15} style={{ color:'var(--muted)', flexShrink:0 }} />
-          <input value={masterUrl} onChange={e => setMasterUrl(e.target.value)}
+          <input value={masterUrl} onChange={e => setMasterUrl(e.target.value)} onPaste={handleMasterPaste}
             onKeyDown={e => e.key === 'Enter' && !applyingMaster && !uploadingMaster && applyMasterUrl()}
-            placeholder="Master image link — applied to all shown items"
+            placeholder="Master image link, or paste an image to apply to all"
             className="form-input" style={{ flex:1, minWidth:200, fontSize:12.5, padding:'7px 10px', height:34 }} />
           <input type="file" accept="image/*" style={{ display:'none' }} ref={masterFileRef}
             onChange={e => { const f = e.target.files?.[0]; if (f) applyMasterFile(f); e.target.value = ''; }} />
@@ -7281,9 +7299,19 @@ export default function InventoryManagement({ activeSub }) {
   // Lets managers filter permanent items out of Catalog/Manage (Neil, Jun 16).
   // Default the ownership filter to Temporary (Neil: opening to hundreds of items
   // is overwhelming; lead with the checkout-able/temporary ones). One click to All.
+  // Catalog is the employee browse view — they check out Temporary items and have
+  // no reason to see Permanent ones, so it leads with Temporary. Manage is the
+  // manager view and shows All ownership. The default resets per tab when you
+  // switch between the two (Neil).
   const [ownershipFilter, setOwnershipFilter] = useState('transient');
   const [locationFilter, setLocationFilter] = useState('All');
   const [modelFilter,    setModelFilter]    = useState('All');
+  // Reset the ownership default when moving between the employee (Catalog) and
+  // manager (Manage) views — Temporary-only vs All.
+  useEffect(() => {
+    if (mainTab === 'catalog')     setOwnershipFilter('transient');
+    else if (mainTab === 'manage') setOwnershipFilter('All');
+  }, [mainTab]);
   // Type filter auto-populates from the data so imported types (e.g. "IP Camera")
   // appear alongside the built-in ones; "Other" stays last.
   // Ankush: when a DEPARTMENT is selected, hide types that department never has
