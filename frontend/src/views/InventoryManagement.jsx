@@ -4420,10 +4420,12 @@ function DeletedItemsModal({ onClose, onRestored, toast, highlightId }) {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  // Once the list loads, scroll to + glow the item we were sent here to find.
+  // Once the list loads, scroll to + select + glow the item we were sent here for.
   useEffect(() => {
     if (!highlightId || !rows) return;
+    if (!rows.some(r => r.id === highlightId)) return; // not in the bin (e.g. purged)
     setFlash(highlightId);
+    setSelected(new Set([highlightId]));
     if (highlightRef.current) highlightRef.current.scrollIntoView({ behavior:'smooth', block:'center' });
     const t = setTimeout(() => setFlash(null), 2800);
     return () => clearTimeout(t);
@@ -7618,13 +7620,15 @@ export default function InventoryManagement({ activeSub }) {
         onLocate={(it) => {
           const found = items.find(x => x.id === it.id) || (it.name && items.find(x => x.name === it.name));
           if (found) {
-            // Clear filters so the row is guaranteed visible, jump to Manage, then glow it.
+            // Clear filters so the row is guaranteed visible, jump to Manage, glow
+            // it in the background, and open it for editing on top.
             setSearch(''); setDeptFilter('All'); setTypeFilter('All'); setOwnershipFilter('All'); setLocationFilter('All'); setModelFilter('All');
             setMainTab('manage');
             setHighlightItemId(null);
             setTimeout(() => setHighlightItemId(found.id), 0); // re-trigger even if same id
+            setEditingItem(found);
           } else {
-            // Deleted / purged → open the Recycle Bin and glow it there.
+            // Deleted / purged → open the Recycle Bin, select + glow it there.
             setDeletedHighlightId(it.id || '');
             setDeletedOpen(true);
           }
