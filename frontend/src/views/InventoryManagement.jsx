@@ -15,6 +15,7 @@ import { api }              from '../api';
 import { supabase }         from '../lib/supabase';
 import { useMsal }          from '@azure/msal-react';
 import { cleanName }        from '../lib/utils';
+import { useNameResolver }  from '../lib/useNameResolver';
 import { useAssignments, MyPermanentPanel, AssignmentsQueue, AssignItemModal } from '../components/Assignments';
 import { renderNotifBody } from '../components/NotificationBell';
 
@@ -1460,6 +1461,7 @@ function buildAuditDiffs(rows) {
 function AuditHistoryModal({ item, onClose, onOpenItem }) {
   const [rows, setRows]   = useState(null);
   const [error, setError] = useState('');
+  const nameOf = useNameResolver();
   useEscapeKey(onClose);
   useEffect(() => {
     api.getItemsAuditLog({ q: item.name || item.id, limit: 100 })
@@ -1501,7 +1503,7 @@ function AuditHistoryModal({ item, onClose, onOpenItem }) {
                     </div>
                     <div style={{ paddingBottom:18, flex:1, minWidth:0 }}>
                       <div style={{ fontWeight:700, fontSize:13 }}>{m.verb}</div>
-                      <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1 }}>by {auditName(r.user_email)} · {fmtAuditStamp(r.timestamp)}</div>
+                      <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1 }}>by {nameOf(r.user_email, r.user_name)} · {fmtAuditStamp(r.timestamp)}</div>
                       {changes ? (
                         changes.length ? (
                           <div style={{ marginTop:6, display:'flex', flexDirection:'column', gap:3 }}>
@@ -1676,6 +1678,7 @@ const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onLo
   const [undoing,     setUndoing]     = useState(null); // audit row id in flight
   const [expanded,    setExpanded]    = useState(() => new Set()); // cards showing field detail
   const toggleExpand = (id) => setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const nameOf = useNameResolver(); // email → real display name (never show a raw email)
 
   // resource_id → { name, type }: current items first, then anything a log named.
   const meta = useMemo(() => {
@@ -1856,8 +1859,8 @@ const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onLo
 
                         {/* Footer: actor + actions */}
                         <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:8, flexWrap:'wrap' }}>
-                          <span title={r.user_email} style={{ flexShrink:0, width:20, height:20, borderRadius:'50%', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:800, color:'hsl(var(--color-purple))', background:'hsla(var(--color-purple),0.14)' }}>{auditInitials(r.user_email)}</span>
-                          <span title={r.user_email} style={{ fontSize:12, color:'var(--muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{auditName(r.user_email)}</span>
+                          <span title={r.user_email} style={{ flexShrink:0, width:20, height:20, borderRadius:'50%', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:800, color:'hsl(var(--color-purple))', background:'hsla(var(--color-purple),0.14)' }}>{auditInitials(nameOf(r.user_email, r.user_name))}</span>
+                          <span title={r.user_email} style={{ fontSize:12, color:'var(--muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{nameOf(r.user_email, r.user_name)}</span>
                           <div style={{ marginLeft:'auto', display:'inline-flex', alignItems:'center', gap:6 }}>
                             {r.undone_at && <span style={{ fontSize:11, fontWeight:700, color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:4 }}><RotateCcw size={12} /> Undone</span>}
                             {it && (it.id || it.name) && onLocate && <button onClick={() => onLocate(it)} title="Find this item in the list"
@@ -4414,6 +4417,7 @@ function DeletedItemsModal({ onClose, onRestored, toast, highlightId }) {
   const [busy,      setBusy]      = useState(false);
   const [flash,     setFlash]     = useState(null);   // item id glowing (from "Open item →")
   const highlightRef = useRef(null);
+  const nameOf = useNameResolver();
 
   const load = useCallback(() => {
     api.getDeletedItems().then(setRows).catch(() => setRows([]));
@@ -4492,7 +4496,7 @@ function DeletedItemsModal({ onClose, onRestored, toast, highlightId }) {
                   <div style={{ fontSize:11.5, color:'var(--muted)' }}>
                     {item.serialNumber || '—'} · Deleted in <strong style={{ color:'var(--ink)' }}>{item.deletedLocation || '—'}</strong>
                     {item.deletedAt && <> · {fmtWhen(item.deletedAt)}</>}
-                    {item.deletedBy && <> · by {auditName(item.deletedBy)}</>}
+                    {item.deletedBy && <> · by {nameOf(item.deletedBy)}</>}
                   </div>
                 </div>
                 <button onClick={() => restore([item.id])} disabled={busy}
