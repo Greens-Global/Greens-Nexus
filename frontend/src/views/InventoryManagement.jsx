@@ -1422,6 +1422,7 @@ const _AUDIT_FIELDS = [
   ['model', 'Model'], ['year', 'Year'], ['department', 'Department'], ['location', 'Location'],
   ['default_owner', 'Default owner'], ['ownership_type', 'Ownership'], ['status', 'Lifecycle'],
   ['op_status', 'Op status'], ['op_status_person_name', 'Declared by'], ['asset_value', 'Asset value'],
+  ['photo_url', 'Photo'],
 ];
 // Walk an item's events oldest→newest and tag each with the fields that CHANGED
 // against the running snapshot, so the timeline can show green (new) / red (old)
@@ -1445,8 +1446,8 @@ function buildAuditDiffs(rows) {
         if (!(f in d)) continue;
         const to = String(d[f] ?? '');
         const from = (f in prev) ? String(prev[f] ?? '') : null;
-        if (from === null) { if (to && to !== '0') changes.push({ label, from: null, to }); }
-        else if (from !== to) changes.push({ label, from, to });
+        if (from === null) { if (to && to !== '0') changes.push({ field: f, label, from: null, to }); }
+        else if (from !== to) changes.push({ field: f, label, from, to });
         prev[f] = to;
       }
       firstFieldEvent = false;
@@ -1510,8 +1511,8 @@ function AuditHistoryModal({ item, onClose, onOpenItem }) {
                             {changes.map((c, j) => (
                               <div key={j} style={{ fontSize:12, lineHeight:1.5 }}>
                                 <span style={{ color:'var(--muted)' }}>{c.label}: </span>
-                                {!baseline && c.from !== null && c.from !== '' && <><span style={{ color:'hsl(var(--color-red))', textDecoration:'line-through' }}>{c.from}</span> <span style={{ color:'var(--muted)' }}>→</span> </>}
-                                <span style={{ color: baseline ? 'var(--ink)' : 'hsl(var(--color-green))', fontWeight:600 }}>{c.to}</span>
+                                {!baseline && c.from !== null && c.from !== '' && <><span style={{ color:'hsl(var(--color-red))', textDecoration: c.field === 'photo_url' ? 'none' : 'line-through' }}>{auditVal(c.field, c.from, 'from')}</span> <span style={{ color:'var(--muted)' }}>→</span> </>}
+                                <span style={{ color: baseline ? 'var(--ink)' : 'hsl(var(--color-green))', fontWeight:600 }}>{auditVal(c.field, c.to, baseline ? 'baseline' : 'to')}</span>
                               </div>
                             ))}
                             {baseline ? <div style={{ fontSize:10.5, color:'var(--muted)', marginTop:2, fontStyle:'italic' }}>earliest recorded state — changes are tracked from here</div>
@@ -1565,6 +1566,22 @@ function auditInitials(email) {
   return (email || '?').split(/[\s@._]+/).filter(Boolean).slice(0, 2).map(s => s[0]).join('').toUpperCase() || '?';
 }
 const EMPTY = '∅';
+
+// Render an audit field value: photos show as a thumbnail (old = dim/red ring,
+// new = green ring), everything else as text. Broken images fall back to a label.
+function PhotoChip({ url, kind }) {
+  const [err, setErr] = useState(false);
+  if (err) return <span style={{ fontSize:11.5, color:'var(--muted)' }}>image</span>;
+  return <img src={url} alt="item photo" loading="lazy" onError={() => setErr(true)}
+    onClick={() => window.open(url, '_blank', 'noopener')} title="Open full image"
+    style={{ width:40, height:40, objectFit:'cover', borderRadius:7, cursor:'zoom-in', verticalAlign:'middle',
+      border: `2px solid ${kind === 'from' ? 'hsla(var(--color-red),0.55)' : kind === 'to' ? 'hsl(var(--color-green))' : 'var(--line)'}`,
+      opacity: kind === 'from' ? 0.65 : 1 }} />;
+}
+function auditVal(field, value, kind) {
+  if (field === 'photo_url') return value ? <PhotoChip url={value} kind={kind} /> : EMPTY;
+  return value === '' || value == null ? EMPTY : value;
+}
 
 // Walk EVERY item's events oldest→newest, keeping a per-item running snapshot so
 // each edit can be shown as "old → new" (the backend only records new values).
@@ -1654,6 +1671,10 @@ function feedSummary(entry) {
     if (n === 1) {
       const c = ch[0];
       const label = c.label.toLowerCase();
+      if (c.field === 'photo_url') {
+        if (c.to === '') return 'Removed the photo.';
+        return (c.from == null || c.from === '') ? 'Added a photo.' : 'Changed the photo.';
+      }
       if (c.to === '')      return `Cleared the ${label}${c.from ? ` (was ${_q(c.from)})` : ''}.`;
       if (c.from == null || c.from === '') return `Set the ${label} to ${_q(c.to)}.`;
       return `Changed the ${label} from ${_q(c.from)} to ${_q(c.to)}.`;
@@ -1839,11 +1860,11 @@ const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onLo
                                 <span style={{ color:'var(--muted)', fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'.05em', minWidth:96 }}>{c.label}</span>
                                 {!e.baseline && c.from !== null && (
                                   <>
-                                    <span style={{ color:'hsl(var(--color-red))', textDecoration:'line-through', padding:'1px 5px', borderRadius:4, animation:'auditOldFlash 1s ease both', animationDelay:`${ci * 45}ms` }}>{c.from === '' ? EMPTY : c.from}</span>
+                                    <span style={{ color:'hsl(var(--color-red))', textDecoration: c.field === 'photo_url' ? 'none' : 'line-through', padding:'1px 5px', borderRadius:4, animation:'auditOldFlash 1s ease both', animationDelay:`${ci * 45}ms` }}>{auditVal(c.field, c.from, 'from')}</span>
                                     <span style={{ color:'var(--muted)' }}>→</span>
                                   </>
                                 )}
-                                <span style={{ fontWeight:700, color: e.baseline ? 'var(--ink)' : 'hsl(var(--color-green))', padding:'1px 5px', borderRadius:4, animation: e.baseline ? 'none' : 'auditNewFlash 1.1s ease both', animationDelay:`${ci * 45}ms` }}>{c.to === '' ? EMPTY : c.to}</span>
+                                <span style={{ fontWeight:700, color: e.baseline ? 'var(--ink)' : 'hsl(var(--color-green))', padding:'1px 5px', borderRadius:4, animation: e.baseline ? 'none' : 'auditNewFlash 1.1s ease both', animationDelay:`${ci * 45}ms` }}>{auditVal(c.field, c.to, e.baseline ? 'baseline' : 'to')}</span>
                               </div>
                             ))}
                             {e.baseline && <div style={{ fontSize:10.5, color:'var(--muted)', fontStyle:'italic', marginTop:2 }}>This is the oldest record we have for this item. Anything changed later shows up as an update above.</div>}

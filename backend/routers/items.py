@@ -2336,7 +2336,7 @@ def items_audit_log(
 _UNDO_ITEM_COLS = {
     "name", "item_type", "make", "model", "year", "department", "location",
     "default_owner", "ownership_type", "status", "serial_number",
-    "op_status", "op_status_person_name", "asset_value",
+    "op_status", "op_status_person_name", "asset_value", "photo_url",
 }
 
 

@@ -170,6 +170,7 @@ _BODY_FIELDS_BY_RESOURCE = {
         "op_status_person_name", "item_name", "reason", "days",
         "requested_by", "condition_note", "return_photo_name",
         "asset_value",  # checkout/add value — "who took out how much worth"
+        "photo_url",     # so adding/changing an item photo shows in the audit log
     ),
     "inventory-requests": (
         "status", "item_id", "item_name", "quantity", "days", "reason",
