@@ -4217,7 +4217,7 @@ function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved, toast
           <Row label="Ownership">{item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}</Row>
           <Row label="Lifecycle"><StatusBadge status={displayStatus(item)} /></Row>
           <Row label="Asset value">{Number(item.assetValue) > 0 ? fmtMoney(item.assetValue) : '—'}</Row>
-          {personHeld && <Row label="Held by">{item.assignedToName || item.assignedToEmail}</Row>}
+          {personHeld && <Row label="Held by">{item.assignedToName || auditName(item.assignedToEmail)}</Row>}
 
           {/* Operational status (Neil) */}
           <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', letterSpacing:'.06em', margin:'16px 0 4px' }}>OPERATIONAL STATUS</div>
@@ -4492,7 +4492,7 @@ function DeletedItemsModal({ onClose, onRestored, toast, highlightId }) {
                   <div style={{ fontSize:11.5, color:'var(--muted)' }}>
                     {item.serialNumber || '—'} · Deleted in <strong style={{ color:'var(--ink)' }}>{item.deletedLocation || '—'}</strong>
                     {item.deletedAt && <> · {fmtWhen(item.deletedAt)}</>}
-                    {item.deletedBy && <> · by {item.deletedBy}</>}
+                    {item.deletedBy && <> · by {auditName(item.deletedBy)}</>}
                   </div>
                 </div>
                 <button onClick={() => restore([item.id])} disabled={busy}
@@ -4595,7 +4595,7 @@ function SendAlertModal({ onClose, toast }) {
                   <label key={u.email} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 14px', cursor:'pointer', borderBottom:'1px solid var(--line)', background: checked ? 'hsla(var(--color-green),0.06)' : 'transparent' }}>
                     <input type="checkbox" checked={checked} onChange={() => toggleUser(u.email)} style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
                     <div style={{ flex:1 }}>
-                      <div style={{ fontWeight:600, fontSize:13 }}>{u.display_name || u.email}</div>
+                      <div style={{ fontWeight:600, fontSize:13 }}>{u.display_name || auditName(u.email)}</div>
                       <div style={{ fontSize:11.5, color:'var(--muted)' }}>{u.email}</div>
                     </div>
                   </label>

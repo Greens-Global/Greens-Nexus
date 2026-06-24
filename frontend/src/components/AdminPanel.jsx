@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Shield, Activity, Search, RefreshCw, ChevronDown, Users } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
+import { emailToName } from '../lib/utils';
 import Admin from '../views/Admin';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -180,8 +181,8 @@ function AuditLogs() {
                     {fmtTime(r.timestamp)}
                   </td>
                   <td style={{ padding: '10px 14px', maxWidth: 200 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {r.user_email}
+                    <div title={r.user_email} style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {emailToName(r.user_email)}
                     </div>
                     {r.user_role && (
                       <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{r.user_role}</div>
