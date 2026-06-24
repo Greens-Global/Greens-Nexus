@@ -1665,16 +1665,24 @@ function feedSummary(entry) {
   const ch = entry.changes;
   if (ch) {
     const n = ch.length;
+    // An item created with its values set.
+    if (entry.isAdd) return n ? `Added to inventory with ${n} detail${n !== 1 ? 's' : ''} filled in.` : 'Added to inventory.';
+    // A photo change is the action people recognise — always name it, even on a
+    // first record (don't bury it under a generic "first record" message).
+    const photo = ch.find(c => c.field === 'photo_url');
+    if (photo) {
+      const verb = photo.to === '' ? 'Removed the photo'
+        : (entry.baseline || photo.from == null || photo.from === '') ? 'Added the photo'
+        : 'Updated the photo';
+      const others = ch.filter(c => c.field !== 'photo_url');
+      if (!others.length || entry.baseline) return verb + '.';
+      return `${verb}, and ${others.length === 1 ? `changed the ${others[0].label.toLowerCase()}` : `updated ${others.length} other fields`}.`;
+    }
     if (entry.baseline) return `This is the first record we have for this item — here’s what it looked like (${n} detail${n !== 1 ? 's' : ''}).`;
-    if (entry.isAdd)    return n ? `Added to inventory with ${n} detail${n !== 1 ? 's' : ''} filled in.` : 'Added to inventory.';
     if (n === 0)        return 'Saved with no changes.';
     if (n === 1) {
       const c = ch[0];
       const label = c.label.toLowerCase();
-      if (c.field === 'photo_url') {
-        if (c.to === '') return 'Removed the photo.';
-        return (c.from == null || c.from === '') ? 'Added a photo.' : 'Changed the photo.';
-      }
       if (c.to === '')      return `Cleared the ${label}${c.from ? ` (was ${_q(c.from)})` : ''}.`;
       if (c.from == null || c.from === '') return `Set the ${label} to ${_q(c.to)}.`;
       return `Changed the ${label} from ${_q(c.from)} to ${_q(c.to)}.`;
