@@ -225,6 +225,12 @@ class AuditMiddleware(BaseHTTPMiddleware):
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return response
 
+        # The audit-undo endpoint writes its own canonical entries (the reverse
+        # change + marking the original undone) — let it, don't double-log the
+        # POST here (the generic describer would mislabel it "Added item").
+        if path == "/items/audit-undo":
+            return response
+
         # Resolve IP once — used for both security logs and normal audit rows.
         forwarded = request.headers.get("x-forwarded-for", "")
         if forwarded:

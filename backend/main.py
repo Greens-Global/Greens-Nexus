@@ -48,6 +48,9 @@ def _run_migrations():
             "ALTER TABLE kb_documents ADD COLUMN retention_months INTEGER DEFAULT 84",
             "ALTER TABLE kb_courses ADD COLUMN overview VARCHAR DEFAULT ''",
             "ALTER TABLE kb_courses ADD COLUMN recert_months INTEGER DEFAULT 0",
+            # audit_logs: track when an entry was reverted via the Undo action
+            "ALTER TABLE audit_logs ADD COLUMN undone_at VARCHAR DEFAULT ''",
+            "ALTER TABLE audit_logs ADD COLUMN undone_by VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -146,6 +149,8 @@ def _run_migrations():
         "ALTER TABLE kb_documents ADD COLUMN IF NOT EXISTS retention_months INTEGER DEFAULT 84",
         "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS overview VARCHAR DEFAULT ''",
         "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS recert_months INTEGER DEFAULT 0",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS undone_at VARCHAR DEFAULT ''",
+        "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS undone_by VARCHAR DEFAULT ''",
     ]
     with engine.connect() as conn:
         for sql in migrations:

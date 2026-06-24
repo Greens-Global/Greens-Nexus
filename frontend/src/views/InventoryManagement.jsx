@@ -1394,11 +1394,6 @@ function auditName(email) {
   const local = (email || '').split('@')[0];
   return local.split(/[._]/).filter(Boolean).map(p => p[0].toUpperCase() + p.slice(1)).join(' ') || email || '—';
 }
-function humanizeAuditAction(action) {
-  return (action || '')
-    .replace(/ICHK-[A-Z0-9]+-([A-Z0-9]{4,})/i, (_, tail) => `· Req #${tail.slice(-8).toUpperCase()}`)
-    .replace(/ASG-([A-Z0-9]{4,})/i, (_, t) => `· #${t.slice(-8).toUpperCase()}`);
-}
 
 // Icon + tone + plain-English verb for an audit action, so the log reads like a
 // story instead of a code dump.
@@ -1542,117 +1537,294 @@ function AuditHistoryModal({ item, onClose, onOpenItem }) {
   );
 }
 
-const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem }) {
+// ── Activity feed helpers ─────────────────────────────────────────────────────
+// Day bucket for grouping (PT — same zone the timestamps render in). en-CA gives
+// YYYY-MM-DD which both sorts and compares against <input type="date"> values.
+function auditDayKey(iso) {
+  if (!iso) return '';
+  const d = new Date(/[zZ]$|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso + 'Z');
+  return d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+}
+function auditDayLabel(key) {
+  if (!key) return '';
+  const todayKey = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+  const yKey = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+  if (key === todayKey) return 'Today';
+  if (key === yKey)     return 'Yesterday';
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday:'short', day:'numeric', month:'short', year:'numeric' });
+}
+function auditTime(iso) {
+  if (!iso) return '';
+  const d = new Date(/[zZ]$|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso + 'Z');
+  return d.toLocaleTimeString('en-US', { timeZone:'America/Los_Angeles', hour:'numeric', minute:'2-digit', hour12:true });
+}
+function auditInitials(email) {
+  return (email || '?').split(/[\s@._]+/).filter(Boolean).slice(0, 2).map(s => s[0]).join('').toUpperCase() || '?';
+}
+const EMPTY = '∅';
+
+// Walk EVERY item's events oldest→newest, keeping a per-item running snapshot so
+// each edit can be shown as "old → new" (the backend only records new values).
+// Returns newest-first, each entry tagged with field changes, baseline flag, and
+// the undo "reason" carried on reverse entries.
+function buildGlobalFeed(rows) {
+  const asc  = [...rows].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+  const snap = {};   // resource_id → { field: value }
+  const seen = {};   // resource_id → have we set a baseline yet?
+  const out = asc.map(r => {
+    let d = {}; try { d = JSON.parse(r.details || '{}'); } catch { /* ignore */ }
+    const a = (r.action || '').toLowerCase();
+    const rid = r.resource_id || '';
+    const fieldEvent = a.includes('added') || a.includes('updated') || a.includes('edited') || a.includes('imported');
+    const isAdd = a.includes('added') || a.includes('imported');
+    let changes = null, baseline = false;
+    if (fieldEvent && rid) {
+      const s = snap[rid] || (snap[rid] = {});
+      baseline = !seen[rid] && !isAdd;
+      changes = [];
+      for (const [f, label] of _AUDIT_FIELDS) {
+        if (!(f in d)) continue;
+        const to = String(d[f] ?? '');
+        const from = (f in s) ? String(s[f] ?? '') : null;
+        if (from === null) { if (to && to !== '0') changes.push({ field:f, label, from:null, to }); }
+        else if (from !== to) changes.push({ field:f, label, from, to });
+        s[f] = to;
+      }
+      seen[rid] = true;
+    } else if (fieldEvent) {
+      // Bulk add/edit (no single resource_id) — show the submitted values flat.
+      changes = [];
+      for (const [f, label] of _AUDIT_FIELDS) {
+        if (!(f in d)) continue;
+        const to = String(d[f] ?? '');
+        if (to && to !== '0') changes.push({ field:f, label, from:null, to });
+      }
+    }
+    return { row:r, details:d, changes, baseline, isAdd, reason: d.reason || '' };
+  });
+  return out.reverse();
+}
+
+// Which entries can be undone, and the reverse payload to send. Edits restore the
+// reconstructed previous values; single-item adds delete; single-item deletes
+// restore. Bulk ops and the baseline (no known "before") are not undoable.
+function feedUndoInfo(entry) {
+  const r = entry.row;
+  if (r.undone_at) return null;
+  const rid = r.resource_id || '';
+  if (!rid) return null;
+  const a = (r.action || '').toLowerCase();
+  if (a.startsWith('added item'))   return { kind:'add', confirm:'Undo this? The item will be moved to the Recycle Bin.' };
+  if (a.startsWith('deleted item')) return { kind:'del', confirm:'Undo this? The item will be restored from the Recycle Bin.' };
+  if (a.startsWith('updated item')) {
+    if (entry.baseline || !entry.changes) return null;
+    const fields = {};
+    for (const c of entry.changes) if (c.from !== null) fields[c.field] = c.from;
+    if (!Object.keys(fields).length) return null;
+    return { kind:'edit', confirm:'Undo this? The previous value(s) will be put back.', fields };
+  }
+  return null;
+}
+
+const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onChanged }) {
   const [query,   setQuery]   = useState('');
   const [logs,    setLogs]    = useState([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
-  const [history, setHistory] = useState(null); // { id, name } → opens the timeline modal
-  const isMobile = useIsMobile(); // phones render cards, not the table
+  const [history, setHistory] = useState(null);   // { id, name } → per-item timeline modal
+  const [from,    setFrom]    = useState('');
+  const [to,      setTo]      = useState('');
+  const [confirmUndo, setConfirmUndo] = useState(null); // audit row id awaiting confirm
+  const [undoing,     setUndoing]     = useState(null); // audit row id in flight
 
-  // resource_id → item name: current items first, then any log that named the item.
-  const nameMap = useMemo(() => {
+  // resource_id → { name, type }: current items first, then anything a log named.
+  const meta = useMemo(() => {
     const m = {};
-    for (const it of items) if (it.id) m[it.id] = it.name;
+    for (const it of items) if (it.id) m[it.id] = { name: it.name, type: it.itemType };
     for (const log of logs) {
-      if (!log.resource_id || m[log.resource_id]) continue;
-      try { const d = JSON.parse(log.details || '{}'); const nm = d.name || d.item_name; if (nm) m[log.resource_id] = nm; } catch { /* skip */ }
+      const rid = log.resource_id;
+      if (!rid) continue;
+      try { const d = JSON.parse(log.details || '{}'); const nm = d.name || d.item_name; const ty = d.item_type;
+        if (!m[rid]) m[rid] = { name: nm || '', type: ty || '' };
+        else { if (!m[rid].name && nm) m[rid].name = nm; if (!m[rid].type && ty) m[rid].type = ty; }
+      } catch { /* skip */ }
     }
     return m;
   }, [items, logs]);
-  // "Updated item <uuid>" → "Updated item 100-C01" (or a short #id if unknown).
-  const actionLabel = (log) => {
-    let label = humanizeAuditAction(log.action);
-    const rid = log.resource_id;
-    const name = nameMap[rid];
-    // Only swap real item ids (a known name or a UUID-shaped id) — leave things
-    // like "custom-fields" / "cart" alone.
-    if (rid && (name || /^[0-9a-f-]{20,}$/i.test(rid))) {
-      if (label.includes(rid)) label = label.replace(rid, name || `#${rid.slice(0, 8)}`);
-      else if (name && /^(added|imported)/i.test(label.trim())) label = `${label} ${name}`;
-    }
-    return label;
-  };
-  // The item a row is about, for the history modal.
-  const rowItem = (log) => {
-    const name = nameMap[log.resource_id];
-    if (name) return { id: log.resource_id || '', name };
-    try { const d = JSON.parse(log.details || '{}'); const nm = d.name || d.item_name; if (nm) return { id: log.resource_id || '', name: nm }; } catch { /* skip */ }
+
+  const itemFor = (log) => {
+    const info = meta[log.resource_id];
+    if (info?.name) return { id: log.resource_id || '', name: info.name };
     return log.resource_id ? { id: log.resource_id, name: '' } : null;
   };
-  const openRow = (log) => { const it = rowItem(log); if (it) setHistory(it); };
 
   const load = useCallback(() => {
     setLoading(true);
-    const params = { limit: 200 };
+    const params = { limit: 300 };
     if (query.trim()) params.q = query.trim();
     api.getItemsAuditLog(params)
       .then(res => { setLogs(res.rows || []); setError(''); })
       .catch(() => setError('Could not load audit log.'))
       .finally(() => setLoading(false));
   }, [query]);
-
   useEffect(() => { const t = setTimeout(load, query ? 350 : 0); return () => clearTimeout(t); }, [load, query]);
+
+  async function doUndo(entry) {
+    const info = feedUndoInfo(entry);
+    if (!info) return;
+    setConfirmUndo(null);
+    setUndoing(entry.row.id);
+    try {
+      await api.undoAuditEntry(entry.row.id, info.fields || null);
+      await load();
+      onChanged?.();
+    } catch (e) {
+      setError(e?.message || 'Could not undo that change.');
+    } finally {
+      setUndoing(null);
+    }
+  }
+
+  // Build → date-filter → group by day (newest first).
+  const groups = useMemo(() => {
+    const feed = buildGlobalFeed(logs).filter(e => {
+      const k = auditDayKey(e.row.timestamp);
+      if (from && k < from) return false;
+      if (to   && k > to)   return false;
+      return true;
+    });
+    const gs = [];
+    for (const e of feed) {
+      const k = auditDayKey(e.row.timestamp);
+      let g = gs.find(x => x.k === k);
+      if (!g) { g = { k, list: [] }; gs.push(g); }
+      g.list.push(e);
+    }
+    return gs;
+  }, [logs, from, to]);
+
+  const shown = groups.reduce((n, g) => n + g.list.length, 0);
+
+  const tone = (action, baseline) => baseline ? 'blue' : auditEventMeta(action).tone;
+  const verb = (action, baseline) => baseline ? 'Baseline' : auditEventMeta(action).verb;
 
   return (
     <div>
-      <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap', alignItems:'center' }}>
-        <div className="search-bar" style={{ flex:1, minWidth:0, maxWidth:300 }}>
+      <div style={{ display:'flex', gap:10, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
+        <div className="search-bar" style={{ flex:1, minWidth:180, maxWidth:300 }}>
           <Search size={14} style={{ flexShrink:0 }} />
           <input placeholder="Search by item, user, or action…" value={query} onChange={e => setQuery(e.target.value)} />
         </div>
-        <span style={{ fontSize:13, color:'var(--muted)' }}>{logs.length} entr{logs.length !== 1 ? 'ies' : 'y'} · <span style={{ fontStyle:'italic' }}>click any row to see that item’s full history</span></span>
+        <div style={{ marginLeft:'auto', display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+          <label style={{ fontSize:10.5, fontWeight:700, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:5 }}>
+            From <input type="date" className="form-input" value={from} max={to || undefined} onChange={e => setFrom(e.target.value)} style={{ height:32, fontSize:12, padding:'0 8px' }} />
+          </label>
+          <label style={{ fontSize:10.5, fontWeight:700, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:5 }}>
+            To <input type="date" className="form-input" value={to} min={from || undefined} onChange={e => setTo(e.target.value)} style={{ height:32, fontSize:12, padding:'0 8px' }} />
+          </label>
+          {(from || to) && <button className="secondary-btn" style={{ height:32, padding:'0 12px', fontSize:12 }} onClick={() => { setFrom(''); setTo(''); }}>Clear</button>}
+        </div>
       </div>
+      <p style={{ fontSize:12.5, color:'var(--muted)', margin:'0 0 14px' }}>
+        {shown} {shown === 1 ? 'entry' : 'entries'}{(from || to) ? ' in range' : ''} · newest first · edits show <span style={{ color:'hsl(var(--color-red))' }}>old</span> → <span style={{ color:'hsl(var(--color-green))' }}>new</span>, and most changes can be undone
+      </p>
+
       {error ? (
         <ErrorBanner message="Could not load the audit log." onRetry={load} />
       ) : loading ? (
-        <SkeletonBlocks count={5} height={44} borderRadius={8} />
-      ) : logs.length === 0 ? (
+        <SkeletonBlocks count={5} height={56} borderRadius={10} />
+      ) : shown === 0 ? (
         <div style={{ textAlign:'center', padding:'48px 0', color:'var(--muted)', fontSize:13 }}>
           <History size={28} style={{ opacity:.3, display:'block', margin:'0 auto 8px' }} />
-          {query ? 'No entries match your search.' : 'No audit entries yet.'}
-        </div>
-      ) : isMobile ? (
-        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-          {logs.map(log => {
-            const det = formatAuditDetails(log.action, log.details);
-            return (
-              <div key={log.id} onClick={() => openRow(log)} style={{ border:'1px solid var(--line)', borderRadius:12, background:'var(--card)', padding:'11px 14px', boxShadow:'var(--shadow-sm)', cursor:'pointer' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', gap:8, alignItems:'baseline' }}>
-                  <span style={{ fontWeight:700, fontSize:13, minWidth:0 }}>{actionLabel(log)}</span>
-                  <span style={{ fontSize:10.5, color:'var(--muted)', flexShrink:0, whiteSpace:'nowrap' }}>{fmtAuditStamp(log.timestamp)}</span>
-                </div>
-                <div title={log.user_email} style={{ fontSize:12, fontWeight:700, color:'var(--ink)', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{auditName(log.user_email)}</div>
-                {det && det !== '—' && (
-                  <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:4, lineHeight:1.45 }}>{renderNotifBody(det)}</div>
-                )}
-              </div>
-            );
-          })}
+          {query || from || to ? 'No entries match your filters.' : 'No audit entries yet.'}
         </div>
       ) : (
-        <div style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto' }}>
-          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12.5 }}>
-            <thead>
-              <tr style={{ background:'var(--mist)' }}>
-                {['Timestamp','User','Action','Details'].map(h =>
-                  <th key={h} style={{ textAlign:'left', padding:'9px 14px', fontWeight:700, color:'var(--muted)', fontSize:10.5, textTransform:'uppercase', letterSpacing:'.07em' }}>{h}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {logs.map(log => (
-                <tr key={log.id} onClick={() => openRow(log)}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  style={{ borderTop:'1px solid var(--line)', cursor:'pointer', transition:'background .12s' }}>
-                  <td style={{ padding:'9px 14px', color:'var(--muted)', whiteSpace:'nowrap' }}>{fmtAuditStamp(log.timestamp)}</td>
-                  <td style={{ padding:'9px 14px', fontWeight:700 }} title={log.user_email}>{auditName(log.user_email)}</td>
-                  <td style={{ padding:'9px 14px', fontWeight:600 }}>{actionLabel(log)}</td>
-                  <td style={{ padding:'9px 14px', color:'var(--muted)' }}>{renderNotifBody(formatAuditDetails(log.action, log.details))}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div style={{ display:'flex', flexDirection:'column', gap:18 }}>
+          {groups.map(g => (
+            <div key={g.k}>
+              <div style={{ fontSize:10.5, fontWeight:800, letterSpacing:'.08em', textTransform:'uppercase', color:'var(--muted)', margin:'0 0 9px 2px' }}>{auditDayLabel(g.k)}</div>
+              <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
+                {g.list.map(e => {
+                  const r = e.row;
+                  const t = tone(r.action, e.baseline);
+                  const it = itemFor(r);
+                  const typeBadge = meta[r.resource_id]?.type;
+                  const undo = feedUndoInfo(e);
+                  const det = e.changes ? null : formatAuditDetails(r.action, r.details);
+                  return (
+                    <div key={r.id} style={{ display:'flex', gap:11, padding:'12px 13px', borderRadius:11, border:'1px solid var(--line)', background:'var(--card)', opacity: r.undone_at ? 0.62 : 1 }}>
+                      <span style={{ flexShrink:0, width:9, height:9, marginTop:5, borderRadius:'50%', background:_auditFg(t), boxShadow:`0 0 0 3px ${_auditBg(t)}` }} />
+                      <div style={{ minWidth:0, flex:1 }}>
+                        {/* Header: badge · item name · type · time */}
+                        <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                          <span style={{ fontSize:10, fontWeight:800, textTransform:'uppercase', letterSpacing:'.04em', padding:'2px 7px', borderRadius:5, color:_auditFg(t), background:_auditBg(t) }}>{verb(r.action, e.baseline)}</span>
+                          {it && (it.name
+                            ? <span onClick={() => setHistory(it)} title="Open this item’s full history"
+                                style={{ fontSize:13, fontWeight:700, color:'var(--ink)', cursor:'pointer', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'46vw' }}>{it.name}</span>
+                            : <span style={{ fontSize:12.5, color:'var(--muted)' }}>#{(it.id || '').slice(0, 8)}</span>)}
+                          {typeBadge && <span style={{ fontSize:10.5, fontWeight:600, padding:'2px 7px', borderRadius:5, color:'hsl(var(--color-blue))', background:'hsla(var(--color-blue),0.10)' }}>{typeBadge}</span>}
+                          {r.details && (() => { try { const d = JSON.parse(r.details); return d.items ? <span style={{ fontSize:11.5, color:'var(--muted)' }}>· {d.items} items</span> : null; } catch { return null; } })()}
+                          <span style={{ marginLeft:'auto', fontSize:11.5, color:'var(--muted)', whiteSpace:'nowrap' }}>{auditTime(r.timestamp)}</span>
+                        </div>
+
+                        {/* Field diffs */}
+                        {e.changes && e.changes.length > 0 && (
+                          <div style={{ display:'flex', flexDirection:'column', gap:3, padding:'7px 10px', borderRadius:8, background:'var(--mist)', border:'1px solid var(--line)', marginTop:7 }}>
+                            {e.changes.map((c, ci) => (
+                              <div key={ci} style={{ fontSize:12, lineHeight:1.5, wordBreak:'break-word' }}>
+                                <span style={{ color:'var(--muted)', fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'.05em' }}>{c.label}</span>{'  '}
+                                {!e.baseline && c.from !== null && (
+                                  <><span style={{ color:'hsl(var(--color-red))', textDecoration:'line-through' }}>{c.from === '' ? EMPTY : c.from}</span> <span style={{ color:'var(--muted)' }}>→</span> </>
+                                )}
+                                <span style={{ fontWeight:600, color: e.baseline ? 'var(--ink)' : 'hsl(var(--color-green))' }}>{c.to === '' ? EMPTY : c.to}</span>
+                              </div>
+                            ))}
+                            {e.baseline && <div style={{ fontSize:10, color:'var(--muted)', fontStyle:'italic', marginTop:1 }}>earliest recorded state — changes are tracked from here</div>}
+                          </div>
+                        )}
+                        {/* Non-field events (checkout / return / assign …) */}
+                        {det && det !== '—' && <div style={{ fontSize:12, color:'var(--muted)', marginTop:6, lineHeight:1.5 }}>{renderNotifBody(det)}</div>}
+
+                        {/* Undo reason trail */}
+                        {e.reason && (
+                          <div style={{ marginTop:7, padding:'6px 10px', borderRadius:8, fontSize:12, background:'hsla(40,90%,50%,0.10)', border:'1px solid hsla(40,90%,45%,0.32)', wordBreak:'break-word' }}>
+                            <strong style={{ color:'hsl(36,92%,38%)' }}>Reason:</strong> <span style={{ fontStyle:'italic' }}>{e.reason}</span>
+                          </div>
+                        )}
+
+                        {/* Footer: actor + actions */}
+                        <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:8, flexWrap:'wrap' }}>
+                          <span title={r.user_email} style={{ flexShrink:0, width:20, height:20, borderRadius:'50%', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:800, color:'hsl(var(--color-purple))', background:'hsla(var(--color-purple),0.14)' }}>{auditInitials(r.user_email)}</span>
+                          <span title={r.user_email} style={{ fontSize:12, color:'var(--muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{auditName(r.user_email)}</span>
+                          <div style={{ marginLeft:'auto', display:'inline-flex', alignItems:'center', gap:6 }}>
+                            {r.undone_at && <span style={{ fontSize:11, fontWeight:700, color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:4 }}><RotateCcw size={12} /> Undone</span>}
+                            {it?.id && onOpenItem && <button onClick={() => { onOpenItem(it); }} title="Open this item"
+                              style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'4px 10px', borderRadius:7, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', fontSize:11.5, fontWeight:600, color:'hsl(var(--color-blue))', whiteSpace:'nowrap' }}>Open item →</button>}
+                            {undo && (undoing === r.id
+                              ? <span style={{ fontSize:11.5, color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:5 }}><Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> Undoing…</span>
+                              : <button onClick={() => setConfirmUndo(r.id)} title="Undo this change"
+                                  style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'4px 10px', borderRadius:7, border:'1px solid hsla(40,90%,45%,0.5)', background:'hsla(40,90%,50%,0.10)', cursor:'pointer', fontSize:11.5, fontWeight:700, color:'hsl(36,92%,38%)', whiteSpace:'nowrap' }}><RotateCcw size={12} /> Undo</button>)}
+                          </div>
+                        </div>
+
+                        {/* Inline undo confirmation */}
+                        {confirmUndo === r.id && undo && (
+                          <div style={{ marginTop:8, padding:'11px 13px', borderRadius:9, border:'1px solid hsla(40,90%,45%,0.5)', background:'hsla(40,90%,50%,0.08)' }}>
+                            <div style={{ fontSize:12.5, marginBottom:9 }}>{undo.confirm}</div>
+                            <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
+                              <button className="secondary-btn" style={{ fontSize:12.5, padding:'5px 12px' }} onClick={() => setConfirmUndo(null)}>Cancel</button>
+                              <button onClick={() => doUndo(e)} style={{ fontSize:12.5, padding:'5px 14px', display:'inline-flex', alignItems:'center', gap:5, background:'hsl(36,92%,42%)', color:'#fff', border:'none', borderRadius:8, fontWeight:700, cursor:'pointer', fontFamily:'Inter,sans-serif' }}><RotateCcw size={13} /> Undo</button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
       {history && <AuditHistoryModal item={history} onClose={() => setHistory(null)} onOpenItem={onOpenItem} />}
@@ -7338,7 +7510,7 @@ export default function InventoryManagement({ activeSub }) {
         <PurchaseRequestsTab userEmail={userEmail} userName={userName} isManager={isManager}
           onAssign={openAssign} toast={toast} />
       )}
-      {mainTab === 'audit' && <AuditLogPanel items={items} onOpenItem={(it) => {
+      {mainTab === 'audit' && <AuditLogPanel items={items} onChanged={refreshItems} onOpenItem={(it) => {
         const found = items.find(x => x.id === it.id) || items.find(x => x.name === it.name);
         if (found) { setMainTab('manage'); setEditingItem(found); }
         else toast('That item no longer exists (it may have been deleted).', 'error');

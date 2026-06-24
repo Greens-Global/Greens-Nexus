@@ -446,6 +446,8 @@ class AuditLog(Base):
     resource_id   = Column(String, default="")
     details       = Column(String, default="")   # JSON string
     ip_address    = Column(String, default="")
+    undone_at     = Column(String, default="")    # set when this change was reverted via the audit-log Undo
+    undone_by     = Column(String, default="")    # email of whoever undid it
 
 
 class NexusEmployee(Base):

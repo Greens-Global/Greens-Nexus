@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import re
 import threading
@@ -2323,8 +2324,106 @@ def items_audit_log(
         "rows": [
             {"id": r.id, "timestamp": r.timestamp, "user_email": r.user_email,
              "user_role": r.user_role, "action": r.action,
-             "resource_id": r.resource_id, "details": r.details}
+             "resource_id": r.resource_id, "details": r.details,
+             "undone_at": r.undone_at or "", "undone_by": r.undone_by or ""}
             for r in rows
         ],
     }
+
+
+# Columns the audit Undo is allowed to restore (1:1 with the audit field names the
+# frontend tracks). Scalar columns only — no relations, no side effects.
+_UNDO_ITEM_COLS = {
+    "name", "item_type", "make", "model", "year", "department", "location",
+    "default_owner", "ownership_type", "status", "serial_number",
+    "op_status", "op_status_person_name", "asset_value",
+}
+
+
+class AuditUndoRequest(BaseModel):
+    audit_id: int
+    fields: Optional[dict] = None   # {audit_field_name: previous_value} for an edit reversal
+
+
+@router.post("/audit-undo")
+def undo_audit_entry(body: AuditUndoRequest, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    """Revert a single item add / edit / delete recorded in the audit log.
+
+    Edits restore the previous values the client reconstructed from the log;
+    adds are soft-deleted; deletes are restored. The original entry is marked
+    undone and a new canonical entry (carrying a "reason") records the reversal.
+    """
+    row = db.query(AuditLog).filter(AuditLog.id == body.audit_id).first()
+    if not row or row.resource_type != "items":
+        raise HTTPException(404, "Audit entry not found")
+    if row.undone_at:
+        raise HTTPException(409, "This change was already undone")
+
+    action = (row.action or "").lower()
+    iid    = row.resource_id or ""
+    email  = user["email"]
+    now    = datetime.now(timezone.utc).isoformat()
+    item   = db.query(Item).filter(Item.id == iid).first() if iid else None
+
+    applied, reason, new_action = {}, "", ""
+
+    if action.startswith("added item"):
+        if not item:
+            raise HTTPException(404, "That item no longer exists")
+        if item.deleted_at:
+            raise HTTPException(409, "That item is already deleted")
+        active = db.query(ItemCheckout).filter(
+            ItemCheckout.item_id == iid,
+            ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"]),
+        ).count()
+        if active:
+            raise HTTPException(409, "Can't undo — the item has an active checkout against it")
+        _soft_delete(item, email)
+        reason, new_action = "Undo — removed the added item", f"Deleted item {iid}"
+
+    elif action.startswith("deleted item"):
+        if not item:
+            raise HTTPException(404, "That item no longer exists")
+        if not item.deleted_at:
+            raise HTTPException(409, "That item is not deleted")
+        item.deleted_at = ""
+        item.deleted_by = ""
+        reason, new_action = "Undo — restored the deleted item", f"Restored item {iid}"
+
+    elif action.startswith("updated item"):
+        if not item:
+            raise HTTPException(404, "That item no longer exists")
+        for k, v in (body.fields or {}).items():
+            if k not in _UNDO_ITEM_COLS:
+                continue
+            if k == "asset_value":
+                try:
+                    v = float(v or 0)
+                except (TypeError, ValueError):
+                    v = 0.0
+            setattr(item, k, v)
+            applied[k] = v
+        if not applied:
+            raise HTTPException(400, "Nothing to restore for this change")
+        # If op_status was reverted off a person-bound state, drop the stale person.
+        if "op_status" in applied and applied["op_status"] not in _OP_STATUS_PERSON:
+            item.op_status_person_email = ""
+            item.op_status_person_name  = ""
+        reason, new_action = "Undo — restored previous value(s)", f"Updated item {iid}"
+
+    else:
+        raise HTTPException(400, "This kind of change can't be undone")
+
+    row.undone_at = now
+    row.undone_by = email
+
+    details = {"path": "/items/audit-undo", "status": 200, "reason": reason, "undo_of": row.id}
+    details.update(applied)
+    db.add(AuditLog(
+        timestamp=now, user_email=email, user_role="",
+        action=new_action, resource_type="items", resource_id=iid,
+        details=json.dumps(details), ip_address="",
+    ))
+    db.commit()
+    return {"ok": True, "undone_id": row.id}
 
