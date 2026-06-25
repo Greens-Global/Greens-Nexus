@@ -1960,6 +1960,10 @@ def reassign_item(item_id: str, body: AssignmentCreate, user: dict = Depends(req
         ItemAssignment.item_id == item_id, ItemAssignment.status == "active").with_for_update().first()
     if not cur:
         raise HTTPException(409, "No active assignment on this item - use assign")
+    # Reassigning to the same person it's already with is a no-op that would
+    # pointlessly bounce the item through a return — reject it (Neil).
+    if body.assignee_email.lower().strip() == (cur.assignee_email or "").lower().strip():
+        raise HTTPException(409, f"{item.name} is already assigned to {cur.assignee_name or cur.assignee_email}.")
     cur.status = "return_initiated"
     cur.return_reason = "reassign"
     cur.return_initiated_at = _now_iso()

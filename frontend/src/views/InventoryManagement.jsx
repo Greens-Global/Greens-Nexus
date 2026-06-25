@@ -4031,15 +4031,19 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
                   <datalist id="batch-assign-locs">{locations.map(l => <option key={l} value={l} />)}</datalist>
                 </>
               ) : (
-                <div style={{ display:'flex', gap:8 }}>
-                  <input className="form-input" value={assignName} onChange={e => setAssignName(e.target.value)} placeholder="Person's name" style={{ flex:1, minWidth:0 }} />
-                  <input className="form-input" type="email" value={assignEmail} onChange={e => setAssignEmail(e.target.value)} placeholder="work email" style={{ flex:1, minWidth:0 }} />
-                </div>
+                // Type a name → pick from the company directory (fills the email we
+                // need so they can accept). Free-typed names without a pick can't be
+                // assigned — there's no inbox to notify.
+                <PersonTypeahead valueName={assignName}
+                  onPick={({ email, name }) => { setAssignName(name); setAssignEmail(email); }}
+                  placeholder="Type a person's name…" />
               )}
               <p style={{ fontSize:11, color:'var(--muted)', margin:0 }}>
                 {assignKind === 'location'
                   ? 'Marks the selection as assigned to this place — they stop showing as Available.'
-                  : 'Each person must accept their item (with a photo) from My Items.'}
+                  : (assignName && !assignEmail
+                      ? 'Pick a person from the list so they can be notified to accept.'
+                      : 'Each person must accept their item (with a photo) from My Items.')}
               </p>
             </div>
           )}
@@ -7821,8 +7825,8 @@ export default function InventoryManagement({ activeSub }) {
           kpiStrip={
             <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(auto-fit, minmax(104px, 1fr))', gap:8, margin:'0 0 16px' }}>
               {[
-                { label:'Available',   value: deptItems.filter(i => i.status === 'available' && i.ownershipType !== 'permanent').length, color:'card-green'  },
-                { label:'Unassigned',  value: deptItems.filter(i => i.ownershipType === 'permanent' && i.status === 'available').length, color:'card-purple' },
+                { label:'Available to Check Out', value: deptItems.filter(i => i.status === 'available' && i.ownershipType !== 'permanent').length, color:'card-green'  },
+                { label:'Unassigned Permanent',   value: deptItems.filter(i => i.ownershipType === 'permanent' && i.status === 'available').length, color:'card-purple' },
                 { label:'Total Items', value: deptItems.length,                                          color:'card-blue'   },
                 { label:'Checked Out', value: deptItems.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
                 { label:'Items Value', value: fmtMoney(deptItems.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },
@@ -7907,7 +7911,7 @@ export default function InventoryManagement({ activeSub }) {
           onCustomAlert={() => { setOverdueAlertOpen(false); setSendAlertOpen(true); }} />
       )}
       {assigningItem && (
-        <AssignItemModal item={assigningItem.item} mode={assigningItem.mode} toast={toast}
+        <AssignItemModal item={assigningItem.item} mode={assigningItem.mode} userEmail={userEmail} toast={toast}
           onClose={() => setAssigningItem(null)}
           onDone={() => { refreshAssignments(); refreshItems(); }} />
       )}

@@ -108,7 +108,7 @@ function ModalShell({ title, sub, children, onClose }) {
 }
 
 // Manager: assign (or reassign) an item to a person from the directory
-export function AssignItemModal({ item, mode, onClose, onDone, toast }) {
+export function AssignItemModal({ item, mode, userEmail = '', onClose, onDone, toast }) {
   const [directory, setDirectory] = useState([]);
   const [pick, setPick] = useState('');
   const [busy, setBusy] = useState(false);
@@ -116,6 +116,15 @@ export function AssignItemModal({ item, mode, onClose, onDone, toast }) {
   useEffect(() => { api.getRolesDirectory().then(setDirectory).catch(() => {}); }, []);
   const chosen = directory.find(d => d.email === pick);
   const reassign = mode === 'reassign';
+  // Don't let someone (re)assign an item to whoever already holds it — it would
+  // bounce the item through a pointless return. Call it out before they submit.
+  const currentEmail = (item.assignedToEmail || '').toLowerCase();
+  const sameAsCurrent = !!chosen && !!currentEmail && chosen.email.toLowerCase() === currentEmail;
+  const sameMsg = sameAsCurrent
+    ? (chosen.email.toLowerCase() === (userEmail || '').toLowerCase()
+        ? 'This item is already assigned to you.'
+        : `This item is already assigned to ${item.assignedToName || chosen.name}.`)
+    : '';
   return (
     <ModalShell onClose={onClose}
       title={reassign ? `Reassign ${item.name}` : `Assign ${item.name}`}
@@ -127,10 +136,10 @@ export function AssignItemModal({ item, mode, onClose, onDone, toast }) {
         <option value="">— select a person —</option>
         {directory.map(d => <option key={d.email} value={d.email}>{d.name}</option>)}
       </select>
-      {error && <p style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', marginTop: 10 }}>{error}</p>}
+      {(sameMsg || error) && <p style={{ fontSize: 12.5, color: sameMsg ? 'hsl(var(--color-orange))' : 'hsl(var(--color-red))', marginTop: 10 }}>{sameMsg || error}</p>}
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
         <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-        <button className="primary-btn" disabled={!chosen || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
+        <button className="primary-btn" disabled={!chosen || busy || sameAsCurrent} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
           onClick={() => {
             setBusy(true); setError('');
             (reassign ? api.reassignItem(item.id, { assignee_email: chosen.email, assignee_name: chosen.name })
