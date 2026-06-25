@@ -190,7 +190,6 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
             {isFull ? <Minimize2 style={{ width: 16, height: 16 }} /> : <Maximize2 style={{ width: 16, height: 16 }} />}
           </button>
         </div>
-        {helpKey && <PageHelp pageKey={helpKey} label={helpLabel} />}
         <NotificationBell onNavigate={onNavigate} />
 
         {/* User profile pill */}
@@ -241,10 +240,11 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
               <button className="hud-item">
                 <Settings size={14} /> Account Settings
               </button>
-              {/* Dark mode lives here now (Neil) — not a standalone header icon */}
+              {/* Dark mode + Help live here now (Neil: clear the top bar, esp. mobile) */}
               <button className="hud-item" onClick={onThemeToggle}>
                 {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />} {theme === "dark" ? "Light mode" : "Dark mode"}
               </button>
+              {helpKey && <PageHelp pageKey={helpKey} label={helpLabel} variant="row" onActivate={() => setOpen(false)} />}
 
               {isAdmin && (
                 <>
