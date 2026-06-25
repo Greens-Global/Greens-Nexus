@@ -1696,7 +1696,7 @@ function feedSummary(entry) {
   if (ch) {
     const n = ch.length;
     // An item created with its values set.
-    if (entry.isAdd) return n ? `Added to inventory with ${n} detail${n !== 1 ? 's' : ''} filled in.` : 'Added to inventory.';
+    if (entry.isAdd) return n ? `Added to Items with ${n} detail${n !== 1 ? 's' : ''} filled in.` : 'Added to Items.';
     // A photo change is the action people recognise — always name it, even on a
     // first record (don't bury it under a generic "first record" message).
     const photo = ch.find(c => c.field === 'photo_url');
@@ -1766,7 +1766,7 @@ const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onLo
     if (query.trim()) params.q = query.trim();
     api.getItemsAuditLog(params)
       .then(res => { setLogs(res.rows || []); setError(''); })
-      .catch(() => setError('Could not load audit log.'))
+      .catch(() => setError('Could not load activity log.'))
       .finally(() => setLoading(false));
   }, [query]);
   useEffect(() => { const t = setTimeout(load, query ? 350 : 0); return () => clearTimeout(t); }, [load, query]);
@@ -1839,13 +1839,13 @@ const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onLo
       </p>
 
       {error ? (
-        <ErrorBanner message="Could not load the audit log." onRetry={load} />
+        <ErrorBanner message="Could not load the activity log." onRetry={load} />
       ) : loading ? (
         <SkeletonBlocks count={5} height={56} borderRadius={10} />
       ) : shown === 0 ? (
         <div style={{ textAlign:'center', padding:'48px 0', color:'var(--muted)', fontSize:13 }}>
           <History size={28} style={{ opacity:.3, display:'block', margin:'0 auto 8px' }} />
-          {query || from || to ? 'No entries match your filters.' : 'No audit entries yet.'}
+          {query || from || to ? 'No entries match your filters.' : 'No activity yet.'}
         </div>
       ) : (
         <div style={{ display:'flex', flexDirection:'column', gap:18 }}>
@@ -3656,7 +3656,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
 });
 
 // ── Manager Catalog Tab ───────────────────────────────────────────────────────
-const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate }) {
+const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, filterControls }) {
   // Desktop defaults to the list/table; phones default to tiles but can now
   // switch to the (scrollable) list in portrait too (Neil, Jun 16).
   const [viewMode, setViewMode] = useState(() => window.matchMedia('(max-width: 640px)').matches ? 'tile' : 'list');
@@ -3686,6 +3686,13 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
 
   return (
     <>
+      {/* Filters directly above the table, right-aligned — same spot as Manage so
+          they never jump between tabs (Neil). */}
+      {filterControls && (
+        <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', justifyContent:'flex-end', marginBottom:12 }}>
+          {filterControls}
+        </div>
+      )}
       <div style={{ display:'flex', alignItems:'center', gap:14, marginBottom:14 }}>
         <p style={{ fontSize:12, color:'var(--muted)', margin:0, whiteSpace:'nowrap', flexShrink:0 }}>{filtered.length} item{filtered.length !== 1 ? 's' : ''}</p>
         {/* Search sits beside the count and stretches the full row width,
@@ -3921,8 +3928,11 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
                   <span style={{ fontSize:12.5, fontWeight:600, color: on ? 'var(--ink)' : 'var(--muted)' }}>{f.label}</span>
                 </label>
                 {f.options ? (
-                  <select disabled={!on} value={vals[f.key] ?? f.options[0]} onChange={e => setVal(f.key, e.target.value)}
+                  // Unticked dropdowns show blank, not a default value — otherwise it
+                  // looks like (e.g.) "Transient" will be applied when it won't (Neil).
+                  <select disabled={!on} value={on ? (vals[f.key] ?? f.options[0]) : ''} onChange={e => setVal(f.key, e.target.value)}
                     style={{ flex:1, padding:'8px 10px', borderRadius:8, border:'1px solid var(--line)', background: on ? 'var(--card)' : 'var(--mist)', fontSize:13, fontFamily:'Inter,sans-serif', color: on ? 'var(--ink)' : 'var(--muted)', textTransform: f.key === 'ownership_type' ? 'capitalize' : 'none' }}>
+                    {!on && <option value="">—</option>}
                     {f.options.map(o => <option key={o} value={o}>{f.key === 'op_status' ? (OP_STATUS_META[o]?.label || o) : o}</option>)}
                   </select>
                 ) : (
@@ -5055,7 +5065,7 @@ const ManageCard = memo(function ManageCard({ item, isSelected, highlight, onTog
   );
 });
 
-const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, filterControls, highlightId, onHighlightDone }) {
+const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onExportAllPdf, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, filterControls, highlightId, onHighlightDone }) {
   const [photoPreview,       setPhotoPreview]       = useState(null);
   const [exportMenu,         setExportMenu]         = useState(false); // Export ▾ dropdown
   const [selected,           setSelected]           = useState(new Set());
@@ -5261,9 +5271,20 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
           <input placeholder="Search items…" value={searchValue} onChange={e => onSearchChange(e.target.value)} />
         </div>
       )}
-      {/* Filters live HERE now — right above the items they filter, below the KPI
-          cards (Ankush: they were wrongly at the top, far from the list). */}
-      {filterControls}
+      {/* Filter + search bar — directly above the items, one consistent spot
+          (Neil): search on the left, filter dropdowns pushed to the right. The
+          phone search is rendered separately above, so this one is desktop-only. */}
+      <div style={{ display:'flex', gap:10, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
+        {!isMobile && onSearchChange && (
+          <div className="search-bar" style={{ flex:1, minWidth:200, marginBottom:0 }}>
+            <Search size={14} style={{ flexShrink:0 }} />
+            <input placeholder="Search items…" value={searchValue} onChange={e => onSearchChange(e.target.value)} />
+          </div>
+        )}
+        <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', marginLeft: isMobile ? 0 : 'auto' }}>
+          {filterControls}
+        </div>
+      </div>
       {/* Action bar */}
       <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap', alignItems:'center' }}>
         <button className="primary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onAdd}>
@@ -5277,8 +5298,8 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
         <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onImport}>
           <UploadCloud size={14} /> Import CSV
         </button>
-        {/* Export ▾ — one button, two choices (Neil): the whole inventory as a
-            flat CSV, or a report (CSV/PDF) honoring the filters currently applied. */}
+        {/* Export ▾ — two choices (Neil): every item unfiltered (CSV or PDF), or a
+            custom report honoring the filters currently applied. */}
         <div style={{ position:'relative' }}>
           <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={() => setExportMenu(o => !o)}>
             <Download size={14} /> Export <ChevronDown size={13} style={{ opacity:.6 }} />
@@ -5287,18 +5308,27 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
             <>
               {/* click-away backdrop */}
               <div style={{ position:'fixed', inset:0, zIndex:40 }} onClick={() => setExportMenu(false)} />
-              <div style={{ position:'absolute', top:'calc(100% + 6px)', left:0, zIndex:41, background:'var(--card)', border:'1px solid var(--line)', borderRadius:10, boxShadow:'var(--shadow-lg)', minWidth:262, overflow:'hidden', padding:5 }}>
-                <button onClick={() => { setExportMenu(false); onExport(items); }}
-                  style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:1, width:'100%', textAlign:'left', background:'none', border:'none', cursor:'pointer', padding:'9px 11px', borderRadius:7, fontFamily:'Inter,sans-serif' }}
-                  onMouseEnter={e => e.currentTarget.style.background='var(--mist)'} onMouseLeave={e => e.currentTarget.style.background='none'}>
-                  <span style={{ display:'inline-flex', alignItems:'center', gap:7, fontSize:13, fontWeight:700, color:'var(--ink)' }}><FileSpreadsheet size={14} /> Full inventory (CSV)</span>
-                  <span style={{ fontSize:11.5, color:'var(--muted)', paddingLeft:21 }}>Every item — all {items.length}, filters ignored</span>
-                </button>
+              <div style={{ position:'absolute', top:'calc(100% + 6px)', left:0, zIndex:41, background:'var(--card)', border:'1px solid var(--line)', borderRadius:10, boxShadow:'var(--shadow-lg)', minWidth:268, overflow:'hidden', padding:5 }}>
+                {/* All Items — unfiltered; pick a format */}
+                <div style={{ padding:'9px 11px' }}>
+                  <span style={{ display:'flex', alignItems:'center', gap:7, fontSize:13, fontWeight:700, color:'var(--ink)' }}><FileSpreadsheet size={14} /> All Items (CSV / PDF)</span>
+                  <span style={{ display:'block', fontSize:11.5, color:'var(--muted)', paddingLeft:21, margin:'1px 0 8px' }}>Unfiltered — every item, all {items.length}.</span>
+                  <div style={{ display:'flex', gap:7, paddingLeft:21 }}>
+                    <button onClick={() => { setExportMenu(false); onExport(items); }}
+                      style={{ flex:1, padding:'6px 0', borderRadius:7, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', fontFamily:'Inter,sans-serif', fontSize:12, fontWeight:700, color:'var(--ink)' }}
+                      onMouseEnter={e => e.currentTarget.style.background='var(--mist)'} onMouseLeave={e => e.currentTarget.style.background='var(--card)'}>CSV</button>
+                    <button onClick={() => { setExportMenu(false); onExportAllPdf && onExportAllPdf(); }}
+                      style={{ flex:1, padding:'6px 0', borderRadius:7, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', fontFamily:'Inter,sans-serif', fontSize:12, fontWeight:700, color:'var(--ink)' }}
+                      onMouseEnter={e => e.currentTarget.style.background='var(--mist)'} onMouseLeave={e => e.currentTarget.style.background='var(--card)'}>PDF</button>
+                  </div>
+                </div>
+                <div style={{ height:1, background:'var(--line)', margin:'4px 6px' }} />
+                {/* Custom Report — honors the filters currently applied */}
                 <button onClick={() => { setExportMenu(false); onReport({ dept: deptFilter, itemType: typeFilter }); }}
                   style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:1, width:'100%', textAlign:'left', background:'none', border:'none', cursor:'pointer', padding:'9px 11px', borderRadius:7, fontFamily:'Inter,sans-serif' }}
                   onMouseEnter={e => e.currentTarget.style.background='var(--mist)'} onMouseLeave={e => e.currentTarget.style.background='none'}>
-                  <span style={{ display:'inline-flex', alignItems:'center', gap:7, fontSize:13, fontWeight:700, color:'var(--ink)' }}><FileBarChart size={14} /> Report (CSV / PDF)…</span>
-                  <span style={{ fontSize:11.5, color:'var(--muted)', paddingLeft:21 }}>Formatted, honoring your current filters</span>
+                  <span style={{ display:'inline-flex', alignItems:'center', gap:7, fontSize:13, fontWeight:700, color:'var(--ink)' }}><FileBarChart size={14} /> Custom Report (PDF / Excel)</span>
+                  <span style={{ fontSize:11.5, color:'var(--muted)', paddingLeft:21 }}>Formatted to the current filters.</span>
                 </button>
               </div>
             </>
@@ -6055,7 +6085,7 @@ function ForceReturnModal({ checkout, checkouts, onClose, onConfirm }) {
           Check {multi ? <strong>{list.length} items</strong> : <strong>{list[0].itemName}</strong>} back
           in on behalf of <strong>{holders.length === 1 ? holders[0] : `${holders.length} people`}</strong>.
           Use this when the holder can't or won't return it in the app. The reason is recorded on
-          {multi ? ' every checkout' : ' the checkout'} and in the audit log.
+          {multi ? ' every checkout' : ' the checkout'} and in the activity log.
         </p>
         {multi && (
           <div style={{ overflowY:'auto', minHeight:0, background:'var(--mist)', borderRadius:10, padding:'10px 14px', marginBottom:14 }}>
@@ -6795,14 +6825,14 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
                 </button>
               )}
               <button className="secondary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, color:'var(--muted)' }}
-                title="For consumables that don't belong in inventory — a note is required"
+                title="For consumables that don't belong in the items list — a note is required"
                 onClick={() => { setNoInvId(r.id); setNoInvNote(''); }}>
-                <CheckCircle size={12} /> Fulfill without inventory
+                <CheckCircle size={12} /> Fulfill without adding
               </button>
               <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
                 title="Item received — add it to the items catalog (and optionally assign it to the requester)"
                 onClick={() => setAddingForReq(r)}>
-                <Package size={12} /> Received — Add to Inventory
+                <Package size={12} /> Received — Add to Items
               </button>
             </div>
           )
@@ -6861,8 +6891,8 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
           onClose={() => setAddingForReq(null)}
           onSave={async (data, opts = {}) => {
             const created = await api.createItem(data);
-            await fulfillRequisition(addingForReq.id, userName, { note: `Added to inventory: ${data.name}`, itemId: created?.id || '' });
-            toast?.(`${data.name} added to inventory — requisition fulfilled.`);
+            await fulfillRequisition(addingForReq.id, userName, { note: `Added to Items: ${data.name}`, itemId: created?.id || '' });
+            toast?.(`${data.name} added to Items — requisition fulfilled.`);
             if (opts.assignNow && created?.id && onAssign) onAssign(created, 'assign');
           }}
         />
@@ -7517,6 +7547,12 @@ export default function InventoryManagement({ activeSub }) {
   const openReport    = useCallback((ctx) => { setReportInitial(ctx || null); setReportOpen(true); }, []);
   const openSendAlert = useCallback(() => setOverdueAlertOpen(true), []);
   const exportCsv     = useCallback((rows) => downloadItemsCsv(Array.isArray(rows) && rows.length ? rows : items, customFields), [items, customFields]);
+  // "All Items → PDF": route through the report export with no filters applied.
+  const exportAllPdf  = useCallback(() => {
+    api.getItemsReport({ format:'pdf' })
+      .then(({ blob, filename }) => triggerDownload(filename, blob))
+      .catch(() => toast('Could not generate the PDF.', 'error'));
+  }, [toast]);
   const openAssign    = useCallback((item, mode) => setAssigningItem({ item, mode }), []);
   const refreshAssignmentsAndItems = useCallback(() => { refreshAssignments(); refreshItems(); }, [refreshAssignments, refreshItems]);
   const handleConfirmReceipt = useCallback((co, batch, photoMap) =>
@@ -7579,29 +7615,35 @@ export default function InventoryManagement({ activeSub }) {
     );
   }
 
-  // The four filter selects, reused in two spots: the header (Catalog/Audit) and
-  // below the KPI cards on Manage (Ankush moved them down, next to the items).
+  // The filter selects, rendered directly above the table on Catalog and Manage
+  // (no longer in the page header — Neil: filters must sit in one consistent spot,
+  // not jump around). Any filter that isn't on "All" gets a tinted background so
+  // it's obvious one is active and nothing is silently hidden.
+  const baseSel   = { padding:'6px 10px', fontSize:13, height:34, width:'auto' };
+  const activeSel = v => (v && v !== 'All')
+    ? { borderColor:'var(--pine)', background:'hsla(var(--color-green),0.12)', fontWeight:700, color:'var(--ink)' }
+    : null;
   const filterSelects = (
     <>
       <div style={{ display:'flex', alignItems:'center', gap:6 }}>
         <Filter size={13} style={{ color:'var(--muted)' }} />
-        <select className="form-input" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:150 }}>
+        <select className="form-input" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ ...baseSel, minWidth:150, ...activeSel(deptFilter) }}>
           {DEPARTMENTS.map(d => <option key={d} value={d}>{d === 'All' ? 'All departments' : d}</option>)}
         </select>
       </div>
-      <select className="form-input" value={locationFilter} onChange={e => setLocationFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:130 }}>
+      <select className="form-input" value={locationFilter} onChange={e => setLocationFilter(e.target.value)} style={{ ...baseSel, minWidth:130, ...activeSel(locationFilter) }}>
         <option value="All">All locations</option>
         {locationOptions.map(l => <option key={l}>{l}</option>)}
       </select>
-      <select className="form-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:110 }}>
+      <select className="form-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ ...baseSel, minWidth:110, ...activeSel(typeFilter) }}>
         <option value="All">All types</option>
         {typeOptions.map(t => <option key={t}>{t}</option>)}
       </select>
-      <select className="form-input" value={modelFilter} onChange={e => setModelFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:120 }}>
+      <select className="form-input" value={modelFilter} onChange={e => setModelFilter(e.target.value)} style={{ ...baseSel, minWidth:120, ...activeSel(modelFilter) }}>
         <option value="All">All models</option>
         {modelOptions.map(m => <option key={m}>{m}</option>)}
       </select>
-      <select className="form-input" value={ownershipFilter} onChange={e => setOwnershipFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:130 }}>
+      <select className="form-input" value={ownershipFilter} onChange={e => setOwnershipFilter(e.target.value)} style={{ ...baseSel, minWidth:130, ...activeSel(ownershipFilter) }}>
         <option value="All">All ownership</option>
         <option value="transient">Temporary</option>
         <option value="permanent">Permanent</option>
@@ -7618,12 +7660,8 @@ export default function InventoryManagement({ activeSub }) {
           <p>Browse company assets, check out what you need, or request a purchase</p>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-          {/* Catalog/Audit keep filters here; Manage renders them below its KPI
-              cards instead (Ankush). Always mounted so the header height is stable. */}
-          <div data-vis={['catalog','audit'].includes(mainTab) ? 'visible' : 'hidden'}
-            style={{ display:'flex', alignItems:'center', gap:10, visibility: ['catalog','audit'].includes(mainTab) ? 'visible' : 'hidden' }}>
-            {['catalog','audit'].includes(mainTab) && filterSelects}
-          </div>
+          {/* Filters no longer live in the header — each tab renders them directly
+              above its own table so they never jump around between tabs (Neil). */}
           {/* Cart last: it's the one control visible on every tab, so it anchors
               the right edge instead of floating next to hidden filters */}
           {/* header-cart: phones pin this to ONE fixed spot (title row, top
@@ -7650,7 +7688,7 @@ export default function InventoryManagement({ activeSub }) {
           { id:'checkouts',    label:'Checkouts',         Icon: ShoppingCart, badge: pendingCount + approvedCount },
           { id:'whohasit',     label:'Who Has What',      Icon: Users                                       },
           { id:'purchasereqs', label:'Purchase Requests', Icon: FileText                                    },
-          { id:'audit',        label:'Audit Log',         Icon: History                                     },
+          { id:'audit',        label:'Activity Log',      Icon: History                                     },
         ].map(({ id, label, Icon, badge }) => (
           <button key={id} onClick={() => setMainTab(id)}
             style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 16px', background:'none', border:'none', borderBottom: mainTab === id ? '2px solid var(--pine)' : '2px solid transparent', color: mainTab === id ? 'var(--ink)' : 'var(--muted)', fontWeight: mainTab === id ? 700 : 600, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-1, whiteSpace:'nowrap', flexShrink:0 }}>
@@ -7658,14 +7696,8 @@ export default function InventoryManagement({ activeSub }) {
             {badge > 0 && <span style={{ background:'hsl(var(--color-orange))', color:'#fff', borderRadius:20, fontSize:10, fontWeight:800, padding:'1px 6px', marginLeft:2 }}>{badge}</span>}
           </button>
         ))}
-        {/* Always mounted so the strip height/width never shifts between tabs.
-            Catalog renders its own search beside the item count, so this one
-            only shows on Manage. */}
-        <div className="search-bar" data-vis={mainTab === 'manage' ? 'visible' : 'hidden'}
-          style={{ marginLeft:'auto', flex:1, minWidth:220, marginBottom:0, visibility: mainTab === 'manage' ? 'visible' : 'hidden' }}>
-          <Search size={14} style={{ flexShrink:0 }} />
-          <input placeholder="Search items…" value={search} onChange={e => setSearch(e.target.value)} />
-        </div>
+        {/* Manage's search now sits in-line with its filters, directly above the
+            table (Neil) — not up here in the tab strip. */}
       </div>
 
       {/* Pending approvals banner — below the tab strip so the nav itself never moves */}
@@ -7682,19 +7714,18 @@ export default function InventoryManagement({ activeSub }) {
       )}
 
       {/* KPI strip — manage tab only, rendered below the strip for the same reason */}
-      {/* Compact KPI cards (Ankush: they were too large) — smaller min width,
-          tighter padding and value size. */}
-      {mainTab === 'manage' && <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(auto-fit, minmax(124px, 1fr))', gap:10, margin:'0 0 16px' }}>
+      {/* Compact KPI cards (Neil: they were too large — values are 4 digits max).
+          Missing Photos lives only on the right-hand panel now, not duplicated here. */}
+      {mainTab === 'manage' && <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(auto-fit, minmax(104px, 1fr))', gap:8, margin:'0 0 16px' }}>
         {[
-          { label:'Available',      value: deptItems.filter(i => i.status === 'available').length,    color:'card-green'  },
-          { label:'Total Items',    value: deptItems.length,                                          color:'card-blue'   },
-          { label:'Checked Out',    value: deptItems.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
-          { label:'Missing Photos', value: deptItems.filter(i => !i.photoUrl).length,                 color: deptItems.filter(i => !i.photoUrl).length > 0 ? 'card-red' : '' },
-          { label:'Inventory Value', value: fmtMoney(deptItems.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },
+          { label:'Available',   value: deptItems.filter(i => i.status === 'available').length,    color:'card-green'  },
+          { label:'Total Items', value: deptItems.length,                                          color:'card-blue'   },
+          { label:'Checked Out', value: deptItems.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
+          { label:'Items Value', value: fmtMoney(deptItems.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },
         ].map(({ label, value, color }) => (
-          <div key={label} className={`kpi-card ${color}`} style={{ padding:'10px 12px' }}>
-            <div className="kpi-label" style={{ fontSize:11 }}>{label}</div>
-            <div className="kpi-value" style={{ fontSize:20, lineHeight:1.1 }}>{value}</div>
+          <div key={label} className={`kpi-card ${color}`} style={{ padding:'8px 11px' }}>
+            <div className="kpi-label" style={{ fontSize:10.5 }}>{label}</div>
+            <div className="kpi-value" style={{ fontSize:18, lineHeight:1.1 }}>{value}</div>
           </div>
         ))}
       </div>}
@@ -7709,6 +7740,7 @@ export default function InventoryManagement({ activeSub }) {
           checkouts={checkouts} userEmail={userEmail} userName={userName}
           onReturn={openReturn} onCancel={cancelCo}
           onSelfAllocate={selfAllocate}
+          filterControls={filterSelects}
         />
       )}
       {mainTab === 'manage' && (
@@ -7719,13 +7751,13 @@ export default function InventoryManagement({ activeSub }) {
           refreshItems={refreshItems} canDelete={canDelete}
           onAdd={openAdd} onEdit={setEditingItem}
           onDelete={setDeletingItem} onImport={openImport}
-          onExport={exportCsv} onReport={openReport}
+          onExport={exportCsv} onExportAllPdf={exportAllPdf} onReport={openReport}
           checkouts={checkouts} toast={toast}
           onAssign={openAssign} onDetails={setDetailsItem}
           onShowDeleted={() => setDeletedOpen(true)}
           onManageCustomFields={() => setCustomFieldsOpen(true)}
           highlightId={highlightItemId} onHighlightDone={() => setHighlightItemId(null)}
-          filterControls={<div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', marginBottom:16 }}>{filterSelects}</div>}
+          filterControls={filterSelects}
         />
       )}
       {mainTab === 'myitems' && (
