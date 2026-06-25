@@ -1983,33 +1983,16 @@ class AssignLocationIn(BaseModel):
 
 @router.post("/{item_id}/assign-location")
 def assign_item_to_location(item_id: str, body: AssignLocationIn, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
-    """Permanently assign an item to a PLACE rather than a person (Ankush). Unlike
-    a person assignment there's no photo-acceptance step — a location can't accept —
-    so it's a direct field set. Person fields stay empty, which is exactly what keeps
-    location-held items OUT of 'Who has it'. Pass an empty location to unassign."""
+    """Set WHERE an item lives. Location is just physical placement now (Visesh):
+    it's independent of who holds it, so this never touches the person assignment or
+    the lifecycle — an item can be at GG Corp AND assigned to a person. Empty clears
+    the location. (Kept the legacy assigned_to_location in sync for older views.)"""
     item = db.query(Item).filter(Item.id == item_id).first()
     if not item or item.deleted_at:
         raise HTTPException(404, "Item not found")
     loc = (body.location or "").strip()
-    # Block if a live person-assignment or active checkout is in flight.
-    live = db.query(ItemAssignment).filter(
-        ItemAssignment.item_id == item_id, ItemAssignment.status.in_(_LIVE_ASSIGN)).first()
-    if live:
-        raise HTTPException(409, "Item has a live person-assignment — recover it first")
-    co = db.query(ItemCheckout).filter(
-        ItemCheckout.item_id == item_id,
-        ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"])).first()
-    if co:
-        raise HTTPException(409, "Item has an active checkout — recover it first")
-    if loc:
-        item.ownership_type = "permanent"
-        item.status = "permanently_assigned"
-        item.assigned_to_location = loc
-        item.assigned_to_email = item.assigned_to_name = item.assigned_at = ""
-    else:
-        item.assigned_to_location = ""
-        if item.status == "permanently_assigned" and not item.assigned_to_email:
-            item.status = "available"
+    item.location = loc
+    item.assigned_to_location = ""  # retire the legacy "assigned to a place" flag
     db.commit()
     return _item_to_dict(item)
 
@@ -2035,31 +2018,20 @@ class BulkAssignLocationIn(BaseModel):
 
 @router.post("/bulk-assign-location")
 def bulk_assign_to_location(body: BulkAssignLocationIn, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
-    """Assign many items to a PLACE at once (Neil: assignment belongs in Batch Edit,
-    not a separate button). Mirrors the single /assign-location so the items take on
-    the permanent 'assigned to a location' state and stop reading as Available /
-    unassigned. Items with a live person-assignment or active checkout are skipped."""
+    """Set WHERE many items live at once. Location is physical placement only
+    (Visesh) — independent of who holds them — so this just sets `location` and never
+    touches the person assignment or lifecycle. Empty clears it."""
     ids = [i for i in (body.ids or []) if i]
     loc = (body.location or "").strip()
     if not ids:
         return {"assigned": 0, "skipped": []}
-    blocked = _bulk_assign_blocked(db, ids)
     assigned = 0
     for it in db.query(Item).filter(Item.id.in_(ids), or_(Item.deleted_at.is_(None), Item.deleted_at == "")).all():
-        if it.id in blocked:
-            continue
-        if loc:
-            it.ownership_type = "permanent"
-            it.status = "permanently_assigned"
-            it.assigned_to_location = loc
-            it.assigned_to_email = it.assigned_to_name = it.assigned_at = ""
-        else:
-            it.assigned_to_location = ""
-            if it.status == "permanently_assigned" and not it.assigned_to_email:
-                it.status = "available"
+        it.location = loc
+        it.assigned_to_location = ""
         assigned += 1
     db.commit()
-    return {"assigned": assigned, "skipped": sorted(blocked & set(ids))}
+    return {"assigned": assigned, "skipped": []}
 
 
 class BulkAssignPersonIn(BaseModel):

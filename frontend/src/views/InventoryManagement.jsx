@@ -4040,7 +4040,7 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
               )}
               <p style={{ fontSize:11, color:'var(--muted)', margin:0 }}>
                 {assignKind === 'location'
-                  ? 'Marks the selection as assigned to this place — they stop showing as Available.'
+                  ? 'Sets where these items physically live — their holder (if any) is unchanged.'
                   : (assignName && !assignEmail
                       ? 'Pick a person from the list so they can be notified to accept.'
                       : 'Each person must accept their item (with a photo) from My Items.')}
@@ -5061,16 +5061,14 @@ const ManageRow = memo(function ManageRow({ item, isSelected, highlight, onToggl
           table fits and isn't actually overlapping anything. */}
       <td style={{ padding:'10px 14px', position:'sticky', right:0, background:'var(--card)' }}>
         <div style={{ display:'flex', gap:6 }}>
-          {/* Per-row assign (also available in Batch Edit). Label reflects the real
-              assignment state: a permanent item that's assigned to a person OR a
-              location reads "Reassign"; an unassigned one reads "Assign". Mode is
-              'reassign' only when a PERSON holds it (the reassign API needs an active
-              person assignment) — a location-held item opens a fresh person assign. */}
+          {/* Per-row assign (opens the person/location modal; also in Batch Edit).
+              "Assigned" means a person holds it — that's what flips Assign→Reassign.
+              Location is just where it lives and doesn't change the label. */}
           {item.ownershipType === 'permanent' && onAssign && (
             <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
-              title={item.assignedToEmail ? `Currently with ${item.assignedToName || item.assignedToEmail}` : item.assignedToLocation ? `At ${item.assignedToLocation}` : 'Assign to a person'}
+              title={item.assignedToEmail ? `Held by ${item.assignedToName || item.assignedToEmail}${item.location ? ` · at ${item.location}` : ''}` : item.location ? `At ${item.location} · no person assigned` : 'Assign a person or set a location'}
               style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-              <User size={12} /> {(item.assignedToEmail || item.assignedToLocation || item.status === 'permanently_assigned') ? 'Reassign' : 'Assign'}
+              <User size={12} /> {item.assignedToEmail ? 'Reassign' : 'Assign'}
             </button>
           )}
           {onDetails && (
@@ -5132,7 +5130,7 @@ const ManageCard = memo(function ManageCard({ item, isSelected, highlight, onTog
           {item.ownershipType === 'permanent' && onAssign && (
             <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
               style={{ background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-              {(item.assignedToEmail || item.assignedToLocation || item.status === 'permanently_assigned') ? 'Reassign' : 'Assign'}
+              {item.assignedToEmail ? 'Reassign' : 'Assign'}
             </button>
           )}
           {onDetails && <button onClick={() => onDetails(item)} style={{ background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Details</button>}
@@ -7053,9 +7051,9 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
     // it filed unassigned items under whoever added them (Sai's Oneplus bug).
     for (const i of items) {
       if (i.ownershipType !== 'permanent' && i.status !== 'permanently_assigned') continue;
-      // Items assigned to a PLACE (not a person) belong on the location view, not
-      // here — a single site can hold hundreds and would swamp this list (Ankush).
-      if (i.assignedToLocation) continue;
+      // A person holder is required here. Location is just where the item lives now
+      // (independent of the holder), so a person-held item that also sits at a place
+      // still belongs under that person — no location-based exclusion.
       const email = (i.assignedToEmail || '').toLowerCase();
       const owner = (i.assignedToName || '').trim();
       if (!email && !owner) continue;
@@ -7911,7 +7909,8 @@ export default function InventoryManagement({ activeSub }) {
           onCustomAlert={() => { setOverdueAlertOpen(false); setSendAlertOpen(true); }} />
       )}
       {assigningItem && (
-        <AssignItemModal item={assigningItem.item} mode={assigningItem.mode} userEmail={userEmail} toast={toast}
+        <AssignItemModal item={assigningItem.item} mode={assigningItem.mode} userEmail={userEmail}
+          locations={[...new Set(items.map(i => i.location).filter(Boolean))].sort()} toast={toast}
           onClose={() => setAssigningItem(null)}
           onDone={() => { refreshAssignments(); refreshItems(); }} />
       )}
