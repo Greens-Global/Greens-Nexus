@@ -2487,32 +2487,35 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
   const liveAssignCount = myAssignments.filter(a => ['pending_acceptance','active','return_initiated'].includes(a.status)).length;
   if (!mine.length && !myAssignments.length) return null;
 
-  return (
-    <div style={{ marginTop:32 }}>
-      {/* Active / Past side tabs — both always visible, no scrolling to discover history */}
-      <div className="chip-row" style={{ display:'flex', gap:8, marginBottom:16 }}>
-        {[
-          { key:'active', label:'Active Checkouts', Icon: Clock,   count: active.length    },
-          { key:'past',   label:'Past Checkouts',   Icon: History, count: completed.length },
-          { key:'permanent', label:'Permanent', Icon: User, count: liveAssignCount },
-        ].map(({ key, label, Icon, count }) => {
-          const sel = panelTab === key;
-          return (
-            <button key={key} onClick={() => setPanelTab(key)}
-              style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 18px', borderRadius:10,
-                border:`1px solid ${sel ? 'var(--pine)' : 'var(--line)'}`,
-                background: sel ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
-                color: sel ? 'hsl(var(--color-green))' : 'var(--muted)',
-                fontWeight: sel ? 700 : 600, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', transition:'all 0.15s' }}>
-              <Icon size={14} /> {label}
-              <span style={{ padding:'1px 8px', borderRadius:20, fontSize:11, fontWeight:700,
-                background: sel ? 'hsl(var(--color-green))' : 'var(--mist)',
-                color: sel ? '#fff' : 'var(--muted)' }}>{count}</span>
-            </button>
-          );
-        })}
-      </div>
+  // The Active / Past / Permanent sub-tabs — rendered BELOW the search/filter bar
+  // so the toolbar stays at the same height as every other tab (Neil: fixed spot).
+  const segmentTabs = (
+    <div className="chip-row" style={{ display:'flex', gap:8, marginBottom:16 }}>
+      {[
+        { key:'active', label:'Active Checkouts', Icon: Clock,   count: active.length    },
+        { key:'past',   label:'Past Checkouts',   Icon: History, count: completed.length },
+        { key:'permanent', label:'Permanent', Icon: User, count: liveAssignCount },
+      ].map(({ key, label, Icon, count }) => {
+        const sel = panelTab === key;
+        return (
+          <button key={key} onClick={() => setPanelTab(key)}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 18px', borderRadius:10,
+              border:`1px solid ${sel ? 'var(--pine)' : 'var(--line)'}`,
+              background: sel ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
+              color: sel ? 'hsl(var(--color-green))' : 'var(--muted)',
+              fontWeight: sel ? 700 : 600, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', transition:'all 0.15s' }}>
+            <Icon size={14} /> {label}
+            <span style={{ padding:'1px 8px', borderRadius:20, fontSize:11, fontWeight:700,
+              background: sel ? 'hsl(var(--color-green))' : 'var(--mist)',
+              color: sel ? '#fff' : 'var(--muted)' }}>{count}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 
+  return (
+    <div>
       {/* Filters — type/dept on both tabs; status chips + date sort on Past */}
       {(mine.length > 3) && (
         <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', marginBottom:14 }}>
@@ -2565,6 +2568,8 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
           </div>
         </div>
       )}
+
+      {segmentTabs}
 
       {panelTab === 'permanent' && (
         <MyPermanentPanel assignments={assignments} userEmail={userEmail} refresh={refreshAssignments || (() => {})} toast={toast || (() => {})} />
@@ -5117,7 +5122,7 @@ const ManageCard = memo(function ManageCard({ item, isSelected, highlight, onTog
   );
 });
 
-const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onExportAllPdf, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, filterControls, highlightId, onHighlightDone }) {
+const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onExportAllPdf, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, filterControls, kpiStrip, highlightId, onHighlightDone }) {
   const [photoPreview,       setPhotoPreview]       = useState(null);
   const [exportMenu,         setExportMenu]         = useState(false); // Export ▾ dropdown
   const [selected,           setSelected]           = useState(new Set());
@@ -5332,6 +5337,9 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
           {filterControls}
         </div>
       </div>
+      {/* KPI cards sit BELOW the toolbar so the search/filter row stays at the same
+          height as every other tab (Neil: fixed position, no jumping). */}
+      {kpiStrip}
       {/* Action bar */}
       <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap', alignItems:'center' }}>
         <button className="primary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onAdd}>
@@ -7748,22 +7756,9 @@ export default function InventoryManagement({ activeSub }) {
         </div>
       )}
 
-      {/* KPI strip — manage tab only, rendered below the strip for the same reason */}
-      {/* Compact KPI cards (Neil: they were too large — values are 4 digits max).
-          Missing Photos lives only on the right-hand panel now, not duplicated here. */}
-      {mainTab === 'manage' && <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(auto-fit, minmax(104px, 1fr))', gap:8, margin:'0 0 16px' }}>
-        {[
-          { label:'Available',   value: deptItems.filter(i => i.status === 'available' && i.ownershipType !== 'permanent').length, color:'card-green'  },
-          { label:'Total Items', value: deptItems.length,                                          color:'card-blue'   },
-          { label:'Checked Out', value: deptItems.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
-          { label:'Items Value', value: fmtMoney(deptItems.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },
-        ].map(({ label, value, color }) => (
-          <div key={label} className={`kpi-card ${color}`} style={{ padding:'8px 11px' }}>
-            <div className="kpi-label" style={{ fontSize:10.5 }}>{label}</div>
-            <div className="kpi-value" style={{ fontSize:18, lineHeight:1.1 }}>{value}</div>
-          </div>
-        ))}
-      </div>}
+      {/* KPI strip now renders INSIDE the Manage tab, below its search/filter bar,
+          so the toolbar sits at the same height on every tab (Neil: stop the
+          search/filters jumping up and down). */}
 
       {/* Tab content */}
       {mainTab === 'catalog' && (
@@ -7793,6 +7788,21 @@ export default function InventoryManagement({ activeSub }) {
           onManageCustomFields={() => setCustomFieldsOpen(true)}
           highlightId={highlightItemId} onHighlightDone={() => setHighlightItemId(null)}
           filterControls={filterSelects}
+          kpiStrip={
+            <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(auto-fit, minmax(104px, 1fr))', gap:8, margin:'0 0 16px' }}>
+              {[
+                { label:'Available',   value: deptItems.filter(i => i.status === 'available' && i.ownershipType !== 'permanent').length, color:'card-green'  },
+                { label:'Total Items', value: deptItems.length,                                          color:'card-blue'   },
+                { label:'Checked Out', value: deptItems.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
+                { label:'Items Value', value: fmtMoney(deptItems.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },
+              ].map(({ label, value, color }) => (
+                <div key={label} className={`kpi-card ${color}`} style={{ padding:'8px 11px' }}>
+                  <div className="kpi-label" style={{ fontSize:10.5 }}>{label}</div>
+                  <div className="kpi-value" style={{ fontSize:18, lineHeight:1.1 }}>{value}</div>
+                </div>
+              ))}
+            </div>
+          }
         />
       )}
       {mainTab === 'myitems' && (
