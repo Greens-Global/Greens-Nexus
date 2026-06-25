@@ -1610,6 +1610,8 @@ function PhotoChip({ url, kind }) {
 }
 function auditVal(field, value, kind) {
   if (field === 'photo_url') return value ? <PhotoChip url={value} kind={kind} /> : EMPTY;
+  // Show the friendly ownership words everywhere, never the raw "transient" (Neil).
+  if (field === 'ownership_type' && value) return value === 'permanent' ? 'Permanent' : 'Temporary';
   return value === '' || value == null ? EMPTY : value;
 }
 
@@ -3931,9 +3933,13 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
                   // Unticked dropdowns show blank, not a default value — otherwise it
                   // looks like (e.g.) "Transient" will be applied when it won't (Neil).
                   <select disabled={!on} value={on ? (vals[f.key] ?? f.options[0]) : ''} onChange={e => setVal(f.key, e.target.value)}
-                    style={{ flex:1, padding:'8px 10px', borderRadius:8, border:'1px solid var(--line)', background: on ? 'var(--card)' : 'var(--mist)', fontSize:13, fontFamily:'Inter,sans-serif', color: on ? 'var(--ink)' : 'var(--muted)', textTransform: f.key === 'ownership_type' ? 'capitalize' : 'none' }}>
+                    style={{ flex:1, padding:'8px 10px', borderRadius:8, border:'1px solid var(--line)', background: on ? 'var(--card)' : 'var(--mist)', fontSize:13, fontFamily:'Inter,sans-serif', color: on ? 'var(--ink)' : 'var(--muted)' }}>
                     {!on && <option value="">—</option>}
-                    {f.options.map(o => <option key={o} value={o}>{f.key === 'op_status' ? (OP_STATUS_META[o]?.label || o) : o}</option>)}
+                    {f.options.map(o => <option key={o} value={o}>{
+                      f.key === 'op_status'       ? (OP_STATUS_META[o]?.label || o)
+                      : f.key === 'ownership_type' ? (o === 'transient' ? 'Temporary' : 'Permanent')
+                      : o
+                    }</option>)}
                   </select>
                 ) : (
                   <input disabled={!on} value={vals[f.key] ?? ''} onChange={e => setVal(f.key, e.target.value)}
