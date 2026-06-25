@@ -5057,7 +5057,18 @@ const ManageRow = memo(function ManageRow({ item, isSelected, highlight, onToggl
           table fits and isn't actually overlapping anything. */}
       <td style={{ padding:'10px 14px', position:'sticky', right:0, background:'var(--card)' }}>
         <div style={{ display:'flex', gap:6 }}>
-          {/* Assignment moved into Batch Edit (Neil) — no per-row Assign button. */}
+          {/* Per-row assign (also available in Batch Edit). Label reflects the real
+              assignment state: a permanent item that's assigned to a person OR a
+              location reads "Reassign"; an unassigned one reads "Assign". Mode is
+              'reassign' only when a PERSON holds it (the reassign API needs an active
+              person assignment) — a location-held item opens a fresh person assign. */}
+          {item.ownershipType === 'permanent' && onAssign && (
+            <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
+              title={item.assignedToEmail ? `Currently with ${item.assignedToName || item.assignedToEmail}` : item.assignedToLocation ? `At ${item.assignedToLocation}` : 'Assign to a person'}
+              style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+              <User size={12} /> {(item.assignedToEmail || item.assignedToLocation || item.status === 'permanently_assigned') ? 'Reassign' : 'Assign'}
+            </button>
+          )}
           {onDetails && (
             <button onClick={() => onDetails(item)} title="View all details & custom fields"
               style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
@@ -5114,7 +5125,12 @@ const ManageCard = memo(function ManageCard({ item, isSelected, highlight, onTog
         {item.opStatus && <OpStatusBadge value={item.opStatus} />}
         {Number(item.assetValue) > 0 && <span style={{ fontSize:11, fontWeight:700, color:'var(--muted)' }}>{fmtMoney(item.assetValue)}</span>}
         <div style={{ marginLeft:'auto', display:'flex', gap:6 }}>
-          {/* Assignment moved into Batch Edit (Neil) — no per-row Assign button. */}
+          {item.ownershipType === 'permanent' && onAssign && (
+            <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
+              style={{ background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+              {(item.assignedToEmail || item.assignedToLocation || item.status === 'permanently_assigned') ? 'Reassign' : 'Assign'}
+            </button>
+          )}
           {onDetails && <button onClick={() => onDetails(item)} style={{ background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Details</button>}
           <button onClick={() => onEdit(item)} style={{ background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Edit</button>
           {canDelete && (
@@ -7806,6 +7822,7 @@ export default function InventoryManagement({ activeSub }) {
             <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(auto-fit, minmax(104px, 1fr))', gap:8, margin:'0 0 16px' }}>
               {[
                 { label:'Available',   value: deptItems.filter(i => i.status === 'available' && i.ownershipType !== 'permanent').length, color:'card-green'  },
+                { label:'Unassigned',  value: deptItems.filter(i => i.ownershipType === 'permanent' && i.status === 'available').length, color:'card-purple' },
                 { label:'Total Items', value: deptItems.length,                                          color:'card-blue'   },
                 { label:'Checked Out', value: deptItems.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
                 { label:'Items Value', value: fmtMoney(deptItems.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },
