@@ -153,10 +153,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
       </div>
       <div className="mobile-menu-divider" />
       <div className="mobile-menu-rows secondary">
-        <button className="mobile-menu-row" onClick={onThemeToggle}>
-          <span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
-          {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-        </button>
+        {/* Dark mode moved to the profile dropdown (avatar, top-right) — Neil */}
         <button className="mobile-menu-row signout"
           onClick={() => instance.logoutRedirect({ account, postLogoutRedirectUri: window.location.origin + window.location.pathname })}>
           <span>Sign out</span>

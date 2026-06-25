@@ -191,12 +191,6 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
           </button>
         </div>
         {helpKey && <PageHelp pageKey={helpKey} label={helpLabel} />}
-        <button className="icon-btn" onClick={onThemeToggle} aria-label="Toggle Theme">
-          {theme === "dark"
-            ? <Sun style={{ width: 16, height: 16 }} />
-            : <Moon style={{ width: 16, height: 16 }} />
-          }
-        </button>
         <NotificationBell onNavigate={onNavigate} />
 
         {/* User profile pill */}
@@ -246,6 +240,10 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
               </button>
               <button className="hud-item">
                 <Settings size={14} /> Account Settings
+              </button>
+              {/* Dark mode lives here now (Neil) — not a standalone header icon */}
+              <button className="hud-item" onClick={onThemeToggle}>
+                {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />} {theme === "dark" ? "Light mode" : "Dark mode"}
               </button>
 
               {isAdmin && (
