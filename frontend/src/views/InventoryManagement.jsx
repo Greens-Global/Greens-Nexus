@@ -328,6 +328,12 @@ function PhotoUpload({ value, onChange, label = 'PHOTO', required = false, hint 
           {uploading ? <><Loader2 size={15} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><Camera size={15} /> {required ? 'Upload Photo (required)' : 'Upload Photo'}</>}
         </button>
       )}
+      {/* Paste an image URL instead of uploading a file (Neil: add URL to
+          individual items). The preview above updates as you type. */}
+      <input className="form-input" type="url" value={value || ''}
+        onChange={e => onChange(e.target.value.trim())}
+        placeholder="…or paste an image URL (https://…)"
+        style={{ width:'100%', fontSize:12, padding:'6px 10px', marginTop:8 }} />
       {err && <p style={{ fontSize:11.5, color:'hsl(var(--color-red))', marginTop:5 }}>{err}</p>}
     </div>
   );
@@ -341,7 +347,9 @@ function AddItemModal({ onClose, onSave, initial = {} }) {
   const [model,         setModel]         = useState('');
   const [year,          setYear]          = useState('');
   const [department,    setDepartment]    = useState(initial.department || '');
-  const [defaultOwner,  setDefaultOwner]  = useState(TYPE_DEFAULT_OWNER[initial.itemType || 'Tools']);
+  // Owner now defaults to the department (Neil: a free-text owner per item just
+  // produced 100 unhelpful values — the department is the real owner).
+  const [defaultOwner,  setDefaultOwner]  = useState(initial.department || '');
   const [ownershipType, setOwnershipType] = useState(initial.ownershipType || 'transient');
   const [location,      setLocation]      = useState('');
   const [photoUrl,      setPhotoUrl]      = useState('');
@@ -356,7 +364,11 @@ function AddItemModal({ onClose, onSave, initial = {} }) {
 
   function handleTypeChange(t) {
     setItemType(t);
-    setDefaultOwner(TYPE_DEFAULT_OWNER[t] || '');
+  }
+  // Department drives the owner — keep them in sync as the department is picked.
+  function handleDeptChange(d) {
+    setDepartment(d);
+    setDefaultOwner(d);
   }
 
   function submit() {
@@ -435,12 +447,12 @@ function AddItemModal({ onClose, onSave, initial = {} }) {
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
             <div>
               <label style={FL}>DEPARTMENT <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
-              <input className="form-input" style={{ width:'100%' }} list="add-item-depts" value={department} onChange={e => setDepartment(e.target.value)} placeholder="e.g. Construction" />
+              <input className="form-input" style={{ width:'100%' }} list="add-item-depts" value={department} onChange={e => handleDeptChange(e.target.value)} placeholder="e.g. Construction" />
               <datalist id="add-item-depts">{DEPARTMENTS.filter(d => d !== 'All').map(d => <option key={d} value={d} />)}</datalist>
             </div>
             <div>
-              <label style={FL}>DEFAULT OWNER</label>
-              <input className="form-input" style={{ width:'100%' }} value={defaultOwner} onChange={e => setDefaultOwner(e.target.value)} placeholder="e.g. Tool Crib" />
+              <label style={FL}>OWNER <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0, color:'var(--muted)' }}>· defaults to the department</span></label>
+              <input className="form-input" style={{ width:'100%' }} value={defaultOwner} onChange={e => setDefaultOwner(e.target.value)} placeholder="Defaults to the department" />
             </div>
           </div>
 
@@ -634,11 +646,12 @@ function EditItemModal({ item, onClose, onSave }) {
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
             <div>
               <label style={FL}>DEPARTMENT</label>
-              <input className="form-input" style={{ width:'100%' }} list="edit-item-depts" value={department} onChange={e => setDepartment(e.target.value)} />
+              <input className="form-input" style={{ width:'100%' }} list="edit-item-depts" value={department}
+                onChange={e => { const d = e.target.value; setDepartment(d); if (!defaultOwner || defaultOwner === department) setDefaultOwner(d); }} />
               <datalist id="edit-item-depts">{DEPARTMENTS.filter(d => d !== 'All').map(d => <option key={d} value={d} />)}</datalist>
             </div>
             <div>
-              <label style={FL}>DEFAULT OWNER</label>
+              <label style={FL}>OWNER <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0, color:'var(--muted)' }}>· defaults to the department</span></label>
               <input className="form-input" style={{ width:'100%' }} value={defaultOwner} onChange={e => setDefaultOwner(e.target.value)} />
             </div>
           </div>
@@ -3889,10 +3902,17 @@ function BatchTabs({ tab, onTab }) {
   );
 }
 
-function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, onSave, saving }) {
+function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, onSave, saving, locations = [] }) {
   useEscapeKey(onClose);
   const [enabled, setEnabled] = useState(new Set());
   const [vals,    setVals]    = useState({});
+  // Assignment lives in Batch Edit now (Neil: not a separate button). Optional —
+  // tick it to also assign the selection to a place or a person.
+  const [assignOn,    setAssignOn]    = useState(false);
+  const [assignKind,  setAssignKind]  = useState('location');
+  const [assignLoc,   setAssignLoc]   = useState('');
+  const [assignName,  setAssignName]  = useState('');
+  const [assignEmail, setAssignEmail] = useState('');
 
   function toggleField(key) {
     setEnabled(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
@@ -3901,8 +3921,17 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
 
   const fields = {};
   for (const f of BATCH_FIELDS) if (enabled.has(f.key)) fields[f.key] = vals[f.key] ?? (f.options ? f.options[0] : '');
-  const nameBlank = enabled.has('name') && !(fields.name || '').trim();
-  const canSave   = enabled.size > 0 && !nameBlank && !saving;
+  const nameBlank   = enabled.has('name') && !(fields.name || '').trim();
+  const assignVal   = assignOn ? (assignKind === 'location' ? assignLoc.trim() : assignEmail.trim()) : '';
+  const assignReady = !assignOn || !!assignVal;
+  const canSave     = (enabled.size > 0 || (assignOn && assignVal)) && !nameBlank && assignReady && !saving;
+
+  function submit() {
+    const assignment = (assignOn && assignVal)
+      ? { kind: assignKind, location: assignLoc.trim(), email: assignEmail.trim().toLowerCase(), name: assignName.trim() }
+      : null;
+    onSave(fields, assignment);
+  }
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
@@ -3950,45 +3979,49 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
             );
           })}
         </div>
+        {/* Assignment — fold-in of the old separate Assign button (Neil) */}
+        <div style={{ marginTop:14, paddingTop:14, borderTop:'1px solid var(--line)', flexShrink:0 }}>
+          <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', userSelect:'none' }}>
+            <input type="checkbox" checked={assignOn} onChange={() => setAssignOn(v => !v)} style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
+            <span style={{ fontSize:12.5, fontWeight:700, color: assignOn ? 'var(--ink)' : 'var(--muted)' }}>Assign these items</span>
+          </label>
+          {assignOn && (
+            <div style={{ display:'flex', flexDirection:'column', gap:9, marginTop:10 }}>
+              <div style={{ display:'flex', gap:6 }}>
+                {[['location','To a location'], ['person','To a person']].map(([k, lbl]) => (
+                  <button key={k} type="button" onClick={() => setAssignKind(k)}
+                    style={{ flex:1, padding:'7px 0', borderRadius:8, border:`1px solid ${assignKind === k ? 'var(--pine)' : 'var(--line)'}`, background: assignKind === k ? 'var(--pine)' : 'transparent', color: assignKind === k ? '#fff' : 'var(--muted)', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+              {assignKind === 'location' ? (
+                <>
+                  <input className="form-input" list="batch-assign-locs" value={assignLoc} onChange={e => setAssignLoc(e.target.value)}
+                    placeholder="Location — e.g. GG Corp, GSE" style={{ width:'100%' }} />
+                  <datalist id="batch-assign-locs">{locations.map(l => <option key={l} value={l} />)}</datalist>
+                </>
+              ) : (
+                <div style={{ display:'flex', gap:8 }}>
+                  <input className="form-input" value={assignName} onChange={e => setAssignName(e.target.value)} placeholder="Person's name" style={{ flex:1, minWidth:0 }} />
+                  <input className="form-input" type="email" value={assignEmail} onChange={e => setAssignEmail(e.target.value)} placeholder="work email" style={{ flex:1, minWidth:0 }} />
+                </div>
+              )}
+              <p style={{ fontSize:11, color:'var(--muted)', margin:0 }}>
+                {assignKind === 'location'
+                  ? 'Marks the selection as assigned to this place — they stop showing as Available.'
+                  : 'Each person must accept their item (with a photo) from My Items.'}
+              </p>
+            </div>
+          )}
+        </div>
         {nameBlank && <p style={{ margin:'12px 0 0', fontSize:12, color:'hsl(var(--color-red))' }}>Name cannot be blank.</p>}
         <div style={{ display:'flex', gap:10, justifyContent:'flex-end', paddingTop:16, flexShrink:0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={saving}>Cancel</button>
-          <button onClick={() => onSave(fields)} disabled={!canSave}
+          <button onClick={submit} disabled={!canSave}
             style={{ display:'inline-flex', alignItems:'center', gap:6, background:'var(--pine)', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor: canSave ? 'pointer' : 'default', fontFamily:'Inter,sans-serif', opacity: canSave ? 1 : 0.55 }}>
             {saving ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <Pencil size={14} />}
             Apply to {selectedItems.length}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Batch Assign Modal ────────────────────────────────────────────────────────
-// "Assign all these to GSE" — for permanent site inventory, an item's location IS
-// its assignment, so this just sets the location across the selection. Person
-// assignment (accountability) stays the per-item flow.
-function BatchAssignModal({ count, locations, onClose, onAssign, saving }) {
-  const [loc, setLoc] = useState('');
-  useEscapeKey(onClose);
-  const go = () => { if (loc.trim() && !saving) onAssign(loc); };
-  return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:16, padding:28, width:'100%', maxWidth:440, boxShadow:'var(--shadow-lg)' }}>
-        <h3 style={{ margin:'0 0 6px', fontSize:16, fontWeight:700 }}>Assign {count} item{count !== 1 ? 's' : ''} to a location</h3>
-        <p style={{ margin:'0 0 16px', fontSize:13, color:'var(--muted)' }}>
-          Set where these items physically live. They’ll appear under this location in <strong>Who Has What → By Location</strong>. (To assign an item to a person, use the Assign button on that item.)
-        </p>
-        <label style={{ display:'block', fontSize:10.5, fontWeight:700, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--muted)', marginBottom:5 }}>Location</label>
-        <input className="form-input" list="batch-assign-locs" value={loc} autoFocus
-          onChange={e => setLoc(e.target.value)} onKeyDown={e => e.key === 'Enter' && go()}
-          placeholder="e.g. GSE, GG Corp, GST…" style={{ width:'100%' }} />
-        <datalist id="batch-assign-locs">{locations.map(l => <option key={l} value={l} />)}</datalist>
-        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:22 }}>
-          <button className="secondary-btn" onClick={onClose} disabled={saving}>Cancel</button>
-          <button onClick={go} disabled={!loc.trim() || saving}
-            style={{ display:'inline-flex', alignItems:'center', gap:6, background:'hsl(var(--color-blue))', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor:(!loc.trim()||saving)?'default':'pointer', fontFamily:'Inter,sans-serif', opacity:(!loc.trim()||saving)?0.55:1 }}>
-            {saving ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <MapPin size={14} />} Assign {count}
           </button>
         </div>
       </div>
@@ -4991,16 +5024,7 @@ const ManageRow = memo(function ManageRow({ item, isSelected, highlight, onToggl
           table fits and isn't actually overlapping anything. */}
       <td style={{ padding:'10px 14px', position:'sticky', right:0, background:'var(--card)' }}>
         <div style={{ display:'flex', gap:6 }}>
-          {item.ownershipType === 'permanent' && onAssign && (
-            <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
-              title={item.assignedToEmail ? `Currently with ${item.assignedToName || item.assignedToEmail}` : (item.assignedToLocation || item.location) ? `Placed at ${item.assignedToLocation || item.location}` : 'Assign to a person'}
-              style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-              {/* Permanent items are "assigned" once they have a person OR a location
-                  (for site inventory the location IS the assignment) — so a placed
-                  item reads Reassign, not Assign (Neil, batch-assigned cameras). */}
-              <User size={12} /> {(item.assignedToEmail || item.assignedToLocation || (item.location || '').trim()) ? 'Reassign' : 'Assign'}
-            </button>
-          )}
+          {/* Assignment moved into Batch Edit (Neil) — no per-row Assign button. */}
           {onDetails && (
             <button onClick={() => onDetails(item)} title="View all details & custom fields"
               style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
@@ -5057,12 +5081,7 @@ const ManageCard = memo(function ManageCard({ item, isSelected, highlight, onTog
         {item.opStatus && <OpStatusBadge value={item.opStatus} />}
         {Number(item.assetValue) > 0 && <span style={{ fontSize:11, fontWeight:700, color:'var(--muted)' }}>{fmtMoney(item.assetValue)}</span>}
         <div style={{ marginLeft:'auto', display:'flex', gap:6 }}>
-          {item.ownershipType === 'permanent' && onAssign && (
-            <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
-              style={{ background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-              {(item.assignedToEmail || item.assignedToLocation || (item.location || '').trim()) ? 'Reassign' : 'Assign'}
-            </button>
-          )}
+          {/* Assignment moved into Batch Edit (Neil) — no per-row Assign button. */}
           {onDetails && <button onClick={() => onDetails(item)} style={{ background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Details</button>}
           <button onClick={() => onEdit(item)} style={{ background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Edit</button>
           {canDelete && (
@@ -5085,8 +5104,6 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
   const [batchOpen,          setBatchOpen]          = useState(false);
   const [batchTab,           setBatchTab]           = useState('fields'); // 'fields' | 'photos'
   const [batchEditing,       setBatchEditing]       = useState(false);
-  const [batchAssignOpen,    setBatchAssignOpen]    = useState(false);
-  const [batchAssigning,     setBatchAssigning]     = useState(false);
   const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false);
   const [batchDeleting,      setBatchDeleting]      = useState(false);
   const isMobile = useIsMobile(); // phones render cards, not the table
@@ -5198,42 +5215,39 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
     else { setSortCol(col); setSortDir('asc'); }
   }
 
-  async function executeBatchEdit(fields) {
+  async function executeBatchEdit(fields, assignment) {
     setBatchEditing(true);
     const ids = batchScope.map(i => i.id);
     try {
-      const res = await api.bulkUpdateItems(ids, fields);
+      const parts = [];
+      if (fields && Object.keys(fields).length) {
+        const res = await api.bulkUpdateItems(ids, fields);
+        const n = res?.updated ?? ids.length;
+        parts.push(`updated ${n} item${n !== 1 ? 's' : ''}`);
+      }
+      if (assignment) {
+        if (assignment.kind === 'location') {
+          const r = await api.bulkAssignLocation(ids, assignment.location);
+          parts.push(`assigned ${r?.assigned ?? ids.length} to ${assignment.location}`);
+          if (r?.skipped?.length) parts.push(`${r.skipped.length} skipped (in use)`);
+        } else {
+          const r = await api.bulkAssignPerson(ids, assignment.email, assignment.name);
+          parts.push(`assigned ${r?.assigned ?? ids.length} to ${assignment.name || assignment.email}`);
+          if (r?.skipped?.length) parts.push(`${r.skipped.length} skipped (in use)`);
+        }
+      }
       await refreshItems();
       setSelected(new Set());
       setBatchOpen(false);
-      const n = res?.updated ?? ids.length;
-      toast?.(`Updated ${n} item${n !== 1 ? 's' : ''}.`);
+      const msg = parts.join(' · ') || 'No changes';
+      toast?.(msg.charAt(0).toUpperCase() + msg.slice(1) + '.');
     } catch {
-      toast?.('Could not update the selected items. Please try again.', 'error');
+      toast?.('Could not apply the changes. Please try again.', 'error');
     } finally {
       setBatchEditing(false);
     }
   }
 
-  // Batch assign = set the location on the selection ("assign all to GSE"). A
-  // permanent item that nobody personally holds simply lives at a place — that
-  // place IS its assignment (Neil). Person-assignment stays the per-item flow.
-  async function executeBatchAssign(location) {
-    setBatchAssigning(true);
-    const ids = selItems.map(i => i.id);
-    const loc = (location || '').trim();
-    try {
-      await api.bulkUpdateItems(ids, { location: loc });
-      await refreshItems();
-      setSelected(new Set());
-      setBatchAssignOpen(false);
-      toast?.(`Assigned ${ids.length} item${ids.length !== 1 ? 's' : ''} to ${loc || 'no location'}.`);
-    } catch {
-      toast?.('Could not assign the selected items. Please try again.', 'error');
-    } finally {
-      setBatchAssigning(false);
-    }
-  }
 
   async function executeBatchDelete() {
     setBatchDeleting(true);
@@ -5359,13 +5373,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
             <Pencil size={13} /> Batch Edit ({selItems.length})
           </button>
         )}
-        {/* Batch assign to a location — Neil: "select all → assign to GSE" */}
-        {selected.size > 0 && (
-          <button onClick={() => setBatchAssignOpen(true)}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, background:'hsl(var(--color-blue))', color:'#fff', border:'none', borderRadius:9, padding:'7px 14px', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-            <MapPin size={13} /> Assign {selected.size}
-          </button>
-        )}
+        {/* Assignment moved INTO Batch Edit (Neil) — no separate Assign button. */}
         {/* Batch delete */}
         {canDelete && selected.size > 0 && (
           <button onClick={() => setBatchDeleteConfirm(true)}
@@ -5461,7 +5469,8 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
           usingSelection={usingSelection}
           onSwitchTab={setBatchTab}
           onClose={() => setBatchOpen(false)}
-          onSave={executeBatchEdit} saving={batchEditing} />
+          onSave={executeBatchEdit} saving={batchEditing}
+          locations={[...new Set(items.map(i => i.location).filter(Boolean))].sort()} />
       )}
       {batchOpen && batchTab === 'photos' && (
         <BatchPhotoModal
@@ -5469,13 +5478,6 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
           usingSelection={usingSelection}
           onSwitchTab={setBatchTab}
           onClose={() => setBatchOpen(false)} onUpdate={refreshItems} toast={toast} />
-      )}
-      {batchAssignOpen && (
-        <BatchAssignModal
-          count={selItems.length}
-          locations={[...new Set(items.map(i => i.location).filter(Boolean))].sort()}
-          onClose={() => setBatchAssignOpen(false)}
-          onAssign={executeBatchAssign} saving={batchAssigning} />
       )}
       {batchDeleteConfirm && (
         <BatchDeleteConfirmModal
@@ -7727,7 +7729,7 @@ export default function InventoryManagement({ activeSub }) {
           Missing Photos lives only on the right-hand panel now, not duplicated here. */}
       {mainTab === 'manage' && <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(auto-fit, minmax(104px, 1fr))', gap:8, margin:'0 0 16px' }}>
         {[
-          { label:'Available',   value: deptItems.filter(i => i.status === 'available').length,    color:'card-green'  },
+          { label:'Available',   value: deptItems.filter(i => i.status === 'available' && i.ownershipType !== 'permanent').length, color:'card-green'  },
           { label:'Total Items', value: deptItems.length,                                          color:'card-blue'   },
           { label:'Checked Out', value: deptItems.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
           { label:'Items Value', value: fmtMoney(deptItems.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },

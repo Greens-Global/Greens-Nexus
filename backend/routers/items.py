@@ -2010,6 +2010,93 @@ def assign_item_to_location(item_id: str, body: AssignLocationIn, user: dict = D
     return _item_to_dict(item)
 
 
+def _bulk_assign_blocked(db: Session, ids: list[str]) -> set:
+    """Ids that can't be (re)assigned because a live person-assignment or an active
+    checkout is in flight — recover those first."""
+    blocked = set()
+    for a in db.query(ItemAssignment).filter(
+            ItemAssignment.item_id.in_(ids), ItemAssignment.status.in_(_LIVE_ASSIGN)).all():
+        blocked.add(a.item_id)
+    for c in db.query(ItemCheckout).filter(
+            ItemCheckout.item_id.in_(ids),
+            ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"])).all():
+        blocked.add(c.item_id)
+    return blocked
+
+
+class BulkAssignLocationIn(BaseModel):
+    ids:      list[str]
+    location: str = ""
+
+
+@router.post("/bulk-assign-location")
+def bulk_assign_to_location(body: BulkAssignLocationIn, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    """Assign many items to a PLACE at once (Neil: assignment belongs in Batch Edit,
+    not a separate button). Mirrors the single /assign-location so the items take on
+    the permanent 'assigned to a location' state and stop reading as Available /
+    unassigned. Items with a live person-assignment or active checkout are skipped."""
+    ids = [i for i in (body.ids or []) if i]
+    loc = (body.location or "").strip()
+    if not ids:
+        return {"assigned": 0, "skipped": []}
+    blocked = _bulk_assign_blocked(db, ids)
+    assigned = 0
+    for it in db.query(Item).filter(Item.id.in_(ids), or_(Item.deleted_at.is_(None), Item.deleted_at == "")).all():
+        if it.id in blocked:
+            continue
+        if loc:
+            it.ownership_type = "permanent"
+            it.status = "permanently_assigned"
+            it.assigned_to_location = loc
+            it.assigned_to_email = it.assigned_to_name = it.assigned_at = ""
+        else:
+            it.assigned_to_location = ""
+            if it.status == "permanently_assigned" and not it.assigned_to_email:
+                it.status = "available"
+        assigned += 1
+    db.commit()
+    return {"assigned": assigned, "skipped": sorted(blocked & set(ids))}
+
+
+class BulkAssignPersonIn(BaseModel):
+    ids:            list[str]
+    assignee_email: str
+    assignee_name:  str = ""
+
+
+@router.post("/bulk-assign")
+def bulk_assign_to_person(body: BulkAssignPersonIn, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    """Assign many items to a PERSON at once. Each item gets its own pending
+    acceptance assignment (the assignee accepts with a photo from My Items); the
+    assignee is notified once with the total, not per item (batch-notification rule)."""
+    ids = [i for i in (body.ids or []) if i]
+    email = (body.assignee_email or "").lower().strip()
+    name  = (body.assignee_name or "").strip()
+    if not ids or not email:
+        return {"assigned": 0, "skipped": []}
+    blocked = _bulk_assign_blocked(db, ids)
+    assigned, names = 0, []
+    for it in db.query(Item).filter(Item.id.in_(ids), or_(Item.deleted_at.is_(None), Item.deleted_at == "")).all():
+        if it.id in blocked:
+            continue
+        db.add(ItemAssignment(
+            id=f"ASG-{uuid.uuid4().hex[:10].upper()}", item_id=it.id, item_name=it.name,
+            assignee_email=email, assignee_name=name,
+            assigned_by=_title_case_email(user["email"]), assigned_by_email=user["email"],
+            status="pending_acceptance", created_at=_now_iso(),
+        ))
+        assigned += 1
+        names.append(it.name)
+    if assigned:
+        preview = ", ".join(names[:5]) + ("…" if len(names) > 5 else "")
+        _notify(db, type="perm_assign", recipient=email,
+                title=f"{assigned} item{'s' if assigned != 1 else ''} assigned to you",
+                body=f"{_title_case_email(user['email'])} assigned you {assigned} item{'s' if assigned != 1 else ''}: {preview}. Accept each with a photo in My Items.",
+                item_name=names[0] if names else "", requested_by=name)
+    db.commit()
+    return {"assigned": assigned, "skipped": sorted(blocked & set(ids))}
+
+
 @router.post("/assignments/{assignment_id}/accept")
 def accept_assignment(assignment_id: str, body: AssignmentAccept, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     _validate_photo_url(body.photo_url, "photo_url")
