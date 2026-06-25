@@ -6417,7 +6417,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
         ))}
       </div>
       {segment === 'assignments' && (
-        <AssignmentsQueue assignments={assignments} refresh={refreshAssignments || (() => {})} toast={toast} focus={assignFocus} />
+        <AssignmentsQueue assignments={assignments} userEmail={userEmail} refresh={refreshAssignments || (() => {})} toast={toast} focus={assignFocus} />
       )}
       {segment === 'checkouts' && (<>
       {/* Toolbar — search on the LEFT, status filters + Send Alert on the RIGHT, one

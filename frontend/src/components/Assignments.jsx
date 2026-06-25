@@ -350,12 +350,13 @@ function AssignmentReturnModal({ a, reason, onClose, onDone, toast }) {
 }
 
 // Manager queue: Checkouts → Assignments segment
-export function AssignmentsQueue({ assignments, refresh, toast, focus }) {
+export function AssignmentsQueue({ assignments, userEmail = '', refresh, toast, focus }) {
   const [chip, setChip] = useState(focus?.chip || 'live');
   // Deep-link (e.g. perm_return notification) can request a specific filter.
   // ts on `focus` re-triggers this even when the same chip is requested twice.
   useEffect(() => { if (focus?.chip) setChip(focus.chip); }, [focus]);
   const [accepting, setAccepting] = useState(null);
+  const [selfAccept, setSelfAccept] = useState(null); // accept an item assigned to ME, from the queue
   const [preview, setPreview] = useState(null);
   const [cancelling, setCancelling] = useState(null); // assignment pending in-app confirm (no native dialogs)
   const [search, setSearch] = useState('');
@@ -420,6 +421,13 @@ export function AssignmentsQueue({ assignments, refresh, toast, focus }) {
                     <CheckCircle size={12} /> Accept Return
                   </button>
                 )}
+                {/* If this item is assigned to ME, accept it right here (no need to
+                    go hunting in My Items) — same photo-accept flow. */}
+                {a.status === 'pending_acceptance' && (a.assigneeEmail || '').toLowerCase() === (userEmail || '').toLowerCase() && (
+                  <button className="primary-btn" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => setSelfAccept(a)}>
+                    <Camera size={12} /> Accept &amp; Upload Photo
+                  </button>
+                )}
                 {['pending_acceptance', 'active', 'return_initiated'].includes(a.status) && (
                   <button title={a.status === 'pending_acceptance' ? 'Cancel assignment' : 'Force-recover (employee unavailable)'}
                     onClick={() => setCancelling(a)}
@@ -446,6 +454,9 @@ export function AssignmentsQueue({ assignments, refresh, toast, focus }) {
             : `Take ${cancelling.itemName} back from ${cancelling.assigneeName || cancelling.assigneeEmail} without their confirmation. Use this when the holder can't complete the return themselves.`}>
           <CancelAssignmentBody a={cancelling} onClose={() => setCancelling(null)} onDone={() => { refresh(); setCancelling(null); }} toast={toast} />
         </ModalShell>
+      )}
+      {selfAccept && (
+        <AcceptAssignmentModal a={selfAccept} onClose={() => setSelfAccept(null)} onDone={() => { refresh(); setSelfAccept(null); }} toast={toast} />
       )}
       {preview && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }} onClick={() => setPreview(null)}>
