@@ -1,4 +1,4 @@
-import { useState, forwardRef } from "react";
+import { forwardRef } from "react";
 import GlobeLogo  from "./GlobeLogo";
 import { useMsal } from "@azure/msal-react";
 import { useRole, ROLES } from "../contexts/RoleContext";
@@ -8,7 +8,7 @@ import {
   ClipboardCheck, Calculator, ArrowRightLeft, PieChart, Download,
   CreditCard, Building, Server, FileSpreadsheet, Landmark, BarChart3,
   Users, LogIn, PenTool, Files, Megaphone, Star, ExternalLink,
-  Settings, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
+  Settings, ChevronLeft, ChevronRight,
   HelpCircle, Store, Calendar, MessageSquare, Package,
 } from "lucide-react";
 
@@ -104,7 +104,6 @@ export const NAV = [
 ];
 
 const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }, ref) {
-  const [expanded, setExpanded] = useState({});
   const { accounts } = useMsal();
   const { myRole, can, myGrantedModules } = useRole();
   const account     = accounts[0];
@@ -112,13 +111,6 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
   const initials    = displayName.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase();
   const firstName   = displayName.split(" ")[0];
   const roleLabel   = ROLES[myRole]?.label ?? 'Employee';
-
-  function toggle(view) {
-    setExpanded(prev => ({ ...prev, [view]: !prev[view] }));
-  }
-  function isExpanded(view) {
-    return expanded[view] ?? (activeView === view);
-  }
 
   function renderIcon(item, size = 17) {
     return item.icon
@@ -176,38 +168,12 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
                 );
               }
 
-              // ── Expanded: submenu items ──
-              if (item.sub) {
-                const open = isExpanded(item.view);
-                return (
-                  <li key={item.view} className={`nav-item has-submenu${activeView === item.view ? " active" : ""}`}>
-                    <div className="nav-item-main" onClick={() => { onNavigate(item.view); toggle(item.view); }}>
-                      {renderIcon(item)}
-                      <span>{item.label}</span>
-                      {item.badge && <em className="nav-badge">{item.badge}</em>}
-                      <button className="submenu-toggle-btn" onClick={e => { e.stopPropagation(); toggle(item.view); }} aria-label="Toggle Submenu">
-                        {open ? <ChevronUp style={{ width: 13, height: 13 }} /> : <ChevronDown style={{ width: 13, height: 13 }} />}
-                      </button>
-                    </div>
-                    {open && (
-                      <ul className="sidebar-submenu">
-                        {item.sub.map(s => (
-                          <li
-                            key={s.subview}
-                            className={`submenu-item${activeSub === s.subview && activeView === item.view ? " active" : ""}`}
-                            onClick={e => { e.stopPropagation(); onNavigate(item.view, s.subview); }}
-                          >
-                            <s.icon style={{ width: 13, height: 13 }} />
-                            <span>{s.label}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </li>
-                );
-              }
-
-              // ── Expanded: regular items ──
+              // ── Expanded: one flat entry per module ──
+              // No parent/child submenus (Neil): the left nav only moves you from
+              // module to module. Once inside, the module renders its own horizontal
+              // tab strip for sub-navigation. Clicking lands on the module's default
+              // sub (App.jsx getDefaultSub). Items with a `.sub` array fall through
+              // here too — the data is still used by the mobile menu.
               return (
                 <li
                   key={item.view}
