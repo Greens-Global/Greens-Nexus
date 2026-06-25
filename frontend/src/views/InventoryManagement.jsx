@@ -303,8 +303,25 @@ function PhotoUpload({ value, onChange, label = 'PHOTO', required = false, hint 
     setUploading(false);
   }
 
+  // Ctrl+V a screenshot/snip anywhere in this box → upload it (Neil: the Batch
+  // Edit paste feature should work in the regular Edit too). Pasting text (a URL)
+  // into the link box still works normally.
+  function handlePaste(e) {
+    const list = e.clipboardData?.items || [];
+    for (const it of list) {
+      if (it.type && it.type.startsWith('image/')) {
+        const blob = it.getAsFile();
+        if (blob) {
+          e.preventDefault();
+          handleFile(blob.name ? blob : new File([blob], `paste-${Date.now()}.png`, { type: blob.type || 'image/png' }));
+          return;
+        }
+      }
+    }
+  }
+
   return (
-    <div>
+    <div onPaste={handlePaste} tabIndex={0} style={{ outline:'none' }}>
       <label style={FL}>{label}{required && <span style={{ color:'hsl(var(--color-red))' }}> *</span>}</label>
       {hint && <p style={{ fontSize:11.5, color:'var(--muted)', marginBottom:8, marginTop:-2 }}>{hint}</p>}
       <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }}
@@ -329,11 +346,12 @@ function PhotoUpload({ value, onChange, label = 'PHOTO', required = false, hint 
         </button>
       )}
       {/* Paste an image URL instead of uploading a file (Neil: add URL to
-          individual items). The preview above updates as you type. */}
+          individual items). Pasting an image here pastes the screenshot too. */}
       <input className="form-input" type="url" value={value || ''}
-        onChange={e => onChange(e.target.value.trim())}
+        onChange={e => onChange(e.target.value.trim())} onPaste={handlePaste}
         placeholder="…or paste an image URL (https://…)"
         style={{ width:'100%', fontSize:12, padding:'6px 10px', marginTop:8 }} />
+      <p style={{ fontSize:11, color:'var(--muted)', margin:'5px 0 0' }}>Upload a file, paste a URL, or press <strong>Ctrl+V</strong> to paste a screenshot.</p>
       {err && <p style={{ fontSize:11.5, color:'hsl(var(--color-red))', marginTop:5 }}>{err}</p>}
     </div>
   );
@@ -3701,21 +3719,17 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
 
   return (
     <>
-      {/* Filters directly above the table, right-aligned — same spot as Manage so
-          they never jump between tabs (Neil). */}
-      {filterControls && (
-        <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', justifyContent:'flex-end', marginBottom:12 }}>
-          {filterControls}
-        </div>
-      )}
-      <div style={{ display:'flex', alignItems:'center', gap:14, marginBottom:14 }}>
-        <p style={{ fontSize:12, color:'var(--muted)', margin:0, whiteSpace:'nowrap', flexShrink:0 }}>{filtered.length} item{filtered.length !== 1 ? 's' : ''}</p>
-        {/* Search sits beside the count and stretches the full row width,
-            stopping short of the Tile/List toggle */}
-        <div className="search-bar" style={{ flex:1, minWidth:160, marginBottom:0 }}>
+      {/* One consistent toolbar — search on the LEFT, filters + view toggle on the
+          RIGHT, on a single row directly below the tabs. Same shape as Manage so the
+          search bar never jumps position between tabs (Neil). */}
+      <div style={{ display:'flex', gap:10, marginBottom:12, flexWrap:'wrap', alignItems:'center' }}>
+        <div className="search-bar" style={{ flex:1, minWidth:200, marginBottom:0 }}>
           <Search size={14} style={{ flexShrink:0 }} />
           <input placeholder="Search items…" value={searchValue} onChange={e => onSearchChange(e.target.value)} />
         </div>
+        {filterControls && (
+          <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>{filterControls}</div>
+        )}
         <div style={{ display:'flex', gap:4, flexShrink:0 }}>
           <button onClick={() => setViewMode('tile')}
             style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:8, border:`1px solid ${viewMode === 'tile' ? 'var(--pine)' : 'var(--line)'}`, background: viewMode === 'tile' ? 'hsla(var(--color-green),0.1)' : 'transparent', color: viewMode === 'tile' ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
@@ -3727,6 +3741,7 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
           </button>
         </div>
       </div>
+      <p style={{ fontSize:12, color:'var(--muted)', margin:'0 0 12px' }}>{filtered.length} item{filtered.length !== 1 ? 's' : ''}</p>
 
       {(viewMode === 'tile') ? (
         <ItemPhotoGrid
