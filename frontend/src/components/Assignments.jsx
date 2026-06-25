@@ -157,9 +157,12 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
       {tab === 'person' ? (
         <>
           <label style={FL}>ASSIGN TO <span style={{ color: 'hsl(var(--color-red))' }}>*</span></label>
+          {/* Show the email, not just the name — the directory has duplicate people
+              across domains (e.g. several "Neil"s), so the email is how you pick the
+              account that person actually logs in with (Visesh). */}
           <select className="form-input" style={{ width: '100%' }} value={pick} onChange={e => setPick(e.target.value)}>
             <option value="">— select a person —</option>
-            {directory.map(d => <option key={d.email} value={d.email}>{d.name}</option>)}
+            {directory.map(d => <option key={d.email} value={d.email}>{d.name ? `${d.name} — ${d.email}` : d.email}</option>)}
           </select>
           {reassign && <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Currently with {item.assignedToName || item.assignedToEmail} — they’ll be asked to return it with a photo, then the new person accepts.</p>}
         </>
