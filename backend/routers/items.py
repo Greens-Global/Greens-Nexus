@@ -436,6 +436,47 @@ def _type_canon(db: Session) -> dict:
     return _build_canon(_type_names(db))
 
 
+_AI_TYPE_MODEL = "claude-opus-4-8"
+
+def _ai_match_types(new_labels: list, existing: list) -> dict:
+    """Map each NEW label to an EXISTING type when it's the same kind of item — a
+    spelling/abbreviation/plural/case variant (e.g. "IP Cams" → "IP Camera") — else
+    None (it becomes a new type). Distinct items stay distinct (Laptop ≠ Computer,
+    CCTV ≠ IP Camera). Returns {} with no API key or on error, so the caller just
+    creates new types. One call per import keeps it cheap."""
+    key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not key or not new_labels:
+        return {}
+    prompt = (
+        "You normalise item-TYPE labels for a physical asset inventory.\n\n"
+        f"EXISTING TYPES: {json.dumps(existing)}\n"
+        f"NEW LABELS: {json.dumps(new_labels)}\n\n"
+        "For each NEW LABEL decide if it is merely a spelling / abbreviation / plural / "
+        "case variant of an EXISTING TYPE — i.e. the SAME kind of physical item.\n"
+        'SAME (map it): "IP Cams" = "IP Camera"; "Laptops" = "Laptop"; "cctv camera" = "IP Camera" only if no better match.\n'
+        'DIFFERENT — DO NOT MERGE: "Laptop" vs "Computer"; "CCTV" vs "IP Camera"; "Server" vs "Storage". '
+        "These are genuinely different items even if related.\n"
+        "Be conservative: only map when it is clearly the SAME item. Return ONLY a JSON object "
+        "mapping each new label to the EXACT existing-type text it matches, or null if it is new. No prose."
+    )
+    try:
+        with httpx.Client(timeout=30) as client:
+            r = client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json={"model": _AI_TYPE_MODEL, "max_tokens": 600, "messages": [{"role": "user", "content": prompt}]},
+            )
+            r.raise_for_status()
+            data = r.json()
+        txt = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+        m = re.search(r"\{.*\}", txt, re.S)   # tolerate fences / stray text
+        out = json.loads(m.group(0)) if m else {}
+        return {k: v for k, v in out.items() if isinstance(k, str)}
+    except Exception as e:  # noqa: BLE001
+        print(f"[items] AI type match failed: {e}")
+        return {}
+
+
 def _normalize_type(raw, canon=None) -> str:
     s = _clean_field(raw)
     if not s:
@@ -531,9 +572,28 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
     next_serial = _serial_start(db)    # scanned once — see _serial_start
     _seed_types_if_empty(db)
     _type_rows = db.query(ItemType).all()
-    canon = _build_canon([r.name for r in _type_rows])   # built once, extended as we go
+    canon = _build_canon([r.name for r in _type_rows])   # built once, extended below
     next_type_order = max([r.sort_order for r in _type_rows], default=0) + 1
     added_types: list = []             # new types this import created (manager-initiated)
+    # Resolve any new type labels ONCE, up front. The AI maps same-item variants onto
+    # an existing type (IP Cams → IP Camera) but keeps distinct items distinct; whatever
+    # it doesn't match becomes a brand-new type. After this, the row loop just normalises.
+    _raw_types  = {_clean_field(r.item_type) for r in body.items if _clean_field(r.item_type)}
+    _new_labels = [t for t in _raw_types if _type_key(t) not in canon and len(t) <= 40]
+    _ai_map = _ai_match_types(_new_labels, [r.name for r in _type_rows]) if _new_labels else {}
+    for label in _new_labels:
+        k = _type_key(label)
+        if k in canon:
+            continue
+        match = _ai_map.get(label)
+        match_key = _type_key(match) if isinstance(match, str) and match.strip() else None
+        if match_key and match_key in canon:
+            canon[k] = canon[match_key]    # variant of an existing type → reuse it
+        else:
+            db.add(ItemType(name=label, sort_order=next_type_order, created_by=user["email"], created_at=now))
+            canon[k] = label
+            next_type_order += 1
+            added_types.append(label)
 
     def _claim_by_sig(sig):
         pool = sig_pool.get(sig)
@@ -551,17 +611,7 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
         ownership = (row.ownership_type or "transient").strip().lower()
         if ownership not in ("permanent", "transient"):
             ownership = "transient"
-        raw_type = _clean_field(row.item_type)
-        if raw_type:
-            key = _type_key(raw_type)
-            if key not in canon and len(raw_type) <= 40:
-                # A manager's import may extend the type list (Visesh); office/offices
-                # collapse via the key so we never make two of the same.
-                db.add(ItemType(name=raw_type, sort_order=next_type_order, created_by=user["email"], created_at=now))
-                canon[key] = raw_type
-                next_type_order += 1
-                added_types.append(raw_type)
-        item_type = _normalize_type(row.item_type, canon)
+        item_type = _normalize_type(row.item_type, canon)   # canon resolved above
         make       = _clean_field(row.make)
         model      = _clean_field(row.model)
         year       = _clean_field(row.year)
