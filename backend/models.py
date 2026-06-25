@@ -593,6 +593,18 @@ class ItemCustomField(Base):
     created_at      = Column(String, default="")
 
 
+class ItemType(Base):
+    """Manager-curated list of item types (Neil: managers can extend the types, but
+    a CSV import can't invent one). create_all builds the table; it's seeded from the
+    legacy hardcoded list on first use. Deleting a type leaves existing items' type
+    strings untouched — they just stop being pickable, like a removed custom field."""
+    __tablename__ = "item_types"
+    name       = Column(String, primary_key=True)   # the display value, e.g. "IP Camera"
+    sort_order = Column(Integer, default=0)
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+
+
 class KbDocument(Base):
     """Knowledge Base document (SOP / Manual / Guide). The rich, nested body
     (purpose, scope, procedure steps, etc.) is stored as a JSON string in `body`

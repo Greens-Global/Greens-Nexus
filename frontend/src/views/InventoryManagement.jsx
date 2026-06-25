@@ -4,7 +4,7 @@ import {
   AlertCircle, X, Loader2, ChevronDown, UploadCloud, FileSpreadsheet,
   Download, Pencil, Trash2, MapPin, ClipboardList, History, FileBarChart,
   ShoppingCart, Filter, ZoomIn, Car, Wrench, Key, Monitor, Box, FileText,
-  ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image, LayoutGrid, User, Wand2, Link2,
+  ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image, LayoutGrid, User, Wand2, Link2, Tag,
 } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import { useInventory }     from '../contexts/InventoryContext';
@@ -358,7 +358,7 @@ function PhotoUpload({ value, onChange, label = 'PHOTO', required = false, hint 
 }
 
 // ── Add Item Modal ─────────────────────────────────────────────────────────────
-function AddItemModal({ onClose, onSave, initial = {} }) {
+function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
   const [name,          setName]          = useState(initial.name || '');
   const [itemType,      setItemType]      = useState(initial.itemType || 'Tools');
   const [make,          setMake]          = useState('');
@@ -422,7 +422,7 @@ function AddItemModal({ onClose, onSave, initial = {} }) {
             <div>
               <label style={FL}>TYPE <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
               <select className="form-input" style={{ width:'100%' }} value={itemType} onChange={e => handleTypeChange(e.target.value)}>
-                {ITEM_TYPES.map(t => <option key={t}>{t}</option>)}
+                {[...new Set([...types, itemType].filter(Boolean))].map(t => <option key={t}>{t}</option>)}
               </select>
             </div>
             <div>
@@ -566,7 +566,7 @@ function diffItemEdit(item, data) {
   return out;
 }
 
-function EditItemModal({ item, onClose, onSave }) {
+function EditItemModal({ item, onClose, onSave, types = ITEM_TYPES }) {
   const [name,          setName]          = useState(item.name);
   const [itemType,      setItemType]      = useState(item.itemType || 'Other');
   const [make,          setMake]          = useState(item.make || '');
@@ -636,7 +636,7 @@ function EditItemModal({ item, onClose, onSave }) {
               <label style={FL}>TYPE</label>
               <select className="form-input" style={{ width:'100%' }} value={itemType} onChange={e => setItemType(e.target.value)}>
                 {/* include the item's current type even if it's a custom imported one, so editing doesn't silently reset it */}
-                {[...new Set([...ITEM_TYPES, itemType].filter(Boolean))].map(t => <option key={t}>{t}</option>)}
+                {[...new Set([...types, itemType].filter(Boolean))].map(t => <option key={t}>{t}</option>)}
               </select>
             </div>
             <div>
@@ -3931,7 +3931,7 @@ function BatchTabs({ tab, onTab }) {
   );
 }
 
-function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, onSave, saving, locations = [] }) {
+function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, onSave, saving, locations = [], types = ITEM_TYPES }) {
   useEscapeKey(onClose);
   const [enabled, setEnabled] = useState(new Set());
   const [vals,    setVals]    = useState({});
@@ -3980,6 +3980,8 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
         <div style={{ overflowY:'auto', minHeight:0, display:'flex', flexDirection:'column', gap:10 }}>
           {BATCH_FIELDS.map(f => {
             const on = enabled.has(f.key);
+            // Type options come from the live (manager-curated) list, not the static one.
+            const opts = f.key === 'item_type' ? types : f.options;
             return (
               <div key={f.key} style={{ display:'flex', alignItems:'center', gap:10 }}>
                 <label style={{ display:'flex', alignItems:'center', gap:8, width:120, flexShrink:0, cursor:'pointer', userSelect:'none' }}>
@@ -3987,13 +3989,13 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
                     style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
                   <span style={{ fontSize:12.5, fontWeight:600, color: on ? 'var(--ink)' : 'var(--muted)' }}>{f.label}</span>
                 </label>
-                {f.options ? (
+                {opts ? (
                   // Unticked dropdowns show blank, not a default value — otherwise it
                   // looks like (e.g.) "Transient" will be applied when it won't (Neil).
-                  <select disabled={!on} value={on ? (vals[f.key] ?? f.options[0]) : ''} onChange={e => setVal(f.key, e.target.value)}
+                  <select disabled={!on} value={on ? (vals[f.key] ?? opts[0]) : ''} onChange={e => setVal(f.key, e.target.value)}
                     style={{ flex:1, padding:'8px 10px', borderRadius:8, border:'1px solid var(--line)', background: on ? 'var(--card)' : 'var(--mist)', fontSize:13, fontFamily:'Inter,sans-serif', color: on ? 'var(--ink)' : 'var(--muted)' }}>
                     {!on && <option value="">—</option>}
-                    {f.options.map(o => <option key={o} value={o}>{
+                    {opts.map(o => <option key={o} value={o}>{
                       f.key === 'op_status'       ? (OP_STATUS_META[o]?.label || o)
                       : f.key === 'ownership_type' ? (o === 'transient' ? 'Temporary' : 'Permanent')
                       : o
@@ -4515,6 +4517,63 @@ const CUSTOM_FIELD_TYPE_OPTS = [
   { v:'text', label:'Text' }, { v:'number', label:'Number' }, { v:'date', label:'Date' },
   { v:'select', label:'Dropdown' }, { v:'boolean', label:'Yes / No' }, { v:'url', label:'Link' },
 ];
+// Manager-curated item types (Neil): managers extend the list here; a CSV import
+// can never invent a type, so people can't spray in ridiculous ones by convenience.
+function ManageTypesModal({ types, onClose, onChanged, toast }) {
+  const [list, setList] = useState(types);
+  const [newType, setNewType] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEscapeKey(onClose);
+
+  async function add() {
+    const name = newType.trim();
+    if (!name || busy) return;
+    setBusy(true);
+    try { const updated = await api.addItemType(name); setList(updated); setNewType(''); onChanged?.(updated); }
+    catch (e) { toast?.(e?.message || 'Could not add type.', 'error'); }
+    finally { setBusy(false); }
+  }
+  async function remove(name) {
+    if (busy) return;
+    setBusy(true);
+    try { const updated = await api.deleteItemType(name); setList(updated); onChanged?.(updated); }
+    catch (e) { toast?.(e?.message || 'Could not remove type.', 'error'); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:16, padding:'22px 26px 20px', width:'100%', maxWidth:440, boxShadow:'var(--shadow-lg)', maxHeight:'min(85dvh,640px)', display:'flex', flexDirection:'column' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+          <h3 style={{ margin:0, fontSize:16, fontWeight:700, display:'inline-flex', alignItems:'center', gap:7 }}><Tag size={16} /> Manage Item Types</h3>
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
+        </div>
+        <p style={{ margin:'0 0 14px', fontSize:12.5, color:'var(--muted)' }}>
+          These are the types everyone picks from. A CSV import can’t invent new types — add the real one here first, then re-import.
+        </p>
+        <div style={{ display:'flex', gap:8, marginBottom:14 }}>
+          <input className="form-input" style={{ flex:1 }} value={newType} placeholder="New type — e.g. Office"
+            onChange={e => setNewType(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()} />
+          <button className="primary-btn" onClick={add} disabled={!newType.trim() || busy} style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+            {busy ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <Plus size={14} />} Add
+          </button>
+        </div>
+        <div style={{ overflowY:'auto', display:'flex', flexDirection:'column', gap:6 }}>
+          {list.map(t => (
+            <div key={t} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', borderRadius:9, border:'1px solid var(--line)', background:'var(--mist)' }}>
+              <span style={{ fontSize:13, fontWeight:600 }}>{t}</span>
+              {t.toLowerCase() !== 'other' && (
+                <button onClick={() => remove(t)} disabled={busy} title="Remove type"
+                  style={{ background:'none', border:'none', cursor:'pointer', color:'hsl(var(--color-red))', display:'flex', padding:3 }}><Trash2 size={14} /></button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
   useEscapeKey(onClose);
   const [label,      setLabel]      = useState('');
@@ -5144,7 +5203,7 @@ const ManageCard = memo(function ManageCard({ item, isSelected, highlight, onTog
   );
 });
 
-const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onExportAllPdf, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, filterControls, kpiStrip, highlightId, onHighlightDone }) {
+const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onExportAllPdf, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, onManageTypes, itemTypes = ITEM_TYPES, filterControls, kpiStrip, highlightId, onHighlightDone }) {
   const [photoPreview,       setPhotoPreview]       = useState(null);
   const [exportMenu,         setExportMenu]         = useState(false); // Export ▾ dropdown
   const [selected,           setSelected]           = useState(new Set());
@@ -5386,6 +5445,11 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
             <Plus size={14} /> Add Custom Field
           </button>
         )}
+        {onManageTypes && (
+          <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onManageTypes}>
+            <Tag size={14} /> Manage Types
+          </button>
+        )}
         <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onImport}>
           <UploadCloud size={14} /> Import CSV
         </button>
@@ -5538,7 +5602,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
           onSwitchTab={setBatchTab}
           onClose={() => setBatchOpen(false)}
           onSave={executeBatchEdit} saving={batchEditing}
-          locations={[...new Set(items.map(i => i.location).filter(Boolean))].sort()} />
+          locations={[...new Set(items.map(i => i.location).filter(Boolean))].sort()} types={itemTypes} />
       )}
       {batchOpen && batchTab === 'photos' && (
         <BatchPhotoModal
@@ -7542,6 +7606,7 @@ export default function InventoryManagement({ activeSub }) {
   const [highlightItemId,    setHighlightItemId]    = useState(null); // Manage row to glow (Audit "Open item")
   const [deletedHighlightId, setDeletedHighlightId] = useState(null); // Recycle Bin row to glow
   const [customFieldsOpen, setCustomFieldsOpen] = useState(false); // custom-field admin
+  const [typesOpen,     setTypesOpen]     = useState(false);       // Manage Types modal
   const [importOpen,    setImportOpen]    = useState(false);
   const [reportOpen,    setReportOpen]    = useState(false);
   const [reportInitial, setReportInitial] = useState(null); // seeds the report with the active filters
@@ -7554,6 +7619,13 @@ export default function InventoryManagement({ activeSub }) {
     api.getItemCustomFields().then(setCustomFields).catch(() => {});
   }, []);
   useEffect(() => { refreshCustomFields(); }, [refreshCustomFields]);
+  // Manager-curated item types — loaded from the server (falls back to the static
+  // list). Used by the Add/Edit/Batch dropdowns and the Manage Types modal.
+  const [itemTypes, setItemTypes] = useState(ITEM_TYPES);
+  const refreshItemTypes = useCallback(() => {
+    api.getItemTypes().then(t => setItemTypes(Array.isArray(t) && t.length ? t : ITEM_TYPES)).catch(() => {});
+  }, []);
+  useEffect(() => { refreshItemTypes(); }, [refreshItemTypes]);
 
   const [toasts, setToasts] = useState([]);
   const toast = useCallback((message, kind = 'success') => {
@@ -7595,7 +7667,17 @@ export default function InventoryManagement({ activeSub }) {
   }
   function handleImport(rows) {
     return api.importItems(rows)
-      .then(res => { refreshItems(); toast(`Imported ${res.created} item${res.created !== 1 ? 's' : ''}${res.updated ? `, updated ${res.updated}` : ''}.`); return res; })
+      .then(res => {
+        refreshItems();
+        toast(`Imported ${res.created} item${res.created !== 1 ? 's' : ''}${res.updated ? `, updated ${res.updated}` : ''}.`);
+        // Flag any types the file used that aren't real types yet — they became
+        // "Other". Nudge the manager to add them in Manage Types, then re-import.
+        const unknown = res.unknown_types || [];
+        if (unknown.length) {
+          toast(`Set to "Other": unrecognised type${unknown.length !== 1 ? 's' : ''} ${unknown.join(', ')}. Add ${unknown.length !== 1 ? 'them' : 'it'} in Manage Types, then re-import.`, 'error');
+        }
+        return res;
+      })
       .catch(err => { toast(err?.message || 'Import failed.', 'error'); throw err; });
   }
 
@@ -7818,6 +7900,7 @@ export default function InventoryManagement({ activeSub }) {
           onAssign={openAssign} onDetails={setDetailsItem}
           onShowDeleted={() => setDeletedOpen(true)}
           onManageCustomFields={() => setCustomFieldsOpen(true)}
+          onManageTypes={() => setTypesOpen(true)} itemTypes={itemTypes}
           highlightId={highlightItemId} onHighlightDone={() => setHighlightItemId(null)}
           filterControls={filterSelects}
           kpiStrip={
@@ -7914,8 +7997,8 @@ export default function InventoryManagement({ activeSub }) {
           onClose={() => setAssigningItem(null)}
           onDone={() => { refreshAssignments(); refreshItems(); }} />
       )}
-      {addItemOpen  && <AddItemModal   onClose={() => setAddItemOpen(false)}  onSave={handleAddItem} />}
-      {editingItem  && <EditItemModal  item={editingItem} onClose={() => setEditingItem(null)} onSave={data => handleEditItem(editingItem, data)} />}
+      {addItemOpen  && <AddItemModal   onClose={() => setAddItemOpen(false)}  onSave={handleAddItem} types={itemTypes} />}
+      {editingItem  && <EditItemModal  item={editingItem} onClose={() => setEditingItem(null)} onSave={data => handleEditItem(editingItem, data)} types={itemTypes} />}
       {deletingItem && <DeleteItemModal item={deletingItem} onClose={() => setDeletingItem(null)} onConfirm={() => handleDeleteItem(deletingItem)} />}
       {detailsItem && (
         <ItemDetailsPanel item={detailsItem} customFields={customFields} canEdit={isManager}
@@ -7928,6 +8011,10 @@ export default function InventoryManagement({ activeSub }) {
       {customFieldsOpen && (
         <CustomFieldsAdminModal fields={customFields} onClose={() => setCustomFieldsOpen(false)}
           onChanged={refreshCustomFields} toast={toast} />
+      )}
+      {typesOpen && (
+        <ManageTypesModal types={itemTypes} onClose={() => setTypesOpen(false)}
+          onChanged={t => setItemTypes(Array.isArray(t) && t.length ? t : ITEM_TYPES)} toast={toast} />
       )}
       {importOpen   && <ImportItemsModal onClose={() => setImportOpen(false)} onImport={handleImport} customFields={customFields} />}
       {reportOpen   && <ReportModal onClose={() => setReportOpen(false)} checkouts={checkouts} initial={reportInitial} />}

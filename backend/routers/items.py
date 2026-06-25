@@ -16,7 +16,7 @@ from typing import Optional
 import httpx
 from database import get_db
 from auth import get_current_user, require_level_or_module
-from models import Item, ItemCheckout, ItemCartEntry, ItemAssignment, ItemCustomField, NexusRole, NexusNotification, AuditLog
+from models import Item, ItemCheckout, ItemCartEntry, ItemAssignment, ItemCustomField, ItemType, NexusRole, NexusNotification, AuditLog
 
 _VALID_TRANSITIONS = {
     "approved":         {"pending"},
@@ -399,22 +399,46 @@ def _clean_field(v) -> str:
 
 
 # Canonicalise a free-typed item type: case-insensitive and singular→plural, so
-# "device"/"DEVICES" → "Devices". Genuinely new types (e.g. "IP Camera") are kept
-# as-is so imported types are first-class, not flattened to "Other".
-_TYPE_CANON = {}
-for _t in _ITEM_TYPES:
-    _TYPE_CANON[_t.lower()] = _t
-    if _t.endswith("s"):
-        _TYPE_CANON[_t[:-1].lower()] = _t
+# "device"/"DEVICES" → "Devices". The valid set is the manager-curated item_types
+# table (seeded from this legacy list); a static fallback canon covers the rare
+# case where the table can't be read.
+def _build_canon(names) -> dict:
+    canon = {}
+    for t in names:
+        canon[t.lower()] = t
+        if t.endswith("s"):
+            canon.setdefault(t[:-1].lower(), t)   # singular form maps too
+    return canon
+
+_TYPE_CANON = _build_canon(_ITEM_TYPES)           # static fallback
 
 
-def _normalize_type(raw) -> str:
+def _seed_types_if_empty(db: Session) -> None:
+    if db.query(ItemType).first():
+        return
+    now = _now_iso()
+    for i, t in enumerate(_ITEM_TYPES):
+        db.add(ItemType(name=t, sort_order=i, created_by="system", created_at=now))
+    db.commit()
+
+
+def _type_names(db: Session) -> list:
+    _seed_types_if_empty(db)
+    return [r.name for r in db.query(ItemType).order_by(ItemType.sort_order, ItemType.name).all()]
+
+
+def _type_canon(db: Session) -> dict:
+    return _build_canon(_type_names(db))
+
+
+def _normalize_type(raw, canon=None) -> str:
     s = _clean_field(raw)
     if not s:
         return "Other"
-    # Unrecognised types are funnelled into "Other" (was: kept as-is) so a typo'd
-    # or invented type on import doesn't create a new category — Neil's rule.
-    return _TYPE_CANON.get(s.lower(), "Other")
+    # Unrecognised types are funnelled into "Other" so a typo'd or invented type on
+    # import never creates a new category — Neil's rule. Managers add real types via
+    # the Manage Types UI; only then are they accepted.
+    return (canon or _TYPE_CANON).get(s.lower(), "Other")
 
 
 def _content_sig(name, item_type, make, model, year, department, location, ownership) -> tuple:
@@ -439,7 +463,7 @@ def create_item(body: ItemCreate, response: Response, user: dict = Depends(requi
             id=str(uuid.uuid4()),
             serial_number=_fmt_serial(_serial_start(db)),
             name=name,
-            item_type=_normalize_type(body.item_type),
+            item_type=_normalize_type(body.item_type, _type_canon(db)),
             make=(body.make or "").strip(),
             model=(body.model or "").strip(),
             year=(body.year or "").strip(),
@@ -500,6 +524,8 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
 
     claimed: set[str] = set()          # existing items already matched this import
     next_serial = _serial_start(db)    # scanned once — see _serial_start
+    canon = _type_canon(db)            # the manager-curated type set, built once
+    unknown_types: set = set()         # types in the file that aren't recognised → became "Other"
 
     def _claim_by_sig(sig):
         pool = sig_pool.get(sig)
@@ -517,7 +543,10 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
         ownership = (row.ownership_type or "transient").strip().lower()
         if ownership not in ("permanent", "transient"):
             ownership = "transient"
-        item_type = _normalize_type(row.item_type)
+        raw_type = _clean_field(row.item_type)
+        if raw_type and raw_type.lower() not in canon:
+            unknown_types.add(raw_type)
+        item_type = _normalize_type(row.item_type, canon)
         make       = _clean_field(row.make)
         model      = _clean_field(row.model)
         year       = _clean_field(row.year)
@@ -583,7 +612,10 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
             # new units, so the second must not match the first.
             created += 1
     db.commit()
-    return {"created": created, "updated": updated, "skipped": skipped}
+    # Surface any unrecognised types so the UI can offer to add them as real types
+    # (they were set to "Other" for now — Neil: no auto-creating categories on import).
+    return {"created": created, "updated": updated, "skipped": skipped,
+            "unknown_types": sorted(unknown_types)}
 
 
 # ── Persistent cart (must be before /{item_id} wildcards) ────────────────────
@@ -648,7 +680,7 @@ def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(require_ite
             raise HTTPException(400, "Name cannot be empty")
         item.name = n
     if body.item_type  is not None:
-        item.item_type = _normalize_type(body.item_type)
+        item.item_type = _normalize_type(body.item_type, _type_canon(db))
     if body.make           is not None: item.make           = body.make.strip()
     if body.model          is not None: item.model          = body.model.strip()
     if body.year           is not None: item.year           = body.year.strip()
@@ -849,7 +881,7 @@ def bulk_update_items(body: BulkUpdateRequest, user: dict = Depends(require_item
 
     # Normalise the way create/import do, so batch edits stay consistent with them.
     if "item_type" in changes:
-        changes["item_type"] = _normalize_type(changes["item_type"])
+        changes["item_type"] = _normalize_type(changes["item_type"], _type_canon(db))
     if "ownership_type" in changes:
         o = (changes["ownership_type"] or "transient").strip().lower()
         changes["ownership_type"] = o if o in ("permanent", "transient") else "transient"
@@ -968,6 +1000,46 @@ def delete_custom_field(field_id: str, user: dict = Depends(require_items_delete
     db.delete(f)  # per-item values stay in items.custom_fields but stop showing — harmless
     db.commit()
     return {"ok": True}
+
+
+# ── Item types (manager-curated) ──────────────────────────────────────────────
+# Managers extend the type list here; a CSV can't invent one (it funnels to Other).
+class ItemTypeIn(BaseModel):
+    name: str
+
+
+@router.get("/types")
+def list_item_types(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _type_names(db)
+
+
+@router.post("/types", status_code=201)
+def add_item_type(body: ItemTypeIn, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(400, "Type name cannot be empty")
+    if len(name) > 40:
+        raise HTTPException(400, "Type name is too long (40 characters max)")
+    _seed_types_if_empty(db)
+    rows = db.query(ItemType).all()
+    # Case-insensitive dedupe so "office" can't shadow "Office".
+    if any(r.name.lower() == name.lower() for r in rows):
+        return _type_names(db)
+    nxt = max([r.sort_order for r in rows], default=0) + 1
+    db.add(ItemType(name=name, sort_order=nxt, created_by=user["email"], created_at=_now_iso()))
+    db.commit()
+    return _type_names(db)
+
+
+@router.delete("/types/{name}")
+def delete_item_type(name: str, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    if name.strip().lower() == "other":
+        raise HTTPException(400, "“Other” is the fallback type and can't be removed.")
+    row = next((r for r in db.query(ItemType).all() if r.name.lower() == name.strip().lower()), None)
+    if row:
+        db.delete(row)
+        db.commit()
+    return _type_names(db)
 
 
 # ── Checkouts ─────────────────────────────────────────────────────────────────
