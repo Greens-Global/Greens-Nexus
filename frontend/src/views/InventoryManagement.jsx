@@ -2387,6 +2387,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
   const [fStatus,         setFStatus]         = useState('All');
   const [fType,           setFType]           = useState('All');
   const [fDept,           setFDept]           = useState('All');
+  const [mySearch,        setMySearch]        = useState('');
   const [sortOldest,      setSortOldest]      = useState(false);
   // Date-range filter on submission date — both tabs (Pranshu, Jun 16)
   const [fFrom,           setFFrom]           = useState('');
@@ -2445,6 +2446,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
   const matchesFilters = c =>
     (fType === 'All' || c.itemType === fType) &&
     (fDept === 'All' || c.department === fDept) &&
+    (!mySearch.trim() || (c.itemName || '').toLowerCase().includes(mySearch.trim().toLowerCase())) &&
     inDateRange(c);
   const activeFiltered = active.filter(matchesFilters);
   const completedView  = completed
@@ -2513,7 +2515,13 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
 
       {/* Filters — type/dept on both tabs; status chips + date sort on Past */}
       {(mine.length > 3) && (
-        <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', marginBottom:14 }}>
+        <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', marginBottom:14 }}>
+          {/* Consistent toolbar — search left, filters right — same shape as Manage. */}
+          <div className="search-bar" style={{ flex:1, minWidth:200, marginBottom:0 }}>
+            <Search size={14} style={{ flexShrink:0 }} />
+            <input placeholder="Search my items…" value={mySearch} onChange={e => setMySearch(e.target.value)} />
+          </div>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', marginLeft:'auto' }}>
           {panelTab === 'past' && [
             { v:'All', label:'All' }, { v:'returned', label:'Returned' },
             { v:'rejected', label:'Rejected' }, { v:'cancelled', label:'Cancelled' },
@@ -2524,12 +2532,12 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
             </button>
           ))}
           {myTypes.length > 2 && (
-            <select className="form-input" value={fType} onChange={e => setFType(e.target.value)} style={{ padding:'4px 10px', fontSize:12, height:30 }}>
+            <select className="form-input" value={fType} onChange={e => setFType(e.target.value)} style={{ padding:'4px 10px', fontSize:12, height:30, width:'auto' }}>
               {myTypes.map(t => <option key={t} value={t}>{t === 'All' ? 'All types' : t}</option>)}
             </select>
           )}
           {myDepts.length > 2 && (
-            <select className="form-input" value={fDept} onChange={e => setFDept(e.target.value)} style={{ padding:'4px 10px', fontSize:12, height:30 }}>
+            <select className="form-input" value={fDept} onChange={e => setFDept(e.target.value)} style={{ padding:'4px 10px', fontSize:12, height:30, width:'auto' }}>
               {myDepts.map(d => <option key={d} value={d}>{d === 'All' ? 'All departments' : d}</option>)}
             </select>
           )}
@@ -2554,6 +2562,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
               <ArrowUpDown size={11} /> {sortOldest ? 'Oldest first' : 'Newest first'}
             </button>
           )}
+          </div>
         </div>
       )}
 
