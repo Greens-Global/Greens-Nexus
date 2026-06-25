@@ -4987,9 +4987,12 @@ const ManageRow = memo(function ManageRow({ item, isSelected, highlight, onToggl
         <div style={{ display:'flex', gap:6 }}>
           {item.ownershipType === 'permanent' && onAssign && (
             <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
-              title={item.assignedToEmail ? `Currently with ${item.assignedToName || item.assignedToEmail}` : 'Assign to a person'}
+              title={item.assignedToEmail ? `Currently with ${item.assignedToName || item.assignedToEmail}` : (item.assignedToLocation || item.location) ? `Placed at ${item.assignedToLocation || item.location}` : 'Assign to a person'}
               style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-              <User size={12} /> {item.assignedToEmail ? 'Reassign' : 'Assign'}
+              {/* Permanent items are "assigned" once they have a person OR a location
+                  (for site inventory the location IS the assignment) — so a placed
+                  item reads Reassign, not Assign (Neil, batch-assigned cameras). */}
+              <User size={12} /> {(item.assignedToEmail || item.assignedToLocation || (item.location || '').trim()) ? 'Reassign' : 'Assign'}
             </button>
           )}
           {onDetails && (
@@ -5051,7 +5054,7 @@ const ManageCard = memo(function ManageCard({ item, isSelected, highlight, onTog
           {item.ownershipType === 'permanent' && onAssign && (
             <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
               style={{ background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-              {item.assignedToEmail ? 'Reassign' : 'Assign'}
+              {(item.assignedToEmail || item.assignedToLocation || (item.location || '').trim()) ? 'Reassign' : 'Assign'}
             </button>
           )}
           {onDetails && <button onClick={() => onDetails(item)} style={{ background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Details</button>}
