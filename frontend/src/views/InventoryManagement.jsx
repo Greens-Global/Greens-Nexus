@@ -3392,6 +3392,8 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
             { Icon:ShoppingCart,  colorVar:'color-green',  title:'Checkout an Item',      sub:'Browse available equipment and raise a checkout request.',                                                                          go:() => { setMode('catalog'); setTab('catalog'); },   badge:null },
             { Icon:RotateCcw,     colorVar:'color-blue',   title:'Extend an Item', sub:activeCheckouts.length > 0 ? `${activeCheckouts.length} item${activeCheckouts.length!==1?'s':''} currently checked out.` : 'Return equipment you have, or ask for more time.', go:() => { setMode('catalog'); setTab('checkouts'); }, badge:activeCheckouts.length||null },
             { Icon:ClipboardList, colorVar:'color-orange', title:'Raise Purchase Request', sub:'Need something not in the catalog? Submit a formal purchase request.',                                                              go:() => window.dispatchEvent(new CustomEvent('nexus:navigate',{detail:{view:'purchase'}})),                      badge:null },
+            // Managers get a Manage card right on the home screen (Neil: no way in from here).
+            ...(showManage && onEnterManage ? [{ Icon:Box, colorVar:'color-purple', title:'Manage Items', sub:'Add, edit, assign, import, types and the activity log — the full management tools.', go:onEnterManage, badge:null }] : []),
           ].map(({ Icon, colorVar, title, sub, go, badge }) => (
             <button key={title} onClick={go}
               style={{ display:'flex', alignItems:'flex-start', gap:16, padding:'20px 20px', borderRadius:14, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', textAlign:'left', fontFamily:'Inter,sans-serif', transition:'box-shadow 0.15s', boxShadow:'var(--shadow-sm)', position:'relative' }}
@@ -3462,11 +3464,12 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
             {badge > 0 && <span style={{ background:'hsl(var(--color-blue))', color:'#fff', borderRadius:20, fontSize:10.5, fontWeight:800, padding:'1px 7px', marginLeft:3 }}>{badge}</span>}
           </button>
         ))}
-        {/* Managers get a Manage tab here that opens the full management UI (Neil). */}
+        {/* Managers get a big Manage button here that opens the full management UI (Neil). */}
         {showManage && onEnterManage && (
           <button onClick={onEnterManage} title="Open the management tools"
-            style={{ display:'inline-flex', alignItems:'center', gap:7, marginLeft:'auto', padding:'10px 18px', background:'none', border:'none', borderBottom:'2px solid transparent', color:'hsl(var(--color-purple))', fontWeight:700, fontSize:14, cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-2, whiteSpace:'nowrap', flexShrink:0 }}>
-            <ClipboardList size={15} /> Manage
+            style={{ display:'inline-flex', alignItems:'center', gap:8, marginLeft:'auto', marginBottom:8, padding:'9px 22px', background:'hsl(var(--color-purple))', color:'#fff', border:'none', borderRadius:10, fontWeight:700, fontSize:14, cursor:'pointer', fontFamily:'Inter,sans-serif', whiteSpace:'nowrap', flexShrink:0, boxShadow:'var(--shadow-sm)' }}
+            onMouseEnter={e => e.currentTarget.style.filter='brightness(1.08)'} onMouseLeave={e => e.currentTarget.style.filter='none'}>
+            <ClipboardList size={16} /> Manage
           </button>
         )}
       </div>
