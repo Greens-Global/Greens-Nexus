@@ -5011,7 +5011,11 @@ const ManageRow = memo(function ManageRow({ item, isSelected, highlight, onToggl
   return (
     <tr ref={ref} style={{ borderTop:'1px solid var(--line)', background: highlight ? 'hsla(40,92%,55%,0.22)' : isSelected ? 'hsla(var(--color-blue),0.05)' : 'transparent', boxShadow: highlight ? 'inset 4px 0 0 hsl(40,92%,50%)' : 'none', transition:'background .9s ease, box-shadow .9s ease' }}>
       <td style={{ padding:'10px 14px' }}>
-        <input type="checkbox" checked={isSelected} onChange={() => onToggle(item.id)}
+        {/* Shift-click selects the whole range from the last ticked row (onClick
+            carries shiftKey; onMouseDown guard stops shift from selecting text). */}
+        <input type="checkbox" checked={isSelected} readOnly
+          onClick={e => onToggle(item.id, e.shiftKey)}
+          onMouseDown={e => { if (e.shiftKey) e.preventDefault(); }}
           style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
       </td>
       <td style={{ padding:'10px 14px' }}>
@@ -5232,9 +5236,23 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
   const usingSelection = selItems.length > 0;
   const batchScope     = selItems;
 
-  // Stable so memoized rows don't all re-render on every checkbox toggle.
-  const toggleSelect = useCallback(id => {
-    setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  // Refs let toggleSelect stay STABLE (so memoized rows don't all re-render) while
+  // still reading the current sorted order + the last-ticked anchor for shift-range.
+  const sortedRef = useRef(sorted);  sortedRef.current = sorted;
+  const selectAnchorRef = useRef(null);
+  const toggleSelect = useCallback((id, shift) => {
+    const list = sortedRef.current;
+    const idx = list.findIndex(i => i.id === id);
+    if (shift && selectAnchorRef.current != null && idx !== -1) {
+      // Shift-click: select the whole range from the last ticked row to this one.
+      const a = Math.min(selectAnchorRef.current, idx);
+      const b = Math.max(selectAnchorRef.current, idx);
+      const rangeIds = list.slice(a, b + 1).map(i => i.id);
+      setSelected(prev => { const n = new Set(prev); rangeIds.forEach(r => n.add(r)); return n; });
+    } else {
+      setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    }
+    if (idx !== -1) selectAnchorRef.current = idx;
   }, []);
   function toggleAll() {
     setSelected(selected.size === filtered.length && filtered.length > 0 ? new Set() : new Set(filtered.map(i => i.id)));
