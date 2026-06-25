@@ -3200,7 +3200,7 @@ function SortableTh({ label, colKey, sort, onSort }) {
 }
 
 // ── Employee View ─────────────────────────────────────────────────────────────
-const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, refreshCheckouts, submitCartCheckouts, cancelRequest, allocateItem, initiateHandover, confirmReceipt, toast }) {
+const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, refreshCheckouts, submitCartCheckouts, cancelRequest, allocateItem, initiateHandover, confirmReceipt, toast, showManage = false, onEnterManage }) {
   const { assignments, refreshAssignments } = useAssignments();
   const { can } = useRole();
   // Supervisors (level 2) are ALLOCATORS, not managers: they don't approve, but
@@ -3462,6 +3462,13 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
             {badge > 0 && <span style={{ background:'hsl(var(--color-blue))', color:'#fff', borderRadius:20, fontSize:10.5, fontWeight:800, padding:'1px 7px', marginLeft:3 }}>{badge}</span>}
           </button>
         ))}
+        {/* Managers get a Manage tab here that opens the full management UI (Neil). */}
+        {showManage && onEnterManage && (
+          <button onClick={onEnterManage} title="Open the management tools"
+            style={{ display:'inline-flex', alignItems:'center', gap:7, marginLeft:'auto', padding:'10px 18px', background:'none', border:'none', borderBottom:'2px solid transparent', color:'hsl(var(--color-purple))', fontWeight:700, fontSize:14, cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-2, whiteSpace:'nowrap', flexShrink:0 }}>
+            <ClipboardList size={15} /> Manage
+          </button>
+        )}
       </div>
 
       {/* ── CATALOG TAB ── */}
@@ -7491,6 +7498,9 @@ export default function InventoryManagement({ activeSub }) {
     return 'catalog';
   });
   useEffect(() => { try { localStorage.setItem('nexus_inv_tab', mainTab); } catch { /* ignore */ } }, [mainTab]);
+  // Managers land on the normal employee screen; the full management UI lives behind
+  // a "Manage" tab they opt into (Neil). A deep-link to a management tab enters it.
+  const [manageMode, setManageMode] = useState(false);
   // Who Has What → Checkouts deep-link: carries the person/item to prefill the
   // search so the landing view is already scoped to what was clicked.
   const [checkoutsPrefilter, setCheckoutsPrefilter] = useState(null);
@@ -7511,14 +7521,14 @@ export default function InventoryManagement({ activeSub }) {
     : sub;
   useEffect(() => {
     const t = resolveSub(activeSub);
-    if (t && VALID_SUBTABS.includes(t)) setMainTab(t);
+    if (t && VALID_SUBTABS.includes(t)) { setMainTab(t); setManageMode(true); }
   }, [activeSub]); // eslint-disable-line react-hooks/exhaustive-deps
   // Window event covers repeat clicks where activeSub doesn't change value
   useEffect(() => {
     const h = e => {
       const { view, sub } = e.detail || {};
       const t = resolveSub(sub);
-      if (view === 'inventory' && t && VALID_SUBTABS.includes(t)) setMainTab(t);
+      if (view === 'inventory' && t && VALID_SUBTABS.includes(t)) { setMainTab(t); setManageMode(true); }
     };
     window.addEventListener('nexus:navigate', h);
     return () => window.removeEventListener('nexus:navigate', h);
@@ -7750,7 +7760,9 @@ export default function InventoryManagement({ activeSub }) {
 
   if (roleLoading) return <SkeletonBlocks count={6} height={56} borderRadius={10} />;
 
-  if (!isManager) {
+  // Everyone lands on the normal employee screen. Managers get a "Manage" tab on it
+  // that flips into the full management UI below (Neil). Employees never see it.
+  if (!isManager || !manageMode) {
     return (
       <>
         <EmployeeView
@@ -7766,6 +7778,7 @@ export default function InventoryManagement({ activeSub }) {
           confirmReceipt={confirmReceipt}
           addNotification={addNotification}
           toast={toast}
+          showManage={isManager} onEnterManage={() => setManageMode(true)}
         />
         <Toast toasts={toasts} onDismiss={dismissToast} />
       </>
@@ -7813,7 +7826,13 @@ export default function InventoryManagement({ activeSub }) {
       {/* Header */}
       <div className="view-header" style={{ marginBottom:0 }}>
         <div className="view-title-group">
-          <h2>Item Management</h2>
+          {/* Leave the manager-only Manage UI, back to the normal employee screen. */}
+          <button onClick={() => setManageMode(false)}
+            style={{ display:'inline-flex', alignItems:'center', gap:6, background:'none', border:'none', cursor:'pointer', color:'var(--muted)', fontSize:12.5, fontFamily:'Inter,sans-serif', padding:'0 0 4px', fontWeight:600 }}
+            onMouseEnter={e => e.currentTarget.style.color='var(--ink)'} onMouseLeave={e => e.currentTarget.style.color='var(--muted)'}>
+            <ArrowLeft size={13} /> Exit Manage
+          </button>
+          <h2>Item Management <span style={{ fontSize:13, fontWeight:700, color:'hsl(var(--color-purple))', verticalAlign:'middle' }}>· Manage</span></h2>
           <p>Browse company assets, check out what you need, or request a purchase</p>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
