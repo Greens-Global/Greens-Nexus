@@ -6384,10 +6384,20 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
         <AssignmentsQueue assignments={assignments} refresh={refreshAssignments || (() => {})} toast={toast} focus={assignFocus} />
       )}
       {segment === 'checkouts' && (<>
-      {/* Tab header with Send Alert */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, flexWrap:'wrap', gap:8 }}>
-        {/* Summary chips */}
-        <div className="chip-row" style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
+      {/* Toolbar — search on the LEFT, status filters + Send Alert on the RIGHT, one
+          row directly below the segment toggle. Same shape as Manage/Catalog/My Items
+          so the search/filters sit in the same spot (Neil). */}
+      <div style={{ display:'flex', alignItems:'center', marginBottom:14, flexWrap:'wrap', gap:10 }}>
+        <div className="search-bar" style={{ flex:1, minWidth:220, marginBottom:0 }}>
+          <Users size={13} style={{ flexShrink:0 }} />
+          <input placeholder="Search by person or item…" value={personQuery} onChange={e => setPersonQuery(e.target.value)} />
+          {personQuery && (
+            <button onClick={() => setPersonQuery('')} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:2 }}>
+              <X size={13} />
+            </button>
+          )}
+        </div>
+        <div className="chip-row" style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', marginLeft:'auto' }}>
         {[
           { key:'active',    label:'Active',            count: pending + approved + checkouts.filter(c => c.status === 'allocated').length },
           { key:'pending',   label:'Pending Approval',  count: pending },
@@ -6401,25 +6411,11 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
           </button>
         ))}
         </div>
-        <div style={{ display:'flex', gap:8, flexShrink:0, flexWrap:'wrap' }}>
-          {/* Company-wide "Force Return All" removed (Neil, Jun 16): too dangerous —
-              one misclick could recall every in-use item across all people. Force
-              return now lives only at the individual order/item level below. */}
-          {onSendAlert && (
-            <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7, color:'hsl(var(--color-orange))' }} onClick={onSendAlert}>
-              <Megaphone size={14} /> Send Alert
-            </button>
-          )}
-        </div>
-      </div>
-      {/* Person/item search — works across every status, unlike the old chips
-          which only listed people with active checkouts */}
-      <div className="search-bar" style={{ width:'100%', marginBottom:18 }}>
-        <Users size={13} style={{ flexShrink:0 }} />
-        <input placeholder="Search by person or item…" value={personQuery} onChange={e => setPersonQuery(e.target.value)} />
-        {personQuery && (
-          <button onClick={() => setPersonQuery('')} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:2 }}>
-            <X size={13} />
+        {/* Company-wide "Force Return All" removed (Neil, Jun 16): too dangerous —
+            force return now lives only at the individual order/item level below. */}
+        {onSendAlert && (
+          <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7, color:'hsl(var(--color-orange))', flexShrink:0 }} onClick={onSendAlert}>
+            <Megaphone size={14} /> Send Alert
           </button>
         )}
       </div>
