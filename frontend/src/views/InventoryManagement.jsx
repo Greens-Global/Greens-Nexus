@@ -4526,10 +4526,11 @@ const CUSTOM_FIELD_TYPE_OPTS = [
 ];
 // Manager-curated item types (Neil): managers extend the list here; a CSV import
 // can never invent a type, so people can't spray in ridiculous ones by convenience.
-function ManageTypesModal({ types, onClose, onChanged, toast }) {
+function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast }) {
   const [list, setList] = useState(types);
   const [newType, setNewType] = useState('');
   const [busy, setBusy] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(null); // type pending an in-use delete confirm
   useEscapeKey(onClose);
 
   async function add() {
@@ -4542,11 +4543,14 @@ function ManageTypesModal({ types, onClose, onChanged, toast }) {
   }
   async function remove(name) {
     if (busy) return;
-    setBusy(true);
+    setBusy(true); setConfirmDel(null);
     try { const updated = await api.deleteItemType(name); setList(updated); onChanged?.(updated); }
     catch (e) { toast?.(e?.message || 'Could not remove type.', 'error'); }
     finally { setBusy(false); }
   }
+  // Deleting a type that items still use needs a confirm — those items keep their
+  // type text but it stops being pickable (Neil: deletable by managers).
+  const askRemove = name => ((counts[name] || 0) > 0 ? setConfirmDel(name) : remove(name));
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
@@ -4567,11 +4571,27 @@ function ManageTypesModal({ types, onClose, onChanged, toast }) {
         </div>
         <div style={{ overflowY:'auto', display:'flex', flexDirection:'column', gap:6 }}>
           {list.map(t => (
-            <div key={t} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', borderRadius:9, border:'1px solid var(--line)', background:'var(--mist)' }}>
-              <span style={{ fontSize:13, fontWeight:600 }}>{t}</span>
-              {t.toLowerCase() !== 'other' && (
-                <button onClick={() => remove(t)} disabled={busy} title="Remove type"
-                  style={{ background:'none', border:'none', cursor:'pointer', color:'hsl(var(--color-red))', display:'flex', padding:3 }}><Trash2 size={14} /></button>
+            <div key={t} style={{ display:'flex', flexDirection:'column', gap:8, padding:'8px 12px', borderRadius:9, border:'1px solid var(--line)', background:'var(--mist)' }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10 }}>
+                <span style={{ display:'inline-flex', alignItems:'center', gap:8, minWidth:0 }}>
+                  <span style={{ fontSize:13, fontWeight:600 }}>{t}</span>
+                  <span style={{ fontSize:11, fontWeight:700, color:'var(--muted)', background:'var(--card)', border:'1px solid var(--line)', borderRadius:20, padding:'1px 8px', flexShrink:0 }}>
+                    {counts[t] || 0} item{(counts[t] || 0) !== 1 ? 's' : ''}
+                  </span>
+                </span>
+                {t.toLowerCase() !== 'other' && (
+                  <button onClick={() => askRemove(t)} disabled={busy} title="Remove type"
+                    style={{ background:'none', border:'none', cursor:'pointer', color:'hsl(var(--color-red))', display:'flex', padding:3, flexShrink:0 }}><Trash2 size={14} /></button>
+                )}
+              </div>
+              {confirmDel === t && (
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, fontSize:12 }}>
+                  <span style={{ color:'var(--muted)' }}>{counts[t]} item{counts[t] !== 1 ? 's' : ''} use this — remove anyway?</span>
+                  <span style={{ display:'flex', gap:6, flexShrink:0 }}>
+                    <button className="secondary-btn" style={{ fontSize:11.5, padding:'3px 10px' }} onClick={() => setConfirmDel(null)} disabled={busy}>Cancel</button>
+                    <button onClick={() => remove(t)} disabled={busy} style={{ fontSize:11.5, padding:'3px 10px', borderRadius:7, border:'none', background:'hsl(var(--color-red))', color:'#fff', fontWeight:700, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Remove</button>
+                  </span>
+                </div>
               )}
             </div>
           ))}
@@ -7636,6 +7656,12 @@ export default function InventoryManagement({ activeSub }) {
     api.getItemTypes().then(t => setItemTypes(Array.isArray(t) && t.length ? t : ITEM_TYPES)).catch(() => {});
   }, []);
   useEffect(() => { refreshItemTypes(); }, [refreshItemTypes]);
+  // How many items use each type — shown in Manage Types (Neil).
+  const typeCounts = useMemo(() => {
+    const m = {};
+    for (const i of items) { const t = i.itemType || 'Other'; m[t] = (m[t] || 0) + 1; }
+    return m;
+  }, [items]);
 
   const [toasts, setToasts] = useState([]);
   const toast = useCallback((message, kind = 'success') => {
@@ -7680,11 +7706,11 @@ export default function InventoryManagement({ activeSub }) {
       .then(res => {
         refreshItems();
         toast(`Imported ${res.created} item${res.created !== 1 ? 's' : ''}${res.updated ? `, updated ${res.updated}` : ''}.`);
-        // Flag any types the file used that aren't real types yet — they became
-        // "Other". Nudge the manager to add them in Manage Types, then re-import.
-        const unknown = res.unknown_types || [];
-        if (unknown.length) {
-          toast(`Set to "Other": unrecognised type${unknown.length !== 1 ? 's' : ''} ${unknown.join(', ')}. Add ${unknown.length !== 1 ? 'them' : 'it'} in Manage Types, then re-import.`, 'error');
+        // The import can extend the type list — pull the new types in and say so.
+        const added = res.added_types || [];
+        if (added.length) {
+          refreshItemTypes();
+          toast(`Added ${added.length} new type${added.length !== 1 ? 's' : ''}: ${added.join(', ')}.`);
         }
         return res;
       })
@@ -8032,7 +8058,7 @@ export default function InventoryManagement({ activeSub }) {
           onChanged={refreshCustomFields} toast={toast} />
       )}
       {typesOpen && (
-        <ManageTypesModal types={itemTypes} onClose={() => setTypesOpen(false)}
+        <ManageTypesModal types={itemTypes} counts={typeCounts} onClose={() => setTypesOpen(false)}
           onChanged={t => setItemTypes(Array.isArray(t) && t.length ? t : ITEM_TYPES)} toast={toast} />
       )}
       {importOpen   && <ImportItemsModal onClose={() => setImportOpen(false)} onImport={handleImport} customFields={customFields} />}

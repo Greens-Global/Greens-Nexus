@@ -398,17 +398,22 @@ def _clean_field(v) -> str:
     return "" if s.lower() in _NA_TOKENS else s
 
 
-# Canonicalise a free-typed item type: case-insensitive and singular→plural, so
-# "device"/"DEVICES" → "Devices". The valid set is the manager-curated item_types
-# table (seeded from this legacy list); a static fallback canon covers the rare
-# case where the table can't be read.
+# A loose "key" for a type so spelling/case/plural variants collapse to ONE type —
+# "Office", "office", "OFFICES " all key to "office" (Neil: be smart about it). The
+# valid set is the manager-curated item_types table; a static fallback canon covers
+# the rare case where the table can't be read.
+def _type_key(s) -> str:
+    s = re.sub(r"\s+", " ", (s or "").strip().lower())
+    if len(s) > 3 and s.endswith("ies"):                                  # batteries → battery
+        return s[:-3] + "y"
+    if len(s) > 4 and s.endswith(("ches", "shes", "ses", "xes", "zes")):  # boxes → box
+        return s[:-2]
+    if len(s) > 2 and s.endswith("s") and not s.endswith("ss"):           # cameras → camera
+        return s[:-1]
+    return s
+
 def _build_canon(names) -> dict:
-    canon = {}
-    for t in names:
-        canon[t.lower()] = t
-        if t.endswith("s"):
-            canon.setdefault(t[:-1].lower(), t)   # singular form maps too
-    return canon
+    return {_type_key(t): t for t in names}
 
 _TYPE_CANON = _build_canon(_ITEM_TYPES)           # static fallback
 
@@ -435,10 +440,10 @@ def _normalize_type(raw, canon=None) -> str:
     s = _clean_field(raw)
     if not s:
         return "Other"
-    # Unrecognised types are funnelled into "Other" so a typo'd or invented type on
-    # import never creates a new category — Neil's rule. Managers add real types via
-    # the Manage Types UI; only then are they accepted.
-    return (canon or _TYPE_CANON).get(s.lower(), "Other")
+    # Match by the loose key so office/offices/OFFICE all land on the same type.
+    # Anything with no match funnels to "Other" (the Add/Edit dropdowns can't produce
+    # unknowns; CSV import auto-creates them — see import_items).
+    return (canon or _TYPE_CANON).get(_type_key(s), "Other")
 
 
 def _content_sig(name, item_type, make, model, year, department, location, ownership) -> tuple:
@@ -524,8 +529,11 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
 
     claimed: set[str] = set()          # existing items already matched this import
     next_serial = _serial_start(db)    # scanned once — see _serial_start
-    canon = _type_canon(db)            # the manager-curated type set, built once
-    unknown_types: set = set()         # types in the file that aren't recognised → became "Other"
+    _seed_types_if_empty(db)
+    _type_rows = db.query(ItemType).all()
+    canon = _build_canon([r.name for r in _type_rows])   # built once, extended as we go
+    next_type_order = max([r.sort_order for r in _type_rows], default=0) + 1
+    added_types: list = []             # new types this import created (manager-initiated)
 
     def _claim_by_sig(sig):
         pool = sig_pool.get(sig)
@@ -544,8 +552,15 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
         if ownership not in ("permanent", "transient"):
             ownership = "transient"
         raw_type = _clean_field(row.item_type)
-        if raw_type and raw_type.lower() not in canon:
-            unknown_types.add(raw_type)
+        if raw_type:
+            key = _type_key(raw_type)
+            if key not in canon and len(raw_type) <= 40:
+                # A manager's import may extend the type list (Visesh); office/offices
+                # collapse via the key so we never make two of the same.
+                db.add(ItemType(name=raw_type, sort_order=next_type_order, created_by=user["email"], created_at=now))
+                canon[key] = raw_type
+                next_type_order += 1
+                added_types.append(raw_type)
         item_type = _normalize_type(row.item_type, canon)
         make       = _clean_field(row.make)
         model      = _clean_field(row.model)
@@ -612,10 +627,9 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
             # new units, so the second must not match the first.
             created += 1
     db.commit()
-    # Surface any unrecognised types so the UI can offer to add them as real types
-    # (they were set to "Other" for now — Neil: no auto-creating categories on import).
+    # Report any types this import created so the UI can refresh the type list.
     return {"created": created, "updated": updated, "skipped": skipped,
-            "unknown_types": sorted(unknown_types)}
+            "added_types": sorted(set(added_types))}
 
 
 # ── Persistent cart (must be before /{item_id} wildcards) ────────────────────
@@ -1022,8 +1036,8 @@ def add_item_type(body: ItemTypeIn, user: dict = Depends(require_items_admin), d
         raise HTTPException(400, "Type name is too long (40 characters max)")
     _seed_types_if_empty(db)
     rows = db.query(ItemType).all()
-    # Case-insensitive dedupe so "office" can't shadow "Office".
-    if any(r.name.lower() == name.lower() for r in rows):
+    # Dedupe by the loose key so office/offices/OFFICE collapse to one type.
+    if any(_type_key(r.name) == _type_key(name) for r in rows):
         return _type_names(db)
     nxt = max([r.sort_order for r in rows], default=0) + 1
     db.add(ItemType(name=name, sort_order=nxt, created_by=user["email"], created_at=_now_iso()))
