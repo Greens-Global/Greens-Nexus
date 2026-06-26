@@ -3,7 +3,7 @@
    modal. All state lives in the DB via /items/assignments — components only
    mirror it and poll. */
 import { useState, useEffect, useRef } from 'react';
-import { Camera, CheckCircle, XCircle, RotateCcw, Loader2, AlertCircle, User, Package, ZoomIn } from 'lucide-react';
+import { Camera, CheckCircle, XCircle, RotateCcw, Loader2, AlertCircle, User, Package, ZoomIn, MapPin } from 'lucide-react';
 import { api } from '../api';
 import { supabase } from '../lib/supabase';
 
@@ -108,38 +108,88 @@ function ModalShell({ title, sub, children, onClose }) {
 }
 
 // Manager: assign (or reassign) an item to a person from the directory
-export function AssignItemModal({ item, mode, onClose, onDone, toast }) {
+export function AssignItemModal({ item, mode, userEmail = '', locations = [], onClose, onDone, toast }) {
   const [directory, setDirectory] = useState([]);
+  const [tab,  setTab]  = useState('person');   // 'person' | 'location'
   const [pick, setPick] = useState('');
+  const [loc,  setLoc]  = useState(item.location || '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => { api.getRolesDirectory().then(setDirectory).catch(() => {}); }, []);
   const chosen = directory.find(d => d.email === pick);
-  const reassign = mode === 'reassign';
+  // A person currently holds it ⇒ the person flow is a reassignment. Location is
+  // independent of the holder (just where the item lives), so it's always a set.
+  const reassign = !!item.assignedToEmail;
+  const currentEmail = (item.assignedToEmail || '').toLowerCase();
+  const sameAsCurrent = !!chosen && !!currentEmail && chosen.email.toLowerCase() === currentEmail;
+  const sameMsg = sameAsCurrent
+    ? (chosen.email.toLowerCase() === (userEmail || '').toLowerCase()
+        ? 'This item is already assigned to you.'
+        : `This item is already assigned to ${item.assignedToName || chosen.name}.`)
+    : '';
+  const locChanged = loc.trim() !== (item.location || '').trim();
+
+  function submitPerson() {
+    setBusy(true); setError('');
+    (reassign ? api.reassignItem(item.id, { assignee_email: chosen.email, assignee_name: chosen.name })
+              : api.assignItem(item.id, { assignee_email: chosen.email, assignee_name: chosen.name }))
+      .then(() => { toast(reassign ? `Return requested from ${item.assignedToName} — ${chosen.name} will be assigned next.` : `${item.name} assigned to ${chosen.name} — awaiting their acceptance.`); onDone(); onClose(); })
+      .catch(err => { setError(err?.message || 'Could not assign.'); setBusy(false); });
+  }
+  function submitLocation() {
+    setBusy(true); setError('');
+    api.assignItemToLocation(item.id, loc.trim())
+      .then(() => { toast(loc.trim() ? `${item.name} is now at ${loc.trim()}.` : `Cleared ${item.name}'s location.`); onDone(); onClose(); })
+      .catch(err => { setError(err?.message || 'Could not set the location.'); setBusy(false); });
+  }
+
   return (
     <ModalShell onClose={onClose}
       title={reassign ? `Reassign ${item.name}` : `Assign ${item.name}`}
-      sub={reassign
-        ? `Currently with ${item.assignedToName || item.assignedToEmail}. They will be asked to return it with a photo; once a supervisor accepts the return, the new person is asked to accept it.`
-        : 'The person will be notified and must accept with a photo before the assignment becomes active.'}>
-      <label style={FL}>ASSIGN TO <span style={{ color: 'hsl(var(--color-red))' }}>*</span></label>
-      <select className="form-input" style={{ width: '100%' }} value={pick} onChange={e => setPick(e.target.value)}>
-        <option value="">— select a person —</option>
-        {directory.map(d => <option key={d.email} value={d.email}>{d.name}</option>)}
-      </select>
-      {error && <p style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', marginTop: 10 }}>{error}</p>}
+      sub="Assign it to a person (they accept with a photo) or set where it lives — a location and a person can both apply.">
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {[['person', 'To a person'], ['location', 'To a location']].map(([k, l]) => (
+          <button key={k} type="button" onClick={() => { setTab(k); setError(''); }}
+            style={{ flex: 1, padding: '8px 0', borderRadius: 9, border: `1px solid ${tab === k ? 'var(--pine)' : 'var(--line)'}`, background: tab === k ? 'var(--pine)' : 'transparent', color: tab === k ? '#fff' : 'var(--muted)', fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>{l}</button>
+        ))}
+      </div>
+
+      {tab === 'person' ? (
+        <>
+          <label style={FL}>ASSIGN TO <span style={{ color: 'hsl(var(--color-red))' }}>*</span></label>
+          {/* Show the email, not just the name — the directory has duplicate people
+              across domains (e.g. several "Neil"s), so the email is how you pick the
+              account that person actually logs in with (Visesh). */}
+          <select className="form-input" style={{ width: '100%' }} value={pick} onChange={e => setPick(e.target.value)}>
+            <option value="">— select a person —</option>
+            {directory.map(d => <option key={d.email} value={d.email}>{d.name ? `${d.name} — ${d.email}` : d.email}</option>)}
+          </select>
+          {reassign && <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Currently with {item.assignedToName || item.assignedToEmail} — they’ll be asked to return it with a photo, then the new person accepts.</p>}
+        </>
+      ) : (
+        <>
+          <label style={FL}>LOCATION</label>
+          <input className="form-input" style={{ width: '100%' }} list="assign-loc-list" value={loc} autoFocus
+            onChange={e => setLoc(e.target.value)} placeholder="e.g. GG Corp, GSE — leave blank to clear" />
+          <datalist id="assign-loc-list">{locations.map(l => <option key={l} value={l} />)}</datalist>
+          <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>
+            Sets where the item physically lives. {item.assignedToEmail ? `It stays assigned to ${item.assignedToName || 'its holder'}.` : 'It stays unassigned until you assign a person.'}
+          </p>
+        </>
+      )}
+
+      {(sameMsg || error) && <p style={{ fontSize: 12.5, color: sameMsg ? 'hsl(var(--color-orange))' : 'hsl(var(--color-red))', marginTop: 10 }}>{sameMsg || error}</p>}
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
         <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-        <button className="primary-btn" disabled={!chosen || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-          onClick={() => {
-            setBusy(true); setError('');
-            (reassign ? api.reassignItem(item.id, { assignee_email: chosen.email, assignee_name: chosen.name })
-                      : api.assignItem(item.id, { assignee_email: chosen.email, assignee_name: chosen.name }))
-              .then(() => { toast(reassign ? `Return requested from ${item.assignedToName} — ${chosen.name} will be assigned next.` : `${item.name} assigned to ${chosen.name} — awaiting their acceptance.`); onDone(); onClose(); })
-              .catch(err => { setError(err?.message || 'Could not assign.'); setBusy(false); });
-          }}>
-          {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <User size={14} />} {reassign ? 'Start Reassignment' : 'Assign'}
-        </button>
+        {tab === 'person' ? (
+          <button className="primary-btn" disabled={!chosen || busy || sameAsCurrent} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={submitPerson}>
+            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <User size={14} />} {reassign ? 'Start Reassignment' : 'Assign'}
+          </button>
+        ) : (
+          <button className="primary-btn" disabled={busy || !locChanged} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={submitLocation}>
+            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <MapPin size={14} />} Set Location
+          </button>
+        )}
       </div>
     </ModalShell>
   );
@@ -303,12 +353,13 @@ function AssignmentReturnModal({ a, reason, onClose, onDone, toast }) {
 }
 
 // Manager queue: Checkouts → Assignments segment
-export function AssignmentsQueue({ assignments, refresh, toast, focus }) {
+export function AssignmentsQueue({ assignments, userEmail = '', refresh, toast, focus }) {
   const [chip, setChip] = useState(focus?.chip || 'live');
   // Deep-link (e.g. perm_return notification) can request a specific filter.
   // ts on `focus` re-triggers this even when the same chip is requested twice.
   useEffect(() => { if (focus?.chip) setChip(focus.chip); }, [focus]);
   const [accepting, setAccepting] = useState(null);
+  const [selfAccept, setSelfAccept] = useState(null); // accept an item assigned to ME, from the queue
   const [preview, setPreview] = useState(null);
   const [cancelling, setCancelling] = useState(null); // assignment pending in-app confirm (no native dialogs)
   const [search, setSearch] = useState('');
@@ -373,6 +424,13 @@ export function AssignmentsQueue({ assignments, refresh, toast, focus }) {
                     <CheckCircle size={12} /> Accept Return
                   </button>
                 )}
+                {/* If this item is assigned to ME, accept it right here (no need to
+                    go hunting in My Items) — same photo-accept flow. */}
+                {a.status === 'pending_acceptance' && (a.assigneeEmail || '').toLowerCase() === (userEmail || '').toLowerCase() && (
+                  <button className="primary-btn" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => setSelfAccept(a)}>
+                    <Camera size={12} /> Accept &amp; Upload Photo
+                  </button>
+                )}
                 {['pending_acceptance', 'active', 'return_initiated'].includes(a.status) && (
                   <button title={a.status === 'pending_acceptance' ? 'Cancel assignment' : 'Force-recover (employee unavailable)'}
                     onClick={() => setCancelling(a)}
@@ -399,6 +457,9 @@ export function AssignmentsQueue({ assignments, refresh, toast, focus }) {
             : `Take ${cancelling.itemName} back from ${cancelling.assigneeName || cancelling.assigneeEmail} without their confirmation. Use this when the holder can't complete the return themselves.`}>
           <CancelAssignmentBody a={cancelling} onClose={() => setCancelling(null)} onDone={() => { refresh(); setCancelling(null); }} toast={toast} />
         </ModalShell>
+      )}
+      {selfAccept && (
+        <AcceptAssignmentModal a={selfAccept} onClose={() => setSelfAccept(null)} onDone={() => { refresh(); setSelfAccept(null); }} toast={toast} />
       )}
       {preview && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }} onClick={() => setPreview(null)}>

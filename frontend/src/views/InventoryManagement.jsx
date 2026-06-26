@@ -4,7 +4,7 @@ import {
   AlertCircle, X, Loader2, ChevronDown, UploadCloud, FileSpreadsheet,
   Download, Pencil, Trash2, MapPin, ClipboardList, History, FileBarChart,
   ShoppingCart, Filter, ZoomIn, Car, Wrench, Key, Monitor, Box, FileText,
-  ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image, LayoutGrid, User, Wand2, Link2,
+  ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image, LayoutGrid, User, Wand2, Link2, Tag,
 } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import { useInventory }     from '../contexts/InventoryContext';
@@ -303,8 +303,25 @@ function PhotoUpload({ value, onChange, label = 'PHOTO', required = false, hint 
     setUploading(false);
   }
 
+  // Ctrl+V a screenshot/snip anywhere in this box → upload it (Neil: the Batch
+  // Edit paste feature should work in the regular Edit too). Pasting text (a URL)
+  // into the link box still works normally.
+  function handlePaste(e) {
+    const list = e.clipboardData?.items || [];
+    for (const it of list) {
+      if (it.type && it.type.startsWith('image/')) {
+        const blob = it.getAsFile();
+        if (blob) {
+          e.preventDefault();
+          handleFile(blob.name ? blob : new File([blob], `paste-${Date.now()}.png`, { type: blob.type || 'image/png' }));
+          return;
+        }
+      }
+    }
+  }
+
   return (
-    <div>
+    <div onPaste={handlePaste} tabIndex={0} style={{ outline:'none' }}>
       <label style={FL}>{label}{required && <span style={{ color:'hsl(var(--color-red))' }}> *</span>}</label>
       {hint && <p style={{ fontSize:11.5, color:'var(--muted)', marginBottom:8, marginTop:-2 }}>{hint}</p>}
       <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }}
@@ -328,20 +345,29 @@ function PhotoUpload({ value, onChange, label = 'PHOTO', required = false, hint 
           {uploading ? <><Loader2 size={15} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><Camera size={15} /> {required ? 'Upload Photo (required)' : 'Upload Photo'}</>}
         </button>
       )}
+      {/* Paste an image URL instead of uploading a file (Neil: add URL to
+          individual items). Pasting an image here pastes the screenshot too. */}
+      <input className="form-input" type="url" value={value || ''}
+        onChange={e => onChange(e.target.value.trim())} onPaste={handlePaste}
+        placeholder="…or paste an image URL (https://…)"
+        style={{ width:'100%', fontSize:12, padding:'6px 10px', marginTop:8 }} />
+      <p style={{ fontSize:11, color:'var(--muted)', margin:'5px 0 0' }}>Upload a file, paste a URL, or press <strong>Ctrl+V</strong> to paste a screenshot.</p>
       {err && <p style={{ fontSize:11.5, color:'hsl(var(--color-red))', marginTop:5 }}>{err}</p>}
     </div>
   );
 }
 
 // ── Add Item Modal ─────────────────────────────────────────────────────────────
-function AddItemModal({ onClose, onSave, initial = {} }) {
+function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
   const [name,          setName]          = useState(initial.name || '');
   const [itemType,      setItemType]      = useState(initial.itemType || 'Tools');
   const [make,          setMake]          = useState('');
   const [model,         setModel]         = useState('');
   const [year,          setYear]          = useState('');
   const [department,    setDepartment]    = useState(initial.department || '');
-  const [defaultOwner,  setDefaultOwner]  = useState(TYPE_DEFAULT_OWNER[initial.itemType || 'Tools']);
+  // Owner now defaults to the department (Neil: a free-text owner per item just
+  // produced 100 unhelpful values — the department is the real owner).
+  const [defaultOwner,  setDefaultOwner]  = useState(initial.department || '');
   const [ownershipType, setOwnershipType] = useState(initial.ownershipType || 'transient');
   const [location,      setLocation]      = useState('');
   const [photoUrl,      setPhotoUrl]      = useState('');
@@ -356,7 +382,11 @@ function AddItemModal({ onClose, onSave, initial = {} }) {
 
   function handleTypeChange(t) {
     setItemType(t);
-    setDefaultOwner(TYPE_DEFAULT_OWNER[t] || '');
+  }
+  // Department drives the owner — keep them in sync as the department is picked.
+  function handleDeptChange(d) {
+    setDepartment(d);
+    setDefaultOwner(d);
   }
 
   function submit() {
@@ -392,7 +422,7 @@ function AddItemModal({ onClose, onSave, initial = {} }) {
             <div>
               <label style={FL}>TYPE <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
               <select className="form-input" style={{ width:'100%' }} value={itemType} onChange={e => handleTypeChange(e.target.value)}>
-                {ITEM_TYPES.map(t => <option key={t}>{t}</option>)}
+                {[...new Set([...types, itemType].filter(Boolean))].map(t => <option key={t}>{t}</option>)}
               </select>
             </div>
             <div>
@@ -435,12 +465,12 @@ function AddItemModal({ onClose, onSave, initial = {} }) {
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
             <div>
               <label style={FL}>DEPARTMENT <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
-              <input className="form-input" style={{ width:'100%' }} list="add-item-depts" value={department} onChange={e => setDepartment(e.target.value)} placeholder="e.g. Construction" />
+              <input className="form-input" style={{ width:'100%' }} list="add-item-depts" value={department} onChange={e => handleDeptChange(e.target.value)} placeholder="e.g. Construction" />
               <datalist id="add-item-depts">{DEPARTMENTS.filter(d => d !== 'All').map(d => <option key={d} value={d} />)}</datalist>
             </div>
             <div>
-              <label style={FL}>DEFAULT OWNER</label>
-              <input className="form-input" style={{ width:'100%' }} value={defaultOwner} onChange={e => setDefaultOwner(e.target.value)} placeholder="e.g. Tool Crib" />
+              <label style={FL}>OWNER <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0, color:'var(--muted)' }}>· defaults to the department</span></label>
+              <input className="form-input" style={{ width:'100%' }} value={defaultOwner} onChange={e => setDefaultOwner(e.target.value)} placeholder="Defaults to the department" />
             </div>
           </div>
 
@@ -536,7 +566,7 @@ function diffItemEdit(item, data) {
   return out;
 }
 
-function EditItemModal({ item, onClose, onSave }) {
+function EditItemModal({ item, onClose, onSave, types = ITEM_TYPES }) {
   const [name,          setName]          = useState(item.name);
   const [itemType,      setItemType]      = useState(item.itemType || 'Other');
   const [make,          setMake]          = useState(item.make || '');
@@ -606,7 +636,7 @@ function EditItemModal({ item, onClose, onSave }) {
               <label style={FL}>TYPE</label>
               <select className="form-input" style={{ width:'100%' }} value={itemType} onChange={e => setItemType(e.target.value)}>
                 {/* include the item's current type even if it's a custom imported one, so editing doesn't silently reset it */}
-                {[...new Set([...ITEM_TYPES, itemType].filter(Boolean))].map(t => <option key={t}>{t}</option>)}
+                {[...new Set([...types, itemType].filter(Boolean))].map(t => <option key={t}>{t}</option>)}
               </select>
             </div>
             <div>
@@ -634,11 +664,12 @@ function EditItemModal({ item, onClose, onSave }) {
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
             <div>
               <label style={FL}>DEPARTMENT</label>
-              <input className="form-input" style={{ width:'100%' }} list="edit-item-depts" value={department} onChange={e => setDepartment(e.target.value)} />
+              <input className="form-input" style={{ width:'100%' }} list="edit-item-depts" value={department}
+                onChange={e => { const d = e.target.value; setDepartment(d); if (!defaultOwner || defaultOwner === department) setDefaultOwner(d); }} />
               <datalist id="edit-item-depts">{DEPARTMENTS.filter(d => d !== 'All').map(d => <option key={d} value={d} />)}</datalist>
             </div>
             <div>
-              <label style={FL}>DEFAULT OWNER</label>
+              <label style={FL}>OWNER <span style={{ fontWeight:400, textTransform:'none', letterSpacing:0, color:'var(--muted)' }}>· defaults to the department</span></label>
               <input className="form-input" style={{ width:'100%' }} value={defaultOwner} onChange={e => setDefaultOwner(e.target.value)} />
             </div>
           </div>
@@ -1610,6 +1641,8 @@ function PhotoChip({ url, kind }) {
 }
 function auditVal(field, value, kind) {
   if (field === 'photo_url') return value ? <PhotoChip url={value} kind={kind} /> : EMPTY;
+  // Show the friendly ownership words everywhere, never the raw "transient" (Neil).
+  if (field === 'ownership_type' && value) return value === 'permanent' ? 'Permanent' : 'Temporary';
   return value === '' || value == null ? EMPTY : value;
 }
 
@@ -1696,7 +1729,7 @@ function feedSummary(entry) {
   if (ch) {
     const n = ch.length;
     // An item created with its values set.
-    if (entry.isAdd) return n ? `Added to inventory with ${n} detail${n !== 1 ? 's' : ''} filled in.` : 'Added to inventory.';
+    if (entry.isAdd) return n ? `Added to Items with ${n} detail${n !== 1 ? 's' : ''} filled in.` : 'Added to Items.';
     // A photo change is the action people recognise — always name it, even on a
     // first record (don't bury it under a generic "first record" message).
     const photo = ch.find(c => c.field === 'photo_url');
@@ -1766,7 +1799,7 @@ const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onLo
     if (query.trim()) params.q = query.trim();
     api.getItemsAuditLog(params)
       .then(res => { setLogs(res.rows || []); setError(''); })
-      .catch(() => setError('Could not load audit log.'))
+      .catch(() => setError('Could not load activity log.'))
       .finally(() => setLoading(false));
   }, [query]);
   useEffect(() => { const t = setTimeout(load, query ? 350 : 0); return () => clearTimeout(t); }, [load, query]);
@@ -1839,13 +1872,13 @@ const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onLo
       </p>
 
       {error ? (
-        <ErrorBanner message="Could not load the audit log." onRetry={load} />
+        <ErrorBanner message="Could not load the activity log." onRetry={load} />
       ) : loading ? (
         <SkeletonBlocks count={5} height={56} borderRadius={10} />
       ) : shown === 0 ? (
         <div style={{ textAlign:'center', padding:'48px 0', color:'var(--muted)', fontSize:13 }}>
           <History size={28} style={{ opacity:.3, display:'block', margin:'0 auto 8px' }} />
-          {query || from || to ? 'No entries match your filters.' : 'No audit entries yet.'}
+          {query || from || to ? 'No entries match your filters.' : 'No activity yet.'}
         </div>
       ) : (
         <div style={{ display:'flex', flexDirection:'column', gap:18 }}>
@@ -2354,6 +2387,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
   const [fStatus,         setFStatus]         = useState('All');
   const [fType,           setFType]           = useState('All');
   const [fDept,           setFDept]           = useState('All');
+  const [mySearch,        setMySearch]        = useState('');
   const [sortOldest,      setSortOldest]      = useState(false);
   // Date-range filter on submission date — both tabs (Pranshu, Jun 16)
   const [fFrom,           setFFrom]           = useState('');
@@ -2412,6 +2446,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
   const matchesFilters = c =>
     (fType === 'All' || c.itemType === fType) &&
     (fDept === 'All' || c.department === fDept) &&
+    (!mySearch.trim() || (c.itemName || '').toLowerCase().includes(mySearch.trim().toLowerCase())) &&
     inDateRange(c);
   const activeFiltered = active.filter(matchesFilters);
   const completedView  = completed
@@ -2452,35 +2487,44 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
   const liveAssignCount = myAssignments.filter(a => ['pending_acceptance','active','return_initiated'].includes(a.status)).length;
   if (!mine.length && !myAssignments.length) return null;
 
-  return (
-    <div style={{ marginTop:32 }}>
-      {/* Active / Past side tabs — both always visible, no scrolling to discover history */}
-      <div className="chip-row" style={{ display:'flex', gap:8, marginBottom:16 }}>
-        {[
-          { key:'active', label:'Active Checkouts', Icon: Clock,   count: active.length    },
-          { key:'past',   label:'Past Checkouts',   Icon: History, count: completed.length },
-          { key:'permanent', label:'Permanent', Icon: User, count: liveAssignCount },
-        ].map(({ key, label, Icon, count }) => {
-          const sel = panelTab === key;
-          return (
-            <button key={key} onClick={() => setPanelTab(key)}
-              style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 18px', borderRadius:10,
-                border:`1px solid ${sel ? 'var(--pine)' : 'var(--line)'}`,
-                background: sel ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
-                color: sel ? 'hsl(var(--color-green))' : 'var(--muted)',
-                fontWeight: sel ? 700 : 600, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', transition:'all 0.15s' }}>
-              <Icon size={14} /> {label}
-              <span style={{ padding:'1px 8px', borderRadius:20, fontSize:11, fontWeight:700,
-                background: sel ? 'hsl(var(--color-green))' : 'var(--mist)',
-                color: sel ? '#fff' : 'var(--muted)' }}>{count}</span>
-            </button>
-          );
-        })}
-      </div>
+  // The Active / Past / Permanent sub-tabs — rendered BELOW the search/filter bar
+  // so the toolbar stays at the same height as every other tab (Neil: fixed spot).
+  const segmentTabs = (
+    <div className="chip-row" style={{ display:'flex', gap:8, marginBottom:16 }}>
+      {[
+        { key:'active', label:'Active Checkouts', Icon: Clock,   count: active.length    },
+        { key:'past',   label:'Past Checkouts',   Icon: History, count: completed.length },
+        { key:'permanent', label:'Permanent', Icon: User, count: liveAssignCount },
+      ].map(({ key, label, Icon, count }) => {
+        const sel = panelTab === key;
+        return (
+          <button key={key} onClick={() => setPanelTab(key)}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'8px 18px', borderRadius:10,
+              border:`1px solid ${sel ? 'var(--pine)' : 'var(--line)'}`,
+              background: sel ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
+              color: sel ? 'hsl(var(--color-green))' : 'var(--muted)',
+              fontWeight: sel ? 700 : 600, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', transition:'all 0.15s' }}>
+            <Icon size={14} /> {label}
+            <span style={{ padding:'1px 8px', borderRadius:20, fontSize:11, fontWeight:700,
+              background: sel ? 'hsl(var(--color-green))' : 'var(--mist)',
+              color: sel ? '#fff' : 'var(--muted)' }}>{count}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 
+  return (
+    <div>
       {/* Filters — type/dept on both tabs; status chips + date sort on Past */}
       {(mine.length > 3) && (
-        <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', marginBottom:14 }}>
+        <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', marginBottom:14 }}>
+          {/* Consistent toolbar — search left, filters right — same shape as Manage. */}
+          <div className="search-bar" style={{ flex:1, minWidth:200, marginBottom:0 }}>
+            <Search size={14} style={{ flexShrink:0 }} />
+            <input placeholder="Search my items…" value={mySearch} onChange={e => setMySearch(e.target.value)} />
+          </div>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', marginLeft:'auto' }}>
           {panelTab === 'past' && [
             { v:'All', label:'All' }, { v:'returned', label:'Returned' },
             { v:'rejected', label:'Rejected' }, { v:'cancelled', label:'Cancelled' },
@@ -2491,12 +2535,12 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
             </button>
           ))}
           {myTypes.length > 2 && (
-            <select className="form-input" value={fType} onChange={e => setFType(e.target.value)} style={{ padding:'4px 10px', fontSize:12, height:30 }}>
+            <select className="form-input" value={fType} onChange={e => setFType(e.target.value)} style={{ padding:'4px 10px', fontSize:12, height:30, width:'auto' }}>
               {myTypes.map(t => <option key={t} value={t}>{t === 'All' ? 'All types' : t}</option>)}
             </select>
           )}
           {myDepts.length > 2 && (
-            <select className="form-input" value={fDept} onChange={e => setFDept(e.target.value)} style={{ padding:'4px 10px', fontSize:12, height:30 }}>
+            <select className="form-input" value={fDept} onChange={e => setFDept(e.target.value)} style={{ padding:'4px 10px', fontSize:12, height:30, width:'auto' }}>
               {myDepts.map(d => <option key={d} value={d}>{d === 'All' ? 'All departments' : d}</option>)}
             </select>
           )}
@@ -2521,8 +2565,11 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
               <ArrowUpDown size={11} /> {sortOldest ? 'Oldest first' : 'Newest first'}
             </button>
           )}
+          </div>
         </div>
       )}
+
+      {segmentTabs}
 
       {panelTab === 'permanent' && (
         <MyPermanentPanel assignments={assignments} userEmail={userEmail} refresh={refreshAssignments || (() => {})} toast={toast || (() => {})} />
@@ -3153,7 +3200,7 @@ function SortableTh({ label, colKey, sort, onSort }) {
 }
 
 // ── Employee View ─────────────────────────────────────────────────────────────
-const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, refreshCheckouts, submitCartCheckouts, cancelRequest, allocateItem, initiateHandover, confirmReceipt, toast }) {
+const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, userName, userEmail, itemsLoading, itemsError, onReturn, refreshItems, refreshCheckouts, submitCartCheckouts, cancelRequest, allocateItem, initiateHandover, confirmReceipt, toast, showManage = false, onEnterManage }) {
   const { assignments, refreshAssignments } = useAssignments();
   const { can } = useRole();
   // Supervisors (level 2) are ALLOCATORS, not managers: they don't approve, but
@@ -3340,11 +3387,13 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
           <h2 style={{ fontSize:20, fontWeight:700, margin:'0 0 4px' }}>Item Management</h2>
           <p style={{ fontSize:13, color:'var(--muted)', margin:0 }}>What would you like to do today?</p>
         </div>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))', gap:16, maxWidth:820, marginBottom:cart.length ? 28 : 0 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))', gap:16, maxWidth: showManage ? 1080 : 820, marginBottom:cart.length ? 28 : 0 }}>
           {[
             { Icon:ShoppingCart,  colorVar:'color-green',  title:'Checkout an Item',      sub:'Browse available equipment and raise a checkout request.',                                                                          go:() => { setMode('catalog'); setTab('catalog'); },   badge:null },
             { Icon:RotateCcw,     colorVar:'color-blue',   title:'Extend an Item', sub:activeCheckouts.length > 0 ? `${activeCheckouts.length} item${activeCheckouts.length!==1?'s':''} currently checked out.` : 'Return equipment you have, or ask for more time.', go:() => { setMode('catalog'); setTab('checkouts'); }, badge:activeCheckouts.length||null },
             { Icon:ClipboardList, colorVar:'color-orange', title:'Raise Purchase Request', sub:'Need something not in the catalog? Submit a formal purchase request.',                                                              go:() => window.dispatchEvent(new CustomEvent('nexus:navigate',{detail:{view:'purchase'}})),                      badge:null },
+            // Managers get a Manage card right on the home screen (Neil: no way in from here).
+            ...(showManage && onEnterManage ? [{ Icon:Box, colorVar:'color-purple', title:'Manage Items', sub:'Add, edit, assign, import, types and the activity log — the full management tools.', go:onEnterManage, badge:null }] : []),
           ].map(({ Icon, colorVar, title, sub, go, badge }) => (
             <button key={title} onClick={go}
               style={{ display:'flex', alignItems:'flex-start', gap:16, padding:'20px 20px', borderRadius:14, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', textAlign:'left', fontFamily:'Inter,sans-serif', transition:'box-shadow 0.15s', boxShadow:'var(--shadow-sm)', position:'relative' }}
@@ -3415,6 +3464,14 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
             {badge > 0 && <span style={{ background:'hsl(var(--color-blue))', color:'#fff', borderRadius:20, fontSize:10.5, fontWeight:800, padding:'1px 7px', marginLeft:3 }}>{badge}</span>}
           </button>
         ))}
+        {/* Managers get a big Manage button here that opens the full management UI (Neil). */}
+        {showManage && onEnterManage && (
+          <button onClick={onEnterManage} title="Open the management tools"
+            style={{ display:'inline-flex', alignItems:'center', gap:8, marginLeft:'auto', marginBottom:8, padding:'9px 22px', background:'hsl(var(--color-purple))', color:'#fff', border:'none', borderRadius:10, fontWeight:700, fontSize:14, cursor:'pointer', fontFamily:'Inter,sans-serif', whiteSpace:'nowrap', flexShrink:0, boxShadow:'var(--shadow-sm)' }}
+            onMouseEnter={e => e.currentTarget.style.filter='brightness(1.08)'} onMouseLeave={e => e.currentTarget.style.filter='none'}>
+            <ClipboardList size={16} /> Manage
+          </button>
+        )}
       </div>
 
       {/* ── CATALOG TAB ── */}
@@ -3656,7 +3713,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
 });
 
 // ── Manager Catalog Tab ───────────────────────────────────────────────────────
-const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate }) {
+const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, onAddToCart, inCart, checkouts, userEmail, userName, onReturn, onCancel, onSelfAllocate, filterControls }) {
   // Desktop defaults to the list/table; phones default to tiles but can now
   // switch to the (scrollable) list in portrait too (Neil, Jun 16).
   const [viewMode, setViewMode] = useState(() => window.matchMedia('(max-width: 640px)').matches ? 'tile' : 'list');
@@ -3686,14 +3743,17 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
 
   return (
     <>
-      <div style={{ display:'flex', alignItems:'center', gap:14, marginBottom:14 }}>
-        <p style={{ fontSize:12, color:'var(--muted)', margin:0, whiteSpace:'nowrap', flexShrink:0 }}>{filtered.length} item{filtered.length !== 1 ? 's' : ''}</p>
-        {/* Search sits beside the count and stretches the full row width,
-            stopping short of the Tile/List toggle */}
-        <div className="search-bar" style={{ flex:1, minWidth:160, marginBottom:0 }}>
+      {/* One consistent toolbar — search on the LEFT, filters + view toggle on the
+          RIGHT, on a single row directly below the tabs. Same shape as Manage so the
+          search bar never jumps position between tabs (Neil). */}
+      <div style={{ display:'flex', gap:10, marginBottom:12, flexWrap:'wrap', alignItems:'center' }}>
+        <div className="search-bar" style={{ flex:1, minWidth:200, marginBottom:0 }}>
           <Search size={14} style={{ flexShrink:0 }} />
           <input placeholder="Search items…" value={searchValue} onChange={e => onSearchChange(e.target.value)} />
         </div>
+        {filterControls && (
+          <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>{filterControls}</div>
+        )}
         <div style={{ display:'flex', gap:4, flexShrink:0 }}>
           <button onClick={() => setViewMode('tile')}
             style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'5px 12px', borderRadius:8, border:`1px solid ${viewMode === 'tile' ? 'var(--pine)' : 'var(--line)'}`, background: viewMode === 'tile' ? 'hsla(var(--color-green),0.1)' : 'transparent', color: viewMode === 'tile' ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
@@ -3705,6 +3765,7 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
           </button>
         </div>
       </div>
+      <p style={{ fontSize:12, color:'var(--muted)', margin:'0 0 12px' }}>{filtered.length} item{filtered.length !== 1 ? 's' : ''}</p>
 
       {(viewMode === 'tile') ? (
         <ItemPhotoGrid
@@ -3880,10 +3941,17 @@ function BatchTabs({ tab, onTab }) {
   );
 }
 
-function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, onSave, saving }) {
+function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, onSave, saving, locations = [], types = ITEM_TYPES }) {
   useEscapeKey(onClose);
   const [enabled, setEnabled] = useState(new Set());
   const [vals,    setVals]    = useState({});
+  // Assignment lives in Batch Edit now (Neil: not a separate button). Optional —
+  // tick it to also assign the selection to a place or a person.
+  const [assignOn,    setAssignOn]    = useState(false);
+  const [assignKind,  setAssignKind]  = useState('location');
+  const [assignLoc,   setAssignLoc]   = useState('');
+  const [assignName,  setAssignName]  = useState('');
+  const [assignEmail, setAssignEmail] = useState('');
 
   function toggleField(key) {
     setEnabled(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
@@ -3892,8 +3960,17 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
 
   const fields = {};
   for (const f of BATCH_FIELDS) if (enabled.has(f.key)) fields[f.key] = vals[f.key] ?? (f.options ? f.options[0] : '');
-  const nameBlank = enabled.has('name') && !(fields.name || '').trim();
-  const canSave   = enabled.size > 0 && !nameBlank && !saving;
+  const nameBlank   = enabled.has('name') && !(fields.name || '').trim();
+  const assignVal   = assignOn ? (assignKind === 'location' ? assignLoc.trim() : assignEmail.trim()) : '';
+  const assignReady = !assignOn || !!assignVal;
+  const canSave     = (enabled.size > 0 || (assignOn && assignVal)) && !nameBlank && assignReady && !saving;
+
+  function submit() {
+    const assignment = (assignOn && assignVal)
+      ? { kind: assignKind, location: assignLoc.trim(), email: assignEmail.trim().toLowerCase(), name: assignName.trim() }
+      : null;
+    onSave(fields, assignment);
+  }
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
@@ -3913,6 +3990,8 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
         <div style={{ overflowY:'auto', minHeight:0, display:'flex', flexDirection:'column', gap:10 }}>
           {BATCH_FIELDS.map(f => {
             const on = enabled.has(f.key);
+            // Type options come from the live (manager-curated) list, not the static one.
+            const opts = f.key === 'item_type' ? types : f.options;
             return (
               <div key={f.key} style={{ display:'flex', alignItems:'center', gap:10 }}>
                 <label style={{ display:'flex', alignItems:'center', gap:8, width:120, flexShrink:0, cursor:'pointer', userSelect:'none' }}>
@@ -3920,10 +3999,17 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
                     style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
                   <span style={{ fontSize:12.5, fontWeight:600, color: on ? 'var(--ink)' : 'var(--muted)' }}>{f.label}</span>
                 </label>
-                {f.options ? (
-                  <select disabled={!on} value={vals[f.key] ?? f.options[0]} onChange={e => setVal(f.key, e.target.value)}
-                    style={{ flex:1, padding:'8px 10px', borderRadius:8, border:'1px solid var(--line)', background: on ? 'var(--card)' : 'var(--mist)', fontSize:13, fontFamily:'Inter,sans-serif', color: on ? 'var(--ink)' : 'var(--muted)', textTransform: f.key === 'ownership_type' ? 'capitalize' : 'none' }}>
-                    {f.options.map(o => <option key={o} value={o}>{f.key === 'op_status' ? (OP_STATUS_META[o]?.label || o) : o}</option>)}
+                {opts ? (
+                  // Unticked dropdowns show blank, not a default value — otherwise it
+                  // looks like (e.g.) "Transient" will be applied when it won't (Neil).
+                  <select disabled={!on} value={on ? (vals[f.key] ?? opts[0]) : ''} onChange={e => setVal(f.key, e.target.value)}
+                    style={{ flex:1, padding:'8px 10px', borderRadius:8, border:'1px solid var(--line)', background: on ? 'var(--card)' : 'var(--mist)', fontSize:13, fontFamily:'Inter,sans-serif', color: on ? 'var(--ink)' : 'var(--muted)' }}>
+                    {!on && <option value="">—</option>}
+                    {opts.map(o => <option key={o} value={o}>{
+                      f.key === 'op_status'       ? (OP_STATUS_META[o]?.label || o)
+                      : f.key === 'ownership_type' ? (o === 'transient' ? 'Temporary' : 'Permanent')
+                      : o
+                    }</option>)}
                   </select>
                 ) : (
                   <input disabled={!on} value={vals[f.key] ?? ''} onChange={e => setVal(f.key, e.target.value)}
@@ -3934,45 +4020,53 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
             );
           })}
         </div>
+        {/* Assignment — fold-in of the old separate Assign button (Neil) */}
+        <div style={{ marginTop:14, paddingTop:14, borderTop:'1px solid var(--line)', flexShrink:0 }}>
+          <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', userSelect:'none' }}>
+            <input type="checkbox" checked={assignOn} onChange={() => setAssignOn(v => !v)} style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
+            <span style={{ fontSize:12.5, fontWeight:700, color: assignOn ? 'var(--ink)' : 'var(--muted)' }}>Assign these items</span>
+          </label>
+          {assignOn && (
+            <div style={{ display:'flex', flexDirection:'column', gap:9, marginTop:10 }}>
+              <div style={{ display:'flex', gap:6 }}>
+                {[['location','To a location'], ['person','To a person']].map(([k, lbl]) => (
+                  <button key={k} type="button" onClick={() => setAssignKind(k)}
+                    style={{ flex:1, padding:'7px 0', borderRadius:8, border:`1px solid ${assignKind === k ? 'var(--pine)' : 'var(--line)'}`, background: assignKind === k ? 'var(--pine)' : 'transparent', color: assignKind === k ? '#fff' : 'var(--muted)', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+              {assignKind === 'location' ? (
+                <>
+                  <input className="form-input" list="batch-assign-locs" value={assignLoc} onChange={e => setAssignLoc(e.target.value)}
+                    placeholder="Location — e.g. GG Corp, GSE" style={{ width:'100%' }} />
+                  <datalist id="batch-assign-locs">{locations.map(l => <option key={l} value={l} />)}</datalist>
+                </>
+              ) : (
+                // Type a name → pick from the company directory (fills the email we
+                // need so they can accept). Free-typed names without a pick can't be
+                // assigned — there's no inbox to notify.
+                <PersonTypeahead valueName={assignName}
+                  onPick={({ email, name }) => { setAssignName(name); setAssignEmail(email); }}
+                  placeholder="Type a person's name…" />
+              )}
+              <p style={{ fontSize:11, color:'var(--muted)', margin:0 }}>
+                {assignKind === 'location'
+                  ? 'Sets where these items physically live — their holder (if any) is unchanged.'
+                  : (assignName && !assignEmail
+                      ? 'Pick a person from the list so they can be notified to accept.'
+                      : 'Each person must accept their item (with a photo) from My Items.')}
+              </p>
+            </div>
+          )}
+        </div>
         {nameBlank && <p style={{ margin:'12px 0 0', fontSize:12, color:'hsl(var(--color-red))' }}>Name cannot be blank.</p>}
         <div style={{ display:'flex', gap:10, justifyContent:'flex-end', paddingTop:16, flexShrink:0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={saving}>Cancel</button>
-          <button onClick={() => onSave(fields)} disabled={!canSave}
+          <button onClick={submit} disabled={!canSave}
             style={{ display:'inline-flex', alignItems:'center', gap:6, background:'var(--pine)', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor: canSave ? 'pointer' : 'default', fontFamily:'Inter,sans-serif', opacity: canSave ? 1 : 0.55 }}>
             {saving ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <Pencil size={14} />}
             Apply to {selectedItems.length}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Batch Assign Modal ────────────────────────────────────────────────────────
-// "Assign all these to GSE" — for permanent site inventory, an item's location IS
-// its assignment, so this just sets the location across the selection. Person
-// assignment (accountability) stays the per-item flow.
-function BatchAssignModal({ count, locations, onClose, onAssign, saving }) {
-  const [loc, setLoc] = useState('');
-  useEscapeKey(onClose);
-  const go = () => { if (loc.trim() && !saving) onAssign(loc); };
-  return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:16, padding:28, width:'100%', maxWidth:440, boxShadow:'var(--shadow-lg)' }}>
-        <h3 style={{ margin:'0 0 6px', fontSize:16, fontWeight:700 }}>Assign {count} item{count !== 1 ? 's' : ''} to a location</h3>
-        <p style={{ margin:'0 0 16px', fontSize:13, color:'var(--muted)' }}>
-          Set where these items physically live. They’ll appear under this location in <strong>Who Has What → By Location</strong>. (To assign an item to a person, use the Assign button on that item.)
-        </p>
-        <label style={{ display:'block', fontSize:10.5, fontWeight:700, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--muted)', marginBottom:5 }}>Location</label>
-        <input className="form-input" list="batch-assign-locs" value={loc} autoFocus
-          onChange={e => setLoc(e.target.value)} onKeyDown={e => e.key === 'Enter' && go()}
-          placeholder="e.g. GSE, GG Corp, GST…" style={{ width:'100%' }} />
-        <datalist id="batch-assign-locs">{locations.map(l => <option key={l} value={l} />)}</datalist>
-        <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:22 }}>
-          <button className="secondary-btn" onClick={onClose} disabled={saving}>Cancel</button>
-          <button onClick={go} disabled={!loc.trim() || saving}
-            style={{ display:'inline-flex', alignItems:'center', gap:6, background:'hsl(var(--color-blue))', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor:(!loc.trim()||saving)?'default':'pointer', fontFamily:'Inter,sans-serif', opacity:(!loc.trim()||saving)?0.55:1 }}>
-            {saving ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <MapPin size={14} />} Assign {count}
           </button>
         </div>
       </div>
@@ -4433,6 +4527,83 @@ const CUSTOM_FIELD_TYPE_OPTS = [
   { v:'text', label:'Text' }, { v:'number', label:'Number' }, { v:'date', label:'Date' },
   { v:'select', label:'Dropdown' }, { v:'boolean', label:'Yes / No' }, { v:'url', label:'Link' },
 ];
+// Manager-curated item types (Neil): managers extend the list here; a CSV import
+// can never invent a type, so people can't spray in ridiculous ones by convenience.
+function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast }) {
+  const [list, setList] = useState(types);
+  const [newType, setNewType] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(null); // type pending an in-use delete confirm
+  useEscapeKey(onClose);
+
+  async function add() {
+    const name = newType.trim();
+    if (!name || busy) return;
+    setBusy(true);
+    try { const updated = await api.addItemType(name); setList(updated); setNewType(''); onChanged?.(updated); }
+    catch (e) { toast?.(e?.message || 'Could not add type.', 'error'); }
+    finally { setBusy(false); }
+  }
+  async function remove(name) {
+    if (busy) return;
+    setBusy(true); setConfirmDel(null);
+    try { const updated = await api.deleteItemType(name); setList(updated); onChanged?.(updated); }
+    catch (e) { toast?.(e?.message || 'Could not remove type.', 'error'); }
+    finally { setBusy(false); }
+  }
+  // Deleting a type that items still use needs a confirm — those items keep their
+  // type text but it stops being pickable (Neil: deletable by managers).
+  const askRemove = name => ((counts[name] || 0) > 0 ? setConfirmDel(name) : remove(name));
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background:'var(--card)', borderRadius:16, padding:'22px 26px 20px', width:'100%', maxWidth:440, boxShadow:'var(--shadow-lg)', maxHeight:'min(85dvh,640px)', display:'flex', flexDirection:'column' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+          <h3 style={{ margin:0, fontSize:16, fontWeight:700, display:'inline-flex', alignItems:'center', gap:7 }}><Tag size={16} /> Manage Item Types</h3>
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
+        </div>
+        <p style={{ margin:'0 0 14px', fontSize:12.5, color:'var(--muted)' }}>
+          These are the types everyone picks from. A CSV import can’t invent new types — add the real one here first, then re-import.
+        </p>
+        <div style={{ display:'flex', gap:8, marginBottom:14 }}>
+          <input className="form-input" style={{ flex:1 }} value={newType} placeholder="New type — e.g. Office"
+            onChange={e => setNewType(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()} />
+          <button className="primary-btn" onClick={add} disabled={!newType.trim() || busy} style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+            {busy ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <Plus size={14} />} Add
+          </button>
+        </div>
+        <div style={{ overflowY:'auto', display:'flex', flexDirection:'column', gap:6 }}>
+          {list.map(t => (
+            <div key={t} style={{ display:'flex', flexDirection:'column', gap:8, padding:'8px 12px', borderRadius:9, border:'1px solid var(--line)', background:'var(--mist)' }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10 }}>
+                <span style={{ display:'inline-flex', alignItems:'center', gap:8, minWidth:0 }}>
+                  <span style={{ fontSize:13, fontWeight:600 }}>{t}</span>
+                  <span style={{ fontSize:11, fontWeight:700, color:'var(--muted)', background:'var(--card)', border:'1px solid var(--line)', borderRadius:20, padding:'1px 8px', flexShrink:0 }}>
+                    {counts[t] || 0} item{(counts[t] || 0) !== 1 ? 's' : ''}
+                  </span>
+                </span>
+                {t.toLowerCase() !== 'other' && (
+                  <button onClick={() => askRemove(t)} disabled={busy} title="Remove type"
+                    style={{ background:'none', border:'none', cursor:'pointer', color:'hsl(var(--color-red))', display:'flex', padding:3, flexShrink:0 }}><Trash2 size={14} /></button>
+                )}
+              </div>
+              {confirmDel === t && (
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, fontSize:12 }}>
+                  <span style={{ color:'var(--muted)' }}>{counts[t]} item{counts[t] !== 1 ? 's' : ''} use this — remove anyway?</span>
+                  <span style={{ display:'flex', gap:6, flexShrink:0 }}>
+                    <button className="secondary-btn" style={{ fontSize:11.5, padding:'3px 10px' }} onClick={() => setConfirmDel(null)} disabled={busy}>Cancel</button>
+                    <button onClick={() => remove(t)} disabled={busy} style={{ fontSize:11.5, padding:'3px 10px', borderRadius:7, border:'none', background:'hsl(var(--color-red))', color:'#fff', fontWeight:700, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Remove</button>
+                  </span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
   useEscapeKey(onClose);
   const [label,      setLabel]      = useState('');
@@ -4933,7 +5104,11 @@ const ManageRow = memo(function ManageRow({ item, isSelected, highlight, onToggl
   return (
     <tr ref={ref} style={{ borderTop:'1px solid var(--line)', background: highlight ? 'hsla(40,92%,55%,0.22)' : isSelected ? 'hsla(var(--color-blue),0.05)' : 'transparent', boxShadow: highlight ? 'inset 4px 0 0 hsl(40,92%,50%)' : 'none', transition:'background .9s ease, box-shadow .9s ease' }}>
       <td style={{ padding:'10px 14px' }}>
-        <input type="checkbox" checked={isSelected} onChange={() => onToggle(item.id)}
+        {/* Shift-click selects the whole range from the last ticked row (onClick
+            carries shiftKey; onMouseDown guard stops shift from selecting text). */}
+        <input type="checkbox" checked={isSelected} readOnly
+          onClick={e => onToggle(item.id, e.shiftKey)}
+          onMouseDown={e => { if (e.shiftKey) e.preventDefault(); }}
           style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
       </td>
       <td style={{ padding:'10px 14px' }}>
@@ -4975,9 +5150,12 @@ const ManageRow = memo(function ManageRow({ item, isSelected, highlight, onToggl
           table fits and isn't actually overlapping anything. */}
       <td style={{ padding:'10px 14px', position:'sticky', right:0, background:'var(--card)' }}>
         <div style={{ display:'flex', gap:6 }}>
+          {/* Per-row assign (opens the person/location modal; also in Batch Edit).
+              "Assigned" means a person holds it — that's what flips Assign→Reassign.
+              Location is just where it lives and doesn't change the label. */}
           {item.ownershipType === 'permanent' && onAssign && (
             <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
-              title={item.assignedToEmail ? `Currently with ${item.assignedToName || item.assignedToEmail}` : 'Assign to a person'}
+              title={item.assignedToEmail ? `Held by ${item.assignedToName || item.assignedToEmail}${item.location ? ` · at ${item.location}` : ''}` : item.location ? `At ${item.location} · no person assigned` : 'Assign a person or set a location'}
               style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
               <User size={12} /> {item.assignedToEmail ? 'Reassign' : 'Assign'}
             </button>
@@ -5055,7 +5233,7 @@ const ManageCard = memo(function ManageCard({ item, isSelected, highlight, onTog
   );
 });
 
-const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, filterControls, highlightId, onHighlightDone }) {
+const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onExportAllPdf, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, onManageTypes, itemTypes = ITEM_TYPES, filterControls, kpiStrip, highlightId, onHighlightDone }) {
   const [photoPreview,       setPhotoPreview]       = useState(null);
   const [exportMenu,         setExportMenu]         = useState(false); // Export ▾ dropdown
   const [selected,           setSelected]           = useState(new Set());
@@ -5066,8 +5244,6 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
   const [batchOpen,          setBatchOpen]          = useState(false);
   const [batchTab,           setBatchTab]           = useState('fields'); // 'fields' | 'photos'
   const [batchEditing,       setBatchEditing]       = useState(false);
-  const [batchAssignOpen,    setBatchAssignOpen]    = useState(false);
-  const [batchAssigning,     setBatchAssigning]     = useState(false);
   const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false);
   const [batchDeleting,      setBatchDeleting]      = useState(false);
   const isMobile = useIsMobile(); // phones render cards, not the table
@@ -5167,9 +5343,23 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
   const usingSelection = selItems.length > 0;
   const batchScope     = selItems;
 
-  // Stable so memoized rows don't all re-render on every checkbox toggle.
-  const toggleSelect = useCallback(id => {
-    setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  // Refs let toggleSelect stay STABLE (so memoized rows don't all re-render) while
+  // still reading the current sorted order + the last-ticked anchor for shift-range.
+  const sortedRef = useRef(sorted);  sortedRef.current = sorted;
+  const selectAnchorRef = useRef(null);
+  const toggleSelect = useCallback((id, shift) => {
+    const list = sortedRef.current;
+    const idx = list.findIndex(i => i.id === id);
+    if (shift && selectAnchorRef.current != null && idx !== -1) {
+      // Shift-click: select the whole range from the last ticked row to this one.
+      const a = Math.min(selectAnchorRef.current, idx);
+      const b = Math.max(selectAnchorRef.current, idx);
+      const rangeIds = list.slice(a, b + 1).map(i => i.id);
+      setSelected(prev => { const n = new Set(prev); rangeIds.forEach(r => n.add(r)); return n; });
+    } else {
+      setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    }
+    if (idx !== -1) selectAnchorRef.current = idx;
   }, []);
   function toggleAll() {
     setSelected(selected.size === filtered.length && filtered.length > 0 ? new Set() : new Set(filtered.map(i => i.id)));
@@ -5179,42 +5369,39 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
     else { setSortCol(col); setSortDir('asc'); }
   }
 
-  async function executeBatchEdit(fields) {
+  async function executeBatchEdit(fields, assignment) {
     setBatchEditing(true);
     const ids = batchScope.map(i => i.id);
     try {
-      const res = await api.bulkUpdateItems(ids, fields);
+      const parts = [];
+      if (fields && Object.keys(fields).length) {
+        const res = await api.bulkUpdateItems(ids, fields);
+        const n = res?.updated ?? ids.length;
+        parts.push(`updated ${n} item${n !== 1 ? 's' : ''}`);
+      }
+      if (assignment) {
+        if (assignment.kind === 'location') {
+          const r = await api.bulkAssignLocation(ids, assignment.location);
+          parts.push(`assigned ${r?.assigned ?? ids.length} to ${assignment.location}`);
+          if (r?.skipped?.length) parts.push(`${r.skipped.length} skipped (in use)`);
+        } else {
+          const r = await api.bulkAssignPerson(ids, assignment.email, assignment.name);
+          parts.push(`assigned ${r?.assigned ?? ids.length} to ${assignment.name || assignment.email}`);
+          if (r?.skipped?.length) parts.push(`${r.skipped.length} skipped (in use)`);
+        }
+      }
       await refreshItems();
       setSelected(new Set());
       setBatchOpen(false);
-      const n = res?.updated ?? ids.length;
-      toast?.(`Updated ${n} item${n !== 1 ? 's' : ''}.`);
+      const msg = parts.join(' · ') || 'No changes';
+      toast?.(msg.charAt(0).toUpperCase() + msg.slice(1) + '.');
     } catch {
-      toast?.('Could not update the selected items. Please try again.', 'error');
+      toast?.('Could not apply the changes. Please try again.', 'error');
     } finally {
       setBatchEditing(false);
     }
   }
 
-  // Batch assign = set the location on the selection ("assign all to GSE"). A
-  // permanent item that nobody personally holds simply lives at a place — that
-  // place IS its assignment (Neil). Person-assignment stays the per-item flow.
-  async function executeBatchAssign(location) {
-    setBatchAssigning(true);
-    const ids = selItems.map(i => i.id);
-    const loc = (location || '').trim();
-    try {
-      await api.bulkUpdateItems(ids, { location: loc });
-      await refreshItems();
-      setSelected(new Set());
-      setBatchAssignOpen(false);
-      toast?.(`Assigned ${ids.length} item${ids.length !== 1 ? 's' : ''} to ${loc || 'no location'}.`);
-    } catch {
-      toast?.('Could not assign the selected items. Please try again.', 'error');
-    } finally {
-      setBatchAssigning(false);
-    }
-  }
 
   async function executeBatchDelete() {
     setBatchDeleting(true);
@@ -5261,9 +5448,23 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
           <input placeholder="Search items…" value={searchValue} onChange={e => onSearchChange(e.target.value)} />
         </div>
       )}
-      {/* Filters live HERE now — right above the items they filter, below the KPI
-          cards (Ankush: they were wrongly at the top, far from the list). */}
-      {filterControls}
+      {/* Filter + search bar — directly above the items, one consistent spot
+          (Neil): search on the left, filter dropdowns pushed to the right. The
+          phone search is rendered separately above, so this one is desktop-only. */}
+      <div style={{ display:'flex', gap:10, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
+        {!isMobile && onSearchChange && (
+          <div className="search-bar" style={{ flex:1, minWidth:200, marginBottom:0 }}>
+            <Search size={14} style={{ flexShrink:0 }} />
+            <input placeholder="Search items…" value={searchValue} onChange={e => onSearchChange(e.target.value)} />
+          </div>
+        )}
+        <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', marginLeft: isMobile ? 0 : 'auto' }}>
+          {filterControls}
+        </div>
+      </div>
+      {/* KPI cards sit BELOW the toolbar so the search/filter row stays at the same
+          height as every other tab (Neil: fixed position, no jumping). */}
+      {kpiStrip}
       {/* Action bar */}
       <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap', alignItems:'center' }}>
         <button className="primary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onAdd}>
@@ -5274,11 +5475,16 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
             <Plus size={14} /> Add Custom Field
           </button>
         )}
+        {onManageTypes && (
+          <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onManageTypes}>
+            <Tag size={14} /> Manage Types
+          </button>
+        )}
         <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onImport}>
           <UploadCloud size={14} /> Import CSV
         </button>
-        {/* Export ▾ — one button, two choices (Neil): the whole inventory as a
-            flat CSV, or a report (CSV/PDF) honoring the filters currently applied. */}
+        {/* Export ▾ — two choices (Neil): every item unfiltered (CSV or PDF), or a
+            custom report honoring the filters currently applied. */}
         <div style={{ position:'relative' }}>
           <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={() => setExportMenu(o => !o)}>
             <Download size={14} /> Export <ChevronDown size={13} style={{ opacity:.6 }} />
@@ -5287,18 +5493,27 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
             <>
               {/* click-away backdrop */}
               <div style={{ position:'fixed', inset:0, zIndex:40 }} onClick={() => setExportMenu(false)} />
-              <div style={{ position:'absolute', top:'calc(100% + 6px)', left:0, zIndex:41, background:'var(--card)', border:'1px solid var(--line)', borderRadius:10, boxShadow:'var(--shadow-lg)', minWidth:262, overflow:'hidden', padding:5 }}>
-                <button onClick={() => { setExportMenu(false); onExport(items); }}
-                  style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:1, width:'100%', textAlign:'left', background:'none', border:'none', cursor:'pointer', padding:'9px 11px', borderRadius:7, fontFamily:'Inter,sans-serif' }}
-                  onMouseEnter={e => e.currentTarget.style.background='var(--mist)'} onMouseLeave={e => e.currentTarget.style.background='none'}>
-                  <span style={{ display:'inline-flex', alignItems:'center', gap:7, fontSize:13, fontWeight:700, color:'var(--ink)' }}><FileSpreadsheet size={14} /> Full inventory (CSV)</span>
-                  <span style={{ fontSize:11.5, color:'var(--muted)', paddingLeft:21 }}>Every item — all {items.length}, filters ignored</span>
-                </button>
+              <div style={{ position:'absolute', top:'calc(100% + 6px)', left:0, zIndex:41, background:'var(--card)', border:'1px solid var(--line)', borderRadius:10, boxShadow:'var(--shadow-lg)', minWidth:268, overflow:'hidden', padding:5 }}>
+                {/* All Items — unfiltered; pick a format */}
+                <div style={{ padding:'9px 11px' }}>
+                  <span style={{ display:'flex', alignItems:'center', gap:7, fontSize:13, fontWeight:700, color:'var(--ink)' }}><FileSpreadsheet size={14} /> All Items (CSV / PDF)</span>
+                  <span style={{ display:'block', fontSize:11.5, color:'var(--muted)', paddingLeft:21, margin:'1px 0 8px' }}>Unfiltered — every item, all {items.length}.</span>
+                  <div style={{ display:'flex', gap:7, paddingLeft:21 }}>
+                    <button onClick={() => { setExportMenu(false); onExport(items); }}
+                      style={{ flex:1, padding:'6px 0', borderRadius:7, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', fontFamily:'Inter,sans-serif', fontSize:12, fontWeight:700, color:'var(--ink)' }}
+                      onMouseEnter={e => e.currentTarget.style.background='var(--mist)'} onMouseLeave={e => e.currentTarget.style.background='var(--card)'}>CSV</button>
+                    <button onClick={() => { setExportMenu(false); onExportAllPdf && onExportAllPdf(); }}
+                      style={{ flex:1, padding:'6px 0', borderRadius:7, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', fontFamily:'Inter,sans-serif', fontSize:12, fontWeight:700, color:'var(--ink)' }}
+                      onMouseEnter={e => e.currentTarget.style.background='var(--mist)'} onMouseLeave={e => e.currentTarget.style.background='var(--card)'}>PDF</button>
+                  </div>
+                </div>
+                <div style={{ height:1, background:'var(--line)', margin:'4px 6px' }} />
+                {/* Custom Report — honors the filters currently applied */}
                 <button onClick={() => { setExportMenu(false); onReport({ dept: deptFilter, itemType: typeFilter }); }}
                   style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:1, width:'100%', textAlign:'left', background:'none', border:'none', cursor:'pointer', padding:'9px 11px', borderRadius:7, fontFamily:'Inter,sans-serif' }}
                   onMouseEnter={e => e.currentTarget.style.background='var(--mist)'} onMouseLeave={e => e.currentTarget.style.background='none'}>
-                  <span style={{ display:'inline-flex', alignItems:'center', gap:7, fontSize:13, fontWeight:700, color:'var(--ink)' }}><FileBarChart size={14} /> Report (CSV / PDF)…</span>
-                  <span style={{ fontSize:11.5, color:'var(--muted)', paddingLeft:21 }}>Formatted, honoring your current filters</span>
+                  <span style={{ display:'inline-flex', alignItems:'center', gap:7, fontSize:13, fontWeight:700, color:'var(--ink)' }}><FileBarChart size={14} /> Custom Report (PDF / Excel)</span>
+                  <span style={{ fontSize:11.5, color:'var(--muted)', paddingLeft:21 }}>Formatted to the current filters.</span>
                 </button>
               </div>
             </>
@@ -5320,13 +5535,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
             <Pencil size={13} /> Batch Edit ({selItems.length})
           </button>
         )}
-        {/* Batch assign to a location — Neil: "select all → assign to GSE" */}
-        {selected.size > 0 && (
-          <button onClick={() => setBatchAssignOpen(true)}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, background:'hsl(var(--color-blue))', color:'#fff', border:'none', borderRadius:9, padding:'7px 14px', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-            <MapPin size={13} /> Assign {selected.size}
-          </button>
-        )}
+        {/* Assignment moved INTO Batch Edit (Neil) — no separate Assign button. */}
         {/* Batch delete */}
         {canDelete && selected.size > 0 && (
           <button onClick={() => setBatchDeleteConfirm(true)}
@@ -5422,7 +5631,8 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
           usingSelection={usingSelection}
           onSwitchTab={setBatchTab}
           onClose={() => setBatchOpen(false)}
-          onSave={executeBatchEdit} saving={batchEditing} />
+          onSave={executeBatchEdit} saving={batchEditing}
+          locations={[...new Set(items.map(i => i.location).filter(Boolean))].sort()} types={itemTypes} />
       )}
       {batchOpen && batchTab === 'photos' && (
         <BatchPhotoModal
@@ -5430,13 +5640,6 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
           usingSelection={usingSelection}
           onSwitchTab={setBatchTab}
           onClose={() => setBatchOpen(false)} onUpdate={refreshItems} toast={toast} />
-      )}
-      {batchAssignOpen && (
-        <BatchAssignModal
-          count={selItems.length}
-          locations={[...new Set(items.map(i => i.location).filter(Boolean))].sort()}
-          onClose={() => setBatchAssignOpen(false)}
-          onAssign={executeBatchAssign} saving={batchAssigning} />
       )}
       {batchDeleteConfirm && (
         <BatchDeleteConfirmModal
@@ -6055,7 +6258,7 @@ function ForceReturnModal({ checkout, checkouts, onClose, onConfirm }) {
           Check {multi ? <strong>{list.length} items</strong> : <strong>{list[0].itemName}</strong>} back
           in on behalf of <strong>{holders.length === 1 ? holders[0] : `${holders.length} people`}</strong>.
           Use this when the holder can't or won't return it in the app. The reason is recorded on
-          {multi ? ' every checkout' : ' the checkout'} and in the audit log.
+          {multi ? ' every checkout' : ' the checkout'} and in the activity log.
         </p>
         {multi && (
           <div style={{ overflowY:'auto', minHeight:0, background:'var(--mist)', borderRadius:10, padding:'10px 14px', marginBottom:14 }}>
@@ -6308,13 +6511,23 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
         ))}
       </div>
       {segment === 'assignments' && (
-        <AssignmentsQueue assignments={assignments} refresh={refreshAssignments || (() => {})} toast={toast} focus={assignFocus} />
+        <AssignmentsQueue assignments={assignments} userEmail={userEmail} refresh={refreshAssignments || (() => {})} toast={toast} focus={assignFocus} />
       )}
       {segment === 'checkouts' && (<>
-      {/* Tab header with Send Alert */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12, flexWrap:'wrap', gap:8 }}>
-        {/* Summary chips */}
-        <div className="chip-row" style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
+      {/* Toolbar — search on the LEFT, status filters + Send Alert on the RIGHT, one
+          row directly below the segment toggle. Same shape as Manage/Catalog/My Items
+          so the search/filters sit in the same spot (Neil). */}
+      <div style={{ display:'flex', alignItems:'center', marginBottom:14, flexWrap:'wrap', gap:10 }}>
+        <div className="search-bar" style={{ flex:1, minWidth:220, marginBottom:0 }}>
+          <Users size={13} style={{ flexShrink:0 }} />
+          <input placeholder="Search by person or item…" value={personQuery} onChange={e => setPersonQuery(e.target.value)} />
+          {personQuery && (
+            <button onClick={() => setPersonQuery('')} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:2 }}>
+              <X size={13} />
+            </button>
+          )}
+        </div>
+        <div className="chip-row" style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', marginLeft:'auto' }}>
         {[
           { key:'active',    label:'Active',            count: pending + approved + checkouts.filter(c => c.status === 'allocated').length },
           { key:'pending',   label:'Pending Approval',  count: pending },
@@ -6328,25 +6541,11 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
           </button>
         ))}
         </div>
-        <div style={{ display:'flex', gap:8, flexShrink:0, flexWrap:'wrap' }}>
-          {/* Company-wide "Force Return All" removed (Neil, Jun 16): too dangerous —
-              one misclick could recall every in-use item across all people. Force
-              return now lives only at the individual order/item level below. */}
-          {onSendAlert && (
-            <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7, color:'hsl(var(--color-orange))' }} onClick={onSendAlert}>
-              <Megaphone size={14} /> Send Alert
-            </button>
-          )}
-        </div>
-      </div>
-      {/* Person/item search — works across every status, unlike the old chips
-          which only listed people with active checkouts */}
-      <div className="search-bar" style={{ width:'100%', marginBottom:18 }}>
-        <Users size={13} style={{ flexShrink:0 }} />
-        <input placeholder="Search by person or item…" value={personQuery} onChange={e => setPersonQuery(e.target.value)} />
-        {personQuery && (
-          <button onClick={() => setPersonQuery('')} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:2 }}>
-            <X size={13} />
+        {/* Company-wide "Force Return All" removed (Neil, Jun 16): too dangerous —
+            force return now lives only at the individual order/item level below. */}
+        {onSendAlert && (
+          <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7, color:'hsl(var(--color-orange))', flexShrink:0 }} onClick={onSendAlert}>
+            <Megaphone size={14} /> Send Alert
           </button>
         )}
       </div>
@@ -6795,14 +6994,14 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
                 </button>
               )}
               <button className="secondary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, color:'var(--muted)' }}
-                title="For consumables that don't belong in inventory — a note is required"
+                title="For consumables that don't belong in the items list — a note is required"
                 onClick={() => { setNoInvId(r.id); setNoInvNote(''); }}>
-                <CheckCircle size={12} /> Fulfill without inventory
+                <CheckCircle size={12} /> Fulfill without adding
               </button>
               <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
                 title="Item received — add it to the items catalog (and optionally assign it to the requester)"
                 onClick={() => setAddingForReq(r)}>
-                <Package size={12} /> Received — Add to Inventory
+                <Package size={12} /> Received — Add to Items
               </button>
             </div>
           )
@@ -6861,8 +7060,8 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
           onClose={() => setAddingForReq(null)}
           onSave={async (data, opts = {}) => {
             const created = await api.createItem(data);
-            await fulfillRequisition(addingForReq.id, userName, { note: `Added to inventory: ${data.name}`, itemId: created?.id || '' });
-            toast?.(`${data.name} added to inventory — requisition fulfilled.`);
+            await fulfillRequisition(addingForReq.id, userName, { note: `Added to Items: ${data.name}`, itemId: created?.id || '' });
+            toast?.(`${data.name} added to Items — requisition fulfilled.`);
             if (opts.assignNow && created?.id && onAssign) onAssign(created, 'assign');
           }}
         />
@@ -6946,9 +7145,9 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
     // it filed unassigned items under whoever added them (Sai's Oneplus bug).
     for (const i of items) {
       if (i.ownershipType !== 'permanent' && i.status !== 'permanently_assigned') continue;
-      // Items assigned to a PLACE (not a person) belong on the location view, not
-      // here — a single site can hold hundreds and would swamp this list (Ankush).
-      if (i.assignedToLocation) continue;
+      // A person holder is required here. Location is just where the item lives now
+      // (independent of the holder), so a person-held item that also sits at a place
+      // still belongs under that person — no location-based exclusion.
       const email = (i.assignedToEmail || '').toLowerCase();
       const owner = (i.assignedToName || '').trim();
       if (!email && !owner) continue;
@@ -7322,6 +7521,9 @@ export default function InventoryManagement({ activeSub }) {
     return 'catalog';
   });
   useEffect(() => { try { localStorage.setItem('nexus_inv_tab', mainTab); } catch { /* ignore */ } }, [mainTab]);
+  // Managers land on the normal employee screen; the full management UI lives behind
+  // a "Manage" tab they opt into (Neil). A deep-link to a management tab enters it.
+  const [manageMode, setManageMode] = useState(false);
   // Who Has What → Checkouts deep-link: carries the person/item to prefill the
   // search so the landing view is already scoped to what was clicked.
   const [checkoutsPrefilter, setCheckoutsPrefilter] = useState(null);
@@ -7342,14 +7544,14 @@ export default function InventoryManagement({ activeSub }) {
     : sub;
   useEffect(() => {
     const t = resolveSub(activeSub);
-    if (t && VALID_SUBTABS.includes(t)) setMainTab(t);
+    if (t && VALID_SUBTABS.includes(t)) { setMainTab(t); setManageMode(true); }
   }, [activeSub]); // eslint-disable-line react-hooks/exhaustive-deps
   // Window event covers repeat clicks where activeSub doesn't change value
   useEffect(() => {
     const h = e => {
       const { view, sub } = e.detail || {};
       const t = resolveSub(sub);
-      if (view === 'inventory' && t && VALID_SUBTABS.includes(t)) setMainTab(t);
+      if (view === 'inventory' && t && VALID_SUBTABS.includes(t)) { setMainTab(t); setManageMode(true); }
     };
     window.addEventListener('nexus:navigate', h);
     return () => window.removeEventListener('nexus:navigate', h);
@@ -7437,6 +7639,7 @@ export default function InventoryManagement({ activeSub }) {
   const [highlightItemId,    setHighlightItemId]    = useState(null); // Manage row to glow (Audit "Open item")
   const [deletedHighlightId, setDeletedHighlightId] = useState(null); // Recycle Bin row to glow
   const [customFieldsOpen, setCustomFieldsOpen] = useState(false); // custom-field admin
+  const [typesOpen,     setTypesOpen]     = useState(false);       // Manage Types modal
   const [importOpen,    setImportOpen]    = useState(false);
   const [reportOpen,    setReportOpen]    = useState(false);
   const [reportInitial, setReportInitial] = useState(null); // seeds the report with the active filters
@@ -7449,6 +7652,19 @@ export default function InventoryManagement({ activeSub }) {
     api.getItemCustomFields().then(setCustomFields).catch(() => {});
   }, []);
   useEffect(() => { refreshCustomFields(); }, [refreshCustomFields]);
+  // Manager-curated item types — loaded from the server (falls back to the static
+  // list). Used by the Add/Edit/Batch dropdowns and the Manage Types modal.
+  const [itemTypes, setItemTypes] = useState(ITEM_TYPES);
+  const refreshItemTypes = useCallback(() => {
+    api.getItemTypes().then(t => setItemTypes(Array.isArray(t) && t.length ? t : ITEM_TYPES)).catch(() => {});
+  }, []);
+  useEffect(() => { refreshItemTypes(); }, [refreshItemTypes]);
+  // How many items use each type — shown in Manage Types (Neil).
+  const typeCounts = useMemo(() => {
+    const m = {};
+    for (const i of items) { const t = i.itemType || 'Other'; m[t] = (m[t] || 0) + 1; }
+    return m;
+  }, [items]);
 
   const [toasts, setToasts] = useState([]);
   const toast = useCallback((message, kind = 'success') => {
@@ -7490,7 +7706,17 @@ export default function InventoryManagement({ activeSub }) {
   }
   function handleImport(rows) {
     return api.importItems(rows)
-      .then(res => { refreshItems(); toast(`Imported ${res.created} item${res.created !== 1 ? 's' : ''}${res.updated ? `, updated ${res.updated}` : ''}.`); return res; })
+      .then(res => {
+        refreshItems();
+        toast(`Imported ${res.created} item${res.created !== 1 ? 's' : ''}${res.updated ? `, updated ${res.updated}` : ''}.`);
+        // The import can extend the type list — pull the new types in and say so.
+        const added = res.added_types || [];
+        if (added.length) {
+          refreshItemTypes();
+          toast(`Added ${added.length} new type${added.length !== 1 ? 's' : ''}: ${added.join(', ')}.`);
+        }
+        return res;
+      })
       .catch(err => { toast(err?.message || 'Import failed.', 'error'); throw err; });
   }
 
@@ -7517,6 +7743,12 @@ export default function InventoryManagement({ activeSub }) {
   const openReport    = useCallback((ctx) => { setReportInitial(ctx || null); setReportOpen(true); }, []);
   const openSendAlert = useCallback(() => setOverdueAlertOpen(true), []);
   const exportCsv     = useCallback((rows) => downloadItemsCsv(Array.isArray(rows) && rows.length ? rows : items, customFields), [items, customFields]);
+  // "All Items → PDF": route through the report export with no filters applied.
+  const exportAllPdf  = useCallback(() => {
+    api.getItemsReport({ format:'pdf' })
+      .then(({ blob, filename }) => triggerDownload(filename, blob))
+      .catch(() => toast('Could not generate the PDF.', 'error'));
+  }, [toast]);
   const openAssign    = useCallback((item, mode) => setAssigningItem({ item, mode }), []);
   const refreshAssignmentsAndItems = useCallback(() => { refreshAssignments(); refreshItems(); }, [refreshAssignments, refreshItems]);
   const handleConfirmReceipt = useCallback((co, batch, photoMap) =>
@@ -7557,7 +7789,9 @@ export default function InventoryManagement({ activeSub }) {
 
   if (roleLoading) return <SkeletonBlocks count={6} height={56} borderRadius={10} />;
 
-  if (!isManager) {
+  // Everyone lands on the normal employee screen. Managers get a "Manage" tab on it
+  // that flips into the full management UI below (Neil). Employees never see it.
+  if (!isManager || !manageMode) {
     return (
       <>
         <EmployeeView
@@ -7573,35 +7807,42 @@ export default function InventoryManagement({ activeSub }) {
           confirmReceipt={confirmReceipt}
           addNotification={addNotification}
           toast={toast}
+          showManage={isManager} onEnterManage={() => setManageMode(true)}
         />
         <Toast toasts={toasts} onDismiss={dismissToast} />
       </>
     );
   }
 
-  // The four filter selects, reused in two spots: the header (Catalog/Audit) and
-  // below the KPI cards on Manage (Ankush moved them down, next to the items).
+  // The filter selects, rendered directly above the table on Catalog and Manage
+  // (no longer in the page header — Neil: filters must sit in one consistent spot,
+  // not jump around). Any filter that isn't on "All" gets a tinted background so
+  // it's obvious one is active and nothing is silently hidden.
+  const baseSel   = { padding:'6px 10px', fontSize:13, height:34, width:'auto' };
+  const activeSel = v => (v && v !== 'All')
+    ? { borderColor:'var(--pine)', background:'hsla(var(--color-green),0.12)', fontWeight:700, color:'var(--ink)' }
+    : null;
   const filterSelects = (
     <>
       <div style={{ display:'flex', alignItems:'center', gap:6 }}>
         <Filter size={13} style={{ color:'var(--muted)' }} />
-        <select className="form-input" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:150 }}>
+        <select className="form-input" value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{ ...baseSel, minWidth:150, ...activeSel(deptFilter) }}>
           {DEPARTMENTS.map(d => <option key={d} value={d}>{d === 'All' ? 'All departments' : d}</option>)}
         </select>
       </div>
-      <select className="form-input" value={locationFilter} onChange={e => setLocationFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:130 }}>
+      <select className="form-input" value={locationFilter} onChange={e => setLocationFilter(e.target.value)} style={{ ...baseSel, minWidth:130, ...activeSel(locationFilter) }}>
         <option value="All">All locations</option>
         {locationOptions.map(l => <option key={l}>{l}</option>)}
       </select>
-      <select className="form-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:110 }}>
+      <select className="form-input" value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{ ...baseSel, minWidth:110, ...activeSel(typeFilter) }}>
         <option value="All">All types</option>
         {typeOptions.map(t => <option key={t}>{t}</option>)}
       </select>
-      <select className="form-input" value={modelFilter} onChange={e => setModelFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:120 }}>
+      <select className="form-input" value={modelFilter} onChange={e => setModelFilter(e.target.value)} style={{ ...baseSel, minWidth:120, ...activeSel(modelFilter) }}>
         <option value="All">All models</option>
         {modelOptions.map(m => <option key={m}>{m}</option>)}
       </select>
-      <select className="form-input" value={ownershipFilter} onChange={e => setOwnershipFilter(e.target.value)} style={{ padding:'6px 10px', fontSize:13, height:34, width:'auto', minWidth:130 }}>
+      <select className="form-input" value={ownershipFilter} onChange={e => setOwnershipFilter(e.target.value)} style={{ ...baseSel, minWidth:130, ...activeSel(ownershipFilter) }}>
         <option value="All">All ownership</option>
         <option value="transient">Temporary</option>
         <option value="permanent">Permanent</option>
@@ -7614,16 +7855,18 @@ export default function InventoryManagement({ activeSub }) {
       {/* Header */}
       <div className="view-header" style={{ marginBottom:0 }}>
         <div className="view-title-group">
-          <h2>Item Management</h2>
+          {/* Leave the manager-only Manage UI, back to the normal employee screen. */}
+          <button onClick={() => setManageMode(false)}
+            style={{ display:'inline-flex', alignItems:'center', gap:6, background:'none', border:'none', cursor:'pointer', color:'var(--muted)', fontSize:12.5, fontFamily:'Inter,sans-serif', padding:'0 0 4px', fontWeight:600 }}
+            onMouseEnter={e => e.currentTarget.style.color='var(--ink)'} onMouseLeave={e => e.currentTarget.style.color='var(--muted)'}>
+            <ArrowLeft size={13} /> Exit Manage
+          </button>
+          <h2>Item Management <span style={{ fontSize:13, fontWeight:700, color:'hsl(var(--color-purple))', verticalAlign:'middle' }}>· Manage</span></h2>
           <p>Browse company assets, check out what you need, or request a purchase</p>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
-          {/* Catalog/Audit keep filters here; Manage renders them below its KPI
-              cards instead (Ankush). Always mounted so the header height is stable. */}
-          <div data-vis={['catalog','audit'].includes(mainTab) ? 'visible' : 'hidden'}
-            style={{ display:'flex', alignItems:'center', gap:10, visibility: ['catalog','audit'].includes(mainTab) ? 'visible' : 'hidden' }}>
-            {['catalog','audit'].includes(mainTab) && filterSelects}
-          </div>
+          {/* Filters no longer live in the header — each tab renders them directly
+              above its own table so they never jump around between tabs (Neil). */}
           {/* Cart last: it's the one control visible on every tab, so it anchors
               the right edge instead of floating next to hidden filters */}
           {/* header-cart: phones pin this to ONE fixed spot (title row, top
@@ -7650,7 +7893,7 @@ export default function InventoryManagement({ activeSub }) {
           { id:'checkouts',    label:'Checkouts',         Icon: ShoppingCart, badge: pendingCount + approvedCount },
           { id:'whohasit',     label:'Who Has What',      Icon: Users                                       },
           { id:'purchasereqs', label:'Purchase Requests', Icon: FileText                                    },
-          { id:'audit',        label:'Audit Log',         Icon: History                                     },
+          { id:'audit',        label:'Activity Log',      Icon: History                                     },
         ].map(({ id, label, Icon, badge }) => (
           <button key={id} onClick={() => setMainTab(id)}
             style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 16px', background:'none', border:'none', borderBottom: mainTab === id ? '2px solid var(--pine)' : '2px solid transparent', color: mainTab === id ? 'var(--ink)' : 'var(--muted)', fontWeight: mainTab === id ? 700 : 600, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-1, whiteSpace:'nowrap', flexShrink:0 }}>
@@ -7658,14 +7901,8 @@ export default function InventoryManagement({ activeSub }) {
             {badge > 0 && <span style={{ background:'hsl(var(--color-orange))', color:'#fff', borderRadius:20, fontSize:10, fontWeight:800, padding:'1px 6px', marginLeft:2 }}>{badge}</span>}
           </button>
         ))}
-        {/* Always mounted so the strip height/width never shifts between tabs.
-            Catalog renders its own search beside the item count, so this one
-            only shows on Manage. */}
-        <div className="search-bar" data-vis={mainTab === 'manage' ? 'visible' : 'hidden'}
-          style={{ marginLeft:'auto', flex:1, minWidth:220, marginBottom:0, visibility: mainTab === 'manage' ? 'visible' : 'hidden' }}>
-          <Search size={14} style={{ flexShrink:0 }} />
-          <input placeholder="Search items…" value={search} onChange={e => setSearch(e.target.value)} />
-        </div>
+        {/* Manage's search now sits in-line with its filters, directly above the
+            table (Neil) — not up here in the tab strip. */}
       </div>
 
       {/* Pending approvals banner — below the tab strip so the nav itself never moves */}
@@ -7681,23 +7918,9 @@ export default function InventoryManagement({ activeSub }) {
         </div>
       )}
 
-      {/* KPI strip — manage tab only, rendered below the strip for the same reason */}
-      {/* Compact KPI cards (Ankush: they were too large) — smaller min width,
-          tighter padding and value size. */}
-      {mainTab === 'manage' && <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(auto-fit, minmax(124px, 1fr))', gap:10, margin:'0 0 16px' }}>
-        {[
-          { label:'Available',      value: deptItems.filter(i => i.status === 'available').length,    color:'card-green'  },
-          { label:'Total Items',    value: deptItems.length,                                          color:'card-blue'   },
-          { label:'Checked Out',    value: deptItems.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
-          { label:'Missing Photos', value: deptItems.filter(i => !i.photoUrl).length,                 color: deptItems.filter(i => !i.photoUrl).length > 0 ? 'card-red' : '' },
-          { label:'Inventory Value', value: fmtMoney(deptItems.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },
-        ].map(({ label, value, color }) => (
-          <div key={label} className={`kpi-card ${color}`} style={{ padding:'10px 12px' }}>
-            <div className="kpi-label" style={{ fontSize:11 }}>{label}</div>
-            <div className="kpi-value" style={{ fontSize:20, lineHeight:1.1 }}>{value}</div>
-          </div>
-        ))}
-      </div>}
+      {/* KPI strip now renders INSIDE the Manage tab, below its search/filter bar,
+          so the toolbar sits at the same height on every tab (Neil: stop the
+          search/filters jumping up and down). */}
 
       {/* Tab content */}
       {mainTab === 'catalog' && (
@@ -7709,6 +7932,7 @@ export default function InventoryManagement({ activeSub }) {
           checkouts={checkouts} userEmail={userEmail} userName={userName}
           onReturn={openReturn} onCancel={cancelCo}
           onSelfAllocate={selfAllocate}
+          filterControls={filterSelects}
         />
       )}
       {mainTab === 'manage' && (
@@ -7719,13 +7943,30 @@ export default function InventoryManagement({ activeSub }) {
           refreshItems={refreshItems} canDelete={canDelete}
           onAdd={openAdd} onEdit={setEditingItem}
           onDelete={setDeletingItem} onImport={openImport}
-          onExport={exportCsv} onReport={openReport}
+          onExport={exportCsv} onExportAllPdf={exportAllPdf} onReport={openReport}
           checkouts={checkouts} toast={toast}
           onAssign={openAssign} onDetails={setDetailsItem}
           onShowDeleted={() => setDeletedOpen(true)}
           onManageCustomFields={() => setCustomFieldsOpen(true)}
+          onManageTypes={() => setTypesOpen(true)} itemTypes={itemTypes}
           highlightId={highlightItemId} onHighlightDone={() => setHighlightItemId(null)}
-          filterControls={<div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', marginBottom:16 }}>{filterSelects}</div>}
+          filterControls={filterSelects}
+          kpiStrip={
+            <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(auto-fit, minmax(104px, 1fr))', gap:8, margin:'0 0 16px' }}>
+              {[
+                { label:'Available to Check Out', value: deptItems.filter(i => i.status === 'available' && i.ownershipType !== 'permanent').length, color:'card-green'  },
+                { label:'Unassigned Permanent',   value: deptItems.filter(i => i.ownershipType === 'permanent' && i.status === 'available').length, color:'card-purple' },
+                { label:'Total Items', value: deptItems.length,                                          color:'card-blue'   },
+                { label:'Checked Out', value: deptItems.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
+                { label:'Items Value', value: fmtMoney(deptItems.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },
+              ].map(({ label, value, color }) => (
+                <div key={label} className={`kpi-card ${color}`} style={{ padding:'8px 11px' }}>
+                  <div className="kpi-label" style={{ fontSize:10.5 }}>{label}</div>
+                  <div className="kpi-value" style={{ fontSize:18, lineHeight:1.1 }}>{value}</div>
+                </div>
+              ))}
+            </div>
+          }
         />
       )}
       {mainTab === 'myitems' && (
@@ -7799,12 +8040,13 @@ export default function InventoryManagement({ activeSub }) {
           onCustomAlert={() => { setOverdueAlertOpen(false); setSendAlertOpen(true); }} />
       )}
       {assigningItem && (
-        <AssignItemModal item={assigningItem.item} mode={assigningItem.mode} toast={toast}
+        <AssignItemModal item={assigningItem.item} mode={assigningItem.mode} userEmail={userEmail}
+          locations={[...new Set(items.map(i => i.location).filter(Boolean))].sort()} toast={toast}
           onClose={() => setAssigningItem(null)}
           onDone={() => { refreshAssignments(); refreshItems(); }} />
       )}
-      {addItemOpen  && <AddItemModal   onClose={() => setAddItemOpen(false)}  onSave={handleAddItem} />}
-      {editingItem  && <EditItemModal  item={editingItem} onClose={() => setEditingItem(null)} onSave={data => handleEditItem(editingItem, data)} />}
+      {addItemOpen  && <AddItemModal   onClose={() => setAddItemOpen(false)}  onSave={handleAddItem} types={itemTypes} />}
+      {editingItem  && <EditItemModal  item={editingItem} onClose={() => setEditingItem(null)} onSave={data => handleEditItem(editingItem, data)} types={itemTypes} />}
       {deletingItem && <DeleteItemModal item={deletingItem} onClose={() => setDeletingItem(null)} onConfirm={() => handleDeleteItem(deletingItem)} />}
       {detailsItem && (
         <ItemDetailsPanel item={detailsItem} customFields={customFields} canEdit={isManager}
@@ -7817,6 +8059,10 @@ export default function InventoryManagement({ activeSub }) {
       {customFieldsOpen && (
         <CustomFieldsAdminModal fields={customFields} onClose={() => setCustomFieldsOpen(false)}
           onChanged={refreshCustomFields} toast={toast} />
+      )}
+      {typesOpen && (
+        <ManageTypesModal types={itemTypes} counts={typeCounts} onClose={() => setTypesOpen(false)}
+          onChanged={t => setItemTypes(Array.isArray(t) && t.length ? t : ITEM_TYPES)} toast={toast} />
       )}
       {importOpen   && <ImportItemsModal onClose={() => setImportOpen(false)} onImport={handleImport} customFields={customFields} />}
       {reportOpen   && <ReportModal onClose={() => setReportOpen(false)} checkouts={checkouts} initial={reportInitial} />}

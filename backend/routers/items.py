@@ -16,7 +16,7 @@ from typing import Optional
 import httpx
 from database import get_db
 from auth import get_current_user, require_level_or_module
-from models import Item, ItemCheckout, ItemCartEntry, ItemAssignment, ItemCustomField, NexusRole, NexusNotification, AuditLog
+from models import Item, ItemCheckout, ItemCartEntry, ItemAssignment, ItemCustomField, ItemType, NexusRole, NexusNotification, AuditLog
 
 _VALID_TRANSITIONS = {
     "approved":         {"pending"},
@@ -398,23 +398,93 @@ def _clean_field(v) -> str:
     return "" if s.lower() in _NA_TOKENS else s
 
 
-# Canonicalise a free-typed item type: case-insensitive and singular→plural, so
-# "device"/"DEVICES" → "Devices". Genuinely new types (e.g. "IP Camera") are kept
-# as-is so imported types are first-class, not flattened to "Other".
-_TYPE_CANON = {}
-for _t in _ITEM_TYPES:
-    _TYPE_CANON[_t.lower()] = _t
-    if _t.endswith("s"):
-        _TYPE_CANON[_t[:-1].lower()] = _t
+# A loose "key" for a type so spelling/case/plural variants collapse to ONE type —
+# "Office", "office", "OFFICES " all key to "office" (Neil: be smart about it). The
+# valid set is the manager-curated item_types table; a static fallback canon covers
+# the rare case where the table can't be read.
+def _type_key(s) -> str:
+    s = re.sub(r"\s+", " ", (s or "").strip().lower())
+    if len(s) > 3 and s.endswith("ies"):                                  # batteries → battery
+        return s[:-3] + "y"
+    if len(s) > 4 and s.endswith(("ches", "shes", "ses", "xes", "zes")):  # boxes → box
+        return s[:-2]
+    if len(s) > 2 and s.endswith("s") and not s.endswith("ss"):           # cameras → camera
+        return s[:-1]
+    return s
+
+def _build_canon(names) -> dict:
+    return {_type_key(t): t for t in names}
+
+_TYPE_CANON = _build_canon(_ITEM_TYPES)           # static fallback
 
 
-def _normalize_type(raw) -> str:
+def _seed_types_if_empty(db: Session) -> None:
+    if db.query(ItemType).first():
+        return
+    now = _now_iso()
+    for i, t in enumerate(_ITEM_TYPES):
+        db.add(ItemType(name=t, sort_order=i, created_by="system", created_at=now))
+    db.commit()
+
+
+def _type_names(db: Session) -> list:
+    _seed_types_if_empty(db)
+    return [r.name for r in db.query(ItemType).order_by(ItemType.sort_order, ItemType.name).all()]
+
+
+def _type_canon(db: Session) -> dict:
+    return _build_canon(_type_names(db))
+
+
+_AI_TYPE_MODEL = "claude-opus-4-8"
+
+def _ai_match_types(new_labels: list, existing: list) -> dict:
+    """Map each NEW label to an EXISTING type when it's the same kind of item — a
+    spelling/abbreviation/plural/case variant (e.g. "IP Cams" → "IP Camera") — else
+    None (it becomes a new type). Distinct items stay distinct (Laptop ≠ Computer,
+    CCTV ≠ IP Camera). Returns {} with no API key or on error, so the caller just
+    creates new types. One call per import keeps it cheap."""
+    key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not key or not new_labels:
+        return {}
+    prompt = (
+        "You normalise item-TYPE labels for a physical asset inventory.\n\n"
+        f"EXISTING TYPES: {json.dumps(existing)}\n"
+        f"NEW LABELS: {json.dumps(new_labels)}\n\n"
+        "For each NEW LABEL decide if it is merely a spelling / abbreviation / plural / "
+        "case variant of an EXISTING TYPE — i.e. the SAME kind of physical item.\n"
+        'SAME (map it): "IP Cams" = "IP Camera"; "Laptops" = "Laptop"; "cctv camera" = "IP Camera" only if no better match.\n'
+        'DIFFERENT — DO NOT MERGE: "Laptop" vs "Computer"; "CCTV" vs "IP Camera"; "Server" vs "Storage". '
+        "These are genuinely different items even if related.\n"
+        "Be conservative: only map when it is clearly the SAME item. Return ONLY a JSON object "
+        "mapping each new label to the EXACT existing-type text it matches, or null if it is new. No prose."
+    )
+    try:
+        with httpx.Client(timeout=30) as client:
+            r = client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json={"model": _AI_TYPE_MODEL, "max_tokens": 600, "messages": [{"role": "user", "content": prompt}]},
+            )
+            r.raise_for_status()
+            data = r.json()
+        txt = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+        m = re.search(r"\{.*\}", txt, re.S)   # tolerate fences / stray text
+        out = json.loads(m.group(0)) if m else {}
+        return {k: v for k, v in out.items() if isinstance(k, str)}
+    except Exception as e:  # noqa: BLE001
+        print(f"[items] AI type match failed: {e}")
+        return {}
+
+
+def _normalize_type(raw, canon=None) -> str:
     s = _clean_field(raw)
     if not s:
         return "Other"
-    # Unrecognised types are funnelled into "Other" (was: kept as-is) so a typo'd
-    # or invented type on import doesn't create a new category — Neil's rule.
-    return _TYPE_CANON.get(s.lower(), "Other")
+    # Match by the loose key so office/offices/OFFICE all land on the same type.
+    # Anything with no match funnels to "Other" (the Add/Edit dropdowns can't produce
+    # unknowns; CSV import auto-creates them — see import_items).
+    return (canon or _TYPE_CANON).get(_type_key(s), "Other")
 
 
 def _content_sig(name, item_type, make, model, year, department, location, ownership) -> tuple:
@@ -439,7 +509,7 @@ def create_item(body: ItemCreate, response: Response, user: dict = Depends(requi
             id=str(uuid.uuid4()),
             serial_number=_fmt_serial(_serial_start(db)),
             name=name,
-            item_type=_normalize_type(body.item_type),
+            item_type=_normalize_type(body.item_type, _type_canon(db)),
             make=(body.make or "").strip(),
             model=(body.model or "").strip(),
             year=(body.year or "").strip(),
@@ -500,6 +570,30 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
 
     claimed: set[str] = set()          # existing items already matched this import
     next_serial = _serial_start(db)    # scanned once — see _serial_start
+    _seed_types_if_empty(db)
+    _type_rows = db.query(ItemType).all()
+    canon = _build_canon([r.name for r in _type_rows])   # built once, extended below
+    next_type_order = max([r.sort_order for r in _type_rows], default=0) + 1
+    added_types: list = []             # new types this import created (manager-initiated)
+    # Resolve any new type labels ONCE, up front. The AI maps same-item variants onto
+    # an existing type (IP Cams → IP Camera) but keeps distinct items distinct; whatever
+    # it doesn't match becomes a brand-new type. After this, the row loop just normalises.
+    _raw_types  = {_clean_field(r.item_type) for r in body.items if _clean_field(r.item_type)}
+    _new_labels = [t for t in _raw_types if _type_key(t) not in canon and len(t) <= 40]
+    _ai_map = _ai_match_types(_new_labels, [r.name for r in _type_rows]) if _new_labels else {}
+    for label in _new_labels:
+        k = _type_key(label)
+        if k in canon:
+            continue
+        match = _ai_map.get(label)
+        match_key = _type_key(match) if isinstance(match, str) and match.strip() else None
+        if match_key and match_key in canon:
+            canon[k] = canon[match_key]    # variant of an existing type → reuse it
+        else:
+            db.add(ItemType(name=label, sort_order=next_type_order, created_by=user["email"], created_at=now))
+            canon[k] = label
+            next_type_order += 1
+            added_types.append(label)
 
     def _claim_by_sig(sig):
         pool = sig_pool.get(sig)
@@ -517,7 +611,7 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
         ownership = (row.ownership_type or "transient").strip().lower()
         if ownership not in ("permanent", "transient"):
             ownership = "transient"
-        item_type = _normalize_type(row.item_type)
+        item_type = _normalize_type(row.item_type, canon)   # canon resolved above
         make       = _clean_field(row.make)
         model      = _clean_field(row.model)
         year       = _clean_field(row.year)
@@ -583,7 +677,9 @@ def import_items(body: ItemImportRequest, user: dict = Depends(require_items_adm
             # new units, so the second must not match the first.
             created += 1
     db.commit()
-    return {"created": created, "updated": updated, "skipped": skipped}
+    # Report any types this import created so the UI can refresh the type list.
+    return {"created": created, "updated": updated, "skipped": skipped,
+            "added_types": sorted(set(added_types))}
 
 
 # ── Persistent cart (must be before /{item_id} wildcards) ────────────────────
@@ -648,7 +744,7 @@ def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(require_ite
             raise HTTPException(400, "Name cannot be empty")
         item.name = n
     if body.item_type  is not None:
-        item.item_type = _normalize_type(body.item_type)
+        item.item_type = _normalize_type(body.item_type, _type_canon(db))
     if body.make           is not None: item.make           = body.make.strip()
     if body.model          is not None: item.model          = body.model.strip()
     if body.year           is not None: item.year           = body.year.strip()
@@ -849,7 +945,7 @@ def bulk_update_items(body: BulkUpdateRequest, user: dict = Depends(require_item
 
     # Normalise the way create/import do, so batch edits stay consistent with them.
     if "item_type" in changes:
-        changes["item_type"] = _normalize_type(changes["item_type"])
+        changes["item_type"] = _normalize_type(changes["item_type"], _type_canon(db))
     if "ownership_type" in changes:
         o = (changes["ownership_type"] or "transient").strip().lower()
         changes["ownership_type"] = o if o in ("permanent", "transient") else "transient"
@@ -968,6 +1064,46 @@ def delete_custom_field(field_id: str, user: dict = Depends(require_items_delete
     db.delete(f)  # per-item values stay in items.custom_fields but stop showing — harmless
     db.commit()
     return {"ok": True}
+
+
+# ── Item types (manager-curated) ──────────────────────────────────────────────
+# Managers extend the type list here; a CSV can't invent one (it funnels to Other).
+class ItemTypeIn(BaseModel):
+    name: str
+
+
+@router.get("/types")
+def list_item_types(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _type_names(db)
+
+
+@router.post("/types", status_code=201)
+def add_item_type(body: ItemTypeIn, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(400, "Type name cannot be empty")
+    if len(name) > 40:
+        raise HTTPException(400, "Type name is too long (40 characters max)")
+    _seed_types_if_empty(db)
+    rows = db.query(ItemType).all()
+    # Dedupe by the loose key so office/offices/OFFICE collapse to one type.
+    if any(_type_key(r.name) == _type_key(name) for r in rows):
+        return _type_names(db)
+    nxt = max([r.sort_order for r in rows], default=0) + 1
+    db.add(ItemType(name=name, sort_order=nxt, created_by=user["email"], created_at=_now_iso()))
+    db.commit()
+    return _type_names(db)
+
+
+@router.delete("/types/{name}")
+def delete_item_type(name: str, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    if name.strip().lower() == "other":
+        raise HTTPException(400, "“Other” is the fallback type and can't be removed.")
+    row = next((r for r in db.query(ItemType).all() if r.name.lower() == name.strip().lower()), None)
+    if row:
+        db.delete(row)
+        db.commit()
+    return _type_names(db)
 
 
 # ── Checkouts ─────────────────────────────────────────────────────────────────
@@ -1960,6 +2096,10 @@ def reassign_item(item_id: str, body: AssignmentCreate, user: dict = Depends(req
         ItemAssignment.item_id == item_id, ItemAssignment.status == "active").with_for_update().first()
     if not cur:
         raise HTTPException(409, "No active assignment on this item - use assign")
+    # Reassigning to the same person it's already with is a no-op that would
+    # pointlessly bounce the item through a return — reject it (Neil).
+    if body.assignee_email.lower().strip() == (cur.assignee_email or "").lower().strip():
+        raise HTTPException(409, f"{item.name} is already assigned to {cur.assignee_name or cur.assignee_email}.")
     cur.status = "return_initiated"
     cur.return_reason = "reassign"
     cur.return_initiated_at = _now_iso()
@@ -1979,35 +2119,94 @@ class AssignLocationIn(BaseModel):
 
 @router.post("/{item_id}/assign-location")
 def assign_item_to_location(item_id: str, body: AssignLocationIn, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
-    """Permanently assign an item to a PLACE rather than a person (Ankush). Unlike
-    a person assignment there's no photo-acceptance step — a location can't accept —
-    so it's a direct field set. Person fields stay empty, which is exactly what keeps
-    location-held items OUT of 'Who has it'. Pass an empty location to unassign."""
+    """Set WHERE an item lives. Location is just physical placement now (Visesh):
+    it's independent of who holds it, so this never touches the person assignment or
+    the lifecycle — an item can be at GG Corp AND assigned to a person. Empty clears
+    the location. (Kept the legacy assigned_to_location in sync for older views.)"""
     item = db.query(Item).filter(Item.id == item_id).first()
     if not item or item.deleted_at:
         raise HTTPException(404, "Item not found")
     loc = (body.location or "").strip()
-    # Block if a live person-assignment or active checkout is in flight.
-    live = db.query(ItemAssignment).filter(
-        ItemAssignment.item_id == item_id, ItemAssignment.status.in_(_LIVE_ASSIGN)).first()
-    if live:
-        raise HTTPException(409, "Item has a live person-assignment — recover it first")
-    co = db.query(ItemCheckout).filter(
-        ItemCheckout.item_id == item_id,
-        ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"])).first()
-    if co:
-        raise HTTPException(409, "Item has an active checkout — recover it first")
-    if loc:
-        item.ownership_type = "permanent"
-        item.status = "permanently_assigned"
-        item.assigned_to_location = loc
-        item.assigned_to_email = item.assigned_to_name = item.assigned_at = ""
-    else:
-        item.assigned_to_location = ""
-        if item.status == "permanently_assigned" and not item.assigned_to_email:
-            item.status = "available"
+    item.location = loc
+    item.assigned_to_location = ""  # retire the legacy "assigned to a place" flag
     db.commit()
     return _item_to_dict(item)
+
+
+def _bulk_assign_blocked(db: Session, ids: list[str]) -> set:
+    """Ids that can't be (re)assigned because a live person-assignment or an active
+    checkout is in flight — recover those first."""
+    blocked = set()
+    for a in db.query(ItemAssignment).filter(
+            ItemAssignment.item_id.in_(ids), ItemAssignment.status.in_(_LIVE_ASSIGN)).all():
+        blocked.add(a.item_id)
+    for c in db.query(ItemCheckout).filter(
+            ItemCheckout.item_id.in_(ids),
+            ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"])).all():
+        blocked.add(c.item_id)
+    return blocked
+
+
+class BulkAssignLocationIn(BaseModel):
+    ids:      list[str]
+    location: str = ""
+
+
+@router.post("/bulk-assign-location")
+def bulk_assign_to_location(body: BulkAssignLocationIn, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    """Set WHERE many items live at once. Location is physical placement only
+    (Visesh) — independent of who holds them — so this just sets `location` and never
+    touches the person assignment or lifecycle. Empty clears it."""
+    ids = [i for i in (body.ids or []) if i]
+    loc = (body.location or "").strip()
+    if not ids:
+        return {"assigned": 0, "skipped": []}
+    assigned = 0
+    for it in db.query(Item).filter(Item.id.in_(ids), or_(Item.deleted_at.is_(None), Item.deleted_at == "")).all():
+        it.location = loc
+        it.assigned_to_location = ""
+        assigned += 1
+    db.commit()
+    return {"assigned": assigned, "skipped": []}
+
+
+class BulkAssignPersonIn(BaseModel):
+    ids:            list[str]
+    assignee_email: str
+    assignee_name:  str = ""
+
+
+@router.post("/bulk-assign")
+def bulk_assign_to_person(body: BulkAssignPersonIn, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    """Assign many items to a PERSON at once. Each item gets its own pending
+    acceptance assignment (the assignee accepts with a photo from My Items); the
+    assignee is notified once with the total, not per item (batch-notification rule)."""
+    ids = [i for i in (body.ids or []) if i]
+    email = (body.assignee_email or "").lower().strip()
+    name  = (body.assignee_name or "").strip()
+    if not ids or not email:
+        return {"assigned": 0, "skipped": []}
+    blocked = _bulk_assign_blocked(db, ids)
+    assigned, names = 0, []
+    for it in db.query(Item).filter(Item.id.in_(ids), or_(Item.deleted_at.is_(None), Item.deleted_at == "")).all():
+        if it.id in blocked:
+            continue
+        db.add(ItemAssignment(
+            id=f"ASG-{uuid.uuid4().hex[:10].upper()}", item_id=it.id, item_name=it.name,
+            assignee_email=email, assignee_name=name,
+            assigned_by=_title_case_email(user["email"]), assigned_by_email=user["email"],
+            status="pending_acceptance", created_at=_now_iso(),
+        ))
+        assigned += 1
+        names.append(it.name)
+    if assigned:
+        preview = ", ".join(names[:5]) + ("…" if len(names) > 5 else "")
+        _notify(db, type="perm_assign", recipient=email,
+                title=f"{assigned} item{'s' if assigned != 1 else ''} assigned to you",
+                body=f"{_title_case_email(user['email'])} assigned you {assigned} item{'s' if assigned != 1 else ''}: {preview}. Accept each with a photo in My Items.",
+                item_name=names[0] if names else "", requested_by=name)
+    db.commit()
+    return {"assigned": assigned, "skipped": sorted(blocked & set(ids))}
 
 
 @router.post("/assignments/{assignment_id}/accept")
