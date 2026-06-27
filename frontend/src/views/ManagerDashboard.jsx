@@ -151,7 +151,6 @@ export default function ManagerDashboard() {
   const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 
   // ── Who Has What data ───────────────────────────────────────────────────────
-  const now = Date.now();
   const todayStr = new Date().toISOString().split('T')[0];
 
   // Pending allocation: approved but not yet given to employee. Managers see

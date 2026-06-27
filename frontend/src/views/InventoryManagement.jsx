@@ -5359,7 +5359,10 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
 
   // Refs let toggleSelect stay STABLE (so memoized rows don't all re-render) while
   // still reading the current sorted order + the last-ticked anchor for shift-range.
-  const sortedRef = useRef(sorted);  sortedRef.current = sorted;
+  // The ref is synced in an effect (not during render) — toggleSelect only reads it
+  // from a click handler, which fires after commit, so it always sees the latest list.
+  const sortedRef = useRef(sorted);
+  useEffect(() => { sortedRef.current = sorted; });
   const selectAnchorRef = useRef(null);
   const toggleSelect = useCallback((id, shift) => {
     const list = sortedRef.current;
