@@ -1158,9 +1158,10 @@ export default function HR({ activeSub, onSubChange }) {
     setSyncBusy(true);
     try {
       const r = await api.syncM365();
-      const bits = [`${r.linked} linked`, `${r.updated} updated`];
+      const bits = [];
+      if (r.created) bits.push(`${r.created} added`);
+      bits.push(`${r.linked} linked`, `${r.updated} updated`);
       if (r.unlinked?.length) bits.push(`unlinked (account deleted): ${r.unlinked.join(', ')}`);
-      else if (r.notInTenant) bits.push(`${r.notInTenant} not in tenant`);
       toastOk(`M365 sync: ${bits.join(' · ')}.`);
       load();
     } catch (err) { toastErr(err?.message || 'Sync failed.'); }
@@ -1216,7 +1217,7 @@ export default function HR({ activeSub, onSubChange }) {
         {sub === 'hr-people' && (
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
             <button className="secondary-btn" disabled={syncBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-              title="Link existing M365 accounts by work email and backfill empty phone/title/office fields from Entra"
+              title="Pull people from M365 — only @greensglobal.com and @greensstorage.com accounts. New people are added; existing profiles get linked and empty fields backfilled from Entra."
               onClick={runSync}>
               {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <History size={14} />} Sync from M365
             </button>
