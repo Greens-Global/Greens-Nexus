@@ -1161,6 +1161,7 @@ export default function HR({ activeSub, onSubChange }) {
       const bits = [];
       if (r.created) bits.push(`${r.created} added`);
       bits.push(`${r.linked} linked`, `${r.updated} updated`);
+      if (r.removed?.length) bits.push(`${r.removed.length} removed (shared/inactive)`);
       if (r.unlinked?.length) bits.push(`unlinked (account deleted): ${r.unlinked.join(', ')}`);
       toastOk(`M365 sync: ${bits.join(' · ')}.`);
       load();

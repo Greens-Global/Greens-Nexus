@@ -834,6 +834,39 @@ def _split_name(g: dict) -> tuple:
     return first, last
 
 
+# Words in a display name that mark an account as a non-person (shared/site
+# mailbox, room or resource) even when it somehow has a first/last name.
+_RESOURCE_HINTS = (
+    "conference room", "meeting room", "boardroom", "mailbox", "reception",
+    "front desk", "service account", "shared", " room",
+)
+
+
+def _is_non_person(g: dict) -> bool:
+    """Keep real people, drop everything that isn't one. M365 returns departed
+    staff (the '#Inactive' naming convention) and shared/site/room mailboxes
+    alongside real users; none of those belong in the HR people list.
+
+    Real people are provisioned with givenName + surname (see provision_employee);
+    shared mailboxes and rooms are created in Exchange with only a displayName.
+    So the absence of BOTH name parts is the reliable 'not a person' signal."""
+    name  = (g.get("displayName") or "").strip().lower()
+    first = (g.get("givenName") or "").strip()
+    last  = (g.get("surname") or "").strip()
+    if "#inactive" in name:                # departed-staff convention (Z #Inactive ...)
+        return True
+    if not first and not last:             # shared / site / room / resource mailbox
+        return True
+    if any(h in name for h in _RESOURCE_HINTS):
+        return True
+    return False
+
+
+def _emp_is_non_person(e: NexusEmployee) -> bool:
+    """Same test against a stored row (we only keep the marker in the name)."""
+    return "#inactive" in f"{e.first_name} {e.last_name}".strip().lower()
+
+
 def _graph_directory(token: str) -> list:
     """Every user object in the tenant, following @odata.nextLink paging. The
     caller filters down to company domains."""
@@ -855,12 +888,18 @@ def _graph_directory(token: str) -> list:
 def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     """Pull the M365 directory into HR. Only the company's own domains
     (greensglobal.com, greensstorage.com) come in — guests and partner domains
-    are skipped. People not in HR yet are created; existing profiles are linked
-    by Entra id / work email and have empty fields backfilled (never overwrites
-    values already set in Nexus). Accounts deleted in Entra get their M365 link
-    dropped."""
+    are skipped, and so are non-people: departed staff (#Inactive convention)
+    and shared/site/room mailboxes. People not in HR yet are created; existing
+    profiles are linked by Entra id / work email and have empty fields backfilled
+    (never overwrites values already set in Nexus). Accounts deleted in Entra get
+    their M365 link dropped; non-people that were imported earlier are removed."""
     token = _graph_token()
-    directory = [g for g in _graph_directory(token) if _in_company_domain(_primary_addr(g))]
+    company = [g for g in _graph_directory(token) if _in_company_domain(_primary_addr(g))]
+    # Every company account we saw (people or not) — used to detect truly-deleted
+    # accounts. Real importable people are that set minus the non-people.
+    seen_ids     = {(g.get("id") or "").lower() for g in company if g.get("id")}
+    nonperson_ids = {(g.get("id") or "").lower() for g in company if _is_non_person(g)}
+    directory    = [g for g in company if not _is_non_person(g)]
 
     # Index existing rows so a directory user matches by Entra id or work email.
     existing = db.query(NexusEmployee).all()
@@ -873,12 +912,9 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
     next_num = int(_next_code(db).split("-")[1])
 
     created = linked = updated = 0
-    seen_ids = set()
     for g in directory:
         gid  = (g.get("id") or "").lower()
         addr = _primary_addr(g)
-        if gid:
-            seen_ids.add(gid)
         emp = by_m365.get(gid) or by_email.get(addr)
         if emp:
             changed = False
@@ -914,18 +950,26 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
                 by_email[addr] = emp
             next_num += 1; created += 1
 
-    # Existing company-domain employees whose Entra account is gone: drop the
-    # stale link so the profile stops claiming M365 ✓ and can be re-provisioned.
-    # Manually-added people without an m365_id are left untouched.
-    unlinked = []
+    # Clean up existing rows. Only ever touch M365-sourced rows (have an m365_id)
+    # so manually-added people are never disturbed:
+    #   • non-people that slipped in on an earlier sync (shared mailboxes, rooms,
+    #     #Inactive accounts) are deleted outright;
+    #   • people whose Entra account is gone get their stale M365 link dropped so
+    #     the profile stops claiming M365 ✓ and can be re-provisioned.
+    removed, unlinked = [], []
     for e in existing:
-        if e.m365_id and e.m365_id.lower() not in seen_ids and _in_company_domain(e.work_email):
+        if not e.m365_id:
+            continue
+        name = f"{e.first_name} {e.last_name}".strip()
+        if e.m365_id.lower() in nonperson_ids or _emp_is_non_person(e):
+            db.delete(e); removed.append(name); continue
+        if e.m365_id.lower() not in seen_ids and _in_company_domain(e.work_email):
             e.m365_id = ""; e.updated_at = now
-            unlinked.append(f"{e.first_name} {e.last_name}".strip())
+            unlinked.append(name)
 
     db.commit()
     return {"created": created, "linked": linked, "updated": updated,
-            "unlinked": unlinked, "checked": len(directory)}
+            "removed": removed, "unlinked": unlinked, "checked": len(directory)}
 
 
 # ── Welcome email — branded, warm, role-aware (not the old two-liner) ────────
