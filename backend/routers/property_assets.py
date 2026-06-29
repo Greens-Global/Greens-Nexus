@@ -28,7 +28,9 @@ from models import PropertyAsset, PropertyRecord, PropertyActivityLog
 router = APIRouter(tags=["Asset Management"])
 
 # The flat child collections the module persists alongside properties + logs.
-COLLECTIONS = ["warranties", "inspections", "documents", "ahj", "utilities", "vendors"]
+# vservice/odometer are the vehicle & equipment service/maintenance + odometer logs.
+COLLECTIONS = ["warranties", "inspections", "documents", "ahj", "utilities", "vendors",
+               "vservice", "odometer"]
 
 
 def _now() -> str:
@@ -43,6 +45,8 @@ class Workspace(BaseModel):
     ahj: List[Dict[str, Any]] = []
     utilities: List[Dict[str, Any]] = []
     vendors: List[Dict[str, Any]] = []
+    vservice: List[Dict[str, Any]] = []
+    odometer: List[Dict[str, Any]] = []
     logs: List[Dict[str, Any]] = []
 
 
