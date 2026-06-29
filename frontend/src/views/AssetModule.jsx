@@ -32,6 +32,7 @@ import greensTowers from '../data/assets/greens-towers-hyderabad.json';
 import wellsFargo from '../data/assets/wells-fargo-san-antonio.json';
 import { msalInstance } from '../msalInstance';
 import { api } from '../api';
+import { supabase } from '../lib/supabase';
 
 const RAW = [georgetown, austin, lakeside, rainbow, escondidoNorth, escondidoSouth, sachse,
   valleyCenterNorth, valleyCenterEast, valleyCenterSouth, greensFamily918, gurudevFamily910, rjkResidence, greensFairfield,
@@ -86,6 +87,26 @@ function fileToDataUrl(file) {
     reader.onload = () => resolve(reader.result);
     reader.readAsDataURL(file);
   });
+}
+// data URL → Blob (so a scaled image can be uploaded to storage rather than stored inline).
+async function dataUrlToBlob(dataUrl) { return (await fetch(dataUrl)).blob(); }
+// Upload an asset image/document to Supabase storage and return its public URL. Reuses the
+// existing public `item-photos` bucket (already cached immutably) under an `asset/` prefix, so no
+// new bucket/policy is needed. Images are scaled first; documents upload as-is. Falls back to an
+// inline data URL if storage is unavailable, so an upload never loses the user's file.
+async function uploadAssetFile(file, scale = false) {
+  try {
+    let blob = file, ext = (file.name?.split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    if (scale && (file.type || '').startsWith('image/')) { blob = await dataUrlToBlob(await fileToScaledDataUrl(file)); ext = 'jpg'; }
+    if (!ext) ext = (blob.type || '').split('/')[1] || 'bin';
+    const path = `asset/${crypto.randomUUID()}.${ext}`;
+    const { data, error } = await supabase.storage.from('item-photos').upload(path, blob, { contentType: blob.type || file.type || 'application/octet-stream', upsert: false, cacheControl: '31536000' });
+    if (error) throw error;
+    return supabase.storage.from('item-photos').getPublicUrl(data.path).data.publicUrl;
+  } catch {
+    // Storage unavailable — keep the file inline so nothing is lost (legacy behaviour).
+    return scale ? fileToScaledDataUrl(file) : fileToDataUrl(file);
+  }
 }
 
 /* ---------- adapt real data -> template model ---------- */
@@ -707,6 +728,9 @@ export default function AssetModule() {
   }, [tab, data.logs]);
   // Auto-clear the field highlight a few seconds after a "Go to".
   useEffect(() => { if (highlight) { const id = setTimeout(() => setHighlight(null), 4000); return () => clearTimeout(id); } }, [highlight]);
+  // On open (once the workspace has loaded), scan for expiring warranties / due inspections /
+  // vehicle reg+insurance+service and raise deduped bell reminders to managers (server-side).
+  useEffect(() => { if (!loading) api.scanPropertyReminders().catch(() => {}); }, [loading]);
 
   if (loading) return <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-secondary)', fontWeight: 500, fontSize: '0.9rem' }}>Loading portfolio…</div>;
 
@@ -1624,7 +1648,7 @@ function MediaSection({ p, n, onSave }) {
   const startEdit = (e) => { e.stopPropagation(); setDraft(pics); setEditing(true); setOpen(true); };
   const onPick = async (e) => {
     const files = [...(e.target.files || [])]; const urls = [];
-    for (const f of files) { if (f.type.startsWith('image/')) { try { urls.push(await fileToScaledDataUrl(f)); } catch { /* ignore */ } } }
+    for (const f of files) { if (f.type.startsWith('image/')) { try { urls.push(await uploadAssetFile(f, true)); } catch { /* ignore */ } } }
     setDraft(d => [...d, ...urls]); e.target.value = '';
   };
   const shown = editing ? draft : pics;
@@ -1741,7 +1765,7 @@ function FormField({ f, value, onChange }) {
   if (f.type === 'file') {
     const onFile = async (e) => {
       const file = e.target.files?.[0]; if (!file) { return; }
-      try { const url = await fileToDataUrl(file); onChange(f.k, url); if (f.nameKey) onChange(f.nameKey, file.name); } catch { /* ignore */ }
+      try { const url = await uploadAssetFile(file, false); onChange(f.k, url); if (f.nameKey) onChange(f.nameKey, file.name); } catch { /* ignore */ }
       e.target.value = '';
     };
     return (
@@ -1838,7 +1862,7 @@ function PropertyModal({ row, properties, onSave, onDelete, onClose }) {
   const targetName = others.find(x => x.id === linkTarget)?.name || '';
   const fileRef = useRef(null);
   const set = (k, v) => setVals(s => ({ ...s, [k]: v }));
-  const onPickImage = async (e) => { const f = e.target.files?.[0]; if (f && f.type.startsWith('image/')) { try { set('image', await fileToScaledDataUrl(f)); } catch { /* ignore */ } } e.target.value = ''; };
+  const onPickImage = async (e) => { const f = e.target.files?.[0]; if (f && f.type.startsWith('image/')) { try { set('image', await uploadAssetFile(f, true)); } catch { /* ignore */ } } e.target.value = ''; };
   // Address-change reason only applies to properties (a vehicle's "address" is its home base).
   const changedAddr = (row && isProp) ? ADDRESS_FIELDS.filter(([k]) => String(row[k] ?? '') !== String(vals[k] ?? '')) : [];
   const needReason = changedAddr.length > 0;

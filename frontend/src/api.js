@@ -247,6 +247,7 @@ export const api = {
   // Asset Management (property portfolio) — whole-workspace load/save.
   getPropertyWorkspace:  ()   => req("/property-assets/workspace"),
   savePropertyWorkspace: (ws) => req("/property-assets/workspace", { method: "PUT", body: JSON.stringify(ws), timeoutMs: 60_000 }),
+  scanPropertyReminders: ()   => req("/property-assets/reminders/scan", { method: "POST" }),
 
   // Users
   getUsers: () => req("/users"),

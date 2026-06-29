@@ -14,7 +14,8 @@ dataset is tiny (~24 properties + a few hundred child rows), so a whole-blob
 GET / replace-all PUT is the pragmatic, low-risk shape. Later phases can promote
 warranty/inspection date columns for expiry notifications.
 """
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timezone, date
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends
@@ -23,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from auth import get_current_user
-from models import PropertyAsset, PropertyRecord, PropertyActivityLog
+from models import PropertyAsset, PropertyRecord, PropertyActivityLog, NexusNotification
 
 router = APIRouter(tags=["Asset Management"])
 
@@ -120,3 +121,88 @@ def put_workspace(ws: Workspace, db: Session = Depends(get_db), user=Depends(get
 
     db.commit()
     return {"ok": True, "properties": len(ws.properties)}
+
+
+def _parse_ymd(s):
+    if not s:
+        return None
+    try:
+        return date.fromisoformat(str(s)[:10])
+    except Exception:
+        return None
+
+
+@router.post("/property-assets/reminders/scan")
+def scan_reminders(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Scan the portfolio for upcoming/overdue dates and raise ONE deduped bell
+    notification per item (broadcast to managers — recipient=''). Idempotent: a
+    reminder is keyed by (type, ref_id) so re-running on every module open never
+    duplicates. Called by the module on open (Nexus has no scheduler for this)."""
+    today = date.today()
+    props = {p.id: p for p in db.query(PropertyAsset).all()}
+    records = db.query(PropertyRecord).all()
+    # Existing asset reminders, so we don't re-create them.
+    existing = {
+        (n.type, n.ref_id)
+        for n in db.query(NexusNotification).filter(NexusNotification.type.like("asset_%")).all()
+    }
+    created = 0
+
+    def remind(ntype: str, ref_id: str, title: str, body: str, item_name: str):
+        nonlocal created
+        if (ntype, ref_id) in existing:
+            return
+        db.add(NexusNotification(
+            id=str(uuid.uuid4()), type=ntype, recipient="", title=title, body=body,
+            ref_id=ref_id, item_name=item_name, requested_by="", action="",
+            actioned=False, read_by="", created_at=datetime.now(timezone.utc).isoformat(),
+        ))
+        existing.add((ntype, ref_id))
+        created += 1
+
+    def pname(pid: str) -> str:
+        p = props.get(pid)
+        return (p.name if p else "") or pid
+
+    # Warranties expiring within 90 days (or already expired).
+    for r in records:
+        p = r.payload or {}
+        if r.collection == "warranties":
+            d = _parse_ymd(p.get("expiration"))
+            if d is not None and (d - today).days <= 90:
+                nm = pname(r.property_id)
+                overdue = (d - today).days < 0
+                remind("asset_warranty_expiry", r.id,
+                       f"Warranty {'expired' if overdue else 'expiring soon'}: {p.get('scope') or 'warranty'}",
+                       f"{nm}: warranty “{p.get('scope', '')}” {'expired' if overdue else 'expires'} {p.get('expiration')}.",
+                       nm)
+        elif r.collection == "inspections":
+            d = _parse_ymd(p.get("nextDue"))
+            if d is not None and (d - today).days <= 30:
+                nm = pname(r.property_id)
+                overdue = (d - today).days < 0
+                remind("asset_inspection_due", r.id,
+                       f"Inspection {'overdue' if overdue else 'due soon'}: {p.get('type') or 'inspection'}",
+                       f"{nm}: “{p.get('type', '')}” {'was due' if overdue else 'is due'} {p.get('nextDue')}.",
+                       nm)
+
+    # Vehicle/equipment registration, insurance, and next-service dates (on the asset payload).
+    for pid, p in props.items():
+        pl = p.payload or {}
+        if (pl.get("kind") or "") not in ("vehicle", "equipment"):
+            continue
+        for key, label, ntype, window in [
+            ("regExpiration", "Registration", "asset_reg_expiry", 60),
+            ("insExpiration", "Insurance", "asset_ins_expiry", 60),
+            ("nextServiceDate", "Service", "asset_service_due", 30),
+        ]:
+            d = _parse_ymd(pl.get(key))
+            if d is not None and (d - today).days <= window:
+                overdue = (d - today).days < 0
+                remind(ntype, f"{pid}:{key}",
+                       f"{label} {'overdue' if overdue else 'due soon'}: {p.name}",
+                       f"{p.name}: {label.lower()} date {pl.get(key)}.", p.name)
+
+    if created:
+        db.commit()
+    return {"created": created}
