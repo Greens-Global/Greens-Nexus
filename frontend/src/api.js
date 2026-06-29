@@ -244,6 +244,10 @@ export const api = {
   getAssets: () => req("/assets"),
   createAsset: (data) => req("/assets", { method: "POST", body: JSON.stringify(data) }),
 
+  // Asset Management (property portfolio) — whole-workspace load/save.
+  getPropertyWorkspace:  ()   => req("/property-assets/workspace"),
+  savePropertyWorkspace: (ws) => req("/property-assets/workspace", { method: "PUT", body: JSON.stringify(ws), timeoutMs: 60_000 }),
+
   // Users
   getUsers: () => req("/users"),
   createUser: (data) => req("/users", { method: "POST", body: JSON.stringify(data) }),

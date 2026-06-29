@@ -31,6 +31,7 @@ import storageMurrieta from '../data/assets/greens-storage-murrieta.json';
 import greensTowers from '../data/assets/greens-towers-hyderabad.json';
 import wellsFargo from '../data/assets/wells-fargo-san-antonio.json';
 import { msalInstance } from '../msalInstance';
+import { api } from '../api';
 
 const RAW = [georgetown, austin, lakeside, rainbow, escondidoNorth, escondidoSouth, sachse,
   valleyCenterNorth, valleyCenterEast, valleyCenterSouth, greensFamily918, gurudevFamily910, rjkResidence, greensFairfield,
@@ -139,8 +140,6 @@ function adapt() {
   return { properties, warranties, inspections, documents, ahj, utilities, vendors };
 }
 
-const LS_KEY = 'nexus_asset_neil_v2';
-
 // The sample/demo property was removed. Strip it (and its records) from any saved data so it
 // doesn't linger in browsers that seeded it earlier.
 const DEMO_ID = 'demo-greens-storage';
@@ -180,24 +179,20 @@ const migrateTimelineRow = (r) => {
   const s = statusFromNotes(r.notes);
   return s ? { ...r, status: s, notes: '' } : r;
 };
-const loadData = () => {
-  let d; try { const s = localStorage.getItem(LS_KEY); d = s ? JSON.parse(s) : adapt(); } catch { d = adapt(); }
-  // Merge in any newly-seeded properties (new JSON files added since this browser last saved) so
-  // they appear without needing a storage reset. Only adds ids not already present.
+// Hydrate a raw workspace blob (from the server, or freshly adapted from the seed JSON)
+// into the shape the module renders: merge any newly-added seed properties, drop the
+// retired demo card, migrate site groups into primary/secondary hierarchy, and attach the
+// full source sheets + refreshed photos. Pure — no localStorage (data is server-backed now).
+function hydrate(d) {
+  if (!d || !Array.isArray(d.properties)) d = adapt();
+  // Merge in any newly-seeded properties (new JSON files added since the workspace was last
+  // saved) so they appear without a reset. Only adds ids not already present.
   try {
     const have = new Set((d.properties || []).map(p => p.id));
     const additions = adapt().properties.filter(p => !have.has(p.id));
     if (additions.length) d = { ...d, properties: [...(d.properties || []), ...additions] };
   } catch { /* ignore */ }
   d = stripDemo(d);
-  // One-time cleanup: drop the hand-made "Demo" / "DEMO N" test cards left over from early testing
-  // (these were added via Add property, so they live in localStorage). Flag-gated → runs once.
-  try {
-    if (!localStorage.getItem('nexus_asset_demo_cleanup_v1')) {
-      d = { ...d, properties: (d.properties || []).filter(p => !/^demo\b/i.test(String(p.name || '').trim())) };
-      localStorage.setItem('nexus_asset_demo_cleanup_v1', '1');
-    }
-  } catch { /* ignore */ }
   // Migrate existing siteName groups into primary/secondary (parentId) hierarchy — only if no
   // hierarchy exists yet (so we never clobber explicit Role designations). First member = primary.
   if (!d.properties.some(p => p.parentId)) {
@@ -210,13 +205,18 @@ const loadData = () => {
   return { ...d, properties: d.properties.map(p => {
     const e = enrichSource(p);
     // Refresh the seeded image from the source JSON (so updated property photos show even if an
-    // old path is cached in localStorage). User-uploaded images (data URLs) are left untouched.
+    // old path was saved). User-uploaded images (data URLs) are left untouched.
     const src = RAW_BY_ID[e.id];
     const image = (src && src.image && (!e.image || e.image.startsWith('/assets/properties/'))) ? src.image : e.image;
     const e2 = DEV_STAGES.includes(e.devStage) ? { ...e, image } : { ...e, image, devStage: '' };
     return { ...e2, timeline: (e2.timeline || []).map(migrateTimelineRow) };
   }) };
-};
+}
+// Fresh workspace seeded from the bundled portfolio JSON — used the first time the server
+// store is empty.
+const seedData = () => hydrate(adapt());
+// Empty workspace rendered while the server load is in flight.
+const EMPTY_WS = { properties: [], warranties: [], inspections: [], documents: [], ahj: [], utilities: [], vendors: [], logs: [] };
 
 /* ---------- collections config (Neil's exact fields + columns) ---------- */
 const COLLECTIONS = {
@@ -514,7 +514,9 @@ function Stat({ v, l, big }) {
 export default function AssetModule() {
   const role = useRole();
   const isManager = role?.can ? role.can('manager') : false; // managers (lvl ≥ 3) may remove warranties
-  const [data, setData] = useState(loadData);
+  const [data, setData] = useState(EMPTY_WS);
+  const [loading, setLoading] = useState(true);
+  const firstSaveSkip = useRef(true); // skip the save triggered by the initial server load
   const [tab, setTab] = useState('portfolio');
   const [activeId, setActiveId] = useState(null);
   const [filters, setFilters] = useState({});
@@ -534,7 +536,34 @@ export default function AssetModule() {
     setHighlight({ tab: t, section: log.section, field: log.changes?.[0]?.field || '', item: log.item || '', n: Date.now() });
   };
 
-  useEffect(() => { try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch { /* ignore */ } }, [data]);
+  // Load the shared workspace from the server; the first run (empty store) seeds it from the
+  // bundled portfolio JSON and persists that seed. Falls back to the local seed if the API is down.
+  useEffect(() => {
+    let alive = true;
+    api.getPropertyWorkspace()
+      .then(ws => {
+        if (!alive) return;
+        if (ws && Array.isArray(ws.properties) && ws.properties.length) {
+          setData(hydrate(ws));
+        } else {
+          const seed = seedData();
+          setData(seed);
+          api.savePropertyWorkspace(seed).catch(() => {});
+        }
+      })
+      .catch(() => { if (alive) setData(seedData()); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, []);
+
+  // Persist the whole workspace to the server (debounced). Skips the render caused by the initial
+  // load so we don't immediately echo back the data we just fetched.
+  useEffect(() => {
+    if (loading) return;
+    if (firstSaveSkip.current) { firstSaveSkip.current = false; return; }
+    const t = setTimeout(() => { api.savePropertyWorkspace(data).catch(() => {}); }, 700);
+    return () => clearTimeout(t);
+  }, [data, loading]);
   // While viewing the Manage page (which hosts the log), keep logs marked seen so the badge stays clear.
   useEffect(() => {
     if (tab === 'manage') {
@@ -546,6 +575,8 @@ export default function AssetModule() {
   }, [tab, data.logs]);
   // Auto-clear the field highlight a few seconds after a "Go to".
   useEffect(() => { if (highlight) { const id = setTimeout(() => setHighlight(null), 4000); return () => clearTimeout(id); } }, [highlight]);
+
+  if (loading) return <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-secondary)', fontWeight: 500, fontSize: '0.9rem' }}>Loading portfolio…</div>;
 
   const props = data.properties.filter(p => !p.deleted);   // live cards (deleted ones go to the recover bin)
   const deletedProps = data.properties.filter(p => p.deleted);

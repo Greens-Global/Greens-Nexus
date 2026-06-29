@@ -762,3 +762,48 @@ class PageHelp(Base):
     source     = Column(String, default="ai")           # ai | fallback | manual
     updated_at = Column(String, default="")
     updated_by = Column(String, default="")
+
+
+# ---------------------------------------------------------------------------
+# Asset Management (property portfolio) — Ankush's module.
+# The UI data is semi-structured: each property has a wide set of header fields
+# PLUS free-form snapshot / timeline / permit "sheets", and a handful of flat
+# child collections (warranties, inspections, documents, utilities, AHJ,
+# vendors) keyed by property. Rather than 50+ columns and 6 near-identical
+# tables, the full objects live in JSON `payload` columns with a few fields
+# promoted for listing/queries. The module loads/saves the whole workspace as
+# one blob — see routers/property_assets.py. create_all builds these on startup.
+# ---------------------------------------------------------------------------
+class PropertyAsset(Base):
+    """One real-estate property / parcel in the Asset Management portfolio."""
+    __tablename__ = "property_assets"
+    id         = Column(String, primary_key=True)   # slug, e.g. "greens-georgetown"
+    name       = Column(String, default="")
+    manager    = Column(String, default="")          # PM / Asset Manager (name)
+    asset_type = Column(String, default="")
+    parent_id  = Column(String, default="")          # primary asset id when this is a secondary
+    payload    = Column(JSON, default=dict)          # the entire property object
+    updated_at = Column(String, default="")
+    updated_by = Column(String, default="")
+
+
+class PropertyRecord(Base):
+    """A child row under a property — generic across the flat collections so the
+    {collection: rows[]} workspace round-trips losslessly. `collection` is one of
+    warranties | inspections | documents | utilities | ahj | vendors."""
+    __tablename__ = "property_records"
+    id          = Column(String, primary_key=True)   # uuid (unique across collections)
+    property_id = Column(String, default="")
+    collection  = Column(String, nullable=False)
+    payload     = Column(JSON, default=dict)
+    updated_at  = Column(String, default="")
+
+
+class PropertyActivityLog(Base):
+    """Asset Management activity-log entry (who changed what) for the global Log
+    and field-level undo. Persisted as the module emits them."""
+    __tablename__ = "property_activity_logs"
+    id          = Column(String, primary_key=True)   # uuid
+    property_id = Column(String, default="")
+    payload     = Column(JSON, default=dict)
+    created_at  = Column(String, default="")
