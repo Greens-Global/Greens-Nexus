@@ -626,7 +626,7 @@ const VEHICLE_SEEDS = [
 
 // Per-property tabs. The change Log is intentionally NOT here — per Neil it is global and lives
 // on the Manage page, not on each property card.
-const TABS = [['portfolio', 'Portfolio'], ['property', 'Property'], ['vservice', 'Service & Maintenance'], ['odometer', 'Odometer'], ['warranties', 'Warranties'], ['inspections', 'Inspections'], ['documents', 'Plans & Docs'], ['utilsahj', 'Utilities & AHJ'], ['vendors', 'Vendors'], ['timeline', 'Timeline'], ['permit', 'Permits']];
+const TABS = [['portfolio', 'Portfolio'], ['property', 'Overview'], ['vservice', 'Service & Maintenance'], ['odometer', 'Odometer'], ['warranties', 'Warranties'], ['inspections', 'Inspections'], ['documents', 'Plans & Docs'], ['utilsahj', 'Utilities & AHJ'], ['vendors', 'Vendors'], ['timeline', 'Timeline'], ['permit', 'Permits']];
 // Which collection(s) the single top-bar Search filters for each tab (absent = no searchable table).
 const TAB_COLLS = { vservice: ['vservice'], odometer: ['odometer'], warranties: ['warranties'], inspections: ['inspections'], documents: ['documents'], utilsahj: ['utilities', 'ahj'], vendors: ['vendors'] };
 const LOGS_SEEN_KEY = 'nexus_asset_logs_seen';
@@ -957,6 +957,7 @@ export default function AssetModule() {
         /* clear clickable highlight on linked-property / list rows */
         .asset-linkrow { position: relative; transition: background-color .14s ease, box-shadow .14s ease; }
         .asset-linkrow:hover { background-color: var(--bg-card); box-shadow: inset 0 0 0 1.5px var(--pine); }
+        @media (max-width: 860px) { .asset-toc { display: none !important; } }
       `}</style>
       {/* Landing header — only on the portfolio landing (hidden on the Manage page, which has its own) */}
       {!active && tab !== 'manage' && (() => {
@@ -966,6 +967,7 @@ export default function AssetModule() {
             <div>
               <h1 style={{ fontSize: '1.5rem', fontFamily: "'Plus Jakarta Sans', sans-serif", letterSpacing: '-0.02em', margin: 0 }}>Asset Management</h1>
               <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginTop: 4 }}>{st.assets} assets</div>
+              <PortfolioPulse data={data} />
             </div>
             <div style={{ marginLeft: 'auto' }}>
               <button className="primary-btn" onClick={() => openTab('manage')} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -979,15 +981,18 @@ export default function AssetModule() {
 
       {/* Selected property name + address (left) + actions (right) — single header, on top of everything */}
       {active && (
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-          <div style={{ minWidth: 0 }}>
-            <h1 style={{ fontSize: '1.5rem', fontFamily: "'Plus Jakarta Sans', sans-serif", letterSpacing: '-0.01em', color: 'var(--text-primary)', margin: 0 }}>{active.name}</h1>
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 3 }}>{fmtAddress(active) || '—'}</div>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ minWidth: 0 }}>
+              <h1 style={{ fontSize: '1.5rem', fontFamily: "'Plus Jakarta Sans', sans-serif", letterSpacing: '-0.01em', color: 'var(--text-primary)', margin: 0 }}>{active.name}</h1>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 3 }}>{fmtAddress(active) || '—'}</div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', flexWrap: 'wrap' }}>
+              <button className="secondary-btn" onClick={() => exportReport(active, data)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FileDown size={14} /> Export PDF</button>
+              {tab === 'property' && <button className="primary-btn" onClick={() => setModal({ type: 'property', id: active.id })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Pencil size={14} /> Edit {inferAssetKind(active) === 'property' ? 'property' : 'asset'}</button>}
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', flexWrap: 'wrap' }}>
-            <button className="secondary-btn" onClick={() => exportReport(active, data)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FileDown size={14} /> Export PDF</button>
-            {tab === 'property' && <button className="primary-btn" onClick={() => setModal({ type: 'property', id: active.id })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Pencil size={14} /> Edit {inferAssetKind(active) === 'property' ? 'property' : 'asset'}</button>}
-          </div>
+          <HealthStrip p={active} data={data} />
         </div>
       )}
 
@@ -1364,6 +1369,14 @@ function PropCard({ pr, openProperty, secondaries = [] }) {
   const headerName = (hasSecs && pr.siteName) ? pr.siteName : pr.name;
   const fullAddress = fmtAddress(pr) || '—';
   const thumb = (pr.images && pr.images[0]) || pr.image || '';
+  const kind = inferAssetKind(pr);
+  // Photo-forward cover: the property photo fills the header with a dark gradient scrim so the
+  // overlaid white name stays legible. Vehicles/equipment use contain-on-white; no photo → navy.
+  const coverBg = thumb
+    ? `linear-gradient(180deg, rgba(15,23,42,.10) 0%, rgba(13,20,34,.48) 54%, rgba(8,12,22,.92) 100%), url("${thumb}") ${kind !== 'property' ? 'center/contain' : 'center 30%/cover'} no-repeat${kind !== 'property' ? ' #fff' : ''}`
+    : 'linear-gradient(150deg, #202c47 0%, #0d1422 100%)';
+  const subtitle = hasSecs ? `${family.length} linked properties`
+    : (kind === 'property' ? fullAddress : ([pr.make, pr.model, pr.trim].filter(Boolean).join(' ') || pr.color || fullAddress));
   const open = () => openProperty(pr.id);
   const frost = { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.66rem', fontWeight: 700, color: '#fff', padding: '4px 10px', borderRadius: 999, whiteSpace: 'nowrap' };
   return (
@@ -1376,24 +1389,21 @@ function PropCard({ pr, openProperty, secondaries = [] }) {
     <div className="asset-card" role="button" tabIndex={0} aria-label={`Open ${headerName}`}
       onClick={open} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}
       style={{ position: 'relative', zIndex: 1, backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, boxShadow: 'var(--shadow-sm)', display: 'flex', flexDirection: 'column', overflow: 'hidden', height: '100%' }}>
-      {/* dark header band (no photo) — status pills, then NAME → address, with a faint asset-type watermark */}
-      <div style={{ position: 'relative', padding: '12px 18px 15px', background: 'linear-gradient(150deg, #202c47 0%, #0d1422 100%)', overflow: 'hidden' }}>
-        {createElement(typeIcon, { size: 120, style: { position: 'absolute', right: -14, top: 4, color: '#fff', opacity: 0.07 } })}
-        {/* stage badge pinned to the top-right corner so standalone headers have no empty top band */}
-        <span style={{ position: 'absolute', top: 13, right: 14, zIndex: 2, ...frost, backgroundColor: 'rgba(0,0,0,0.3)' }}><span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: `hsl(var(--color-${sc}))` }} />{stage}</span>
-        {/* linked-group pill — only on group cards, on its own line above the name */}
-        {hasSecs && <div style={{ position: 'relative', marginBottom: 10 }}><span style={{ ...frost, backgroundColor: 'rgba(255,255,255,0.13)', border: '1px solid rgba(255,255,255,0.2)' }}><Link2 size={11} /> Linked group</span></div>}
-        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 11, minWidth: 0, paddingRight: hasSecs ? 0 : 74 }}>
-          {/* small image-as-icon — property photo when present, else the asset-type icon */}
-          <span style={{ flexShrink: 0, width: 44, height: 44, borderRadius: 10, overflow: 'hidden', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#fff', backgroundColor: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)' }}>
-            {thumb
-              ? <img src={thumb} alt="" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              : createElement(typeIcon, { size: 22 })}
-          </span>
+      {/* photo-forward cover — property photo fills the header, name overlaid; faint icon watermark when no photo */}
+      <div className="asset-card__cover" style={{ position: 'relative', minHeight: 152, padding: '12px 14px 13px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 8, background: coverBg, overflow: 'hidden' }}>
+        {!thumb && createElement(typeIcon, { size: 120, style: { position: 'absolute', right: -14, top: 4, color: '#fff', opacity: 0.07 } })}
+        {/* top row: asset-class icon (left) + linked-group badge (right) */}
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+          <span style={{ flexShrink: 0, display: 'inline-flex', color: 'rgba(255,255,255,0.96)', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,.5))' }}>{createElement(typeIcon, { size: 26, strokeWidth: 1.7 })}</span>
+          {hasSecs && <span style={{ ...frost, backgroundColor: 'rgba(255,255,255,0.16)', border: '1px solid rgba(255,255,255,0.22)' }}><Link2 size={11} /> Linked group</span>}
+        </div>
+        {/* bottom row: name + subtitle (left) + stage pill (right) */}
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10 }}>
           <div style={{ minWidth: 0 }}>
-            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, fontFamily: "'Plus Jakarta Sans', sans-serif", color: '#fff', margin: 0, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{headerName}</h3>
-            <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.78)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{hasSecs ? `${family.length} linked properties` : fullAddress}</div>
+            <h3 style={{ fontSize: '1.18rem', fontWeight: 800, fontFamily: "'Plus Jakarta Sans', sans-serif", color: '#fff', margin: 0, lineHeight: 1.16, textShadow: '0 1px 3px rgba(0,0,0,.5)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{headerName}</h3>
+            <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.85)', marginTop: 2, textShadow: '0 1px 2px rgba(0,0,0,.45)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subtitle}</div>
           </div>
+          <span style={{ ...frost, flexShrink: 0, backgroundColor: 'rgba(0,0,0,0.46)', border: '1px solid rgba(255,255,255,0.14)' }}><span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: `hsl(var(--color-${sc}))` }} />{stage}</span>
         </div>
       </div>
       {/* white body — asset type → owner / manager, stats, footer */}
@@ -1544,78 +1554,185 @@ function LinkedListRow({ pr, secondaries, openProperty }) {
 }
 
 /* ---------- property detail ---------- */
+/* ---------- detail: rich section template (Neil's PT) + health signals ---------- */
+const normLabel = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const creFmt = (v, t) => {
+  if (v == null || String(v).trim() === '') return '';
+  if (t === 'money') return fmtMoney(v);
+  if (t === 'date') return fmtDate(v);
+  if (t === 'pct') { const n = String(v).trim(); return /%/.test(n) ? n : n + '%'; }
+  if (t === 'num') return fmtNum(v);
+  return v;
+};
+// Comprehensive property detail schema. `key` pulls from the record; otherwise the value is matched
+// from the property's snapshot by normalized label (so Financial/Debt/Leasing fill in as data lands).
+// `dev` fields/groups are hidden once the asset is Stabilized. `t` drives formatting.
+const PT = [
+  { g: 'Project Details', fields: [{ l: 'Project Name', key: 'name' }, { l: 'Property Address', key: 'address' }, { l: 'City', key: 'city' }, { l: 'County', key: 'county' }, { l: 'State', key: 'state' }, { l: 'Zip', key: 'zip' }, { l: 'APN', key: 'apn' }, { l: 'Legal Description' }, { l: 'Current Use' }, { l: 'Proposed Use', dev: true }, { l: 'Development Stage', t: 'stage', dev: true }] },
+  { g: 'Financial & Investment', fields: [{ l: 'Acquisition Date', t: 'date' }, { l: 'Acquisition Price', t: 'money' }, { l: 'Total Cost Basis', t: 'money' }, { l: 'Current / Appraised Value', t: 'money' }, { l: 'Valuation Date', t: 'date' }, { l: 'Going-in Cap Rate', t: 'pct' }, { l: 'Current Cap Rate', t: 'pct' }, { l: 'NOI (In-Place)', t: 'money' }, { l: 'NOI (Pro Forma)', t: 'money' }, { l: 'Occupancy %', t: 'pct' }, { l: 'Hold Strategy' }, { l: 'Target Hold (yrs)' }, { l: 'Projected IRR', t: 'pct' }, { l: 'Equity Multiple' }] },
+  { g: 'Debt / Financing', fields: [{ l: 'Lender' }, { l: 'Loan Number' }, { l: 'Original Balance', t: 'money' }, { l: 'Current Balance', t: 'money' }, { l: 'Interest Rate', t: 'pct' }, { l: 'Rate Type' }, { l: 'Maturity Date', t: 'date' }, { l: 'Amortization' }, { l: 'LTV', t: 'pct' }, { l: 'DSCR' }, { l: 'Recourse' }, { l: 'Prepay / Lockout' }] },
+  { g: 'Leasing & Tenancy', fields: [{ l: 'Tenant' }, { l: 'Lease Structure' }, { l: 'Commencement', t: 'date' }, { l: 'Expiration', t: 'date' }, { l: 'Base Rent (Annual)', t: 'money' }, { l: 'Rent PSF' }, { l: 'Escalations' }, { l: 'Renewal Options' }, { l: 'Guarantor' }, { l: 'WALT (yrs)' }, { l: 'Leased Occupancy', t: 'pct' }] },
+  { g: 'Unit Mix', fields: [{ l: 'Non-Climate Units', key: 'unitsNonClimate', t: 'num' }, { l: 'Climate Units', key: 'unitsClimate', t: 'num' }, { l: 'RV / Vehicle Spaces', key: 'unitsRV', t: 'num' }, { l: 'Total Units', key: 'unitsTotal', t: 'num' }] },
+  { g: 'Insurance', fields: [{ l: 'Carrier', key: 'insCarrier' }, { l: 'Policy Number', key: 'insPolicy' }, { l: 'Coverage' }, { l: 'Policy Expiration', key: 'insExpiration', t: 'date' }, { l: 'Agent / Broker', key: 'insAgent' }, { l: 'Agent Phone', key: 'insPhone' }] },
+  { g: 'Property Tax', fields: [{ l: 'Tax / Parcel Account', key: 'taxId' }, { l: 'Assessed Value', t: 'money' }, { l: 'Annual Tax', key: 'taxAnnual', t: 'money' }, { l: 'Tax Rate' }, { l: 'Due Dates', key: 'taxDue' }] },
+  { g: 'Ownership + Core Team', fields: [{ l: 'Ownership Entity', key: 'entity' }, { l: 'PM / Asset Manager', key: 'manager' }, { l: 'Developer / Sponsor', dev: true }, { l: 'Seller (if applicable)', dev: true }, { l: 'Architect', dev: true }, { l: 'Civil', dev: true }, { l: 'Structural', dev: true }, { l: 'MEP', dev: true }, { l: 'GC / CM', key: 'builder', dev: true }, { l: 'Land Use Attorney', dev: true }, { l: 'Title / Escrow', dev: true }] },
+  { g: 'Site Data', dev: true, fields: [{ l: 'Lot Size (SF / Acres)', key: 'acreage' }, { l: 'Dimensions' }, { l: 'Topography' }, { l: 'Access Points' }, { l: 'Street Frontage' }, { l: 'Easements / Encroachments' }, { l: 'Flood Zone', key: 'floodZone' }, { l: 'Soils / Geotech Notes' }] },
+  { g: 'Zoning + Land Use', dev: true, fields: [{ l: 'Jurisdiction' }, { l: 'General Plan' }, { l: 'Zoning', key: 'zoning' }, { l: 'Overlays / Specific Plan' }, { l: 'Height / FAR Limits' }, { l: 'Setbacks (F/S/R)' }, { l: 'Parking Required' }, { l: 'Design Review / CUP / Variance' }] },
+  { g: 'Existing Improvements', fields: [{ l: 'Existing Structures' }, { l: 'Existing Building SF', key: 'nrsf', t: 'num' }, { l: 'Year Built', key: 'yearBuilt' }, { l: 'Occupancy (Vacant/Tenant)' }, { l: 'Demo Needed', dev: true }, { l: 'Known Issues / Violations' }] },
+];
+const snapMap = (p) => { const m = {}; (p.snapshot || []).forEach(g => (g.fields || []).forEach(f => { m[normLabel(f.label)] = f.value; })); return m; };
+// Resolve an asset into [{title, fields:[[label,value]]}] for the Overview. Vehicles/equipment
+// render their own snapshot groups (Vehicle / Assignment / Registration / Service / …); properties
+// use the rich PT template — dev-stage fields/groups drop once Stabilized.
+function ptSections(p) {
+  if (inferAssetKind(p) !== 'property') {
+    return (p.snapshot || []).map(g => ({ title: g.group, fields: (g.fields || []).map(f => [f.label, f.value]) })).filter(g => g.fields.length);
+  }
+  const snap = snapMap(p);
+  const stabilized = String(p.devStage || '').toLowerCase().includes('stabil');
+  return PT.filter(g => !(g.dev && stabilized)).map(g => ({
+    title: g.g,
+    fields: g.fields.filter(f => !(f.dev && stabilized)).map(f => {
+      const raw = f.l === 'Development Stage' ? p.devStage : (f.key ? p[f.key] : snap[normLabel(f.l)]);
+      return [f.l, creFmt(raw, f.t)];
+    }),
+  }));
+}
+// Health signals — vehicle/equipment vs property branches. Tone ∈ ok|warn|bad|mut|info. dleft = days-until.
+function assetSignals(p, store) {
+  const snap = snapMap(p);
+  const sig = [];
+  if (inferAssetKind(p) !== 'property') {
+    const dI = dleft(p.insExpiration || snap['policy expiration']);
+    sig.push(dI == null ? { l: 'Insurance', v: 'Not on file', t: 'mut' } : dI < 0 ? { l: 'Insurance', v: 'Lapsed', t: 'bad' } : dI <= 60 ? { l: 'Insurance', v: dI + 'd to renewal', t: 'warn' } : { l: 'Insurance', v: 'Active', t: 'ok' });
+    const dR = dleft(p.regExpiration || snap['registration expiration']);
+    sig.push(dR == null ? { l: 'Registration', v: 'Not on file', t: 'mut' } : dR < 0 ? { l: 'Registration', v: 'Expired', t: 'bad' } : dR <= 60 ? { l: 'Registration', v: dR + 'd left', t: 'warn' } : { l: 'Registration', v: 'Current', t: 'ok' });
+    const sv = (store.vservice || []).filter(x => x.propertyId === p.id);
+    const dN = dleft(p.nextServiceDate || snap['next service due']);
+    sig.push(dN == null ? (sv.length ? { l: 'Service', v: sv.length + ' on file', t: 'info' } : { l: 'Service', v: 'None logged', t: 'mut' }) : dN < 0 ? { l: 'Service', v: 'Overdue', t: 'bad' } : dN <= 30 ? { l: 'Service', v: 'Due ' + dN + 'd', t: 'warn' } : { l: 'Service', v: 'Current', t: 'ok' });
+    const od = (store.odometer || []).filter(x => x.propertyId === p.id);
+    const lr = od.map(x => x.date).filter(Boolean).sort().pop();
+    const dO = lr ? -dleft(lr) : null;
+    sig.push(dO == null ? { l: 'Odometer', v: 'No reading', t: 'mut' } : dO > 365 ? { l: 'Odometer', v: 'Reading due', t: 'warn' } : { l: 'Odometer', v: 'Current', t: 'ok' });
+    return sig;
+  }
+  const dI = dleft(p.insExpiration || snap['policy expiration']);
+  sig.push(dI == null ? { l: 'Insurance', v: 'Not on file', t: 'mut' } : dI < 0 ? { l: 'Insurance', v: 'Lapsed', t: 'bad' } : dI <= 90 ? { l: 'Insurance', v: dI + 'd to renewal', t: 'warn' } : { l: 'Insurance', v: 'Active', t: 'ok' });
+  const insp = (store.inspections || []).filter(x => x.propertyId === p.id);
+  const due = insp.map(x => dleft(x.nextDue)).filter(x => x != null);
+  const nd = due.length ? Math.min(...due) : null;
+  sig.push(!insp.length ? { l: 'Inspections', v: 'None scheduled', t: 'mut' } : nd == null ? { l: 'Inspections', v: insp.length + ' on file', t: 'info' } : nd < 0 ? { l: 'Inspections', v: 'Overdue', t: 'bad' } : nd <= 30 ? { l: 'Inspections', v: 'Due ' + nd + 'd', t: 'warn' } : { l: 'Inspections', v: 'Current', t: 'ok' });
+  const pm = p.permits || [];
+  const op = pm.filter(x => /open|process|in review|pending|violation|submitted|out to applicant/i.test(JSON.stringify(x).toLowerCase())).length;
+  sig.push(!pm.length ? { l: 'Permits', v: 'None tracked', t: 'mut' } : op ? { l: 'Permits', v: op + ' in process', t: 'info' } : { l: 'Permits', v: pm.length + ' on file', t: 'ok' });
+  const mat = snap['maturity date'];
+  const dm = dleft(mat);
+  sig.push(!mat ? { l: 'Debt', v: 'None recorded', t: 'mut' } : dm < 0 ? { l: 'Debt', v: 'Matured', t: 'bad' } : { l: 'Debt', v: 'Matures ' + fmtDate(mat), t: dm <= 180 ? 'warn' : 'ok' });
+  return sig;
+}
+// Freshness — most recent activity-log entry for this asset (green→ok, gold→warn so the chip colors).
+function freshMeta(logs, id) {
+  const ts = (logs || []).filter(l => l.propertyId === id).map(l => l.ts).filter(Boolean).sort().pop();
+  if (!ts) return { l: 'Freshness', v: 'Not yet updated', t: 'mut' };
+  const d = -dleft(ts);
+  const rel = d <= 0 ? 'today' : d === 1 ? 'yesterday' : d < 30 ? d + 'd ago' : fmtDate(ts);
+  return { l: 'Freshness', v: 'Updated ' + rel, t: d <= 30 ? 'ok' : d <= 120 ? 'warn' : 'mut' };
+}
+const SIGNAL_TONE = { ok: 'green', warn: 'orange', bad: 'red', info: 'blue' };
+function HealthChip({ label, val, tone }) {
+  const col = tone === 'mut' ? 'var(--text-secondary)' : `hsl(var(--color-${SIGNAL_TONE[tone]}))`;
+  const dot = tone === 'mut' ? 'var(--text-muted)' : col;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 11px', borderRadius: 10, border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-card)', whiteSpace: 'nowrap' }}>
+      <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: dot }} />
+      <span style={{ fontSize: '0.72rem' }}><span style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--text-muted)' }}>{label}</span>{' '}<span style={{ color: col, fontWeight: 600 }}>{val}</span></span>
+    </span>
+  );
+}
+// The signal-chip row on the asset detail header.
+function HealthStrip({ p, data }) {
+  const sig = assetSignals(p, data || {});
+  const fresh = freshMeta((data && data.logs) || [], p.id);
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12, alignItems: 'center' }}>
+      {[...sig, fresh].map((x, i) => <HealthChip key={i} label={x.l} val={x.v} tone={x.t} />)}
+    </div>
+  );
+}
+
+// Portfolio-wide attention pills shown under the landing header (insurance / inspections /
+// permits / loans). Mirrors the desktop's PortfolioPulse.
+function PortfolioPulse({ data }) {
+  const props = (data.properties || []).filter(p => !p.deleted);
+  let insLapsed = 0, insSoon = 0, inspOverdue = 0, permitsOpen = 0, loansMaturing = 0;
+  props.forEach(p => {
+    const snap = snapMap(p);
+    const dI = dleft(p.insExpiration || snap['policy expiration']);
+    if (dI != null) { if (dI < 0) insLapsed++; else if (dI <= 90) insSoon++; }
+    (p.permits || []).forEach(x => { if (/open|process|in review|pending|violation|submitted|out to applicant/i.test(JSON.stringify(x).toLowerCase())) permitsOpen++; });
+    const dm = dleft(snap['maturity date']);
+    if (dm != null && dm >= 0 && dm <= 180) loansMaturing++;
+  });
+  (data.inspections || []).forEach(r => { const d = dleft(r.nextDue); if (d != null && d < 0) inspOverdue++; });
+  const pills = [];
+  if (insLapsed) pills.push([`${insLapsed} insurance lapsed`, 'red']);
+  if (insSoon) pills.push([`${insSoon} insurance expiring`, 'orange']);
+  if (inspOverdue) pills.push([`${inspOverdue} inspection${inspOverdue > 1 ? 's' : ''} overdue`, 'red']);
+  if (permitsOpen) pills.push([`${permitsOpen} permits in process`, 'blue']);
+  if (loansMaturing) pills.push([`${loansMaturing} loan${loansMaturing > 1 ? 's' : ''} maturing`, 'orange']);
+  const dot = (c) => ({ width: 6, height: 6, borderRadius: '50%', backgroundColor: `hsl(var(--color-${c}))` });
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, alignItems: 'center', marginTop: 8 }}>
+      {pills.length === 0
+        ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', fontWeight: 600, color: 'hsl(var(--color-green))' }}><span style={dot('green')} />All clear — nothing needs attention</span>
+        : pills.map(([txt, c], i) => <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', fontWeight: 600, padding: '3px 10px', borderRadius: 999, color: `hsl(var(--color-${c}))`, backgroundColor: `hsla(var(--color-${c}), 0.12)` }}><span style={dot(c)} />{txt}</span>)}
+    </div>
+  );
+}
+
 function PropertyDetail({ p, onSaveImages, highlight }) {
   const hlField = (highlight?.field || '').toLowerCase();
-  // Each section can be collapsed/expanded independently (all collapsed by default).
-  const [open, setOpen] = useState(() => new Set());
-  const toggle = (i) => setOpen(s => { const n = new Set(s); n.has(i) ? n.delete(i) : n.add(i); return n; });
-  // Sections are read-only here — all property editing happens from the portfolio card's Edit button.
-  // Show the FULL property snapshot (every group + field from the Excel). For properties
-  // without a snapshot (demo / manually added) fall back to the flat fields.
-  let sections = (p.snapshot && p.snapshot.length)
-    ? p.snapshot.filter(g => !/^(unit mix|insurance|property tax)$/i.test(String(g.group || '').trim())).map((g, i) => ({ n: i + 1, title: g.group, fields: (g.fields || []).map(f => {
-        const label = String(f.label || '').replace(/\s*\(Feasibility[^)]*Stabilized\)\s*/i, '').replace(/^APN\(s\)$/i, 'APN').trim();
-        // Development Stage must be one of the 5 standard values — otherwise blank (e.g. legacy "Built").
-        const value = /^development stage$/i.test(label) && !DEV_STAGES.includes(String(f.value)) ? '' : f.value;
-        return [label, value];
-      }) }))
-    : [
-      { n: 1, title: 'Identity & ownership', fields: [['Parcel role', p.parcelRole], ['Operating entity', p.entity], ['Builder (GC)', p.builder], ['Asset manager', p.manager], ['Street address', p.address], ['City', p.city], ['State', p.state], ['County', p.county], ['ZIP', p.zip], ['APN', p.apn], ['Legal description', p.legalDesc]] },
-      { n: 2, title: 'Building & site', fields: [['Year built', p.yearBuilt], ['Construction', p.constructionType], ['Stories', p.stories], ['NRSF', p.nrsf ? fmtNum(p.nrsf) : ''], ['GSF', p.gsf ? fmtNum(p.gsf) : ''], ['Acreage', p.acreage], ['Zoning / land use', p.zoning], ['Flood zone', p.floodZone], ['Sprinklered', p.sprinklered], ['Alarm monitored', p.alarmMonitored], ['Development stage', p.devStage]] },
-    ];
-  // Standard sections shown on EVERY property (numbered, continuing the sequence) so they're
-  // always viewable even before their data is filled in.
-  // Unit Mix, Insurance and Property Tax sections intentionally omitted from the detail view (their
-  // fields still live on the Edit property form). Removed per request — not wanted as detail sections.
-  // "Go to field" from Logs — auto-expand the section that holds the highlighted field so it's visible.
-  useEffect(() => {
-    if (!hlField) return;
-    const gi = sections.findIndex(s => (s.fields || []).some(([label]) => String(label).toLowerCase() === hlField));
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (gi >= 0) setOpen(o => (o.has(gi) ? o : new Set(o).add(gi)));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hlField]);
+  const sections = ptSections(p);
+  const isProp = inferAssetKind(p) === 'property';
+  const jump = (id) => { const el = document.getElementById(id); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  const lblStyle = { fontSize: '0.78rem', fontWeight: 500, color: 'var(--text-secondary)', lineHeight: 1.4 };
+  const secCard = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, boxShadow: 'var(--shadow-sm)', overflow: 'hidden', scrollMarginTop: 64 };
+  const toc = [...sections.map((s, i) => [`gt-sec${i}`, s.title]), ...(isProp ? [['gt-map', 'Map']] : []), ['gt-media', 'Media']];
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {sections.map((s, i) => {
-        const isOpen = open.has(i);
-        return (
-        <Panel key={i}>
-          <div onClick={() => toggle(i)} title={isOpen ? 'Collapse section' : 'Expand section'}
-            style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', userSelect: 'none', marginBottom: isOpen ? 14 : 0, paddingBottom: isOpen ? 10 : 0, borderBottom: isOpen ? '1px solid var(--border-color)' : 'none' }}>
-            {s.n != null && <span style={{ width: 22, height: 22, borderRadius: 6, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontFamily: MONO, fontSize: '0.72rem', fontWeight: 700, color: '#fff', backgroundColor: 'var(--pine)' }}>{s.n}</span>}
-            <strong style={{ fontSize: '0.95rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{s.title}</strong>
-            <ChevronDown size={18} style={{ marginLeft: 'auto', color: 'var(--text-secondary)', transition: 'transform 0.2s', transform: isOpen ? 'rotate(0deg)' : 'rotate(-90deg)' }} />
-          </div>
-          {isOpen && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(185px, 1fr))', gap: '14px 22px' }}>
-            {s.fields.map(([label, value], j) => {
-              const hl = hlField && label.toLowerCase() === hlField;
-              return (
-                <div key={j} ref={hl ? (el => el && el.scrollIntoView({ behavior: 'smooth', block: 'center' })) : null}
-                  style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: hl ? '6px 9px' : 0, margin: hl ? '-6px -9px' : 0, borderRadius: 8, transition: 'background-color 0.3s', backgroundColor: hl ? 'hsla(var(--color-gold), 0.22)' : 'transparent', boxShadow: hl ? '0 0 0 2px hsl(var(--color-gold))' : 'none' }}>
-                  <span style={microLabel}>{label}</span>
-                  <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', wordBreak: 'break-word', fontFamily: looksNumeric(value) ? MONO : undefined }}>{(value ?? '') === '' ? '—' : value}</span>
-                </div>
-              );
-            })}
-          </div>
-          )}
-        </Panel>
-        );
-      })}
+    <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
+      {/* sticky "On this page" table of contents (hidden on narrow screens via .asset-toc) */}
+      <nav className="asset-toc" style={{ position: 'sticky', top: 16, flexShrink: 0, width: 178, display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <div style={{ ...microLabel, padding: '2px 11px 8px' }}>On this page</div>
+        {toc.map(([id, title]) => (
+          <button key={id} onClick={() => jump(id)} style={{ textAlign: 'left', padding: '7px 11px', borderRadius: 8, border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-secondary)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}>{title}</button>
+        ))}
+      </nav>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {sections.map((sec, si) => (
+          <section key={si} id={`gt-sec${si}`} style={secCard}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
+              <strong style={{ fontSize: '0.98rem', fontFamily: "'Plus Jakarta Sans', sans-serif", color: 'var(--text-primary)' }}>{sec.title}</strong>
+              <span style={{ marginLeft: 'auto', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)' }}>{sec.fields.length} fields</span>
+            </div>
+            <div>
+              {sec.fields.map(([L, V], fi) => {
+                const hl = hlField && String(L).toLowerCase() === hlField;
+                return (
+                  <div key={fi} ref={hl ? (el => el && el.scrollIntoView({ behavior: 'smooth', block: 'center' })) : null}
+                    style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 36%) 1fr', gap: 16, alignItems: 'baseline', padding: '9px 18px', borderTop: fi ? '1px solid var(--border-color)' : 'none', background: hl ? 'hsla(var(--color-gold), 0.16)' : 'transparent', scrollMarginTop: 64 }}>
+                    <span style={lblStyle}>{L}</span>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', wordBreak: 'break-word', fontVariantNumeric: 'tabular-nums' }}>{(V ?? '') === '' ? '—' : V}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+        {isProp && <div id="gt-map" style={{ scrollMarginTop: 64 }}><MapSection p={p} /></div>}
+        <div id="gt-media" style={{ scrollMarginTop: 64 }}><MediaSection p={p} onSave={onSaveImages} /></div>
       </div>
-      {/* Map (full width, read-only) + Media (pictures, editable) — two separate collapsible sections.
-          Vehicles/equipment have no address, so the Map is hidden for them. */}
-      {(() => {
-        const base = sections.reduce((m, s) => (s.n != null && s.n > m ? s.n : m), 0);
-        const isProp = inferAssetKind(p) === 'property';
-        return <>
-          {isProp && <MapSection p={p} n={base + 1} />}
-          <MediaSection p={p} n={base + (isProp ? 2 : 1)} onSave={onSaveImages} />
-        </>;
-      })()}
     </div>
   );
 }
