@@ -3,7 +3,7 @@
 // 14-property portfolio (mapped into the template's flat data model) and persisted
 // to localStorage. Navy accent uses var(--pine) so it stays correct in dark mode.
 import { useState, useEffect, useRef, createElement } from 'react';
-import { Plus, X, ArrowLeft, ArrowRight, Link2, FileDown, Search, Building2, ChevronDown, Upload, FileText, LayoutGrid, List, Settings, Warehouse, Truck, Store, Stethoscope, Home, Building, Trees, Pencil, Trash2, RotateCcw, Filter } from 'lucide-react';
+import { Plus, X, ArrowLeft, ArrowRight, Link2, FileDown, Search, Building2, ChevronDown, Upload, FileText, LayoutGrid, List, Settings, Warehouse, Truck, Store, Stethoscope, Home, Building, Trees, Pencil, Trash2, RotateCcw, Filter, Car, Wrench } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 
 import georgetown from '../data/assets/greens-georgetown.json';
@@ -31,6 +31,8 @@ import storageMurrieta from '../data/assets/greens-storage-murrieta.json';
 import greensTowers from '../data/assets/greens-towers-hyderabad.json';
 import wellsFargo from '../data/assets/wells-fargo-san-antonio.json';
 import { msalInstance } from '../msalInstance';
+import { api } from '../api';
+import { supabase } from '../lib/supabase';
 
 const RAW = [georgetown, austin, lakeside, rainbow, escondidoNorth, escondidoSouth, sachse,
   valleyCenterNorth, valleyCenterEast, valleyCenterSouth, greensFamily918, gurudevFamily910, rjkResidence, greensFairfield,
@@ -86,6 +88,26 @@ function fileToDataUrl(file) {
     reader.readAsDataURL(file);
   });
 }
+// data URL → Blob (so a scaled image can be uploaded to storage rather than stored inline).
+async function dataUrlToBlob(dataUrl) { return (await fetch(dataUrl)).blob(); }
+// Upload an asset image/document to Supabase storage and return its public URL. Reuses the
+// existing public `item-photos` bucket (already cached immutably) under an `asset/` prefix, so no
+// new bucket/policy is needed. Images are scaled first; documents upload as-is. Falls back to an
+// inline data URL if storage is unavailable, so an upload never loses the user's file.
+async function uploadAssetFile(file, scale = false) {
+  try {
+    let blob = file, ext = (file.name?.split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    if (scale && (file.type || '').startsWith('image/')) { blob = await dataUrlToBlob(await fileToScaledDataUrl(file)); ext = 'jpg'; }
+    if (!ext) ext = (blob.type || '').split('/')[1] || 'bin';
+    const path = `asset/${crypto.randomUUID()}.${ext}`;
+    const { data, error } = await supabase.storage.from('item-photos').upload(path, blob, { contentType: blob.type || file.type || 'application/octet-stream', upsert: false, cacheControl: '31536000' });
+    if (error) throw error;
+    return supabase.storage.from('item-photos').getPublicUrl(data.path).data.publicUrl;
+  } catch {
+    // Storage unavailable — keep the file inline so nothing is lost (legacy behaviour).
+    return scale ? fileToScaledDataUrl(file) : fileToDataUrl(file);
+  }
+}
 
 /* ---------- adapt real data -> template model ---------- */
 function adapt() {
@@ -136,10 +158,8 @@ function adapt() {
     (p.documents || []).forEach(d => documents.push({ id: uidGen(), propertyId: p.id, category: d.category, title: d.title, dateOf: d.date, version: d.version, location: d.location, notes: d.notes }));
     (p.ahj || []).forEach(a => { const af = (pre) => { const f = (a.fields || []).find(x => (x.label || '').toLowerCase().startsWith(pre.toLowerCase())); return f ? f.value : ''; }; ahj.push({ id: uidGen(), propertyId: p.id, authority: a.name, jurisdiction: af('Authority'), contactName: af('Contact Name'), title: '', phone: af('Phone'), email: af('Email'), portal: '', accountOrPermit: af('Application'), renewalDate: '', notes: af('Notes') }); });
   });
-  return { properties, warranties, inspections, documents, ahj, utilities, vendors };
+  return { properties: [...properties, ...VEHICLE_SEEDS], warranties, inspections, documents, ahj, utilities, vendors };
 }
-
-const LS_KEY = 'nexus_asset_neil_v2';
 
 // The sample/demo property was removed. Strip it (and its records) from any saved data so it
 // doesn't linger in browsers that seeded it earlier.
@@ -180,24 +200,20 @@ const migrateTimelineRow = (r) => {
   const s = statusFromNotes(r.notes);
   return s ? { ...r, status: s, notes: '' } : r;
 };
-const loadData = () => {
-  let d; try { const s = localStorage.getItem(LS_KEY); d = s ? JSON.parse(s) : adapt(); } catch { d = adapt(); }
-  // Merge in any newly-seeded properties (new JSON files added since this browser last saved) so
-  // they appear without needing a storage reset. Only adds ids not already present.
+// Hydrate a raw workspace blob (from the server, or freshly adapted from the seed JSON)
+// into the shape the module renders: merge any newly-added seed properties, drop the
+// retired demo card, migrate site groups into primary/secondary hierarchy, and attach the
+// full source sheets + refreshed photos. Pure — no localStorage (data is server-backed now).
+function hydrate(d) {
+  if (!d || !Array.isArray(d.properties)) d = adapt();
+  // Merge in any newly-seeded properties (new JSON files added since the workspace was last
+  // saved) so they appear without a reset. Only adds ids not already present.
   try {
     const have = new Set((d.properties || []).map(p => p.id));
     const additions = adapt().properties.filter(p => !have.has(p.id));
     if (additions.length) d = { ...d, properties: [...(d.properties || []), ...additions] };
   } catch { /* ignore */ }
   d = stripDemo(d);
-  // One-time cleanup: drop the hand-made "Demo" / "DEMO N" test cards left over from early testing
-  // (these were added via Add property, so they live in localStorage). Flag-gated → runs once.
-  try {
-    if (!localStorage.getItem('nexus_asset_demo_cleanup_v1')) {
-      d = { ...d, properties: (d.properties || []).filter(p => !/^demo\b/i.test(String(p.name || '').trim())) };
-      localStorage.setItem('nexus_asset_demo_cleanup_v1', '1');
-    }
-  } catch { /* ignore */ }
   // Migrate existing siteName groups into primary/secondary (parentId) hierarchy — only if no
   // hierarchy exists yet (so we never clobber explicit Role designations). First member = primary.
   if (!d.properties.some(p => p.parentId)) {
@@ -207,16 +223,23 @@ const loadData = () => {
   }
   // Enrich with full source sheets; Development Stage must be one of the standard values;
   // migrate timeline status out of the Notes column.
-  return { ...d, properties: d.properties.map(p => {
+  return { ...d, vservice: d.vservice || [], odometer: d.odometer || [], properties: d.properties.map(p => {
     const e = enrichSource(p);
     // Refresh the seeded image from the source JSON (so updated property photos show even if an
-    // old path is cached in localStorage). User-uploaded images (data URLs) are left untouched.
+    // old path was saved). User-uploaded images (data URLs) are left untouched.
     const src = RAW_BY_ID[e.id];
     const image = (src && src.image && (!e.image || e.image.startsWith('/assets/properties/'))) ? src.image : e.image;
-    const e2 = DEV_STAGES.includes(e.devStage) ? { ...e, image } : { ...e, image, devStage: '' };
+    // Development Stage is validated only for properties; vehicles/equipment use their own status enum.
+    const isProp = inferAssetKind(e) === 'property';
+    const e2 = (!isProp || DEV_STAGES.includes(e.devStage)) ? { ...e, image } : { ...e, image, devStage: '' };
     return { ...e2, timeline: (e2.timeline || []).map(migrateTimelineRow) };
   }) };
-};
+}
+// Fresh workspace seeded from the bundled portfolio JSON — used the first time the server
+// store is empty.
+const seedData = () => hydrate(adapt());
+// Empty workspace rendered while the server load is in flight.
+const EMPTY_WS = { properties: [], warranties: [], inspections: [], documents: [], ahj: [], utilities: [], vendors: [], vservice: [], odometer: [], logs: [] };
 
 /* ---------- collections config (Neil's exact fields + columns) ---------- */
 const COLLECTIONS = {
@@ -332,6 +355,44 @@ const COLLECTIONS = {
     ],
     sort: (a, b) => (a.company || '') < (b.company || '') ? -1 : 1,
   },
+  // Vehicle & equipment logs.
+  vservice: {
+    title: 'Service Record', plural: 'Service & Maintenance', empty: "No service records yet — log maintenance as it's performed, or upload an invoice.",
+    fields: [
+      { k: 'date', label: 'Service Date', type: 'date', req: true },
+      { k: 'type', label: 'Service Type', type: 'select', options: ['Oil Change', 'Tire Rotation', 'Brakes', 'Battery', 'Fluids', 'Inspection', 'Scheduled Maintenance', 'Repair', 'Recall', 'Other'], req: true },
+      { k: 'mileage', label: 'Odometer (mi)', type: 'number' },
+      { k: 'vendor', label: 'Shop / Vendor' }, { k: 'cost', label: 'Cost' },
+      { k: 'nextDue', label: 'Next Service Due', type: 'date' },
+      { k: 'docFile', label: 'Invoice / Receipt (Upload)', type: 'file', nameKey: 'docFileName', full: true },
+      { k: 'notes', label: 'Notes', type: 'textarea', full: true },
+    ],
+    cols: [
+      { label: 'Date', mono: r => r.date ? fmtDate(r.date) : '—' },
+      { label: 'Service', main: r => r.type || '—', sub: r => r.vendor },
+      { label: 'Odometer', plain: r => num0(r.mileage) ? fmtNum(r.mileage) + ' mi' : '—' },
+      { label: 'Cost', plain: r => r.cost || '—' },
+      { label: 'Next Due', mono: r => r.nextDue ? fmtDate(r.nextDue) : '—' },
+      { label: 'Doc', plain: r => r.docFileName || (r.docFile ? 'Attached' : '—') },
+    ],
+    sort: (a, b) => String(b.date || '').localeCompare(String(a.date || '')),
+    summary: rows => { const ds = rows.map(r => r.date).filter(Boolean).sort(); const last = ds[ds.length - 1]; return [['Records', String(rows.length)], ['Last Service', last ? fmtDate(last) : '—']]; },
+  },
+  odometer: {
+    title: 'Odometer Reading', plural: 'Odometer Log', empty: 'No odometer readings yet. A reading is required once a year per vehicle.',
+    fields: [
+      { k: 'date', label: 'Reading Date', type: 'date', req: true },
+      { k: 'mileage', label: 'Odometer (mi)', type: 'number', req: true },
+      { k: 'notes', label: 'Notes', type: 'textarea', full: true },
+    ],
+    cols: [
+      { label: 'Date', mono: r => r.date ? fmtDate(r.date) : '—' },
+      { label: 'Odometer', main: r => num0(r.mileage) ? fmtNum(r.mileage) + ' mi' : '—' },
+      { label: 'Notes', plain: r => r.notes || '—' },
+    ],
+    sort: (a, b) => String(b.date || '').localeCompare(String(a.date || '')),
+    summary: rows => { const ds = rows.map(r => r.date).filter(Boolean).sort(); const last = ds[ds.length - 1]; const dl = last ? dleft(last) : null; const days = dl == null ? null : -dl; const st = days == null ? 'No reading on file' : days > 365 ? `Overdue (${days}d)` : `Current (${days}d ago)`; return [['Readings', String(rows.length)], ['Last Reading', last ? fmtDate(last) : '—'], ['Annual Status', st]]; },
+  },
 };
 
 // Property edit form (Neil's PROPERTY_FIELDS).
@@ -341,7 +402,7 @@ const DEV_STAGES = ['Entitlement', 'Construction Drawing', 'Construction', 'Stab
 const STATUS_OPTIONS = ['Complete', 'Pending', 'In Progress', 'N/A'];
 const TIMELINE_COLS = [['phase', 'Phase'], ['permit', 'Permit / Approval'], ['agency', 'Issuing Agency'], ['whenRequired', 'When Required'], ['submittals', 'Key Submittals'], ['reviewTime', 'Review Time'], ['notes', 'Notes'], ['status', 'Status', STATUS_OPTIONS]];
 // Asset-type categories for the portfolio filter (Storage vs Office vs etc.).
-const ASSET_TYPES = ['Self-Storage', 'RV Storage', 'Retail', 'Office / Medical', 'Residential', 'Mixed-Use', 'Land', 'Other'];
+const ASSET_TYPES = ['Self-Storage', 'RV Storage', 'Retail', 'Office / Medical', 'Residential', 'Mixed-Use', 'Land', 'Vehicle', 'Heavy Equipment', 'Other'];
 // Asset type: use the explicit field if set, else derive a category from the
 // snapshot's Proposed/Current Use text so existing properties classify sensibly.
 function deriveAssetType(p) {
@@ -363,8 +424,9 @@ function deriveAssetType(p) {
 }
 // Broad asset CATEGORY — a separate, single-select filter (Neil) distinct from the detailed
 // asset-type field above. Picking one hides everything in the other categories.
-const ASSET_CATEGORIES = ['Commercial', 'Residential', 'Industrial'];
+const ASSET_CATEGORIES = ['Commercial', 'Residential', 'Industrial', 'Fleet & Equipment'];
 function deriveCategory(p) {
+  if (inferAssetKind(p) !== 'property') return 'Fleet & Equipment';
   const snapVal = (label) => { for (const g of (p.snapshot || [])) for (const f of (g.fields || [])) { if ((f.label || '').trim().toLowerCase() === label.toLowerCase()) return f.value || ''; } return ''; };
   const t = `${p.type || ''} ${p.parcelRole || ''} ${snapVal('Proposed Use')} ${snapVal('Current Use')} ${p.name || ''}`.toLowerCase();
   if (/industrial|warehouse|distribution|manufactur/.test(t)) return 'Industrial';
@@ -389,6 +451,11 @@ function cardStats(pr) {
   const rv = num0(pr.unitsRV) ? fmtNum(pr.unitsRV) : '—';
   const total = num0(pr.unitsTotal) ? fmtNum(pr.unitsTotal) : '—';
   const typeText = `${pr.type || ''} ${pr.parcelRole || ''} ${assetTypeLabel(pr)}`.toLowerCase();
+  // Vehicles & equipment get fleet metrics, not real-estate ones.
+  const kind = inferAssetKind(pr);
+  const makeModel = [pr.make, pr.model, pr.trim].filter(Boolean).join(' ') || pr.makeModel || pr.parcelRole || '—';
+  if (kind === 'vehicle') return [S(year, 'Year'), S(num0(pr.odometer) ? fmtNum(pr.odometer) + ' mi' : '—', 'Odometer'), S(makeModel, 'Make / Model'), S(pr.devStage || '—', 'Status')];
+  if (kind === 'equipment') return [S(year, 'Year'), S(num0(pr.hours) ? fmtNum(pr.hours) + ' hrs' : '—', 'Hours'), S(makeModel, 'Make / Model'), S(pr.devStage || '—', 'Status')];
   const t = deriveAssetType(pr);
   if (t === 'Self-Storage' || /self.?storage|mini.?storage/.test(typeText)) return [S(acres, 'Acres'), S(nrsf, 'NRSF'), S(units, 'Units'), S(rv, 'Vehicle'), S(total, 'Total')];
   if (t === 'RV Storage' || /\brv\b|boat/.test(typeText)) return [S(acres, 'Acres'), S(nrsf, 'NRSF'), S(rv, 'Spaces'), S(total, 'Total')];
@@ -410,6 +477,8 @@ const TYPE_LABEL = {
   'Residential': 'Residential',
   'Mixed-Use': 'Mixed-use',
   'Land': 'Land',
+  'Vehicle': 'Vehicle',
+  'Heavy Equipment': 'Heavy equipment',
   'Other': '',
 };
 // Card label — prefer the property's own descriptive type/use (e.g. "RV & Mini Storage Facility",
@@ -427,6 +496,8 @@ const TYPE_ICON = {
   'Residential': Home,
   'Mixed-Use': Building,
   'Land': Trees,
+  'Vehicle': Car,
+  'Heavy Equipment': Wrench,
   'Other': Building2,
 };
 const assetTypeIcon = (pr) => TYPE_ICON[deriveAssetType(pr)] || Building2;
@@ -471,11 +542,93 @@ const PROPERTY_FIELDS = [
 // by restoring the previous value.
 const PROP_LABEL_KEY = Object.fromEntries(PROPERTY_FIELDS.filter(f => !f.sec && f.k).map(f => [f.label, f.k]));
 
+/* ---------- asset classes: property | vehicle | equipment ----------
+   Vehicles & equipment are a separate asset class that lives in the same
+   portfolio (no property/site fields; their own Overview + Service & Odometer
+   logs). `kind` is the source of truth, `assetType` the display fallback. */
+const ASSET_KINDS = [['property', 'Property / Real estate'], ['vehicle', 'Vehicle'], ['equipment', 'Heavy equipment']];
+const VEHICLE_FIELDS = [
+  { sec: 'Vehicle' },
+  { k: 'name', label: 'Asset name / unit #', req: true },
+  { k: 'make', label: 'Make' }, { k: 'model', label: 'Model' }, { k: 'trim', label: 'Trim' },
+  { k: 'yearBuilt', label: 'Model year' },
+  { k: 'vin', label: 'VIN' }, { k: 'plate', label: 'License plate' }, { k: 'color', label: 'Color' },
+  { k: 'odometer', label: 'Odometer (mi)', type: 'number' },
+  { k: 'devStage', label: 'Status', type: 'select', options: ['Active', 'In Service', 'In Repair', 'Out of Service', 'Retired'] },
+  { sec: 'Assignment & ownership' },
+  { k: 'entity', label: 'Owner / entity' }, { k: 'manager', label: 'Assigned to / operator' },
+  { k: 'address', label: 'Home base / location', full: true },
+  { sec: 'Registration & title' },
+  { k: 'regNumber', label: 'Registration #' }, { k: 'regExpiration', label: 'Registration expiration', type: 'date' },
+  { k: 'titleNumber', label: 'Title #' },
+  { sec: 'Service & maintenance' },
+  { k: 'serviceIntervalMi', label: 'Service interval (mi)', type: 'number' }, { k: 'nextServiceMi', label: 'Next service (mi)', type: 'number' },
+  { k: 'lastServiceDate', label: 'Last service', type: 'date' }, { k: 'nextServiceDate', label: 'Next service due', type: 'date' },
+  { sec: 'Insurance & coverage' },
+  { k: 'insCarrier', label: 'Carrier' }, { k: 'insPolicy', label: 'Policy #' }, { k: 'insExpiration', label: 'Policy expiration', type: 'date' },
+  { k: 'insAgent', label: 'Agent / broker' }, { k: 'insPhone', label: 'Agent phone' },
+  { sec: 'Notes' },
+  { k: 'notes', label: 'Notes', type: 'textarea', full: true },
+];
+const EQUIPMENT_FIELDS = [
+  { sec: 'Equipment' },
+  { k: 'name', label: 'Asset name / unit #', req: true },
+  { k: 'make', label: 'Make' }, { k: 'model', label: 'Model' }, { k: 'trim', label: 'Trim' },
+  { k: 'yearBuilt', label: 'Year' },
+  { k: 'equipType', label: 'Equipment type' }, { k: 'serialNumber', label: 'Serial #' },
+  { k: 'hours', label: 'Hour meter', type: 'number' },
+  { k: 'devStage', label: 'Status', type: 'select', options: ['Active', 'In Service', 'In Repair', 'Out of Service', 'Retired'] },
+  { sec: 'Assignment & ownership' },
+  { k: 'entity', label: 'Owner / entity' }, { k: 'manager', label: 'Assigned to / operator' },
+  { k: 'address', label: 'Home base / location', full: true },
+  { sec: 'Service & maintenance' },
+  { k: 'serviceIntervalHrs', label: 'Service interval (hrs)', type: 'number' }, { k: 'nextServiceHrs', label: 'Next service (hrs)', type: 'number' },
+  { k: 'lastServiceDate', label: 'Last service', type: 'date' }, { k: 'nextServiceDate', label: 'Next service due', type: 'date' },
+  { sec: 'Insurance & coverage' },
+  { k: 'insCarrier', label: 'Carrier' }, { k: 'insPolicy', label: 'Policy #' }, { k: 'insExpiration', label: 'Policy expiration', type: 'date' },
+  { k: 'insAgent', label: 'Agent / broker' }, { k: 'insPhone', label: 'Agent phone' },
+  { sec: 'Notes' },
+  { k: 'notes', label: 'Notes', type: 'textarea', full: true },
+];
+const ASSET_SCHEMAS = { vehicle: VEHICLE_FIELDS, equipment: EQUIPMENT_FIELDS };
+// Resolve an asset's class. `kind` wins; else sniff `assetType`; else it's a property.
+function inferAssetKind(p) {
+  if (!p) return 'property';
+  if (p.kind) return p.kind;
+  const a = String(p.assetType || '').toLowerCase();
+  if (/vehicle/.test(a)) return 'vehicle';
+  if (/equipment/.test(a)) return 'equipment';
+  return 'property';
+}
+// Build the grouped snapshot ([{group,fields:[{label,value}]}]) the Overview tab renders, from a
+// field schema + a flat value map. Sections ({sec}) become groups; fields carry their label+value.
+function buildAssetSnapshot(schema, vals) {
+  const groups = []; let cur = null;
+  for (const f of schema) {
+    if (f.sec) { cur = { group: f.sec, fields: [] }; groups.push(cur); continue; }
+    if (!cur) { cur = { group: 'Details', fields: [] }; groups.push(cur); }
+    cur.fields.push({ label: f.label, value: vals[f.k] ?? '' });
+  }
+  return groups.filter(g => g.fields.length);
+}
+// Seed vehicles (images already in public/assets/properties/). Equipment ships no seeds.
+const mkVehicle = (id, name, make, model, trim, yearBuilt, color, image, extra = {}) => {
+  const vals = { name, make, model, trim, yearBuilt, color, devStage: 'Active', ...extra };
+  return { id, name, kind: 'vehicle', assetType: 'Vehicle', image, ...vals, snapshot: buildAssetSnapshot(VEHICLE_FIELDS, vals) };
+};
+const VEHICLE_SEEDS = [
+  mkVehicle('ford-expedition-tremor', 'Ford Expedition Tremor', 'Ford', 'Expedition', 'Tremor', '2026', 'White', '/assets/properties/ford-expedition-tremor.png'),
+  mkVehicle('tesla-model-x', 'Tesla Model X', 'Tesla', 'Model X', '', '2016', 'White', '/assets/properties/tesla-model-x.webp'),
+  mkVehicle('tesla-model-y', 'Tesla Model Y', 'Tesla', 'Model Y', '', '2020', 'Red', '/assets/properties/tesla-model-y.webp'),
+  mkVehicle('honda-pilot-touring', 'Honda Pilot Touring', 'Honda', 'Pilot', 'Touring', '2016', 'White', '/assets/properties/honda-pilot.webp'),
+  mkVehicle('toyota-corolla-hybrid', 'Toyota Corolla Hybrid', 'Toyota', 'Corolla', 'Hybrid', '2024', 'Silver', '/assets/properties/toyota-corolla.webp'),
+];
+
 // Per-property tabs. The change Log is intentionally NOT here — per Neil it is global and lives
 // on the Manage page, not on each property card.
-const TABS = [['portfolio', 'Portfolio'], ['property', 'Property'], ['warranties', 'Warranties'], ['inspections', 'Inspections'], ['documents', 'Plans & Docs'], ['utilsahj', 'Utilities & AHJ'], ['vendors', 'Vendors'], ['timeline', 'Timeline'], ['permit', 'Permits']];
+const TABS = [['portfolio', 'Portfolio'], ['property', 'Property'], ['vservice', 'Service & Maintenance'], ['odometer', 'Odometer'], ['warranties', 'Warranties'], ['inspections', 'Inspections'], ['documents', 'Plans & Docs'], ['utilsahj', 'Utilities & AHJ'], ['vendors', 'Vendors'], ['timeline', 'Timeline'], ['permit', 'Permits']];
 // Which collection(s) the single top-bar Search filters for each tab (absent = no searchable table).
-const TAB_COLLS = { warranties: ['warranties'], inspections: ['inspections'], documents: ['documents'], utilsahj: ['utilities', 'ahj'], vendors: ['vendors'] };
+const TAB_COLLS = { vservice: ['vservice'], odometer: ['odometer'], warranties: ['warranties'], inspections: ['inspections'], documents: ['documents'], utilsahj: ['utilities', 'ahj'], vendors: ['vendors'] };
 const LOGS_SEEN_KEY = 'nexus_asset_logs_seen';
 // Build one activity-log entry (who/when + the change details).
 const mkLog = (e) => ({ id: uidGen(), ts: new Date().toISOString(), user: currentUser(), ...e });
@@ -514,7 +667,9 @@ function Stat({ v, l, big }) {
 export default function AssetModule() {
   const role = useRole();
   const isManager = role?.can ? role.can('manager') : false; // managers (lvl ≥ 3) may remove warranties
-  const [data, setData] = useState(loadData);
+  const [data, setData] = useState(EMPTY_WS);
+  const [loading, setLoading] = useState(true);
+  const firstSaveSkip = useRef(true); // skip the save triggered by the initial server load
   const [tab, setTab] = useState('portfolio');
   const [activeId, setActiveId] = useState(null);
   const [filters, setFilters] = useState({});
@@ -534,7 +689,34 @@ export default function AssetModule() {
     setHighlight({ tab: t, section: log.section, field: log.changes?.[0]?.field || '', item: log.item || '', n: Date.now() });
   };
 
-  useEffect(() => { try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch { /* ignore */ } }, [data]);
+  // Load the shared workspace from the server; the first run (empty store) seeds it from the
+  // bundled portfolio JSON and persists that seed. Falls back to the local seed if the API is down.
+  useEffect(() => {
+    let alive = true;
+    api.getPropertyWorkspace()
+      .then(ws => {
+        if (!alive) return;
+        if (ws && Array.isArray(ws.properties) && ws.properties.length) {
+          setData(hydrate(ws));
+        } else {
+          const seed = seedData();
+          setData(seed);
+          api.savePropertyWorkspace(seed).catch(() => {});
+        }
+      })
+      .catch(() => { if (alive) setData(seedData()); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, []);
+
+  // Persist the whole workspace to the server (debounced). Skips the render caused by the initial
+  // load so we don't immediately echo back the data we just fetched.
+  useEffect(() => {
+    if (loading) return;
+    if (firstSaveSkip.current) { firstSaveSkip.current = false; return; }
+    const t = setTimeout(() => { api.savePropertyWorkspace(data).catch(() => {}); }, 700);
+    return () => clearTimeout(t);
+  }, [data, loading]);
   // While viewing the Manage page (which hosts the log), keep logs marked seen so the badge stays clear.
   useEffect(() => {
     if (tab === 'manage') {
@@ -546,6 +728,11 @@ export default function AssetModule() {
   }, [tab, data.logs]);
   // Auto-clear the field highlight a few seconds after a "Go to".
   useEffect(() => { if (highlight) { const id = setTimeout(() => setHighlight(null), 4000); return () => clearTimeout(id); } }, [highlight]);
+  // On open (once the workspace has loaded), scan for expiring warranties / due inspections /
+  // vehicle reg+insurance+service and raise deduped bell reminders to managers (server-side).
+  useEffect(() => { if (!loading) api.scanPropertyReminders().catch(() => {}); }, [loading]);
+
+  if (loading) return <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-secondary)', fontWeight: 500, fontSize: '0.9rem' }}>Loading portfolio…</div>;
 
   const props = data.properties.filter(p => !p.deleted);   // live cards (deleted ones go to the recover bin)
   const deletedProps = data.properties.filter(p => p.deleted);
@@ -778,7 +965,7 @@ export default function AssetModule() {
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
             <div>
               <h1 style={{ fontSize: '1.5rem', fontFamily: "'Plus Jakarta Sans', sans-serif", letterSpacing: '-0.02em', margin: 0 }}>Asset Management</h1>
-              <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginTop: 4 }}>{st.assets} properties</div>
+              <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginTop: 4 }}>{st.assets} assets</div>
             </div>
             <div style={{ marginLeft: 'auto' }}>
               <button className="primary-btn" onClick={() => openTab('manage')} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -799,7 +986,7 @@ export default function AssetModule() {
           </div>
           <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', flexWrap: 'wrap' }}>
             <button className="secondary-btn" onClick={() => exportReport(active, data)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FileDown size={14} /> Export PDF</button>
-            {tab === 'property' && <button className="primary-btn" onClick={() => setModal({ type: 'property', id: active.id })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Pencil size={14} /> Edit property</button>}
+            {tab === 'property' && <button className="primary-btn" onClick={() => setModal({ type: 'property', id: active.id })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Pencil size={14} /> Edit {inferAssetKind(active) === 'property' ? 'property' : 'asset'}</button>}
           </div>
         </div>
       )}
@@ -817,12 +1004,19 @@ export default function AssetModule() {
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 999, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
             <ArrowLeft size={14} /> Portfolio
           </button>
-          {TABS.filter(([k]) => k !== 'portfolio').map(([k, label]) => {
+          {TABS.filter(([k]) => {
+            if (k === 'portfolio') return false;
+            // Vehicles/equipment show only Overview + their two logs; properties hide those.
+            return inferAssetKind(active) === 'property'
+              ? !['vservice', 'odometer'].includes(k)
+              : ['property', 'vservice', 'odometer'].includes(k);
+          }).map(([k, label]) => {
             const on = tab === k;
+            const lbl = (k === 'property' && inferAssetKind(active) !== 'property') ? 'Overview' : label;
             return (
               <button key={k} onClick={() => openTab(k)}
                 style={{ position: 'relative', padding: '8px 16px', borderRadius: 999, border: '1px solid', borderColor: on ? 'var(--pine)' : 'var(--border-color)', background: on ? 'var(--pine)' : 'var(--bg-card)', color: on ? '#fff' : 'var(--text-secondary)', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                {label}
+                {lbl}
               </button>
             );
           })}
@@ -849,6 +1043,8 @@ export default function AssetModule() {
         </div>
       )}
       {tab === 'vendors' && active && <Collection coll="vendors" rows={rowsFor('vendors')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.section === 'Vendors' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'vendors', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'vendors', id })} />}
+      {tab === 'vservice' && active && <Collection coll="vservice" rows={rowsFor('vservice')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'vservice' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'vservice', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'vservice', id })} />}
+      {tab === 'odometer' && active && <Collection coll="odometer" rows={rowsFor('odometer')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'odometer' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'odometer', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'odometer', id })} />}
       {tab === 'timeline' && active && (() => {
         const cols = TIMELINE_COLS;
         const editCols = cols.filter(c => c[0] !== 'status'); // status is changed via its button (reason required), not the row form
@@ -1410,9 +1606,16 @@ function PropertyDetail({ p, onSaveImages, highlight }) {
         );
       })}
       </div>
-      {/* Map (full width, read-only) + Media (pictures, editable) — two separate collapsible sections */}
-      <MapSection p={p} n={sections.reduce((m, s) => (s.n != null && s.n > m ? s.n : m), 0) + 1} />
-      <MediaSection p={p} n={sections.reduce((m, s) => (s.n != null && s.n > m ? s.n : m), 0) + 2} onSave={onSaveImages} />
+      {/* Map (full width, read-only) + Media (pictures, editable) — two separate collapsible sections.
+          Vehicles/equipment have no address, so the Map is hidden for them. */}
+      {(() => {
+        const base = sections.reduce((m, s) => (s.n != null && s.n > m ? s.n : m), 0);
+        const isProp = inferAssetKind(p) === 'property';
+        return <>
+          {isProp && <MapSection p={p} n={base + 1} />}
+          <MediaSection p={p} n={base + (isProp ? 2 : 1)} onSave={onSaveImages} />
+        </>;
+      })()}
     </div>
   );
 }
@@ -1445,7 +1648,7 @@ function MediaSection({ p, n, onSave }) {
   const startEdit = (e) => { e.stopPropagation(); setDraft(pics); setEditing(true); setOpen(true); };
   const onPick = async (e) => {
     const files = [...(e.target.files || [])]; const urls = [];
-    for (const f of files) { if (f.type.startsWith('image/')) { try { urls.push(await fileToScaledDataUrl(f)); } catch { /* ignore */ } } }
+    for (const f of files) { if (f.type.startsWith('image/')) { try { urls.push(await uploadAssetFile(f, true)); } catch { /* ignore */ } } }
     setDraft(d => [...d, ...urls]); e.target.value = '';
   };
   const shown = editing ? draft : pics;
@@ -1562,7 +1765,7 @@ function FormField({ f, value, onChange }) {
   if (f.type === 'file') {
     const onFile = async (e) => {
       const file = e.target.files?.[0]; if (!file) { return; }
-      try { const url = await fileToDataUrl(file); onChange(f.k, url); if (f.nameKey) onChange(f.nameKey, file.name); } catch { /* ignore */ }
+      try { const url = await uploadAssetFile(file, false); onChange(f.k, url); if (f.nameKey) onChange(f.nameKey, file.name); } catch { /* ignore */ }
       e.target.value = '';
     };
     return (
@@ -1638,10 +1841,20 @@ function RowModal({ coll, row, canDelete = true, requireReason = false, onSave, 
 // Address fields that need a reason when an EXISTING property is edited.
 const ADDRESS_FIELDS = [['address', 'Street address'], ['city', 'City'], ['state', 'State'], ['zip', 'ZIP'], ['county', 'County']];
 function PropertyModal({ row, properties, onSave, onDelete, onClose }) {
-  const flat = PROPERTY_FIELDS.filter(f => !f.sec);
-  // Every OTHER property (any one can be linked to), excluding self.
-  const others = (properties || []).filter(x => !row || x.id !== row.id);
-  const [vals, setVals] = useState(() => { const init = { image: row?.image || '' }; flat.forEach(f => { init[f.k] = row ? (row[f.k] ?? '') : ''; }); return init; });
+  // Asset class — chosen at creation, fixed when editing. Drives which field schema is shown.
+  const [kind, setKind] = useState(() => inferAssetKind(row));
+  const schema = ASSET_SCHEMAS[kind] || PROPERTY_FIELDS;
+  const flat = schema.filter(f => !f.sec);
+  const isProp = kind === 'property';
+  const noun = kind === 'vehicle' ? 'vehicle' : kind === 'equipment' ? 'equipment' : 'property';
+  // Every OTHER property (any one can be linked to), excluding self. Linking is property-only.
+  const others = (properties || []).filter(x => (!row || x.id !== row.id) && inferAssetKind(x) === 'property');
+  const [vals, setVals] = useState(() => {
+    const init = { image: row?.image || '' };
+    if (row) { Object.keys(row).forEach(k => { init[k] = row[k]; }); }
+    else { [PROPERTY_FIELDS, VEHICLE_FIELDS, EQUIPMENT_FIELDS].forEach(s => s.forEach(f => { if (!f.sec) init[f.k] = init[f.k] ?? ''; })); }
+    return init;
+  });
   const [reason, setReason] = useState('');
   // Linking: pick a property to link to, then choose whether THIS property is the primary or secondary.
   const [linkTarget, setLinkTarget] = useState(row?.parentId || '');
@@ -1649,25 +1862,46 @@ function PropertyModal({ row, properties, onSave, onDelete, onClose }) {
   const targetName = others.find(x => x.id === linkTarget)?.name || '';
   const fileRef = useRef(null);
   const set = (k, v) => setVals(s => ({ ...s, [k]: v }));
-  const onPickImage = async (e) => { const f = e.target.files?.[0]; if (f && f.type.startsWith('image/')) { try { set('image', await fileToScaledDataUrl(f)); } catch { /* ignore */ } } e.target.value = ''; };
-  // Which address fields changed (only matters when editing an existing property).
-  const changedAddr = row ? ADDRESS_FIELDS.filter(([k]) => String(row[k] ?? '') !== String(vals[k] ?? '')) : [];
+  const onPickImage = async (e) => { const f = e.target.files?.[0]; if (f && f.type.startsWith('image/')) { try { set('image', await uploadAssetFile(f, true)); } catch { /* ignore */ } } e.target.value = ''; };
+  // Address-change reason only applies to properties (a vehicle's "address" is its home base).
+  const changedAddr = (row && isProp) ? ADDRESS_FIELDS.filter(([k]) => String(row[k] ?? '') !== String(vals[k] ?? '')) : [];
   const needReason = changedAddr.length > 0;
   const submit = () => {
     for (const f of flat) if (f.req && !String(vals[f.k] || '').trim()) { alert('Please fill: ' + f.label); return; }
     if (needReason && !reason.trim()) { alert('Please give a reason for the address change.'); return; }
-    // Linking is only offered when ADDING a property — don't touch links when editing.
-    const link = row ? undefined : (linkTarget ? { targetId: linkTarget, role: linkRole } : { role: 'none' });
-    onSave(vals, needReason ? reason.trim() : undefined, link);
+    // Non-property assets carry their kind + assetType + a rebuilt snapshot so the Overview reflects edits.
+    const payload = isProp ? { ...vals, kind: 'property' }
+      : { ...vals, kind, assetType: kind === 'vehicle' ? 'Vehicle' : 'Heavy Equipment', snapshot: buildAssetSnapshot(schema, vals) };
+    // Linking is offered only when ADDING a property; never touch links on edit or for non-property assets.
+    let link;
+    if (!isProp) link = { role: 'none' };
+    else if (!row) link = linkTarget ? { targetId: linkTarget, role: linkRole } : { role: 'none' };
+    else link = undefined;
+    onSave(payload, needReason ? reason.trim() : undefined, link);
   };
   const remove = () => { if (window.confirm(`Delete "${row.name}"? It moves to "Recover deleted" and can be restored later.`)) onDelete(); };
   return (
-    <Modal title={row ? 'Edit property' : 'Add property'} wide onClose={onClose}
+    <Modal title={row ? ('Edit ' + noun) : 'Add asset'} wide onClose={onClose}
       footer={<>
         {row && onDelete && <button className="secondary-btn" onClick={remove} style={{ marginRight: 'auto', color: 'hsl(var(--color-red))' }}>Delete</button>}
         <button className="secondary-btn" onClick={onClose}>Cancel</button>
-        <button className="primary-btn" onClick={submit}>Save property</button>
+        <button className="primary-btn" onClick={submit}>Save {noun}</button>
       </>}>
+      {/* Asset class — only when ADDING (a property can't later become a vehicle). Swaps the field schema. */}
+      {!row && (
+        <div style={{ marginBottom: 18, paddingBottom: 16, borderBottom: '1px solid var(--border-color)' }}>
+          <div style={{ ...microLabel, color: 'var(--pine)', fontSize: '0.7rem', marginBottom: 10 }}>Asset class</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {ASSET_KINDS.map(([k, lbl]) => {
+              const on = kind === k;
+              return (
+                <button key={k} type="button" onClick={() => setKind(k)}
+                  style={{ padding: '9px 14px', borderRadius: 10, cursor: 'pointer', fontWeight: 700, fontSize: '0.82rem', border: `1.5px solid ${on ? 'var(--pine)' : 'var(--border-color)'}`, background: on ? 'var(--pine)' : 'var(--bg-card)', color: on ? '#fff' : 'var(--text-secondary)' }}>{lbl}</button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       {needReason && (
         <div style={{ marginBottom: 14, padding: '12px 14px', borderRadius: 10, border: '1px solid hsla(var(--color-gold), 0.5)', backgroundColor: 'hsla(var(--color-gold), 0.1)' }}>
           <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'hsl(var(--color-gold))', marginBottom: 6 }}>⚠ You changed the address — reason required</div>
@@ -1675,8 +1909,8 @@ function PropertyModal({ row, properties, onSave, onDelete, onClose }) {
           <input className="form-input" autoFocus value={reason} onChange={e => setReason(e.target.value)} placeholder="Why is the address being changed? (required)" style={{ fontSize: '0.85rem' }} />
         </div>
       )}
-      {/* Linking FIRST — only when ADDING a property (one-time at creation; not shown when editing) */}
-      {!row && (
+      {/* Linking FIRST — only when ADDING a property (one-time at creation; not shown when editing or for non-property assets) */}
+      {!row && isProp && (
       <div style={{ marginBottom: 18, paddingBottom: 16, borderBottom: '1px solid var(--border-color)' }}>
         <div style={{ ...microLabel, color: 'var(--pine)', fontSize: '0.7rem', marginBottom: 10 }}>Linking <span style={{ textTransform: 'none', fontWeight: 400, color: 'var(--text-secondary)' }}>(optional)</span></div>
         <div className="form-group">
@@ -1710,12 +1944,12 @@ function PropertyModal({ row, properties, onSave, onDelete, onClose }) {
       </div>
       )}
       <div className="form-grid">
-        {PROPERTY_FIELDS.filter(f => f.k !== 'parentId').map((f, i) => f.sec
+        {schema.filter(f => f.k !== 'parentId').map((f, i) => f.sec
           ? <div key={i} style={{ ...microLabel, gridColumn: '1 / -1', marginTop: i ? 8 : 0, color: 'var(--pine)', fontSize: '0.7rem' }}>{f.sec}</div>
           : <FormField key={f.k} f={f} value={vals[f.k]} onChange={set} />)}
       </div>
       <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--border-color)' }}>
-        <div style={{ ...microLabel, color: 'var(--pine)', fontSize: '0.7rem', marginBottom: 10 }}>Property image</div>
+        <div style={{ ...microLabel, color: 'var(--pine)', fontSize: '0.7rem', marginBottom: 10 }}>{isProp ? 'Property image' : 'Asset image'}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           {vals.image
             ? <img src={vals.image} alt="" style={{ width: 120, height: 78, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border-color)', flexShrink: 0 }} />

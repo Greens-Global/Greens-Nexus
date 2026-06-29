@@ -7,7 +7,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL, SessionLocal
-from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, inventory_requests, audit, groups, items as items_router, hr, knowledge_base, help as help_router
+from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, inventory_requests, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets
 from audit import AuditMiddleware
 
 
@@ -311,6 +311,7 @@ app.include_router(reviews.router)
 app.include_router(marketing.router)
 app.include_router(sop.router)
 app.include_router(assets.router)
+app.include_router(property_assets.router)
 app.include_router(accounting.router)
 app.include_router(operations.router)
 app.include_router(unifi.router)
