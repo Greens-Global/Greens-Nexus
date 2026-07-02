@@ -395,6 +395,24 @@ export const api = {
   updateEmployee: (id, data) => req(`/hr/employees/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteEmployee: (id)       => req(`/hr/employees/${id}`, { method: 'DELETE' }),
 
+  // HR — companies/entities & work sites (Section A foundation)
+  getEntities:    ()         => req('/hr/entities'),
+  createEntity:   (data)     => req('/hr/entities', { method: 'POST', body: JSON.stringify(data) }),
+  updateEntity:   (id, data) => req(`/hr/entities/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteEntity:   (id)       => req(`/hr/entities/${id}`, { method: 'DELETE' }),
+  getWorkSites:   ()         => req('/hr/work-sites'),
+  createWorkSite: (data)     => req('/hr/work-sites', { method: 'POST', body: JSON.stringify(data) }),
+  updateWorkSite: (id, data) => req(`/hr/work-sites/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteWorkSite: (id)       => req(`/hr/work-sites/${id}`, { method: 'DELETE' }),
+
+  // HR — compensation + bank (restricted: hr_comp grant / owner)
+  getCompensation:  (id)       => req(`/hr/employees/${id}/compensation`),
+  saveCompensation: (id, data) => req(`/hr/employees/${id}/compensation`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  // HR — live assets (permanent assignments + active checkouts from Item Management)
+  getEmployeeAssets: (id)      => req(`/hr/employees/${id}/assets`),
+  changeEmployeeStatus: (id, data) => req(`/hr/employees/${id}/status`, { method: 'POST', body: JSON.stringify(data) }),
+
   // HR — hiring pipeline
   getCandidates:       ()         => req('/hr/candidates'),
   getCandidateHistory: (id)       => req(`/hr/candidates/${id}/history`),

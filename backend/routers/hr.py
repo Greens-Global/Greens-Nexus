@@ -16,6 +16,10 @@ from models import NexusEmployee
 require_hr_read   = require_module_grant("hr", "viewer")
 require_hr_write  = require_module_grant("hr", "editor")
 require_hr_delete = require_module_grant("hr", "owner", bypass_level="owner")
+# Compensation + bank are salary-sensitive (Section B): only Global Admins (owner)
+# bypass; everyone else needs an explicit "hr_comp" Access Group grant.
+require_hr_comp_read  = require_module_grant("hr_comp", "viewer", bypass_level="owner")
+require_hr_comp_write = require_module_grant("hr_comp", "editor", bypass_level="owner")
 
 router = APIRouter(prefix="/hr", tags=["hr"])
 
@@ -36,6 +40,10 @@ class EmployeeIn(BaseModel):
     manager_email:   Optional[str] = ""
     status:          Optional[str] = "active"
     location:        Optional[str] = ""
+    company:         Optional[str] = ""
+    contractor:      Optional[dict] = None
+    personal:        Optional[dict] = None
+    compliance:      Optional[dict] = None
     notes:           Optional[str] = ""
 
 
@@ -52,6 +60,10 @@ class EmployeeUpdate(BaseModel):
     manager_email:   Optional[str] = None
     status:          Optional[str] = None
     location:        Optional[str] = None
+    company:         Optional[str] = None
+    contractor:      Optional[dict] = None
+    personal:        Optional[dict] = None
+    compliance:      Optional[dict] = None
     notes:           Optional[str] = None
 
 
@@ -89,6 +101,11 @@ def _serialize(e: NexusEmployee) -> dict:
         "photoUrl":       e.photo_url,
         "status":         e.status,
         "location":       e.location,
+        "company":        e.company,
+        "contractor":     e.contractor or {},
+        "personal":       e.personal or {},
+        "compliance":     e.compliance or {},
+        "statusLog":      e.status_log or [],
         "notes":          e.notes,
         "m365Id":         e.m365_id,
         "asanaId":        e.asana_id,
@@ -124,6 +141,10 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         manager_email=(body.manager_email or "").strip().lower(),
         status=body.status or "active",
         location=(body.location or "").strip(),
+        company=(body.company or "").strip(),
+        contractor=body.contractor or {},
+        personal=body.personal or {},
+        compliance=body.compliance or {},
         notes=body.notes or "",
         created_by=user["email"],
         created_at=now,
@@ -1069,3 +1090,269 @@ def resend_welcome(eid: str, user: dict = Depends(require_hr_write), db: Session
     if not ok:
         raise HTTPException(502, f"Send failed: {detail}")
     return {"ok": True, "sentTo": emp.personal_email}
+
+
+# ---------------------------------------------------------------------------
+# HR Section A — Companies/Entities + Work Sites (structural foundation)
+# ---------------------------------------------------------------------------
+from models import HrEntity, HrWorkSite
+
+
+class EntityIn(BaseModel):
+    name:               str
+    legal_name:         Optional[str] = ""
+    country:            Optional[str] = ""
+    tax_id:             Optional[str] = ""
+    registered_address: Optional[str] = ""
+    signatory:          Optional[str] = ""
+    logo_url:           Optional[str] = ""
+    notes:              Optional[str] = ""
+
+
+class EntityUpdate(BaseModel):
+    name:               Optional[str] = None
+    legal_name:         Optional[str] = None
+    country:            Optional[str] = None
+    tax_id:             Optional[str] = None
+    registered_address: Optional[str] = None
+    signatory:          Optional[str] = None
+    logo_url:           Optional[str] = None
+    notes:              Optional[str] = None
+
+
+def _serialize_entity(e: HrEntity) -> dict:
+    return {
+        "id": e.id, "name": e.name, "legalName": e.legal_name, "country": e.country,
+        "taxId": e.tax_id, "registeredAddress": e.registered_address, "signatory": e.signatory,
+        "logoUrl": e.logo_url, "notes": e.notes, "createdAt": e.created_at, "updatedAt": e.updated_at,
+    }
+
+
+@router.get("/entities")
+def list_entities(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    rows = db.query(HrEntity).order_by(HrEntity.name).all()
+    return [_serialize_entity(e) for e in rows]
+
+
+@router.post("/entities")
+def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    if not body.name.strip():
+        raise HTTPException(400, "name is required")
+    now = datetime.now(timezone.utc).isoformat()
+    row = HrEntity(
+        id=str(uuid.uuid4()), name=body.name.strip(), legal_name=(body.legal_name or "").strip(),
+        country=(body.country or "").strip(), tax_id=(body.tax_id or "").strip(),
+        registered_address=(body.registered_address or "").strip(), signatory=(body.signatory or "").strip(),
+        logo_url=(body.logo_url or "").strip(), notes=body.notes or "",
+        created_by=user["email"], created_at=now, updated_at=now,
+    )
+    db.add(row); db.commit(); db.refresh(row)
+    return _serialize_entity(row)
+
+
+@router.patch("/entities/{entity_id}")
+def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
+    if not row:
+        raise HTTPException(404, "Entity not found")
+    if body.name is not None and not body.name.strip():
+        raise HTTPException(400, "name cannot be empty")
+    for key, value in body.model_dump(exclude_unset=True).items():
+        if value is None:
+            continue
+        setattr(row, {"legal_name": "legal_name", "tax_id": "tax_id", "registered_address": "registered_address"}.get(key, key),
+                value.strip() if isinstance(value, str) and key != "notes" else value)
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit(); db.refresh(row)
+    return _serialize_entity(row)
+
+
+@router.delete("/entities/{entity_id}")
+def delete_entity(entity_id: str, user: dict = Depends(require_hr_delete), db: Session = Depends(get_db)):
+    row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
+    if row:
+        db.delete(row); db.commit()
+    return {"ok": True}
+
+
+class WorkSiteIn(BaseModel):
+    name:     str
+    address:  Optional[str] = ""
+    latitude: Optional[str] = ""
+    longitude: Optional[str] = ""
+    radius_m: Optional[int] = 150
+    company:  Optional[str] = ""
+    notes:    Optional[str] = ""
+
+
+class WorkSiteUpdate(BaseModel):
+    name:     Optional[str] = None
+    address:  Optional[str] = None
+    latitude: Optional[str] = None
+    longitude: Optional[str] = None
+    radius_m: Optional[int] = None
+    company:  Optional[str] = None
+    notes:    Optional[str] = None
+
+
+def _serialize_site(s: HrWorkSite) -> dict:
+    return {
+        "id": s.id, "name": s.name, "address": s.address, "latitude": s.latitude,
+        "longitude": s.longitude, "radiusM": s.radius_m, "company": s.company,
+        "notes": s.notes, "createdAt": s.created_at, "updatedAt": s.updated_at,
+    }
+
+
+@router.get("/work-sites")
+def list_work_sites(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    rows = db.query(HrWorkSite).order_by(HrWorkSite.name).all()
+    return [_serialize_site(s) for s in rows]
+
+
+@router.post("/work-sites")
+def create_work_site(body: WorkSiteIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    if not body.name.strip():
+        raise HTTPException(400, "name is required")
+    now = datetime.now(timezone.utc).isoformat()
+    row = HrWorkSite(
+        id=str(uuid.uuid4()), name=body.name.strip(), address=(body.address or "").strip(),
+        latitude=(body.latitude or "").strip(), longitude=(body.longitude or "").strip(),
+        radius_m=body.radius_m if body.radius_m is not None else 150,
+        company=(body.company or "").strip(), notes=body.notes or "",
+        created_by=user["email"], created_at=now, updated_at=now,
+    )
+    db.add(row); db.commit(); db.refresh(row)
+    return _serialize_site(row)
+
+
+@router.patch("/work-sites/{site_id}")
+def update_work_site(site_id: str, body: WorkSiteUpdate, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    row = db.query(HrWorkSite).filter(HrWorkSite.id == site_id).first()
+    if not row:
+        raise HTTPException(404, "Work site not found")
+    if body.name is not None and not body.name.strip():
+        raise HTTPException(400, "name cannot be empty")
+    for key, value in body.model_dump(exclude_unset=True).items():
+        if value is None:
+            continue
+        setattr(row, key, value.strip() if isinstance(value, str) and key != "notes" else value)
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit(); db.refresh(row)
+    return _serialize_site(row)
+
+
+@router.delete("/work-sites/{site_id}")
+def delete_work_site(site_id: str, user: dict = Depends(require_hr_delete), db: Session = Depends(get_db)):
+    row = db.query(HrWorkSite).filter(HrWorkSite.id == site_id).first()
+    if row:
+        db.delete(row); db.commit()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# HR Section B — Compensation + Bank (salary-restricted: hr_comp grant / owner)
+# ---------------------------------------------------------------------------
+class CompensationIn(BaseModel):
+    compensation: Optional[dict] = None   # {base, payBasis, frequency, currency, effectiveDate, history[]}
+    bank:         Optional[list] = None   # [{holder, number, routingOrIfsc, type, bankName}]
+
+
+@router.get("/employees/{eid}/compensation")
+def get_compensation(eid: str, user: dict = Depends(require_hr_comp_read), db: Session = Depends(get_db)):
+    row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not row:
+        raise HTTPException(404, "Employee not found")
+    return {"compensation": row.compensation or {}, "bank": row.bank or []}
+
+
+@router.put("/employees/{eid}/compensation")
+def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(require_hr_comp_write), db: Session = Depends(get_db)):
+    row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not row:
+        raise HTTPException(404, "Employee not found")
+    if body.compensation is not None:
+        incoming = dict(body.compensation or {})
+        current = dict(row.compensation or {})
+        # Auto-snapshot the prior base into history when the base pay changes.
+        old_base, new_base = str(current.get("base", "")), str(incoming.get("base", ""))
+        history = list(incoming.get("history") or current.get("history") or [])
+        if old_base and old_base != new_base:
+            history.insert(0, {
+                "base": current.get("base", ""), "currency": current.get("currency", ""),
+                "payBasis": current.get("payBasis", ""), "effectiveDate": current.get("effectiveDate", ""),
+                "changedAt": datetime.now(timezone.utc).isoformat(), "changedBy": user["email"],
+            })
+        incoming["history"] = history
+        row.compensation = incoming
+    if body.bank is not None:
+        row.bank = body.bank
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit()
+    return {"compensation": row.compensation or {}, "bank": row.bank or []}
+
+
+# ---------------------------------------------------------------------------
+# HR Section B5 — Assets tab: LIVE read from Item Management (no duplication).
+# HR-gated so an HR user without an inventory grant can still see what a person
+# holds. Source of truth stays in items.py; this only reads.
+# ---------------------------------------------------------------------------
+from sqlalchemy import func
+from models import Item, ItemCheckout
+
+
+@router.get("/employees/{eid}/assets")
+def employee_assets(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    email = (emp.work_email or "").strip().lower()
+    if not email:
+        return {"assignments": [], "checkouts": []}
+    assignments = db.query(Item).filter(
+        func.lower(Item.assigned_to_email) == email, Item.deleted_at == ""
+    ).all()
+    checkouts = db.query(ItemCheckout).filter(
+        func.lower(ItemCheckout.requested_by_email) == email,
+        ItemCheckout.status.in_(["allocated", "pending_receipt"]),
+    ).all()
+    return {
+        "assignments": [{
+            "id": i.id, "name": i.name, "serial": i.serial_number, "type": i.item_type,
+            "status": i.status, "assignedAt": i.assigned_at, "photoUrl": i.photo_url,
+        } for i in assignments],
+        "checkouts": [{
+            "id": c.id, "itemName": c.item_name, "itemType": c.item_type, "status": c.status,
+            "days": c.days, "allocatedAt": c.allocated_at, "handedOverAt": c.handed_over_at,
+        } for c in checkouts],
+    }
+
+
+# ---------------------------------------------------------------------------
+# HR Section B6 — inline status change with reason + effective date (audited)
+# ---------------------------------------------------------------------------
+class StatusChangeIn(BaseModel):
+    status:        str
+    reason:        Optional[str] = ""
+    effectiveDate: Optional[str] = ""
+
+
+@router.post("/employees/{eid}/status")
+def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not row:
+        raise HTTPException(404, "Employee not found")
+    if body.status not in _STATUSES:
+        raise HTTPException(400, f"status must be one of {_STATUSES}")
+    now = datetime.now(timezone.utc).isoformat()
+    log = list(row.status_log or [])
+    if body.status != row.status:
+        log.insert(0, {
+            "from": row.status, "to": body.status, "reason": (body.reason or "").strip(),
+            "effectiveDate": (body.effectiveDate or "").strip(), "by": user["email"], "at": now,
+        })
+    row.status = body.status
+    row.status_log = log
+    row.updated_at = now
+    db.commit()
+    db.refresh(row)
+    return _serialize(row)

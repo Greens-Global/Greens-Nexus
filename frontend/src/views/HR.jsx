@@ -3,8 +3,11 @@ import {
   Users, Plus, Search, X, Loader2, Mail, Phone, Briefcase, MapPin,
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
+  Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
+  ShieldCheck, Shield, AlertTriangle,
 } from 'lucide-react';
 import { api } from '../api';
+import { useRole } from '../contexts/RoleContext';
 
 // ── HR module — Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -51,7 +54,7 @@ function useIsMobile(bp = 900) {
 }
 
 // ── Add / Edit modal ──────────────────────────────────────────────────────────
-function EmployeeFormModal({ employee, employees, onClose, onSaved, toastErr }) {
+function EmployeeFormModal({ employee, employees, entities = [], onClose, onSaved, toastErr }) {
   const editing = !!employee;
   const [f, setF] = useState(() => ({
     first_name:      employee?.firstName || '',
@@ -66,10 +69,20 @@ function EmployeeFormModal({ employee, employees, onClose, onSaved, toastErr }) 
     manager_email:   employee?.managerEmail || '',
     status:          employee?.status || 'active',
     location:        employee?.location || '',
+    company:         employee?.company || '',
+    contractor:      employee?.contractor || {},
     notes:           employee?.notes || '',
   }));
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
+  const setC = (k, v) => setF(prev => ({ ...prev, contractor: { ...(prev.contractor || {}), [k]: v } }));
+  const isContractor = f.employment_type === 'contractor';
+  const cInput = (label, key, props = {}) => (
+    <div>
+      <label style={FL}>{label}</label>
+      <input className="form-input" style={{ width: '100%' }} value={(f.contractor || {})[key] || ''} onChange={e => setC(key, e.target.value)} {...props} />
+    </div>
+  );
 
   // Manager picker: anyone with a work email (yourself excluded when editing)
   const managers = employees.filter(e => e.workEmail && e.id !== employee?.id);
@@ -139,6 +152,39 @@ function EmployeeFormModal({ employee, employees, onClose, onSaved, toastErr }) 
             </select>
           </div>
           {input('LOCATION', 'location', { placeholder: 'e.g. Escondido office' })}
+          <div>
+            <label style={FL}>COMPANY / ENTITY</label>
+            <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={e => set('company', e.target.value)}>
+              <option value="">— not set —</option>
+              {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+            </select>
+          </div>
+          {isContractor && (
+            <div style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 12, padding: '14px 16px', background: 'hsla(var(--color-orange),0.05)' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-orange))', letterSpacing: '.04em', marginBottom: 12 }}>CONTRACTOR ENGAGEMENT</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div style={{ gridColumn: '1 / -1' }}>{cInput('SCOPE / ROLE', 'scope', { placeholder: 'what they are engaged to do' })}</div>
+                {cInput('SOW REFERENCE', 'sow_ref', { placeholder: 'SOW doc # / link' })}
+                {cInput('BILLING CLIENT', 'billing_client', { placeholder: 'client this contractor bills to' })}
+                {cInput('CONTRACT START', 'contract_start', { type: 'date' })}
+                {cInput('CONTRACT END', 'contract_end', { type: 'date' })}
+                {cInput('RATE', 'rate', { placeholder: 'e.g. 85' })}
+                <div>
+                  <label style={FL}>RATE TYPE</label>
+                  <select className="form-input" style={{ width: '100%' }} value={(f.contractor || {}).rate_type || 'hourly'} onChange={e => setC('rate_type', e.target.value)}>
+                    <option value="hourly">Hourly</option><option value="fixed_fee">Fixed fee</option><option value="daily">Daily</option><option value="monthly">Monthly retainer</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={FL}>CURRENCY</label>
+                  <select className="form-input" style={{ width: '100%' }} value={(f.contractor || {}).currency || 'USD'} onChange={e => setC('currency', e.target.value)}>
+                    <option value="USD">USD</option><option value="INR">INR</option>
+                  </select>
+                </div>
+                {cInput('ENGAGEMENT AREA', 'engagement_area', { placeholder: 'e.g. Escondido dev / remote' })}
+              </div>
+            </div>
+          )}
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={FL}>NOTES</label>
             <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
@@ -160,6 +206,56 @@ function EmployeeFormModal({ employee, employees, onClose, onSaved, toastErr }) 
 
 // ── Documents (Phase 3) — private bucket, viewed via short-lived signed URLs ──
 const DOC_KINDS = [['resume', 'Resume'], ['id', 'ID'], ['contract', 'Contract'], ['certificate', 'Certificate'], ['other', 'Other']];
+
+// Live read of what a person holds in Item Management (Section B5). No data is
+// stored here — Items stays the single source of truth; this deep-links into it.
+function AssetsSection({ employee }) {
+  const [data, setData] = useState(null);
+  useEffect(() => { api.getEmployeeAssets(employee.id).then(setData).catch(() => setData({ assignments: [], checkouts: [] })); }, [employee.id]);
+  const goToItems = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'inventory', sub: 'active-checkouts' } }));
+  const assignments = data?.assignments || [];
+  const checkouts = data?.checkouts || [];
+  const total = assignments.length + checkouts.length;
+
+  const line = (icon, name, meta, key) => (
+    <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+      {icon}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+        <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{meta}</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
+          <Briefcase size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Assets held {data && `· ${total}`}
+        </span>
+        <button className="secondary-btn" onClick={goToItems} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
+          Open in Item Management <ChevronRight size={12} />
+        </button>
+      </div>
+      {!data ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>Loading…</div>
+      ) : total === 0 ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>
+          {employee.workEmail ? 'No assigned equipment or active checkouts.' : 'No work email yet — provision the account to link assets.'}
+        </div>
+      ) : (
+        <div>
+          {assignments.map(a => line(
+            <Briefcase size={14} style={{ color: 'hsl(var(--color-green))', flexShrink: 0 }} />,
+            a.name, [a.serial && `SN ${a.serial}`, a.type, 'permanent assignment'].filter(Boolean).join(' · '), `a-${a.id}`))}
+          {checkouts.map(c => line(
+            <History size={14} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />,
+            c.itemName, [c.itemType, c.status === 'pending_receipt' ? 'awaiting receipt' : 'checked out', c.days && `${c.days}d`].filter(Boolean).join(' · '), `c-${c.id}`))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function DocumentsSection({ employeeId, toastOk, toastErr }) {
   const [docs, setDocs] = useState(null);
@@ -486,9 +582,13 @@ function PhotoEditorModal({ employee: e, onClose, onSaved, toastOk, toastErr }) 
 }
 
 // ── Profile detail pane ───────────────────────────────────────────────────────
-function EmployeeDetail({ e, employees, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated }) {
+function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated }) {
   const [provisionOpen, setProvisionOpen] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
+  const [compOpen, setCompOpen] = useState(false);
+  const [personalOpen, setPersonalOpen] = useState(false);
+  const [complianceOpen, setComplianceOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
   const [welcomeBusy, setWelcomeBusy] = useState(false);
   const sm = STATUS_META[e.status] || STATUS_META.active;
   const manager = employees.find(m => m.workEmail && m.workEmail === e.managerEmail);
@@ -522,10 +622,27 @@ function EmployeeDetail({ e, employees, onEdit, onBack, isMobile, toastOk, toast
             {[e.jobTitle, e.employeeCode].filter(Boolean).join(' · ')}
           </div>
         </div>
-        <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: sm.bg, color: sm.fg }}>{sm.label}</span>
+        <button onClick={() => setStatusOpen(true)} title="Change status (with reason)"
+          style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: sm.bg, color: sm.fg, border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          {sm.label} <Pencil size={10} />
+        </button>
         <button className="secondary-btn" onClick={() => onEdit(e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
           <Pencil size={13} /> Edit
         </button>
+        <button className="secondary-btn" onClick={() => setPersonalOpen(true)} title="Personal details & emergency contact"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+          <Contact size={13} /> Personal
+        </button>
+        <button className="secondary-btn" onClick={() => setComplianceOpen(true)} title="Right-to-work & compliance"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+          <ShieldCheck size={13} /> Right to Work
+        </button>
+        {canSeeComp && (
+          <button className="secondary-btn" onClick={() => setCompOpen(true)} title="Compensation, benefits & bank (restricted)"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+            <Wallet size={13} /> Pay & Benefits
+          </button>
+        )}
         {!e.m365Id ? (
           <button className="primary-btn" onClick={() => setProvisionOpen(true)}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, background: 'hsl(var(--color-green))' }}>
@@ -554,12 +671,34 @@ function EmployeeDetail({ e, employees, onEdit, onBack, isMobile, toastOk, toast
         {row(Mail, 'Personal', e.personalEmail)}
         {row(Phone, 'Phone', e.phone)}
         {row(Briefcase, 'Department', [e.department, TYPE_LABEL[e.employmentType]].filter(Boolean).join(' · '))}
+        {companyName && row(Building2, 'Company', companyName)}
         {row(CalendarOff, 'Start date', e.startDate)}
         {row(MapPin, 'Location', e.location)}
+        {e.employmentType === 'contractor' && e.contractor?.billing_client && row(Briefcase, 'Billing client', e.contractor.billing_client)}
+        {e.employmentType === 'contractor' && e.contractor?.contract_end && row(CalendarOff, 'Contract end', e.contractor.contract_end)}
+        {e.employmentType === 'contractor' && e.contractor?.rate && row(FileText, 'Rate', [e.contractor.rate, e.contractor.currency, e.contractor.rate_type].filter(Boolean).join(' '))}
         {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : e.managerEmail)}
         {reports.length > 0 && row(Users, 'Direct reports', reports.map(fullName).join(', '))}
+        {e.personal?.dob && row(CalendarDays, 'Date of birth', e.personal.dob)}
+        {e.personal?.nationalId && row(Lock, 'National ID', maskId(e.personal.nationalId))}
+        {e.personal?.emergency?.name && row(Heart, 'Emergency contact', [e.personal.emergency.name, e.personal.emergency.relationship && `(${e.personal.emergency.relationship})`, e.personal.emergency.phone].filter(Boolean).join(' · '))}
+        {e.compliance?.workAuth && row(ShieldCheck, 'Work auth', (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            {WORK_AUTH.find(([v]) => v === e.compliance.workAuth)?.[1] || e.compliance.workAuth}
+            {(() => { const m = VERIFY_STATUS[e.compliance.status || 'unverified']; return <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: 10.5, fontWeight: 700, background: m.bg, color: m.fg }}>{m.label}</span>; })()}
+          </span>
+        ))}
+        {e.compliance?.expiryDate && (() => {
+          const d = daysUntil(e.compliance.expiryDate); const warn = d !== null && d <= 60;
+          return row(warn ? AlertTriangle : CalendarDays, 'Doc expiry', (
+            <span style={{ color: warn ? (d < 0 ? 'hsl(var(--color-red))' : 'hsl(var(--color-orange))') : 'inherit', fontWeight: warn ? 700 : 400 }}>
+              {e.compliance.expiryDate}{d !== null && (d < 0 ? ' · expired' : ` · in ${d}d`)}
+            </span>
+          ));
+        })()}
         {e.notes && row(FileText, 'Notes', e.notes)}
       </div>
+      <AssetsSection employee={e} />
       <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
       {photoOpen && (
         <PhotoEditorModal employee={e} toastOk={toastOk} toastErr={toastErr}
@@ -569,6 +708,18 @@ function EmployeeDetail({ e, employees, onEdit, onBack, isMobile, toastOk, toast
         <ProvisionModal employee={e} toastErr={toastErr}
           onClose={() => setProvisionOpen(false)}
           onDone={updated => { onEmployeeUpdated(updated); toastOk(`${fullName(e)} provisioned.`); }} />
+      )}
+      {compOpen && (
+        <CompensationModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => setCompOpen(false)} />
+      )}
+      {personalOpen && (
+        <PersonalModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => setPersonalOpen(false)} onSaved={onEmployeeUpdated} />
+      )}
+      {complianceOpen && (
+        <ComplianceModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => setComplianceOpen(false)} onSaved={onEmployeeUpdated} />
+      )}
+      {statusOpen && (
+        <StatusChangeModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => setStatusOpen(false)} onSaved={onEmployeeUpdated} />
       )}
     </div>
   );
@@ -1133,6 +1284,506 @@ function LeaveTab({ employees, toastOk, toastErr }) {
 }
 
 // ── Main view ─────────────────────────────────────────────────────────────────
+// ── Companies / legal entities manager (HR Section A) ────────────────────────
+function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
+  const blank = { name: '', legal_name: '', country: '', tax_id: '', registered_address: '', signatory: '', notes: '' };
+  const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
+  const [f, setF] = useState(blank);
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const startNew = () => { setF(blank); setMode('new'); };
+  const startEdit = en => { setF({ name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '', registered_address: en.registeredAddress || '', signatory: en.signatory || '', notes: en.notes || '' }); setMode(en.id); };
+
+  async function save() {
+    if (!f.name.trim() || busy) return; setBusy(true);
+    try {
+      if (mode === 'new') await api.createEntity(f); else await api.updateEntity(mode, f);
+      await onChanged(); toastOk('Company saved.'); setMode(null);
+    } catch (e) { toastErr(e?.message || 'Could not save company.'); }
+    setBusy(false);
+  }
+  async function remove(en) {
+    if (!window.confirm(`Delete “${en.name}”? Workers keep their record but lose this company link.`)) return;
+    try { await api.deleteEntity(en.id); await onChanged(); toastOk('Company deleted.'); }
+    catch (e) { toastErr(e?.message || 'Could not delete company.'); }
+  }
+  async function seedDefaults() {
+    setBusy(true);
+    try {
+      for (const [name, country] of [['Greens', 'US'], ['Greens India', 'IN'], ['MCD', 'US'], ['Oversite', 'US']]) await api.createEntity({ name, country });
+      await onChanged(); toastOk('Added the 4 default entities.');
+    } catch (e) { toastErr(e?.message || 'Could not add defaults.'); }
+    setBusy(false);
+  }
+  const field = (label, key, props = {}) => (
+    <div>
+      <label style={FL}>{label}</label>
+      <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} />
+    </div>
+  );
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 620, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Building2 size={17} color="hsl(var(--color-blue))" />
+          </div>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{mode ? (mode === 'new' ? 'Add Company' : 'Edit Company') : 'Companies & Entities'}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+
+        {mode ? (
+          <>
+            <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div style={{ gridColumn: '1 / -1' }}>{field('NAME *', 'name', { autoFocus: true, placeholder: 'e.g. Greens India' })}</div>
+              {field('LEGAL NAME', 'legal_name', { placeholder: 'full registered name' })}
+              <div>
+                <label style={FL}>COUNTRY</label>
+                <select className="form-input" style={{ width: '100%' }} value={f.country} onChange={e => set('country', e.target.value)}>
+                  <option value="">—</option><option value="US">United States (US)</option><option value="IN">India (IN)</option>
+                </select>
+              </div>
+              {field('TAX ID (EIN / GSTIN)', 'tax_id')}
+              {field('AUTHORIZED SIGNATORY', 'signatory', { placeholder: 'name, title' })}
+              <div style={{ gridColumn: '1 / -1' }}>{field('REGISTERED ADDRESS', 'registered_address')}</div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={FL}>NOTES</label>
+                <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} />
+              </div>
+            </div>
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
+              <button className="secondary-btn" onClick={() => setMode(null)} disabled={busy}>Back</button>
+              <button className="primary-btn" onClick={save} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
+                {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ overflowY: 'auto', flex: 1, padding: '14px 18px' }}>
+              {entities.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '28px 16px', color: 'var(--muted)' }}>
+                  <p style={{ fontSize: 13, marginBottom: 14 }}>No companies yet. Add your legal entities so every worker can be tied to one.</p>
+                  <button className="secondary-btn" onClick={seedDefaults} disabled={busy} style={{ marginRight: 8 }}>Add Greens · Greens India · MCD · Oversite</button>
+                </div>
+              ) : entities.map(en => (
+                <div key={en.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 700 }}>{en.name} {en.country && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>· {en.country}</span>}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[en.legalName, en.taxId && `Tax ${en.taxId}`, en.signatory].filter(Boolean).join(' · ') || '—'}</div>
+                  </div>
+                  <button className="secondary-btn" onClick={() => startEdit(en)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
+                  <button onClick={() => remove(en)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
+              <button className="primary-btn" onClick={startNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Company</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Inline status change with reason + effective date (HR Section B6) ────────
+function StatusChangeModal({ employee, onClose, onSaved, toastOk, toastErr }) {
+  const [status, setStatus] = useState(employee.status || 'active');
+  const [reason, setReason] = useState('');
+  const [effectiveDate, setEffectiveDate] = useState('');
+  const [busy, setBusy] = useState(false);
+  const changed = status !== employee.status;
+
+  async function save() {
+    if (busy) return; setBusy(true);
+    try { const saved = await api.changeEmployeeStatus(employee.id, { status, reason, effectiveDate }); onSaved(saved); toastOk(`Status set to ${STATUS_META[status]?.label || status}.`); onClose(); }
+    catch (e) { toastErr(e?.message || 'Could not change status.'); setBusy(false); }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 460, boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Change status — {fullName(employee)}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: '18px 24px', display: 'grid', gap: 14 }}>
+          <div><label style={FL}>NEW STATUS</label>
+            <select className="form-input" style={{ width: '100%' }} value={status} onChange={e => setStatus(e.target.value)}>
+              {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
+            </select>
+          </div>
+          <div><label style={FL}>EFFECTIVE DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} /></div>
+          <div><label style={FL}>REASON</label><textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={reason} onChange={e => setReason(e.target.value)} placeholder="why the change (kept in the audit trail)" /></div>
+          {employee.statusLog?.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>RECENT CHANGES</div>
+              {employee.statusLog.slice(0, 4).map((h, i) => (
+                <div key={i} style={{ fontSize: 12, color: 'var(--muted)', padding: '3px 0' }}>
+                  {STATUS_META[h.from]?.label || h.from} → {STATUS_META[h.to]?.label || h.to} · {h.effectiveDate || (h.at || '').slice(0, 10)}{h.reason ? ` · ${h.reason}` : ''}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="primary-btn" onClick={save} disabled={busy || !changed} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || !changed) ? 0.6 : 1 }}>{busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Apply</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Right-to-work & compliance (HR Section B — open to HR) ───────────────────
+const WORK_AUTH = [['citizen', 'Citizen'], ['permanent_resident', 'Permanent resident'], ['work_visa', 'Work visa'], ['permit', 'Work permit'], ['other', 'Other']];
+const DOC_TYPES = [['passport', 'Passport'], ['national_id', 'National ID'], ['visa', 'Visa'], ['work_permit', 'Work permit'], ['other', 'Other']];
+const VERIFY_STATUS = { unverified: { label: 'Unverified', fg: 'var(--muted)', bg: 'var(--hover)' }, verified: { label: 'Verified', fg: 'hsl(var(--color-green))', bg: 'hsla(var(--color-green),0.12)' }, rejected: { label: 'Rejected', fg: 'hsl(var(--color-red))', bg: 'hsla(var(--color-red),0.12)' } };
+const CONSENTS = [['bgCheck', 'Background check consent'], ['dataProcessing', 'Data processing consent'], ['handbook', 'Handbook acknowledgment']];
+
+// Days until an ISO date (negative = past). '' → null.
+function daysUntil(iso) {
+  if (!iso) return null;
+  const d = new Date(iso + 'T00:00:00'); if (isNaN(d)) return null;
+  return Math.ceil((d - new Date()) / 86400000);
+}
+
+function ComplianceModal({ employee, onClose, onSaved, toastOk, toastErr }) {
+  const c0 = employee.compliance || {};
+  const [c, setC] = useState({
+    workAuth: c0.workAuth || '', docType: c0.docType || 'passport', docNumber: c0.docNumber || '',
+    issueDate: c0.issueDate || '', expiryDate: c0.expiryDate || '', status: c0.status || 'unverified',
+    consents: { bgCheck: false, dataProcessing: false, handbook: false, ...(c0.consents || {}) },
+    verifiedBy: c0.verifiedBy || '', verifiedAt: c0.verifiedAt || '',
+  });
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setC(prev => ({ ...prev, [k]: v }));
+  const setConsent = (k, v) => setC(prev => ({ ...prev, consents: { ...prev.consents, [k]: v } }));
+
+  async function save() {
+    if (busy) return; setBusy(true);
+    try { const saved = await api.updateEmployee(employee.id, { compliance: c }); onSaved(saved); toastOk('Compliance saved.'); onClose(); }
+    catch (e) { toastErr(e?.message || 'Could not save.'); setBusy(false); }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 580, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-purple),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ShieldCheck size={17} color="hsl(var(--color-purple))" /></div>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Right to Work — {fullName(employee)}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div><label style={FL}>WORK AUTHORIZATION</label><select className="form-input" style={{ width: '100%' }} value={c.workAuth} onChange={e => set('workAuth', e.target.value)}><option value="">—</option>{WORK_AUTH.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+            <div><label style={FL}>DOCUMENT TYPE</label><select className="form-input" style={{ width: '100%' }} value={c.docType} onChange={e => set('docType', e.target.value)}>{DOC_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+            <div style={{ gridColumn: '1 / -1' }}><label style={FL}>DOCUMENT NUMBER</label><input className="form-input" style={{ width: '100%' }} value={c.docNumber} onChange={e => set('docNumber', e.target.value)} /></div>
+            <div><label style={FL}>ISSUE DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={c.issueDate} onChange={e => set('issueDate', e.target.value)} /></div>
+            <div><label style={FL}>EXPIRY DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={c.expiryDate} onChange={e => set('expiryDate', e.target.value)} /></div>
+            <div style={{ gridColumn: '1 / -1' }}><label style={FL}>VERIFICATION STATUS</label>
+              <select className="form-input" style={{ width: '100%' }} value={c.status} onChange={e => set('status', e.target.value)}>
+                {Object.entries(VERIFY_STATUS).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '10px 0 0' }}>Upload the actual passport / visa scan in the Documents section below the profile (private, signed-URL access).</p>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', margin: '18px 0 10px' }}>CONSENT CHECKLIST</div>
+          {CONSENTS.map(([k, label]) => (
+            <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', fontSize: 13, cursor: 'pointer' }}>
+              <input type="checkbox" checked={!!c.consents[k]} onChange={e => setConsent(k, e.target.checked)} style={{ width: 16, height: 16 }} />
+              {label}
+            </label>
+          ))}
+        </div>
+        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="primary-btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy ? 0.6 : 1 }}>{busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Personal details + emergency contact (HR Section B — open to HR) ─────────
+function maskId(v) {
+  const s = (v || '').replace(/\s/g, '');
+  return s.length > 4 ? `${'•'.repeat(Math.min(s.length - 4, 8))}${s.slice(-4)}` : s;
+}
+
+function PersonalModal({ employee, onClose, onSaved, toastOk, toastErr }) {
+  const p0 = employee.personal || {};
+  const [p, setP] = useState({
+    dob: p0.dob || '', gender: p0.gender || '', nationalId: p0.nationalId || '',
+    currentAddress: p0.currentAddress || '', permanentAddress: p0.permanentAddress || '',
+    emergency: { name: '', relationship: '', phone: '', email: '', ...(p0.emergency || {}) },
+  });
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setP(prev => ({ ...prev, [k]: v }));
+  const setE = (k, v) => setP(prev => ({ ...prev, emergency: { ...prev.emergency, [k]: v } }));
+
+  async function save() {
+    if (busy) return; setBusy(true);
+    try { const saved = await api.updateEmployee(employee.id, { personal: p }); onSaved(saved); toastOk('Personal details saved.'); onClose(); }
+    catch (e) { toastErr(e?.message || 'Could not save.'); setBusy(false); }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 580, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Contact size={17} color="hsl(var(--color-blue))" /></div>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Personal — {fullName(employee)}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div><label style={FL}>DATE OF BIRTH</label><input className="form-input" style={{ width: '100%' }} type="date" value={p.dob} onChange={e => set('dob', e.target.value)} /></div>
+            <div><label style={FL}>GENDER</label><select className="form-input" style={{ width: '100%' }} value={p.gender} onChange={e => set('gender', e.target.value)}><option value="">—</option><option>Male</option><option>Female</option><option>Other</option><option>Prefer not to say</option></select></div>
+            <div style={{ gridColumn: '1 / -1' }}><label style={FL}>NATIONAL ID / SSN / AADHAAR</label><input className="form-input" style={{ width: '100%' }} value={p.nationalId} onChange={e => set('nationalId', e.target.value)} placeholder="stored securely, shown masked" /></div>
+            <div style={{ gridColumn: '1 / -1' }}><label style={FL}>CURRENT ADDRESS</label><textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={p.currentAddress} onChange={e => set('currentAddress', e.target.value)} /></div>
+            <div style={{ gridColumn: '1 / -1' }}><label style={FL}>PERMANENT ADDRESS</label><textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={p.permanentAddress} onChange={e => set('permanentAddress', e.target.value)} /></div>
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-red))', letterSpacing: '.04em', margin: '18px 0 10px' }}>EMERGENCY CONTACT</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div><label style={FL}>NAME</label><input className="form-input" style={{ width: '100%' }} value={p.emergency.name} onChange={e => setE('name', e.target.value)} /></div>
+            <div><label style={FL}>RELATIONSHIP</label><input className="form-input" style={{ width: '100%' }} value={p.emergency.relationship} onChange={e => setE('relationship', e.target.value)} placeholder="e.g. spouse" /></div>
+            <div><label style={FL}>PHONE</label><input className="form-input" style={{ width: '100%' }} value={p.emergency.phone} onChange={e => setE('phone', e.target.value)} /></div>
+            <div><label style={FL}>EMAIL</label><input className="form-input" style={{ width: '100%' }} type="email" value={p.emergency.email} onChange={e => setE('email', e.target.value)} /></div>
+          </div>
+        </div>
+        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="primary-btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy ? 0.6 : 1 }}>{busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Compensation + bank (HR Section B — gated by hr_comp grant / owner) ──────
+const PAY_BASIS = [['salary', 'Salary'], ['hourly', 'Hourly'], ['daily', 'Daily'], ['fixed_fee', 'Fixed fee']];
+const PAY_FREQ  = [['monthly', 'Monthly'], ['semimonthly', 'Semi-monthly'], ['biweekly', 'Bi-weekly'], ['weekly', 'Weekly']];
+const BANK_TYPES = [['checking', 'Checking'], ['savings', 'Savings'], ['current', 'Current']];
+const BENEFIT_TYPES = [['health', 'Health'], ['dental', 'Dental'], ['vision', 'Vision'], ['life', 'Life'], ['disability', 'Disability'], ['retirement', 'Retirement / 401k / PF'], ['other', 'Other']];
+
+function CompensationModal({ employee, onClose, toastOk, toastErr }) {
+  const [comp, setComp] = useState({ base: '', payBasis: 'salary', frequency: 'monthly', currency: 'USD', effectiveDate: '', history: [], benefits: [] });
+  const [bank, setBank] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const setC = (k, v) => setComp(p => ({ ...p, [k]: v }));
+
+  useEffect(() => {
+    let live = true;
+    api.getCompensation(employee.id)
+      .then(r => { if (!live) return; setComp({ base: '', payBasis: 'salary', frequency: 'monthly', currency: 'USD', effectiveDate: '', history: [], benefits: [], ...(r.compensation || {}) }); setBank(r.bank || []); })
+      .catch(e => toastErr(e?.message || 'Could not load compensation.'))
+      .finally(() => live && setLoading(false));
+    return () => { live = false; };
+  }, [employee.id]);
+
+  const addBank = () => setBank(b => [...b, { holder: '', bankName: '', number: '', routingOrIfsc: '', type: 'checking' }]);
+  const setBankField = (i, k, v) => setBank(b => b.map((x, j) => j === i ? { ...x, [k]: v } : x));
+  const removeBank = i => setBank(b => b.filter((_, j) => j !== i));
+  const benefits = comp.benefits || [];
+  const addBenefit = () => setComp(p => ({ ...p, benefits: [...(p.benefits || []), { type: 'health', plan: '', deduction: '', note: '' }] }));
+  const setBenefit = (i, k, v) => setComp(p => ({ ...p, benefits: (p.benefits || []).map((x, j) => j === i ? { ...x, [k]: v } : x) }));
+  const removeBenefit = i => setComp(p => ({ ...p, benefits: (p.benefits || []).filter((_, j) => j !== i) }));
+
+  async function save() {
+    if (busy) return; setBusy(true);
+    try {
+      const clean = { ...comp }; delete clean.history;   // server owns history
+      await api.saveCompensation(employee.id, { compensation: clean, bank });
+      toastOk('Compensation saved.'); onClose();
+    } catch (e) { toastErr(e?.message || 'Could not save compensation.'); setBusy(false); }
+  }
+  const money = (v, cur) => v ? `${cur === 'INR' ? '₹' : '$'}${Number(v).toLocaleString()}` : '—';
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 620, maxHeight: 'min(92dvh, 780px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-green),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Wallet size={17} color="hsl(var(--color-green))" />
+          </div>
+          <div style={{ flex: 1 }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Pay, Benefits & Bank — {fullName(employee)}</h3>
+            <div style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 2 }}><Lock size={11} /> Restricted · compensation grant</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+
+        {loading ? (
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} /></div>
+        ) : (
+          <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 10 }}>BASE PAY</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div><label style={FL}>BASE AMOUNT</label><input className="form-input" style={{ width: '100%' }} type="number" value={comp.base} onChange={e => setC('base', e.target.value)} placeholder="e.g. 90000" /></div>
+              <div><label style={FL}>CURRENCY</label><select className="form-input" style={{ width: '100%' }} value={comp.currency} onChange={e => setC('currency', e.target.value)}><option value="USD">USD</option><option value="INR">INR</option></select></div>
+              <div><label style={FL}>PAY BASIS</label><select className="form-input" style={{ width: '100%' }} value={comp.payBasis} onChange={e => setC('payBasis', e.target.value)}>{PAY_BASIS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+              <div><label style={FL}>PAY FREQUENCY</label><select className="form-input" style={{ width: '100%' }} value={comp.frequency} onChange={e => setC('frequency', e.target.value)}>{PAY_FREQ.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+              <div><label style={FL}>EFFECTIVE DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={comp.effectiveDate} onChange={e => setC('effectiveDate', e.target.value)} /></div>
+            </div>
+
+            {comp.history?.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 8 }}>HISTORY</div>
+                {comp.history.map((h, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
+                    <span>{money(h.base, h.currency)} · {h.payBasis || ''}</span>
+                    <span>{h.effectiveDate || (h.changedAt || '').slice(0, 10)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', margin: '20px 0 10px', display: 'flex', alignItems: 'center', gap: 6 }}><Heart size={13} /> BENEFITS & DEDUCTIONS</div>
+            {benefits.map((bn, i) => (
+              <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div><label style={FL}>TYPE</label><select className="form-input" style={{ width: '100%' }} value={bn.type} onChange={e => setBenefit(i, 'type', e.target.value)}>{BENEFIT_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+                  <div><label style={FL}>PLAN / PROVIDER</label><input className="form-input" style={{ width: '100%' }} value={bn.plan} onChange={e => setBenefit(i, 'plan', e.target.value)} /></div>
+                  <div><label style={FL}>PER-PAYCHECK DEDUCTION</label><input className="form-input" style={{ width: '100%' }} type="number" value={bn.deduction} onChange={e => setBenefit(i, 'deduction', e.target.value)} placeholder={`in ${comp.currency}`} /></div>
+                  <div><label style={FL}>NOTE</label><input className="form-input" style={{ width: '100%' }} value={bn.note} onChange={e => setBenefit(i, 'note', e.target.value)} /></div>
+                </div>
+                <button onClick={() => removeBenefit(i)} style={{ marginTop: 8, background: 'none', border: 'none', color: 'hsl(var(--color-red))', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={12} /> Remove</button>
+              </div>
+            ))}
+            <button className="secondary-btn" onClick={addBenefit} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 4 }}><Plus size={13} /> Add benefit / deduction</button>
+
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', margin: '20px 0 10px', display: 'flex', alignItems: 'center', gap: 6 }}><Landmark size={13} /> BANK ACCOUNTS</div>
+            {bank.map((acc, i) => (
+              <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div><label style={FL}>ACCOUNT HOLDER</label><input className="form-input" style={{ width: '100%' }} value={acc.holder} onChange={e => setBankField(i, 'holder', e.target.value)} /></div>
+                  <div><label style={FL}>BANK NAME</label><input className="form-input" style={{ width: '100%' }} value={acc.bankName} onChange={e => setBankField(i, 'bankName', e.target.value)} /></div>
+                  <div><label style={FL}>ACCOUNT NUMBER</label><input className="form-input" style={{ width: '100%' }} value={acc.number} onChange={e => setBankField(i, 'number', e.target.value)} /></div>
+                  <div><label style={FL}>ROUTING / IFSC</label><input className="form-input" style={{ width: '100%' }} value={acc.routingOrIfsc} onChange={e => setBankField(i, 'routingOrIfsc', e.target.value)} /></div>
+                  <div><label style={FL}>TYPE</label><select className="form-input" style={{ width: '100%' }} value={acc.type} onChange={e => setBankField(i, 'type', e.target.value)}>{BANK_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+                </div>
+                <button onClick={() => removeBank(i)} style={{ marginTop: 8, background: 'none', border: 'none', color: 'hsl(var(--color-red))', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={12} /> Remove</button>
+              </div>
+            ))}
+            <button className="secondary-btn" onClick={addBank} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add bank account</button>
+          </div>
+        )}
+
+        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="primary-btn" onClick={save} disabled={busy || loading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || loading) ? 0.6 : 1 }}>
+            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Work sites registry (HR Section A — geofence foundation for Time Clock) ───
+function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr }) {
+  const blank = { name: '', address: '', latitude: '', longitude: '', radius_m: 150, company: '', notes: '' };
+  const [mode, setMode] = useState(null);
+  const [f, setF] = useState(blank);
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const startNew = () => { setF(blank); setMode('new'); };
+  const startEdit = s => { setF({ name: s.name, address: s.address || '', latitude: s.latitude || '', longitude: s.longitude || '', radius_m: s.radiusM ?? 150, company: s.company || '', notes: s.notes || '' }); setMode(s.id); };
+  const entityName = id => entities.find(en => en.id === id)?.name || '';
+
+  async function save() {
+    if (!f.name.trim() || busy) return; setBusy(true);
+    try {
+      const body = { ...f, radius_m: Number(f.radius_m) || 150 };
+      if (mode === 'new') await api.createWorkSite(body); else await api.updateWorkSite(mode, body);
+      await onChanged(); toastOk('Work site saved.'); setMode(null);
+    } catch (e) { toastErr(e?.message || 'Could not save work site.'); }
+    setBusy(false);
+  }
+  async function remove(s) {
+    if (!window.confirm(`Delete work site “${s.name}”?`)) return;
+    try { await api.deleteWorkSite(s.id); await onChanged(); toastOk('Work site deleted.'); }
+    catch (e) { toastErr(e?.message || 'Could not delete.'); }
+  }
+  const field = (label, key, props = {}) => (
+    <div><label style={FL}>{label}</label>
+      <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} /></div>
+  );
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 620, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-purple),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <MapPinned size={17} color="hsl(var(--color-purple))" />
+          </div>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{mode ? (mode === 'new' ? 'Add Work Site' : 'Edit Work Site') : 'Work Sites'}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+
+        {mode ? (
+          <>
+            <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div style={{ gridColumn: '1 / -1' }}>{field('NAME *', 'name', { autoFocus: true, placeholder: 'e.g. Escondido Office' })}</div>
+              <div style={{ gridColumn: '1 / -1' }}>{field('ADDRESS', 'address')}</div>
+              {field('LATITUDE', 'latitude', { placeholder: 'e.g. 33.1192' })}
+              {field('LONGITUDE', 'longitude', { placeholder: 'e.g. -117.0864' })}
+              {field('GEOFENCE RADIUS (m)', 'radius_m', { type: 'number', min: 10 })}
+              <div>
+                <label style={FL}>COMPANY / ENTITY</label>
+                <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={e => set('company', e.target.value)}>
+                  <option value="">— any —</option>
+                  {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+                </select>
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={FL}>NOTES</label>
+                <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} />
+              </div>
+            </div>
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
+              <button className="secondary-btn" onClick={() => setMode(null)} disabled={busy}>Back</button>
+              <button className="primary-btn" onClick={save} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
+                {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ overflowY: 'auto', flex: 1, padding: '14px 18px' }}>
+              {sites.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '28px 16px', color: 'var(--muted)', fontSize: 13 }}>No work sites yet. Add sites (with lat/long + radius) to enable geofenced clock-in later.</div>
+              ) : sites.map(s => (
+                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.name} {s.company && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>· {entityName(s.company)}</span>}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[s.address, (s.latitude && s.longitude) ? `${s.latitude}, ${s.longitude} · ${s.radiusM}m` : ''].filter(Boolean).join(' · ') || '—'}</div>
+                  </div>
+                  <button className="secondary-btn" onClick={() => startEdit(s)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
+                  <button onClick={() => remove(s)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
+              <button className="primary-btn" onClick={startNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Work Site</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function HR({ activeSub, onSubChange }) {
   // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now
   const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave'].includes(activeSub) ? activeSub : 'hr-people';
@@ -1147,7 +1798,13 @@ export default function HR({ activeSub, onSubChange }) {
   const [selectedId, setSelectedId] = useState(null);
   const [formOpen,  setFormOpen]  = useState(false);
   const [editing,   setEditing]   = useState(null);
+  const [entities,  setEntities]  = useState([]);
+  const [entitiesOpen, setEntitiesOpen] = useState(false);
+  const [sites,     setSites]     = useState([]);
+  const [sitesOpen, setSitesOpen] = useState(false);
   const [toast,     setToast]     = useState(null);
+  const { canAccessModule } = useRole();
+  const canSeeComp = canAccessModule('hr_comp', 'owner', 'viewer');
 
   const toastErr = msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
   const toastOk  = msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
@@ -1175,7 +1832,11 @@ export default function HR({ activeSub, onSubChange }) {
       .catch(err => setError(err?.message || 'Could not load employees.'))
       .finally(() => setLoading(false));
   }
+  const loadEntities = () => api.getEntities().then(setEntities).catch(() => setEntities([]));
+  const loadSites = () => api.getWorkSites().then(setSites).catch(() => setSites([]));
   useEffect(load, []);
+  useEffect(() => { loadEntities(); loadSites(); }, []);
+  const entityName = id => entities.find(en => en.id === id)?.name || '';
 
   const filtered = useMemo(() => employees.filter(e => {
     if (deptF !== 'All' && e.department !== deptF) return false;
@@ -1221,6 +1882,16 @@ export default function HR({ activeSub, onSubChange }) {
               title="Pull people from M365 — only @greensglobal.com and @greensstorage.com accounts. New people are added; existing profiles get linked and empty fields backfilled from Entra."
               onClick={runSync}>
               {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <History size={14} />} Sync from M365
+            </button>
+            <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
+              title="Manage companies / legal entities"
+              onClick={() => setEntitiesOpen(true)}>
+              <Building2 size={14} /> Companies
+            </button>
+            <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
+              title="Manage work sites (for geofenced clock-in)"
+              onClick={() => setSitesOpen(true)}>
+              <MapPinned size={14} /> Work Sites
             </button>
             <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
               onClick={() => { setEditing(null); setFormOpen(true); }}>
@@ -1327,6 +1998,7 @@ export default function HR({ activeSub, onSubChange }) {
               <div style={isMobile ? undefined : { position: 'sticky', top: 68, alignSelf: 'start', maxHeight: 'calc(100vh - 280px)', minHeight: 380, overflowY: 'auto' }}>
                 {selected ? (
                   <EmployeeDetail e={selected} employees={employees} isMobile={isMobile}
+                    companyName={entityName(selected.company)} canSeeComp={canSeeComp}
                     toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved}
                     onEdit={emp => { setEditing(emp); setFormOpen(true); }}
                     onBack={() => setSelectedId(null)} />
@@ -1343,9 +2015,17 @@ export default function HR({ activeSub, onSubChange }) {
       </>)}
 
       {formOpen && (
-        <EmployeeFormModal employee={editing} employees={employees}
+        <EmployeeFormModal employee={editing} employees={employees} entities={entities}
           onClose={() => { setFormOpen(false); setEditing(null); }}
           onSaved={onSaved} toastErr={toastErr} />
+      )}
+      {entitiesOpen && (
+        <EntitiesModal entities={entities} onClose={() => setEntitiesOpen(false)}
+          onChanged={loadEntities} toastOk={toastOk} toastErr={toastErr} />
+      )}
+      {sitesOpen && (
+        <WorkSitesModal sites={sites} entities={entities} onClose={() => setSitesOpen(false)}
+          onChanged={loadSites} toastOk={toastOk} toastErr={toastErr} />
       )}
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.kind === 'error' ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)', maxWidth: '90vw' }}>
