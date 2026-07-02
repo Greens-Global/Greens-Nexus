@@ -1497,6 +1497,35 @@ def _ser_export(j: HrMailboxExport) -> dict:
     }
 
 
+def _clean_part(s: str, n: int) -> str:
+    """Filesystem-safe but human-readable: keep spaces, drop only illegal chars."""
+    s = re.sub(r'[\\/:*?"<>|\r\n\t]+', " ", s or "")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s[:n].strip()
+
+
+def _export_filename(m: dict, used: set) -> str:
+    """`<date> - <sender> - <subject>.eml`, deduped. Uses the sender's display
+    name (falls back to their address, then to the first recipient for sent mail)."""
+    ts = (m.get("receivedDateTime") or "")[:10] or "nodate"
+    frm = ((m.get("from") or {}).get("emailAddress")) or {}
+    who = frm.get("name") or frm.get("address")
+    if not who:
+        rcpts = m.get("toRecipients") or []
+        first = (rcpts[0].get("emailAddress") if rcpts else {}) or {}
+        who = ("to " + (first.get("name") or first.get("address"))) if (first.get("name") or first.get("address")) else "unknown"
+    who = _clean_part(who, 40) or "unknown"
+    subj = _clean_part(m.get("subject") or "no subject", 70) or "no subject"
+    base = f"{ts} - {who} - {subj}"
+    name = f"{base}.eml"
+    i = 2
+    while name in used:
+        name = f"{base} ({i}).eml"
+        i += 1
+    used.add(name)
+    return name
+
+
 def _run_mailbox_export(job_id: str, m365_id: str) -> None:
     db = SessionLocal()
     tmp_path = None
@@ -1518,8 +1547,9 @@ def _run_mailbox_export(job_id: str, m365_id: str) -> None:
             pass
         tf = tempfile.NamedTemporaryFile(suffix=".zip", delete=False); tf.close(); tmp_path = tf.name
         count = 0
+        used = set()   # keep zip entry names unique + readable
         with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            url = f"{_GRAPH}/users/{m365_id}/messages?$select=id,subject,receivedDateTime&$top=100"
+            url = f"{_GRAPH}/users/{m365_id}/messages?$select=id,subject,receivedDateTime,from,toRecipients&$top=100"
             while url and count < _EXPORT_MSG_CAP:
                 r = httpx.get(url, headers=headers, timeout=60)
                 if r.status_code in (401, 403):
@@ -1534,9 +1564,7 @@ def _run_mailbox_export(job_id: str, m365_id: str) -> None:
                     mime = httpx.get(f"{_GRAPH}/users/{m365_id}/messages/{mid}/$value", headers=headers, timeout=60)
                     if not mime.is_success:
                         continue
-                    ts = (m.get("receivedDateTime") or "")[:10] or "nodate"
-                    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", (m.get("subject") or "no-subject"))[:60]
-                    zf.writestr(f"{ts}_{safe}_{mid[:8]}.eml", mime.content)
+                    zf.writestr(_export_filename(m, used), mime.content)
                     count += 1
                     # Publish progress every 25 messages so pollers see live movement.
                     if count % 25 == 0:
