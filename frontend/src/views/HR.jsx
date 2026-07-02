@@ -4,6 +4,7 @@ import {
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
+  ShieldCheck, Shield, AlertTriangle,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -536,6 +537,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
   const [photoOpen, setPhotoOpen] = useState(false);
   const [compOpen, setCompOpen] = useState(false);
   const [personalOpen, setPersonalOpen] = useState(false);
+  const [complianceOpen, setComplianceOpen] = useState(false);
   const [welcomeBusy, setWelcomeBusy] = useState(false);
   const sm = STATUS_META[e.status] || STATUS_META.active;
   const manager = employees.find(m => m.workEmail && m.workEmail === e.managerEmail);
@@ -576,6 +578,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
         <button className="secondary-btn" onClick={() => setPersonalOpen(true)} title="Personal details & emergency contact"
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
           <Contact size={13} /> Personal
+        </button>
+        <button className="secondary-btn" onClick={() => setComplianceOpen(true)} title="Right-to-work & compliance"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+          <ShieldCheck size={13} /> Right to Work
         </button>
         {canSeeComp && (
           <button className="secondary-btn" onClick={() => setCompOpen(true)} title="Compensation & bank (restricted)"
@@ -622,6 +628,20 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
         {e.personal?.dob && row(CalendarDays, 'Date of birth', e.personal.dob)}
         {e.personal?.nationalId && row(Lock, 'National ID', maskId(e.personal.nationalId))}
         {e.personal?.emergency?.name && row(Heart, 'Emergency contact', [e.personal.emergency.name, e.personal.emergency.relationship && `(${e.personal.emergency.relationship})`, e.personal.emergency.phone].filter(Boolean).join(' · '))}
+        {e.compliance?.workAuth && row(ShieldCheck, 'Work auth', (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            {WORK_AUTH.find(([v]) => v === e.compliance.workAuth)?.[1] || e.compliance.workAuth}
+            {(() => { const m = VERIFY_STATUS[e.compliance.status || 'unverified']; return <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: 10.5, fontWeight: 700, background: m.bg, color: m.fg }}>{m.label}</span>; })()}
+          </span>
+        ))}
+        {e.compliance?.expiryDate && (() => {
+          const d = daysUntil(e.compliance.expiryDate); const warn = d !== null && d <= 60;
+          return row(warn ? AlertTriangle : CalendarDays, 'Doc expiry', (
+            <span style={{ color: warn ? (d < 0 ? 'hsl(var(--color-red))' : 'hsl(var(--color-orange))') : 'inherit', fontWeight: warn ? 700 : 400 }}>
+              {e.compliance.expiryDate}{d !== null && (d < 0 ? ' · expired' : ` · in ${d}d`)}
+            </span>
+          ));
+        })()}
         {e.notes && row(FileText, 'Notes', e.notes)}
       </div>
       <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
@@ -639,6 +659,9 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
       )}
       {personalOpen && (
         <PersonalModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => setPersonalOpen(false)} onSaved={onEmployeeUpdated} />
+      )}
+      {complianceOpen && (
+        <ComplianceModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => setComplianceOpen(false)} onSaved={onEmployeeUpdated} />
       )}
     </div>
   );
@@ -1303,6 +1326,77 @@ function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Right-to-work & compliance (HR Section B — open to HR) ───────────────────
+const WORK_AUTH = [['citizen', 'Citizen'], ['permanent_resident', 'Permanent resident'], ['work_visa', 'Work visa'], ['permit', 'Work permit'], ['other', 'Other']];
+const DOC_TYPES = [['passport', 'Passport'], ['national_id', 'National ID'], ['visa', 'Visa'], ['work_permit', 'Work permit'], ['other', 'Other']];
+const VERIFY_STATUS = { unverified: { label: 'Unverified', fg: 'var(--muted)', bg: 'var(--hover)' }, verified: { label: 'Verified', fg: 'hsl(var(--color-green))', bg: 'hsla(var(--color-green),0.12)' }, rejected: { label: 'Rejected', fg: 'hsl(var(--color-red))', bg: 'hsla(var(--color-red),0.12)' } };
+const CONSENTS = [['bgCheck', 'Background check consent'], ['dataProcessing', 'Data processing consent'], ['handbook', 'Handbook acknowledgment']];
+
+// Days until an ISO date (negative = past). '' → null.
+function daysUntil(iso) {
+  if (!iso) return null;
+  const d = new Date(iso + 'T00:00:00'); if (isNaN(d)) return null;
+  return Math.ceil((d - new Date()) / 86400000);
+}
+
+function ComplianceModal({ employee, onClose, onSaved, toastOk, toastErr }) {
+  const c0 = employee.compliance || {};
+  const [c, setC] = useState({
+    workAuth: c0.workAuth || '', docType: c0.docType || 'passport', docNumber: c0.docNumber || '',
+    issueDate: c0.issueDate || '', expiryDate: c0.expiryDate || '', status: c0.status || 'unverified',
+    consents: { bgCheck: false, dataProcessing: false, handbook: false, ...(c0.consents || {}) },
+    verifiedBy: c0.verifiedBy || '', verifiedAt: c0.verifiedAt || '',
+  });
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setC(prev => ({ ...prev, [k]: v }));
+  const setConsent = (k, v) => setC(prev => ({ ...prev, consents: { ...prev.consents, [k]: v } }));
+
+  async function save() {
+    if (busy) return; setBusy(true);
+    try { const saved = await api.updateEmployee(employee.id, { compliance: c }); onSaved(saved); toastOk('Compliance saved.'); onClose(); }
+    catch (e) { toastErr(e?.message || 'Could not save.'); setBusy(false); }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 580, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-purple),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ShieldCheck size={17} color="hsl(var(--color-purple))" /></div>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Right to Work — {fullName(employee)}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div><label style={FL}>WORK AUTHORIZATION</label><select className="form-input" style={{ width: '100%' }} value={c.workAuth} onChange={e => set('workAuth', e.target.value)}><option value="">—</option>{WORK_AUTH.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+            <div><label style={FL}>DOCUMENT TYPE</label><select className="form-input" style={{ width: '100%' }} value={c.docType} onChange={e => set('docType', e.target.value)}>{DOC_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+            <div style={{ gridColumn: '1 / -1' }}><label style={FL}>DOCUMENT NUMBER</label><input className="form-input" style={{ width: '100%' }} value={c.docNumber} onChange={e => set('docNumber', e.target.value)} /></div>
+            <div><label style={FL}>ISSUE DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={c.issueDate} onChange={e => set('issueDate', e.target.value)} /></div>
+            <div><label style={FL}>EXPIRY DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={c.expiryDate} onChange={e => set('expiryDate', e.target.value)} /></div>
+            <div style={{ gridColumn: '1 / -1' }}><label style={FL}>VERIFICATION STATUS</label>
+              <select className="form-input" style={{ width: '100%' }} value={c.status} onChange={e => set('status', e.target.value)}>
+                {Object.entries(VERIFY_STATUS).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '10px 0 0' }}>Upload the actual passport / visa scan in the Documents section below the profile (private, signed-URL access).</p>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', margin: '18px 0 10px' }}>CONSENT CHECKLIST</div>
+          {CONSENTS.map(([k, label]) => (
+            <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', fontSize: 13, cursor: 'pointer' }}>
+              <input type="checkbox" checked={!!c.consents[k]} onChange={e => setConsent(k, e.target.checked)} style={{ width: 16, height: 16 }} />
+              {label}
+            </label>
+          ))}
+        </div>
+        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="primary-btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy ? 0.6 : 1 }}>{busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save</button>
+        </div>
       </div>
     </div>
   );
