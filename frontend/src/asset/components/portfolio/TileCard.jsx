@@ -1,3 +1,4 @@
+import { useRef, useLayoutEffect } from 'react';
 import { Link2 } from 'lucide-react';
 import { inferAssetKind } from '../../lib/vehicleFields.js';
 import { cityRegion, typeLabel, tileStats, typeIcon, stageTone } from '../../lib/portfolioCards.js';
@@ -86,6 +87,31 @@ export function TileCard({ pr: property, openProperty, secondaries = [] }) {
     : (title || '').length > 18 ? '1.06rem'
     : '1.18rem';
 
+  // The char-count size above is a good first guess, but the title shares its row with the
+  // status badge, so the real space available depends on card width AND badge width (a long
+  // "Stabilized — Renovation" pill leaves much less room than "Stabilized"). Rather than let it
+  // clip to "…", shrink the font until the title actually fits its box — Neil's "resize down a
+  // bit if needed". Re-fits whenever the card resizes (responsive column count).
+  const titleRef = useRef(null);
+  useLayoutEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    const box = el.parentElement; // the flex:1 container whose width changes with the card
+    const fit = () => {
+      el.style.fontSize = titleFontSize; // reset to the char-count base, then shrink to fit
+      let px = parseFloat(getComputedStyle(el).fontSize);
+      let guard = 0;
+      while (el.scrollWidth > el.clientWidth + 1 && px > 10 && guard++ < 40) {
+        px -= 0.5;
+        el.style.fontSize = px + 'px';
+      }
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    if (box) ro.observe(box);
+    return () => ro.disconnect();
+  }, [title, titleFontSize]);
+
   return (
     <div style={{ position: 'relative', height: '100%' }}>
       {/* Stacked-card effect: two faux card edges peeking out from behind the lead card, to
@@ -144,6 +170,7 @@ export function TileCard({ pr: property, openProperty, secondaries = [] }) {
           <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10 }}>
             <div style={{ minWidth: 0, flex: 1 }}>
               <h3
+                ref={titleRef}
                 title={title}
                 style={{
                   fontSize: titleFontSize, fontWeight: 800, fontFamily: "'Plus Jakarta Sans', sans-serif",
