@@ -33,6 +33,7 @@ import wellsFargo from '../data/assets/wells-fargo-san-antonio.json';
 import { msalInstance } from '../msalInstance';
 import { api } from '../api';
 import { supabase } from '../lib/supabase';
+import { emailToName } from '../lib/utils';
 
 const RAW = [georgetown, austin, lakeside, rainbow, escondidoNorth, escondidoSouth, sachse,
   valleyCenterNorth, valleyCenterEast, valleyCenterSouth, greensFamily918, gurudevFamily910, rjkResidence, greensFairfield,
@@ -802,6 +803,25 @@ export default function AssetModule() {
       return pushLog({ ...d, properties: arr }, { section: 'Property', property: prop.name, propertyId: id, action: nowPrivate ? 'marked private' : 'made public', item: prop.name, changes: [] });
     });
   };
+  // Field-level "flag for review" (⚐) — stores {g,f,ts,user} on p.reviewFlags. Toggling logs it.
+  const toggleReviewFlag = (propId, group, field) => {
+    setData(d => {
+      const arr = [...d.properties];
+      const i = arr.findIndex(p => p.id === propId); if (i < 0) return d;
+      const prop = arr[i]; const flags = [...(prop.reviewFlags || [])];
+      const at = flags.findIndex(f => f.g === group && f.f === field);
+      let action;
+      if (at >= 0) { flags.splice(at, 1); action = 'unflagged'; }
+      else { flags.push({ g: group, f: field, ts: new Date().toISOString(), user: role?.myEmail || '' }); action = 'flagged for review'; }
+      arr[i] = { ...prop, reviewFlags: flags };
+      return pushLog({ ...d, properties: arr }, { section: 'Property', property: prop.name, propertyId: propId, action, item: `${group} — ${field}`, changes: [] });
+    });
+  };
+  // Jump to a flagged field and flash it (reuses the highlight mechanism).
+  const openToField = (id, group, field) => {
+    setActiveId(id); setTab('property');
+    setHighlight({ tab: 'property', section: group, field, item: '', n: Date.now() });
+  };
   // Timeline / Permit rows live on the property object (active.timeline / active.permits)
   // as plain arrays without ids — edit & delete operate by original array index.
   const savePropList = (field, index, values, fields, reason) => {
@@ -993,6 +1013,8 @@ export default function AssetModule() {
         .asset-linkrow { position: relative; transition: background-color .14s ease, box-shadow .14s ease; }
         .asset-linkrow:hover { background-color: var(--bg-card); box-shadow: inset 0 0 0 1.5px var(--pine); }
         @media (max-width: 860px) { .asset-toc { display: none !important; } }
+        /* review-flag toggle reveals on row hover; stays visible once flagged (.on) */
+        .gt-frow:hover .gt-flag { opacity: 1 !important; }
       `}</style>
       {/* Landing header — only on the portfolio landing (hidden on the Manage page, which has its own) */}
       {!active && tab !== 'manage' && (() => {
@@ -1076,10 +1098,11 @@ export default function AssetModule() {
       })()}
 
       {tab === 'portfolio' && !active && <CriticalDates store={data} openProperty={openProperty} />}
+      {tab === 'portfolio' && !active && <FlaggedForReview props={props} openToField={openToField} onClear={toggleReviewFlag} />}
       {tab === 'portfolio' && !active && <Portfolio {...{ props, openProperty, typeFilter, setTypeFilter }} />}
       {active && <ParcelSwitcher p={active} props={props} openProperty={openProperty} />}
       {tab === 'property' && active && collectCriticalDates(data).some(x => x.id === active.id) && <CriticalDates store={data} openProperty={openProperty} only={active.id} />}
-      {tab === 'property' && active && <PropertyDetail {...{ p: active, onSaveImages: saveImages, highlight: highlight?.tab === 'property' ? highlight : null }} />}
+      {tab === 'property' && active && <PropertyDetail {...{ p: active, onSaveImages: saveImages, highlight: highlight?.tab === 'property' ? highlight : null, onToggleFlag: toggleReviewFlag }} />}
       {tab === 'warranties' && active && <Collection coll="warranties" rows={rowsFor('warranties')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'warranties' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'warranties', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'warranties', id })} />}
       {tab === 'inspections' && active && <Collection coll="inspections" rows={rowsFor('inspections')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'inspections' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'inspections', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'inspections', id })} />}
       {tab === 'documents' && active && <Collection coll="documents" rows={rowsFor('documents')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'documents' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'documents', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'documents', id })} />}
@@ -1813,6 +1836,35 @@ function CriticalDates({ store, openProperty, only }) {
   );
 }
 
+// Portfolio-wide "Flagged for Review" panel — every field flagged across all assets, grouped
+// by asset. Click a flag to jump to the field (to fix via Edit), or Resolve to clear it.
+function FlaggedForReview({ props, openToField, onClear }) {
+  const items = [];
+  props.forEach(p => (p.reviewFlags || []).forEach(f => items.push({ ...f, id: p.id, name: p.siteName || p.name || p.id })));
+  if (!items.length) return null;
+  items.sort((a, b) => (a.name || '') < (b.name || '') ? -1 : (a.name > b.name ? 1 : (a.g || '').localeCompare(b.g || '')));
+  return (
+    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, marginBottom: 16, boxShadow: 'var(--shadow-sm)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <span style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)' }}>Flagged for Review</span>
+        <span style={{ minWidth: 20, height: 20, padding: '0 6px', borderRadius: 999, fontSize: '0.68rem', fontWeight: 700, color: '#fff', backgroundColor: 'hsl(var(--color-orange))', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{items.length}</span>
+      </div>
+      <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+        {items.map((x, i) => (
+          <div key={x.id + '|' + x.g + '|' + x.f} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.name}</div>
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.g}{' · '}{x.f}{x.user ? ' — ' + emailToName(x.user) : ''}</div>
+            </div>
+            <button className="secondary-btn" onClick={() => openToField(x.id, x.g, x.f)} style={{ padding: '5px 12px', fontSize: '0.76rem', whiteSpace: 'nowrap' }}>Go to field</button>
+            <button className="secondary-btn" onClick={() => onClear(x.id, x.g, x.f)} style={{ padding: '5px 12px', fontSize: '0.76rem', whiteSpace: 'nowrap', color: 'hsl(var(--color-green))' }}>Resolve</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Compact pill row on the detail view to jump between linked parcels in the same project
 // group. Hidden for vehicles/equipment and for single-member (standalone) groups.
 function ParcelSwitcher({ p, props, openProperty }) {
@@ -1879,10 +1931,20 @@ function PortfolioPulse({ data }) {
   );
 }
 
-function PropertyDetail({ p, onSaveImages, highlight }) {
+// Render a field value, turning emails/phones into mailto:/tel: links (contact popover-lite).
+function FieldValue({ v }) {
+  const s = (v ?? '') === '' ? '—' : String(v);
+  const linkStyle = { color: 'hsl(var(--color-blue))', textDecoration: 'none', fontWeight: 600 };
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim())) return <a href={`mailto:${s.trim()}`} style={linkStyle}>{s}</a>;
+  const digits = s.replace(/[^\d]/g, '');
+  if (digits.length >= 10 && /^[\d\s()+\-.]+$/.test(s.trim())) return <a href={`tel:${digits}`} style={linkStyle}>{s}</a>;
+  return <>{s}</>;
+}
+function PropertyDetail({ p, onSaveImages, highlight, onToggleFlag }) {
   const hlField = (highlight?.field || '').toLowerCase();
   const sections = ptSections(p);
   const isProp = inferAssetKind(p) === 'property';
+  const flagged = (g, f) => (p.reviewFlags || []).some(x => x.g === g && x.f === f);
   const jump = (id) => { const el = document.getElementById(id); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
   const lblStyle = { fontSize: '0.78rem', fontWeight: 500, color: 'var(--text-secondary)', lineHeight: 1.4 };
   const secCard = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, boxShadow: 'var(--shadow-sm)', overflow: 'hidden', scrollMarginTop: 64 };
@@ -1908,11 +1970,18 @@ function PropertyDetail({ p, onSaveImages, highlight }) {
             <div>
               {sec.fields.map(([L, V], fi) => {
                 const hl = hlField && String(L).toLowerCase() === hlField;
+                const isFlagged = flagged(sec.title, L);
                 return (
                   <div key={fi} ref={hl ? (el => el && el.scrollIntoView({ behavior: 'smooth', block: 'center' })) : null}
-                    style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 36%) 1fr', gap: 16, alignItems: 'baseline', padding: '9px 18px', borderTop: fi ? '1px solid var(--border-color)' : 'none', background: hl ? 'hsla(var(--color-gold), 0.16)' : 'transparent', scrollMarginTop: 64 }}>
+                    className="gt-frow"
+                    style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 36%) 1fr auto', gap: 16, alignItems: 'baseline', padding: '9px 18px', borderTop: fi ? '1px solid var(--border-color)' : 'none', background: hl ? 'hsla(var(--color-gold), 0.16)' : (isFlagged ? 'hsla(var(--color-orange), 0.07)' : 'transparent'), scrollMarginTop: 64 }}>
                     <span style={lblStyle}>{L}</span>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', wordBreak: 'break-word', fontVariantNumeric: 'tabular-nums' }}>{(V ?? '') === '' ? '—' : V}</span>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', wordBreak: 'break-word', fontVariantNumeric: 'tabular-nums' }}><FieldValue v={V} /></span>
+                    {onToggleFlag && (
+                      <button className={`gt-flag${isFlagged ? ' on' : ''}`} title={isFlagged ? 'Flagged for review — click to clear' : 'Flag this field for review'}
+                        onClick={() => onToggleFlag(p.id, sec.title, L)}
+                        style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '0.9rem', lineHeight: 1, padding: '0 2px', color: isFlagged ? 'hsl(var(--color-orange))' : 'var(--text-muted)', opacity: isFlagged ? 1 : 0, transition: 'opacity .12s' }}>⚑</button>
+                    )}
                   </div>
                 );
               })}
