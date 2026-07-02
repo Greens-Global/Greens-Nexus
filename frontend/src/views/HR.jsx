@@ -207,6 +207,61 @@ function EmployeeFormModal({ employee, employees, entities = [], onClose, onSave
 // ── Documents (Phase 3) — private bucket, viewed via short-lived signed URLs ──
 const DOC_KINDS = [['resume', 'Resume'], ['id', 'ID'], ['contract', 'Contract'], ['certificate', 'Certificate'], ['other', 'Other']];
 
+// Mailbox export — start a Graph-backed .eml zip and poll it to completion.
+function MailboxExportSection({ employee, toastOk, toastErr }) {
+  const [job, setJob] = useState(undefined);   // undefined = loading, null = none
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api.getMailboxExport(employee.id).then(setJob).catch(() => setJob(null)); }, [employee.id]);
+  const active = job && (job.status === 'pending' || job.status === 'running');
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(() => { api.getExportStatus(job.id).then(setJob).catch(() => {}); }, 3000);
+    return () => clearInterval(t);
+  }, [active, job?.id]);
+
+  if (!employee.m365Id) return null;   // export needs a linked M365 mailbox
+
+  async function start() {
+    if (busy) return; setBusy(true);
+    try { const j = await api.startMailboxExport(employee.id); setJob(j); toastOk('Mailbox export started — this can take a while for large mailboxes.'); }
+    catch (e) { toastErr(e?.message || 'Could not start export.'); }
+    setBusy(false);
+  }
+  async function download() {
+    try { const { url } = await api.getExportUrl(job.id); window.open(url, '_blank', 'noopener'); }
+    catch (e) { toastErr(e?.message || 'Could not get download link.'); }
+  }
+
+  const status = job === undefined ? '' :
+    !job ? 'No export yet.' :
+    job.status === 'done' ? `Ready · ${job.message} · ${(job.updatedAt || '').slice(0, 10)}` :
+    job.status === 'error' ? `Failed · ${job.message}` :
+    'Working… fetching messages';
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
+          <Mail size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Mailbox export
+        </span>
+        {job?.status === 'done' && (
+          <button className="secondary-btn" onClick={download} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
+            <FileText size={12} /> Download .zip
+          </button>
+        )}
+        <button className="secondary-btn" onClick={start} disabled={busy || active}
+          style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
+          {(busy || active) ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <History size={12} />} {job?.status === 'done' ? 'Re-export' : 'Export emails'}
+        </button>
+      </div>
+      <div style={{ fontSize: 12.5, color: job?.status === 'error' ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
+        {status}{status && ' '}
+        {job?.status === 'error' && /Mail\.Read/i.test(job.message || '') && <em>Grant the Mail.Read app permission in Entra, then re-export.</em>}
+      </div>
+    </div>
+  );
+}
+
 // Live read of what a person holds in Item Management (Section B5). No data is
 // stored here — Items stays the single source of truth; this deep-links into it.
 function AssetsSection({ employee }) {
@@ -699,6 +754,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
         {e.notes && row(FileText, 'Notes', e.notes)}
       </div>
       <AssetsSection employee={e} />
+      <MailboxExportSection employee={e} toastOk={toastOk} toastErr={toastErr} />
       <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
       {photoOpen && (
         <PhotoEditorModal employee={e} toastOk={toastOk} toastErr={toastErr}
@@ -1430,7 +1486,15 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
     try {
       const saved = await api.changeEmployeeStatus(employee.id, { status, reason, effectiveDate, offboarding: buildOffboarding() });
       onSaved(saved);
-      toastOk(`Status set to ${STATUS_META[status]?.label || status}.${showOff ? ' Complete the M365 steps in the admin center.' : ''}`);
+      const m = saved.m365;
+      const bits = [];
+      if (m?.signIn) bits.push(`sign-in ${m.signIn}`);
+      if (m?.licenses) bits.push(`license ${m.licenses}`);
+      if (m?.export) bits.push('mailbox export started');
+      if (m?.error) bits.push(`M365 issue: ${m.error}`);
+      const auto = bits.length ? ` · ${bits.join(', ')}` : '';
+      const manual = (needsDelegate || mailboxAction === 'share') ? ' Finish mailbox access in the M365 admin center.' : '';
+      toastOk(`Status set to ${STATUS_META[status]?.label || status}.${auto}${manual}`);
       onClose();
     } catch (e) { toastErr(e?.message || 'Could not change status.'); setBusy(false); }
   }

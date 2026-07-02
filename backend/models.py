@@ -849,3 +849,16 @@ class HrWorkSite(Base):
     created_by    = Column(String, default="")
     created_at    = Column(String, default="")
     updated_at    = Column(String, default="")
+
+
+class HrMailboxExport(Base):
+    __tablename__ = "hr_mailbox_exports"
+    id            = Column(String, primary_key=True)
+    employee_id   = Column(String, nullable=False)
+    requested_by  = Column(String, default="")
+    status        = Column(String, default="pending")   # pending|running|done|error
+    message       = Column(String, default="")
+    storage_path  = Column(String, default="")          # hr-docs bucket path to the zip
+    count         = Column(Integer, default=0)
+    created_at    = Column(String, default="")
+    updated_at    = Column(String, default="")

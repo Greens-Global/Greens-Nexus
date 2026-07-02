@@ -413,6 +413,12 @@ export const api = {
   getEmployeeAssets: (id)      => req(`/hr/employees/${id}/assets`),
   changeEmployeeStatus: (id, data) => req(`/hr/employees/${id}/status`, { method: 'POST', body: JSON.stringify(data) }),
 
+  // HR — mailbox export (zip of .eml via Graph; needs Mail.Read consent)
+  startMailboxExport: (id)      => req(`/hr/employees/${id}/mailbox-export`, { method: 'POST' }),
+  getMailboxExport:   (id)      => req(`/hr/employees/${id}/mailbox-export`),
+  getExportStatus:    (jobId)   => req(`/hr/mailbox-exports/${jobId}`),
+  getExportUrl:       (jobId)   => req(`/hr/mailbox-exports/${jobId}/url`),
+
   // HR — hiring pipeline
   getCandidates:       ()         => req('/hr/candidates'),
   getCandidateHistory: (id)       => req(`/hr/candidates/${id}/history`),
