@@ -9,7 +9,7 @@
 >
 > Sources: Neil's "Greens Global — People Platform" mockup (Jun 2026),
 > Busacta HR teardown, Rippling/BambooHR research, Nexus build sessions.
-> Status: ✅ built · 🟡 partial · ❌ not started   (last updated 2026-06-13, evening)
+> Status: ✅ built · 🟡 partial · ❌ not started   (last updated 2026-07-02 — Section A complete)
 
 ---
 
@@ -27,9 +27,9 @@
 | ✅ | **Branded welcome email** (hero, details card, first steps; no passwords ever) + Resend-welcome button on provisioned profiles | built |
 | ✅ | **Sync from M365** — links existing accounts by work email, backfills empty phone/title/office, **unlinks accounts deleted in the admin center** | built |
 | ✅ | Leave v1 (requests, approve/reject, computed balances; new request notifies the manager, decision notifies the employee, stage moves notify the candidate owner) | built |
-| ❌ | **Companies/entities table** — Greens, Greens India, MCD, Oversite: legal name, EIN/GSTIN, registered address, logo, authorized signatory; `company` field on every worker | Neil |
-| ❌ | **Contractor worker type** — SOW, scope, contract end date, hourly/fixed-fee rate, engagement area, billing client | Neil |
-| ❌ | Work sites registry (name, address, lat/long, geofence radius) | Neil |
+| ✅ | **Companies/entities table** — legal name, EIN/GSTIN, registered address, signatory; `company` field on every worker; Companies manager modal + seed 4 defaults | built (A1) |
+| ✅ | **Contractor worker type** — scope, SOW ref, contract start/end, rate + type + currency, billing client, engagement area (JSON on worker; shown when type=contractor) | built (A2) |
+| ✅ | Work sites registry (name, address, lat/long, geofence radius, entity) — foundation for geofenced Time Clock | built (A3) |
 
 ## B. Profile depth *(the Busacta feel)*
 
