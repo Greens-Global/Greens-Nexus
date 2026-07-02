@@ -67,7 +67,7 @@ export default function App() {
   const markManageSeen = () => {
     const now = new Date().toISOString();
     setLastManageVisit(now);
-    try { localStorage.setItem('nexus_manage_seen', now); } catch {}
+    try { localStorage.setItem('nexus_manage_seen', now); } catch { /* ignore */ }
   };
   // Visiting Manage, or any new log arriving while already on Manage, marks everything read.
   useEffect(() => { if (view === 'manage') markManageSeen(); }, [view, store.logs]);

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { idbGet, idbSet } from './idb.js';
 import { STORAGE_KEY, serverGet, serverPut, pickBest, markHydrated, isHydrated, setLastKnown, queueWrite, wireBackgroundSync } from './sync.js';
 import { VNORM } from './dataNormalization.js';
@@ -26,8 +26,6 @@ export function useNexusStore() {
   // `loading` is true until the first mount reconcile finishes, so the UI can show a spinner
   // instead of the "no properties yet" empty state during the initial async hydration.
   const [loading, setLoading] = useState(true);
-  const storeRef = useRef(store);
-  storeRef.current = store;
 
   // 1. On mount: reconcile localStorage + IndexedDB + server, apply whichever wins, and push
   //    the winner back to the server if the server wasn't already it.
@@ -37,9 +35,9 @@ export function useNexusStore() {
       .then(([idbJson, serverState]) => {
         if (!alive) return;
         let local = null;
-        try { local = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); } catch (e) {}
+        try { local = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); } catch { /* ignore */ }
         let idb = null;
-        try { idb = idbJson ? JSON.parse(idbJson) : null; } catch (e) {}
+        try { idb = idbJson ? JSON.parse(idbJson) : null; } catch { /* ignore */ }
 
         const best = VNORM(pickBest([local, idb, serverState]));
         if (best) {
@@ -60,7 +58,7 @@ export function useNexusStore() {
     const ts = Date.now();
     let json;
     try { json = JSON.stringify({ ...store, _ts: ts }); } catch (e) { return; }
-    try { localStorage.setItem(STORAGE_KEY, json); } catch (e) {}
+    try { localStorage.setItem(STORAGE_KEY, json); } catch { /* ignore */ }
     idbSet(STORAGE_KEY, json);
     queueWrite(store);
   }, [store]);

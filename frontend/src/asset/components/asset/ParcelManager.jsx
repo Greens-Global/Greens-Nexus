@@ -79,11 +79,13 @@ export function ParcelManager({
   onDuplicate,
   onSetAssembled,
 }) {
-  if (inferAssetKind(active) !== 'property') return null;
-
+  // Hooks must run unconditionally and in the same order every render, so they precede the
+  // non-property early return below (React rules-of-hooks).
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState('');
   const [reveal, setReveal] = useState(false);
+
+  if (inferAssetKind(active) !== 'property') return null;
 
   const members = groupMembersOf(active, all);
   const grouped = members.length > 1;
