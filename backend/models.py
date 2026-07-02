@@ -859,6 +859,7 @@ class HrMailboxExport(Base):
     status        = Column(String, default="pending")   # pending|running|done|error
     message       = Column(String, default="")
     storage_path  = Column(String, default="")          # hr-docs bucket path to the zip
-    count         = Column(Integer, default=0)
+    count         = Column(Integer, default=0)           # messages processed so far
+    total         = Column(Integer, default=0)           # messages in the mailbox (0 = unknown)
     created_at    = Column(String, default="")
     updated_at    = Column(String, default="")
