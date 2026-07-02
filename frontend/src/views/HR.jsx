@@ -1469,8 +1469,8 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
   const [reason, setReason] = useState('');
   const [effectiveDate, setEffectiveDate] = useState('');
   const [leftChoice, setLeftChoice] = useState('remove');   // offboarded: 'remove' | 'share'
-  const [delegate, setDelegate] = useState('');
   const [exportRequested, setExportRequested] = useState(false);
+  const [pick, setPick] = useState('');
   const [busy, setBusy] = useState(false);
   const changed = status !== employee.status;
 
@@ -1480,12 +1480,32 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
   const mailboxAction = isInactive ? 'delegate' : (isLeft ? leftChoice : '');
   const needsDelegate = mailboxAction === 'delegate' || mailboxAction === 'share';
   const colleagues = employees.filter(x => x.workEmail && x.id !== employee.id);
+  // Default the trustee to the person's manager (reports-to) from the org chart.
+  const manager = employees.find(x => (x.workEmail || '').toLowerCase() === (employee.managerEmail || '').toLowerCase());
+  const [trustees, setTrustees] = useState(() => (manager?.workEmail ? [manager.workEmail.toLowerCase()] : []));
+  const addTrustee = () => { if (pick && !trustees.includes(pick)) setTrustees(t => [...t, pick]); setPick(''); };
+  const removeTrustee = em => setTrustees(t => t.filter(x => x !== em));
+  const nameFor = em => { const c = employees.find(x => (x.workEmail || '').toLowerCase() === em); return c ? fullName(c) : em; };
+
+  // Exchange PowerShell to run (Graph can't do shared conversion / permissions).
+  const upn = employee.workEmail || '<user-upn>';
+  const psLines = [];
+  if (needsDelegate && trustees.length) {
+    psLines.push('Connect-ExchangeOnline');
+    if (mailboxAction === 'share') psLines.push(`Set-Mailbox -Identity ${upn} -Type Shared`);
+    trustees.forEach(t => psLines.push(`Add-MailboxPermission -Identity ${upn} -User ${t} -AccessRights FullAccess -AutoMapping $true`));
+    if (mailboxAction === 'share') psLines.push('# Shared mailboxes <50GB need no license — remove it after converting.');
+  }
+  const psScript = psLines.join('\n');
+  const copyPs = () => navigator.clipboard?.writeText(psScript)
+    .then(() => toastOk('PowerShell copied to clipboard.'))
+    .catch(() => toastErr('Copy failed — select the text and copy manually.'));
 
   function buildOffboarding() {
     if (!showOff) return null;
     return {
       mailboxAction,
-      delegateTo: needsDelegate && delegate ? [delegate] : [],
+      delegateTo: needsDelegate ? trustees : [],
       exportRequested,
       freeUpLicense: mailboxAction === 'remove',
     };
@@ -1493,7 +1513,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
 
   async function save() {
     if (busy) return;
-    if (needsDelegate && !delegate) { toastErr('Pick who should get mailbox access.'); return; }
+    if (needsDelegate && trustees.length === 0) { toastErr('Pick who should get mailbox access.'); return; }
     setBusy(true);
     try {
       const saved = await api.changeEmployeeStatus(employee.id, { status, reason, effectiveDate, offboarding: buildOffboarding() });
@@ -1505,7 +1525,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
       if (m?.export) bits.push('mailbox export started');
       if (m?.error) bits.push(`M365 issue: ${m.error}`);
       const auto = bits.length ? ` · ${bits.join(', ')}` : '';
-      const manual = (needsDelegate || mailboxAction === 'share') ? ' Finish mailbox access in the M365 admin center.' : '';
+      const manual = needsDelegate ? ' Run the PowerShell to finish mailbox access.' : '';
       toastOk(`Status set to ${STATUS_META[status]?.label || status}.${auto}${manual}`);
       onClose();
     } catch (e) { toastErr(e?.message || 'Could not change status.'); setBusy(false); }
@@ -1519,11 +1539,34 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
   );
   const delegatePicker = (
     <div>
-      <label style={FL}>GRANT READ/WRITE ACCESS TO</label>
-      <select className="form-input" style={{ width: '100%' }} value={delegate} onChange={e => setDelegate(e.target.value)}>
-        <option value="">— pick a colleague —</option>
-        {colleagues.map(c => <option key={c.id} value={c.workEmail}>{fullName(c)} ({c.workEmail})</option>)}
-      </select>
+      <label style={FL}>GRANT MAILBOX ACCESS TO</label>
+      {manager && <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Defaulted to their manager <b>{fullName(manager)}</b> from the org chart — add or remove below.</div>}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+        {trustees.map(t => (
+          <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 20, padding: '3px 6px 3px 11px', fontSize: 12, fontWeight: 600 }}>
+            {nameFor(t)}
+            <button onClick={() => removeTrustee(t)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 0 }}><X size={12} /></button>
+          </span>
+        ))}
+        {trustees.length === 0 && <span style={{ fontSize: 12, color: 'var(--muted)' }}>No one selected yet.</span>}
+      </div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <select className="form-input" style={{ flex: 1 }} value={pick} onChange={e => setPick(e.target.value)}>
+          <option value="">— add a colleague —</option>
+          {colleagues.filter(c => !trustees.includes((c.workEmail || '').toLowerCase()))
+            .map(c => <option key={c.id} value={(c.workEmail || '').toLowerCase()}>{fullName(c)} ({c.workEmail})</option>)}
+        </select>
+        <button className="secondary-btn" onClick={addTrustee} disabled={!pick} style={{ padding: '6px 12px' }}>Add</button>
+      </div>
+      {psScript && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+            RUN IN EXCHANGE POWERSHELL
+            <button className="secondary-btn" onClick={copyPs} style={{ padding: '2px 10px', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}><FileText size={11} /> Copy</button>
+          </div>
+          <pre style={{ margin: 0, background: '#1e293b', color: '#e5e7eb', borderRadius: 8, padding: '10px 12px', fontSize: 11, lineHeight: 1.6, overflowX: 'auto', whiteSpace: 'pre', fontFamily: 'ui-monospace,SFMono-Regular,Menlo,monospace' }}>{psScript}</pre>
+        </div>
+      )}
     </div>
   );
 
