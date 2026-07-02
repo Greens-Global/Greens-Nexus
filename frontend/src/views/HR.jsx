@@ -3,7 +3,7 @@ import {
   Users, Plus, Search, X, Loader2, Mail, Phone, Briefcase, MapPin,
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
-  Building2, Trash2, MapPinned, Wallet, Landmark, Lock,
+  Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -535,6 +535,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
   const [provisionOpen, setProvisionOpen] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
   const [compOpen, setCompOpen] = useState(false);
+  const [personalOpen, setPersonalOpen] = useState(false);
   const [welcomeBusy, setWelcomeBusy] = useState(false);
   const sm = STATUS_META[e.status] || STATUS_META.active;
   const manager = employees.find(m => m.workEmail && m.workEmail === e.managerEmail);
@@ -571,6 +572,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
         <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: sm.bg, color: sm.fg }}>{sm.label}</span>
         <button className="secondary-btn" onClick={() => onEdit(e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
           <Pencil size={13} /> Edit
+        </button>
+        <button className="secondary-btn" onClick={() => setPersonalOpen(true)} title="Personal details & emergency contact"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+          <Contact size={13} /> Personal
         </button>
         {canSeeComp && (
           <button className="secondary-btn" onClick={() => setCompOpen(true)} title="Compensation & bank (restricted)"
@@ -614,6 +619,9 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
         {e.employmentType === 'contractor' && e.contractor?.rate && row(FileText, 'Rate', [e.contractor.rate, e.contractor.currency, e.contractor.rate_type].filter(Boolean).join(' '))}
         {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : e.managerEmail)}
         {reports.length > 0 && row(Users, 'Direct reports', reports.map(fullName).join(', '))}
+        {e.personal?.dob && row(CalendarDays, 'Date of birth', e.personal.dob)}
+        {e.personal?.nationalId && row(Lock, 'National ID', maskId(e.personal.nationalId))}
+        {e.personal?.emergency?.name && row(Heart, 'Emergency contact', [e.personal.emergency.name, e.personal.emergency.relationship && `(${e.personal.emergency.relationship})`, e.personal.emergency.phone].filter(Boolean).join(' · '))}
         {e.notes && row(FileText, 'Notes', e.notes)}
       </div>
       <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
@@ -628,6 +636,9 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
       )}
       {compOpen && (
         <CompensationModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => setCompOpen(false)} />
+      )}
+      {personalOpen && (
+        <PersonalModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => setPersonalOpen(false)} onSaved={onEmployeeUpdated} />
       )}
     </div>
   );
@@ -1292,6 +1303,63 @@ function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Personal details + emergency contact (HR Section B — open to HR) ─────────
+function maskId(v) {
+  const s = (v || '').replace(/\s/g, '');
+  return s.length > 4 ? `${'•'.repeat(Math.min(s.length - 4, 8))}${s.slice(-4)}` : s;
+}
+
+function PersonalModal({ employee, onClose, onSaved, toastOk, toastErr }) {
+  const p0 = employee.personal || {};
+  const [p, setP] = useState({
+    dob: p0.dob || '', gender: p0.gender || '', nationalId: p0.nationalId || '',
+    currentAddress: p0.currentAddress || '', permanentAddress: p0.permanentAddress || '',
+    emergency: { name: '', relationship: '', phone: '', email: '', ...(p0.emergency || {}) },
+  });
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setP(prev => ({ ...prev, [k]: v }));
+  const setE = (k, v) => setP(prev => ({ ...prev, emergency: { ...prev.emergency, [k]: v } }));
+
+  async function save() {
+    if (busy) return; setBusy(true);
+    try { const saved = await api.updateEmployee(employee.id, { personal: p }); onSaved(saved); toastOk('Personal details saved.'); onClose(); }
+    catch (e) { toastErr(e?.message || 'Could not save.'); setBusy(false); }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 580, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Contact size={17} color="hsl(var(--color-blue))" /></div>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Personal — {fullName(employee)}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div><label style={FL}>DATE OF BIRTH</label><input className="form-input" style={{ width: '100%' }} type="date" value={p.dob} onChange={e => set('dob', e.target.value)} /></div>
+            <div><label style={FL}>GENDER</label><select className="form-input" style={{ width: '100%' }} value={p.gender} onChange={e => set('gender', e.target.value)}><option value="">—</option><option>Male</option><option>Female</option><option>Other</option><option>Prefer not to say</option></select></div>
+            <div style={{ gridColumn: '1 / -1' }}><label style={FL}>NATIONAL ID / SSN / AADHAAR</label><input className="form-input" style={{ width: '100%' }} value={p.nationalId} onChange={e => set('nationalId', e.target.value)} placeholder="stored securely, shown masked" /></div>
+            <div style={{ gridColumn: '1 / -1' }}><label style={FL}>CURRENT ADDRESS</label><textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={p.currentAddress} onChange={e => set('currentAddress', e.target.value)} /></div>
+            <div style={{ gridColumn: '1 / -1' }}><label style={FL}>PERMANENT ADDRESS</label><textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={p.permanentAddress} onChange={e => set('permanentAddress', e.target.value)} /></div>
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-red))', letterSpacing: '.04em', margin: '18px 0 10px' }}>EMERGENCY CONTACT</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div><label style={FL}>NAME</label><input className="form-input" style={{ width: '100%' }} value={p.emergency.name} onChange={e => setE('name', e.target.value)} /></div>
+            <div><label style={FL}>RELATIONSHIP</label><input className="form-input" style={{ width: '100%' }} value={p.emergency.relationship} onChange={e => setE('relationship', e.target.value)} placeholder="e.g. spouse" /></div>
+            <div><label style={FL}>PHONE</label><input className="form-input" style={{ width: '100%' }} value={p.emergency.phone} onChange={e => setE('phone', e.target.value)} /></div>
+            <div><label style={FL}>EMAIL</label><input className="form-input" style={{ width: '100%' }} type="email" value={p.emergency.email} onChange={e => setE('email', e.target.value)} /></div>
+          </div>
+        </div>
+        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="primary-btn" onClick={save} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: busy ? 0.6 : 1 }}>{busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save</button>
+        </div>
       </div>
     </div>
   );
