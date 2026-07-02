@@ -184,13 +184,11 @@ export function flush() {
  */
 export function flushBeacon() {
   if (!pending) return;
-  try {
-    if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
-      navigator.sendBeacon(STATE_ENDPOINT, new Blob([pending], { type: 'application/json' }));
-    }
-  } catch (e) {
-    // ignore — best effort only
-  }
+  // The original beaconed the raw JSON to the vite dev server's /api/state. Nexus's workspace
+  // endpoint is MSAL-authenticated, and navigator.sendBeacon can't attach the Bearer token, so
+  // fall back to the normal authenticated flush() — best-effort on pagehide (the periodic poll +
+  // visibilitychange flush cover the common cases; a subsequent load reconciles regardless).
+  flush();
 }
 
 /**

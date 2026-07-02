@@ -111,7 +111,7 @@ export function exportAssetCsv(asset, store) {
     a.download = (asset.name || 'asset') + '.csv';
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    if (typeof __pushToast !== 'undefined' && __pushToast) __pushToast('CSV exported', 'ok');
+    if (typeof window !== 'undefined' && window.__pushToast) window.__pushToast('CSV exported', 'ok');
   } catch (e) {
     // Swallow — e.g. Blob/URL unsupported in this environment.
   }
@@ -335,7 +335,7 @@ ${(() => { const t = dataTable('utilities', [['service', 'Service'], ['provider'
 ${(() => { const t = dataTable('vendors', [['company', 'Vendor'], ['category', 'Category'], ['contractEnd', 'Contract end', 'date'], ['coiExpiration', 'COI', 'date']], 'coiExpiration', 'r'); return t ? `<h2>Vendors</h2>${t}` : ''; })()}
 
 <div style="margin-top:16px;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc;font-size:8.5px;line-height:1.55;color:#475569"><strong style="color:#0f172a">CONFIDENTIAL</strong> — This document and the information contained herein are the confidential and proprietary property of Greens Global, Inc.${asset.entity ? ' and ' + escHtml(asset.entity) : ''}, prepared solely for internal asset-management purposes and authorized recipients. Any review, reproduction, distribution, or disclosure without the prior written consent of Greens Global, Inc. is strictly prohibited.</div><div class="foot"><span>Confidential — Greens Global, Inc. · Asset Management</span><span>Generated ${escHtml(new Date().toLocaleString())} · ${escHtml(currentUser())}</span></div>
-<script>window.onload=function(){setTimeout(function(){window.print()},350)}<\/script></body></html>`;
+<script>window.onload=function(){setTimeout(function(){window.print()},350)}<${'/'}script></body></html>`;
 
   const win = window.open('', '_blank');
   if (!win) {
