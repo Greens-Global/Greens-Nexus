@@ -224,7 +224,7 @@ function hydrate(d) {
   }
   // Enrich with full source sheets; Development Stage must be one of the standard values;
   // migrate timeline status out of the Notes column.
-  return { ...d, vservice: d.vservice || [], odometer: d.odometer || [], vdocs: d.vdocs || [], properties: d.properties.map(p => {
+  return { ...d, vservice: d.vservice || [], odometer: d.odometer || [], vdocs: d.vdocs || [], maintenance: d.maintenance || [], properties: d.properties.map(p => {
     const e = enrichSource(p);
     // Refresh the seeded image from the source JSON (so updated property photos show even if an
     // old path was saved). User-uploaded images (data URLs) are left untouched.
@@ -240,7 +240,7 @@ function hydrate(d) {
 // store is empty.
 const seedData = () => hydrate(adapt());
 // Empty workspace rendered while the server load is in flight.
-const EMPTY_WS = { properties: [], warranties: [], inspections: [], documents: [], ahj: [], utilities: [], vendors: [], vservice: [], odometer: [], vdocs: [], logs: [] };
+const EMPTY_WS = { properties: [], warranties: [], inspections: [], documents: [], ahj: [], utilities: [], vendors: [], vservice: [], odometer: [], vdocs: [], maintenance: [], logs: [] };
 
 /* ---------- collections config (Neil's exact fields + columns) ---------- */
 const COLLECTIONS = {
@@ -287,6 +287,28 @@ const COLLECTIONS = {
     ],
     sort: (a, b) => (a.nextDue || '9999') < (b.nextDue || '9999') ? -1 : 1,
     summary: rows => [['Overdue', rows.filter(r => dleft(r.nextDue) != null && dleft(r.nextDue) < 0).length], ['Due ≤ 30d', rows.filter(r => { const d = dleft(r.nextDue); return d != null && d >= 0 && d <= 30; }).length], ['Current', rows.filter(r => dleft(r.nextDue) == null || dleft(r.nextDue) > 30).length]],
+  },
+  maintenance: {
+    title: 'Maintenance record', plural: 'Maintenance', empty: 'No maintenance logged. Record HVAC, roofing, and other service work with dates and costs.',
+    fields: [
+      { k: 'date', label: 'Service date', type: 'date', req: true },
+      { k: 'system', label: 'System / area', type: 'select', options: ['HVAC', 'Roofing', 'Plumbing', 'Electrical', 'Doors & Gates', 'Fire / Life Safety', 'Paving', 'Landscaping', 'Pest Control', 'Security', 'General', 'Other'] },
+      { k: 'unit', label: 'Unit / area' },
+      { k: 'description', label: 'Work performed', req: true, full: true, type: 'textarea' },
+      { k: 'vendor', label: 'Vendor' }, { k: 'cost', label: 'Cost', type: 'number' },
+      { k: 'status', label: 'Status', type: 'select', options: ['Completed', 'Scheduled', 'In Progress', 'Needs Attention'] },
+      { k: 'nextDue', label: 'Next service due', type: 'date' },
+      { k: 'docFile', label: 'Invoice (upload)', type: 'file', nameKey: 'docFileName', full: true },
+      { k: 'notes', label: 'Notes', type: 'textarea', full: true },
+    ],
+    cols: [
+      { label: 'Work', main: r => r.description, sub: r => [r.system, r.unit].filter(Boolean).join(' · ') },
+      { label: 'Date', mono: r => fmtDate(r.date) },
+      { label: 'Vendor', main: r => r.vendor || '—' },
+      { label: 'Status', main: r => r.status || '—' },
+    ],
+    sort: (a, b) => (a.date || '') < (b.date || '') ? 1 : -1,
+    summary: rows => [['Records', rows.length], ['Total spend', fmtMoney(rows.reduce((s, r) => s + num0(r.cost), 0))]],
   },
   documents: {
     title: 'Document', plural: 'Plans & Documents', empty: 'No documents indexed. Register as-builts, CO, permits, surveys, and O&M manuals with their Egnyte locations.',
@@ -646,9 +668,9 @@ const VEHICLE_SEEDS = [
 
 // Per-property tabs. The change Log is intentionally NOT here — per Neil it is global and lives
 // on the Manage page, not on each property card.
-const TABS = [['portfolio', 'Portfolio'], ['property', 'Overview'], ['vservice', 'Service & Maintenance'], ['odometer', 'Odometer'], ['vdocs', 'Documents'], ['warranties', 'Warranties'], ['inspections', 'Inspections'], ['documents', 'Plans & Docs'], ['utilsahj', 'Utilities & AHJ'], ['vendors', 'Vendors'], ['timeline', 'Timeline'], ['permit', 'Permits']];
+const TABS = [['portfolio', 'Portfolio'], ['property', 'Overview'], ['vservice', 'Service & Maintenance'], ['odometer', 'Odometer'], ['vdocs', 'Documents'], ['maintenance', 'Maintenance'], ['warranties', 'Warranties'], ['inspections', 'Inspections'], ['documents', 'Plans & Docs'], ['utilsahj', 'Utilities & AHJ'], ['vendors', 'Vendors'], ['timeline', 'Timeline'], ['permit', 'Permits']];
 // Which collection(s) the single top-bar Search filters for each tab (absent = no searchable table).
-const TAB_COLLS = { vservice: ['vservice'], odometer: ['odometer'], vdocs: ['vdocs'], warranties: ['warranties'], inspections: ['inspections'], documents: ['documents'], utilsahj: ['utilities', 'ahj'], vendors: ['vendors'] };
+const TAB_COLLS = { vservice: ['vservice'], odometer: ['odometer'], vdocs: ['vdocs'], maintenance: ['maintenance'], warranties: ['warranties'], inspections: ['inspections'], documents: ['documents'], utilsahj: ['utilities', 'ahj'], vendors: ['vendors'] };
 const LOGS_SEEN_KEY = 'nexus_asset_logs_seen';
 // Build one activity-log entry (who/when + the change details).
 const mkLog = (e) => ({ id: uidGen(), ts: new Date().toISOString(), user: currentUser(), ...e });
@@ -1128,6 +1150,7 @@ export default function AssetModule() {
       {tab === 'warranties' && active && <Collection coll="warranties" rows={rowsFor('warranties')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'warranties' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'warranties', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'warranties', id })} />}
       {tab === 'inspections' && active && <Collection coll="inspections" rows={rowsFor('inspections')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'inspections' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'inspections', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'inspections', id })} />}
       {tab === 'documents' && active && <Collection coll="documents" rows={rowsFor('documents')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'documents' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'documents', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'documents', id })} />}
+      {tab === 'maintenance' && active && <><QuickMaintBar onAdd={(vals) => saveRow('maintenance', null, vals)} /><Collection coll="maintenance" rows={rowsFor('maintenance')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'maintenance' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'maintenance', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'maintenance', id })} /></>}
       {tab === 'utilsahj' && active && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <Collection coll="utilities" collapsible rows={rowsFor('utilities')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.section === 'Utilities' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'utilities', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'utilities', id })} />
@@ -1135,13 +1158,13 @@ export default function AssetModule() {
         </div>
       )}
       {tab === 'vendors' && active && <Collection coll="vendors" rows={rowsFor('vendors')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.section === 'Vendors' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'vendors', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'vendors', id })} />}
-      {tab === 'vservice' && active && <Collection coll="vservice" rows={rowsFor('vservice')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'vservice' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'vservice', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'vservice', id })} />}
+      {tab === 'vservice' && active && <><RecommendedMaintenance p={active} /><Collection coll="vservice" rows={rowsFor('vservice')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'vservice' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'vservice', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'vservice', id })} /></>}
       {tab === 'odometer' && active && <Collection coll="odometer" rows={rowsFor('odometer')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'odometer' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'odometer', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'odometer', id })} />}
       {tab === 'vdocs' && active && <Collection coll="vdocs" rows={rowsFor('vdocs')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'vdocs' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'vdocs', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'vdocs', id })} />}
       {tab === 'timeline' && active && (() => {
         const cols = TIMELINE_COLS;
         const editCols = cols.filter(c => c[0] !== 'status'); // status is changed via its button (reason required), not the row form
-        return <EditTable title="Development Timeline" subtitle={active.name} rows={active.timeline} cols={cols} query={filters.timeline || ''} highlightItem={highlight?.section === 'Timeline' ? highlight.item : ''} onAdd={() => setModal({ type: 'plist', field: 'timeline', index: null, fields: editCols })} onEdit={(idx) => setModal({ type: 'plist', field: 'timeline', index: idx, fields: editCols })} onStatusClick={(idx, cur) => setModal({ type: 'tstatus', index: idx, current: cur })} />;
+        return <><TimelineTracker rows={active.timeline} /><EditTable title="Development Timeline" subtitle={active.name} rows={active.timeline} cols={cols} query={filters.timeline || ''} highlightItem={highlight?.section === 'Timeline' ? highlight.item : ''} onAdd={() => setModal({ type: 'plist', field: 'timeline', index: null, fields: editCols })} onEdit={(idx) => setModal({ type: 'plist', field: 'timeline', index: idx, fields: editCols })} onStatusClick={(idx, cur) => setModal({ type: 'tstatus', index: idx, current: cur })} /></>;
       })()}
       {tab === 'permit' && active && (() => {
         const cols = permitCols(active.permits);
@@ -1854,6 +1877,83 @@ function CriticalDates({ store, openProperty, only }) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// One-line quick-add for a maintenance note (date + work + status) above the Maintenance table.
+function QuickMaintBar({ onAdd }) {
+  const [desc, setDesc] = useState('');
+  const [status, setStatus] = useState('Completed');
+  const tones = { Completed: 'green', Scheduled: 'blue', 'In Progress': 'gold', 'Needs Attention': 'red' };
+  const add = () => { const d = desc.trim(); if (!d) return; onAdd({ date: new Date().toISOString().slice(0, 10), description: d, status }); setDesc(''); };
+  return (
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12, padding: '10px 12px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10 }}>
+      <input className="form-input" placeholder="Quick add a maintenance note…" value={desc} onChange={e => setDesc(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') add(); }} style={{ flex: '1 1 240px', fontSize: '0.84rem' }} />
+      <select className="form-input" value={status} onChange={e => setStatus(e.target.value)} style={{ fontSize: '0.82rem', color: `hsl(var(--color-${tones[status]}))`, fontWeight: 600 }}>
+        {Object.keys(tones).map(s => <option key={s} value={s}>{s}</option>)}
+      </select>
+      <button className="primary-btn" onClick={add} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add</button>
+    </div>
+  );
+}
+
+// "Phase Progress" stepper on the Timeline tab — groups timeline rows by phase and shows
+// done/total per phase with a tone (green = all done, gold = in progress, muted = not started).
+function TimelineTracker({ rows }) {
+  const list = (rows || []).filter(r => (r.phase || '').trim());
+  if (!list.length) return null;
+  const order = [...new Set(list.map(r => r.phase))];
+  const isDone = s => /complete|n\/a|^na$/i.test(String(s || '').trim());
+  const isActive = s => /progress|pending|submitted|review|process/i.test(String(s || '').trim());
+  return (
+    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, marginBottom: 16, boxShadow: 'var(--shadow-sm)' }}>
+      <div style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>Phase Progress</div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {order.map(ph => {
+          const rs = list.filter(r => r.phase === ph);
+          const done = rs.filter(r => isDone(r.status)).length;
+          const active = rs.some(r => isActive(r.status));
+          const tone = done === rs.length ? 'green' : (active || done ? 'gold' : 'mut');
+          const col = tone === 'mut' ? 'var(--text-secondary)' : `hsl(var(--color-${tone}))`;
+          return (
+            <div key={ph} style={{ flex: '1 1 150px', minWidth: 140, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: tone === 'mut' ? 'var(--text-muted)' : col }} />
+                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary)' }}>{ph}</span>
+              </div>
+              <div style={{ fontSize: '0.72rem', fontWeight: 600, color: col }}>{done}/{rs.length} complete</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Recommended (factory) maintenance schedule — reference-only table shown on a vehicle/equipment
+// Service tab, from p.maintenanceSchedule = { items:[{item,interval,note}], source, researchedOn }.
+function RecommendedMaintenance({ p }) {
+  const ms = p.maintenanceSchedule;
+  if (!ms || !(ms.items || []).length) return null;
+  return (
+    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, marginBottom: 16, boxShadow: 'var(--shadow-sm)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)' }}>Recommended Maintenance</span>
+        {ms.source && <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Source: {ms.source}</span>}
+        <span style={{ marginLeft: 'auto', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)' }}>Reference only</span>
+      </div>
+      <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+        {ms.items.map((it, i) => (
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, padding: '9px 12px', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-primary)' }}>{it.item}</div>
+              {it.note && <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>{it.note}</div>}
+            </div>
+            <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{it.interval}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
