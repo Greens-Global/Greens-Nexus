@@ -3387,14 +3387,11 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
           <h2 style={{ fontSize:20, fontWeight:700, margin:'0 0 4px' }}>Item Management</h2>
           <p style={{ fontSize:13, color:'var(--muted)', margin:0 }}>What would you like to do today?</p>
         </div>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))', gap:16, maxWidth: showManage ? 1080 : 820, marginBottom:cart.length ? 28 : 0 }}>
-          {[
-            { Icon:ShoppingCart,  colorVar:'color-green',  title:'Checkout an Item',      sub:'Browse available equipment and raise a checkout request.',                                                                          go:() => { setMode('catalog'); setTab('catalog'); },   badge:null },
-            { Icon:RotateCcw,     colorVar:'color-blue',   title:'Extend an Item', sub:activeCheckouts.length > 0 ? `${activeCheckouts.length} item${activeCheckouts.length!==1?'s':''} currently checked out.` : 'Return equipment you have, or ask for more time.', go:() => { setMode('catalog'); setTab('checkouts'); }, badge:activeCheckouts.length||null },
-            { Icon:ClipboardList, colorVar:'color-orange', title:'Raise Purchase Request', sub:'Need something not in the catalog? Submit a formal purchase request.',                                                              go:() => window.dispatchEvent(new CustomEvent('nexus:navigate',{detail:{view:'purchase'}})),                      badge:null },
-            // Managers get a Manage card right on the home screen (Neil: no way in from here).
-            ...(showManage && onEnterManage ? [{ Icon:Box, colorVar:'color-purple', title:'Manage Items', sub:'Add, edit, assign, import, types and the activity log — the full management tools.', go:onEnterManage, badge:null }] : []),
-          ].map(({ Icon, colorVar, title, sub, go, badge }) => (
+        {(() => {
+          // Neil: top row groups the "do something with items" actions and spans the full
+          // width (no maxWidth cap, no compression). Purchase Request is its own thing, so
+          // it drops to its own row below.
+          const renderCard = ({ Icon, colorVar, title, sub, go, badge }) => (
             <button key={title} onClick={go}
               style={{ display:'flex', alignItems:'flex-start', gap:16, padding:'20px 20px', borderRadius:14, border:'1px solid var(--line)', background:'var(--card)', cursor:'pointer', textAlign:'left', fontFamily:'Inter,sans-serif', transition:'box-shadow 0.15s', boxShadow:'var(--shadow-sm)', position:'relative' }}
               onMouseEnter={e => e.currentTarget.style.boxShadow='var(--shadow-md)'}
@@ -3411,8 +3408,25 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
               </div>
               <ChevronRight size={16} color="var(--muted)" style={{ flexShrink:0, alignSelf:'center' }} />
             </button>
-          ))}
-        </div>
+          );
+          const topCards = [
+            { Icon:ShoppingCart,  colorVar:'color-green',  title:'Checkout an Item',      sub:'Browse available equipment and raise a checkout request.',                                                                          go:() => { setMode('catalog'); setTab('catalog'); },   badge:null },
+            { Icon:RotateCcw,     colorVar:'color-blue',   title:'Extend an Item', sub:activeCheckouts.length > 0 ? `${activeCheckouts.length} item${activeCheckouts.length!==1?'s':''} currently checked out.` : 'Return equipment you have, or ask for more time.', go:() => { setMode('catalog'); setTab('checkouts'); }, badge:activeCheckouts.length||null },
+            // Managers get a Manage card right on the home screen (Neil: no way in from here).
+            ...(showManage && onEnterManage ? [{ Icon:Box, colorVar:'color-purple', title:'Manage Items', sub:'Add, edit, assign, import, types and the activity log — the full management tools.', go:onEnterManage, badge:null }] : []),
+          ];
+          const purchaseCard = { Icon:ClipboardList, colorVar:'color-orange', title:'Purchase Request', sub:'Need something not in the catalog? Submit a formal purchase request.', go:() => window.dispatchEvent(new CustomEvent('nexus:navigate',{detail:{view:'purchase'}})), badge:null };
+          return (
+            <>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))', gap:16 }}>
+                {topCards.map(renderCard)}
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'minmax(0,1fr)', gap:16, marginTop:16, maxWidth:380, marginBottom:cart.length ? 28 : 0 }}>
+                {renderCard(purchaseCard)}
+              </div>
+            </>
+          );
+        })()}
         {cart.length > 0 && (
           <div style={{ padding:'14px 18px', borderRadius:12, border:'1px solid hsla(var(--color-green),0.3)', background:'hsla(var(--color-green),0.06)', display:'flex', alignItems:'center', gap:12, maxWidth:520, marginTop:24 }}>
             <ShoppingCart size={16} color="hsl(var(--color-green))" style={{ flexShrink:0 }} />
@@ -5345,7 +5359,10 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
 
   // Refs let toggleSelect stay STABLE (so memoized rows don't all re-render) while
   // still reading the current sorted order + the last-ticked anchor for shift-range.
-  const sortedRef = useRef(sorted);  sortedRef.current = sorted;
+  // The ref is synced in an effect (not during render) — toggleSelect only reads it
+  // from a click handler, which fires after commit, so it always sees the latest list.
+  const sortedRef = useRef(sorted);
+  useEffect(() => { sortedRef.current = sorted; });
   const selectAnchorRef = useRef(null);
   const toggleSelect = useCallback((id, shift) => {
     const list = sortedRef.current;

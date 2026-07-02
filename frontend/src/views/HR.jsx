@@ -1158,9 +1158,11 @@ export default function HR({ activeSub, onSubChange }) {
     setSyncBusy(true);
     try {
       const r = await api.syncM365();
-      const bits = [`${r.linked} linked`, `${r.updated} updated`];
+      const bits = [];
+      if (r.created) bits.push(`${r.created} added`);
+      bits.push(`${r.linked} linked`, `${r.updated} updated`);
+      if (r.removed?.length) bits.push(`${r.removed.length} removed (shared/inactive)`);
       if (r.unlinked?.length) bits.push(`unlinked (account deleted): ${r.unlinked.join(', ')}`);
-      else if (r.notInTenant) bits.push(`${r.notInTenant} not in tenant`);
       toastOk(`M365 sync: ${bits.join(' · ')}.`);
       load();
     } catch (err) { toastErr(err?.message || 'Sync failed.'); }
@@ -1216,7 +1218,7 @@ export default function HR({ activeSub, onSubChange }) {
         {sub === 'hr-people' && (
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
             <button className="secondary-btn" disabled={syncBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-              title="Link existing M365 accounts by work email and backfill empty phone/title/office fields from Entra"
+              title="Pull people from M365 — only @greensglobal.com and @greensstorage.com accounts. New people are added; existing profiles get linked and empty fields backfilled from Entra."
               onClick={runSync}>
               {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <History size={14} />} Sync from M365
             </button>
@@ -1291,10 +1293,14 @@ export default function HR({ activeSub, onSubChange }) {
             <div style={{ fontSize: 12.5, marginTop: 4 }}>Add the first one — everything else in HR builds on these records.</div>
           </div>
         ) : (
-          /* Master–detail on desktop; list ⇄ detail swap on phones */
+          /* Master–detail on desktop; list ⇄ detail swap on phones.
+             Both panes are capped to the viewport: the list scrolls inside
+             itself (the page no longer grows to 100+ rows tall) and the detail
+             is sticky, so clicking anyone — even at the bottom — keeps their
+             profile in view without scrolling back up. */
           <div style={{ display: isMobile ? 'block' : 'grid', gridTemplateColumns: '340px 1fr', gap: 16, alignItems: 'start' }}>
             {(!isMobile || !selected) && (
-              <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
+              <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', boxShadow: 'var(--shadow-sm)', ...(isMobile ? {} : { maxHeight: 'calc(100vh - 280px)', minHeight: 380, overflowY: 'auto' }) }}>
                 {filtered.length === 0 && (
                   <div style={{ padding: '28px 16px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No matches.</div>
                 )}
@@ -1318,17 +1324,19 @@ export default function HR({ activeSub, onSubChange }) {
               </div>
             )}
             {(!isMobile || selected) && (
-              selected ? (
-                <EmployeeDetail e={selected} employees={employees} isMobile={isMobile}
-                  toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved}
-                  onEdit={emp => { setEditing(emp); setFormOpen(true); }}
-                  onBack={() => setSelectedId(null)} />
-              ) : (
-                <div style={{ textAlign: 'center', padding: '64px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
-                  <Users size={28} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
-                  <div style={{ fontSize: 13 }}>Select a person to see their profile.</div>
-                </div>
-              )
+              <div style={isMobile ? undefined : { position: 'sticky', top: 68, alignSelf: 'start', maxHeight: 'calc(100vh - 280px)', minHeight: 380, overflowY: 'auto' }}>
+                {selected ? (
+                  <EmployeeDetail e={selected} employees={employees} isMobile={isMobile}
+                    toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved}
+                    onEdit={emp => { setEditing(emp); setFormOpen(true); }}
+                    onBack={() => setSelectedId(null)} />
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '64px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
+                    <Users size={28} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
+                    <div style={{ fontSize: 13 }}>Select a person to see their profile.</div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}
