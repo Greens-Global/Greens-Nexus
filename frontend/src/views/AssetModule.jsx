@@ -3,7 +3,7 @@
 // 14-property portfolio (mapped into the template's flat data model) and persisted
 // to localStorage. Navy accent uses var(--pine) so it stays correct in dark mode.
 import { useState, useEffect, useRef, createElement } from 'react';
-import { Plus, X, ArrowLeft, ArrowRight, Link2, FileDown, Search, Building2, ChevronDown, Upload, FileText, LayoutGrid, List, Settings, Warehouse, Truck, Store, Stethoscope, Home, Building, Trees, Pencil, Trash2, RotateCcw, Filter, Car, Wrench, Copy, MapPin } from 'lucide-react';
+import { Plus, X, ArrowLeft, ArrowRight, Link2, FileDown, Search, Building2, ChevronDown, Upload, FileText, LayoutGrid, List, Settings, Warehouse, Truck, Store, Stethoscope, Home, Building, Trees, Pencil, Trash2, RotateCcw, Filter, Car, Wrench, Copy, MapPin, Flag, GitBranch, Map as MapIcon } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 
 import georgetown from '../data/assets/greens-georgetown.json';
@@ -1048,7 +1048,7 @@ export default function AssetModule() {
 
   /* ----- render ----- */
   return (
-    <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
+    <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', maxWidth: 1180, margin: '0 auto' }}>
       <ScrollTopFab />
       <style>{`
         @keyframes assetShimmer { 0% { background-position: -220px 0 } 100% { background-position: 220px 0 } }
@@ -1073,22 +1073,13 @@ export default function AssetModule() {
       {!active && tab !== 'manage' && (() => {
         const st = headerStats(data);
         return (
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
-            <div>
-              <h1 style={{ fontSize: '1.5rem', fontFamily: "'Plus Jakarta Sans', sans-serif", letterSpacing: '-0.02em', margin: 0 }}>Asset Management</h1>
-              <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginTop: 4 }}>{st.assets} assets</div>
-              <PortfolioPulse data={data} />
-            </div>
-            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button className="secondary-btn" onClick={() => exportPortfolioCsv(props)} title="Export the whole portfolio as CSV" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FileDown size={14} /> Export CSV</button>
-              <label className="secondary-btn" title="Bulk-add assets from a filled-in CSV template" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', margin: 0 }}>
-                <Upload size={14} /> Import CSV
-                <input type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) importPropertiesCsv(f); e.target.value = ''; }} />
-              </label>
-              <button className="secondary-btn" onClick={downloadImportTemplate} title="Download a blank CSV import template" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FileDown size={14} /> Template</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
+            <h1 style={{ fontSize: '1.5rem', fontFamily: "'Plus Jakarta Sans', sans-serif", letterSpacing: '-0.02em', margin: 0 }}>Asset Management</h1>
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{st.assets} {st.assets === 1 ? 'Asset' : 'Assets'}</span>
               <button className="primary-btn" onClick={() => openTab('manage')} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <Settings size={14} /> Manage
-                {unseenLogs > 0 && <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, fontSize: '0.64rem', fontWeight: 700, color: '#fff', backgroundColor: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{unseenLogs}</span>}
+                {(data.logs || []).length > 0 && <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, fontSize: '0.64rem', fontWeight: 700, color: '#fff', backgroundColor: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{(data.logs || []).length}</span>}
               </button>
             </div>
           </div>
@@ -1157,7 +1148,6 @@ export default function AssetModule() {
         );
       })()}
 
-      {tab === 'portfolio' && !active && <CriticalDates store={data} openProperty={openProperty} />}
       {tab === 'portfolio' && !active && <FlaggedForReview props={props} openToField={openToField} onClear={toggleReviewFlag} />}
       {tab === 'portfolio' && !active && <Portfolio {...{ props, openProperty, typeFilter, setTypeFilter }} />}
       {active && <ParcelSwitcher p={active} props={props} openProperty={openProperty} />}
@@ -1186,7 +1176,7 @@ export default function AssetModule() {
         const cols = permitCols(active.permits);
         return <EditTable title="Permit Matrix" subtitle={active.name} rows={active.permits} cols={cols} query={filters.permit || ''} highlightItem={highlight?.section === 'Permit' ? highlight.item : ''} onAdd={() => setModal({ type: 'plist', field: 'permits', index: null, fields: cols })} onEdit={(idx) => setModal({ type: 'plist', field: 'permits', index: idx, fields: cols })} onDelete={(idx) => deletePropList('permits', idx, cols)} />;
       })()}
-      {tab === 'manage' && !active && <ManagePage props={props} logs={data.logs || []} deletedProps={deletedProps} onBack={() => { setActiveId(null); setTab('portfolio'); }} onAdd={() => setModal({ type: 'property', id: null })} onDelete={(id) => deleteProperty(id, true)} onRecover={recoverProperty} onPurge={purgeProperty} onOpenProperty={openProperty} onGoTo={goToChange} onUndo={undoLog} canUndo={canUndoLog} />}
+      {tab === 'manage' && !active && <ManagePage props={props} logs={data.logs || []} deletedProps={deletedProps} onBack={() => { setActiveId(null); setTab('portfolio'); }} onAdd={() => setModal({ type: 'property', id: null })} onDelete={(id) => deleteProperty(id, true)} onRecover={recoverProperty} onPurge={purgeProperty} onOpenProperty={openProperty} onGoTo={goToChange} onUndo={undoLog} canUndo={canUndoLog} onExport={() => exportPortfolioCsv(props)} onImport={importPropertiesCsv} onTemplate={downloadImportTemplate} />}
 
       {modal?.type === 'row' && <RowModal coll={modal.coll} row={modal.id ? data[modal.coll].find(r => r.id === modal.id) : null} canDelete={modal.coll === 'warranties' ? isManager : true} requireReason={modal.coll === 'warranties'} onSave={(v) => saveRow(modal.coll, modal.id, v)} onDelete={(reason) => deleteRow(modal.coll, modal.id, reason)} onClose={() => setModal(null)} />}
       {modal?.type === 'property' && <PropertyModal row={modal.id ? byId(modal.id) : null} properties={props} onSave={(v, reason, link) => saveProperty(modal.id, v, reason, link)} onDelete={() => deleteProperty(modal.id)} onClose={() => setModal(null)} />}
@@ -1280,7 +1270,7 @@ function ManageSection({ title, sub, count, badge, open, onToggle, children }) {
 // Manage PAGE (not a dropdown) — per Neil: one secondary management screen. Two collapsible
 // sections: Properties (Add + every property) and Activity log (global, with Recover under it).
 // Linking is not a standalone action here — it's folded into the Add property flow (the "Role" field).
-function ManagePage({ props, logs, deletedProps, onBack, onAdd, onDelete, onRecover, onPurge, onOpenProperty, onGoTo, onUndo, canUndo }) {
+function ManagePage({ props, logs, deletedProps, onBack, onAdd, onDelete, onRecover, onPurge, onOpenProperty, onGoTo, onUndo, canUndo, onExport, onImport, onTemplate }) {
   const [purge, setPurge] = useState(null); // property pending permanent-delete confirmation
   const [del, setDel] = useState(null); // property pending soft-delete confirmation
   const [pq, setPq] = useState(''); // properties search
@@ -1305,7 +1295,15 @@ function ManagePage({ props, logs, deletedProps, onBack, onAdd, onDelete, onReco
           </div>
           <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginTop: 6, maxWidth: 620 }}>Add a property, open one to edit it on its own page, delete one, and review every change in the activity log (with undo).</div>
         </div>
-        <button className="primary-btn" onClick={onAdd} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add property</button>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {onExport && <button className="secondary-btn" onClick={onExport} title="Export the whole portfolio as CSV" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FileDown size={14} /> Export CSV</button>}
+          {onImport && <label className="secondary-btn" title="Bulk-add assets from a filled-in CSV template" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', margin: 0 }}>
+            <Upload size={14} /> Import CSV
+            <input type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) onImport(f); e.target.value = ''; }} />
+          </label>}
+          {onTemplate && <button className="secondary-btn" onClick={onTemplate} title="Download a blank CSV import template" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FileDown size={14} /> Template</button>}
+          <button className="primary-btn" onClick={onAdd} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add property</button>
+        </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1448,7 +1446,7 @@ function Portfolio({ props, openProperty, typeFilter, setTypeFilter }) {
   // Tile / List view toggle (reused on the top level and inside a group's drill-down).
   const viewToggle = (
     <div style={{ display: 'inline-flex', padding: 3, borderRadius: 999, border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
-      {[['tile', 'Tiles', LayoutGrid], ['list', 'List', List]].map(([k, lbl, Icon]) => (
+      {[['tile', 'Tiles', LayoutGrid], ['list', 'List', List], ['map', 'Map', MapIcon]].map(([k, lbl, Icon]) => (
         <button key={k} onClick={() => setView(k)} title={`${lbl} view`}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600, background: view === k ? 'var(--pine)' : 'transparent', color: view === k ? '#fff' : 'var(--text-secondary)' }}>
           <Icon size={14} /> {lbl}
@@ -1485,36 +1483,34 @@ function Portfolio({ props, openProperty, typeFilter, setTypeFilter }) {
             style={{ width: '100%', fontSize: '0.82rem', padding: '7px 28px 7px 32px' }} />
           {q && <button onClick={() => setQ('')} title="Clear search" style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', padding: 0 }}><X size={13} /></button>}
         </div>
-        <span style={{ width: 1, height: 22, backgroundColor: 'var(--border-color)' }} />
-        {/* Category filter (Neil) — its own filter icon, single-select; hides the other categories */}
-        <span style={{ ...microLabel, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--pine)' }}><Filter size={13} /> Category</span>
-        <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="form-input" style={{ ...selStyle, borderColor: categoryFilter ? 'var(--pine)' : undefined }}>
-          <option value="">All categories</option>
-          {ASSET_CATEGORIES.map(c => <option key={c} value={c}>{`${c} (${catCount(c)})`}</option>)}
-        </select>
-        <span style={{ width: 1, height: 22, backgroundColor: 'var(--border-color)' }} />
-        <span style={microLabel}>Stage</span>
-        <select value={stageFilter} onChange={e => setStageFilter(e.target.value)} className="form-input" style={selStyle}>
-          <option value="">All stages</option>
-          {DEV_STAGES.map(s => <option key={s} value={s}>{`${s} (${stageCount(s)})`}</option>)}
-        </select>
-        <span style={microLabel}>Asset type</span>
-        <select value={typeFilter} onChange={e => setTypeFilter && setTypeFilter(e.target.value)} className="form-input" style={selStyle}>
-          <option value="">All types</option>
-          {presentTypes.map(t => <option key={t} value={t}>{`${t} (${typeCounts[t]})`}</option>)}
-        </select>
-        <span style={microLabel}>Region</span>
-        <select value={regionFilter} onChange={e => setRegionFilter(e.target.value)} className="form-input" style={selStyle}>
-          <option value="">All regions</option>
-          {presentRegions.map(r => <option key={r} value={r}>{`${r} (${regionCounts[r]})`}</option>)}
-        </select>
+        {/* Filter dropdowns — icon + single-select, matching the handoff toolbar (no external labels) */}
+        {[
+          { Icon: LayoutGrid, val: categoryFilter, set: setCategoryFilter, ph: 'All Categories', opts: ASSET_CATEGORIES.map(c => [c, `${c} (${catCount(c)})`]) },
+          { Icon: Flag, val: stageFilter, set: setStageFilter, ph: 'All Stages', opts: DEV_STAGES.map(s => [s, `${s} (${stageCount(s)})`]) },
+          { Icon: GitBranch, val: typeFilter, set: v => setTypeFilter && setTypeFilter(v), ph: 'All Types', opts: presentTypes.map(t => [t, `${t} (${typeCounts[t]})`]) },
+          { Icon: MapPin, val: regionFilter, set: setRegionFilter, ph: 'All Regions', opts: presentRegions.map(r => [r, `${r} (${regionCounts[r]})`]) },
+        ].map((f, i) => (
+          <div key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <f.Icon size={15} style={{ color: f.val ? 'var(--pine)' : 'var(--text-secondary)', flexShrink: 0 }} />
+            <select value={f.val} onChange={e => f.set(e.target.value)} className="form-input" style={{ padding: '8px 10px', fontSize: '0.8rem', maxWidth: 175, cursor: 'pointer', borderColor: f.val ? 'var(--pine)' : undefined }}>
+              <option value="">{f.ph}</option>
+              {f.opts.map(([v, lbl]) => <option key={v} value={v}>{lbl}</option>)}
+            </select>
+          </div>
+        ))}
         {(q || categoryFilter || stageFilter || typeFilter || regionFilter) && <button className="secondary-btn" onClick={() => { setQ(''); setCategoryFilter(''); setStageFilter(''); setTypeFilter && setTypeFilter(''); setRegionFilter(''); }} style={{ padding: '5px 11px', fontSize: '0.76rem', display: 'inline-flex', alignItems: 'center', gap: 6, borderColor: 'var(--pine)', color: 'var(--pine)' }}>Clear filters ✕</button>}
         <div style={{ marginLeft: 'auto' }}>{viewToggle}</div>
       </div>
       {tops.length === 0 ? <Empty>No assets match{q ? ` “${q}”` : ''}{categoryFilter ? ` (${categoryFilter})` : ''}.</Empty> : (
       view === 'list'
         ? <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{renderEntries()}</div>
-        : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(440px, 1fr))', gap: 16, alignItems: 'stretch' }}>{renderEntries()}</div>
+        : view === 'map'
+        ? <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, minHeight: 320, borderRadius: 14, border: '1px dashed var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', textAlign: 'center', padding: 24 }}>
+            <MapPin size={28} style={{ opacity: 0.6 }} />
+            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Map view</div>
+            <div style={{ fontSize: '0.82rem', maxWidth: 360 }}>Pins for all {tops.length} assets are being wired up (map tiles + geocoding). Use Tiles or List in the meantime.</div>
+          </div>
+        : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(380px, 100%), 1fr))', gap: 18, alignItems: 'stretch' }}>{renderEntries()}</div>
       )}
     </>
   );
