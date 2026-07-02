@@ -822,6 +822,22 @@ export default function AssetModule() {
     setActiveId(id); setTab('property');
     setHighlight({ tab: 'property', section: group, field, item: '', n: Date.now() });
   };
+  // Bulk-create properties from a filled-in CSV template (one asset per row).
+  const importPropertiesCsv = async (file) => {
+    try {
+      const rows = csvParse(await file.text());
+      if (rows.length < 2) { alert('CSV needs a header row plus at least one data row.'); return; }
+      const header = rows[0].map(h => h.trim());
+      const newProps = rows.slice(1).map(r => {
+        const obj = { id: uidGen(), parentId: '', siteName: '', reviewFlags: [] };
+        header.forEach((h, i) => { if (CSV_IMPORT_COLS.includes(h)) obj[h] = (r[i] ?? '').trim(); });
+        return obj.name ? obj : null;
+      }).filter(Boolean);
+      if (!newProps.length) { alert('No rows with a "name" value were found.'); return; }
+      setData(d => pushLog({ ...d, properties: [...d.properties, ...newProps] },
+        { section: 'Property', property: '', propertyId: '', action: 'imported', item: `${newProps.length} asset(s) via CSV`, changes: [] }));
+    } catch { alert('Could not read that CSV file.'); }
+  };
   // Timeline / Permit rows live on the property object (active.timeline / active.permits)
   // as plain arrays without ids — edit & delete operate by original array index.
   const savePropList = (field, index, values, fields, reason) => {
@@ -1026,7 +1042,13 @@ export default function AssetModule() {
               <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginTop: 4 }}>{st.assets} assets</div>
               <PortfolioPulse data={data} />
             </div>
-            <div style={{ marginLeft: 'auto' }}>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button className="secondary-btn" onClick={() => exportPortfolioCsv(props)} title="Export the whole portfolio as CSV" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FileDown size={14} /> Export CSV</button>
+              <label className="secondary-btn" title="Bulk-add assets from a filled-in CSV template" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', margin: 0 }}>
+                <Upload size={14} /> Import CSV
+                <input type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) importPropertiesCsv(f); e.target.value = ''; }} />
+              </label>
+              <button className="secondary-btn" onClick={downloadImportTemplate} title="Download a blank CSV import template" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FileDown size={14} /> Template</button>
               <button className="primary-btn" onClick={() => openTab('manage')} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <Settings size={14} /> Manage
                 {unseenLogs > 0 && <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, fontSize: '0.64rem', fontWeight: 700, color: '#fff', backgroundColor: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{unseenLogs}</span>}
@@ -1049,7 +1071,7 @@ export default function AssetModule() {
             </div>
             <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', flexWrap: 'wrap' }}>
               {canSeePrivate && <button className="secondary-btn" onClick={() => togglePrivate(active.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{active.private ? 'Make public' : 'Mark private'}</button>}
-              <button className="secondary-btn" onClick={() => exportReport(active, data)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FileDown size={14} /> Export PDF</button>
+              <ExportMenu p={active} data={data} />
               {tab === 'property' && <button className="primary-btn" onClick={() => setModal({ type: 'property', id: active.id })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Pencil size={14} /> Edit {inferAssetKind(active) === 'property' ? 'property' : 'asset'}</button>}
             </div>
           </div>
@@ -2619,6 +2641,87 @@ function headerStats(data) {
   return { assets: data.properties.length, parcels: data.properties.length, warr, insp, exp, nrsf, units, acreage };
 }
 /* ---------- PDF report ---------- */
+/* ---------- CSV export / import ---------- */
+const csvEsc = (s) => { const t = String(s ?? ''); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+function downloadTextFile(name, text, mime = 'text/csv') {
+  const blob = new Blob([text], { type: mime + ';charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+// Minimal RFC-4180-ish CSV parser → array of row-arrays.
+function csvParse(text) {
+  const rows = []; let row = [], field = '', q = false;
+  const t = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (q) { if (c === '"') { if (t[i + 1] === '"') { field += '"'; i++; } else q = false; } else field += c; }
+    else if (c === '"') q = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+    else field += c;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(x => String(x).trim() !== ''));
+}
+// Full per-asset CSV: Overview + every collection + permits + timeline, as blank-line-separated tables.
+function exportAssetCsv(p, data) {
+  const out = [];
+  out.push(`Asset,${csvEsc(p.name)}`);
+  out.push('');
+  out.push('=== OVERVIEW ===');
+  out.push('Section,Field,Value');
+  ptSections(p).forEach(sec => sec.fields.forEach(([L, V]) => out.push([sec.title, L, V].map(csvEsc).join(','))));
+  const CMAP = { warranties: 'WARRANTIES', inspections: 'INSPECTIONS', documents: 'DOCUMENTS', ahj: 'AHJ', utilities: 'UTILITIES', vendors: 'VENDORS', vservice: 'SERVICE & MAINTENANCE', odometer: 'ODOMETER', vdocs: 'DOCUMENTS (VEHICLE)' };
+  Object.entries(CMAP).forEach(([coll, title]) => {
+    const rows = (data[coll] || []).filter(r => r.propertyId === p.id);
+    if (!rows.length) return;
+    const fields = (COLLECTIONS[coll]?.fields || []).map(f => ({ k: f.k, label: f.label }));
+    out.push(''); out.push(`=== ${title} ===`);
+    out.push(fields.map(f => csvEsc(f.label)).join(','));
+    rows.forEach(r => out.push(fields.map(f => csvEsc(r[f.k])).join(',')));
+  });
+  if ((p.permits || []).length) { out.push(''); out.push('=== PERMITS ==='); const keys = Object.keys(p.permits[0]); out.push(keys.map(csvEsc).join(',')); p.permits.forEach(r => out.push(keys.map(k => csvEsc(r[k])).join(','))); }
+  if ((p.timeline || []).length) { out.push(''); out.push('=== TIMELINE ==='); const keys = Object.keys(p.timeline[0]); out.push(keys.map(csvEsc).join(',')); p.timeline.forEach(r => out.push(keys.map(k => csvEsc(r[k])).join(','))); }
+  downloadTextFile(`${(p.name || 'asset').replace(/[^\w-]+/g, '_')}.csv`, out.join('\n'));
+}
+// Portfolio-wide summary CSV — one row per asset.
+function exportPortfolioCsv(props) {
+  const cols = [['Name', p => p.name], ['Kind', p => inferAssetKind(p)], ['Type', p => p.type || p.assetType || ''], ['Address', p => p.address], ['City', p => p.city], ['State', p => p.state], ['County', p => p.county], ['Manager', p => p.manager], ['Stage', p => p.devStage], ['NRSF', p => p.nrsf], ['Total units', p => p.unitsTotal], ['Acreage', p => p.acreage], ['Year built', p => p.yearBuilt], ['Private', p => p.private ? 'Yes' : '']];
+  const out = [cols.map(c => csvEsc(c[0])).join(',')];
+  props.forEach(p => out.push(cols.map(c => csvEsc(c[1](p))).join(',')));
+  downloadTextFile('greens-portfolio.csv', out.join('\n'));
+}
+// Import-template header row (the property fields a spreadsheet can fill in).
+const CSV_IMPORT_COLS = ['name', 'type', 'address', 'city', 'state', 'zip', 'county', 'apn', 'manager', 'entity', 'devStage', 'yearBuilt', 'nrsf', 'acreage', 'unitsTotal'];
+function downloadImportTemplate() {
+  downloadTextFile('greens-asset-import-template.csv', CSV_IMPORT_COLS.join(',') + '\n');
+}
+
+// Detail-header export dropdown: PDF (print report) or full CSV.
+function ExportMenu({ p, data }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
+  }, [open]);
+  return (
+    <div style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
+      <button className="secondary-btn" onClick={() => setOpen(o => !o)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FileDown size={14} /> Export <ChevronDown size={13} /></button>
+      {open && (
+        <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 20, minWidth: 168, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md)', overflow: 'hidden' }}>
+          {[['Export as PDF', () => exportReport(p, data)], ['Export as CSV', () => exportAssetCsv(p, data)]].map(([label, fn]) => (
+            <button key={label} onClick={() => { setOpen(false); fn(); }} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 14px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-primary)' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-secondary)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>{label}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function exportReport(p, data) {
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const v = (x) => { const s = (x ?? '') === '' ? '' : String(x); return s ? esc(s) : '—'; };
