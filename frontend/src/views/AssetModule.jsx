@@ -226,10 +226,10 @@ function hydrate(d) {
   // migrate timeline status out of the Notes column.
   return { ...d, vservice: d.vservice || [], odometer: d.odometer || [], vdocs: d.vdocs || [], maintenance: d.maintenance || [], properties: d.properties.map(p => {
     const e = enrichSource(p);
-    // Refresh the seeded image from the source JSON (so updated property photos show even if an
-    // old path was saved). User-uploaded images (data URLs) are left untouched.
+    // Keep the stored image (the imported portfolio carries its own photos); only fall back to
+    // the bundled seed photo when the record has no image at all.
     const src = RAW_BY_ID[e.id];
-    const image = (src && src.image && (!e.image || e.image.startsWith('/assets/properties/'))) ? src.image : e.image;
+    const image = e.image || (src && src.image) || '';
     // Development Stage is validated only for properties; vehicles/equipment use their own status enum.
     const isProp = inferAssetKind(e) === 'property';
     const e2 = (!isProp || DEV_STAGES.includes(e.devStage)) ? { ...e, image } : { ...e, image, devStage: '' };
