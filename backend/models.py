@@ -471,6 +471,7 @@ class NexusEmployee(Base):
     status          = Column(String, default="active")         # onboarding | active | inactive | offboarded
     location        = Column(String, default="")
     company         = Column(String, default="")               # HrEntity.id — which legal entity employs this worker
+    contractor      = Column(JSON, default=dict)               # contractor-only fields (scope/SOW/dates/rate/client) — HR Section A
     notes           = Column(String, default="")
     m365_id         = Column(String, default="")               # account pointers for provisioning (Phase 4)
     asana_id        = Column(String, default="")

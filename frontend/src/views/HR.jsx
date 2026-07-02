@@ -68,10 +68,19 @@ function EmployeeFormModal({ employee, employees, entities = [], onClose, onSave
     status:          employee?.status || 'active',
     location:        employee?.location || '',
     company:         employee?.company || '',
+    contractor:      employee?.contractor || {},
     notes:           employee?.notes || '',
   }));
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
+  const setC = (k, v) => setF(prev => ({ ...prev, contractor: { ...(prev.contractor || {}), [k]: v } }));
+  const isContractor = f.employment_type === 'contractor';
+  const cInput = (label, key, props = {}) => (
+    <div>
+      <label style={FL}>{label}</label>
+      <input className="form-input" style={{ width: '100%' }} value={(f.contractor || {})[key] || ''} onChange={e => setC(key, e.target.value)} {...props} />
+    </div>
+  );
 
   // Manager picker: anyone with a work email (yourself excluded when editing)
   const managers = employees.filter(e => e.workEmail && e.id !== employee?.id);
@@ -148,6 +157,32 @@ function EmployeeFormModal({ employee, employees, entities = [], onClose, onSave
               {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
             </select>
           </div>
+          {isContractor && (
+            <div style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 12, padding: '14px 16px', background: 'hsla(var(--color-orange),0.05)' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-orange))', letterSpacing: '.04em', marginBottom: 12 }}>CONTRACTOR ENGAGEMENT</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div style={{ gridColumn: '1 / -1' }}>{cInput('SCOPE / ROLE', 'scope', { placeholder: 'what they are engaged to do' })}</div>
+                {cInput('SOW REFERENCE', 'sow_ref', { placeholder: 'SOW doc # / link' })}
+                {cInput('BILLING CLIENT', 'billing_client', { placeholder: 'client this contractor bills to' })}
+                {cInput('CONTRACT START', 'contract_start', { type: 'date' })}
+                {cInput('CONTRACT END', 'contract_end', { type: 'date' })}
+                {cInput('RATE', 'rate', { placeholder: 'e.g. 85' })}
+                <div>
+                  <label style={FL}>RATE TYPE</label>
+                  <select className="form-input" style={{ width: '100%' }} value={(f.contractor || {}).rate_type || 'hourly'} onChange={e => setC('rate_type', e.target.value)}>
+                    <option value="hourly">Hourly</option><option value="fixed_fee">Fixed fee</option><option value="daily">Daily</option><option value="monthly">Monthly retainer</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={FL}>CURRENCY</label>
+                  <select className="form-input" style={{ width: '100%' }} value={(f.contractor || {}).currency || 'USD'} onChange={e => setC('currency', e.target.value)}>
+                    <option value="USD">USD</option><option value="INR">INR</option>
+                  </select>
+                </div>
+                {cInput('ENGAGEMENT AREA', 'engagement_area', { placeholder: 'e.g. Escondido dev / remote' })}
+              </div>
+            </div>
+          )}
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={FL}>NOTES</label>
             <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
@@ -566,6 +601,9 @@ function EmployeeDetail({ e, employees, companyName = '', onEdit, onBack, isMobi
         {companyName && row(Building2, 'Company', companyName)}
         {row(CalendarOff, 'Start date', e.startDate)}
         {row(MapPin, 'Location', e.location)}
+        {e.employmentType === 'contractor' && e.contractor?.billing_client && row(Briefcase, 'Billing client', e.contractor.billing_client)}
+        {e.employmentType === 'contractor' && e.contractor?.contract_end && row(CalendarOff, 'Contract end', e.contractor.contract_end)}
+        {e.employmentType === 'contractor' && e.contractor?.rate && row(FileText, 'Rate', [e.contractor.rate, e.contractor.currency, e.contractor.rate_type].filter(Boolean).join(' '))}
         {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : e.managerEmail)}
         {reports.length > 0 && row(Users, 'Direct reports', reports.map(fullName).join(', '))}
         {e.notes && row(FileText, 'Notes', e.notes)}

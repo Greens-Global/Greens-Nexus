@@ -37,6 +37,7 @@ class EmployeeIn(BaseModel):
     status:          Optional[str] = "active"
     location:        Optional[str] = ""
     company:         Optional[str] = ""
+    contractor:      Optional[dict] = None
     notes:           Optional[str] = ""
 
 
@@ -54,6 +55,7 @@ class EmployeeUpdate(BaseModel):
     status:          Optional[str] = None
     location:        Optional[str] = None
     company:         Optional[str] = None
+    contractor:      Optional[dict] = None
     notes:           Optional[str] = None
 
 
@@ -92,6 +94,7 @@ def _serialize(e: NexusEmployee) -> dict:
         "status":         e.status,
         "location":       e.location,
         "company":        e.company,
+        "contractor":     e.contractor or {},
         "notes":          e.notes,
         "m365Id":         e.m365_id,
         "asanaId":        e.asana_id,
@@ -128,6 +131,7 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         status=body.status or "active",
         location=(body.location or "").strip(),
         company=(body.company or "").strip(),
+        contractor=body.contractor or {},
         notes=body.notes or "",
         created_by=user["email"],
         created_at=now,
