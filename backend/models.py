@@ -476,6 +476,7 @@ class NexusEmployee(Base):
     compensation    = Column(JSON, default=dict)               # base/basis/frequency/currency + history — RESTRICTED (hr_comp grant)
     bank            = Column(JSON, default=list)               # list of bank accounts — RESTRICTED (hr_comp grant)
     compliance      = Column(JSON, default=dict)               # right-to-work / visa / verification — HR Section B
+    status_log      = Column(JSON, default=list)               # [{from,to,reason,effectiveDate,by,at}] — HR Section B6
     notes           = Column(String, default="")
     m365_id         = Column(String, default="")               # account pointers for provisioning (Phase 4)
     asana_id        = Column(String, default="")

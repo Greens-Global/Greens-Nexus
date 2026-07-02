@@ -588,6 +588,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
   const [compOpen, setCompOpen] = useState(false);
   const [personalOpen, setPersonalOpen] = useState(false);
   const [complianceOpen, setComplianceOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
   const [welcomeBusy, setWelcomeBusy] = useState(false);
   const sm = STATUS_META[e.status] || STATUS_META.active;
   const manager = employees.find(m => m.workEmail && m.workEmail === e.managerEmail);
@@ -621,7 +622,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
             {[e.jobTitle, e.employeeCode].filter(Boolean).join(' · ')}
           </div>
         </div>
-        <span style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: sm.bg, color: sm.fg }}>{sm.label}</span>
+        <button onClick={() => setStatusOpen(true)} title="Change status (with reason)"
+          style={{ padding: '3px 11px', borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: sm.bg, color: sm.fg, border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          {sm.label} <Pencil size={10} />
+        </button>
         <button className="secondary-btn" onClick={() => onEdit(e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
           <Pencil size={13} /> Edit
         </button>
@@ -713,6 +717,9 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
       )}
       {complianceOpen && (
         <ComplianceModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => setComplianceOpen(false)} onSaved={onEmployeeUpdated} />
+      )}
+      {statusOpen && (
+        <StatusChangeModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => setStatusOpen(false)} onSaved={onEmployeeUpdated} />
       )}
     </div>
   );
@@ -1377,6 +1384,56 @@ function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Inline status change with reason + effective date (HR Section B6) ────────
+function StatusChangeModal({ employee, onClose, onSaved, toastOk, toastErr }) {
+  const [status, setStatus] = useState(employee.status || 'active');
+  const [reason, setReason] = useState('');
+  const [effectiveDate, setEffectiveDate] = useState('');
+  const [busy, setBusy] = useState(false);
+  const changed = status !== employee.status;
+
+  async function save() {
+    if (busy) return; setBusy(true);
+    try { const saved = await api.changeEmployeeStatus(employee.id, { status, reason, effectiveDate }); onSaved(saved); toastOk(`Status set to ${STATUS_META[status]?.label || status}.`); onClose(); }
+    catch (e) { toastErr(e?.message || 'Could not change status.'); setBusy(false); }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 460, boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Change status — {fullName(employee)}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: '18px 24px', display: 'grid', gap: 14 }}>
+          <div><label style={FL}>NEW STATUS</label>
+            <select className="form-input" style={{ width: '100%' }} value={status} onChange={e => setStatus(e.target.value)}>
+              {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
+            </select>
+          </div>
+          <div><label style={FL}>EFFECTIVE DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} /></div>
+          <div><label style={FL}>REASON</label><textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={reason} onChange={e => setReason(e.target.value)} placeholder="why the change (kept in the audit trail)" /></div>
+          {employee.statusLog?.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>RECENT CHANGES</div>
+              {employee.statusLog.slice(0, 4).map((h, i) => (
+                <div key={i} style={{ fontSize: 12, color: 'var(--muted)', padding: '3px 0' }}>
+                  {STATUS_META[h.from]?.label || h.from} → {STATUS_META[h.to]?.label || h.to} · {h.effectiveDate || (h.at || '').slice(0, 10)}{h.reason ? ` · ${h.reason}` : ''}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="primary-btn" onClick={save} disabled={busy || !changed} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || !changed) ? 0.6 : 1 }}>{busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Apply</button>
+        </div>
       </div>
     </div>
   );

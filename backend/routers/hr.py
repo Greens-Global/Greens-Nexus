@@ -105,6 +105,7 @@ def _serialize(e: NexusEmployee) -> dict:
         "contractor":     e.contractor or {},
         "personal":       e.personal or {},
         "compliance":     e.compliance or {},
+        "statusLog":      e.status_log or [],
         "notes":          e.notes,
         "m365Id":         e.m365_id,
         "asanaId":        e.asana_id,
@@ -1324,3 +1325,34 @@ def employee_assets(eid: str, user: dict = Depends(require_hr_read), db: Session
             "days": c.days, "allocatedAt": c.allocated_at, "handedOverAt": c.handed_over_at,
         } for c in checkouts],
     }
+
+
+# ---------------------------------------------------------------------------
+# HR Section B6 — inline status change with reason + effective date (audited)
+# ---------------------------------------------------------------------------
+class StatusChangeIn(BaseModel):
+    status:        str
+    reason:        Optional[str] = ""
+    effectiveDate: Optional[str] = ""
+
+
+@router.post("/employees/{eid}/status")
+def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not row:
+        raise HTTPException(404, "Employee not found")
+    if body.status not in _STATUSES:
+        raise HTTPException(400, f"status must be one of {_STATUSES}")
+    now = datetime.now(timezone.utc).isoformat()
+    log = list(row.status_log or [])
+    if body.status != row.status:
+        log.insert(0, {
+            "from": row.status, "to": body.status, "reason": (body.reason or "").strip(),
+            "effectiveDate": (body.effectiveDate or "").strip(), "by": user["email"], "at": now,
+        })
+    row.status = body.status
+    row.status_log = log
+    row.updated_at = now
+    db.commit()
+    db.refresh(row)
+    return _serialize(row)

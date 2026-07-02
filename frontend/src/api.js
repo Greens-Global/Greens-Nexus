@@ -411,6 +411,7 @@ export const api = {
 
   // HR — live assets (permanent assignments + active checkouts from Item Management)
   getEmployeeAssets: (id)      => req(`/hr/employees/${id}/assets`),
+  changeEmployeeStatus: (id, data) => req(`/hr/employees/${id}/status`, { method: 'POST', body: JSON.stringify(data) }),
 
   // HR — hiring pipeline
   getCandidates:       ()         => req('/hr/candidates'),

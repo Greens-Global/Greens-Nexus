@@ -160,6 +160,8 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS compensation JSONB DEFAULT '{}'::jsonb",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS bank JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS compliance JSONB DEFAULT '{}'::jsonb",
+        # HR Section B6: employee status-change audit trail (reason + effective date)
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS status_log JSONB DEFAULT '[]'::jsonb",
     ]
     with engine.connect() as conn:
         for sql in migrations:
