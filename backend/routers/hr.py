@@ -1375,6 +1375,12 @@ class StatusChangeIn(BaseModel):
     status:        str
     reason:        Optional[str] = ""
     effectiveDate: Optional[str] = ""
+    # Offboarding decisions captured on the status change (inactive/offboarded).
+    # Nexus records the intent; the mailbox-permission / shared-conversion steps
+    # themselves are done in the Exchange admin center (Graph has no coverage).
+    #   {mailboxAction: 'delegate'|'share'|'remove'|'',
+    #    delegateTo: ['a@x.com', …], exportRequested: bool, freeUpLicense: bool}
+    offboarding:   Optional[dict] = None
 
 
 @router.post("/employees/{eid}/status")
@@ -1387,10 +1393,21 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     now = datetime.now(timezone.utc).isoformat()
     log = list(row.status_log or [])
     if body.status != row.status:
-        log.insert(0, {
+        entry = {
             "from": row.status, "to": body.status, "reason": (body.reason or "").strip(),
             "effectiveDate": (body.effectiveDate or "").strip(), "by": user["email"], "at": now,
-        })
+        }
+        # Only keep a meaningful offboarding block (an action or a delegate set).
+        off = body.offboarding or {}
+        if off.get("mailboxAction") or off.get("delegateTo") or off.get("exportRequested") or off.get("freeUpLicense"):
+            entry["offboarding"] = {
+                "mailboxAction":   (off.get("mailboxAction") or "").strip(),
+                "delegateTo":      [e.strip().lower() for e in (off.get("delegateTo") or []) if e and e.strip()],
+                "exportRequested": bool(off.get("exportRequested")),
+                "freeUpLicense":   bool(off.get("freeUpLicense")),
+                "done":            False,   # flips true once an admin completes the M365 steps
+            }
+        log.insert(0, entry)
     row.status = body.status
     row.status_log = log
     row.updated_at = now
