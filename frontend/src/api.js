@@ -395,6 +395,30 @@ export const api = {
   updateEmployee: (id, data) => req(`/hr/employees/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteEmployee: (id)       => req(`/hr/employees/${id}`, { method: 'DELETE' }),
 
+  // HR — companies/entities & work sites (Section A foundation)
+  getEntities:    ()         => req('/hr/entities'),
+  createEntity:   (data)     => req('/hr/entities', { method: 'POST', body: JSON.stringify(data) }),
+  updateEntity:   (id, data) => req(`/hr/entities/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteEntity:   (id)       => req(`/hr/entities/${id}`, { method: 'DELETE' }),
+  getWorkSites:   ()         => req('/hr/work-sites'),
+  createWorkSite: (data)     => req('/hr/work-sites', { method: 'POST', body: JSON.stringify(data) }),
+  updateWorkSite: (id, data) => req(`/hr/work-sites/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteWorkSite: (id)       => req(`/hr/work-sites/${id}`, { method: 'DELETE' }),
+
+  // HR — compensation + bank (restricted: hr_comp grant / owner)
+  getCompensation:  (id)       => req(`/hr/employees/${id}/compensation`),
+  saveCompensation: (id, data) => req(`/hr/employees/${id}/compensation`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  // HR — live assets (permanent assignments + active checkouts from Item Management)
+  getEmployeeAssets: (id)      => req(`/hr/employees/${id}/assets`),
+  changeEmployeeStatus: (id, data) => req(`/hr/employees/${id}/status`, { method: 'POST', body: JSON.stringify(data) }),
+
+  // HR — mailbox export (zip of .eml via Graph; needs Mail.Read consent)
+  startMailboxExport: (id)      => req(`/hr/employees/${id}/mailbox-export`, { method: 'POST' }),
+  getMailboxExport:   (id)      => req(`/hr/employees/${id}/mailbox-export`),
+  getExportStatus:    (jobId)   => req(`/hr/mailbox-exports/${jobId}`),
+  getExportUrl:       (jobId)   => req(`/hr/mailbox-exports/${jobId}/url`),
+
   // HR — hiring pipeline
   getCandidates:       ()         => req('/hr/candidates'),
   getCandidateHistory: (id)       => req(`/hr/candidates/${id}/history`),
@@ -413,6 +437,7 @@ export const api = {
   provisionEmployee: (empId, data)  => req(`/hr/employees/${empId}/provision`, { method: 'POST', body: JSON.stringify(data) }),
   getProvisionRuns:  (empId)        => req(`/hr/employees/${empId}/provision/runs`),
   syncM365:          ()             => req('/hr/employees/sync-m365', { method: 'POST' }),
+  syncM365Photos:    ()             => req('/hr/employees/sync-photos', { method: 'POST' }),
   resendWelcome:     (empId)        => req(`/hr/employees/${empId}/welcome-email`, { method: 'POST' }),
 
   // HR — leave tracker

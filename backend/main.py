@@ -151,6 +151,19 @@ def _run_migrations():
         "ALTER TABLE kb_courses ADD COLUMN IF NOT EXISTS recert_months INTEGER DEFAULT 0",
         "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS undone_at VARCHAR DEFAULT ''",
         "ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS undone_by VARCHAR DEFAULT ''",
+        # HR Section A: which legal entity employs each worker
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS company VARCHAR DEFAULT ''",
+        # HR Section A: contractor worker type — scope/SOW/dates/rate/billing client
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS contractor JSONB DEFAULT '{}'::jsonb",
+        # HR Section B: profile depth — personal/compliance open; compensation+bank RESTRICTED (hr_comp grant)
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS personal JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS compensation JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS bank JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS compliance JSONB DEFAULT '{}'::jsonb",
+        # HR Section B6: employee status-change audit trail (reason + effective date)
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS status_log JSONB DEFAULT '[]'::jsonb",
+        # HR mailbox export: progress total (table itself is created by create_all)
+        "ALTER TABLE hr_mailbox_exports ADD COLUMN IF NOT EXISTS total INTEGER DEFAULT 0",
     ]
     with engine.connect() as conn:
         for sql in migrations:

@@ -16,6 +16,10 @@ from models import NexusEmployee
 require_hr_read   = require_module_grant("hr", "viewer")
 require_hr_write  = require_module_grant("hr", "editor")
 require_hr_delete = require_module_grant("hr", "owner", bypass_level="owner")
+# Compensation + bank are salary-sensitive (Section B): only Global Admins (owner)
+# bypass; everyone else needs an explicit "hr_comp" Access Group grant.
+require_hr_comp_read  = require_module_grant("hr_comp", "viewer", bypass_level="owner")
+require_hr_comp_write = require_module_grant("hr_comp", "editor", bypass_level="owner")
 
 router = APIRouter(prefix="/hr", tags=["hr"])
 
@@ -36,6 +40,10 @@ class EmployeeIn(BaseModel):
     manager_email:   Optional[str] = ""
     status:          Optional[str] = "active"
     location:        Optional[str] = ""
+    company:         Optional[str] = ""
+    contractor:      Optional[dict] = None
+    personal:        Optional[dict] = None
+    compliance:      Optional[dict] = None
     notes:           Optional[str] = ""
 
 
@@ -52,6 +60,10 @@ class EmployeeUpdate(BaseModel):
     manager_email:   Optional[str] = None
     status:          Optional[str] = None
     location:        Optional[str] = None
+    company:         Optional[str] = None
+    contractor:      Optional[dict] = None
+    personal:        Optional[dict] = None
+    compliance:      Optional[dict] = None
     notes:           Optional[str] = None
 
 
@@ -89,6 +101,11 @@ def _serialize(e: NexusEmployee) -> dict:
         "photoUrl":       e.photo_url,
         "status":         e.status,
         "location":       e.location,
+        "company":        e.company,
+        "contractor":     e.contractor or {},
+        "personal":       e.personal or {},
+        "compliance":     e.compliance or {},
+        "statusLog":      e.status_log or [],
         "notes":          e.notes,
         "m365Id":         e.m365_id,
         "asanaId":        e.asana_id,
@@ -124,6 +141,10 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         manager_email=(body.manager_email or "").strip().lower(),
         status=body.status or "active",
         location=(body.location or "").strip(),
+        company=(body.company or "").strip(),
+        contractor=body.contractor or {},
+        personal=body.personal or {},
+        compliance=body.compliance or {},
         notes=body.notes or "",
         created_by=user["email"],
         created_at=now,
@@ -972,6 +993,47 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
             "removed": removed, "unlinked": unlinked, "checked": len(directory)}
 
 
+@router.post("/employees/sync-photos")
+def sync_photos(user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Pull every linked person's Entra profile photo into the avatars bucket and
+    point their profile at it. Only touches M365-linked rows (need a Graph id);
+    accounts with no photo in Entra are left as-is. Graph returns the largest
+    available render at /users/{id}/photo/$value (404 = no photo set)."""
+    token = _graph_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    emps = db.query(NexusEmployee).filter(NexusEmployee.m365_id != "").all()
+    now = datetime.now(timezone.utc).isoformat()
+    updated, no_photo, failed = 0, 0, []
+    for emp in emps:
+        name = f"{emp.first_name} {emp.last_name}".strip()
+        try:
+            r = httpx.get(f"{_GRAPH}/users/{emp.m365_id}/photo/$value", headers=headers, timeout=30)
+        except Exception:
+            failed.append(name); continue
+        if r.status_code == 404:        # ImageNotFound — person has no Entra photo
+            no_photo += 1; continue
+        if not r.is_success:
+            failed.append(name); continue
+        data = r.content
+        if not data or len(data) > _MAX_AVATAR_BYTES:
+            failed.append(name); continue
+        ctype = (r.headers.get("content-type") or "image/jpeg").split(";")[0].strip()
+        ext = _IMAGE_TYPES.get(ctype, "jpg")
+        path = f"{emp.id}/{uuid.uuid4()}.{ext}"
+        up = httpx.post(
+            f"{_SUPABASE_URL}/storage/v1/object/{_AVATAR_BUCKET}/{path}",
+            headers={**_storage_headers(), "Content-Type": ctype, "cache-control": "max-age=31536000"},
+            content=data, timeout=60,
+        )
+        if not up.is_success:
+            failed.append(name); continue
+        emp.photo_url = f"{_SUPABASE_URL}/storage/v1/object/public/{_AVATAR_BUCKET}/{path}"
+        emp.updated_at = now
+        updated += 1
+    db.commit()
+    return {"updated": updated, "noPhoto": no_photo, "failed": failed, "checked": len(emps)}
+
+
 # ── Welcome email — branded, warm, role-aware (not the old two-liner) ────────
 
 def _welcome_html(emp: NexusEmployee, upn: str) -> str:
@@ -1069,3 +1131,516 @@ def resend_welcome(eid: str, user: dict = Depends(require_hr_write), db: Session
     if not ok:
         raise HTTPException(502, f"Send failed: {detail}")
     return {"ok": True, "sentTo": emp.personal_email}
+
+
+# ---------------------------------------------------------------------------
+# HR Section A — Companies/Entities + Work Sites (structural foundation)
+# ---------------------------------------------------------------------------
+from models import HrEntity, HrWorkSite
+
+
+class EntityIn(BaseModel):
+    name:               str
+    legal_name:         Optional[str] = ""
+    country:            Optional[str] = ""
+    tax_id:             Optional[str] = ""
+    registered_address: Optional[str] = ""
+    signatory:          Optional[str] = ""
+    logo_url:           Optional[str] = ""
+    notes:              Optional[str] = ""
+
+
+class EntityUpdate(BaseModel):
+    name:               Optional[str] = None
+    legal_name:         Optional[str] = None
+    country:            Optional[str] = None
+    tax_id:             Optional[str] = None
+    registered_address: Optional[str] = None
+    signatory:          Optional[str] = None
+    logo_url:           Optional[str] = None
+    notes:              Optional[str] = None
+
+
+def _serialize_entity(e: HrEntity) -> dict:
+    return {
+        "id": e.id, "name": e.name, "legalName": e.legal_name, "country": e.country,
+        "taxId": e.tax_id, "registeredAddress": e.registered_address, "signatory": e.signatory,
+        "logoUrl": e.logo_url, "notes": e.notes, "createdAt": e.created_at, "updatedAt": e.updated_at,
+    }
+
+
+@router.get("/entities")
+def list_entities(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    rows = db.query(HrEntity).order_by(HrEntity.name).all()
+    return [_serialize_entity(e) for e in rows]
+
+
+@router.post("/entities")
+def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    if not body.name.strip():
+        raise HTTPException(400, "name is required")
+    now = datetime.now(timezone.utc).isoformat()
+    row = HrEntity(
+        id=str(uuid.uuid4()), name=body.name.strip(), legal_name=(body.legal_name or "").strip(),
+        country=(body.country or "").strip(), tax_id=(body.tax_id or "").strip(),
+        registered_address=(body.registered_address or "").strip(), signatory=(body.signatory or "").strip(),
+        logo_url=(body.logo_url or "").strip(), notes=body.notes or "",
+        created_by=user["email"], created_at=now, updated_at=now,
+    )
+    db.add(row); db.commit(); db.refresh(row)
+    return _serialize_entity(row)
+
+
+@router.patch("/entities/{entity_id}")
+def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
+    if not row:
+        raise HTTPException(404, "Entity not found")
+    if body.name is not None and not body.name.strip():
+        raise HTTPException(400, "name cannot be empty")
+    for key, value in body.model_dump(exclude_unset=True).items():
+        if value is None:
+            continue
+        setattr(row, {"legal_name": "legal_name", "tax_id": "tax_id", "registered_address": "registered_address"}.get(key, key),
+                value.strip() if isinstance(value, str) and key != "notes" else value)
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit(); db.refresh(row)
+    return _serialize_entity(row)
+
+
+@router.delete("/entities/{entity_id}")
+def delete_entity(entity_id: str, user: dict = Depends(require_hr_delete), db: Session = Depends(get_db)):
+    row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
+    if row:
+        db.delete(row); db.commit()
+    return {"ok": True}
+
+
+class WorkSiteIn(BaseModel):
+    name:     str
+    address:  Optional[str] = ""
+    latitude: Optional[str] = ""
+    longitude: Optional[str] = ""
+    radius_m: Optional[int] = 150
+    company:  Optional[str] = ""
+    notes:    Optional[str] = ""
+
+
+class WorkSiteUpdate(BaseModel):
+    name:     Optional[str] = None
+    address:  Optional[str] = None
+    latitude: Optional[str] = None
+    longitude: Optional[str] = None
+    radius_m: Optional[int] = None
+    company:  Optional[str] = None
+    notes:    Optional[str] = None
+
+
+def _serialize_site(s: HrWorkSite) -> dict:
+    return {
+        "id": s.id, "name": s.name, "address": s.address, "latitude": s.latitude,
+        "longitude": s.longitude, "radiusM": s.radius_m, "company": s.company,
+        "notes": s.notes, "createdAt": s.created_at, "updatedAt": s.updated_at,
+    }
+
+
+@router.get("/work-sites")
+def list_work_sites(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    rows = db.query(HrWorkSite).order_by(HrWorkSite.name).all()
+    return [_serialize_site(s) for s in rows]
+
+
+@router.post("/work-sites")
+def create_work_site(body: WorkSiteIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    if not body.name.strip():
+        raise HTTPException(400, "name is required")
+    now = datetime.now(timezone.utc).isoformat()
+    row = HrWorkSite(
+        id=str(uuid.uuid4()), name=body.name.strip(), address=(body.address or "").strip(),
+        latitude=(body.latitude or "").strip(), longitude=(body.longitude or "").strip(),
+        radius_m=body.radius_m if body.radius_m is not None else 150,
+        company=(body.company or "").strip(), notes=body.notes or "",
+        created_by=user["email"], created_at=now, updated_at=now,
+    )
+    db.add(row); db.commit(); db.refresh(row)
+    return _serialize_site(row)
+
+
+@router.patch("/work-sites/{site_id}")
+def update_work_site(site_id: str, body: WorkSiteUpdate, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    row = db.query(HrWorkSite).filter(HrWorkSite.id == site_id).first()
+    if not row:
+        raise HTTPException(404, "Work site not found")
+    if body.name is not None and not body.name.strip():
+        raise HTTPException(400, "name cannot be empty")
+    for key, value in body.model_dump(exclude_unset=True).items():
+        if value is None:
+            continue
+        setattr(row, key, value.strip() if isinstance(value, str) and key != "notes" else value)
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit(); db.refresh(row)
+    return _serialize_site(row)
+
+
+@router.delete("/work-sites/{site_id}")
+def delete_work_site(site_id: str, user: dict = Depends(require_hr_delete), db: Session = Depends(get_db)):
+    row = db.query(HrWorkSite).filter(HrWorkSite.id == site_id).first()
+    if row:
+        db.delete(row); db.commit()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# HR Section B — Compensation + Bank (salary-restricted: hr_comp grant / owner)
+# ---------------------------------------------------------------------------
+class CompensationIn(BaseModel):
+    compensation: Optional[dict] = None   # {base, payBasis, frequency, currency, effectiveDate, history[]}
+    bank:         Optional[list] = None   # [{holder, number, routingOrIfsc, type, bankName}]
+
+
+@router.get("/employees/{eid}/compensation")
+def get_compensation(eid: str, user: dict = Depends(require_hr_comp_read), db: Session = Depends(get_db)):
+    row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not row:
+        raise HTTPException(404, "Employee not found")
+    return {"compensation": row.compensation or {}, "bank": row.bank or []}
+
+
+@router.put("/employees/{eid}/compensation")
+def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(require_hr_comp_write), db: Session = Depends(get_db)):
+    row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not row:
+        raise HTTPException(404, "Employee not found")
+    if body.compensation is not None:
+        incoming = dict(body.compensation or {})
+        current = dict(row.compensation or {})
+        # Auto-snapshot the prior base into history when the base pay changes.
+        old_base, new_base = str(current.get("base", "")), str(incoming.get("base", ""))
+        history = list(incoming.get("history") or current.get("history") or [])
+        if old_base and old_base != new_base:
+            history.insert(0, {
+                "base": current.get("base", ""), "currency": current.get("currency", ""),
+                "payBasis": current.get("payBasis", ""), "effectiveDate": current.get("effectiveDate", ""),
+                "changedAt": datetime.now(timezone.utc).isoformat(), "changedBy": user["email"],
+            })
+        incoming["history"] = history
+        row.compensation = incoming
+    if body.bank is not None:
+        row.bank = body.bank
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit()
+    return {"compensation": row.compensation or {}, "bank": row.bank or []}
+
+
+# ---------------------------------------------------------------------------
+# HR Section B5 — Assets tab: LIVE read from Item Management (no duplication).
+# HR-gated so an HR user without an inventory grant can still see what a person
+# holds. Source of truth stays in items.py; this only reads.
+# ---------------------------------------------------------------------------
+from sqlalchemy import func
+from models import Item, ItemCheckout
+
+
+@router.get("/employees/{eid}/assets")
+def employee_assets(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    email = (emp.work_email or "").strip().lower()
+    if not email:
+        return {"assignments": [], "checkouts": []}
+    assignments = db.query(Item).filter(
+        func.lower(Item.assigned_to_email) == email, Item.deleted_at == ""
+    ).all()
+    checkouts = db.query(ItemCheckout).filter(
+        func.lower(ItemCheckout.requested_by_email) == email,
+        ItemCheckout.status.in_(["allocated", "pending_receipt"]),
+    ).all()
+    return {
+        "assignments": [{
+            "id": i.id, "name": i.name, "serial": i.serial_number, "type": i.item_type,
+            "status": i.status, "assignedAt": i.assigned_at, "photoUrl": i.photo_url,
+        } for i in assignments],
+        "checkouts": [{
+            "id": c.id, "itemName": c.item_name, "itemType": c.item_type, "status": c.status,
+            "days": c.days, "allocatedAt": c.allocated_at, "handedOverAt": c.handed_over_at,
+        } for c in checkouts],
+    }
+
+
+# ---------------------------------------------------------------------------
+# HR Section B6 — inline status change with reason + effective date (audited)
+# ---------------------------------------------------------------------------
+class StatusChangeIn(BaseModel):
+    status:        str
+    reason:        Optional[str] = ""
+    effectiveDate: Optional[str] = ""
+    # Offboarding decisions captured on the status change (inactive/offboarded).
+    # Nexus records the intent; the mailbox-permission / shared-conversion steps
+    # themselves are done in the Exchange admin center (Graph has no coverage).
+    #   {mailboxAction: 'delegate'|'share'|'remove'|'',
+    #    delegateTo: ['a@x.com', …], exportRequested: bool, freeUpLicense: bool}
+    offboarding:   Optional[dict] = None
+
+
+def _graph_set_signin(token: str, m365_id: str, enabled: bool) -> None:
+    resp = httpx.patch(f"{_GRAPH}/users/{m365_id}",
+                       headers={"Authorization": f"Bearer {token}"},
+                       json={"accountEnabled": enabled}, timeout=20)
+    if not resp.is_success:
+        raise RuntimeError(f"sign-in toggle failed: {resp.text[:200]}")
+
+
+def _graph_remove_all_licenses(token: str, m365_id: str) -> int:
+    resp = httpx.get(f"{_GRAPH}/users/{m365_id}/licenseDetails",
+                     headers={"Authorization": f"Bearer {token}"}, timeout=20)
+    if not resp.is_success:
+        raise RuntimeError(f"license lookup failed: {resp.text[:200]}")
+    skus = [d.get("skuId") for d in resp.json().get("value", []) if d.get("skuId")]
+    if not skus:
+        return 0
+    up = httpx.post(f"{_GRAPH}/users/{m365_id}/assignLicense",
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={"addLicenses": [], "removeLicenses": skus}, timeout=30)
+    if not up.is_success:
+        raise RuntimeError(f"license removal failed: {up.text[:200]}")
+    return len(skus)
+
+
+@router.post("/employees/{eid}/status")
+def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not row:
+        raise HTTPException(404, "Employee not found")
+    if body.status not in _STATUSES:
+        raise HTTPException(400, f"status must be one of {_STATUSES}")
+    now = datetime.now(timezone.utc).isoformat()
+    did_change = body.status != row.status
+    log = list(row.status_log or [])
+    entry = None
+    if did_change:
+        entry = {
+            "from": row.status, "to": body.status, "reason": (body.reason or "").strip(),
+            "effectiveDate": (body.effectiveDate or "").strip(), "by": user["email"], "at": now,
+        }
+        # Only keep a meaningful offboarding block (an action or a delegate set).
+        off = body.offboarding or {}
+        if off.get("mailboxAction") or off.get("delegateTo") or off.get("exportRequested") or off.get("freeUpLicense"):
+            entry["offboarding"] = {
+                "mailboxAction":   (off.get("mailboxAction") or "").strip(),
+                "delegateTo":      [e.strip().lower() for e in (off.get("delegateTo") or []) if e and e.strip()],
+                "exportRequested": bool(off.get("exportRequested")),
+                "freeUpLicense":   bool(off.get("freeUpLicense")),
+                "done":            False,   # flips true once an admin completes the M365 steps
+            }
+        log.insert(0, entry)
+    row.status = body.status
+    row.status_log = log
+    row.updated_at = now
+    db.commit()
+    db.refresh(row)
+
+    # Perform the M365 actions Graph *can* do. Mailbox delegation / shared-mailbox
+    # conversion are NOT here — Graph has no coverage (Exchange PowerShell only);
+    # the UI surfaces those as guided admin-center steps.
+    m365 = None
+    off_block = (entry or {}).get("offboarding")
+    if did_change and row.m365_id and off_block:
+        m365 = {}
+        try:
+            token = _graph_token()
+            if off_block["mailboxAction"] in ("remove", "share"):
+                _graph_set_signin(token, row.m365_id, False)
+                m365["signIn"] = "blocked"
+            if off_block.get("freeUpLicense"):
+                m365["licenses"] = f"{_graph_remove_all_licenses(token, row.m365_id)} removed"
+            if off_block.get("exportRequested"):
+                job = HrMailboxExport(id=str(uuid.uuid4()), employee_id=row.id, requested_by=user["email"],
+                                      status="pending", created_at=now, updated_at=now)
+                db.add(job); db.commit()
+                threading.Thread(target=_run_mailbox_export, args=(job.id, row.m365_id), daemon=True).start()
+                m365["export"] = job.id
+        except Exception as e:
+            m365["error"] = str(getattr(e, "detail", e))[:200]
+    elif did_change and row.m365_id and body.status in ("active", "onboarding"):
+        # Coming back from inactive/left — restore sign-in (best-effort).
+        try:
+            _graph_set_signin(_graph_token(), row.m365_id, True)
+            m365 = {"signIn": "re-enabled"}
+        except Exception:
+            pass
+
+    return {**_serialize(row), "m365": m365}
+
+
+# ---------------------------------------------------------------------------
+# Mailbox export — zip every message (.eml) from a person's Entra mailbox.
+# Needs the tenant-wide Mail.Read application permission (admin consent); without
+# it Graph returns 401/403 and the job is marked with a clear message. Runs in a
+# background thread so a large mailbox doesn't block the request.
+# ---------------------------------------------------------------------------
+import threading
+import tempfile
+import zipfile
+from database import SessionLocal
+from models import HrMailboxExport
+
+_EXPORT_BUCKET  = _DOC_BUCKET       # private hr-docs bucket, signed-URL download
+_EXPORT_MSG_CAP = 20000             # safety ceiling for very large mailboxes
+
+
+def _ser_export(j: HrMailboxExport) -> dict:
+    return {
+        "id": j.id, "employeeId": j.employee_id, "status": j.status, "message": j.message,
+        "count": j.count, "total": j.total, "hasFile": bool(j.storage_path),
+        "createdAt": j.created_at, "updatedAt": j.updated_at,
+    }
+
+
+def _clean_part(s: str, n: int) -> str:
+    """Filesystem-safe but human-readable: keep spaces, drop only illegal chars."""
+    s = re.sub(r'[\\/:*?"<>|\r\n\t]+', " ", s or "")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s[:n].strip()
+
+
+def _export_filename(m: dict, used: set) -> str:
+    """`<date> - <sender> - <subject>.eml`, deduped. Uses the sender's display
+    name (falls back to their address, then to the first recipient for sent mail)."""
+    ts = (m.get("receivedDateTime") or "")[:10] or "nodate"
+    frm = ((m.get("from") or {}).get("emailAddress")) or {}
+    who = frm.get("name") or frm.get("address")
+    if not who:
+        rcpts = m.get("toRecipients") or []
+        first = (rcpts[0].get("emailAddress") if rcpts else {}) or {}
+        who = ("to " + (first.get("name") or first.get("address"))) if (first.get("name") or first.get("address")) else "unknown"
+    who = _clean_part(who, 40) or "unknown"
+    subj = _clean_part(m.get("subject") or "no subject", 70) or "no subject"
+    base = f"{ts} - {who} - {subj}"
+    name = f"{base}.eml"
+    i = 2
+    while name in used:
+        name = f"{base} ({i}).eml"
+        i += 1
+    used.add(name)
+    return name
+
+
+def _run_mailbox_export(job_id: str, m365_id: str) -> None:
+    db = SessionLocal()
+    tmp_path = None
+    try:
+        job = db.query(HrMailboxExport).filter(HrMailboxExport.id == job_id).first()
+        if not job:
+            return
+        job.status = "running"; job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
+        headers = {"Authorization": f"Bearer {_graph_token()}"}
+        # Total up front so the UI can show a real progress bar (best-effort — a
+        # 401/403 here means Mail.Read isn't consented; the message loop reports it).
+        try:
+            cr = httpx.get(f"{_GRAPH}/users/{m365_id}/messages/$count",
+                           headers={**headers, "ConsistencyLevel": "eventual"}, timeout=30)
+            if cr.is_success and cr.text.strip().isdigit():
+                job.total = min(int(cr.text.strip()), _EXPORT_MSG_CAP)
+                job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
+        except Exception:
+            pass
+        tf = tempfile.NamedTemporaryFile(suffix=".zip", delete=False); tf.close(); tmp_path = tf.name
+        count = 0
+        used = set()   # keep zip entry names unique + readable
+        with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            url = f"{_GRAPH}/users/{m365_id}/messages?$select=id,subject,receivedDateTime,from,toRecipients&$top=100"
+            while url and count < _EXPORT_MSG_CAP:
+                r = httpx.get(url, headers=headers, timeout=60)
+                if r.status_code in (401, 403):
+                    raise RuntimeError("Graph denied mailbox read — grant the Mail.Read application permission and admin consent.")
+                if not r.is_success:
+                    raise RuntimeError(f"Graph error: {r.text[:200]}")
+                data = r.json()
+                for m in data.get("value", []):
+                    mid = m.get("id")
+                    if not mid:
+                        continue
+                    mime = httpx.get(f"{_GRAPH}/users/{m365_id}/messages/{mid}/$value", headers=headers, timeout=60)
+                    if not mime.is_success:
+                        continue
+                    zf.writestr(_export_filename(m, used), mime.content)
+                    count += 1
+                    # Publish progress every 25 messages so pollers see live movement.
+                    if count % 25 == 0:
+                        job.count = count; job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
+                    if count >= _EXPORT_MSG_CAP:
+                        break
+                url = data.get("@odata.nextLink")
+        with open(tmp_path, "rb") as fh:
+            content = fh.read()
+        path = f"exports/{job.employee_id}/{job_id}.zip"
+        up = httpx.post(
+            f"{_SUPABASE_URL}/storage/v1/object/{_EXPORT_BUCKET}/{path}",
+            headers={**_storage_headers(), "Content-Type": "application/zip", "x-upsert": "true"},
+            content=content, timeout=300,
+        )
+        if not up.is_success:
+            raise RuntimeError(f"Upload failed: {up.text[:200]}")
+        job.storage_path = path; job.count = count; job.status = "done"
+        job.message = f"{count} message{'s' if count != 1 else ''} exported"
+        job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
+    except Exception as e:
+        try:
+            job = db.query(HrMailboxExport).filter(HrMailboxExport.id == job_id).first()
+            if job:
+                job.status = "error"; job.message = str(e)[:300]
+                job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
+        except Exception:
+            pass
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+        db.close()
+
+
+@router.post("/employees/{eid}/mailbox-export")
+def start_mailbox_export(eid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    if not emp.m365_id:
+        raise HTTPException(400, "No linked M365 account to export from")
+    now = datetime.now(timezone.utc).isoformat()
+    job = HrMailboxExport(id=str(uuid.uuid4()), employee_id=eid, requested_by=user["email"],
+                          status="pending", created_at=now, updated_at=now)
+    db.add(job); db.commit(); db.refresh(job)
+    threading.Thread(target=_run_mailbox_export, args=(job.id, emp.m365_id), daemon=True).start()
+    return _ser_export(job)
+
+
+@router.get("/employees/{eid}/mailbox-export")
+def latest_mailbox_export(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    job = (db.query(HrMailboxExport).filter(HrMailboxExport.employee_id == eid)
+           .order_by(HrMailboxExport.created_at.desc()).first())
+    return _ser_export(job) if job else None
+
+
+@router.get("/mailbox-exports/{job_id}")
+def mailbox_export_status(job_id: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    job = db.query(HrMailboxExport).filter(HrMailboxExport.id == job_id).first()
+    if not job:
+        raise HTTPException(404, "Export not found")
+    return _ser_export(job)
+
+
+@router.get("/mailbox-exports/{job_id}/url")
+def mailbox_export_url(job_id: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    job = db.query(HrMailboxExport).filter(HrMailboxExport.id == job_id).first()
+    if not job or not job.storage_path:
+        raise HTTPException(404, "No export file yet")
+    resp = httpx.post(
+        f"{_SUPABASE_URL}/storage/v1/object/sign/{_EXPORT_BUCKET}/{job.storage_path}",
+        headers=_storage_headers(), json={"expiresIn": 300}, timeout=15,
+    )
+    if not resp.is_success:
+        raise HTTPException(502, f"Could not sign URL: {resp.text[:200]}")
+    return {"url": f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}", "expiresIn": 300}
