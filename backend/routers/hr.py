@@ -993,6 +993,47 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
             "removed": removed, "unlinked": unlinked, "checked": len(directory)}
 
 
+@router.post("/employees/sync-photos")
+def sync_photos(user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Pull every linked person's Entra profile photo into the avatars bucket and
+    point their profile at it. Only touches M365-linked rows (need a Graph id);
+    accounts with no photo in Entra are left as-is. Graph returns the largest
+    available render at /users/{id}/photo/$value (404 = no photo set)."""
+    token = _graph_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    emps = db.query(NexusEmployee).filter(NexusEmployee.m365_id != "").all()
+    now = datetime.now(timezone.utc).isoformat()
+    updated, no_photo, failed = 0, 0, []
+    for emp in emps:
+        name = f"{emp.first_name} {emp.last_name}".strip()
+        try:
+            r = httpx.get(f"{_GRAPH}/users/{emp.m365_id}/photo/$value", headers=headers, timeout=30)
+        except Exception:
+            failed.append(name); continue
+        if r.status_code == 404:        # ImageNotFound — person has no Entra photo
+            no_photo += 1; continue
+        if not r.is_success:
+            failed.append(name); continue
+        data = r.content
+        if not data or len(data) > _MAX_AVATAR_BYTES:
+            failed.append(name); continue
+        ctype = (r.headers.get("content-type") or "image/jpeg").split(";")[0].strip()
+        ext = _IMAGE_TYPES.get(ctype, "jpg")
+        path = f"{emp.id}/{uuid.uuid4()}.{ext}"
+        up = httpx.post(
+            f"{_SUPABASE_URL}/storage/v1/object/{_AVATAR_BUCKET}/{path}",
+            headers={**_storage_headers(), "Content-Type": ctype, "cache-control": "max-age=31536000"},
+            content=data, timeout=60,
+        )
+        if not up.is_success:
+            failed.append(name); continue
+        emp.photo_url = f"{_SUPABASE_URL}/storage/v1/object/public/{_AVATAR_BUCKET}/{path}"
+        emp.updated_at = now
+        updated += 1
+    db.commit()
+    return {"updated": updated, "noPhoto": no_photo, "failed": failed, "checked": len(emps)}
+
+
 # ── Welcome email — branded, warm, role-aware (not the old two-liner) ────────
 
 def _welcome_html(emp: NexusEmployee, upn: str) -> str:
