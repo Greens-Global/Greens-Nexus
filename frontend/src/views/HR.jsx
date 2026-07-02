@@ -1286,6 +1286,101 @@ function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
   );
 }
 
+// ── Work sites registry (HR Section A — geofence foundation for Time Clock) ───
+function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr }) {
+  const blank = { name: '', address: '', latitude: '', longitude: '', radius_m: 150, company: '', notes: '' };
+  const [mode, setMode] = useState(null);
+  const [f, setF] = useState(blank);
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const startNew = () => { setF(blank); setMode('new'); };
+  const startEdit = s => { setF({ name: s.name, address: s.address || '', latitude: s.latitude || '', longitude: s.longitude || '', radius_m: s.radiusM ?? 150, company: s.company || '', notes: s.notes || '' }); setMode(s.id); };
+  const entityName = id => entities.find(en => en.id === id)?.name || '';
+
+  async function save() {
+    if (!f.name.trim() || busy) return; setBusy(true);
+    try {
+      const body = { ...f, radius_m: Number(f.radius_m) || 150 };
+      if (mode === 'new') await api.createWorkSite(body); else await api.updateWorkSite(mode, body);
+      await onChanged(); toastOk('Work site saved.'); setMode(null);
+    } catch (e) { toastErr(e?.message || 'Could not save work site.'); }
+    setBusy(false);
+  }
+  async function remove(s) {
+    if (!window.confirm(`Delete work site “${s.name}”?`)) return;
+    try { await api.deleteWorkSite(s.id); await onChanged(); toastOk('Work site deleted.'); }
+    catch (e) { toastErr(e?.message || 'Could not delete.'); }
+  }
+  const field = (label, key, props = {}) => (
+    <div><label style={FL}>{label}</label>
+      <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} /></div>
+  );
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 620, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-purple),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <MapPinned size={17} color="hsl(var(--color-purple))" />
+          </div>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{mode ? (mode === 'new' ? 'Add Work Site' : 'Edit Work Site') : 'Work Sites'}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+
+        {mode ? (
+          <>
+            <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div style={{ gridColumn: '1 / -1' }}>{field('NAME *', 'name', { autoFocus: true, placeholder: 'e.g. Escondido Office' })}</div>
+              <div style={{ gridColumn: '1 / -1' }}>{field('ADDRESS', 'address')}</div>
+              {field('LATITUDE', 'latitude', { placeholder: 'e.g. 33.1192' })}
+              {field('LONGITUDE', 'longitude', { placeholder: 'e.g. -117.0864' })}
+              {field('GEOFENCE RADIUS (m)', 'radius_m', { type: 'number', min: 10 })}
+              <div>
+                <label style={FL}>COMPANY / ENTITY</label>
+                <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={e => set('company', e.target.value)}>
+                  <option value="">— any —</option>
+                  {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+                </select>
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={FL}>NOTES</label>
+                <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} />
+              </div>
+            </div>
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
+              <button className="secondary-btn" onClick={() => setMode(null)} disabled={busy}>Back</button>
+              <button className="primary-btn" onClick={save} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
+                {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ overflowY: 'auto', flex: 1, padding: '14px 18px' }}>
+              {sites.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '28px 16px', color: 'var(--muted)', fontSize: 13 }}>No work sites yet. Add sites (with lat/long + radius) to enable geofenced clock-in later.</div>
+              ) : sites.map(s => (
+                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 700 }}>{s.name} {s.company && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>· {entityName(s.company)}</span>}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[s.address, (s.latitude && s.longitude) ? `${s.latitude}, ${s.longitude} · ${s.radiusM}m` : ''].filter(Boolean).join(' · ') || '—'}</div>
+                  </div>
+                  <button className="secondary-btn" onClick={() => startEdit(s)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
+                  <button onClick={() => remove(s)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
+              <button className="primary-btn" onClick={startNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Work Site</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function HR({ activeSub, onSubChange }) {
   // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now
   const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave'].includes(activeSub) ? activeSub : 'hr-people';
@@ -1302,6 +1397,8 @@ export default function HR({ activeSub, onSubChange }) {
   const [editing,   setEditing]   = useState(null);
   const [entities,  setEntities]  = useState([]);
   const [entitiesOpen, setEntitiesOpen] = useState(false);
+  const [sites,     setSites]     = useState([]);
+  const [sitesOpen, setSitesOpen] = useState(false);
   const [toast,     setToast]     = useState(null);
 
   const toastErr = msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
@@ -1331,8 +1428,9 @@ export default function HR({ activeSub, onSubChange }) {
       .finally(() => setLoading(false));
   }
   const loadEntities = () => api.getEntities().then(setEntities).catch(() => setEntities([]));
+  const loadSites = () => api.getWorkSites().then(setSites).catch(() => setSites([]));
   useEffect(load, []);
-  useEffect(() => { loadEntities(); }, []);
+  useEffect(() => { loadEntities(); loadSites(); }, []);
   const entityName = id => entities.find(en => en.id === id)?.name || '';
 
   const filtered = useMemo(() => employees.filter(e => {
@@ -1381,9 +1479,14 @@ export default function HR({ activeSub, onSubChange }) {
               {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <History size={14} />} Sync from M365
             </button>
             <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-              title="Manage companies / legal entities and work sites"
+              title="Manage companies / legal entities"
               onClick={() => setEntitiesOpen(true)}>
               <Building2 size={14} /> Companies
+            </button>
+            <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
+              title="Manage work sites (for geofenced clock-in)"
+              onClick={() => setSitesOpen(true)}>
+              <MapPinned size={14} /> Work Sites
             </button>
             <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
               onClick={() => { setEditing(null); setFormOpen(true); }}>
@@ -1514,6 +1617,10 @@ export default function HR({ activeSub, onSubChange }) {
       {entitiesOpen && (
         <EntitiesModal entities={entities} onClose={() => setEntitiesOpen(false)}
           onChanged={loadEntities} toastOk={toastOk} toastErr={toastErr} />
+      )}
+      {sitesOpen && (
+        <WorkSitesModal sites={sites} entities={entities} onClose={() => setSitesOpen(false)}
+          onChanged={loadSites} toastOk={toastOk} toastErr={toastErr} />
       )}
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.kind === 'error' ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)', maxWidth: '90vw' }}>
