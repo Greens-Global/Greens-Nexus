@@ -660,3 +660,10 @@
 .nexus-asset-root .asset-card:hover{transform:translateY(-4px);box-shadow:var(--shadow-md) !important;border-color:var(--border-hover) !important}
 .nexus-asset-root .asset-card:active{transform:translateY(-1px) scale(.995)}
 .nexus-asset-root .asset-card:focus-visible{outline:2px solid var(--pine);outline-offset:2px}
+
+/* Portfolio tile grid — fixed 4-up on desktop (was auto-fill, which packed 6 on wide screens
+   and squeezed the titles), stepping down responsively on smaller widths. */
+.nexus-asset-root .pt-portfolio-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media (max-width:1240px){.nexus-asset-root .pt-portfolio-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:860px){.nexus-asset-root .pt-portfolio-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.nexus-asset-root .pt-portfolio-grid{grid-template-columns:1fr}}

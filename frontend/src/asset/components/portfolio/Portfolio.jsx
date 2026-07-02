@@ -255,7 +255,7 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter }) {
       ) : viewMode === 'list' ? (
         <ListTable rows={topLevelAssets} childrenOf={childrenOf} open={openProperty} sortCol={sortCol} setSortCol={setSortCol} sortDir={sortDir} setSortDir={setSortDir} />
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(380px, 100%), 1fr))', gap: 18, alignItems: 'stretch' }}>
+        <div className="pt-portfolio-grid" style={{ display: 'grid', gap: 18, alignItems: 'stretch' }}>
           {renderTiles()}
         </div>
       )}
