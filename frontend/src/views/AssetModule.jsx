@@ -1035,6 +1035,7 @@ export default function AssetModule() {
   /* ----- render ----- */
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
+      <ScrollTopFab />
       <style>{`
         @keyframes assetShimmer { 0% { background-position: -220px 0 } 100% { background-position: 220px 0 } }
         .asset-card { cursor: pointer; outline: none; transition: transform .18s cubic-bezier(.2,.7,.3,1), box-shadow .18s ease, border-color .18s ease; }
@@ -1878,6 +1879,24 @@ function CriticalDates({ store, openProperty, only }) {
         </>
       )}
     </div>
+  );
+}
+
+// Floating "back to top" button — appears after scrolling down (window or the nearest scroller).
+function ScrollTopFab() {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setShow((window.scrollY || document.documentElement.scrollTop || 0) > 360);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+  if (!show) return null;
+  return (
+    <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} title="Back to top" aria-label="Back to top"
+      style={{ position: 'fixed', right: 20, bottom: 20, zIndex: 50, width: 44, height: 44, borderRadius: '50%', border: '1px solid var(--border-color)', background: 'var(--pine)', color: '#fff', cursor: 'pointer', boxShadow: 'var(--shadow-md)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+      <ArrowLeft size={18} style={{ transform: 'rotate(90deg)' }} />
+    </button>
   );
 }
 
