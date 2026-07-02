@@ -3,7 +3,7 @@
 // 14-property portfolio (mapped into the template's flat data model) and persisted
 // to localStorage. Navy accent uses var(--pine) so it stays correct in dark mode.
 import { useState, useEffect, useRef, createElement } from 'react';
-import { Plus, X, ArrowLeft, ArrowRight, Link2, FileDown, Search, Building2, ChevronDown, Upload, FileText, LayoutGrid, List, Settings, Warehouse, Truck, Store, Stethoscope, Home, Building, Trees, Pencil, Trash2, RotateCcw, Filter, Car, Wrench, Copy } from 'lucide-react';
+import { Plus, X, ArrowLeft, ArrowRight, Link2, FileDown, Search, Building2, ChevronDown, Upload, FileText, LayoutGrid, List, Settings, Warehouse, Truck, Store, Stethoscope, Home, Building, Trees, Pencil, Trash2, RotateCcw, Filter, Car, Wrench, Copy, MapPin } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 
 import georgetown from '../data/assets/greens-georgetown.json';
@@ -1514,7 +1514,7 @@ function Portfolio({ props, openProperty, typeFilter, setTypeFilter }) {
       {tops.length === 0 ? <Empty>No assets match{q ? ` “${q}”` : ''}{categoryFilter ? ` (${categoryFilter})` : ''}.</Empty> : (
       view === 'list'
         ? <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{renderEntries()}</div>
-        : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 18, alignItems: 'stretch' }}>{renderEntries()}</div>
+        : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(440px, 1fr))', gap: 16, alignItems: 'stretch' }}>{renderEntries()}</div>
       )}
     </>
   );
@@ -1541,8 +1541,9 @@ function PropCard({ pr, openProperty, secondaries = [] }) {
   const coverBg = thumb
     ? `linear-gradient(180deg, rgba(15,23,42,.10) 0%, rgba(13,20,34,.48) 54%, rgba(8,12,22,.92) 100%), url("${thumb}") ${kind !== 'property' ? 'center/contain' : 'center 30%/cover'} no-repeat${kind !== 'property' ? ' #fff' : ''}`
     : 'linear-gradient(150deg, #202c47 0%, #0d1422 100%)';
+  const cityState = [pr.city, pr.state].filter(Boolean).join(', ');
   const subtitle = hasSecs ? `${family.length} linked properties`
-    : (kind === 'property' ? fullAddress : ([pr.make, pr.model, pr.trim].filter(Boolean).join(' ') || pr.color || fullAddress));
+    : (kind === 'property' ? (cityState || fullAddress) : ([pr.make, pr.model, pr.trim].filter(Boolean).join(' ') || pr.color || fullAddress));
   const open = () => openProperty(pr.id);
   const frost = { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.66rem', fontWeight: 700, color: '#fff', padding: '4px 10px', borderRadius: 999, whiteSpace: 'nowrap' };
   return (
@@ -1566,8 +1567,8 @@ function PropCard({ pr, openProperty, secondaries = [] }) {
         {/* bottom row: name + subtitle (left) + stage pill (right) */}
         <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10 }}>
           <div style={{ minWidth: 0 }}>
-            <h3 style={{ fontSize: '1.18rem', fontWeight: 800, fontFamily: "'Plus Jakarta Sans', sans-serif", color: '#fff', margin: 0, lineHeight: 1.16, textShadow: '0 1px 3px rgba(0,0,0,.5)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{headerName}</h3>
-            <div style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.85)', marginTop: 2, textShadow: '0 1px 2px rgba(0,0,0,.45)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{subtitle}</div>
+            <h3 style={{ fontSize: '1.04rem', fontWeight: 800, fontFamily: "'Plus Jakarta Sans', sans-serif", color: '#fff', margin: 0, lineHeight: 1.18, textShadow: '0 1px 3px rgba(0,0,0,.5)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{headerName}</h3>
+            <div style={{ fontSize: '0.74rem', color: 'rgba(255,255,255,0.85)', marginTop: 3, textShadow: '0 1px 2px rgba(0,0,0,.45)', display: 'inline-flex', alignItems: 'center', gap: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><MapPin size={11} style={{ flexShrink: 0, opacity: .85 }} />{subtitle}</div>
           </div>
           <span style={{ ...frost, flexShrink: 0, backgroundColor: 'rgba(0,0,0,0.46)', border: '1px solid rgba(255,255,255,0.14)' }}><span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: `hsl(var(--color-${sc}))` }} />{stage}</span>
         </div>
