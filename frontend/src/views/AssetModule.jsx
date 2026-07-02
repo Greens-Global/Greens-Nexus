@@ -1378,14 +1378,45 @@ function ManagePage({ props, logs, deletedProps, onBack, onAdd, onDelete, onReco
   );
 }
 
+// Portfolio-wide text search — name/owner/location/type, and state-name aware
+// (typing "texas" also matches TX records). Ported from the Asset Mgmt handoff.
+const US_STATE_ABBR = {
+  alabama: 'AL', alaska: 'AK', arizona: 'AZ', arkansas: 'AR', california: 'CA', colorado: 'CO',
+  connecticut: 'CT', delaware: 'DE', florida: 'FL', georgia: 'GA', hawaii: 'HI', idaho: 'ID',
+  illinois: 'IL', indiana: 'IN', iowa: 'IA', kansas: 'KS', kentucky: 'KY', louisiana: 'LA',
+  maine: 'ME', maryland: 'MD', massachusetts: 'MA', michigan: 'MI', minnesota: 'MN', mississippi: 'MS',
+  missouri: 'MO', montana: 'MT', nebraska: 'NE', nevada: 'NV', 'new hampshire': 'NH', 'new jersey': 'NJ',
+  'new mexico': 'NM', 'new york': 'NY', 'north carolina': 'NC', 'north dakota': 'ND', ohio: 'OH',
+  oklahoma: 'OK', oregon: 'OR', pennsylvania: 'PA', 'rhode island': 'RI', 'south carolina': 'SC',
+  'south dakota': 'SD', tennessee: 'TN', texas: 'TX', utah: 'UT', vermont: 'VT', virginia: 'VA',
+  washington: 'WA', 'west virginia': 'WV', wisconsin: 'WI', wyoming: 'WY',
+};
+function assetMatchesQuery(pr, raw) {
+  const q = (raw || '').trim().toLowerCase();
+  if (!q) return true;
+  const hay = [pr.name, pr.siteName, pr.entity, pr.manager, pr.builder, pr.address, pr.city,
+    pr.state, pr.zip, pr.county, pr.assetType, deriveAssetType(pr), pr.make, pr.model, pr.trim]
+    .filter(Boolean).join(' ').toLowerCase();
+  if (hay.includes(q)) return true;
+  const abbr = US_STATE_ABBR[q];               // full state name → abbreviation match
+  return !!abbr && (pr.state || '').trim().toUpperCase() === abbr;
+}
+
 function Portfolio({ props, openProperty, typeFilter, setTypeFilter }) {
   const [stageFilter, setStageFilter] = useState('');
   const [regionFilter, setRegionFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState(''); // Commercial / Residential / Industrial
+  const [q, setQ] = useState(''); // portfolio-wide text search
   const [view, setView] = useState('tile'); // 'tile' | 'list'
   const all = props.slice();
   if (!all.length) return <Empty>No properties yet. Use “Add property” to register the first one.</Empty>;
   let list = all.slice();
+  if (q.trim()) {
+    // Keep a primary card if it OR any of its linked parcels matches, so a hit on
+    // a secondary still surfaces the group. Children render via childrenOf anyway.
+    const kidHit = id => all.some(c => c.parentId === id && assetMatchesQuery(c, q));
+    list = list.filter(pr => pr.parentId ? true : (assetMatchesQuery(pr, q) || kidHit(pr.id)));
+  }
   if (categoryFilter) list = list.filter(pr => deriveCategory(pr) === categoryFilter);
   if (stageFilter) list = list.filter(pr => (pr.devStage || '') === stageFilter);
   if (typeFilter) list = list.filter(pr => deriveAssetType(pr) === typeFilter);
@@ -1432,6 +1463,14 @@ function Portfolio({ props, openProperty, typeFilter, setTypeFilter }) {
     <>
       {/* filter toolbar — sits right above the cards */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+        {/* Portfolio-wide search — name / owner / location / type, state-name aware */}
+        <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 200, maxWidth: 340 }}>
+          <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+          <input className="form-input" placeholder="Search assets…" value={q} onChange={e => setQ(e.target.value)}
+            style={{ width: '100%', fontSize: '0.82rem', padding: '7px 28px 7px 32px' }} />
+          {q && <button onClick={() => setQ('')} title="Clear search" style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', padding: 0 }}><X size={13} /></button>}
+        </div>
+        <span style={{ width: 1, height: 22, backgroundColor: 'var(--border-color)' }} />
         {/* Category filter (Neil) — its own filter icon, single-select; hides the other categories */}
         <span style={{ ...microLabel, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--pine)' }}><Filter size={13} /> Category</span>
         <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="form-input" style={{ ...selStyle, borderColor: categoryFilter ? 'var(--pine)' : undefined }}>
@@ -1454,10 +1493,10 @@ function Portfolio({ props, openProperty, typeFilter, setTypeFilter }) {
           <option value="">All regions</option>
           {presentRegions.map(r => <option key={r} value={r}>{`${r} (${regionCounts[r]})`}</option>)}
         </select>
-        {(categoryFilter || stageFilter || typeFilter || regionFilter) && <button className="secondary-btn" onClick={() => { setCategoryFilter(''); setStageFilter(''); setTypeFilter && setTypeFilter(''); setRegionFilter(''); }} style={{ padding: '5px 11px', fontSize: '0.76rem', display: 'inline-flex', alignItems: 'center', gap: 6, borderColor: 'var(--pine)', color: 'var(--pine)' }}>Clear filters ✕</button>}
+        {(q || categoryFilter || stageFilter || typeFilter || regionFilter) && <button className="secondary-btn" onClick={() => { setQ(''); setCategoryFilter(''); setStageFilter(''); setTypeFilter && setTypeFilter(''); setRegionFilter(''); }} style={{ padding: '5px 11px', fontSize: '0.76rem', display: 'inline-flex', alignItems: 'center', gap: 6, borderColor: 'var(--pine)', color: 'var(--pine)' }}>Clear filters ✕</button>}
         <div style={{ marginLeft: 'auto' }}>{viewToggle}</div>
       </div>
-      {tops.length === 0 ? <Empty>No properties match the current filters{categoryFilter ? ` (${categoryFilter})` : ''}.</Empty> : (
+      {tops.length === 0 ? <Empty>No assets match{q ? ` “${q}”` : ''}{categoryFilter ? ` (${categoryFilter})` : ''}.</Empty> : (
       view === 'list'
         ? <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{renderEntries()}</div>
         : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 18, alignItems: 'stretch' }}>{renderEntries()}</div>
