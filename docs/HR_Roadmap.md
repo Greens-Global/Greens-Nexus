@@ -9,7 +9,7 @@
 >
 > Sources: Neil's "Greens Global — People Platform" mockup (Jun 2026),
 > Busacta HR teardown, Rippling/BambooHR research, Nexus build sessions.
-> Status: ✅ built · 🟡 partial · ❌ not started   (last updated 2026-07-02 — Section A complete)
+> Status: ✅ built · 🟡 partial · ❌ not started   (last updated 2026-07-02 — Section A complete; Section B profile-depth features B1–B6 built, tab strip + M365 write-back remain)
 
 ---
 
@@ -35,14 +35,14 @@
 
 | Status | Item | Source |
 |---|---|---|
-| 🟡 | Tabbed profile: Overview / Pay & Benefits / Time / Documents / Performance / Assets / Compliance — **autosave on blur**, stat cards (attendance month, pending leave, YTD days) | Busacta |
-| ❌ | **Assets tab reads live from Item Management** (deep-link, no duplicate data) | Visesh |
-| ❌ | Compensation: base salary + history, pay basis (hourly/salary), pay frequency, currency (USD/INR) — **restricted visibility** (owner + Neil) | Neil/Busacta |
-| ❌ | Bank accounts (holder, number, routing/IFSC, type) | Busacta |
-| ❌ | Benefits & deductions (health, dental/vision, life & disability, per-paycheck deduction) | Neil |
-| ❌ | Right-to-work & compliance: passport / national ID / visa scans, verification status, expiry reminders, consent checklist | Neil |
-| ❌ | Emergency contact, addresses, DOB, masked IDs | Rippling |
-| ❌ | Inline "Change status" flow (with reason + date) | Busacta |
+| 🟡 | Tabbed profile: Overview / Pay & Benefits / Time / Documents / Performance / Assets / Compliance — **autosave on blur**, stat cards. Depth shipped as profile modals + sections (Pay & Benefits, Personal, Right to Work, Assets, Change status); full tab strip + stat cards still to do | Busacta |
+| ✅ | **Assets tab reads live from Item Management** — HR-gated `/hr/employees/{id}/assets` reads items directly (no dup), deep-links into Item Management (B5) | Visesh |
+| ✅ | Compensation: base salary + auto history, pay basis, frequency, currency — **restricted** to owner + `hr_comp` grant (B1) | Neil/Busacta |
+| ✅ | Bank accounts (holder, bank, number, routing/IFSC, type) — restricted, same gate (B1) | Busacta |
+| ✅ | Benefits & deductions (type, plan/provider, per-paycheck deduction) — in the restricted Pay modal (B4) | Neil |
+| ✅ | Right-to-work & compliance: work-auth, ID/visa doc + verification status + colour-coded expiry, consent checklist (scans reuse Documents). Bell reminders pending Section H daily job (B3) | Neil |
+| ✅ | Emergency contact, addresses, DOB, masked national ID (B2) | Rippling |
+| ✅ | Inline "Change status" flow (reason + effective date, audit trail) (B6) | Busacta |
 | 🟡 | Sync from M365 — phone/title/office backfill ✅; photo backfill ❌; **push profile changes back to Entra** ❌ | Visesh |
 
 ## C. Hiring, e-sign, onboarding & offboarding
