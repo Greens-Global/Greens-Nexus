@@ -207,6 +207,61 @@ function EmployeeFormModal({ employee, employees, entities = [], onClose, onSave
 // ── Documents (Phase 3) — private bucket, viewed via short-lived signed URLs ──
 const DOC_KINDS = [['resume', 'Resume'], ['id', 'ID'], ['contract', 'Contract'], ['certificate', 'Certificate'], ['other', 'Other']];
 
+// Mailbox export — start a Graph-backed .eml zip and poll it to completion.
+function MailboxExportSection({ employee, toastOk, toastErr }) {
+  const [job, setJob] = useState(undefined);   // undefined = loading, null = none
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api.getMailboxExport(employee.id).then(setJob).catch(() => setJob(null)); }, [employee.id]);
+  const active = job && (job.status === 'pending' || job.status === 'running');
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(() => { api.getExportStatus(job.id).then(setJob).catch(() => {}); }, 3000);
+    return () => clearInterval(t);
+  }, [active, job?.id]);
+
+  if (!employee.m365Id) return null;   // export needs a linked M365 mailbox
+
+  async function start() {
+    if (busy) return; setBusy(true);
+    try { const j = await api.startMailboxExport(employee.id); setJob(j); toastOk('Mailbox export started — this can take a while for large mailboxes.'); }
+    catch (e) { toastErr(e?.message || 'Could not start export.'); }
+    setBusy(false);
+  }
+  async function download() {
+    try { const { url } = await api.getExportUrl(job.id); window.open(url, '_blank', 'noopener'); }
+    catch (e) { toastErr(e?.message || 'Could not get download link.'); }
+  }
+
+  const status = job === undefined ? '' :
+    !job ? 'No export yet.' :
+    job.status === 'done' ? `Ready · ${job.message} · ${(job.updatedAt || '').slice(0, 10)}` :
+    job.status === 'error' ? `Failed · ${job.message}` :
+    'Working… fetching messages';
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
+          <Mail size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Mailbox export
+        </span>
+        {job?.status === 'done' && (
+          <button className="secondary-btn" onClick={download} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
+            <FileText size={12} /> Download .zip
+          </button>
+        )}
+        <button className="secondary-btn" onClick={start} disabled={busy || active}
+          style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
+          {(busy || active) ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <History size={12} />} {job?.status === 'done' ? 'Re-export' : 'Export emails'}
+        </button>
+      </div>
+      <div style={{ fontSize: 12.5, color: job?.status === 'error' ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
+        {status}{status && ' '}
+        {job?.status === 'error' && /Mail\.Read/i.test(job.message || '') && <em>Grant the Mail.Read app permission in Entra, then re-export.</em>}
+      </div>
+    </div>
+  );
+}
+
 // Live read of what a person holds in Item Management (Section B5). No data is
 // stored here — Items stays the single source of truth; this deep-links into it.
 function AssetsSection({ employee }) {
@@ -699,6 +754,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
         {e.notes && row(FileText, 'Notes', e.notes)}
       </div>
       <AssetsSection employee={e} />
+      <MailboxExportSection employee={e} toastOk={toastOk} toastErr={toastErr} />
       <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
       {photoOpen && (
         <PhotoEditorModal employee={e} toastOk={toastOk} toastErr={toastErr}
@@ -719,7 +775,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
         <ComplianceModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => setComplianceOpen(false)} onSaved={onEmployeeUpdated} />
       )}
       {statusOpen && (
-        <StatusChangeModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => setStatusOpen(false)} onSaved={onEmployeeUpdated} />
+        <StatusChangeModal employee={e} employees={employees} toastOk={toastOk} toastErr={toastErr} onClose={() => setStatusOpen(false)} onSaved={onEmployeeUpdated} />
       )}
     </div>
   );
@@ -1390,28 +1446,84 @@ function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
 }
 
 // ── Inline status change with reason + effective date (HR Section B6) ────────
-function StatusChangeModal({ employee, onClose, onSaved, toastOk, toastErr }) {
+// M365 admin-center deep-links for the steps Graph can't perform (mailbox
+// delegation, shared-mailbox conversion, license removal, mailbox export).
+const EXO_MAILBOXES = 'https://admin.exchange.microsoft.com/#/mailboxes';
+const M365_USERS    = 'https://admin.microsoft.com/#/users';
+const PURVIEW_EXPORT = 'https://compliance.microsoft.com/contentsearchv2';
+
+function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk, toastErr }) {
   const [status, setStatus] = useState(employee.status || 'active');
   const [reason, setReason] = useState('');
   const [effectiveDate, setEffectiveDate] = useState('');
+  const [leftChoice, setLeftChoice] = useState('remove');   // offboarded: 'remove' | 'share'
+  const [delegate, setDelegate] = useState('');
+  const [exportRequested, setExportRequested] = useState(false);
   const [busy, setBusy] = useState(false);
   const changed = status !== employee.status;
 
-  async function save() {
-    if (busy) return; setBusy(true);
-    try { const saved = await api.changeEmployeeStatus(employee.id, { status, reason, effectiveDate }); onSaved(saved); toastOk(`Status set to ${STATUS_META[status]?.label || status}.`); onClose(); }
-    catch (e) { toastErr(e?.message || 'Could not change status.'); setBusy(false); }
+  const isInactive = status === 'inactive';
+  const isLeft = status === 'offboarded';
+  const showOff = isInactive || isLeft;
+  const mailboxAction = isInactive ? 'delegate' : (isLeft ? leftChoice : '');
+  const needsDelegate = mailboxAction === 'delegate' || mailboxAction === 'share';
+  const colleagues = employees.filter(x => x.workEmail && x.id !== employee.id);
+
+  function buildOffboarding() {
+    if (!showOff) return null;
+    return {
+      mailboxAction,
+      delegateTo: needsDelegate && delegate ? [delegate] : [],
+      exportRequested,
+      freeUpLicense: mailboxAction === 'remove',
+    };
   }
+
+  async function save() {
+    if (busy) return;
+    if (needsDelegate && !delegate) { toastErr('Pick who should get mailbox access.'); return; }
+    setBusy(true);
+    try {
+      const saved = await api.changeEmployeeStatus(employee.id, { status, reason, effectiveDate, offboarding: buildOffboarding() });
+      onSaved(saved);
+      const m = saved.m365;
+      const bits = [];
+      if (m?.signIn) bits.push(`sign-in ${m.signIn}`);
+      if (m?.licenses) bits.push(`license ${m.licenses}`);
+      if (m?.export) bits.push('mailbox export started');
+      if (m?.error) bits.push(`M365 issue: ${m.error}`);
+      const auto = bits.length ? ` · ${bits.join(', ')}` : '';
+      const manual = (needsDelegate || mailboxAction === 'share') ? ' Finish mailbox access in the M365 admin center.' : '';
+      toastOk(`Status set to ${STATUS_META[status]?.label || status}.${auto}${manual}`);
+      onClose();
+    } catch (e) { toastErr(e?.message || 'Could not change status.'); setBusy(false); }
+  }
+
+  const radio = (val, label, sub) => (
+    <label style={{ display: 'flex', gap: 10, padding: '9px 11px', borderRadius: 10, border: `1px solid ${leftChoice === val ? 'var(--pine)' : 'var(--line)'}`, background: leftChoice === val ? 'hsla(var(--color-green),0.06)' : 'transparent', cursor: 'pointer', marginBottom: 8 }}>
+      <input type="radio" name="leftChoice" checked={leftChoice === val} onChange={() => setLeftChoice(val)} style={{ marginTop: 2 }} />
+      <div><div style={{ fontSize: 13, fontWeight: 600 }}>{label}</div><div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{sub}</div></div>
+    </label>
+  );
+  const delegatePicker = (
+    <div>
+      <label style={FL}>GRANT READ/WRITE ACCESS TO</label>
+      <select className="form-input" style={{ width: '100%' }} value={delegate} onChange={e => setDelegate(e.target.value)}>
+        <option value="">— pick a colleague —</option>
+        {colleagues.map(c => <option key={c.id} value={c.workEmail}>{fullName(c)} ({c.workEmail})</option>)}
+      </select>
+    </div>
+  );
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 460, boxShadow: 'var(--shadow-lg)' }}>
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 500, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Change status — {fullName(employee)}</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
-        <div style={{ padding: '18px 24px', display: 'grid', gap: 14 }}>
+        <div style={{ padding: '18px 24px', display: 'grid', gap: 14, overflowY: 'auto', flex: 1 }}>
           <div><label style={FL}>NEW STATUS</label>
             <select className="form-input" style={{ width: '100%' }} value={status} onChange={e => setStatus(e.target.value)}>
               {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
@@ -1419,18 +1531,51 @@ function StatusChangeModal({ employee, onClose, onSaved, toastOk, toastErr }) {
           </div>
           <div><label style={FL}>EFFECTIVE DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={effectiveDate} onChange={e => setEffectiveDate(e.target.value)} /></div>
           <div><label style={FL}>REASON</label><textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={reason} onChange={e => setReason(e.target.value)} placeholder="why the change (kept in the audit trail)" /></div>
+
+          {showOff && (
+            <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '14px 16px', background: 'hsla(var(--color-orange),0.05)' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-orange))', letterSpacing: '.04em', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}><Mail size={13} /> MAILBOX HANDLING</div>
+              {isInactive && (
+                <>
+                  <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>Grant a colleague read/write access to {employee.firstName}’s mailbox while they’re inactive.</p>
+                  {delegatePicker}
+                </>
+              )}
+              {isLeft && (
+                <>
+                  {radio('remove', 'Remove email & free up the license', 'Block sign-in, strip the M365 license so it returns to the pool.')}
+                  {radio('share', 'Convert to a shared mailbox', 'Keep the mailbox alive (no license) and grant colleagues access.')}
+                  {mailboxAction === 'share' && delegatePicker}
+                </>
+              )}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, fontSize: 13, cursor: 'pointer' }}>
+                <input type="checkbox" checked={exportRequested} onChange={e => setExportRequested(e.target.checked)} style={{ width: 16, height: 16 }} />
+                Export their mailbox to a ZIP first
+              </label>
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 6 }}>DO THESE IN M365 (Graph can’t apply mailbox permissions)</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  <a href={EXO_MAILBOXES} target="_blank" rel="noopener noreferrer" className="secondary-btn" style={{ fontSize: 11.5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px' }}>Mailbox access <ChevronRight size={12} /></a>
+                  {mailboxAction === 'remove' && <a href={M365_USERS} target="_blank" rel="noopener noreferrer" className="secondary-btn" style={{ fontSize: 11.5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px' }}>Licenses <ChevronRight size={12} /></a>}
+                  {exportRequested && <a href={PURVIEW_EXPORT} target="_blank" rel="noopener noreferrer" className="secondary-btn" style={{ fontSize: 11.5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px' }}>Export mailbox <ChevronRight size={12} /></a>}
+                </div>
+              </div>
+            </div>
+          )}
+
           {employee.statusLog?.length > 0 && (
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>RECENT CHANGES</div>
               {employee.statusLog.slice(0, 4).map((h, i) => (
                 <div key={i} style={{ fontSize: 12, color: 'var(--muted)', padding: '3px 0' }}>
                   {STATUS_META[h.from]?.label || h.from} → {STATUS_META[h.to]?.label || h.to} · {h.effectiveDate || (h.at || '').slice(0, 10)}{h.reason ? ` · ${h.reason}` : ''}
+                  {h.offboarding?.mailboxAction ? ` · mailbox: ${h.offboarding.mailboxAction}` : ''}
                 </div>
               ))}
             </div>
           )}
         </div>
-        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={busy || !changed} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || !changed) ? 0.6 : 1 }}>{busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Apply</button>
         </div>

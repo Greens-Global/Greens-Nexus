@@ -1375,6 +1375,36 @@ class StatusChangeIn(BaseModel):
     status:        str
     reason:        Optional[str] = ""
     effectiveDate: Optional[str] = ""
+    # Offboarding decisions captured on the status change (inactive/offboarded).
+    # Nexus records the intent; the mailbox-permission / shared-conversion steps
+    # themselves are done in the Exchange admin center (Graph has no coverage).
+    #   {mailboxAction: 'delegate'|'share'|'remove'|'',
+    #    delegateTo: ['a@x.com', …], exportRequested: bool, freeUpLicense: bool}
+    offboarding:   Optional[dict] = None
+
+
+def _graph_set_signin(token: str, m365_id: str, enabled: bool) -> None:
+    resp = httpx.patch(f"{_GRAPH}/users/{m365_id}",
+                       headers={"Authorization": f"Bearer {token}"},
+                       json={"accountEnabled": enabled}, timeout=20)
+    if not resp.is_success:
+        raise RuntimeError(f"sign-in toggle failed: {resp.text[:200]}")
+
+
+def _graph_remove_all_licenses(token: str, m365_id: str) -> int:
+    resp = httpx.get(f"{_GRAPH}/users/{m365_id}/licenseDetails",
+                     headers={"Authorization": f"Bearer {token}"}, timeout=20)
+    if not resp.is_success:
+        raise RuntimeError(f"license lookup failed: {resp.text[:200]}")
+    skus = [d.get("skuId") for d in resp.json().get("value", []) if d.get("skuId")]
+    if not skus:
+        return 0
+    up = httpx.post(f"{_GRAPH}/users/{m365_id}/assignLicense",
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={"addLicenses": [], "removeLicenses": skus}, timeout=30)
+    if not up.is_success:
+        raise RuntimeError(f"license removal failed: {up.text[:200]}")
+    return len(skus)
 
 
 @router.post("/employees/{eid}/status")
@@ -1385,15 +1415,191 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     if body.status not in _STATUSES:
         raise HTTPException(400, f"status must be one of {_STATUSES}")
     now = datetime.now(timezone.utc).isoformat()
+    did_change = body.status != row.status
     log = list(row.status_log or [])
-    if body.status != row.status:
-        log.insert(0, {
+    entry = None
+    if did_change:
+        entry = {
             "from": row.status, "to": body.status, "reason": (body.reason or "").strip(),
             "effectiveDate": (body.effectiveDate or "").strip(), "by": user["email"], "at": now,
-        })
+        }
+        # Only keep a meaningful offboarding block (an action or a delegate set).
+        off = body.offboarding or {}
+        if off.get("mailboxAction") or off.get("delegateTo") or off.get("exportRequested") or off.get("freeUpLicense"):
+            entry["offboarding"] = {
+                "mailboxAction":   (off.get("mailboxAction") or "").strip(),
+                "delegateTo":      [e.strip().lower() for e in (off.get("delegateTo") or []) if e and e.strip()],
+                "exportRequested": bool(off.get("exportRequested")),
+                "freeUpLicense":   bool(off.get("freeUpLicense")),
+                "done":            False,   # flips true once an admin completes the M365 steps
+            }
+        log.insert(0, entry)
     row.status = body.status
     row.status_log = log
     row.updated_at = now
     db.commit()
     db.refresh(row)
-    return _serialize(row)
+
+    # Perform the M365 actions Graph *can* do. Mailbox delegation / shared-mailbox
+    # conversion are NOT here — Graph has no coverage (Exchange PowerShell only);
+    # the UI surfaces those as guided admin-center steps.
+    m365 = None
+    off_block = (entry or {}).get("offboarding")
+    if did_change and row.m365_id and off_block:
+        m365 = {}
+        try:
+            token = _graph_token()
+            if off_block["mailboxAction"] in ("remove", "share"):
+                _graph_set_signin(token, row.m365_id, False)
+                m365["signIn"] = "blocked"
+            if off_block.get("freeUpLicense"):
+                m365["licenses"] = f"{_graph_remove_all_licenses(token, row.m365_id)} removed"
+            if off_block.get("exportRequested"):
+                job = HrMailboxExport(id=str(uuid.uuid4()), employee_id=row.id, requested_by=user["email"],
+                                      status="pending", created_at=now, updated_at=now)
+                db.add(job); db.commit()
+                threading.Thread(target=_run_mailbox_export, args=(job.id, row.m365_id), daemon=True).start()
+                m365["export"] = job.id
+        except Exception as e:
+            m365["error"] = str(getattr(e, "detail", e))[:200]
+    elif did_change and row.m365_id and body.status in ("active", "onboarding"):
+        # Coming back from inactive/left — restore sign-in (best-effort).
+        try:
+            _graph_set_signin(_graph_token(), row.m365_id, True)
+            m365 = {"signIn": "re-enabled"}
+        except Exception:
+            pass
+
+    return {**_serialize(row), "m365": m365}
+
+
+# ---------------------------------------------------------------------------
+# Mailbox export — zip every message (.eml) from a person's Entra mailbox.
+# Needs the tenant-wide Mail.Read application permission (admin consent); without
+# it Graph returns 401/403 and the job is marked with a clear message. Runs in a
+# background thread so a large mailbox doesn't block the request.
+# ---------------------------------------------------------------------------
+import threading
+import tempfile
+import zipfile
+from database import SessionLocal
+from models import HrMailboxExport
+
+_EXPORT_BUCKET  = _DOC_BUCKET       # private hr-docs bucket, signed-URL download
+_EXPORT_MSG_CAP = 20000             # safety ceiling for very large mailboxes
+
+
+def _ser_export(j: HrMailboxExport) -> dict:
+    return {
+        "id": j.id, "employeeId": j.employee_id, "status": j.status, "message": j.message,
+        "count": j.count, "hasFile": bool(j.storage_path),
+        "createdAt": j.created_at, "updatedAt": j.updated_at,
+    }
+
+
+def _run_mailbox_export(job_id: str, m365_id: str) -> None:
+    db = SessionLocal()
+    tmp_path = None
+    try:
+        job = db.query(HrMailboxExport).filter(HrMailboxExport.id == job_id).first()
+        if not job:
+            return
+        job.status = "running"; job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
+        headers = {"Authorization": f"Bearer {_graph_token()}"}
+        tf = tempfile.NamedTemporaryFile(suffix=".zip", delete=False); tf.close(); tmp_path = tf.name
+        count = 0
+        with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            url = f"{_GRAPH}/users/{m365_id}/messages?$select=id,subject,receivedDateTime&$top=100"
+            while url and count < _EXPORT_MSG_CAP:
+                r = httpx.get(url, headers=headers, timeout=60)
+                if r.status_code in (401, 403):
+                    raise RuntimeError("Graph denied mailbox read — grant the Mail.Read application permission and admin consent.")
+                if not r.is_success:
+                    raise RuntimeError(f"Graph error: {r.text[:200]}")
+                data = r.json()
+                for m in data.get("value", []):
+                    mid = m.get("id")
+                    if not mid:
+                        continue
+                    mime = httpx.get(f"{_GRAPH}/users/{m365_id}/messages/{mid}/$value", headers=headers, timeout=60)
+                    if not mime.is_success:
+                        continue
+                    ts = (m.get("receivedDateTime") or "")[:10] or "nodate"
+                    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", (m.get("subject") or "no-subject"))[:60]
+                    zf.writestr(f"{ts}_{safe}_{mid[:8]}.eml", mime.content)
+                    count += 1
+                    if count >= _EXPORT_MSG_CAP:
+                        break
+                url = data.get("@odata.nextLink")
+        with open(tmp_path, "rb") as fh:
+            content = fh.read()
+        path = f"exports/{job.employee_id}/{job_id}.zip"
+        up = httpx.post(
+            f"{_SUPABASE_URL}/storage/v1/object/{_EXPORT_BUCKET}/{path}",
+            headers={**_storage_headers(), "Content-Type": "application/zip", "x-upsert": "true"},
+            content=content, timeout=300,
+        )
+        if not up.is_success:
+            raise RuntimeError(f"Upload failed: {up.text[:200]}")
+        job.storage_path = path; job.count = count; job.status = "done"
+        job.message = f"{count} message{'s' if count != 1 else ''} exported"
+        job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
+    except Exception as e:
+        try:
+            job = db.query(HrMailboxExport).filter(HrMailboxExport.id == job_id).first()
+            if job:
+                job.status = "error"; job.message = str(e)[:300]
+                job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
+        except Exception:
+            pass
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+        db.close()
+
+
+@router.post("/employees/{eid}/mailbox-export")
+def start_mailbox_export(eid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    if not emp.m365_id:
+        raise HTTPException(400, "No linked M365 account to export from")
+    now = datetime.now(timezone.utc).isoformat()
+    job = HrMailboxExport(id=str(uuid.uuid4()), employee_id=eid, requested_by=user["email"],
+                          status="pending", created_at=now, updated_at=now)
+    db.add(job); db.commit(); db.refresh(job)
+    threading.Thread(target=_run_mailbox_export, args=(job.id, emp.m365_id), daemon=True).start()
+    return _ser_export(job)
+
+
+@router.get("/employees/{eid}/mailbox-export")
+def latest_mailbox_export(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    job = (db.query(HrMailboxExport).filter(HrMailboxExport.employee_id == eid)
+           .order_by(HrMailboxExport.created_at.desc()).first())
+    return _ser_export(job) if job else None
+
+
+@router.get("/mailbox-exports/{job_id}")
+def mailbox_export_status(job_id: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    job = db.query(HrMailboxExport).filter(HrMailboxExport.id == job_id).first()
+    if not job:
+        raise HTTPException(404, "Export not found")
+    return _ser_export(job)
+
+
+@router.get("/mailbox-exports/{job_id}/url")
+def mailbox_export_url(job_id: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    job = db.query(HrMailboxExport).filter(HrMailboxExport.id == job_id).first()
+    if not job or not job.storage_path:
+        raise HTTPException(404, "No export file yet")
+    resp = httpx.post(
+        f"{_SUPABASE_URL}/storage/v1/object/sign/{_EXPORT_BUCKET}/{job.storage_path}",
+        headers=_storage_headers(), json={"expiresIn": 300}, timeout=15,
+    )
+    if not resp.is_success:
+        raise HTTPException(502, f"Could not sign URL: {resp.text[:200]}")
+    return {"url": f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}", "expiresIn": 300}
