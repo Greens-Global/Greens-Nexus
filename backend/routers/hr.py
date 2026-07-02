@@ -1288,3 +1288,39 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
     row.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit()
     return {"compensation": row.compensation or {}, "bank": row.bank or []}
+
+
+# ---------------------------------------------------------------------------
+# HR Section B5 — Assets tab: LIVE read from Item Management (no duplication).
+# HR-gated so an HR user without an inventory grant can still see what a person
+# holds. Source of truth stays in items.py; this only reads.
+# ---------------------------------------------------------------------------
+from sqlalchemy import func
+from models import Item, ItemCheckout
+
+
+@router.get("/employees/{eid}/assets")
+def employee_assets(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    email = (emp.work_email or "").strip().lower()
+    if not email:
+        return {"assignments": [], "checkouts": []}
+    assignments = db.query(Item).filter(
+        func.lower(Item.assigned_to_email) == email, Item.deleted_at == ""
+    ).all()
+    checkouts = db.query(ItemCheckout).filter(
+        func.lower(ItemCheckout.requested_by_email) == email,
+        ItemCheckout.status.in_(["allocated", "pending_receipt"]),
+    ).all()
+    return {
+        "assignments": [{
+            "id": i.id, "name": i.name, "serial": i.serial_number, "type": i.item_type,
+            "status": i.status, "assignedAt": i.assigned_at, "photoUrl": i.photo_url,
+        } for i in assignments],
+        "checkouts": [{
+            "id": c.id, "itemName": c.item_name, "itemType": c.item_type, "status": c.status,
+            "days": c.days, "allocatedAt": c.allocated_at, "handedOverAt": c.handed_over_at,
+        } for c in checkouts],
+    }

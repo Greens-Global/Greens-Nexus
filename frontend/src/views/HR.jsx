@@ -207,6 +207,56 @@ function EmployeeFormModal({ employee, employees, entities = [], onClose, onSave
 // ── Documents (Phase 3) — private bucket, viewed via short-lived signed URLs ──
 const DOC_KINDS = [['resume', 'Resume'], ['id', 'ID'], ['contract', 'Contract'], ['certificate', 'Certificate'], ['other', 'Other']];
 
+// Live read of what a person holds in Item Management (Section B5). No data is
+// stored here — Items stays the single source of truth; this deep-links into it.
+function AssetsSection({ employee }) {
+  const [data, setData] = useState(null);
+  useEffect(() => { api.getEmployeeAssets(employee.id).then(setData).catch(() => setData({ assignments: [], checkouts: [] })); }, [employee.id]);
+  const goToItems = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'inventory', sub: 'active-checkouts' } }));
+  const assignments = data?.assignments || [];
+  const checkouts = data?.checkouts || [];
+  const total = assignments.length + checkouts.length;
+
+  const line = (icon, name, meta, key) => (
+    <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+      {icon}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+        <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{meta}</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
+          <Briefcase size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Assets held {data && `· ${total}`}
+        </span>
+        <button className="secondary-btn" onClick={goToItems} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
+          Open in Item Management <ChevronRight size={12} />
+        </button>
+      </div>
+      {!data ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>Loading…</div>
+      ) : total === 0 ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>
+          {employee.workEmail ? 'No assigned equipment or active checkouts.' : 'No work email yet — provision the account to link assets.'}
+        </div>
+      ) : (
+        <div>
+          {assignments.map(a => line(
+            <Briefcase size={14} style={{ color: 'hsl(var(--color-green))', flexShrink: 0 }} />,
+            a.name, [a.serial && `SN ${a.serial}`, a.type, 'permanent assignment'].filter(Boolean).join(' · '), `a-${a.id}`))}
+          {checkouts.map(c => line(
+            <History size={14} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />,
+            c.itemName, [c.itemType, c.status === 'pending_receipt' ? 'awaiting receipt' : 'checked out', c.days && `${c.days}d`].filter(Boolean).join(' · '), `c-${c.id}`))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DocumentsSection({ employeeId, toastOk, toastErr }) {
   const [docs, setDocs] = useState(null);
   const [kind, setKind] = useState('other');
@@ -644,6 +694,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
         })()}
         {e.notes && row(FileText, 'Notes', e.notes)}
       </div>
+      <AssetsSection employee={e} />
       <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
       {photoOpen && (
         <PhotoEditorModal employee={e} toastOk={toastOk} toastErr={toastErr}

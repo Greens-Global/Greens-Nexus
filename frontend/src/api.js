@@ -409,6 +409,9 @@ export const api = {
   getCompensation:  (id)       => req(`/hr/employees/${id}/compensation`),
   saveCompensation: (id, data) => req(`/hr/employees/${id}/compensation`, { method: 'PUT', body: JSON.stringify(data) }),
 
+  // HR — live assets (permanent assignments + active checkouts from Item Management)
+  getEmployeeAssets: (id)      => req(`/hr/employees/${id}/assets`),
+
   // HR — hiring pipeline
   getCandidates:       ()         => req('/hr/candidates'),
   getCandidateHistory: (id)       => req(`/hr/candidates/${id}/history`),
