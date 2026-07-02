@@ -1967,7 +1967,7 @@ export default function HR({ activeSub, onSubChange }) {
   const toastOk  = msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
 
   const [syncBusy, setSyncBusy] = useState(false);
-  const [photoBusy, setPhotoBusy] = useState(false);
+  // One action: pull the directory (people + fields) AND their profile photos.
   async function runSync() {
     if (syncBusy) return;
     setSyncBusy(true);
@@ -1978,23 +1978,15 @@ export default function HR({ activeSub, onSubChange }) {
       bits.push(`${r.linked} linked`, `${r.updated} updated`);
       if (r.removed?.length) bits.push(`${r.removed.length} removed (shared/inactive)`);
       if (r.unlinked?.length) bits.push(`unlinked (account deleted): ${r.unlinked.join(', ')}`);
+      // Photos are a second, slower pass — don't fail the whole sync if it errors.
+      try {
+        const p = await api.syncM365Photos();
+        if (p.updated) bits.push(`${p.updated} photos`);
+      } catch { /* photo pass is best-effort */ }
       toastOk(`M365 sync: ${bits.join(' · ')}.`);
       load();
     } catch (err) { toastErr(err?.message || 'Sync failed.'); }
     setSyncBusy(false);
-  }
-  async function runPhotoSync() {
-    if (photoBusy) return;
-    setPhotoBusy(true);
-    try {
-      const r = await api.syncM365Photos();
-      const bits = [`${r.updated} photos synced`];
-      if (r.noPhoto) bits.push(`${r.noPhoto} had none in M365`);
-      if (r.failed?.length) bits.push(`${r.failed.length} failed`);
-      toastOk(`Photos: ${bits.join(' · ')}.`);
-      load();
-    } catch (err) { toastErr(err?.message || 'Photo sync failed.'); }
-    setPhotoBusy(false);
   }
 
   function load() {
@@ -2050,14 +2042,9 @@ export default function HR({ activeSub, onSubChange }) {
         {sub === 'hr-people' && (
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
             <button className="secondary-btn" disabled={syncBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-              title="Pull people from M365 — only @greensglobal.com and @greensstorage.com accounts. New people are added; existing profiles get linked and empty fields backfilled from Entra."
+              title="Pull people from M365 (only @greensglobal.com and @greensstorage.com) — new people added, existing profiles linked, empty fields + profile photos backfilled from Entra."
               onClick={runSync}>
               {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <History size={14} />} Sync from M365
-            </button>
-            <button className="secondary-btn" disabled={photoBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-              title="Pull every linked person's profile photo from M365 / Entra into the portal. People with no photo in M365 are left unchanged."
-              onClick={runPhotoSync}>
-              {photoBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Camera size={14} />} Sync photos
             </button>
             <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
               title="Manage companies / legal entities"
