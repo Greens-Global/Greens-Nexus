@@ -31,7 +31,7 @@ router = APIRouter(tags=["Asset Management"])
 # The flat child collections the module persists alongside properties + logs.
 # vservice/odometer are the vehicle & equipment service/maintenance + odometer logs.
 COLLECTIONS = ["warranties", "inspections", "documents", "ahj", "utilities", "vendors",
-               "vservice", "odometer"]
+               "vservice", "odometer", "vdocs"]
 
 
 def _now() -> str:
@@ -48,6 +48,7 @@ class Workspace(BaseModel):
     vendors: List[Dict[str, Any]] = []
     vservice: List[Dict[str, Any]] = []
     odometer: List[Dict[str, Any]] = []
+    vdocs: List[Dict[str, Any]] = []
     logs: List[Dict[str, Any]] = []
 
 

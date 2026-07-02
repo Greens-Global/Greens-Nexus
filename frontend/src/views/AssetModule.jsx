@@ -223,7 +223,7 @@ function hydrate(d) {
   }
   // Enrich with full source sheets; Development Stage must be one of the standard values;
   // migrate timeline status out of the Notes column.
-  return { ...d, vservice: d.vservice || [], odometer: d.odometer || [], properties: d.properties.map(p => {
+  return { ...d, vservice: d.vservice || [], odometer: d.odometer || [], vdocs: d.vdocs || [], properties: d.properties.map(p => {
     const e = enrichSource(p);
     // Refresh the seeded image from the source JSON (so updated property photos show even if an
     // old path was saved). User-uploaded images (data URLs) are left untouched.
@@ -239,7 +239,7 @@ function hydrate(d) {
 // store is empty.
 const seedData = () => hydrate(adapt());
 // Empty workspace rendered while the server load is in flight.
-const EMPTY_WS = { properties: [], warranties: [], inspections: [], documents: [], ahj: [], utilities: [], vendors: [], vservice: [], odometer: [], logs: [] };
+const EMPTY_WS = { properties: [], warranties: [], inspections: [], documents: [], ahj: [], utilities: [], vendors: [], vservice: [], odometer: [], vdocs: [], logs: [] };
 
 /* ---------- collections config (Neil's exact fields + columns) ---------- */
 const COLLECTIONS = {
@@ -297,6 +297,24 @@ const COLLECTIONS = {
     ],
     cols: [
       { label: 'Document', main: r => r.title, sub: r => r.category + (r.version ? ' · ' + r.version : '') },
+      { label: 'Date', mono: r => fmtDate(r.dateOf) },
+      { label: 'Location', mono: r => r.location || '—' },
+    ],
+    sort: (a, b) => (a.category || '') < (b.category || '') ? -1 : 1,
+  },
+  vdocs: {
+    title: 'Document', plural: 'Documents', empty: 'No vehicle/equipment documents on file. Upload registration, title, insurance, loan, and warranty documents.',
+    fields: [
+      { k: 'category', label: 'Category', type: 'select', options: ['Registration', 'Title', 'Insurance', 'Loan / Finance', 'Warranty', 'Service Record', 'Manual', 'Other'] },
+      { k: 'title', label: 'Title', req: true },
+      { k: 'dateOf', label: 'Document date', type: 'date' },
+      { k: 'docFile', label: 'Document (upload)', type: 'file', nameKey: 'docFileName', full: true },
+      { k: 'egnyteDest', label: 'Egnyte destination folder', full: true },
+      { k: 'location', label: 'Location (Egnyte path)', full: true },
+      { k: 'notes', label: 'Notes', type: 'textarea', full: true },
+    ],
+    cols: [
+      { label: 'Document', main: r => r.title, sub: r => r.category },
       { label: 'Date', mono: r => fmtDate(r.dateOf) },
       { label: 'Location', mono: r => r.location || '—' },
     ],
@@ -626,9 +644,9 @@ const VEHICLE_SEEDS = [
 
 // Per-property tabs. The change Log is intentionally NOT here — per Neil it is global and lives
 // on the Manage page, not on each property card.
-const TABS = [['portfolio', 'Portfolio'], ['property', 'Overview'], ['vservice', 'Service & Maintenance'], ['odometer', 'Odometer'], ['warranties', 'Warranties'], ['inspections', 'Inspections'], ['documents', 'Plans & Docs'], ['utilsahj', 'Utilities & AHJ'], ['vendors', 'Vendors'], ['timeline', 'Timeline'], ['permit', 'Permits']];
+const TABS = [['portfolio', 'Portfolio'], ['property', 'Overview'], ['vservice', 'Service & Maintenance'], ['odometer', 'Odometer'], ['vdocs', 'Documents'], ['warranties', 'Warranties'], ['inspections', 'Inspections'], ['documents', 'Plans & Docs'], ['utilsahj', 'Utilities & AHJ'], ['vendors', 'Vendors'], ['timeline', 'Timeline'], ['permit', 'Permits']];
 // Which collection(s) the single top-bar Search filters for each tab (absent = no searchable table).
-const TAB_COLLS = { vservice: ['vservice'], odometer: ['odometer'], warranties: ['warranties'], inspections: ['inspections'], documents: ['documents'], utilsahj: ['utilities', 'ahj'], vendors: ['vendors'] };
+const TAB_COLLS = { vservice: ['vservice'], odometer: ['odometer'], vdocs: ['vdocs'], warranties: ['warranties'], inspections: ['inspections'], documents: ['documents'], utilsahj: ['utilities', 'ahj'], vendors: ['vendors'] };
 const LOGS_SEEN_KEY = 'nexus_asset_logs_seen';
 // Build one activity-log entry (who/when + the change details).
 const mkLog = (e) => ({ id: uidGen(), ts: new Date().toISOString(), user: currentUser(), ...e });
@@ -667,6 +685,8 @@ function Stat({ v, l, big }) {
 export default function AssetModule() {
   const role = useRole();
   const isManager = role?.can ? role.can('manager') : false; // managers (lvl ≥ 3) may remove warranties
+  // Officer-residence privacy: only IT Admin / Global Admin (lvl ≥ 4) see private assets.
+  const canSeePrivate = role?.can ? role.can('administrator') : false;
   const [data, setData] = useState(EMPTY_WS);
   const [loading, setLoading] = useState(true);
   const firstSaveSkip = useRef(true); // skip the save triggered by the initial server load
@@ -734,7 +754,9 @@ export default function AssetModule() {
 
   if (loading) return <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-secondary)', fontWeight: 500, fontSize: '0.9rem' }}>Loading portfolio…</div>;
 
-  const props = data.properties.filter(p => !p.deleted);   // live cards (deleted ones go to the recover bin)
+  // live cards (deleted ones go to the recover bin); private officer residences are hidden
+  // from anyone below IT Admin.
+  const props = data.properties.filter(p => !p.deleted && (canSeePrivate || !p.private));
   const deletedProps = data.properties.filter(p => p.deleted);
   const byId = (id) => props.find(p => p.id === id);
   const active = activeId ? byId(activeId) : null;
@@ -766,6 +788,18 @@ export default function AssetModule() {
       return row ? pushLog(nd, { section: COLLECTIONS[coll].plural, property: prop?.name || '', propertyId: activeId, action: 'removed', item: rowTitle(coll, row), changes: [], reason: reason || '' }) : nd;
     });
     setModal(null);
+  };
+  // Officer-residence privacy toggle (admins only) — flips p.private + logs it.
+  const togglePrivate = (id) => {
+    if (!canSeePrivate) return;
+    setData(d => {
+      const arr = [...d.properties];
+      const i = arr.findIndex(p => p.id === id);
+      if (i < 0) return d;
+      const prop = arr[i]; const nowPrivate = !prop.private;
+      arr[i] = { ...prop, private: nowPrivate };
+      return pushLog({ ...d, properties: arr }, { section: 'Property', property: prop.name, propertyId: id, action: nowPrivate ? 'marked private' : 'made public', item: prop.name, changes: [] });
+    });
   };
   // Timeline / Permit rows live on the property object (active.timeline / active.permits)
   // as plain arrays without ids — edit & delete operate by original array index.
@@ -984,10 +1018,14 @@ export default function AssetModule() {
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
             <div style={{ minWidth: 0 }}>
-              <h1 style={{ fontSize: '1.5rem', fontFamily: "'Plus Jakarta Sans', sans-serif", letterSpacing: '-0.01em', color: 'var(--text-primary)', margin: 0 }}>{active.name}</h1>
+              <h1 style={{ fontSize: '1.5rem', fontFamily: "'Plus Jakarta Sans', sans-serif", letterSpacing: '-0.01em', color: 'var(--text-primary)', margin: 0, display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                {active.name}
+                {active.private && <span style={{ fontSize: '0.62rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '3px 8px', borderRadius: 999, color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple),0.12)' }}>🔒 Private</span>}
+              </h1>
               <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 3 }}>{fmtAddress(active) || '—'}</div>
             </div>
             <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', flexWrap: 'wrap' }}>
+              {canSeePrivate && <button className="secondary-btn" onClick={() => togglePrivate(active.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{active.private ? 'Make public' : 'Mark private'}</button>}
               <button className="secondary-btn" onClick={() => exportReport(active, data)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FileDown size={14} /> Export PDF</button>
               {tab === 'property' && <button className="primary-btn" onClick={() => setModal({ type: 'property', id: active.id })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Pencil size={14} /> Edit {inferAssetKind(active) === 'property' ? 'property' : 'asset'}</button>}
             </div>
@@ -1013,8 +1051,8 @@ export default function AssetModule() {
             if (k === 'portfolio') return false;
             // Vehicles/equipment show only Overview + their two logs; properties hide those.
             return inferAssetKind(active) === 'property'
-              ? !['vservice', 'odometer'].includes(k)
-              : ['property', 'vservice', 'odometer'].includes(k);
+              ? !['vservice', 'odometer', 'vdocs'].includes(k)
+              : ['property', 'vservice', 'odometer', 'vdocs'].includes(k);
           }).map(([k, label]) => {
             const on = tab === k;
             const lbl = (k === 'property' && inferAssetKind(active) !== 'property') ? 'Overview' : label;
@@ -1036,7 +1074,9 @@ export default function AssetModule() {
         );
       })()}
 
+      {tab === 'portfolio' && !active && <CriticalDates store={data} openProperty={openProperty} />}
       {tab === 'portfolio' && !active && <Portfolio {...{ props, openProperty, typeFilter, setTypeFilter }} />}
+      {tab === 'property' && active && collectCriticalDates(data).some(x => x.id === active.id) && <CriticalDates store={data} openProperty={openProperty} only={active.id} />}
       {tab === 'property' && active && <PropertyDetail {...{ p: active, onSaveImages: saveImages, highlight: highlight?.tab === 'property' ? highlight : null }} />}
       {tab === 'warranties' && active && <Collection coll="warranties" rows={rowsFor('warranties')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'warranties' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'warranties', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'warranties', id })} />}
       {tab === 'inspections' && active && <Collection coll="inspections" rows={rowsFor('inspections')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'inspections' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'inspections', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'inspections', id })} />}
@@ -1050,6 +1090,7 @@ export default function AssetModule() {
       {tab === 'vendors' && active && <Collection coll="vendors" rows={rowsFor('vendors')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.section === 'Vendors' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'vendors', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'vendors', id })} />}
       {tab === 'vservice' && active && <Collection coll="vservice" rows={rowsFor('vservice')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'vservice' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'vservice', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'vservice', id })} />}
       {tab === 'odometer' && active && <Collection coll="odometer" rows={rowsFor('odometer')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'odometer' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'odometer', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'odometer', id })} />}
+      {tab === 'vdocs' && active && <Collection coll="vdocs" rows={rowsFor('vdocs')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'vdocs' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'vdocs', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'vdocs', id })} />}
       {tab === 'timeline' && active && (() => {
         const cols = TIMELINE_COLS;
         const editCols = cols.filter(c => c[0] !== 'status'); // status is changed via its button (reason required), not the row form
@@ -1656,6 +1697,116 @@ function HealthStrip({ p, data }) {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12, alignItems: 'center' }}>
       {[...sig, fresh].map((x, i) => <HealthChip key={i} label={x.l} val={x.v} tone={x.t} />)}
+    </div>
+  );
+}
+
+// Aggregate every date-driven obligation across the whole portfolio into a single
+// sorted list (soonest/most-overdue first). Ported from Neil's template.
+function collectCriticalDates(store) {
+  const props = (store.properties || []).filter(p => !p.deleted);
+  const byId = {}; props.forEach(p => { byId[p.id] = p; });
+  const out = [];
+  const push = (id, cat, label, date, detail) => {
+    if (!byId[id]) return;
+    const d = dleft(date); if (d == null) return;
+    const p = byId[id];
+    out.push({ id, name: p.siteName || p.name || 'Unknown asset', cat, label, detail: detail || '', date, days: d });
+  };
+  props.forEach(p => {
+    const sm = snapMap(p), isProp = inferAssetKind(p) === 'property';
+    push(p.id, 'Insurance', 'Policy expiration', p.insExpiration || sm['policy expiration']);
+    if (isProp) {
+      push(p.id, 'Property Tax', 'Tax payment due', p.taxDue);
+      push(p.id, 'Loan', 'Loan maturity', sm['maturity date']);
+    } else {
+      push(p.id, 'Registration', 'Registration expiration', p.regExpiration || sm['registration expiration']);
+      push(p.id, 'Service', 'Next service due', p.nextServiceDate || sm['next service due']);
+    }
+  });
+  (store.warranties || []).forEach(x => push(x.propertyId, 'Warranty', 'Warranty expiration', x.expiration, x.scope || x.party || x.kind));
+  (store.inspections || []).forEach(x => push(x.propertyId, 'Inspection', 'Inspection due', x.nextDue, x.type));
+  (store.vendors || []).forEach(x => {
+    push(x.propertyId, 'Contract', 'Contract end', x.contractEnd, x.company || x.category);
+    push(x.propertyId, 'COI', 'Insurance cert expiration', x.coiExpiration, x.company || x.category);
+  });
+  (store.ahj || []).forEach(x => push(x.propertyId, 'Permit / AHJ', 'Renewal due', x.renewalDate, x.authority || x.jurisdiction));
+  (store.maintenance || []).forEach(x => push(x.propertyId, 'Maintenance', 'Follow-up due', x.nextDue, x.system || x.description));
+  (store.vservice || []).forEach(x => push(x.propertyId, 'Service', 'Service due', x.nextDue, x.type));
+  out.sort((a, b) => a.days - b.days);
+  return out;
+}
+
+// Collapsible Critical Dates panel — portfolio-wide, with overdue/30/90 windows and a
+// category filter. Each row deep-links to its asset. When `only` is passed, it scopes to
+// one asset (per-asset "Critical Items" variant on the detail view).
+function CriticalDates({ store, openProperty, only }) {
+  const [open, setOpen] = useState(true);
+  const [win, setWin] = useState('90');
+  const [cat, setCat] = useState('');
+  let all = collectCriticalDates(store);
+  if (only) all = all.filter(x => x.id === only);
+  const over = all.filter(x => x.days < 0).length;
+  const d30 = all.filter(x => x.days >= 0 && x.days <= 30).length;
+  const d90 = all.filter(x => x.days >= 0 && x.days <= 90).length;
+  const cats = [...new Set(all.map(x => x.cat))].sort();
+  const inWin = x => win === 'all' ? true : win === 'overdue' ? x.days < 0 : win === '30' ? x.days <= 30 : x.days <= 90;
+  const rows = all.filter(inWin).filter(x => !cat || x.cat === cat);
+  const tone = d => d < 0 ? 'red' : d <= 30 ? 'orange' : d <= 90 ? 'gold' : 'green';
+  const dtxt = d => d < 0 ? Math.abs(d) + 'd overdue' : d === 0 ? 'Due today' : 'Due in ' + d + 'd';
+  const pill = (nn, label, c) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap', color: nn ? `hsl(var(--color-${c}))` : 'var(--text-muted)', backgroundColor: nn ? `hsla(var(--color-${c}), 0.12)` : 'var(--bg-secondary)' }}>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: nn ? `hsl(var(--color-${c}))` : 'var(--text-muted)' }} />
+      {nn + ' ' + label}
+    </span>
+  );
+  const chip = (val, label) => {
+    const active = win === val;
+    return (
+      <button onClick={() => setWin(val)} style={{ padding: '5px 11px', borderRadius: 999, fontSize: '0.74rem', fontWeight: 600, cursor: 'pointer', border: active ? '1px solid transparent' : '1px solid var(--border-color)', color: active ? '#fff' : 'var(--text-secondary)', background: active ? 'hsl(var(--color-blue))' : 'var(--bg-card)' }}>{label}</button>
+    );
+  };
+  return (
+    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, marginBottom: 16, boxShadow: 'var(--shadow-sm)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)' }}>Critical Dates</span>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {pill(over, 'Overdue', 'red')}
+          {pill(d30, 'Due ≤30d', 'orange')}
+          {pill(d90, 'Due ≤90d', 'gold')}
+        </div>
+        <button onClick={() => setOpen(o => !o)} style={{ marginLeft: 'auto', padding: '5px 11px', borderRadius: 8, fontSize: '0.74rem', fontWeight: 600, cursor: 'pointer', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)' }}>{open ? 'Hide' : 'Show'}</button>
+      </div>
+      {open && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+            {chip('overdue', 'Overdue')}
+            {chip('30', 'Next 30 days')}
+            {chip('90', 'Next 90 days')}
+            {chip('all', 'All upcoming')}
+            <select value={cat} onChange={e => setCat(e.target.value)} className="form-input" style={{ marginLeft: 'auto', padding: '5px 10px', fontSize: '0.76rem', maxWidth: 190 }}>
+              <option value="">All categories</option>
+              {cats.map(cc => <option key={cc} value={cc}>{cc}</option>)}
+            </select>
+          </div>
+          {rows.length ? (
+            <div style={{ maxHeight: 340, overflowY: 'auto', marginTop: 10, border: '1px solid var(--border-color)', borderRadius: 8 }}>
+              {rows.map((x, i) => (
+                <div key={x.id + '|' + x.cat + '|' + i} onClick={() => openProperty(x.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', cursor: 'pointer', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
+                  <span style={{ flexShrink: 0, minWidth: 98, textAlign: 'center', padding: '4px 8px', borderRadius: 6, fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap', color: `hsl(var(--color-${tone(x.days)}))`, backgroundColor: `hsla(var(--color-${tone(x.days)}), 0.12)` }}>{dtxt(x.days)}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.name}</div>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.cat}{' · '}{x.label}{x.detail ? ' — ' + x.detail : ''}</div>
+                  </div>
+                  <span style={{ flexShrink: 0, fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{fmtDate(x.date)}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ marginTop: 10, padding: '16px', fontSize: '0.82rem', fontWeight: 600, color: 'hsl(var(--color-green))', textAlign: 'center' }}>All clear — nothing due in this window.</div>
+          )}
+        </>
+      )}
     </div>
   );
 }
