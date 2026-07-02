@@ -1810,6 +1810,7 @@ export default function HR({ activeSub, onSubChange }) {
   const toastOk  = msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
 
   const [syncBusy, setSyncBusy] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
   async function runSync() {
     if (syncBusy) return;
     setSyncBusy(true);
@@ -1824,6 +1825,19 @@ export default function HR({ activeSub, onSubChange }) {
       load();
     } catch (err) { toastErr(err?.message || 'Sync failed.'); }
     setSyncBusy(false);
+  }
+  async function runPhotoSync() {
+    if (photoBusy) return;
+    setPhotoBusy(true);
+    try {
+      const r = await api.syncM365Photos();
+      const bits = [`${r.updated} photos synced`];
+      if (r.noPhoto) bits.push(`${r.noPhoto} had none in M365`);
+      if (r.failed?.length) bits.push(`${r.failed.length} failed`);
+      toastOk(`Photos: ${bits.join(' · ')}.`);
+      load();
+    } catch (err) { toastErr(err?.message || 'Photo sync failed.'); }
+    setPhotoBusy(false);
   }
 
   function load() {
@@ -1883,6 +1897,11 @@ export default function HR({ activeSub, onSubChange }) {
               onClick={runSync}>
               {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <History size={14} />} Sync from M365
             </button>
+            <button className="secondary-btn" disabled={photoBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
+              title="Pull every linked person's profile photo from M365 / Entra into the portal. People with no photo in M365 are left unchanged."
+              onClick={runPhotoSync}>
+              {photoBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Camera size={14} />} Sync photos
+            </button>
             <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
               title="Manage companies / legal entities"
               onClick={() => setEntitiesOpen(true)}>
@@ -1927,18 +1946,18 @@ export default function HR({ activeSub, onSubChange }) {
           <div className="kpi-card card-purple"><div className="kpi-label">Departments</div><div className="kpi-value">{counts.depts}</div></div>
         </div>
 
-        {/* Filters */}
+        {/* Filters — search fills the row, the two dropdowns stay compact on the right */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
-          <div className="search-bar" style={{ flex: '1 1 220px', maxWidth: 360 }}>
+          <div className="search-bar" style={{ flex: '1 1 260px', minWidth: 200 }}>
             <Search size={13} style={{ flexShrink: 0 }} />
             <input placeholder="Search people…" value={search} onChange={e => setSearch(e.target.value)} />
             {search && <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={13} /></button>}
           </div>
-          <select className="form-input" value={deptF} onChange={e => setDeptF(e.target.value)} style={{ padding: '6px 10px', fontSize: 13, height: 34 }}>
+          <select className="form-input" value={deptF} onChange={e => setDeptF(e.target.value)} style={{ flex: '0 0 auto', width: 150, padding: '6px 10px', fontSize: 13, height: 34 }}>
             <option value="All">All departments</option>
             {DEPTS.map(d => <option key={d}>{d}</option>)}
           </select>
-          <select className="form-input" value={statusF} onChange={e => setStatusF(e.target.value)} style={{ padding: '6px 10px', fontSize: 13, height: 34 }}>
+          <select className="form-input" value={statusF} onChange={e => setStatusF(e.target.value)} style={{ flex: '0 0 auto', width: 140, padding: '6px 10px', fontSize: 13, height: 34 }}>
             <option value="All">All statuses</option>
             {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
           </select>
