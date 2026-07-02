@@ -139,7 +139,7 @@ function adapt() {
     devStage: sv(p, 'Project Details', 'Development Stage'),
     placedInService: '', coNumber: '', coDate: '',
     unitsNonClimate: num0(sv(p, 'Unit Mix', 'Non-Climate')), unitsClimate: num0(sv(p, 'Unit Mix', 'Climate')),
-    unitsRV: num0(sv(p, 'Unit Mix', 'RV')), unitsTotal: num0(sv(p, 'Unit Mix', 'Total')),
+    unitsRV: num0(sv(p, 'Unit Mix', 'RV')), unitsMailbox: num0(sv(p, 'Unit Mix', 'Mailbox')), unitsTotal: num0(sv(p, 'Unit Mix', 'Total')),
     insCarrier: sv(p, 'Insurance', 'Insurance Carrier'), insPolicy: sv(p, 'Insurance', 'Policy Number'),
     insExpiration: sv(p, 'Insurance', 'Policy Expiration'), insAgent: sv(p, 'Insurance', 'Insurance Agent'), insPhone: '',
     taxId: sv(p, 'Property Tax', 'Tax Account'), taxAnnual: num0(sv(p, 'Property Tax', 'Annual Tax')), taxDue: sv(p, 'Property Tax', 'Tax Due'),
@@ -547,7 +547,8 @@ const PROPERTY_FIELDS = [
   { k: 'placedInService', label: 'Placed-in-service date', type: 'date' }, { k: 'coNumber', label: 'CO number' }, { k: 'coDate', label: 'CO date', type: 'date' },
   { sec: 'Unit mix' },
   { k: 'unitsNonClimate', label: 'Non-climate units', type: 'number' }, { k: 'unitsClimate', label: 'Climate units', type: 'number' },
-  { k: 'unitsRV', label: 'RV / boat spaces', type: 'number' }, { k: 'unitsTotal', label: 'Total units', type: 'number' },
+  { k: 'unitsRV', label: 'RV / boat spaces', type: 'number' }, { k: 'unitsMailbox', label: 'Mailbox units', type: 'number' },
+  { k: 'unitsTotal', label: 'Total units (excludes mailbox)', type: 'number' },
   { sec: 'Insurance' },
   { k: 'insCarrier', label: 'Carrier' }, { k: 'insPolicy', label: 'Policy #' }, { k: 'insExpiration', label: 'Policy expiration', type: 'date' },
   { k: 'insAgent', label: 'Agent / broker' }, { k: 'insPhone', label: 'Agent phone' },
@@ -1076,6 +1077,7 @@ export default function AssetModule() {
 
       {tab === 'portfolio' && !active && <CriticalDates store={data} openProperty={openProperty} />}
       {tab === 'portfolio' && !active && <Portfolio {...{ props, openProperty, typeFilter, setTypeFilter }} />}
+      {active && <ParcelSwitcher p={active} props={props} openProperty={openProperty} />}
       {tab === 'property' && active && collectCriticalDates(data).some(x => x.id === active.id) && <CriticalDates store={data} openProperty={openProperty} only={active.id} />}
       {tab === 'property' && active && <PropertyDetail {...{ p: active, onSaveImages: saveImages, highlight: highlight?.tab === 'property' ? highlight : null }} />}
       {tab === 'warranties' && active && <Collection coll="warranties" rows={rowsFor('warranties')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'warranties' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'warranties', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'warranties', id })} />}
@@ -1613,7 +1615,7 @@ const PT = [
   { g: 'Financial & Investment', fields: [{ l: 'Acquisition Date', t: 'date' }, { l: 'Acquisition Price', t: 'money' }, { l: 'Total Cost Basis', t: 'money' }, { l: 'Current / Appraised Value', t: 'money' }, { l: 'Valuation Date', t: 'date' }, { l: 'Going-in Cap Rate', t: 'pct' }, { l: 'Current Cap Rate', t: 'pct' }, { l: 'NOI (In-Place)', t: 'money' }, { l: 'NOI (Pro Forma)', t: 'money' }, { l: 'Occupancy %', t: 'pct' }, { l: 'Hold Strategy' }, { l: 'Target Hold (yrs)' }, { l: 'Projected IRR', t: 'pct' }, { l: 'Equity Multiple' }] },
   { g: 'Debt / Financing', fields: [{ l: 'Lender' }, { l: 'Loan Number' }, { l: 'Original Balance', t: 'money' }, { l: 'Current Balance', t: 'money' }, { l: 'Interest Rate', t: 'pct' }, { l: 'Rate Type' }, { l: 'Maturity Date', t: 'date' }, { l: 'Amortization' }, { l: 'LTV', t: 'pct' }, { l: 'DSCR' }, { l: 'Recourse' }, { l: 'Prepay / Lockout' }] },
   { g: 'Leasing & Tenancy', fields: [{ l: 'Tenant' }, { l: 'Lease Structure' }, { l: 'Commencement', t: 'date' }, { l: 'Expiration', t: 'date' }, { l: 'Base Rent (Annual)', t: 'money' }, { l: 'Rent PSF' }, { l: 'Escalations' }, { l: 'Renewal Options' }, { l: 'Guarantor' }, { l: 'WALT (yrs)' }, { l: 'Leased Occupancy', t: 'pct' }] },
-  { g: 'Unit Mix', fields: [{ l: 'Non-Climate Units', key: 'unitsNonClimate', t: 'num' }, { l: 'Climate Units', key: 'unitsClimate', t: 'num' }, { l: 'RV / Vehicle Spaces', key: 'unitsRV', t: 'num' }, { l: 'Total Units', key: 'unitsTotal', t: 'num' }] },
+  { g: 'Unit Mix', fields: [{ l: 'Non-Climate Units', key: 'unitsNonClimate', t: 'num' }, { l: 'Climate Units', key: 'unitsClimate', t: 'num' }, { l: 'RV / Vehicle Spaces', key: 'unitsRV', t: 'num' }, { l: 'Mailbox Units', key: 'unitsMailbox', t: 'num' }, { l: 'Total Units', key: 'unitsTotal', t: 'num' }] },
   { g: 'Insurance', fields: [{ l: 'Carrier', key: 'insCarrier' }, { l: 'Policy Number', key: 'insPolicy' }, { l: 'Coverage' }, { l: 'Policy Expiration', key: 'insExpiration', t: 'date' }, { l: 'Agent / Broker', key: 'insAgent' }, { l: 'Agent Phone', key: 'insPhone' }] },
   { g: 'Property Tax', fields: [{ l: 'Tax / Parcel Account', key: 'taxId' }, { l: 'Assessed Value', t: 'money' }, { l: 'Annual Tax', key: 'taxAnnual', t: 'money' }, { l: 'Tax Rate' }, { l: 'Due Dates', key: 'taxDue' }] },
   { g: 'Ownership + Core Team', fields: [{ l: 'Ownership Entity', key: 'entity' }, { l: 'PM / Asset Manager', key: 'manager' }, { l: 'Developer / Sponsor', dev: true }, { l: 'Seller (if applicable)', dev: true }, { l: 'Architect', dev: true }, { l: 'Civil', dev: true }, { l: 'Structural', dev: true }, { l: 'MEP', dev: true }, { l: 'GC / CM', key: 'builder', dev: true }, { l: 'Land Use Attorney', dev: true }, { l: 'Title / Escrow', dev: true }] },
@@ -1807,6 +1809,42 @@ function CriticalDates({ store, openProperty, only }) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// Compact pill row on the detail view to jump between linked parcels in the same project
+// group. Hidden for vehicles/equipment and for single-member (standalone) groups.
+function ParcelSwitcher({ p, props, openProperty }) {
+  if (inferAssetKind(p) !== 'property') return null;
+  const primaryId = p.parentId || p.id;
+  const members = props.filter(x => x.id === primaryId || x.parentId === primaryId);
+  if (members.length < 2) return null;
+  // primary first, then by parcelOrder, then name
+  const ordered = [...members].sort((a, b) => {
+    const ap = a.id === primaryId ? -1 : 0, bp = b.id === primaryId ? -1 : 0;
+    if (ap !== bp) return ap - bp;
+    const ao = a.parcelOrder ?? 999, bo = b.parcelOrder ?? 999;
+    if (ao !== bo) return ao - bo;
+    return (a.name || '') < (b.name || '') ? -1 : 1;
+  });
+  const groupName = members.find(x => x.id === primaryId)?.siteName || 'Linked Parcels';
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 16, padding: '10px 12px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10 }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)' }}>
+        <Link2 size={13} /> {groupName}
+      </span>
+      {ordered.map(m => {
+        const on = m.id === p.id;
+        const isPrimary = m.id === primaryId;
+        return (
+          <button key={m.id} onClick={() => !on && openProperty(m.id)} title={isPrimary ? 'Primary parcel' : 'Secondary parcel'}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: 999, fontSize: '0.78rem', fontWeight: 600, cursor: on ? 'default' : 'pointer', border: '1px solid', borderColor: on ? 'var(--pine)' : 'var(--border-color)', background: on ? 'var(--pine)' : 'var(--bg-card)', color: on ? '#fff' : 'var(--text-secondary)' }}>
+            {m.name}
+            {isPrimary && <span style={{ fontSize: '0.6rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', opacity: 0.85 }}>· Primary</span>}
+          </button>
+        );
+      })}
     </div>
   );
 }
