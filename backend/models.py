@@ -470,6 +470,7 @@ class NexusEmployee(Base):
     photo_url       = Column(String, default="")
     status          = Column(String, default="active")         # onboarding | active | inactive | offboarded
     location        = Column(String, default="")
+    company         = Column(String, default="")               # HrEntity.id — which legal entity employs this worker
     notes           = Column(String, default="")
     m365_id         = Column(String, default="")               # account pointers for provisioning (Phase 4)
     asana_id        = Column(String, default="")
@@ -807,3 +808,38 @@ class PropertyActivityLog(Base):
     property_id = Column(String, default="")
     payload     = Column(JSON, default=dict)
     created_at  = Column(String, default="")
+
+
+class HrEntity(Base):
+    """A legal entity/company that employs workers (HR Section A). Every worker's
+    `company` points at one of these. E.g. Greens, Greens India, MCD, Oversite."""
+    __tablename__ = "hr_entities"
+    id                 = Column(String, primary_key=True)   # uuid
+    name               = Column(String, nullable=False)     # short display name (e.g. "Greens India")
+    legal_name         = Column(String, default="")         # full registered legal name
+    country            = Column(String, default="")         # US | IN | ...
+    tax_id             = Column(String, default="")         # EIN (US) / GSTIN (IN)
+    registered_address = Column(String, default="")
+    signatory          = Column(String, default="")         # authorized signatory name/title
+    logo_url           = Column(String, default="")
+    notes              = Column(String, default="")
+    created_by         = Column(String, default="")
+    created_at         = Column(String, default="")
+    updated_at         = Column(String, default="")
+
+
+class HrWorkSite(Base):
+    """A physical work site (HR Section A) — used later for geofenced time-clock
+    validation. lat/long + radius define the geofence."""
+    __tablename__ = "hr_work_sites"
+    id            = Column(String, primary_key=True)   # uuid
+    name          = Column(String, nullable=False)
+    address       = Column(String, default="")
+    latitude      = Column(String, default="")
+    longitude     = Column(String, default="")
+    radius_m      = Column(Integer, default=150)       # geofence radius in metres
+    company       = Column(String, default="")         # HrEntity.id this site belongs to (optional)
+    notes         = Column(String, default="")
+    created_by    = Column(String, default="")
+    created_at    = Column(String, default="")
+    updated_at    = Column(String, default="")

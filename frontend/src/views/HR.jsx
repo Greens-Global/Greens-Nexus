@@ -3,6 +3,7 @@ import {
   Users, Plus, Search, X, Loader2, Mail, Phone, Briefcase, MapPin,
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
+  Building2, Trash2, MapPinned,
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -51,7 +52,7 @@ function useIsMobile(bp = 900) {
 }
 
 // ── Add / Edit modal ──────────────────────────────────────────────────────────
-function EmployeeFormModal({ employee, employees, onClose, onSaved, toastErr }) {
+function EmployeeFormModal({ employee, employees, entities = [], onClose, onSaved, toastErr }) {
   const editing = !!employee;
   const [f, setF] = useState(() => ({
     first_name:      employee?.firstName || '',
@@ -66,6 +67,7 @@ function EmployeeFormModal({ employee, employees, onClose, onSaved, toastErr }) 
     manager_email:   employee?.managerEmail || '',
     status:          employee?.status || 'active',
     location:        employee?.location || '',
+    company:         employee?.company || '',
     notes:           employee?.notes || '',
   }));
   const [busy, setBusy] = useState(false);
@@ -139,6 +141,13 @@ function EmployeeFormModal({ employee, employees, onClose, onSaved, toastErr }) 
             </select>
           </div>
           {input('LOCATION', 'location', { placeholder: 'e.g. Escondido office' })}
+          <div>
+            <label style={FL}>COMPANY / ENTITY</label>
+            <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={e => set('company', e.target.value)}>
+              <option value="">— not set —</option>
+              {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+            </select>
+          </div>
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={FL}>NOTES</label>
             <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
@@ -486,7 +495,7 @@ function PhotoEditorModal({ employee: e, onClose, onSaved, toastOk, toastErr }) 
 }
 
 // ── Profile detail pane ───────────────────────────────────────────────────────
-function EmployeeDetail({ e, employees, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated }) {
+function EmployeeDetail({ e, employees, companyName = '', onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated }) {
   const [provisionOpen, setProvisionOpen] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
   const [welcomeBusy, setWelcomeBusy] = useState(false);
@@ -554,6 +563,7 @@ function EmployeeDetail({ e, employees, onEdit, onBack, isMobile, toastOk, toast
         {row(Mail, 'Personal', e.personalEmail)}
         {row(Phone, 'Phone', e.phone)}
         {row(Briefcase, 'Department', [e.department, TYPE_LABEL[e.employmentType]].filter(Boolean).join(' · '))}
+        {companyName && row(Building2, 'Company', companyName)}
         {row(CalendarOff, 'Start date', e.startDate)}
         {row(MapPin, 'Location', e.location)}
         {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : e.managerEmail)}
@@ -1133,6 +1143,111 @@ function LeaveTab({ employees, toastOk, toastErr }) {
 }
 
 // ── Main view ─────────────────────────────────────────────────────────────────
+// ── Companies / legal entities manager (HR Section A) ────────────────────────
+function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
+  const blank = { name: '', legal_name: '', country: '', tax_id: '', registered_address: '', signatory: '', notes: '' };
+  const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
+  const [f, setF] = useState(blank);
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const startNew = () => { setF(blank); setMode('new'); };
+  const startEdit = en => { setF({ name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '', registered_address: en.registeredAddress || '', signatory: en.signatory || '', notes: en.notes || '' }); setMode(en.id); };
+
+  async function save() {
+    if (!f.name.trim() || busy) return; setBusy(true);
+    try {
+      if (mode === 'new') await api.createEntity(f); else await api.updateEntity(mode, f);
+      await onChanged(); toastOk('Company saved.'); setMode(null);
+    } catch (e) { toastErr(e?.message || 'Could not save company.'); }
+    setBusy(false);
+  }
+  async function remove(en) {
+    if (!window.confirm(`Delete “${en.name}”? Workers keep their record but lose this company link.`)) return;
+    try { await api.deleteEntity(en.id); await onChanged(); toastOk('Company deleted.'); }
+    catch (e) { toastErr(e?.message || 'Could not delete company.'); }
+  }
+  async function seedDefaults() {
+    setBusy(true);
+    try {
+      for (const [name, country] of [['Greens', 'US'], ['Greens India', 'IN'], ['MCD', 'US'], ['Oversite', 'US']]) await api.createEntity({ name, country });
+      await onChanged(); toastOk('Added the 4 default entities.');
+    } catch (e) { toastErr(e?.message || 'Could not add defaults.'); }
+    setBusy(false);
+  }
+  const field = (label, key, props = {}) => (
+    <div>
+      <label style={FL}>{label}</label>
+      <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} />
+    </div>
+  );
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 620, maxHeight: 'min(92dvh, 760px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Building2 size={17} color="hsl(var(--color-blue))" />
+          </div>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{mode ? (mode === 'new' ? 'Add Company' : 'Edit Company') : 'Companies & Entities'}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+
+        {mode ? (
+          <>
+            <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div style={{ gridColumn: '1 / -1' }}>{field('NAME *', 'name', { autoFocus: true, placeholder: 'e.g. Greens India' })}</div>
+              {field('LEGAL NAME', 'legal_name', { placeholder: 'full registered name' })}
+              <div>
+                <label style={FL}>COUNTRY</label>
+                <select className="form-input" style={{ width: '100%' }} value={f.country} onChange={e => set('country', e.target.value)}>
+                  <option value="">—</option><option value="US">United States (US)</option><option value="IN">India (IN)</option>
+                </select>
+              </div>
+              {field('TAX ID (EIN / GSTIN)', 'tax_id')}
+              {field('AUTHORIZED SIGNATORY', 'signatory', { placeholder: 'name, title' })}
+              <div style={{ gridColumn: '1 / -1' }}>{field('REGISTERED ADDRESS', 'registered_address')}</div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={FL}>NOTES</label>
+                <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} />
+              </div>
+            </div>
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
+              <button className="secondary-btn" onClick={() => setMode(null)} disabled={busy}>Back</button>
+              <button className="primary-btn" onClick={save} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
+                {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div style={{ overflowY: 'auto', flex: 1, padding: '14px 18px' }}>
+              {entities.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '28px 16px', color: 'var(--muted)' }}>
+                  <p style={{ fontSize: 13, marginBottom: 14 }}>No companies yet. Add your legal entities so every worker can be tied to one.</p>
+                  <button className="secondary-btn" onClick={seedDefaults} disabled={busy} style={{ marginRight: 8 }}>Add Greens · Greens India · MCD · Oversite</button>
+                </div>
+              ) : entities.map(en => (
+                <div key={en.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 700 }}>{en.name} {en.country && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>· {en.country}</span>}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[en.legalName, en.taxId && `Tax ${en.taxId}`, en.signatory].filter(Boolean).join(' · ') || '—'}</div>
+                  </div>
+                  <button className="secondary-btn" onClick={() => startEdit(en)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
+                  <button onClick={() => remove(en)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
+              <button className="primary-btn" onClick={startNew} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Company</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function HR({ activeSub, onSubChange }) {
   // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now
   const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave'].includes(activeSub) ? activeSub : 'hr-people';
@@ -1147,6 +1262,8 @@ export default function HR({ activeSub, onSubChange }) {
   const [selectedId, setSelectedId] = useState(null);
   const [formOpen,  setFormOpen]  = useState(false);
   const [editing,   setEditing]   = useState(null);
+  const [entities,  setEntities]  = useState([]);
+  const [entitiesOpen, setEntitiesOpen] = useState(false);
   const [toast,     setToast]     = useState(null);
 
   const toastErr = msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
@@ -1175,7 +1292,10 @@ export default function HR({ activeSub, onSubChange }) {
       .catch(err => setError(err?.message || 'Could not load employees.'))
       .finally(() => setLoading(false));
   }
+  const loadEntities = () => api.getEntities().then(setEntities).catch(() => setEntities([]));
   useEffect(load, []);
+  useEffect(() => { loadEntities(); }, []);
+  const entityName = id => entities.find(en => en.id === id)?.name || '';
 
   const filtered = useMemo(() => employees.filter(e => {
     if (deptF !== 'All' && e.department !== deptF) return false;
@@ -1221,6 +1341,11 @@ export default function HR({ activeSub, onSubChange }) {
               title="Pull people from M365 — only @greensglobal.com and @greensstorage.com accounts. New people are added; existing profiles get linked and empty fields backfilled from Entra."
               onClick={runSync}>
               {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <History size={14} />} Sync from M365
+            </button>
+            <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
+              title="Manage companies / legal entities and work sites"
+              onClick={() => setEntitiesOpen(true)}>
+              <Building2 size={14} /> Companies
             </button>
             <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
               onClick={() => { setEditing(null); setFormOpen(true); }}>
@@ -1327,6 +1452,7 @@ export default function HR({ activeSub, onSubChange }) {
               <div style={isMobile ? undefined : { position: 'sticky', top: 68, alignSelf: 'start', maxHeight: 'calc(100vh - 280px)', minHeight: 380, overflowY: 'auto' }}>
                 {selected ? (
                   <EmployeeDetail e={selected} employees={employees} isMobile={isMobile}
+                    companyName={entityName(selected.company)}
                     toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved}
                     onEdit={emp => { setEditing(emp); setFormOpen(true); }}
                     onBack={() => setSelectedId(null)} />
@@ -1343,9 +1469,13 @@ export default function HR({ activeSub, onSubChange }) {
       </>)}
 
       {formOpen && (
-        <EmployeeFormModal employee={editing} employees={employees}
+        <EmployeeFormModal employee={editing} employees={employees} entities={entities}
           onClose={() => { setFormOpen(false); setEditing(null); }}
           onSaved={onSaved} toastErr={toastErr} />
+      )}
+      {entitiesOpen && (
+        <EntitiesModal entities={entities} onClose={() => setEntitiesOpen(false)}
+          onChanged={loadEntities} toastOk={toastOk} toastErr={toastErr} />
       )}
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.kind === 'error' ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)', maxWidth: '90vw' }}>

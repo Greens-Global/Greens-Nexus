@@ -395,6 +395,16 @@ export const api = {
   updateEmployee: (id, data) => req(`/hr/employees/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteEmployee: (id)       => req(`/hr/employees/${id}`, { method: 'DELETE' }),
 
+  // HR — companies/entities & work sites (Section A foundation)
+  getEntities:    ()         => req('/hr/entities'),
+  createEntity:   (data)     => req('/hr/entities', { method: 'POST', body: JSON.stringify(data) }),
+  updateEntity:   (id, data) => req(`/hr/entities/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteEntity:   (id)       => req(`/hr/entities/${id}`, { method: 'DELETE' }),
+  getWorkSites:   ()         => req('/hr/work-sites'),
+  createWorkSite: (data)     => req('/hr/work-sites', { method: 'POST', body: JSON.stringify(data) }),
+  updateWorkSite: (id, data) => req(`/hr/work-sites/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteWorkSite: (id)       => req(`/hr/work-sites/${id}`, { method: 'DELETE' }),
+
   // HR — hiring pipeline
   getCandidates:       ()         => req('/hr/candidates'),
   getCandidateHistory: (id)       => req(`/hr/candidates/${id}/history`),
