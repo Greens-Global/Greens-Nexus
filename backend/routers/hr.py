@@ -16,6 +16,10 @@ from models import NexusEmployee
 require_hr_read   = require_module_grant("hr", "viewer")
 require_hr_write  = require_module_grant("hr", "editor")
 require_hr_delete = require_module_grant("hr", "owner", bypass_level="owner")
+# Compensation + bank are salary-sensitive (Section B): only Global Admins (owner)
+# bypass; everyone else needs an explicit "hr_comp" Access Group grant.
+require_hr_comp_read  = require_module_grant("hr_comp", "viewer", bypass_level="owner")
+require_hr_comp_write = require_module_grant("hr_comp", "editor", bypass_level="owner")
 
 router = APIRouter(prefix="/hr", tags=["hr"])
 
@@ -38,6 +42,8 @@ class EmployeeIn(BaseModel):
     location:        Optional[str] = ""
     company:         Optional[str] = ""
     contractor:      Optional[dict] = None
+    personal:        Optional[dict] = None
+    compliance:      Optional[dict] = None
     notes:           Optional[str] = ""
 
 
@@ -56,6 +62,8 @@ class EmployeeUpdate(BaseModel):
     location:        Optional[str] = None
     company:         Optional[str] = None
     contractor:      Optional[dict] = None
+    personal:        Optional[dict] = None
+    compliance:      Optional[dict] = None
     notes:           Optional[str] = None
 
 
@@ -95,6 +103,8 @@ def _serialize(e: NexusEmployee) -> dict:
         "location":       e.location,
         "company":        e.company,
         "contractor":     e.contractor or {},
+        "personal":       e.personal or {},
+        "compliance":     e.compliance or {},
         "notes":          e.notes,
         "m365Id":         e.m365_id,
         "asanaId":        e.asana_id,
@@ -132,6 +142,8 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         location=(body.location or "").strip(),
         company=(body.company or "").strip(),
         contractor=body.contractor or {},
+        personal=body.personal or {},
+        compliance=body.compliance or {},
         notes=body.notes or "",
         created_by=user["email"],
         created_at=now,
@@ -1234,3 +1246,45 @@ def delete_work_site(site_id: str, user: dict = Depends(require_hr_delete), db: 
     if row:
         db.delete(row); db.commit()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# HR Section B — Compensation + Bank (salary-restricted: hr_comp grant / owner)
+# ---------------------------------------------------------------------------
+class CompensationIn(BaseModel):
+    compensation: Optional[dict] = None   # {base, payBasis, frequency, currency, effectiveDate, history[]}
+    bank:         Optional[list] = None   # [{holder, number, routingOrIfsc, type, bankName}]
+
+
+@router.get("/employees/{eid}/compensation")
+def get_compensation(eid: str, user: dict = Depends(require_hr_comp_read), db: Session = Depends(get_db)):
+    row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not row:
+        raise HTTPException(404, "Employee not found")
+    return {"compensation": row.compensation or {}, "bank": row.bank or []}
+
+
+@router.put("/employees/{eid}/compensation")
+def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(require_hr_comp_write), db: Session = Depends(get_db)):
+    row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not row:
+        raise HTTPException(404, "Employee not found")
+    if body.compensation is not None:
+        incoming = dict(body.compensation or {})
+        current = dict(row.compensation or {})
+        # Auto-snapshot the prior base into history when the base pay changes.
+        old_base, new_base = str(current.get("base", "")), str(incoming.get("base", ""))
+        history = list(incoming.get("history") or current.get("history") or [])
+        if old_base and old_base != new_base:
+            history.insert(0, {
+                "base": current.get("base", ""), "currency": current.get("currency", ""),
+                "payBasis": current.get("payBasis", ""), "effectiveDate": current.get("effectiveDate", ""),
+                "changedAt": datetime.now(timezone.utc).isoformat(), "changedBy": user["email"],
+            })
+        incoming["history"] = history
+        row.compensation = incoming
+    if body.bank is not None:
+        row.bank = body.bank
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit()
+    return {"compensation": row.compensation or {}, "bank": row.bank or []}

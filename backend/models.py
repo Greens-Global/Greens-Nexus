@@ -472,6 +472,10 @@ class NexusEmployee(Base):
     location        = Column(String, default="")
     company         = Column(String, default="")               # HrEntity.id — which legal entity employs this worker
     contractor      = Column(JSON, default=dict)               # contractor-only fields (scope/SOW/dates/rate/client) — HR Section A
+    personal        = Column(JSON, default=dict)               # emergency contact, addresses, DOB, masked IDs — HR Section B
+    compensation    = Column(JSON, default=dict)               # base/basis/frequency/currency + history — RESTRICTED (hr_comp grant)
+    bank            = Column(JSON, default=list)               # list of bank accounts — RESTRICTED (hr_comp grant)
+    compliance      = Column(JSON, default=dict)               # right-to-work / visa / verification — HR Section B
     notes           = Column(String, default="")
     m365_id         = Column(String, default="")               # account pointers for provisioning (Phase 4)
     asana_id        = Column(String, default="")

@@ -21,6 +21,7 @@ export const MODULES = [
   { id: 'accounting',          label: 'Accounting' },
   { id: 'investor-relations',  label: 'Investor Relations' },
   { id: 'hr',                  label: 'HR' },
+  { id: 'hr_comp',             label: 'HR — Compensation (salary/bank)' },
   { id: 'marketing',           label: 'Marketing' },
   { id: 'external-links',      label: 'External Links' },
   { id: 'inventory',           label: 'Item Management' },

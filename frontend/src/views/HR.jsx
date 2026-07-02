@@ -3,9 +3,10 @@ import {
   Users, Plus, Search, X, Loader2, Mail, Phone, Briefcase, MapPin,
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
-  Building2, Trash2, MapPinned,
+  Building2, Trash2, MapPinned, Wallet, Landmark, Lock,
 } from 'lucide-react';
 import { api } from '../api';
+import { useRole } from '../contexts/RoleContext';
 
 // ── HR module — Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -530,9 +531,10 @@ function PhotoEditorModal({ employee: e, onClose, onSaved, toastOk, toastErr }) 
 }
 
 // ── Profile detail pane ───────────────────────────────────────────────────────
-function EmployeeDetail({ e, employees, companyName = '', onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated }) {
+function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated }) {
   const [provisionOpen, setProvisionOpen] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
+  const [compOpen, setCompOpen] = useState(false);
   const [welcomeBusy, setWelcomeBusy] = useState(false);
   const sm = STATUS_META[e.status] || STATUS_META.active;
   const manager = employees.find(m => m.workEmail && m.workEmail === e.managerEmail);
@@ -570,6 +572,12 @@ function EmployeeDetail({ e, employees, companyName = '', onEdit, onBack, isMobi
         <button className="secondary-btn" onClick={() => onEdit(e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
           <Pencil size={13} /> Edit
         </button>
+        {canSeeComp && (
+          <button className="secondary-btn" onClick={() => setCompOpen(true)} title="Compensation & bank (restricted)"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+            <Wallet size={13} /> Pay & Bank
+          </button>
+        )}
         {!e.m365Id ? (
           <button className="primary-btn" onClick={() => setProvisionOpen(true)}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, background: 'hsl(var(--color-green))' }}>
@@ -617,6 +625,9 @@ function EmployeeDetail({ e, employees, companyName = '', onEdit, onBack, isMobi
         <ProvisionModal employee={e} toastErr={toastErr}
           onClose={() => setProvisionOpen(false)}
           onDone={updated => { onEmployeeUpdated(updated); toastOk(`${fullName(e)} provisioned.`); }} />
+      )}
+      {compOpen && (
+        <CompensationModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => setCompOpen(false)} />
       )}
     </div>
   );
@@ -1286,6 +1297,109 @@ function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
   );
 }
 
+// ── Compensation + bank (HR Section B — gated by hr_comp grant / owner) ──────
+const PAY_BASIS = [['salary', 'Salary'], ['hourly', 'Hourly'], ['daily', 'Daily'], ['fixed_fee', 'Fixed fee']];
+const PAY_FREQ  = [['monthly', 'Monthly'], ['semimonthly', 'Semi-monthly'], ['biweekly', 'Bi-weekly'], ['weekly', 'Weekly']];
+const BANK_TYPES = [['checking', 'Checking'], ['savings', 'Savings'], ['current', 'Current']];
+
+function CompensationModal({ employee, onClose, toastOk, toastErr }) {
+  const [comp, setComp] = useState({ base: '', payBasis: 'salary', frequency: 'monthly', currency: 'USD', effectiveDate: '', history: [] });
+  const [bank, setBank] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const setC = (k, v) => setComp(p => ({ ...p, [k]: v }));
+
+  useEffect(() => {
+    let live = true;
+    api.getCompensation(employee.id)
+      .then(r => { if (!live) return; setComp({ base: '', payBasis: 'salary', frequency: 'monthly', currency: 'USD', effectiveDate: '', history: [], ...(r.compensation || {}) }); setBank(r.bank || []); })
+      .catch(e => toastErr(e?.message || 'Could not load compensation.'))
+      .finally(() => live && setLoading(false));
+    return () => { live = false; };
+  }, [employee.id]);
+
+  const addBank = () => setBank(b => [...b, { holder: '', bankName: '', number: '', routingOrIfsc: '', type: 'checking' }]);
+  const setBankField = (i, k, v) => setBank(b => b.map((x, j) => j === i ? { ...x, [k]: v } : x));
+  const removeBank = i => setBank(b => b.filter((_, j) => j !== i));
+
+  async function save() {
+    if (busy) return; setBusy(true);
+    try {
+      const clean = { ...comp }; delete clean.history;   // server owns history
+      await api.saveCompensation(employee.id, { compensation: clean, bank });
+      toastOk('Compensation saved.'); onClose();
+    } catch (e) { toastErr(e?.message || 'Could not save compensation.'); setBusy(false); }
+  }
+  const money = (v, cur) => v ? `${cur === 'INR' ? '₹' : '$'}${Number(v).toLocaleString()}` : '—';
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 620, maxHeight: 'min(92dvh, 780px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-green),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Wallet size={17} color="hsl(var(--color-green))" />
+          </div>
+          <div style={{ flex: 1 }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Pay & Bank — {fullName(employee)}</h3>
+            <div style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 2 }}><Lock size={11} /> Restricted · compensation grant</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+
+        {loading ? (
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} /></div>
+        ) : (
+          <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 10 }}>BASE PAY</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div><label style={FL}>BASE AMOUNT</label><input className="form-input" style={{ width: '100%' }} type="number" value={comp.base} onChange={e => setC('base', e.target.value)} placeholder="e.g. 90000" /></div>
+              <div><label style={FL}>CURRENCY</label><select className="form-input" style={{ width: '100%' }} value={comp.currency} onChange={e => setC('currency', e.target.value)}><option value="USD">USD</option><option value="INR">INR</option></select></div>
+              <div><label style={FL}>PAY BASIS</label><select className="form-input" style={{ width: '100%' }} value={comp.payBasis} onChange={e => setC('payBasis', e.target.value)}>{PAY_BASIS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+              <div><label style={FL}>PAY FREQUENCY</label><select className="form-input" style={{ width: '100%' }} value={comp.frequency} onChange={e => setC('frequency', e.target.value)}>{PAY_FREQ.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+              <div><label style={FL}>EFFECTIVE DATE</label><input className="form-input" style={{ width: '100%' }} type="date" value={comp.effectiveDate} onChange={e => setC('effectiveDate', e.target.value)} /></div>
+            </div>
+
+            {comp.history?.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 8 }}>HISTORY</div>
+                {comp.history.map((h, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '5px 0', borderBottom: '1px solid var(--line)', color: 'var(--muted)' }}>
+                    <span>{money(h.base, h.currency)} · {h.payBasis || ''}</span>
+                    <span>{h.effectiveDate || (h.changedAt || '').slice(0, 10)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', margin: '20px 0 10px', display: 'flex', alignItems: 'center', gap: 6 }}><Landmark size={13} /> BANK ACCOUNTS</div>
+            {bank.map((acc, i) => (
+              <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div><label style={FL}>ACCOUNT HOLDER</label><input className="form-input" style={{ width: '100%' }} value={acc.holder} onChange={e => setBankField(i, 'holder', e.target.value)} /></div>
+                  <div><label style={FL}>BANK NAME</label><input className="form-input" style={{ width: '100%' }} value={acc.bankName} onChange={e => setBankField(i, 'bankName', e.target.value)} /></div>
+                  <div><label style={FL}>ACCOUNT NUMBER</label><input className="form-input" style={{ width: '100%' }} value={acc.number} onChange={e => setBankField(i, 'number', e.target.value)} /></div>
+                  <div><label style={FL}>ROUTING / IFSC</label><input className="form-input" style={{ width: '100%' }} value={acc.routingOrIfsc} onChange={e => setBankField(i, 'routingOrIfsc', e.target.value)} /></div>
+                  <div><label style={FL}>TYPE</label><select className="form-input" style={{ width: '100%' }} value={acc.type} onChange={e => setBankField(i, 'type', e.target.value)}>{BANK_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+                </div>
+                <button onClick={() => removeBank(i)} style={{ marginTop: 8, background: 'none', border: 'none', color: 'hsl(var(--color-red))', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={12} /> Remove</button>
+              </div>
+            ))}
+            <button className="secondary-btn" onClick={addBank} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add bank account</button>
+          </div>
+        )}
+
+        <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
+          <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="primary-btn" onClick={save} disabled={busy || loading} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || loading) ? 0.6 : 1 }}>
+            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Work sites registry (HR Section A — geofence foundation for Time Clock) ───
 function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr }) {
   const blank = { name: '', address: '', latitude: '', longitude: '', radius_m: 150, company: '', notes: '' };
@@ -1400,6 +1514,8 @@ export default function HR({ activeSub, onSubChange }) {
   const [sites,     setSites]     = useState([]);
   const [sitesOpen, setSitesOpen] = useState(false);
   const [toast,     setToast]     = useState(null);
+  const { canAccessModule } = useRole();
+  const canSeeComp = canAccessModule('hr_comp', 'owner', 'viewer');
 
   const toastErr = msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
   const toastOk  = msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
@@ -1593,7 +1709,7 @@ export default function HR({ activeSub, onSubChange }) {
               <div style={isMobile ? undefined : { position: 'sticky', top: 68, alignSelf: 'start', maxHeight: 'calc(100vh - 280px)', minHeight: 380, overflowY: 'auto' }}>
                 {selected ? (
                   <EmployeeDetail e={selected} employees={employees} isMobile={isMobile}
-                    companyName={entityName(selected.company)}
+                    companyName={entityName(selected.company)} canSeeComp={canSeeComp}
                     toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved}
                     onEdit={emp => { setEditing(emp); setFormOpen(true); }}
                     onBack={() => setSelectedId(null)} />
