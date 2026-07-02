@@ -51,7 +51,7 @@ export default function App() {
   // owns hydration (localStorage -> IndexedDB -> server reconcile) and background sync — see
   // lib/useNexusStore.js and lib/sync.js. This component only ever reads `store` and calls
   // `setStore(updater)`; it never touches localStorage/IndexedDB/the network directly.
-  const [store, setStore] = useNexusStore();
+  const [store, setStore, loading] = useNexusStore();
 
   const [view, setView] = useState('portfolio');       // 'portfolio' | 'manage' | a TAB_LIST key
   const [activeId, setActiveId] = useState(null);        // currently open asset's id, or null
@@ -608,7 +608,7 @@ export default function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
           <h1 style={{ fontSize: '1.5rem', fontFamily: "'Plus Jakarta Sans', sans-serif", letterSpacing: '-0.02em', margin: 0 }}>Asset Management</h1>
           <span style={{ marginLeft: 'auto', fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-            {pulse.assets}{pulse.assets === 1 ? ' Asset' : ' Assets'}
+            {loading && !visibleProperties.length ? '…' : `${pulse.assets}${pulse.assets === 1 ? ' Asset' : ' Assets'}`}
           </span>
           <button className="primary-btn" onClick={() => navigate('manage')} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Settings size={14} /> Manage
@@ -709,8 +709,14 @@ export default function App() {
         </>
       )}
 
-      {view === 'portfolio' && !active && <CriticalDates store={store} openProperty={openAsset} hideIfEmpty />}
-      {view === 'portfolio' && !active && <Portfolio props={visibleProperties} openProperty={openAsset} typeFilter={typeFilter} setTypeFilter={setTypeFilter} />}
+      {view === 'portfolio' && !active && loading && !visibleProperties.length && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, minHeight: 320, color: 'var(--text-secondary)' }}>
+          <div style={{ width: 30, height: 30, borderRadius: '50%', border: '3px solid var(--border-color)', borderTopColor: 'var(--pine)', animation: 'spin 0.8s linear infinite' }} />
+          <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>Loading assets…</div>
+        </div>
+      )}
+      {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <CriticalDates store={store} openProperty={openAsset} hideIfEmpty />}
+      {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <Portfolio props={visibleProperties} openProperty={openAsset} typeFilter={typeFilter} setTypeFilter={setTypeFilter} />}
 
       {view === 'property' && active?.assembled && !active.parentId && <AssemblageParcels lead={active} all={store.properties} onOpen={(id) => openAsset(id, 'property')} />}
       {view === 'property' && active && <CriticalDates store={store} only={active.id} openProperty={openAsset} onTab={navigate} />}

@@ -23,6 +23,9 @@ const EMPTY_STORE = {
  */
 export function useNexusStore() {
   const [store, setStore] = useState(EMPTY_STORE);
+  // `loading` is true until the first mount reconcile finishes, so the UI can show a spinner
+  // instead of the "no properties yet" empty state during the initial async hydration.
+  const [loading, setLoading] = useState(true);
   const storeRef = useRef(store);
   storeRef.current = store;
 
@@ -46,7 +49,7 @@ export function useNexusStore() {
         }
       })
       .catch(() => {})
-      .finally(() => { markHydrated(); });
+      .finally(() => { markHydrated(); if (alive) setLoading(false); });
     return () => { alive = false; };
   }, []);
 
@@ -67,5 +70,5 @@ export function useNexusStore() {
   //    form since it doesn't depend on prior state).
   useEffect(() => wireBackgroundSync((serverState) => setStore(VNORM(serverState))), []);
 
-  return [store, setStore];
+  return [store, setStore, loading];
 }
