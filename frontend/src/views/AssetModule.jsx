@@ -33,6 +33,7 @@ import wellsFargo from '../data/assets/wells-fargo-san-antonio.json';
 import { msalInstance } from '../msalInstance';
 import { api } from '../api';
 import { supabase } from '../lib/supabase';
+import { emailToName } from '../lib/utils';
 
 const RAW = [georgetown, austin, lakeside, rainbow, escondidoNorth, escondidoSouth, sachse,
   valleyCenterNorth, valleyCenterEast, valleyCenterSouth, greensFamily918, gurudevFamily910, rjkResidence, greensFairfield,
@@ -139,7 +140,7 @@ function adapt() {
     devStage: sv(p, 'Project Details', 'Development Stage'),
     placedInService: '', coNumber: '', coDate: '',
     unitsNonClimate: num0(sv(p, 'Unit Mix', 'Non-Climate')), unitsClimate: num0(sv(p, 'Unit Mix', 'Climate')),
-    unitsRV: num0(sv(p, 'Unit Mix', 'RV')), unitsTotal: num0(sv(p, 'Unit Mix', 'Total')),
+    unitsRV: num0(sv(p, 'Unit Mix', 'RV')), unitsMailbox: num0(sv(p, 'Unit Mix', 'Mailbox')), unitsTotal: num0(sv(p, 'Unit Mix', 'Total')),
     insCarrier: sv(p, 'Insurance', 'Insurance Carrier'), insPolicy: sv(p, 'Insurance', 'Policy Number'),
     insExpiration: sv(p, 'Insurance', 'Policy Expiration'), insAgent: sv(p, 'Insurance', 'Insurance Agent'), insPhone: '',
     taxId: sv(p, 'Property Tax', 'Tax Account'), taxAnnual: num0(sv(p, 'Property Tax', 'Annual Tax')), taxDue: sv(p, 'Property Tax', 'Tax Due'),
@@ -223,7 +224,7 @@ function hydrate(d) {
   }
   // Enrich with full source sheets; Development Stage must be one of the standard values;
   // migrate timeline status out of the Notes column.
-  return { ...d, vservice: d.vservice || [], odometer: d.odometer || [], properties: d.properties.map(p => {
+  return { ...d, vservice: d.vservice || [], odometer: d.odometer || [], vdocs: d.vdocs || [], maintenance: d.maintenance || [], properties: d.properties.map(p => {
     const e = enrichSource(p);
     // Refresh the seeded image from the source JSON (so updated property photos show even if an
     // old path was saved). User-uploaded images (data URLs) are left untouched.
@@ -239,7 +240,7 @@ function hydrate(d) {
 // store is empty.
 const seedData = () => hydrate(adapt());
 // Empty workspace rendered while the server load is in flight.
-const EMPTY_WS = { properties: [], warranties: [], inspections: [], documents: [], ahj: [], utilities: [], vendors: [], vservice: [], odometer: [], logs: [] };
+const EMPTY_WS = { properties: [], warranties: [], inspections: [], documents: [], ahj: [], utilities: [], vendors: [], vservice: [], odometer: [], vdocs: [], maintenance: [], logs: [] };
 
 /* ---------- collections config (Neil's exact fields + columns) ---------- */
 const COLLECTIONS = {
@@ -287,6 +288,28 @@ const COLLECTIONS = {
     sort: (a, b) => (a.nextDue || '9999') < (b.nextDue || '9999') ? -1 : 1,
     summary: rows => [['Overdue', rows.filter(r => dleft(r.nextDue) != null && dleft(r.nextDue) < 0).length], ['Due ≤ 30d', rows.filter(r => { const d = dleft(r.nextDue); return d != null && d >= 0 && d <= 30; }).length], ['Current', rows.filter(r => dleft(r.nextDue) == null || dleft(r.nextDue) > 30).length]],
   },
+  maintenance: {
+    title: 'Maintenance record', plural: 'Maintenance', empty: 'No maintenance logged. Record HVAC, roofing, and other service work with dates and costs.',
+    fields: [
+      { k: 'date', label: 'Service date', type: 'date', req: true },
+      { k: 'system', label: 'System / area', type: 'select', options: ['HVAC', 'Roofing', 'Plumbing', 'Electrical', 'Doors & Gates', 'Fire / Life Safety', 'Paving', 'Landscaping', 'Pest Control', 'Security', 'General', 'Other'] },
+      { k: 'unit', label: 'Unit / area' },
+      { k: 'description', label: 'Work performed', req: true, full: true, type: 'textarea' },
+      { k: 'vendor', label: 'Vendor' }, { k: 'cost', label: 'Cost', type: 'number' },
+      { k: 'status', label: 'Status', type: 'select', options: ['Completed', 'Scheduled', 'In Progress', 'Needs Attention'] },
+      { k: 'nextDue', label: 'Next service due', type: 'date' },
+      { k: 'docFile', label: 'Invoice (upload)', type: 'file', nameKey: 'docFileName', full: true },
+      { k: 'notes', label: 'Notes', type: 'textarea', full: true },
+    ],
+    cols: [
+      { label: 'Work', main: r => r.description, sub: r => [r.system, r.unit].filter(Boolean).join(' · ') },
+      { label: 'Date', mono: r => fmtDate(r.date) },
+      { label: 'Vendor', main: r => r.vendor || '—' },
+      { label: 'Status', main: r => r.status || '—' },
+    ],
+    sort: (a, b) => (a.date || '') < (b.date || '') ? 1 : -1,
+    summary: rows => [['Records', rows.length], ['Total spend', fmtMoney(rows.reduce((s, r) => s + num0(r.cost), 0))]],
+  },
   documents: {
     title: 'Document', plural: 'Plans & Documents', empty: 'No documents indexed. Register as-builts, CO, permits, surveys, and O&M manuals with their Egnyte locations.',
     fields: [
@@ -297,6 +320,24 @@ const COLLECTIONS = {
     ],
     cols: [
       { label: 'Document', main: r => r.title, sub: r => r.category + (r.version ? ' · ' + r.version : '') },
+      { label: 'Date', mono: r => fmtDate(r.dateOf) },
+      { label: 'Location', mono: r => r.location || '—' },
+    ],
+    sort: (a, b) => (a.category || '') < (b.category || '') ? -1 : 1,
+  },
+  vdocs: {
+    title: 'Document', plural: 'Documents', empty: 'No vehicle/equipment documents on file. Upload registration, title, insurance, loan, and warranty documents.',
+    fields: [
+      { k: 'category', label: 'Category', type: 'select', options: ['Registration', 'Title', 'Insurance', 'Loan / Finance', 'Warranty', 'Service Record', 'Manual', 'Other'] },
+      { k: 'title', label: 'Title', req: true },
+      { k: 'dateOf', label: 'Document date', type: 'date' },
+      { k: 'docFile', label: 'Document (upload)', type: 'file', nameKey: 'docFileName', full: true },
+      { k: 'egnyteDest', label: 'Egnyte destination folder', full: true },
+      { k: 'location', label: 'Location (Egnyte path)', full: true },
+      { k: 'notes', label: 'Notes', type: 'textarea', full: true },
+    ],
+    cols: [
+      { label: 'Document', main: r => r.title, sub: r => r.category },
       { label: 'Date', mono: r => fmtDate(r.dateOf) },
       { label: 'Location', mono: r => r.location || '—' },
     ],
@@ -529,7 +570,8 @@ const PROPERTY_FIELDS = [
   { k: 'placedInService', label: 'Placed-in-service date', type: 'date' }, { k: 'coNumber', label: 'CO number' }, { k: 'coDate', label: 'CO date', type: 'date' },
   { sec: 'Unit mix' },
   { k: 'unitsNonClimate', label: 'Non-climate units', type: 'number' }, { k: 'unitsClimate', label: 'Climate units', type: 'number' },
-  { k: 'unitsRV', label: 'RV / boat spaces', type: 'number' }, { k: 'unitsTotal', label: 'Total units', type: 'number' },
+  { k: 'unitsRV', label: 'RV / boat spaces', type: 'number' }, { k: 'unitsMailbox', label: 'Mailbox units', type: 'number' },
+  { k: 'unitsTotal', label: 'Total units (excludes mailbox)', type: 'number' },
   { sec: 'Insurance' },
   { k: 'insCarrier', label: 'Carrier' }, { k: 'insPolicy', label: 'Policy #' }, { k: 'insExpiration', label: 'Policy expiration', type: 'date' },
   { k: 'insAgent', label: 'Agent / broker' }, { k: 'insPhone', label: 'Agent phone' },
@@ -626,9 +668,9 @@ const VEHICLE_SEEDS = [
 
 // Per-property tabs. The change Log is intentionally NOT here — per Neil it is global and lives
 // on the Manage page, not on each property card.
-const TABS = [['portfolio', 'Portfolio'], ['property', 'Overview'], ['vservice', 'Service & Maintenance'], ['odometer', 'Odometer'], ['warranties', 'Warranties'], ['inspections', 'Inspections'], ['documents', 'Plans & Docs'], ['utilsahj', 'Utilities & AHJ'], ['vendors', 'Vendors'], ['timeline', 'Timeline'], ['permit', 'Permits']];
+const TABS = [['portfolio', 'Portfolio'], ['property', 'Overview'], ['vservice', 'Service & Maintenance'], ['odometer', 'Odometer'], ['vdocs', 'Documents'], ['maintenance', 'Maintenance'], ['warranties', 'Warranties'], ['inspections', 'Inspections'], ['documents', 'Plans & Docs'], ['utilsahj', 'Utilities & AHJ'], ['vendors', 'Vendors'], ['timeline', 'Timeline'], ['permit', 'Permits']];
 // Which collection(s) the single top-bar Search filters for each tab (absent = no searchable table).
-const TAB_COLLS = { vservice: ['vservice'], odometer: ['odometer'], warranties: ['warranties'], inspections: ['inspections'], documents: ['documents'], utilsahj: ['utilities', 'ahj'], vendors: ['vendors'] };
+const TAB_COLLS = { vservice: ['vservice'], odometer: ['odometer'], vdocs: ['vdocs'], maintenance: ['maintenance'], warranties: ['warranties'], inspections: ['inspections'], documents: ['documents'], utilsahj: ['utilities', 'ahj'], vendors: ['vendors'] };
 const LOGS_SEEN_KEY = 'nexus_asset_logs_seen';
 // Build one activity-log entry (who/when + the change details).
 const mkLog = (e) => ({ id: uidGen(), ts: new Date().toISOString(), user: currentUser(), ...e });
@@ -667,6 +709,8 @@ function Stat({ v, l, big }) {
 export default function AssetModule() {
   const role = useRole();
   const isManager = role?.can ? role.can('manager') : false; // managers (lvl ≥ 3) may remove warranties
+  // Officer-residence privacy: only IT Admin / Global Admin (lvl ≥ 4) see private assets.
+  const canSeePrivate = role?.can ? role.can('administrator') : false;
   const [data, setData] = useState(EMPTY_WS);
   const [loading, setLoading] = useState(true);
   const firstSaveSkip = useRef(true); // skip the save triggered by the initial server load
@@ -734,7 +778,9 @@ export default function AssetModule() {
 
   if (loading) return <div style={{ padding: 48, textAlign: 'center', color: 'var(--text-secondary)', fontWeight: 500, fontSize: '0.9rem' }}>Loading portfolio…</div>;
 
-  const props = data.properties.filter(p => !p.deleted);   // live cards (deleted ones go to the recover bin)
+  // live cards (deleted ones go to the recover bin); private officer residences are hidden
+  // from anyone below IT Admin.
+  const props = data.properties.filter(p => !p.deleted && (canSeePrivate || !p.private));
   const deletedProps = data.properties.filter(p => p.deleted);
   const byId = (id) => props.find(p => p.id === id);
   const active = activeId ? byId(activeId) : null;
@@ -766,6 +812,53 @@ export default function AssetModule() {
       return row ? pushLog(nd, { section: COLLECTIONS[coll].plural, property: prop?.name || '', propertyId: activeId, action: 'removed', item: rowTitle(coll, row), changes: [], reason: reason || '' }) : nd;
     });
     setModal(null);
+  };
+  // Officer-residence privacy toggle (admins only) — flips p.private + logs it.
+  const togglePrivate = (id) => {
+    if (!canSeePrivate) return;
+    setData(d => {
+      const arr = [...d.properties];
+      const i = arr.findIndex(p => p.id === id);
+      if (i < 0) return d;
+      const prop = arr[i]; const nowPrivate = !prop.private;
+      arr[i] = { ...prop, private: nowPrivate };
+      return pushLog({ ...d, properties: arr }, { section: 'Property', property: prop.name, propertyId: id, action: nowPrivate ? 'marked private' : 'made public', item: prop.name, changes: [] });
+    });
+  };
+  // Field-level "flag for review" (⚐) — stores {g,f,ts,user} on p.reviewFlags. Toggling logs it.
+  const toggleReviewFlag = (propId, group, field) => {
+    setData(d => {
+      const arr = [...d.properties];
+      const i = arr.findIndex(p => p.id === propId); if (i < 0) return d;
+      const prop = arr[i]; const flags = [...(prop.reviewFlags || [])];
+      const at = flags.findIndex(f => f.g === group && f.f === field);
+      let action;
+      if (at >= 0) { flags.splice(at, 1); action = 'unflagged'; }
+      else { flags.push({ g: group, f: field, ts: new Date().toISOString(), user: role?.myEmail || '' }); action = 'flagged for review'; }
+      arr[i] = { ...prop, reviewFlags: flags };
+      return pushLog({ ...d, properties: arr }, { section: 'Property', property: prop.name, propertyId: propId, action, item: `${group} — ${field}`, changes: [] });
+    });
+  };
+  // Jump to a flagged field and flash it (reuses the highlight mechanism).
+  const openToField = (id, group, field) => {
+    setActiveId(id); setTab('property');
+    setHighlight({ tab: 'property', section: group, field, item: '', n: Date.now() });
+  };
+  // Bulk-create properties from a filled-in CSV template (one asset per row).
+  const importPropertiesCsv = async (file) => {
+    try {
+      const rows = csvParse(await file.text());
+      if (rows.length < 2) { alert('CSV needs a header row plus at least one data row.'); return; }
+      const header = rows[0].map(h => h.trim());
+      const newProps = rows.slice(1).map(r => {
+        const obj = { id: uidGen(), parentId: '', siteName: '', reviewFlags: [] };
+        header.forEach((h, i) => { if (CSV_IMPORT_COLS.includes(h)) obj[h] = (r[i] ?? '').trim(); });
+        return obj.name ? obj : null;
+      }).filter(Boolean);
+      if (!newProps.length) { alert('No rows with a "name" value were found.'); return; }
+      setData(d => pushLog({ ...d, properties: [...d.properties, ...newProps] },
+        { section: 'Property', property: '', propertyId: '', action: 'imported', item: `${newProps.length} asset(s) via CSV`, changes: [] }));
+    } catch { alert('Could not read that CSV file.'); }
   };
   // Timeline / Permit rows live on the property object (active.timeline / active.permits)
   // as plain arrays without ids — edit & delete operate by original array index.
@@ -942,6 +1035,7 @@ export default function AssetModule() {
   /* ----- render ----- */
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
+      <ScrollTopFab />
       <style>{`
         @keyframes assetShimmer { 0% { background-position: -220px 0 } 100% { background-position: 220px 0 } }
         .asset-card { cursor: pointer; outline: none; transition: transform .18s cubic-bezier(.2,.7,.3,1), box-shadow .18s ease, border-color .18s ease; }
@@ -958,6 +1052,8 @@ export default function AssetModule() {
         .asset-linkrow { position: relative; transition: background-color .14s ease, box-shadow .14s ease; }
         .asset-linkrow:hover { background-color: var(--bg-card); box-shadow: inset 0 0 0 1.5px var(--pine); }
         @media (max-width: 860px) { .asset-toc { display: none !important; } }
+        /* review-flag toggle reveals on row hover; stays visible once flagged (.on) */
+        .gt-frow:hover .gt-flag { opacity: 1 !important; }
       `}</style>
       {/* Landing header — only on the portfolio landing (hidden on the Manage page, which has its own) */}
       {!active && tab !== 'manage' && (() => {
@@ -969,7 +1065,13 @@ export default function AssetModule() {
               <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginTop: 4 }}>{st.assets} assets</div>
               <PortfolioPulse data={data} />
             </div>
-            <div style={{ marginLeft: 'auto' }}>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button className="secondary-btn" onClick={() => exportPortfolioCsv(props)} title="Export the whole portfolio as CSV" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FileDown size={14} /> Export CSV</button>
+              <label className="secondary-btn" title="Bulk-add assets from a filled-in CSV template" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', margin: 0 }}>
+                <Upload size={14} /> Import CSV
+                <input type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) importPropertiesCsv(f); e.target.value = ''; }} />
+              </label>
+              <button className="secondary-btn" onClick={downloadImportTemplate} title="Download a blank CSV import template" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FileDown size={14} /> Template</button>
               <button className="primary-btn" onClick={() => openTab('manage')} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <Settings size={14} /> Manage
                 {unseenLogs > 0 && <span style={{ minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, fontSize: '0.64rem', fontWeight: 700, color: '#fff', backgroundColor: 'hsl(var(--color-red))', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{unseenLogs}</span>}
@@ -984,11 +1086,15 @@ export default function AssetModule() {
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
             <div style={{ minWidth: 0 }}>
-              <h1 style={{ fontSize: '1.5rem', fontFamily: "'Plus Jakarta Sans', sans-serif", letterSpacing: '-0.01em', color: 'var(--text-primary)', margin: 0 }}>{active.name}</h1>
+              <h1 style={{ fontSize: '1.5rem', fontFamily: "'Plus Jakarta Sans', sans-serif", letterSpacing: '-0.01em', color: 'var(--text-primary)', margin: 0, display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                {active.name}
+                {active.private && <span style={{ fontSize: '0.62rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '3px 8px', borderRadius: 999, color: 'hsl(var(--color-purple))', backgroundColor: 'hsla(var(--color-purple),0.12)' }}>🔒 Private</span>}
+              </h1>
               <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 3 }}>{fmtAddress(active) || '—'}</div>
             </div>
             <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', flexWrap: 'wrap' }}>
-              <button className="secondary-btn" onClick={() => exportReport(active, data)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FileDown size={14} /> Export PDF</button>
+              {canSeePrivate && <button className="secondary-btn" onClick={() => togglePrivate(active.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{active.private ? 'Make public' : 'Mark private'}</button>}
+              <ExportMenu p={active} data={data} />
               {tab === 'property' && <button className="primary-btn" onClick={() => setModal({ type: 'property', id: active.id })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Pencil size={14} /> Edit {inferAssetKind(active) === 'property' ? 'property' : 'asset'}</button>}
             </div>
           </div>
@@ -1013,8 +1119,8 @@ export default function AssetModule() {
             if (k === 'portfolio') return false;
             // Vehicles/equipment show only Overview + their two logs; properties hide those.
             return inferAssetKind(active) === 'property'
-              ? !['vservice', 'odometer'].includes(k)
-              : ['property', 'vservice', 'odometer'].includes(k);
+              ? !['vservice', 'odometer', 'vdocs'].includes(k)
+              : ['property', 'vservice', 'odometer', 'vdocs'].includes(k);
           }).map(([k, label]) => {
             const on = tab === k;
             const lbl = (k === 'property' && inferAssetKind(active) !== 'property') ? 'Overview' : label;
@@ -1036,11 +1142,16 @@ export default function AssetModule() {
         );
       })()}
 
+      {tab === 'portfolio' && !active && <CriticalDates store={data} openProperty={openProperty} />}
+      {tab === 'portfolio' && !active && <FlaggedForReview props={props} openToField={openToField} onClear={toggleReviewFlag} />}
       {tab === 'portfolio' && !active && <Portfolio {...{ props, openProperty, typeFilter, setTypeFilter }} />}
-      {tab === 'property' && active && <PropertyDetail {...{ p: active, onSaveImages: saveImages, highlight: highlight?.tab === 'property' ? highlight : null }} />}
+      {active && <ParcelSwitcher p={active} props={props} openProperty={openProperty} />}
+      {tab === 'property' && active && collectCriticalDates(data).some(x => x.id === active.id) && <CriticalDates store={data} openProperty={openProperty} only={active.id} />}
+      {tab === 'property' && active && <PropertyDetail {...{ p: active, onSaveImages: saveImages, highlight: highlight?.tab === 'property' ? highlight : null, onToggleFlag: toggleReviewFlag }} />}
       {tab === 'warranties' && active && <Collection coll="warranties" rows={rowsFor('warranties')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'warranties' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'warranties', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'warranties', id })} />}
       {tab === 'inspections' && active && <Collection coll="inspections" rows={rowsFor('inspections')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'inspections' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'inspections', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'inspections', id })} />}
       {tab === 'documents' && active && <Collection coll="documents" rows={rowsFor('documents')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'documents' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'documents', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'documents', id })} />}
+      {tab === 'maintenance' && active && <><QuickMaintBar onAdd={(vals) => saveRow('maintenance', null, vals)} /><Collection coll="maintenance" rows={rowsFor('maintenance')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'maintenance' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'maintenance', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'maintenance', id })} /></>}
       {tab === 'utilsahj' && active && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <Collection coll="utilities" collapsible rows={rowsFor('utilities')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.section === 'Utilities' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'utilities', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'utilities', id })} />
@@ -1048,12 +1159,13 @@ export default function AssetModule() {
         </div>
       )}
       {tab === 'vendors' && active && <Collection coll="vendors" rows={rowsFor('vendors')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.section === 'Vendors' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'vendors', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'vendors', id })} />}
-      {tab === 'vservice' && active && <Collection coll="vservice" rows={rowsFor('vservice')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'vservice' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'vservice', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'vservice', id })} />}
+      {tab === 'vservice' && active && <><RecommendedMaintenance p={active} /><Collection coll="vservice" rows={rowsFor('vservice')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'vservice' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'vservice', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'vservice', id })} /></>}
       {tab === 'odometer' && active && <Collection coll="odometer" rows={rowsFor('odometer')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'odometer' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'odometer', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'odometer', id })} />}
+      {tab === 'vdocs' && active && <Collection coll="vdocs" rows={rowsFor('vdocs')} active={active} filters={filters} setFilters={setFilters} highlightItem={highlight?.tab === 'vdocs' ? highlight.item : ''} onAdd={() => setModal({ type: 'row', coll: 'vdocs', id: null })} onEdit={(id) => setModal({ type: 'row', coll: 'vdocs', id })} />}
       {tab === 'timeline' && active && (() => {
         const cols = TIMELINE_COLS;
         const editCols = cols.filter(c => c[0] !== 'status'); // status is changed via its button (reason required), not the row form
-        return <EditTable title="Development Timeline" subtitle={active.name} rows={active.timeline} cols={cols} query={filters.timeline || ''} highlightItem={highlight?.section === 'Timeline' ? highlight.item : ''} onAdd={() => setModal({ type: 'plist', field: 'timeline', index: null, fields: editCols })} onEdit={(idx) => setModal({ type: 'plist', field: 'timeline', index: idx, fields: editCols })} onStatusClick={(idx, cur) => setModal({ type: 'tstatus', index: idx, current: cur })} />;
+        return <><TimelineTracker rows={active.timeline} /><EditTable title="Development Timeline" subtitle={active.name} rows={active.timeline} cols={cols} query={filters.timeline || ''} highlightItem={highlight?.section === 'Timeline' ? highlight.item : ''} onAdd={() => setModal({ type: 'plist', field: 'timeline', index: null, fields: editCols })} onEdit={(idx) => setModal({ type: 'plist', field: 'timeline', index: idx, fields: editCols })} onStatusClick={(idx, cur) => setModal({ type: 'tstatus', index: idx, current: cur })} /></>;
       })()}
       {tab === 'permit' && active && (() => {
         const cols = permitCols(active.permits);
@@ -1572,7 +1684,7 @@ const PT = [
   { g: 'Financial & Investment', fields: [{ l: 'Acquisition Date', t: 'date' }, { l: 'Acquisition Price', t: 'money' }, { l: 'Total Cost Basis', t: 'money' }, { l: 'Current / Appraised Value', t: 'money' }, { l: 'Valuation Date', t: 'date' }, { l: 'Going-in Cap Rate', t: 'pct' }, { l: 'Current Cap Rate', t: 'pct' }, { l: 'NOI (In-Place)', t: 'money' }, { l: 'NOI (Pro Forma)', t: 'money' }, { l: 'Occupancy %', t: 'pct' }, { l: 'Hold Strategy' }, { l: 'Target Hold (yrs)' }, { l: 'Projected IRR', t: 'pct' }, { l: 'Equity Multiple' }] },
   { g: 'Debt / Financing', fields: [{ l: 'Lender' }, { l: 'Loan Number' }, { l: 'Original Balance', t: 'money' }, { l: 'Current Balance', t: 'money' }, { l: 'Interest Rate', t: 'pct' }, { l: 'Rate Type' }, { l: 'Maturity Date', t: 'date' }, { l: 'Amortization' }, { l: 'LTV', t: 'pct' }, { l: 'DSCR' }, { l: 'Recourse' }, { l: 'Prepay / Lockout' }] },
   { g: 'Leasing & Tenancy', fields: [{ l: 'Tenant' }, { l: 'Lease Structure' }, { l: 'Commencement', t: 'date' }, { l: 'Expiration', t: 'date' }, { l: 'Base Rent (Annual)', t: 'money' }, { l: 'Rent PSF' }, { l: 'Escalations' }, { l: 'Renewal Options' }, { l: 'Guarantor' }, { l: 'WALT (yrs)' }, { l: 'Leased Occupancy', t: 'pct' }] },
-  { g: 'Unit Mix', fields: [{ l: 'Non-Climate Units', key: 'unitsNonClimate', t: 'num' }, { l: 'Climate Units', key: 'unitsClimate', t: 'num' }, { l: 'RV / Vehicle Spaces', key: 'unitsRV', t: 'num' }, { l: 'Total Units', key: 'unitsTotal', t: 'num' }] },
+  { g: 'Unit Mix', fields: [{ l: 'Non-Climate Units', key: 'unitsNonClimate', t: 'num' }, { l: 'Climate Units', key: 'unitsClimate', t: 'num' }, { l: 'RV / Vehicle Spaces', key: 'unitsRV', t: 'num' }, { l: 'Mailbox Units', key: 'unitsMailbox', t: 'num' }, { l: 'Total Units', key: 'unitsTotal', t: 'num' }] },
   { g: 'Insurance', fields: [{ l: 'Carrier', key: 'insCarrier' }, { l: 'Policy Number', key: 'insPolicy' }, { l: 'Coverage' }, { l: 'Policy Expiration', key: 'insExpiration', t: 'date' }, { l: 'Agent / Broker', key: 'insAgent' }, { l: 'Agent Phone', key: 'insPhone' }] },
   { g: 'Property Tax', fields: [{ l: 'Tax / Parcel Account', key: 'taxId' }, { l: 'Assessed Value', t: 'money' }, { l: 'Annual Tax', key: 'taxAnnual', t: 'money' }, { l: 'Tax Rate' }, { l: 'Due Dates', key: 'taxDue' }] },
   { g: 'Ownership + Core Team', fields: [{ l: 'Ownership Entity', key: 'entity' }, { l: 'PM / Asset Manager', key: 'manager' }, { l: 'Developer / Sponsor', dev: true }, { l: 'Seller (if applicable)', dev: true }, { l: 'Architect', dev: true }, { l: 'Civil', dev: true }, { l: 'Structural', dev: true }, { l: 'MEP', dev: true }, { l: 'GC / CM', key: 'builder', dev: true }, { l: 'Land Use Attorney', dev: true }, { l: 'Title / Escrow', dev: true }] },
@@ -1660,6 +1772,276 @@ function HealthStrip({ p, data }) {
   );
 }
 
+// Aggregate every date-driven obligation across the whole portfolio into a single
+// sorted list (soonest/most-overdue first). Ported from Neil's template.
+function collectCriticalDates(store) {
+  const props = (store.properties || []).filter(p => !p.deleted);
+  const byId = {}; props.forEach(p => { byId[p.id] = p; });
+  const out = [];
+  const push = (id, cat, label, date, detail) => {
+    if (!byId[id]) return;
+    const d = dleft(date); if (d == null) return;
+    const p = byId[id];
+    out.push({ id, name: p.siteName || p.name || 'Unknown asset', cat, label, detail: detail || '', date, days: d });
+  };
+  props.forEach(p => {
+    const sm = snapMap(p), isProp = inferAssetKind(p) === 'property';
+    push(p.id, 'Insurance', 'Policy expiration', p.insExpiration || sm['policy expiration']);
+    if (isProp) {
+      push(p.id, 'Property Tax', 'Tax payment due', p.taxDue);
+      push(p.id, 'Loan', 'Loan maturity', sm['maturity date']);
+    } else {
+      push(p.id, 'Registration', 'Registration expiration', p.regExpiration || sm['registration expiration']);
+      push(p.id, 'Service', 'Next service due', p.nextServiceDate || sm['next service due']);
+    }
+  });
+  (store.warranties || []).forEach(x => push(x.propertyId, 'Warranty', 'Warranty expiration', x.expiration, x.scope || x.party || x.kind));
+  (store.inspections || []).forEach(x => push(x.propertyId, 'Inspection', 'Inspection due', x.nextDue, x.type));
+  (store.vendors || []).forEach(x => {
+    push(x.propertyId, 'Contract', 'Contract end', x.contractEnd, x.company || x.category);
+    push(x.propertyId, 'COI', 'Insurance cert expiration', x.coiExpiration, x.company || x.category);
+  });
+  (store.ahj || []).forEach(x => push(x.propertyId, 'Permit / AHJ', 'Renewal due', x.renewalDate, x.authority || x.jurisdiction));
+  (store.maintenance || []).forEach(x => push(x.propertyId, 'Maintenance', 'Follow-up due', x.nextDue, x.system || x.description));
+  (store.vservice || []).forEach(x => push(x.propertyId, 'Service', 'Service due', x.nextDue, x.type));
+  out.sort((a, b) => a.days - b.days);
+  return out;
+}
+
+// Collapsible Critical Dates panel — portfolio-wide, with overdue/30/90 windows and a
+// category filter. Each row deep-links to its asset. When `only` is passed, it scopes to
+// one asset (per-asset "Critical Items" variant on the detail view).
+function CriticalDates({ store, openProperty, only }) {
+  const [open, setOpen] = useState(true);
+  const [win, setWin] = useState('90');
+  const [cat, setCat] = useState('');
+  let all = collectCriticalDates(store);
+  if (only) all = all.filter(x => x.id === only);
+  const over = all.filter(x => x.days < 0).length;
+  const d30 = all.filter(x => x.days >= 0 && x.days <= 30).length;
+  const d90 = all.filter(x => x.days >= 0 && x.days <= 90).length;
+  const cats = [...new Set(all.map(x => x.cat))].sort();
+  const inWin = x => win === 'all' ? true : win === 'overdue' ? x.days < 0 : win === '30' ? x.days <= 30 : x.days <= 90;
+  const rows = all.filter(inWin).filter(x => !cat || x.cat === cat);
+  const tone = d => d < 0 ? 'red' : d <= 30 ? 'orange' : d <= 90 ? 'gold' : 'green';
+  const dtxt = d => d < 0 ? Math.abs(d) + 'd overdue' : d === 0 ? 'Due today' : 'Due in ' + d + 'd';
+  const pill = (nn, label, c) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap', color: nn ? `hsl(var(--color-${c}))` : 'var(--text-muted)', backgroundColor: nn ? `hsla(var(--color-${c}), 0.12)` : 'var(--bg-secondary)' }}>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: nn ? `hsl(var(--color-${c}))` : 'var(--text-muted)' }} />
+      {nn + ' ' + label}
+    </span>
+  );
+  const chip = (val, label) => {
+    const active = win === val;
+    return (
+      <button onClick={() => setWin(val)} style={{ padding: '5px 11px', borderRadius: 999, fontSize: '0.74rem', fontWeight: 600, cursor: 'pointer', border: active ? '1px solid transparent' : '1px solid var(--border-color)', color: active ? '#fff' : 'var(--text-secondary)', background: active ? 'hsl(var(--color-blue))' : 'var(--bg-card)' }}>{label}</button>
+    );
+  };
+  return (
+    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, marginBottom: 16, boxShadow: 'var(--shadow-sm)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)' }}>Critical Dates</span>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {pill(over, 'Overdue', 'red')}
+          {pill(d30, 'Due ≤30d', 'orange')}
+          {pill(d90, 'Due ≤90d', 'gold')}
+        </div>
+        <button onClick={() => setOpen(o => !o)} style={{ marginLeft: 'auto', padding: '5px 11px', borderRadius: 8, fontSize: '0.74rem', fontWeight: 600, cursor: 'pointer', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)' }}>{open ? 'Hide' : 'Show'}</button>
+      </div>
+      {open && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+            {chip('overdue', 'Overdue')}
+            {chip('30', 'Next 30 days')}
+            {chip('90', 'Next 90 days')}
+            {chip('all', 'All upcoming')}
+            <select value={cat} onChange={e => setCat(e.target.value)} className="form-input" style={{ marginLeft: 'auto', padding: '5px 10px', fontSize: '0.76rem', maxWidth: 190 }}>
+              <option value="">All categories</option>
+              {cats.map(cc => <option key={cc} value={cc}>{cc}</option>)}
+            </select>
+          </div>
+          {rows.length ? (
+            <div style={{ maxHeight: 340, overflowY: 'auto', marginTop: 10, border: '1px solid var(--border-color)', borderRadius: 8 }}>
+              {rows.map((x, i) => (
+                <div key={x.id + '|' + x.cat + '|' + i} onClick={() => openProperty(x.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', cursor: 'pointer', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
+                  <span style={{ flexShrink: 0, minWidth: 98, textAlign: 'center', padding: '4px 8px', borderRadius: 6, fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap', color: `hsl(var(--color-${tone(x.days)}))`, backgroundColor: `hsla(var(--color-${tone(x.days)}), 0.12)` }}>{dtxt(x.days)}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.name}</div>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.cat}{' · '}{x.label}{x.detail ? ' — ' + x.detail : ''}</div>
+                  </div>
+                  <span style={{ flexShrink: 0, fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{fmtDate(x.date)}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ marginTop: 10, padding: '16px', fontSize: '0.82rem', fontWeight: 600, color: 'hsl(var(--color-green))', textAlign: 'center' }}>All clear — nothing due in this window.</div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// Floating "back to top" button — appears after scrolling down (window or the nearest scroller).
+function ScrollTopFab() {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setShow((window.scrollY || document.documentElement.scrollTop || 0) > 360);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+  if (!show) return null;
+  return (
+    <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} title="Back to top" aria-label="Back to top"
+      style={{ position: 'fixed', right: 20, bottom: 20, zIndex: 50, width: 44, height: 44, borderRadius: '50%', border: '1px solid var(--border-color)', background: 'var(--pine)', color: '#fff', cursor: 'pointer', boxShadow: 'var(--shadow-md)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+      <ArrowLeft size={18} style={{ transform: 'rotate(90deg)' }} />
+    </button>
+  );
+}
+
+// One-line quick-add for a maintenance note (date + work + status) above the Maintenance table.
+function QuickMaintBar({ onAdd }) {
+  const [desc, setDesc] = useState('');
+  const [status, setStatus] = useState('Completed');
+  const tones = { Completed: 'green', Scheduled: 'blue', 'In Progress': 'gold', 'Needs Attention': 'red' };
+  const add = () => { const d = desc.trim(); if (!d) return; onAdd({ date: new Date().toISOString().slice(0, 10), description: d, status }); setDesc(''); };
+  return (
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12, padding: '10px 12px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10 }}>
+      <input className="form-input" placeholder="Quick add a maintenance note…" value={desc} onChange={e => setDesc(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') add(); }} style={{ flex: '1 1 240px', fontSize: '0.84rem' }} />
+      <select className="form-input" value={status} onChange={e => setStatus(e.target.value)} style={{ fontSize: '0.82rem', color: `hsl(var(--color-${tones[status]}))`, fontWeight: 600 }}>
+        {Object.keys(tones).map(s => <option key={s} value={s}>{s}</option>)}
+      </select>
+      <button className="primary-btn" onClick={add} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add</button>
+    </div>
+  );
+}
+
+// "Phase Progress" stepper on the Timeline tab — groups timeline rows by phase and shows
+// done/total per phase with a tone (green = all done, gold = in progress, muted = not started).
+function TimelineTracker({ rows }) {
+  const list = (rows || []).filter(r => (r.phase || '').trim());
+  if (!list.length) return null;
+  const order = [...new Set(list.map(r => r.phase))];
+  const isDone = s => /complete|n\/a|^na$/i.test(String(s || '').trim());
+  const isActive = s => /progress|pending|submitted|review|process/i.test(String(s || '').trim());
+  return (
+    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, marginBottom: 16, boxShadow: 'var(--shadow-sm)' }}>
+      <div style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>Phase Progress</div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {order.map(ph => {
+          const rs = list.filter(r => r.phase === ph);
+          const done = rs.filter(r => isDone(r.status)).length;
+          const active = rs.some(r => isActive(r.status));
+          const tone = done === rs.length ? 'green' : (active || done ? 'gold' : 'mut');
+          const col = tone === 'mut' ? 'var(--text-secondary)' : `hsl(var(--color-${tone}))`;
+          return (
+            <div key={ph} style={{ flex: '1 1 150px', minWidth: 140, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: tone === 'mut' ? 'var(--text-muted)' : col }} />
+                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary)' }}>{ph}</span>
+              </div>
+              <div style={{ fontSize: '0.72rem', fontWeight: 600, color: col }}>{done}/{rs.length} complete</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Recommended (factory) maintenance schedule — reference-only table shown on a vehicle/equipment
+// Service tab, from p.maintenanceSchedule = { items:[{item,interval,note}], source, researchedOn }.
+function RecommendedMaintenance({ p }) {
+  const ms = p.maintenanceSchedule;
+  if (!ms || !(ms.items || []).length) return null;
+  return (
+    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, marginBottom: 16, boxShadow: 'var(--shadow-sm)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)' }}>Recommended Maintenance</span>
+        {ms.source && <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Source: {ms.source}</span>}
+        <span style={{ marginLeft: 'auto', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)' }}>Reference only</span>
+      </div>
+      <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+        {ms.items.map((it, i) => (
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, padding: '9px 12px', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-primary)' }}>{it.item}</div>
+              {it.note && <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>{it.note}</div>}
+            </div>
+            <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{it.interval}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Portfolio-wide "Flagged for Review" panel — every field flagged across all assets, grouped
+// by asset. Click a flag to jump to the field (to fix via Edit), or Resolve to clear it.
+function FlaggedForReview({ props, openToField, onClear }) {
+  const items = [];
+  props.forEach(p => (p.reviewFlags || []).forEach(f => items.push({ ...f, id: p.id, name: p.siteName || p.name || p.id })));
+  if (!items.length) return null;
+  items.sort((a, b) => (a.name || '') < (b.name || '') ? -1 : (a.name > b.name ? 1 : (a.g || '').localeCompare(b.g || '')));
+  return (
+    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, marginBottom: 16, boxShadow: 'var(--shadow-sm)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <span style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-primary)' }}>Flagged for Review</span>
+        <span style={{ minWidth: 20, height: 20, padding: '0 6px', borderRadius: 999, fontSize: '0.68rem', fontWeight: 700, color: '#fff', backgroundColor: 'hsl(var(--color-orange))', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{items.length}</span>
+      </div>
+      <div style={{ border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
+        {items.map((x, i) => (
+          <div key={x.id + '|' + x.g + '|' + x.f} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderTop: i ? '1px solid var(--border-color)' : 'none' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.name}</div>
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.g}{' · '}{x.f}{x.user ? ' — ' + emailToName(x.user) : ''}</div>
+            </div>
+            <button className="secondary-btn" onClick={() => openToField(x.id, x.g, x.f)} style={{ padding: '5px 12px', fontSize: '0.76rem', whiteSpace: 'nowrap' }}>Go to field</button>
+            <button className="secondary-btn" onClick={() => onClear(x.id, x.g, x.f)} style={{ padding: '5px 12px', fontSize: '0.76rem', whiteSpace: 'nowrap', color: 'hsl(var(--color-green))' }}>Resolve</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Compact pill row on the detail view to jump between linked parcels in the same project
+// group. Hidden for vehicles/equipment and for single-member (standalone) groups.
+function ParcelSwitcher({ p, props, openProperty }) {
+  if (inferAssetKind(p) !== 'property') return null;
+  const primaryId = p.parentId || p.id;
+  const members = props.filter(x => x.id === primaryId || x.parentId === primaryId);
+  if (members.length < 2) return null;
+  // primary first, then by parcelOrder, then name
+  const ordered = [...members].sort((a, b) => {
+    const ap = a.id === primaryId ? -1 : 0, bp = b.id === primaryId ? -1 : 0;
+    if (ap !== bp) return ap - bp;
+    const ao = a.parcelOrder ?? 999, bo = b.parcelOrder ?? 999;
+    if (ao !== bo) return ao - bo;
+    return (a.name || '') < (b.name || '') ? -1 : 1;
+  });
+  const groupName = members.find(x => x.id === primaryId)?.siteName || 'Linked Parcels';
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 16, padding: '10px 12px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10 }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)' }}>
+        <Link2 size={13} /> {groupName}
+      </span>
+      {ordered.map(m => {
+        const on = m.id === p.id;
+        const isPrimary = m.id === primaryId;
+        return (
+          <button key={m.id} onClick={() => !on && openProperty(m.id)} title={isPrimary ? 'Primary parcel' : 'Secondary parcel'}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: 999, fontSize: '0.78rem', fontWeight: 600, cursor: on ? 'default' : 'pointer', border: '1px solid', borderColor: on ? 'var(--pine)' : 'var(--border-color)', background: on ? 'var(--pine)' : 'var(--bg-card)', color: on ? '#fff' : 'var(--text-secondary)' }}>
+            {m.name}
+            {isPrimary && <span style={{ fontSize: '0.6rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', opacity: 0.85 }}>· Primary</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // Portfolio-wide attention pills shown under the landing header (insurance / inspections /
 // permits / loans). Mirrors the desktop's PortfolioPulse.
 function PortfolioPulse({ data }) {
@@ -1690,10 +2072,20 @@ function PortfolioPulse({ data }) {
   );
 }
 
-function PropertyDetail({ p, onSaveImages, highlight }) {
+// Render a field value, turning emails/phones into mailto:/tel: links (contact popover-lite).
+function FieldValue({ v }) {
+  const s = (v ?? '') === '' ? '—' : String(v);
+  const linkStyle = { color: 'hsl(var(--color-blue))', textDecoration: 'none', fontWeight: 600 };
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim())) return <a href={`mailto:${s.trim()}`} style={linkStyle}>{s}</a>;
+  const digits = s.replace(/[^\d]/g, '');
+  if (digits.length >= 10 && /^[\d\s()+\-.]+$/.test(s.trim())) return <a href={`tel:${digits}`} style={linkStyle}>{s}</a>;
+  return <>{s}</>;
+}
+function PropertyDetail({ p, onSaveImages, highlight, onToggleFlag }) {
   const hlField = (highlight?.field || '').toLowerCase();
   const sections = ptSections(p);
   const isProp = inferAssetKind(p) === 'property';
+  const flagged = (g, f) => (p.reviewFlags || []).some(x => x.g === g && x.f === f);
   const jump = (id) => { const el = document.getElementById(id); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
   const lblStyle = { fontSize: '0.78rem', fontWeight: 500, color: 'var(--text-secondary)', lineHeight: 1.4 };
   const secCard = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, boxShadow: 'var(--shadow-sm)', overflow: 'hidden', scrollMarginTop: 64 };
@@ -1719,11 +2111,18 @@ function PropertyDetail({ p, onSaveImages, highlight }) {
             <div>
               {sec.fields.map(([L, V], fi) => {
                 const hl = hlField && String(L).toLowerCase() === hlField;
+                const isFlagged = flagged(sec.title, L);
                 return (
                   <div key={fi} ref={hl ? (el => el && el.scrollIntoView({ behavior: 'smooth', block: 'center' })) : null}
-                    style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 36%) 1fr', gap: 16, alignItems: 'baseline', padding: '9px 18px', borderTop: fi ? '1px solid var(--border-color)' : 'none', background: hl ? 'hsla(var(--color-gold), 0.16)' : 'transparent', scrollMarginTop: 64 }}>
+                    className="gt-frow"
+                    style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 36%) 1fr auto', gap: 16, alignItems: 'baseline', padding: '9px 18px', borderTop: fi ? '1px solid var(--border-color)' : 'none', background: hl ? 'hsla(var(--color-gold), 0.16)' : (isFlagged ? 'hsla(var(--color-orange), 0.07)' : 'transparent'), scrollMarginTop: 64 }}>
                     <span style={lblStyle}>{L}</span>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', wordBreak: 'break-word', fontVariantNumeric: 'tabular-nums' }}>{(V ?? '') === '' ? '—' : V}</span>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', wordBreak: 'break-word', fontVariantNumeric: 'tabular-nums' }}><FieldValue v={V} /></span>
+                    {onToggleFlag && (
+                      <button className={`gt-flag${isFlagged ? ' on' : ''}`} title={isFlagged ? 'Flagged for review — click to clear' : 'Flag this field for review'}
+                        onClick={() => onToggleFlag(p.id, sec.title, L)}
+                        style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '0.9rem', lineHeight: 1, padding: '0 2px', color: isFlagged ? 'hsl(var(--color-orange))' : 'var(--text-muted)', opacity: isFlagged ? 1 : 0, transition: 'opacity .12s' }}>⚑</button>
+                    )}
                   </div>
                 );
               })}
@@ -2361,6 +2760,87 @@ function headerStats(data) {
   return { assets: data.properties.length, parcels: data.properties.length, warr, insp, exp, nrsf, units, acreage };
 }
 /* ---------- PDF report ---------- */
+/* ---------- CSV export / import ---------- */
+const csvEsc = (s) => { const t = String(s ?? ''); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+function downloadTextFile(name, text, mime = 'text/csv') {
+  const blob = new Blob([text], { type: mime + ';charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+// Minimal RFC-4180-ish CSV parser → array of row-arrays.
+function csvParse(text) {
+  const rows = []; let row = [], field = '', q = false;
+  const t = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (q) { if (c === '"') { if (t[i + 1] === '"') { field += '"'; i++; } else q = false; } else field += c; }
+    else if (c === '"') q = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+    else field += c;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(x => String(x).trim() !== ''));
+}
+// Full per-asset CSV: Overview + every collection + permits + timeline, as blank-line-separated tables.
+function exportAssetCsv(p, data) {
+  const out = [];
+  out.push(`Asset,${csvEsc(p.name)}`);
+  out.push('');
+  out.push('=== OVERVIEW ===');
+  out.push('Section,Field,Value');
+  ptSections(p).forEach(sec => sec.fields.forEach(([L, V]) => out.push([sec.title, L, V].map(csvEsc).join(','))));
+  const CMAP = { warranties: 'WARRANTIES', inspections: 'INSPECTIONS', documents: 'DOCUMENTS', ahj: 'AHJ', utilities: 'UTILITIES', vendors: 'VENDORS', vservice: 'SERVICE & MAINTENANCE', odometer: 'ODOMETER', vdocs: 'DOCUMENTS (VEHICLE)' };
+  Object.entries(CMAP).forEach(([coll, title]) => {
+    const rows = (data[coll] || []).filter(r => r.propertyId === p.id);
+    if (!rows.length) return;
+    const fields = (COLLECTIONS[coll]?.fields || []).map(f => ({ k: f.k, label: f.label }));
+    out.push(''); out.push(`=== ${title} ===`);
+    out.push(fields.map(f => csvEsc(f.label)).join(','));
+    rows.forEach(r => out.push(fields.map(f => csvEsc(r[f.k])).join(',')));
+  });
+  if ((p.permits || []).length) { out.push(''); out.push('=== PERMITS ==='); const keys = Object.keys(p.permits[0]); out.push(keys.map(csvEsc).join(',')); p.permits.forEach(r => out.push(keys.map(k => csvEsc(r[k])).join(','))); }
+  if ((p.timeline || []).length) { out.push(''); out.push('=== TIMELINE ==='); const keys = Object.keys(p.timeline[0]); out.push(keys.map(csvEsc).join(',')); p.timeline.forEach(r => out.push(keys.map(k => csvEsc(r[k])).join(','))); }
+  downloadTextFile(`${(p.name || 'asset').replace(/[^\w-]+/g, '_')}.csv`, out.join('\n'));
+}
+// Portfolio-wide summary CSV — one row per asset.
+function exportPortfolioCsv(props) {
+  const cols = [['Name', p => p.name], ['Kind', p => inferAssetKind(p)], ['Type', p => p.type || p.assetType || ''], ['Address', p => p.address], ['City', p => p.city], ['State', p => p.state], ['County', p => p.county], ['Manager', p => p.manager], ['Stage', p => p.devStage], ['NRSF', p => p.nrsf], ['Total units', p => p.unitsTotal], ['Acreage', p => p.acreage], ['Year built', p => p.yearBuilt], ['Private', p => p.private ? 'Yes' : '']];
+  const out = [cols.map(c => csvEsc(c[0])).join(',')];
+  props.forEach(p => out.push(cols.map(c => csvEsc(c[1](p))).join(',')));
+  downloadTextFile('greens-portfolio.csv', out.join('\n'));
+}
+// Import-template header row (the property fields a spreadsheet can fill in).
+const CSV_IMPORT_COLS = ['name', 'type', 'address', 'city', 'state', 'zip', 'county', 'apn', 'manager', 'entity', 'devStage', 'yearBuilt', 'nrsf', 'acreage', 'unitsTotal'];
+function downloadImportTemplate() {
+  downloadTextFile('greens-asset-import-template.csv', CSV_IMPORT_COLS.join(',') + '\n');
+}
+
+// Detail-header export dropdown: PDF (print report) or full CSV.
+function ExportMenu({ p, data }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
+  }, [open]);
+  return (
+    <div style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
+      <button className="secondary-btn" onClick={() => setOpen(o => !o)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FileDown size={14} /> Export <ChevronDown size={13} /></button>
+      {open && (
+        <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 4px)', zIndex: 20, minWidth: 168, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md)', overflow: 'hidden' }}>
+          {[['Export as PDF', () => exportReport(p, data)], ['Export as CSV', () => exportAssetCsv(p, data)]].map(([label, fn]) => (
+            <button key={label} onClick={() => { setOpen(false); fn(); }} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 14px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-primary)' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-secondary)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>{label}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function exportReport(p, data) {
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const v = (x) => { const s = (x ?? '') === '' ? '' : String(x); return s ? esc(s) : '—'; };
