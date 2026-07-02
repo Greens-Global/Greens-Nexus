@@ -1492,7 +1492,7 @@ _EXPORT_MSG_CAP = 20000             # safety ceiling for very large mailboxes
 def _ser_export(j: HrMailboxExport) -> dict:
     return {
         "id": j.id, "employeeId": j.employee_id, "status": j.status, "message": j.message,
-        "count": j.count, "hasFile": bool(j.storage_path),
+        "count": j.count, "total": j.total, "hasFile": bool(j.storage_path),
         "createdAt": j.created_at, "updatedAt": j.updated_at,
     }
 
@@ -1506,6 +1506,16 @@ def _run_mailbox_export(job_id: str, m365_id: str) -> None:
             return
         job.status = "running"; job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
         headers = {"Authorization": f"Bearer {_graph_token()}"}
+        # Total up front so the UI can show a real progress bar (best-effort — a
+        # 401/403 here means Mail.Read isn't consented; the message loop reports it).
+        try:
+            cr = httpx.get(f"{_GRAPH}/users/{m365_id}/messages/$count",
+                           headers={**headers, "ConsistencyLevel": "eventual"}, timeout=30)
+            if cr.is_success and cr.text.strip().isdigit():
+                job.total = min(int(cr.text.strip()), _EXPORT_MSG_CAP)
+                job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
+        except Exception:
+            pass
         tf = tempfile.NamedTemporaryFile(suffix=".zip", delete=False); tf.close(); tmp_path = tf.name
         count = 0
         with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -1528,6 +1538,9 @@ def _run_mailbox_export(job_id: str, m365_id: str) -> None:
                     safe = re.sub(r"[^A-Za-z0-9._-]+", "_", (m.get("subject") or "no-subject"))[:60]
                     zf.writestr(f"{ts}_{safe}_{mid[:8]}.eml", mime.content)
                     count += 1
+                    # Publish progress every 25 messages so pollers see live movement.
+                    if count % 25 == 0:
+                        job.count = count; job.updated_at = datetime.now(timezone.utc).isoformat(); db.commit()
                     if count >= _EXPORT_MSG_CAP:
                         break
                 url = data.get("@odata.nextLink")

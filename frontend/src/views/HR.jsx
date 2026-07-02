@@ -232,11 +232,14 @@ function MailboxExportSection({ employee, toastOk, toastErr }) {
     catch (e) { toastErr(e?.message || 'Could not get download link.'); }
   }
 
+  const pct = active && job?.total > 0 ? Math.min(100, Math.round((job.count / job.total) * 100)) : null;
   const status = job === undefined ? '' :
     !job ? 'No export yet.' :
     job.status === 'done' ? `Ready · ${job.message} · ${(job.updatedAt || '').slice(0, 10)}` :
     job.status === 'error' ? `Failed · ${job.message}` :
-    'Working… fetching messages';
+    job.total > 0 ? `Exporting… ${job.count} of ${job.total} messages (${pct}%)` :
+    job.count > 0 ? `Exporting… ${job.count} messages so far` :
+    'Starting… counting the mailbox';
 
   return (
     <div style={{ marginTop: 18 }}>
@@ -258,6 +261,15 @@ function MailboxExportSection({ employee, toastOk, toastErr }) {
         {status}{status && ' '}
         {job?.status === 'error' && /Mail\.Read/i.test(job.message || '') && <em>Grant the Mail.Read app permission in Entra, then re-export.</em>}
       </div>
+      {active && (
+        <div style={{ marginTop: 8, height: 6, borderRadius: 6, background: 'var(--line)', overflow: 'hidden' }}>
+          <div style={{
+            height: '100%', borderRadius: 6, background: 'hsl(var(--color-green))',
+            width: pct !== null ? `${pct}%` : '15%',
+            transition: 'width .4s ease',
+          }} />
+        </div>
+      )}
     </div>
   );
 }
