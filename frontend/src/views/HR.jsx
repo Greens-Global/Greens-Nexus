@@ -584,9 +584,9 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
           <ShieldCheck size={13} /> Right to Work
         </button>
         {canSeeComp && (
-          <button className="secondary-btn" onClick={() => setCompOpen(true)} title="Compensation & bank (restricted)"
+          <button className="secondary-btn" onClick={() => setCompOpen(true)} title="Compensation, benefits & bank (restricted)"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-            <Wallet size={13} /> Pay & Bank
+            <Wallet size={13} /> Pay & Benefits
           </button>
         )}
         {!e.m365Id ? (
@@ -1463,9 +1463,10 @@ function PersonalModal({ employee, onClose, onSaved, toastOk, toastErr }) {
 const PAY_BASIS = [['salary', 'Salary'], ['hourly', 'Hourly'], ['daily', 'Daily'], ['fixed_fee', 'Fixed fee']];
 const PAY_FREQ  = [['monthly', 'Monthly'], ['semimonthly', 'Semi-monthly'], ['biweekly', 'Bi-weekly'], ['weekly', 'Weekly']];
 const BANK_TYPES = [['checking', 'Checking'], ['savings', 'Savings'], ['current', 'Current']];
+const BENEFIT_TYPES = [['health', 'Health'], ['dental', 'Dental'], ['vision', 'Vision'], ['life', 'Life'], ['disability', 'Disability'], ['retirement', 'Retirement / 401k / PF'], ['other', 'Other']];
 
 function CompensationModal({ employee, onClose, toastOk, toastErr }) {
-  const [comp, setComp] = useState({ base: '', payBasis: 'salary', frequency: 'monthly', currency: 'USD', effectiveDate: '', history: [] });
+  const [comp, setComp] = useState({ base: '', payBasis: 'salary', frequency: 'monthly', currency: 'USD', effectiveDate: '', history: [], benefits: [] });
   const [bank, setBank] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -1474,7 +1475,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
   useEffect(() => {
     let live = true;
     api.getCompensation(employee.id)
-      .then(r => { if (!live) return; setComp({ base: '', payBasis: 'salary', frequency: 'monthly', currency: 'USD', effectiveDate: '', history: [], ...(r.compensation || {}) }); setBank(r.bank || []); })
+      .then(r => { if (!live) return; setComp({ base: '', payBasis: 'salary', frequency: 'monthly', currency: 'USD', effectiveDate: '', history: [], benefits: [], ...(r.compensation || {}) }); setBank(r.bank || []); })
       .catch(e => toastErr(e?.message || 'Could not load compensation.'))
       .finally(() => live && setLoading(false));
     return () => { live = false; };
@@ -1483,6 +1484,10 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
   const addBank = () => setBank(b => [...b, { holder: '', bankName: '', number: '', routingOrIfsc: '', type: 'checking' }]);
   const setBankField = (i, k, v) => setBank(b => b.map((x, j) => j === i ? { ...x, [k]: v } : x));
   const removeBank = i => setBank(b => b.filter((_, j) => j !== i));
+  const benefits = comp.benefits || [];
+  const addBenefit = () => setComp(p => ({ ...p, benefits: [...(p.benefits || []), { type: 'health', plan: '', deduction: '', note: '' }] }));
+  const setBenefit = (i, k, v) => setComp(p => ({ ...p, benefits: (p.benefits || []).map((x, j) => j === i ? { ...x, [k]: v } : x) }));
+  const removeBenefit = i => setComp(p => ({ ...p, benefits: (p.benefits || []).filter((_, j) => j !== i) }));
 
   async function save() {
     if (busy) return; setBusy(true);
@@ -1503,7 +1508,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
             <Wallet size={17} color="hsl(var(--color-green))" />
           </div>
           <div style={{ flex: 1 }}>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Pay & Bank — {fullName(employee)}</h3>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Pay, Benefits & Bank — {fullName(employee)}</h3>
             <div style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 2 }}><Lock size={11} /> Restricted · compensation grant</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
@@ -1533,6 +1538,20 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
                 ))}
               </div>
             )}
+
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', margin: '20px 0 10px', display: 'flex', alignItems: 'center', gap: 6 }}><Heart size={13} /> BENEFITS & DEDUCTIONS</div>
+            {benefits.map((bn, i) => (
+              <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div><label style={FL}>TYPE</label><select className="form-input" style={{ width: '100%' }} value={bn.type} onChange={e => setBenefit(i, 'type', e.target.value)}>{BENEFIT_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+                  <div><label style={FL}>PLAN / PROVIDER</label><input className="form-input" style={{ width: '100%' }} value={bn.plan} onChange={e => setBenefit(i, 'plan', e.target.value)} /></div>
+                  <div><label style={FL}>PER-PAYCHECK DEDUCTION</label><input className="form-input" style={{ width: '100%' }} type="number" value={bn.deduction} onChange={e => setBenefit(i, 'deduction', e.target.value)} placeholder={`in ${comp.currency}`} /></div>
+                  <div><label style={FL}>NOTE</label><input className="form-input" style={{ width: '100%' }} value={bn.note} onChange={e => setBenefit(i, 'note', e.target.value)} /></div>
+                </div>
+                <button onClick={() => removeBenefit(i)} style={{ marginTop: 8, background: 'none', border: 'none', color: 'hsl(var(--color-red))', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={12} /> Remove</button>
+              </div>
+            ))}
+            <button className="secondary-btn" onClick={addBenefit} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 4 }}><Plus size={13} /> Add benefit / deduction</button>
 
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', margin: '20px 0 10px', display: 'flex', alignItems: 'center', gap: 6 }}><Landmark size={13} /> BANK ACCOUNTS</div>
             {bank.map((acc, i) => (
