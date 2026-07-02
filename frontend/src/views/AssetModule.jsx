@@ -3,7 +3,7 @@
 // 14-property portfolio (mapped into the template's flat data model) and persisted
 // to localStorage. Navy accent uses var(--pine) so it stays correct in dark mode.
 import { useState, useEffect, useRef, createElement } from 'react';
-import { Plus, X, ArrowLeft, ArrowRight, Link2, FileDown, Search, Building2, ChevronDown, Upload, FileText, LayoutGrid, List, Settings, Warehouse, Truck, Store, Stethoscope, Home, Building, Trees, Pencil, Trash2, RotateCcw, Filter, Car, Wrench } from 'lucide-react';
+import { Plus, X, ArrowLeft, ArrowRight, Link2, FileDown, Search, Building2, ChevronDown, Upload, FileText, LayoutGrid, List, Settings, Warehouse, Truck, Store, Stethoscope, Home, Building, Trees, Pencil, Trash2, RotateCcw, Filter, Car, Wrench, Copy } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 
 import georgetown from '../data/assets/greens-georgetown.json';
@@ -967,6 +967,20 @@ export default function AssetModule() {
     });
     setModal(null);
   };
+  // Duplicate an asset → a standalone copy (new id, "(Copy)" name, unlinked from any
+  // parcel group). Copies the asset record itself, not its child logs/history.
+  const duplicateProperty = (id) => {
+    const src = data.properties.find(p => p.id === id);
+    if (!src) return;
+    const copy = JSON.parse(JSON.stringify(src));
+    copy.id = uidGen();
+    copy.name = `${src.name || 'Asset'} (Copy)`;
+    copy.parentId = ''; copy.siteName = ''; copy.deleted = false; copy.deletedAt = '';
+    delete copy.parcelOrder; delete copy.parcelRole; delete copy.reviewFlags;
+    setData(d => pushLog({ ...d, properties: [...d.properties, copy] },
+      { section: 'Property', property: copy.name, propertyId: copy.id, action: 'added', item: copy.name, changes: [] }));
+    setActiveId(copy.id); setTab('property');
+  };
   // Soft-delete a property → moves it to the recover bin (recoverable). If it was a primary, its
   // secondaries become standalone (parentId cleared). Permanent removal is a separate action.
   const deleteProperty = (id, keepOpen) => {
@@ -1094,6 +1108,7 @@ export default function AssetModule() {
             </div>
             <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', flexWrap: 'wrap' }}>
               {canSeePrivate && <button className="secondary-btn" onClick={() => togglePrivate(active.id)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{active.private ? 'Make public' : 'Mark private'}</button>}
+              <button className="secondary-btn" onClick={() => duplicateProperty(active.id)} title="Create a standalone copy of this asset" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Copy size={14} /> Duplicate</button>
               <ExportMenu p={active} data={data} />
               {tab === 'property' && <button className="primary-btn" onClick={() => setModal({ type: 'property', id: active.id })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Pencil size={14} /> Edit {inferAssetKind(active) === 'property' ? 'property' : 'asset'}</button>}
             </div>
