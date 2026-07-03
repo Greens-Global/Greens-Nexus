@@ -587,6 +587,27 @@ def _graph_token() -> str:
     return resp.json()["access_token"]
 
 
+def _graph_writeback(token: str, emp) -> list:
+    """Push the editable profile attributes from Nexus back onto the linked Entra
+    user (the reverse of Sync-from-M365). Only sends fields that have a value, so
+    an empty Nexus field never wipes an existing Entra one. Returns the attribute
+    names written. Needs User.ReadWrite.All (already consented for provisioning)."""
+    first = (emp.first_name or "").strip()
+    last  = (emp.last_name or "").strip()
+    payload = {"displayName": f"{first} {last}".strip(), "givenName": first, "surname": last}
+    for attr, value in (("jobTitle", emp.job_title), ("department", emp.department),
+                        ("mobilePhone", emp.phone), ("officeLocation", emp.location)):
+        v = (value or "").strip()
+        if v:
+            payload[attr] = v
+    resp = httpx.patch(f"{_GRAPH}/users/{emp.m365_id}",
+                       headers={"Authorization": f"Bearer {token}"},
+                       json=payload, timeout=20)
+    if not resp.is_success:
+        raise RuntimeError(f"Entra write-back failed: {resp.text[:200]}")
+    return list(payload.keys())
+
+
 # Graph only returns internal SKU part numbers — map the ones in our tenant to
 # the names the M365 admin center shows (Microsoft's product-identifier list)
 _SKU_NAMES = {
@@ -788,6 +809,37 @@ def provision_runs(eid: str, user: dict = Depends(require_hr_read), db: Session 
                     "startedAt": r.started_at, "finishedAt": r.finished_at,
                     "steps": [{"step": s.step, "status": s.status, "detail": s.detail} for s in steps]})
     return out
+
+
+@router.post("/employees/{eid}/push-to-entra")
+def push_to_entra(eid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Push this person's name / title / department / phone / office (and manager,
+    best-effort) from Nexus back to their linked Entra account. The mirror of
+    Sync-from-M365, for when Nexus is the source of a profile change."""
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    if not emp.m365_id:
+        raise HTTPException(400, "This person has no linked M365 account to push to.")
+    token = _graph_token()
+    written = _graph_writeback(token, emp)
+    # Manager relationship is a separate Graph edge — best-effort, never blocks the
+    # attribute push. None = no manager set; True/False = the $ref write's result.
+    manager = None
+    if emp.manager_email:
+        manager = False
+        try:
+            mgr = httpx.get(f"{_GRAPH}/users/{emp.manager_email}",
+                            headers={"Authorization": f"Bearer {token}"}, timeout=20)
+            mid = mgr.json().get("id") if mgr.is_success else None
+            if mid:
+                ref = httpx.put(f"{_GRAPH}/users/{emp.m365_id}/manager/$ref",
+                                headers={"Authorization": f"Bearer {token}"},
+                                json={"@odata.id": f"{_GRAPH}/users/{mid}"}, timeout=20)
+                manager = ref.is_success
+        except Exception:
+            manager = False
+    return {"written": written, "manager": manager}
 
 
 # ── Profile photos — public-read avatars bucket, WRITES ONLY via this endpoint

@@ -649,6 +649,90 @@ function PhotoEditorModal({ employee: e, onClose, onSaved, toastOk, toastErr }) 
 }
 
 // ── Profile detail pane ───────────────────────────────────────────────────────
+// Whole-month tenure from a start date, e.g. "2y 3m". Null if unknown/future.
+function fmtTenure(startDate) {
+  if (!startDate) return null;
+  const d = new Date(startDate + 'T00:00:00'); if (isNaN(d)) return null;
+  const now = new Date();
+  let months = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
+  if (now.getDate() < d.getDate()) months -= 1;
+  if (months < 0) return null;
+  const y = Math.floor(months / 12), m = months % 12;
+  return y ? (m ? `${y}y ${m}m` : `${y}y`) : `${m}m`;
+}
+
+// The soonest date that matters for this person — right-to-work doc expiry or,
+// for contractors, contract end. Returns { label, date, days } or null.
+function nextExpiry(e) {
+  const cands = [
+    e.compliance?.expiryDate && { label: 'Doc expiry', date: e.compliance.expiryDate },
+    e.employmentType === 'contractor' && e.contractor?.contract_end && { label: 'Contract end', date: e.contractor.contract_end },
+  ].filter(Boolean).map(c => ({ ...c, days: daysUntil(c.date) })).filter(c => c.days !== null);
+  if (!cands.length) return null;
+  return cands.sort((a, b) => a.days - b.days)[0];
+}
+
+function StatCard({ label, value, sub, tone }) {
+  const color = tone === 'red' ? 'hsl(var(--color-red))' : tone === 'orange' ? 'hsl(var(--color-orange))' : 'var(--ink)';
+  return (
+    <div style={{ flex: '1 1 120px', minWidth: 110, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 12, padding: '11px 14px' }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 800, marginTop: 3, color, lineHeight: 1.1 }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</div>}
+    </div>
+  );
+}
+
+// Restricted read view of pay/benefits/bank; edit opens the full CompensationModal.
+// reloadToken bumps after the modal closes so saved changes show without a reload.
+function PayTab({ employee, reloadToken, onEdit }) {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    let live = true;
+    api.getCompensation(employee.id)
+      .then(r => { if (live) setData({ comp: r.compensation || {}, bank: r.bank || [] }); })
+      .catch(() => { if (live) setData({ comp: {}, bank: [] }); });
+    return () => { live = false; };
+  }, [employee.id, reloadToken]);
+
+  const money = (v, cur) => v ? `${cur === 'INR' ? '₹' : '$'}${Number(v).toLocaleString()}` : '—';
+  const label = (list, v) => (list.find(([x]) => x === v) || [])[1] || v || '';
+  const sectionLabel = txt => <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', margin: '16px 0 8px' }}>{txt}</div>;
+  const row2 = (k, lbl, value) => (
+    <div key={k} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
+      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', width: 150, flexShrink: 0 }}>{lbl}</span>
+      <span style={{ fontSize: 13.5, color: value ? 'var(--ink)' : 'var(--muted)' }}>{value || '—'}</span>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, flex: 1 }}><Lock size={12} /> Restricted · compensation grant</span>
+        <button className="secondary-btn" onClick={onEdit} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Pencil size={13} /> Edit</button>
+      </div>
+      {!data ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>Loading…</div>
+      ) : (
+        <>
+          {sectionLabel('Base pay')}
+          {row2('base', 'Base', data.comp.base ? `${money(data.comp.base, data.comp.currency)} · ${label(PAY_BASIS, data.comp.payBasis)}` : '')}
+          {row2('freq', 'Frequency', label(PAY_FREQ, data.comp.frequency))}
+          {row2('eff', 'Effective', data.comp.effectiveDate)}
+          {sectionLabel('Benefits & deductions')}
+          {(data.comp.benefits || []).length === 0
+            ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None recorded.</div>
+            : data.comp.benefits.map((bn, i) => row2(`bn${i}`, label(BENEFIT_TYPES, bn.type), [bn.plan, bn.deduction && `${money(bn.deduction, data.comp.currency)}/paycheck`, bn.note].filter(Boolean).join(' · ')))}
+          {sectionLabel('Bank accounts')}
+          {data.bank.length === 0
+            ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None recorded.</div>
+            : data.bank.map((acc, i) => row2(`bk${i}`, acc.bankName || 'Account', [acc.holder, maskId(acc.number), acc.routingOrIfsc, label(BANK_TYPES, acc.type)].filter(Boolean).join(' · ')))}
+        </>
+      )}
+    </div>
+  );
+}
+
 function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated }) {
   const [provisionOpen, setProvisionOpen] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
@@ -657,6 +741,9 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
   const [complianceOpen, setComplianceOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [welcomeBusy, setWelcomeBusy] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [tab, setTab] = useState('overview');
+  const [payReload, setPayReload] = useState(0);   // bump to refetch PayTab after an edit
   const sm = STATUS_META[e.status] || STATUS_META.active;
   const manager = employees.find(m => m.workEmail && m.workEmail === e.managerEmail);
   const reports = employees.filter(r => e.workEmail && r.managerEmail === e.workEmail);
@@ -667,6 +754,14 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
       <span style={{ fontSize: 13.5, color: value ? 'var(--ink)' : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value || '—'}</span>
     </div>
   );
+  const tabs = [
+    ['overview', 'Overview', Contact],
+    canSeeComp && ['pay', 'Pay & Benefits', Wallet],
+    ['compliance', 'Compliance', ShieldCheck],
+    ['assets', 'Assets', Briefcase],
+    ['documents', 'Documents', FileText],
+  ].filter(Boolean);
+  const expiry = nextExpiry(e);
   return (
     <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '22px 24px', boxShadow: 'var(--shadow-sm)' }}>
       {isMobile && (
@@ -696,20 +791,6 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
         <button className="secondary-btn" onClick={() => onEdit(e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
           <Pencil size={13} /> Edit
         </button>
-        <button className="secondary-btn" onClick={() => setPersonalOpen(true)} title="Personal details & emergency contact"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-          <Contact size={13} /> Personal
-        </button>
-        <button className="secondary-btn" onClick={() => setComplianceOpen(true)} title="Right-to-work & compliance"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-          <ShieldCheck size={13} /> Right to Work
-        </button>
-        {canSeeComp && (
-          <button className="secondary-btn" onClick={() => setCompOpen(true)} title="Compensation, benefits & bank (restricted)"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-            <Wallet size={13} /> Pay & Benefits
-          </button>
-        )}
         {!e.m365Id ? (
           <button className="primary-btn" onClick={() => setProvisionOpen(true)}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, background: 'hsl(var(--color-green))' }}>
@@ -718,6 +799,19 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
         ) : (
           <>
             <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))' }}>M365 ✓</span>
+            <button className="secondary-btn" disabled={pushBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}
+              title="Push name, title, department, phone, office (and manager) from Nexus back to their Entra account"
+              onClick={async () => {
+                setPushBusy(true);
+                try {
+                  const r = await api.pushToEntra(e.id);
+                  const mgr = r.manager === true ? ' · manager' : '';
+                  toastOk(`Pushed ${r.written.length} fields${mgr} to M365.`);
+                } catch (err) { toastErr(err?.message || 'Could not push to M365.'); }
+                setPushBusy(false);
+              }}>
+              {pushBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Network size={13} />} Push to M365
+            </button>
             {e.personalEmail && (
               <button className="secondary-btn" disabled={welcomeBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}
                 title="Send the branded welcome email to their personal address again"
@@ -733,41 +827,109 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
           </>
         )}
       </div>
-      <div style={{ marginTop: 14 }}>
-        {row(Mail, 'Work email', e.workEmail)}
-        {row(Mail, 'Personal', e.personalEmail)}
-        {row(Phone, 'Phone', e.phone)}
-        {row(Briefcase, 'Department', [e.department, TYPE_LABEL[e.employmentType]].filter(Boolean).join(' · '))}
-        {companyName && row(Building2, 'Company', companyName)}
-        {row(CalendarOff, 'Start date', e.startDate)}
-        {row(MapPin, 'Location', e.location)}
-        {e.employmentType === 'contractor' && e.contractor?.billing_client && row(Briefcase, 'Billing client', e.contractor.billing_client)}
-        {e.employmentType === 'contractor' && e.contractor?.contract_end && row(CalendarOff, 'Contract end', e.contractor.contract_end)}
-        {e.employmentType === 'contractor' && e.contractor?.rate && row(FileText, 'Rate', [e.contractor.rate, e.contractor.currency, e.contractor.rate_type].filter(Boolean).join(' '))}
-        {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : e.managerEmail)}
-        {reports.length > 0 && row(Users, 'Direct reports', reports.map(fullName).join(', '))}
-        {e.personal?.dob && row(CalendarDays, 'Date of birth', e.personal.dob)}
-        {e.personal?.nationalId && row(Lock, 'National ID', maskId(e.personal.nationalId))}
-        {e.personal?.emergency?.name && row(Heart, 'Emergency contact', [e.personal.emergency.name, e.personal.emergency.relationship && `(${e.personal.emergency.relationship})`, e.personal.emergency.phone].filter(Boolean).join(' · '))}
-        {e.compliance?.workAuth && row(ShieldCheck, 'Work auth', (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            {WORK_AUTH.find(([v]) => v === e.compliance.workAuth)?.[1] || e.compliance.workAuth}
-            {(() => { const m = VERIFY_STATUS[e.compliance.status || 'unverified']; return <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: 10.5, fontWeight: 700, background: m.bg, color: m.fg }}>{m.label}</span>; })()}
-          </span>
-        ))}
-        {e.compliance?.expiryDate && (() => {
-          const d = daysUntil(e.compliance.expiryDate); const warn = d !== null && d <= 60;
-          return row(warn ? AlertTriangle : CalendarDays, 'Doc expiry', (
-            <span style={{ color: warn ? (d < 0 ? 'hsl(var(--color-red))' : 'hsl(var(--color-orange))') : 'inherit', fontWeight: warn ? 700 : 400 }}>
-              {e.compliance.expiryDate}{d !== null && (d < 0 ? ' · expired' : ` · in ${d}d`)}
-            </span>
-          ));
-        })()}
-        {e.notes && row(FileText, 'Notes', e.notes)}
+      {/* Stat cards — all derived from the loaded record, no extra fetch */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
+        <StatCard label="Tenure" value={fmtTenure(e.startDate) || '—'} sub={e.startDate ? `since ${e.startDate}` : 'no start date'} />
+        <StatCard label="Direct reports" value={reports.length} sub={manager ? `reports to ${fullName(manager)}` : 'no manager'} />
+        <StatCard label="Type" value={TYPE_LABEL[e.employmentType] || '—'} sub={e.department || '—'} />
+        {expiry
+          ? <StatCard label={expiry.label} value={expiry.days < 0 ? 'Expired' : `${expiry.days}d`} sub={expiry.date} tone={expiry.days < 0 ? 'red' : expiry.days <= 60 ? 'orange' : undefined} />
+          : <StatCard label="Compliance" value="Clear" sub="no upcoming expiry" />}
       </div>
-      <AssetsSection employee={e} />
-      <MailboxExportSection employee={e} toastOk={toastOk} toastErr={toastErr} />
-      <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
+
+      {/* Tab strip */}
+      <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginTop: 18, borderBottom: '1px solid var(--line)' }}>
+        {tabs.map(([id, tlabel, Icon]) => (
+          <button key={id} onClick={() => setTab(id)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', background: 'none', border: 'none', borderBottom: `2px solid ${tab === id ? 'var(--pine)' : 'transparent'}`, color: tab === id ? 'var(--ink)' : 'var(--muted)', cursor: 'pointer', whiteSpace: 'nowrap', marginBottom: -1 }}>
+            <Icon size={14} /> {tlabel}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        {tab === 'overview' && (
+          <>
+            <div>
+              {row(Mail, 'Work email', e.workEmail)}
+              {row(Mail, 'Personal', e.personalEmail)}
+              {row(Phone, 'Phone', e.phone)}
+              {row(Briefcase, 'Department', [e.department, TYPE_LABEL[e.employmentType]].filter(Boolean).join(' · '))}
+              {companyName && row(Building2, 'Company', companyName)}
+              {row(CalendarOff, 'Start date', e.startDate)}
+              {row(MapPin, 'Location', e.location)}
+              {e.employmentType === 'contractor' && e.contractor?.billing_client && row(Briefcase, 'Billing client', e.contractor.billing_client)}
+              {e.employmentType === 'contractor' && e.contractor?.contract_end && row(CalendarOff, 'Contract end', e.contractor.contract_end)}
+              {e.employmentType === 'contractor' && e.contractor?.rate && row(FileText, 'Rate', [e.contractor.rate, e.contractor.currency, e.contractor.rate_type].filter(Boolean).join(' '))}
+              {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : e.managerEmail)}
+              {reports.length > 0 && row(Users, 'Direct reports', reports.map(fullName).join(', '))}
+              {e.notes && row(FileText, 'Notes', e.notes)}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '18px 0 2px' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
+                <Contact size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Personal details
+              </span>
+              <button className="secondary-btn" onClick={() => setPersonalOpen(true)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
+                <Pencil size={12} /> Edit
+              </button>
+            </div>
+            <div>
+              {row(CalendarDays, 'Date of birth', e.personal?.dob)}
+              {row(Lock, 'National ID', e.personal?.nationalId ? maskId(e.personal.nationalId) : '')}
+              {row(Heart, 'Emergency contact', e.personal?.emergency?.name ? [e.personal.emergency.name, e.personal.emergency.relationship && `(${e.personal.emergency.relationship})`, e.personal.emergency.phone].filter(Boolean).join(' · ') : '')}
+            </div>
+          </>
+        )}
+
+        {tab === 'pay' && canSeeComp && (
+          <PayTab employee={e} reloadToken={payReload} onEdit={() => setCompOpen(true)} />
+        )}
+
+        {tab === 'compliance' && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1 }}>Right-to-work &amp; compliance</span>
+              <button className="secondary-btn" onClick={() => setComplianceOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+                <Pencil size={13} /> Edit
+              </button>
+            </div>
+            <div>
+              {row(ShieldCheck, 'Work auth', e.compliance?.workAuth ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  {WORK_AUTH.find(([v]) => v === e.compliance.workAuth)?.[1] || e.compliance.workAuth}
+                  {(() => { const m = VERIFY_STATUS[e.compliance.status || 'unverified']; return <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: 10.5, fontWeight: 700, background: m.bg, color: m.fg }}>{m.label}</span>; })()}
+                </span>
+              ) : '')}
+              {row(FileText, 'Document', [DOC_TYPES.find(([v]) => v === e.compliance?.docType)?.[1], e.compliance?.docNumber].filter(Boolean).join(' · '))}
+              {row(CalendarDays, 'Issued', e.compliance?.issueDate)}
+              {e.compliance?.expiryDate ? (() => {
+                const d = daysUntil(e.compliance.expiryDate); const warn = d !== null && d <= 60;
+                return row(warn ? AlertTriangle : CalendarDays, 'Doc expiry', (
+                  <span style={{ color: warn ? (d < 0 ? 'hsl(var(--color-red))' : 'hsl(var(--color-orange))') : 'inherit', fontWeight: warn ? 700 : 400 }}>
+                    {e.compliance.expiryDate}{d !== null && (d < 0 ? ' · expired' : ` · in ${d}d`)}
+                  </span>
+                ));
+              })() : row(CalendarDays, 'Doc expiry', '')}
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', margin: '16px 0 8px' }}>Consents</div>
+            {CONSENTS.map(([k, clabel]) => (
+              <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', fontSize: 13 }}>
+                {e.compliance?.consents?.[k] ? <CheckCircle size={15} style={{ color: 'hsl(var(--color-green))' }} /> : <XCircle size={15} style={{ color: 'var(--muted)' }} />}
+                <span style={{ color: e.compliance?.consents?.[k] ? 'var(--ink)' : 'var(--muted)' }}>{clabel}</span>
+              </div>
+            ))}
+          </>
+        )}
+
+        {tab === 'assets' && <AssetsSection employee={e} />}
+
+        {tab === 'documents' && (
+          <>
+            <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
+            <MailboxExportSection employee={e} toastOk={toastOk} toastErr={toastErr} />
+          </>
+        )}
+      </div>
       {photoOpen && (
         <PhotoEditorModal employee={e} toastOk={toastOk} toastErr={toastErr}
           onClose={() => setPhotoOpen(false)} onSaved={onEmployeeUpdated} />
@@ -778,7 +940,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
           onDone={updated => { onEmployeeUpdated(updated); toastOk(`${fullName(e)} provisioned.`); }} />
       )}
       {compOpen && (
-        <CompensationModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => setCompOpen(false)} />
+        <CompensationModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => { setCompOpen(false); setPayReload(n => n + 1); }} />
       )}
       {personalOpen && (
         <PersonalModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => setPersonalOpen(false)} onSaved={onEmployeeUpdated} />

@@ -9,7 +9,7 @@
 >
 > Sources: Neil's "Greens Global — People Platform" mockup (Jun 2026),
 > Busacta HR teardown, Rippling/BambooHR research, Nexus build sessions.
-> Status: ✅ built · 🟡 partial · ❌ not started   (last updated 2026-07-02 — Section A complete; Section B profile-depth features B1–B6 built, tab strip + M365 write-back remain)
+> Status: ✅ built · 🟡 partial · ❌ not started   (last updated 2026-07-03 — Section A + B complete: tabbed profile (Overview/Pay & Benefits/Compliance/Assets/Documents) + stat cards and M365 write-back shipped; Time/Performance tabs land with Sections D/F)
 
 ---
 
@@ -35,7 +35,7 @@
 
 | Status | Item | Source |
 |---|---|---|
-| 🟡 | Tabbed profile: Overview / Pay & Benefits / Time / Documents / Performance / Assets / Compliance — **autosave on blur**, stat cards. Depth shipped as profile modals + sections (Pay & Benefits, Personal, Right to Work, Assets, Change status); full tab strip + stat cards still to do | Busacta |
+| ✅ | Tabbed profile: **Overview / Pay & Benefits / Compliance / Assets / Documents tab strip + stat cards** (Tenure, Direct reports, Type, next expiry). Each tab shows its data inline; the proven Personal/Pay/Right-to-Work/Status modals stay as the editors, opened from within their tab. Time + Performance tabs land with Sections D/F | Busacta |
 | ✅ | **Assets tab reads live from Item Management** — HR-gated `/hr/employees/{id}/assets` reads items directly (no dup), deep-links into Item Management (B5) | Visesh |
 | ✅ | Compensation: base salary + auto history, pay basis, frequency, currency — **restricted** to owner + `hr_comp` grant (B1) | Neil/Busacta |
 | ✅ | Bank accounts (holder, bank, number, routing/IFSC, type) — restricted, same gate (B1) | Busacta |
@@ -43,7 +43,7 @@
 | ✅ | Right-to-work & compliance: work-auth, ID/visa doc + verification status + colour-coded expiry, consent checklist (scans reuse Documents). Bell reminders pending Section H daily job (B3) | Neil |
 | ✅ | Emergency contact, addresses, DOB, masked national ID (B2) | Rippling |
 | ✅ | Inline "Change status" flow (reason + effective date, audit trail) (B6) | Busacta |
-| 🟡 | Sync from M365 — phone/title/office backfill ✅; photo backfill ❌; **push profile changes back to Entra** ❌ | Visesh |
+| ✅ | Bidirectional M365 sync — Sync-from-M365 backfills phone/title/office **+ photos** (folded into the one Sync action); **Push-to-M365** writes name/title/department/phone/office (and manager, best-effort) from Nexus back to Entra via `POST /hr/employees/{id}/push-to-entra` | Visesh |
 
 ## C. Hiring, e-sign, onboarding & offboarding
 
