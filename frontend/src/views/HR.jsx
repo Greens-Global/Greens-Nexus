@@ -1686,6 +1686,11 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
       if (m?.licenses) bits.push(`license ${m.licenses}`);
       if (m?.export) bits.push('mailbox export started');
       if (m?.error) bits.push(`M365 issue: ${m.error}`);
+      const it = saved.items;
+      if (it && (it.checkouts || it.assignments)) {
+        const parts = [it.checkouts && `${it.checkouts} checkout${it.checkouts === 1 ? '' : 's'}`, it.assignments && `${it.assignments} assignment${it.assignments === 1 ? '' : 's'}`].filter(Boolean);
+        bits.push(`${parts.join(' + ')} force-returned`);
+      }
       const auto = bits.length ? ` · ${bits.join(', ')}` : '';
       const manual = needsDelegate ? ' Run the PowerShell to finish mailbox access.' : '';
       toastOk(`Status set to ${STATUS_META[status]?.label || status}.${auto}${manual}`);
@@ -1763,6 +1768,10 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
                   {radio('remove', 'Remove email & free up the license', 'Block sign-in, strip the M365 license so it returns to the pool.')}
                   {radio('share', 'Convert to a shared mailbox', 'Keep the mailbox alive (no license) and grant colleagues access.')}
                   {mailboxAction === 'share' && delegatePicker}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)', fontSize: 12, color: 'var(--muted)' }}>
+                    <Briefcase size={13} style={{ flexShrink: 0, marginTop: 1, color: 'hsl(var(--color-orange))' }} />
+                    <span>All equipment {employee.firstName} still holds in Item Management will be <strong>force-returned</strong> automatically — checkouts closed and permanent assignments sent back to stock.</span>
+                  </div>
                 </>
               )}
               <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, fontSize: 13, cursor: 'pointer' }}>

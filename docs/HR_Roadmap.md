@@ -9,7 +9,7 @@
 >
 > Sources: Neil's "Greens Global — People Platform" mockup (Jun 2026),
 > Busacta HR teardown, Rippling/BambooHR research, Nexus build sessions.
-> Status: ✅ built · 🟡 partial · ❌ not started   (last updated 2026-07-03 — Section A + B complete: tabbed profile (Overview/Pay & Benefits/Compliance/Assets/Documents) + stat cards and M365 write-back shipped; Time/Performance tabs land with Sections D/F)
+> Status: ✅ built · 🟡 partial · ❌ not started   (last updated 2026-07-03 — Sections A + B complete; Section C offboarding engine finished with equipment force-return. Remaining C: e-sign, self-enrolment, onboarding checklist, interview scheduling, resume upload)
 
 ---
 
@@ -55,7 +55,7 @@
 | ❌ | **Native e-sign** — draw/type signature, per-entity templates (Offer & Agreement, NDA, Direct Deposit, Handbook Ack, W-9/TIN, Contractor Agreement, SOW), awaiting-signature tracking, audit trail | Neil |
 | ❌ | **Self-enrolment links** — employee & contractor fill their own profile + sign before day 1 | Neil/Rippling |
 | ❌ | Onboarding checklist per hire: docs → sign → provision → **assign equipment via Item Management** → day-1 tasks, each with owner + due date | Rippling |
-| ❌ | **Offboarding engine** — disable Entra account, revoke sessions/licenses, **force-return all checkouts & assignments** (reuses Items force-return), mark Left | Rippling |
+| ✅ | **Offboarding engine** — status→Left blocks Entra sign-in, removes all licenses, ZIP-exports the mailbox, and **force-returns all checkouts & assignments** (`items.force_return_person`: handed-over checkouts→returned, pending→cancelled, live assignments→closed + item back to stock; counts stamped on the status_log entry). Mailbox delegation / shared-mailbox conversion stay guided Exchange-admin steps (Graph has no coverage) | Rippling |
 | ❌ | Asana provisioning (blocked: confirm tier) · "Ignite" step (blocked: identify product/API) | open |
 | ❌ | Rejected-candidate retention auto-purge (N months — ask Neil) | compliance |
 

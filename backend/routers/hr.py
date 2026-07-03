@@ -1486,6 +1486,14 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
                 "done":            False,   # flips true once an admin completes the M365 steps
             }
         log.insert(0, entry)
+    # Offboarding (-> Left) force-returns everything the person still holds in Item
+    # Management. Items owns the transition; we stamp the counts on the log entry.
+    items_returned = None
+    if did_change and body.status == "offboarded" and row.work_email:
+        from routers.items import force_return_person
+        items_returned = force_return_person(db, row.work_email, user["email"])
+        if entry is not None and (items_returned["checkouts"] or items_returned["assignments"]):
+            entry["itemsReturned"] = items_returned
     row.status = body.status
     row.status_log = log
     row.updated_at = now
@@ -1522,7 +1530,7 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
         except Exception:
             pass
 
-    return {**_serialize(row), "m365": m365}
+    return {**_serialize(row), "m365": m365, "items": items_returned}
 
 
 # ---------------------------------------------------------------------------

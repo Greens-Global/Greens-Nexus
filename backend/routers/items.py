@@ -2334,6 +2334,53 @@ def accept_assignment_return(assignment_id: str, body: AssignmentReturnAccept, u
     return _assignment_to_dict(a)
 
 
+def force_return_person(db: Session, email: str, actor_email: str) -> dict:
+    """Force-return everything a departing person holds so no equipment stays out
+    to a worker who has left. Called by HR offboarding — Items stays the single
+    source of truth for these state transitions. Operates in the CALLER's session
+    (the caller commits); no per-item notifications, as this is a bulk admin action.
+
+      • Handed-over checkouts (pending_receipt / allocated) -> returned, item freed.
+      • Not-yet-handed checkouts (pending / approved)       -> cancelled.
+      • Live permanent assignments                          -> closed, item back to stock.
+
+    Returns {"checkouts": n, "assignments": n}."""
+    email = (email or "").strip().lower()
+    if not email:
+        return {"checkouts": 0, "assignments": 0}
+    now = _now_iso()
+    actor = _title_case_email(actor_email)
+
+    checkouts = db.query(ItemCheckout).filter(
+        func.lower(ItemCheckout.requested_by_email) == email,
+        ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"]),
+    ).with_for_update().all()
+    for c in checkouts:
+        handed_over = c.status in ("pending_receipt", "allocated")
+        c.status = "returned" if handed_over else "cancelled"
+        if handed_over:
+            c.returned_at = now
+            c.condition_note = c.condition_note or f"Auto-returned on offboarding by {actor}"
+            item = db.query(Item).filter(Item.id == c.item_id).first()
+            if item and item.status == "checked_out":
+                item.status = "available"
+
+    assignments = db.query(ItemAssignment).filter(
+        func.lower(ItemAssignment.assignee_email) == email,
+        ItemAssignment.status.in_(_LIVE_ASSIGN),
+    ).with_for_update().all()
+    for a in assignments:
+        a.status = "closed"
+        a.disposition = "stock"
+        a.return_accepted_by, a.return_accepted_at = actor, now
+        item = db.query(Item).filter(Item.id == a.item_id).first()
+        if item:
+            item.assigned_to_email = item.assigned_to_name = item.assigned_at = ""
+            item.status = "available"
+
+    return {"checkouts": len(checkouts), "assignments": len(assignments)}
+
+
 @router.post("/assignments/{assignment_id}/cancel")
 def cancel_assignment(assignment_id: str, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
     """Manager cancel / force-recover. Pending -> cancelled; active/returning -> closed, item back to stock."""
