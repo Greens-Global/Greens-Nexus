@@ -38,6 +38,7 @@ const ExternalLinks       = lazy(() => import("./views/ExternalLinks"));
 const ManagerDashboard    = lazy(() => import("./views/ManagerDashboard"));
 const Support             = lazy(() => import("./views/Support"));
 const Placeholder         = lazy(() => import("./views/Placeholder"));
+const PublicSign          = lazy(() => import("./views/PublicSign"));
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // Views that aren't registered MODULES (e.g. "purchase") fall back to a
@@ -162,6 +163,17 @@ const DEFAULT_SUBS = {
 const getDefaultSub = view => DEFAULT_SUBS[view] ?? null;
 
 export default function App() {
+  // Public e-sign page (/sign/{token}) renders OUTSIDE the MSAL gate — external
+  // signers have no login; the URL token is the credential. The pathname never
+  // changes within a page load, so this early return keeps hook order stable.
+  if (parsePath().view === 'sign') {
+    const token = window.location.pathname.split('/').filter(Boolean)[1] || '';
+    return (
+      <Suspense fallback={<div style={{ minHeight: '100dvh' }} />}>
+        <PublicSign token={token} />
+      </Suspense>
+    );
+  }
   const [activeView,       setActiveView]       = useState(() => parsePath().view);
   const [activeSub,        setActiveSub]        = useState(() => { const p = parsePath(); return p.sub ?? getDefaultSub(p.view); });
   const [theme,            setTheme]            = useState(() => localStorage.getItem("gg-theme") || "light");

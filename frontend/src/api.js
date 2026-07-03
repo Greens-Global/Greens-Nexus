@@ -447,4 +447,27 @@ export const api = {
   setLeaveBalance:  (data)      => req('/hr/leave/balances', { method: 'PUT', body: JSON.stringify(data) }),
   createLeave:      (data)      => req('/hr/leave', { method: 'POST', body: JSON.stringify(data) }),
   decideLeave:      (id, data)  => req(`/hr/leave/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // HR — e-sign (templates, envelopes, my-signatures inbox)
+  getSignTemplates:   ()          => req('/esign/templates'),
+  createSignTemplate: (data)      => req('/esign/templates', { method: 'POST', body: JSON.stringify(data) }),
+  updateSignTemplate: (id, data)  => req(`/esign/templates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteSignTemplate: (id)        => req(`/esign/templates/${id}`, { method: 'DELETE' }),
+  seedSignTemplates:  ()          => req('/esign/templates/starters', { method: 'POST' }),
+  sendSignRequest:    (data)      => req('/esign/requests', { method: 'POST', body: JSON.stringify(data) }),
+  sendSignPdf:        (form)      => req('/esign/requests/pdf', { method: 'POST', body: form }),
+  getSignRequests:    ()          => req('/esign/requests'),
+  getSignRequest:     (id)        => req(`/esign/requests/${id}`),
+  remindSign:         (id)        => req(`/esign/requests/${id}/remind`, { method: 'POST' }),
+  voidSign:           (id)        => req(`/esign/requests/${id}/void`, { method: 'POST' }),
+  downloadSign:       (id)        => req(`/esign/requests/${id}/download`),
+  verifySign:         (id)        => req(`/esign/requests/${id}/verify`),
+  mySignatures:       ()          => req('/esign/mine'),
+  mySignRender:       (pid)       => req(`/esign/mine/${pid}`),
+  mySignSubmit:       (pid, data) => req(`/esign/mine/${pid}/sign`, { method: 'POST', body: JSON.stringify(data) }),
+  mySignDecline:      (pid, data) => req(`/esign/mine/${pid}/decline`, { method: 'POST', body: JSON.stringify(data) }),
 };
+
+// Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch —
+// no MSAL involved, the token in the URL is the credential.
+export const API_BASE = BASE;

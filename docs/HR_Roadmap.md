@@ -9,7 +9,7 @@
 >
 > Sources: Neil's "Greens Global — People Platform" mockup (Jun 2026),
 > Busacta HR teardown, Rippling/BambooHR research, Nexus build sessions.
-> Status: ✅ built · 🟡 partial · ❌ not started   (last updated 2026-07-03 — Sections A + B complete; Section C offboarding engine finished with equipment force-return. Remaining C: e-sign, self-enrolment, onboarding checklist, interview scheduling, resume upload)
+> Status: ✅ built · 🟡 partial · ❌ not started   (last updated 2026-07-03 — Sections A + B complete; Section C: offboarding engine + **native e-sign** done (feat/hr-esign). Remaining C: onboarding checklist, interview scheduling, resume upload, profile self-fill)
 
 ---
 
@@ -52,8 +52,8 @@
 | ✅ | Pipeline: Applied → Screening → Interview → Offer → Hired, stage notes + timeline | built |
 | ❌ | Resume/doc upload on candidates | — |
 | ❌ | Interview scheduling (date/time per stage, bell reminder) | — |
-| ❌ | **Native e-sign** — draw/type signature, per-entity templates (Offer & Agreement, NDA, Direct Deposit, Handbook Ack, W-9/TIN, Contractor Agreement, SOW), awaiting-signature tracking, audit trail | Neil |
-| ❌ | **Self-enrolment links** — employee & contractor fill their own profile + sign before day 1 | Neil/Rippling |
+| ✅ | **Native e-sign** (`feat/hr-esign`) — authored templates ({{merge}} fields + sign/initials/date/text/check slots per role) AND upload-any-PDF with click-to-place fields; **full ordered multi-party** (internal in-app + external tokenized links, no login); draw/type signature pad; ESIGN/UETA consent + IP/UA/timestamp audit; sealed final PDF with **SHA-256 Certificate of Completion** + verify endpoint; inbox / sent-tracking / remind / void; completed docs auto-attach to the profile Documents tab; "Send for signature" on candidates. Follow-ups: RLS on 4 new tables post-deploy, `NEXUS_APP_URL` env on prod Azure, daily reminder job (Section H) | Neil |
+| 🟡 | **Self-enrolment links** — external e-sign links now cover the *sign before day 1* half; profile self-fill form still ❌ | Neil/Rippling |
 | ❌ | Onboarding checklist per hire: docs → sign → provision → **assign equipment via Item Management** → day-1 tasks, each with owner + due date | Rippling |
 | ✅ | **Offboarding engine** — status→Left blocks Entra sign-in, removes all licenses, ZIP-exports the mailbox, and **force-returns all checkouts & assignments** (`items.force_return_person`: handed-over checkouts→returned, pending→cancelled, live assignments→closed + item back to stock; counts stamped on the status_log entry). Mailbox delegation / shared-mailbox conversion stay guided Exchange-admin steps (Graph has no coverage) | Rippling |
 | ❌ | Asana provisioning (blocked: confirm tier) · "Ignite" step (blocked: identify product/API) | open |

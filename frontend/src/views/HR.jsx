@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
+import ESign from '../components/ESign';
 
 // ── HR module — Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -1016,7 +1017,7 @@ function CandidateFormModal({ onClose, onSaved, toastErr }) {
   );
 }
 
-function CandidateDetailModal({ candidate: c, onClose, onStage, busy }) {
+function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignature, busy }) {
   const [history, setHistory] = useState(null);
   const [note, setNote] = useState('');
   useEffect(() => { api.getCandidateHistory(c.id).then(setHistory).catch(() => setHistory([])); }, [c.id]);
@@ -1043,6 +1044,13 @@ function CandidateDetailModal({ candidate: c, onClose, onStage, busy }) {
             {c.expectedStart && <span><CalendarDays size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Expected start {c.expectedStart}</span>}
             {c.notes && <span style={{ background: 'var(--mist)', borderRadius: 8, padding: '8px 12px', color: 'var(--ink)', marginTop: 4 }}>{c.notes}</span>}
           </div>
+          {c.email && onSendForSignature && c.stage !== 'rejected' && (
+            <button className="secondary-btn" onClick={() => { onSendForSignature(c); onClose(); }}
+              title="Send an offer letter or other document to this candidate via a secure e-sign link (no login needed)"
+              style={{ marginTop: 12, fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <FileText size={13} /> Send for signature
+            </button>
+          )}
           {/* Stage history timeline */}
           <div style={{ marginTop: 18 }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8 }}>
@@ -1087,7 +1095,7 @@ function CandidateDetailModal({ candidate: c, onClose, onStage, busy }) {
   );
 }
 
-function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated }) {
+function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSignature }) {
   const [candidates, setCandidates] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
   const [detail, setDetail] = useState(null);
@@ -1195,7 +1203,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated }) {
 
       {addOpen && <CandidateFormModal onClose={() => setAddOpen(false)} toastErr={toastErr}
         onSaved={c => { setCandidates(prev => [c, ...prev]); toastOk(`${candName(c)} added to the pipeline.`); }} />}
-      {detail && <CandidateDetailModal candidate={detail} onClose={() => setDetail(null)} onStage={moveStage} busy={busy} />}
+      {detail && <CandidateDetailModal candidate={detail} onClose={() => setDetail(null)} onStage={moveStage} onSendForSignature={onSendForSignature} busy={busy} />}
     </div>
   );
 }
@@ -2157,7 +2165,8 @@ function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr
 
 export default function HR({ activeSub, onSubChange }) {
   // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now
-  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave'].includes(activeSub) ? activeSub : 'hr-people';
+  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-esign'].includes(activeSub) ? activeSub : 'hr-people';
+  const [esignPrefill, setEsignPrefill] = useState(null);   // candidate → Send-for-signature handoff
   const isMobile = useIsMobile();
 
   const [employees, setEmployees] = useState([]);
@@ -2243,7 +2252,7 @@ export default function HR({ activeSub, onSubChange }) {
   };
 
   const TABS = [
-    ['hr-people', 'People'], ['hr-hiring', 'Hiring'], ['hr-org', 'Org Chart'], ['hr-leave', 'Leave'],
+    ['hr-people', 'People'], ['hr-hiring', 'Hiring'], ['hr-org', 'Org Chart'], ['hr-leave', 'Leave'], ['hr-esign', 'E-Sign'],
   ];
 
   return (
@@ -2290,10 +2299,21 @@ export default function HR({ activeSub, onSubChange }) {
 
       {sub === 'hr-hiring' && (
         <HiringTab isMobile={isMobile} toastOk={toastOk} toastErr={toastErr}
-          onEmployeeCreated={emp => setEmployees(prev => [...prev, emp].sort((a, b) => fullName(a).localeCompare(fullName(b))))} />
+          onEmployeeCreated={emp => setEmployees(prev => [...prev, emp].sort((a, b) => fullName(a).localeCompare(fullName(b))))}
+          onSendForSignature={c => {
+            setEsignPrefill({
+              candidateId: c.id, title: `Offer — ${candName(c)}`,
+              parties: [{ role_key: 'employee', name: candName(c), email: c.email, kind: 'external', ordinal: 2 }],
+            });
+            onSubChange('hr-esign');
+          }} />
       )}
       {sub === 'hr-org' && <OrgChartTab employees={employees} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-esign' && (
+        <ESign employees={employees} entities={entities} prefill={esignPrefill}
+          onPrefillConsumed={() => setEsignPrefill(null)} toastOk={toastOk} toastErr={toastErr} />
+      )}
 
       {sub === 'hr-people' && (<>
         {/* KPI strip */}

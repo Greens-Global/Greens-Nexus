@@ -863,3 +863,84 @@ class HrMailboxExport(Base):
     total         = Column(Integer, default=0)           # messages in the mailbox (0 = unknown)
     created_at    = Column(String, default="")
     updated_at    = Column(String, default="")
+
+
+# ── E-Sign (HR Section C) — native signatures with legal-grade audit trail ────
+# Templates are authored with {{merge}} tokens and [[fieldtype:role]] slots;
+# requests freeze a resolved snapshot at send time so later profile edits never
+# change what someone signed. Final PDFs live in the private hr-docs bucket with
+# a SHA-256 stored for tamper evidence. Tables created via create_all on startup.
+
+class HrSignTemplate(Base):
+    __tablename__ = "hr_sign_templates"
+    id          = Column(String, primary_key=True)   # uuid
+    name        = Column(String, nullable=False)
+    kind        = Column(String, default="custom")   # offer|nda|direct_deposit|handbook_ack|w9|contractor_agreement|sow|custom
+    entity_id   = Column(String, default="")         # HrEntity.id ('' = any company)
+    body        = Column(JSON, default=list)         # list of paragraph strings with {{merge}} + [[sign:role]] tokens
+    roles       = Column(JSON, default=list)         # [{key,label,order}] — signing order
+    status      = Column(String, default="active")   # active|archived
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+
+
+class HrSignRequest(Base):
+    """An envelope: one document sent to N ordered parties for signature."""
+    __tablename__ = "hr_sign_requests"
+    id               = Column(String, primary_key=True)   # uuid
+    title            = Column(String, nullable=False)
+    source           = Column(String, default="template") # template|pdf
+    template_id      = Column(String, default="")
+    employee_id      = Column(String, default="")         # subject person (optional)
+    candidate_id     = Column(String, default="")
+    entity_id        = Column(String, default="")
+    body_snapshot    = Column(JSON, default=list)         # resolved template body, frozen at send
+    pdf_storage_path = Column(String, default="")         # hr-docs path of uploaded source PDF
+    fields           = Column(JSON, default=list)         # pdf source: [{id,role,type,page,x,y,w,h,required}] normalized coords
+    status           = Column(String, default="pending")  # pending|completed|declined|voided|expired
+    current_order    = Column(Integer, default=1)         # whose turn (matches HrSignParty.order)
+    message          = Column(String, default="")
+    expires_on       = Column(String, default="")         # ISO date ('' = never)
+    created_by       = Column(String, default="")
+    created_at       = Column(String, default="")
+    completed_at     = Column(String, default="")
+    final_pdf_path   = Column(String, default="")         # hr-docs path of sealed final PDF
+    final_sha256     = Column(String, default="")         # tamper-evidence hash of final bytes
+
+
+class HrSignParty(Base):
+    __tablename__ = "hr_sign_parties"
+    id                   = Column(String, primary_key=True)   # uuid
+    request_id           = Column(String, nullable=False)
+    role_key             = Column(String, default="")
+    name                 = Column(String, default="")
+    email                = Column(String, default="")
+    kind                 = Column(String, default="internal") # internal|external
+    ordinal              = Column(Integer, default=1)         # signing order (matches request.current_order)
+    status               = Column(String, default="waiting")  # waiting|notified|viewed|signed|declined
+    token                = Column(String, default="")         # secrets.token_urlsafe(32) — the public-link credential
+    token_expires_at     = Column(String, default="")
+    signature_kind       = Column(String, default="")         # drawn|typed
+    signature_data       = Column(String, default="")         # PNG data-URL (drawn) or the typed name
+    consent_at           = Column(String, default="")         # ESIGN/UETA e-business consent timestamp
+    consent_text_version = Column(String, default="")
+    ip                   = Column(String, default="")
+    user_agent           = Column(String, default="")
+    viewed_at            = Column(String, default="")
+    signed_at            = Column(String, default="")
+    decline_reason       = Column(String, default="")
+    field_values         = Column(JSON, default=dict)         # filled text/check/date/initials values
+
+
+class HrSignEvent(Base):
+    """Immutable audit trail — one row per action on an envelope."""
+    __tablename__ = "hr_sign_events"
+    id          = Column(String, primary_key=True)   # uuid
+    request_id  = Column(String, nullable=False)
+    party_id    = Column(String, default="")
+    type        = Column(String, default="")         # created|sent|viewed|consented|signed|declined|reminded|voided|completed|downloaded
+    detail      = Column(String, default="")
+    ip          = Column(String, default="")
+    user_agent  = Column(String, default="")
+    at          = Column(String, default="")
