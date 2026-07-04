@@ -2316,12 +2316,20 @@ export default function HR({ activeSub, onSubChange }) {
       )}
 
       {sub === 'hr-people' && (<>
-        {/* KPI strip */}
+        {/* KPI strip — skeleton shimmer while loading, never a flash of zeros */}
         <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-          <div className="kpi-card card-blue"><div className="kpi-label">Total People</div><div className="kpi-value">{counts.total}</div></div>
-          <div className="kpi-card card-green"><div className="kpi-label">Active</div><div className="kpi-value">{counts.active}</div></div>
-          <div className="kpi-card card-orange"><div className="kpi-label">Onboarding</div><div className="kpi-value">{counts.onboarding}</div></div>
-          <div className="kpi-card card-purple"><div className="kpi-label">Departments</div><div className="kpi-value">{counts.depts}</div></div>
+          {[['card-blue', 'Total People', counts.total], ['card-green', 'Active', counts.active],
+            ['card-orange', 'Onboarding', counts.onboarding], ['card-purple', 'Departments', counts.depts]]
+            .map(([cls, label, value]) => (
+              <div key={label} className={`kpi-card ${cls}`}>
+                <div className="kpi-label">{label}</div>
+                <div className="kpi-value">
+                  {loading
+                    ? <span style={{ display: 'inline-block', width: 42, height: '1em', borderRadius: 8, background: 'currentColor', opacity: 0.14, animation: 'pulse 1.2s ease-in-out infinite', verticalAlign: 'middle' }} />
+                    : value}
+                </div>
+              </div>
+            ))}
         </div>
 
         {/* Filters — search fills the row, the two dropdowns stay compact on the right */}
@@ -2340,7 +2348,9 @@ export default function HR({ activeSub, onSubChange }) {
             {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
           </select>
           <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
-            {counts.total} total · {counts.active} active · {filtered.length} shown
+            {loading
+              ? <span style={{ display: 'inline-block', width: 150, height: 12, borderRadius: 6, background: 'var(--line)', animation: 'pulse 1.2s ease-in-out infinite', verticalAlign: 'middle' }} />
+              : `${counts.total} total · ${counts.active} active · ${filtered.length} shown`}
           </span>
         </div>
 
