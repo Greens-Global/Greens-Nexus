@@ -2186,3 +2186,16 @@ button, [role="button"], select { touch-action: manipulation; }
   background: var(--card); border: 1px solid var(--line); border-radius: 12px;
   padding: 10px 14px; box-shadow: var(--shadow-sm); white-space: nowrap;
 }
+
+/* ── Skeleton shimmer — loading placeholder for stats/text (HR KPI strip) ──── */
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.skel {
+  display: inline-block;
+  border-radius: 7px;
+  background: linear-gradient(90deg, var(--line) 30%, var(--mist) 50%, var(--line) 70%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}

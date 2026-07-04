@@ -21,8 +21,8 @@ const REQ_STATUS = {
   pending:   { label: 'Awaiting signatures', fg: 'hsl(var(--color-orange))', bg: 'hsla(var(--color-orange),0.12)' },
   completed: { label: 'Completed',           fg: 'hsl(var(--color-green))',  bg: 'hsla(var(--color-green),0.12)' },
   declined:  { label: 'Declined',            fg: 'hsl(var(--color-red))',    bg: 'hsla(var(--color-red),0.12)' },
-  voided:    { label: 'Voided',              fg: 'var(--muted)',             bg: 'var(--hover)' },
-  expired:   { label: 'Expired',             fg: 'var(--muted)',             bg: 'var(--hover)' },
+  voided:    { label: 'Voided',              fg: 'var(--muted)',             bg: 'var(--mist)' },
+  expired:   { label: 'Expired',             fg: 'var(--muted)',             bg: 'var(--mist)' },
 };
 const PARTY_STATUS = {
   waiting:  { label: 'Waiting',  fg: 'var(--muted)' },
@@ -268,6 +268,12 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
         if (['sign', 'check', 'text'].includes(f.type)) out.push({ id: f.id, type: f.type, label: f.label || '' });
       });
     }
+    // Packet documents (template attachments) carry their own fields
+    for (const d of payload.documents || []) {
+      (d.fields || []).filter(f => f.role === myRole).forEach(f => {
+        if (['sign', 'check', 'text'].includes(f.type)) out.push({ id: f.id, type: f.type, label: f.label || '' });
+      });
+    }
     return out;
   }, [payload, myRole, isTemplate]);
 
@@ -356,9 +362,9 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
     return <div key={pi} style={{ margin: '0 0 13px', fontSize: 14.5, lineHeight: 1.7 }}>{parts}</div>;
   }
 
-  const signingOverlay = (pageIdx) => (
+  const signingOverlay = (docFields) => (pageIdx) => (
     <>
-      {(payload.fields || []).filter(f => f.page === pageIdx).map(f => {
+      {(docFields || []).filter(f => f.page === pageIdx).map(f => {
         const mine = f.role === myRole;
         const st = { position: 'absolute', left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: `${f.h * 100}%` };
         if (f.type === 'sign' && mine) {
@@ -433,8 +439,19 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
         <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: isTemplate ? '30px 38px' : '24px 12px', background: isTemplate ? '#fff' : 'var(--mist)', color: '#111827' }}>
           {isTemplate
             ? (payload.body || []).map(renderPara)
-            : <PdfDoc url={payload.pdfUrl} renderOverlay={signingOverlay} />}
+            : <PdfDoc url={payload.pdfUrl} renderOverlay={signingOverlay(payload.fields)} />}
         </div>
+        {/* Packet documents — attached PDFs signed in the same session */}
+        {(payload.documents || []).map((d, di) => (
+          <div key={di} style={{ marginTop: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)', letterSpacing: '.05em', textTransform: 'uppercase', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <FileText size={13} /> {d.name || `Document ${di + 2}`}
+            </div>
+            <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '24px 12px', background: 'var(--mist)' }}>
+              <PdfDoc url={d.pdfUrl} renderOverlay={signingOverlay(d.fields)} />
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Who's-signed progress strip */}
@@ -522,40 +539,193 @@ function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
   );
 }
 
-// ── Template editor ───────────────────────────────────────────────────────────
+// ── Template editor — human block editor, no raw tokens to type ───────────────
+// The body is edited as BLOCKS (paragraphs + visual field rows) and serialized
+// back to the same paragraph/token format the backend already understands.
+// Templates can also carry ATTACHED PDFs (handbook, policies…) with fields
+// placed once here — every send bundles them into one signed packet.
+
+const FRIENDLY_MERGE = {
+  first_name: 'First name', last_name: 'Last name', full_name: 'Full name',
+  email: 'Email', job_title: 'Job title', department: 'Department',
+  start_date: 'Start date', salary: 'Salary', company: 'Company',
+  company_legal: 'Company legal name', company_address: 'Company address',
+  signatory: 'Company signatory', manager: 'Manager', today: "Today's date",
+};
+const BLOCK_ONLY_RE = /^\[\[(sign|initials|date|text|check):([a-z0-9_]+)(?::([^\]]*))?\]\]$/;
+
+const parseBlocks = (body) => (body || []).map(para => {
+  const m = String(para).trim().match(BLOCK_ONLY_RE);
+  return m ? { type: m[1], role: m[2], label: m[3] || '' } : { type: 'para', text: String(para) };
+});
+const blocksToBody = (blocks) => blocks
+  .map(b => b.type === 'para' ? b.text
+    : `[[${b.type}:${b.role}${(b.type === 'check' || b.type === 'text') ? `:${b.label || ''}` : ''}]]`)
+  .filter(s => String(s).trim());
+
+// Place fields on an attached PDF — same interaction as the send wizard's
+// editor, but saved onto the template so every send reuses the placement.
+function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
+  const [url, setUrl] = useState('');
+  const [fields, setFields] = useState(attachment.fields || []);
+  const [activeRole, setActiveRole] = useState(0);
+  const [activeType, setActiveType] = useState('sign');
+  const dragState = useRef(null);
+
+  useEffect(() => {
+    api.getSignAttachmentUrl(attachment.path).then(r => setUrl(r.url))
+      .catch(e => { toastErr(e?.message || 'Could not load the PDF.'); onClose(); });
+  }, [attachment.path]);
+
+  const roleKey = (i) => roles[i]?.key || roles[0]?.key || 'employee';
+  function place(page, x, y, type = activeType) {
+    const meta = FIELD_META[type] || FIELD_META.sign;
+    setFields(fs => [...fs, { id: `a${Date.now()}${fs.length}`, role: roleKey(activeRole), type, page,
+      x: Math.min(0.98 - meta.w, Math.max(0, x - meta.w / 2)),
+      y: Math.min(0.98 - meta.h, Math.max(0, y - meta.h / 2)), w: meta.w, h: meta.h, required: true }]);
+  }
+  const onDrag = useCallback((e) => {
+    const s = dragState.current; if (!s) return;
+    const dx = (e.clientX - s.startX) / s.rect.width, dy = (e.clientY - s.startY) / s.rect.height;
+    setFields(fs => fs.map(f => f.id !== s.fieldId ? f
+      : s.mode === 'move'
+        ? { ...f, x: Math.min(0.99 - f.w, Math.max(0, s.orig.x + dx)), y: Math.min(0.99 - f.h, Math.max(0, s.orig.y + dy)) }
+        : { ...f, w: Math.min(0.9, Math.max(0.02, s.orig.w + dx)), h: Math.min(0.4, Math.max(0.012, s.orig.h + dy)) }));
+  }, []);
+  const endDrag = useCallback(() => { dragState.current = null; window.removeEventListener('pointermove', onDrag); }, [onDrag]);
+  const startDrag = (e, f, mode) => {
+    e.stopPropagation(); e.preventDefault();
+    const pageEl = e.currentTarget.closest('[data-atpage]'); if (!pageEl) return;
+    dragState.current = { fieldId: f.id, mode, rect: pageEl.getBoundingClientRect(), startX: e.clientX, startY: e.clientY, orig: { ...f } };
+    window.addEventListener('pointermove', onDrag);
+    window.addEventListener('pointerup', endDrag, { once: true });
+  };
+  const roleIdx = (key) => Math.max(0, roles.findIndex(r => r.key === key));
+  const overlay = (pageIdx) => (
+    <div data-atpage style={{ position: 'absolute', inset: 0 }}
+      onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); place(pageIdx, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height); }}>
+      {fields.filter(f => f.page === pageIdx).map(f => {
+        const c = rcolor(roleIdx(f.role));
+        const M = FIELD_META[f.type];
+        return (
+          <div key={f.id} onPointerDown={(e) => startDrag(e, f, 'move')} onClick={e => e.stopPropagation()}
+            style={{ position: 'absolute', left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: `${f.h * 100}%`,
+              border: `2px solid ${c.solid}`, background: c.soft, borderRadius: 5, cursor: 'grab', touchAction: 'none',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter,sans-serif' }}>
+            <span style={{ fontSize: 10, fontWeight: 800, color: c.solid, display: 'inline-flex', alignItems: 'center', gap: 4, pointerEvents: 'none', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+              <M.Icon size={10} /> {M.label}
+            </span>
+            <button onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setFields(fs => fs.filter(x => x.id !== f.id)); }}
+              style={{ position: 'absolute', top: -9, right: -9, width: 18, height: 18, borderRadius: '50%', background: c.solid, color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+              <X size={11} />
+            </button>
+            <span onPointerDown={(e) => startDrag(e, f, 'resize')}
+              style={{ position: 'absolute', bottom: -6, right: -6, width: 12, height: 12, borderRadius: 3, background: '#fff', border: `2px solid ${c.solid}`, cursor: 'nwse-resize', touchAction: 'none' }} />
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'var(--bg, #f3f4f6)', zIndex: 1350, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card)', flexShrink: 0, flexWrap: 'wrap' }}>
+        <FileText size={16} style={{ color: 'var(--pine)' }} />
+        <span style={{ fontWeight: 800, fontSize: 14, flex: '0 1 auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attachment.name}</span>
+        <div style={{ display: 'flex', gap: 6, flex: 1, flexWrap: 'wrap' }}>
+          {roles.map((r, i) => (
+            <button key={r.key} onClick={() => setActiveRole(i)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 16, fontSize: 11.5, fontWeight: 700, fontFamily: 'Inter,sans-serif', cursor: 'pointer',
+                border: activeRole === i ? `2px solid ${rcolor(i).solid}` : '1.5px solid var(--line)', background: activeRole === i ? rcolor(i).soft : 'var(--card)', color: 'var(--ink)' }}>
+              <span style={{ width: 9, height: 9, borderRadius: '50%', background: rcolor(i).solid }} />{r.label || r.key}
+            </button>
+          ))}
+          {Object.entries(FIELD_META).map(([ft, M]) => (
+            <button key={ft} onClick={() => setActiveType(ft)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 8, fontSize: 11.5, fontWeight: 700, fontFamily: 'Inter,sans-serif', cursor: 'pointer',
+                border: activeType === ft ? `2px solid ${rcolor(activeRole).solid}` : '1.5px solid var(--line)', background: activeType === ft ? rcolor(activeRole).soft : 'var(--card)', color: 'var(--ink)' }}>
+              <M.Icon size={12} /> {M.label}
+            </button>
+          ))}
+        </div>
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: fields.length ? 'hsl(var(--color-green))' : 'var(--muted)' }}>{fields.length} placed</span>
+        <button className="secondary-btn" onClick={onClose} style={{ fontSize: 12.5 }}>Cancel</button>
+        <button className="primary-btn" onClick={() => { onSave(fields); onClose(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+          <CheckCircle size={13} /> Save fields
+        </button>
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '26px 20px' }}>
+        {url ? <PdfDoc url={url} renderOverlay={overlay} />
+             : <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} /></div>}
+      </div>
+    </div>
+  );
+}
+
 function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, toastErr }) {
   const t0 = template || {};
-  const [f, setF] = useState({
-    name: t0.name || '', kind: t0.kind || 'custom', entity_id: t0.entityId || '',
-    roles: t0.roles?.length ? t0.roles : [{ key: 'employee', label: 'Employee', order: 1 }],
-    bodyText: (t0.body || []).join('\n'),
+  const [name, setName] = useState(t0.name || '');
+  const [kind, setKind] = useState(t0.kind || 'custom');
+  const [entityId, setEntityId] = useState(t0.entityId || '');
+  const [roles, setRoles] = useState(t0.roles?.length ? t0.roles : [{ key: 'employee', label: 'Employee', order: 1 }]);
+  const [blocks, setBlocks] = useState(() => {
+    const b = parseBlocks(t0.body);
+    return b.length ? b : [{ type: 'para', text: '' }];
   });
+  const [attachments, setAttachments] = useState(t0.attachments || []);
+  const [placerIdx, setPlacerIdx] = useState(null);
+  const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const bodyRef = useRef(null);
-  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const paraRefs = useRef({});
 
-  const insert = (token) => {
-    const ta = bodyRef.current;
-    const cur = f.bodyText;
+  const setBlock = (i, patch) => setBlocks(bs => bs.map((b, j) => j === i ? { ...b, ...patch } : b));
+  const rmBlock = (i) => setBlocks(bs => bs.length > 1 ? bs.filter((_, j) => j !== i) : bs);
+  const movBlock = (i, dir) => setBlocks(bs => {
+    const j = i + dir; if (j < 0 || j >= bs.length) return bs;
+    const next = [...bs]; [next[i], next[j]] = [next[j], next[i]]; return next;
+  });
+  const addBlock = (type) => setBlocks(bs => [...bs,
+    type === 'para' ? { type: 'para', text: '' }
+      : { type, role: roles[0]?.key || 'employee', label: type === 'check' ? 'I agree' : type === 'text' ? 'Label' : '' }]);
+  const insertMerge = (i, token) => {
+    const ta = paraRefs.current[i];
+    const cur = blocks[i]?.text || '';
     const at = ta ? ta.selectionStart : cur.length;
-    set('bodyText', cur.slice(0, at) + token + cur.slice(at));
-    setTimeout(() => { ta?.focus(); ta?.setSelectionRange(at + token.length, at + token.length); }, 0);
+    setBlock(i, { text: cur.slice(0, at) + `{{${token}}}` + cur.slice(at) });
+    setTimeout(() => { ta?.focus(); }, 0);
   };
-  const setRole = (i, k, v) => set('roles', f.roles.map((r, j) => j === i ? { ...r, [k]: v } : r));
+  const setRole = (i, k, v) => setRoles(rs => rs.map((r, j) => j === i ? { ...r, [k]: v } : r));
+  const roleIdx = (key) => Math.max(0, roles.findIndex(r => r.key === key));
+
+  async function uploadAttachment(fl) {
+    if (!fl) return;
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append('file', fl);
+      const a = await api.uploadSignAttachment(form);
+      setAttachments(as => [...as, a]);
+      toastOk(`Attached ${a.name} (${a.pages} page${a.pages === 1 ? '' : 's'}). Now place its signature fields.`);
+    } catch (e) { toastErr(e?.message || 'Upload failed.'); }
+    setUploading(false);
+  }
 
   async function save() {
     if (busy) return; setBusy(true);
-    const data = { name: f.name, kind: f.kind, entity_id: f.entity_id,
-      roles: f.roles.filter(r => r.key.trim()), body: f.bodyText.split('\n').filter(l => l.trim()) };
+    const data = { name, kind, entity_id: entityId, roles: roles.filter(r => r.key.trim()),
+      body: blocksToBody(blocks), attachments };
     try {
       const saved = template?.id ? await api.updateSignTemplate(template.id, data) : await api.createSignTemplate(data);
       toastOk('Template saved.'); onSaved(saved); onClose();
     } catch (e) { toastErr(e?.message || 'Could not save template.'); setBusy(false); }
   }
 
+  const fieldBlockMeta = { sign: ['Signature', PenTool], date: ['Date signed', CalendarDays],
+    initials: ['Initials', Type], check: ['Checkbox', CheckSquare], text: ['Text field', ALargeSmall] };
+
   return (
     <div style={overlayStyle} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={cardStyle(800)}>
+      <div style={cardStyle(820)}>
         <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <FileText size={17} style={{ color: 'var(--pine)' }} />
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{template?.id ? 'Edit template' : 'New template'}</h3>
@@ -563,69 +733,129 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12 }}>
-            <div><label style={FL}>Name *</label><input className="form-input" style={{ width: '100%' }} value={f.name} onChange={e => set('name', e.target.value)} autoFocus /></div>
+            <div><label style={FL}>Name *</label><input className="form-input" style={{ width: '100%' }} value={name} onChange={e => setName(e.target.value)} autoFocus /></div>
             <div><label style={FL}>Kind</label>
-              <select className="form-input" style={{ width: '100%' }} value={f.kind} onChange={e => set('kind', e.target.value)}>
+              <select className="form-input" style={{ width: '100%' }} value={kind} onChange={e => setKind(e.target.value)}>
                 {Object.entries(KIND_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select></div>
             <div><label style={FL}>Company</label>
-              <select className="form-input" style={{ width: '100%' }} value={f.entity_id} onChange={e => set('entity_id', e.target.value)}>
+              <select className="form-input" style={{ width: '100%' }} value={entityId} onChange={e => setEntityId(e.target.value)}>
                 <option value="">Any</option>
                 {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
               </select></div>
           </div>
 
-          <div style={{ margin: '16px 0 6px' }}><label style={FL}>Signer roles (in order)</label></div>
-          {f.roles.map((r, i) => (
+          <div style={{ margin: '16px 0 6px' }}><label style={FL}>Who signs (in order)</label></div>
+          {roles.map((r, i) => (
             <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'center' }}>
               <span style={{ width: 12, height: 12, borderRadius: '50%', background: rcolor(i).solid, flexShrink: 0 }} />
-              <input className="form-input" style={{ width: 150 }} value={r.key} placeholder="key (e.g. employee)"
-                onChange={e => setRole(i, 'key', e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))} />
-              <input className="form-input" style={{ flex: 1 }} value={r.label} placeholder="Label"
-                onChange={e => setRole(i, 'label', e.target.value)} />
-              <button onClick={() => set('roles', f.roles.filter((_, j) => j !== i).map((x, j) => ({ ...x, order: j + 1 })))}
-                style={{ background: 'none', border: 'none', color: 'hsl(var(--color-red))', cursor: 'pointer', display: 'flex', padding: 4 }}><Trash2 size={14} /></button>
+              <input className="form-input" style={{ flex: 1 }} value={r.label} placeholder="e.g. Employee, Hiring manager…"
+                onChange={e => {
+                  const label = e.target.value;
+                  const key = r.key || label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || `signer${i + 1}`;
+                  setRole(i, 'label', label); if (!r.key) setRole(i, 'key', key);
+                }} />
+              <button onClick={() => setRoles(rs => rs.filter((_, j) => j !== i).map((x, j) => ({ ...x, order: j + 1 })))}
+                disabled={roles.length === 1}
+                style={{ background: 'none', border: 'none', color: roles.length === 1 ? 'var(--line)' : 'hsl(var(--color-red))', cursor: roles.length === 1 ? 'default' : 'pointer', display: 'flex', padding: 4 }}><Trash2 size={14} /></button>
             </div>
           ))}
-          <button className="secondary-btn" onClick={() => set('roles', [...f.roles, { key: '', label: '', order: f.roles.length + 1 }])}
-            style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add role</button>
+          <button className="secondary-btn" onClick={() => setRoles(rs => [...rs, { key: `signer${rs.length + 1}`, label: '', order: rs.length + 1 }])}
+            style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add signer role</button>
 
-          <div style={{ margin: '16px 0 6px' }}><label style={FL}>Document body (one paragraph per line)</label></div>
-          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 8 }}>
-            {MERGE_TOKENS.map(tk => (
-              <button key={tk} onClick={() => insert(`{{${tk}}}`)} title="Insert merge field"
-                style={{ fontSize: 10.5, fontWeight: 600, padding: '3px 8px', borderRadius: 12, border: '1px solid var(--line)', background: 'var(--mist)', cursor: 'pointer', color: 'var(--ink)', fontFamily: 'Inter,sans-serif' }}>
-                {`{{${tk}}}`}
-              </button>
+          <div style={{ margin: '18px 0 6px' }}><label style={FL}>Document</label></div>
+          <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '14px 14px', background: '#fff' }}>
+            {blocks.map((b, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'flex-start' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 0, paddingTop: 4 }}>
+                  <button onClick={() => movBlock(i, -1)} disabled={i === 0} style={{ background: 'none', border: 'none', cursor: i === 0 ? 'default' : 'pointer', color: i === 0 ? 'var(--line)' : 'var(--muted)', display: 'flex', padding: 1 }}><ChevronUp size={12} /></button>
+                  <button onClick={() => movBlock(i, 1)} disabled={i === blocks.length - 1} style={{ background: 'none', border: 'none', cursor: i === blocks.length - 1 ? 'default' : 'pointer', color: i === blocks.length - 1 ? 'var(--line)' : 'var(--muted)', display: 'flex', padding: 1 }}><ChevronDown size={12} /></button>
+                </div>
+                {b.type === 'para' ? (
+                  <div style={{ flex: 1 }}>
+                    <textarea ref={el => { paraRefs.current[i] = el; }} className="form-input" rows={Math.max(2, Math.ceil((b.text || '').length / 90))}
+                      value={b.text} placeholder="Write a paragraph… use Insert to drop in auto-filled details"
+                      onChange={e => setBlock(i, { text: e.target.value })}
+                      style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13, lineHeight: 1.6, color: '#111827' }} />
+                    <select className="form-input" value="" onChange={e => e.target.value && insertMerge(i, e.target.value)}
+                      style={{ marginTop: 4, fontSize: 11.5, padding: '3px 8px', height: 28, width: 210, color: 'var(--muted)' }}>
+                      <option value="">✨ Insert auto-filled detail…</option>
+                      {Object.entries(FRIENDLY_MERGE).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                    </select>
+                  </div>
+                ) : (
+                  <div style={{ flex: 1, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', border: `1.5px solid ${rcolor(roleIdx(b.role)).solid}`, background: rcolor(roleIdx(b.role)).soft, borderRadius: 10, padding: '9px 12px' }}>
+                    {(() => { const [lbl, Icon] = fieldBlockMeta[b.type]; return (<>
+                      <Icon size={14} style={{ color: rcolor(roleIdx(b.role)).solid }} />
+                      <span style={{ fontSize: 12.5, fontWeight: 800, color: rcolor(roleIdx(b.role)).solid }}>{lbl}</span>
+                    </>); })()}
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>for</span>
+                    <select className="form-input" value={b.role} onChange={e => setBlock(i, { role: e.target.value })}
+                      style={{ fontSize: 12, padding: '3px 8px', height: 28, width: 170 }}>
+                      {roles.filter(r => r.key).map(r => <option key={r.key} value={r.key}>{r.label || r.key}</option>)}
+                    </select>
+                    {(b.type === 'check' || b.type === 'text') && (
+                      <input className="form-input" value={b.label} placeholder={b.type === 'check' ? 'Checkbox text' : 'Field label'}
+                        onChange={e => setBlock(i, { label: e.target.value })} style={{ flex: 1, minWidth: 140, fontSize: 12, padding: '3px 8px', height: 28 }} />
+                    )}
+                  </div>
+                )}
+                <button onClick={() => rmBlock(i)} style={{ background: 'none', border: 'none', color: 'hsl(var(--color-red))', cursor: 'pointer', display: 'flex', padding: 4, marginTop: 4 }}><Trash2 size={13} /></button>
+              </div>
             ))}
-            {f.roles.filter(r => r.key).map((r, i) => (
-              ['sign', 'date', 'initials'].map(ft => (
-                <button key={`${ft}-${r.key}`} onClick={() => insert(`[[${ft}:${r.key}]]`)} title={`Insert ${ft} slot for ${r.label || r.key}`}
-                  style={{ fontSize: 10.5, fontWeight: 700, padding: '3px 8px', borderRadius: 12, border: `1px solid ${rcolor(i).solid}`, background: rcolor(i).soft, color: rcolor(i).solid, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
-                  {`${ft}:${r.key}`}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+              <button className="secondary-btn" onClick={() => addBlock('para')} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px' }}><Plus size={11} /> Paragraph</button>
+              {Object.entries(fieldBlockMeta).map(([ft, [lbl, Icon]]) => (
+                <button key={ft} className="secondary-btn" onClick={() => addBlock(ft)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px' }}>
+                  <Icon size={11} /> {lbl}
                 </button>
-              ))
-            ))}
-            {f.roles[0]?.key && (
-              <>
-                <button onClick={() => insert(`[[check:${f.roles[0].key}:I agree]]`)} style={{ fontSize: 10.5, fontWeight: 700, padding: '3px 8px', borderRadius: 12, border: '1px solid hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.08)', color: 'hsl(var(--color-blue))', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>+ checkbox</button>
-                <button onClick={() => insert(`[[text:${f.roles[0].key}:Label]]`)} style={{ fontSize: 10.5, fontWeight: 700, padding: '3px 8px', borderRadius: 12, border: '1px solid hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.08)', color: 'hsl(var(--color-blue))', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>+ text field</button>
-              </>
-            )}
+              ))}
+            </div>
           </div>
-          <textarea ref={bodyRef} className="form-input" rows={12} value={f.bodyText} onChange={e => set('bodyText', e.target.value)}
-            style={{ width: '100%', resize: 'vertical', fontFamily: 'ui-monospace,Menlo,monospace', fontSize: 12, lineHeight: 1.7 }} />
-          <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '8px 0 0' }}>
-            <code>{'{{merge}}'}</code> fields auto-fill from the person/company at send time; <code>[[sign:role]]</code> slots become interactive when that role signs.
-          </p>
+
+          <div style={{ margin: '18px 0 6px', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label style={{ ...FL, marginBottom: 0, flex: 1 }}>Attached documents — signed together as one packet</label>
+            <label className="secondary-btn" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              {uploading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <UploadCloud size={13} />} Attach PDF
+              <input type="file" accept="application/pdf" style={{ display: 'none' }}
+                onChange={e => { uploadAttachment(e.target.files?.[0]); e.target.value = ''; }} />
+            </label>
+          </div>
+          {attachments.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 10, padding: '12px 14px' }}>
+              None yet — attach the handbook, NDA or policy PDFs and this template sends them all as one signature packet.
+            </div>
+          ) : attachments.map((a, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', border: '1px solid var(--line)', borderRadius: 10, marginBottom: 6 }}>
+              <FileText size={14} style={{ color: 'var(--pine)', flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.name}</div>
+                <div style={{ fontSize: 11, color: (a.fields || []).length ? 'var(--muted)' : '#b45309' }}>
+                  {a.pages} page{a.pages === 1 ? '' : 's'} · {(a.fields || []).length
+                    ? `${a.fields.length} field${a.fields.length === 1 ? '' : 's'} placed`
+                    : 'no fields yet — signers will only view it'}
+                </div>
+              </div>
+              <button className="secondary-btn" onClick={() => setPlacerIdx(i)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px' }}>
+                <PenTool size={11} /> Place fields
+              </button>
+              <button onClick={() => setAttachments(as => as.filter((_, j) => j !== i))}
+                style={{ background: 'none', border: 'none', color: 'hsl(var(--color-red))', cursor: 'pointer', display: 'flex', padding: 4 }}><Trash2 size={13} /></button>
+            </div>
+          ))}
         </div>
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={!f.name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!f.name.trim() || busy) ? 0.6 : 1 }}>
+          <button className="primary-btn" onClick={save} disabled={!name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!name.trim() || busy) ? 0.6 : 1 }}>
             {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save template
           </button>
         </div>
       </div>
+      {placerIdx !== null && attachments[placerIdx] && (
+        <AttachmentPlacer attachment={attachments[placerIdx]} roles={roles.filter(r => r.key)}
+          toastErr={toastErr} onClose={() => setPlacerIdx(null)}
+          onSave={(fields) => setAttachments(as => as.map((a, j) => j === placerIdx ? { ...a, fields } : a))} />
+      )}
     </div>
   );
 }
@@ -910,7 +1140,7 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                       <FileText size={17} style={{ color: 'var(--pine)', flexShrink: 0 }} />
                       <span style={{ flex: 1, minWidth: 0 }}>
                         <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, color: 'var(--ink)' }}>{t.name}</span>
-                        <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{KIND_LABEL[t.kind] || t.kind} · {(t.roles || []).length} signer role{(t.roles || []).length === 1 ? '' : 's'}</span>
+                        <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{KIND_LABEL[t.kind] || t.kind} · {(t.roles || []).length} signer role{(t.roles || []).length === 1 ? '' : 's'}{(t.attachments || []).length > 0 && ` · ${t.attachments.length} attached doc${t.attachments.length === 1 ? '' : 's'}`}</span>
                       </span>
                       {templateId === t.id && source === 'template' && <CheckCircle size={17} style={{ color: 'var(--pine)' }} />}
                     </button>
@@ -1095,6 +1325,17 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
             )}
             <div style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: 4, padding: '34px 42px', color: '#111827', boxShadow: '0 2px 12px rgba(0,0,0,0.1)' }}>
               {(tpl.body || []).map(previewPara)}
+              {(tpl.attachments || []).length > 0 && (
+                <div style={{ marginTop: 20, paddingTop: 14, borderTop: '1px dashed #e5e7eb' }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#6b7280', letterSpacing: '.05em', textTransform: 'uppercase', marginBottom: 8 }}>Also in this packet</div>
+                  {tpl.attachments.map((a, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, padding: '5px 0', color: '#374151' }}>
+                      <FileText size={13} style={{ color: 'var(--pine)' }} />
+                      {a.name} <span style={{ color: '#9ca3af' }}>· {a.pages} page{a.pages === 1 ? '' : 's'} · {(a.fields || []).length} field{(a.fields || []).length === 1 ? '' : 's'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1342,7 +1583,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, o
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 700 }}>{t.name}</div>
                   <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                    {KIND_LABEL[t.kind] || t.kind} · {(t.roles || []).length} role{(t.roles || []).length === 1 ? '' : 's'} · {(t.body || []).length} paragraphs
+                    {KIND_LABEL[t.kind] || t.kind} · {(t.roles || []).length} role{(t.roles || []).length === 1 ? '' : 's'} · {(t.body || []).length} paragraphs{(t.attachments || []).length > 0 && ` · ${t.attachments.length} attached doc${t.attachments.length === 1 ? '' : 's'}`}
                   </div>
                 </div>
                 <button className="secondary-btn" onClick={() => setEditTpl(t)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}><Pencil size={12} /> Edit</button>

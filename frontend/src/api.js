@@ -454,6 +454,8 @@ export const api = {
   updateSignTemplate: (id, data)  => req(`/esign/templates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteSignTemplate: (id)        => req(`/esign/templates/${id}`, { method: 'DELETE' }),
   seedSignTemplates:  ()          => req('/esign/templates/starters', { method: 'POST' }),
+  uploadSignAttachment: (form)    => req('/esign/templates/attachments', { method: 'POST', body: form }),
+  getSignAttachmentUrl: (path)    => req(`/esign/templates/attachment-url?path=${encodeURIComponent(path)}`),
   sendSignRequest:    (data)      => req('/esign/requests', { method: 'POST', body: JSON.stringify(data) }),
   sendSignPdf:        (form)      => req('/esign/requests/pdf', { method: 'POST', body: form }),
   getSignRequests:    ()          => req('/esign/requests'),

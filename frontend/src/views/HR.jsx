@@ -1821,7 +1821,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
 // ── Right-to-work & compliance (HR Section B — open to HR) ───────────────────
 const WORK_AUTH = [['citizen', 'Citizen'], ['permanent_resident', 'Permanent resident'], ['work_visa', 'Work visa'], ['permit', 'Work permit'], ['other', 'Other']];
 const DOC_TYPES = [['passport', 'Passport'], ['national_id', 'National ID'], ['visa', 'Visa'], ['work_permit', 'Work permit'], ['other', 'Other']];
-const VERIFY_STATUS = { unverified: { label: 'Unverified', fg: 'var(--muted)', bg: 'var(--hover)' }, verified: { label: 'Verified', fg: 'hsl(var(--color-green))', bg: 'hsla(var(--color-green),0.12)' }, rejected: { label: 'Rejected', fg: 'hsl(var(--color-red))', bg: 'hsla(var(--color-red),0.12)' } };
+const VERIFY_STATUS = { unverified: { label: 'Unverified', fg: 'var(--muted)', bg: 'var(--mist)' }, verified: { label: 'Verified', fg: 'hsl(var(--color-green))', bg: 'hsla(var(--color-green),0.12)' }, rejected: { label: 'Rejected', fg: 'hsl(var(--color-red))', bg: 'hsla(var(--color-red),0.12)' } };
 const CONSENTS = [['bgCheck', 'Background check consent'], ['dataProcessing', 'Data processing consent'], ['handbook', 'Handbook acknowledgment']];
 
 // Days until an ISO date (negative = past). '' → null.
@@ -2325,7 +2325,7 @@ export default function HR({ activeSub, onSubChange }) {
                 <div className="kpi-label">{label}</div>
                 <div className="kpi-value">
                   {loading
-                    ? <span style={{ display: 'inline-block', width: 42, height: '1em', borderRadius: 8, background: 'currentColor', opacity: 0.14, animation: 'pulse 1.2s ease-in-out infinite', verticalAlign: 'middle' }} />
+                    ? <span className="skel" style={{ width: 46, height: 20, margin: '7px 0' }} />
                     : value}
                 </div>
               </div>
@@ -2349,7 +2349,7 @@ export default function HR({ activeSub, onSubChange }) {
           </select>
           <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
             {loading
-              ? <span style={{ display: 'inline-block', width: 150, height: 12, borderRadius: 6, background: 'var(--line)', animation: 'pulse 1.2s ease-in-out infinite', verticalAlign: 'middle' }} />
+              ? <span className="skel" style={{ width: 150, height: 11, verticalAlign: 'middle' }} />
               : `${counts.total} total · ${counts.active} active · ${filtered.length} shown`}
           </span>
         </div>

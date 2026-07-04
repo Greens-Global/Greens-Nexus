@@ -879,6 +879,7 @@ class HrSignTemplate(Base):
     entity_id   = Column(String, default="")         # HrEntity.id ('' = any company)
     body        = Column(JSON, default=list)         # list of paragraph strings with {{merge}} + [[sign:role]] tokens
     roles       = Column(JSON, default=list)         # [{key,label,order}] — signing order
+    attachments = Column(JSON, default=list)         # [{name, path, pages, fields:[{id,role,type,page,x,y,w,h}]}] — PDFs signed as one packet
     status      = Column(String, default="active")   # active|archived
     created_by  = Column(String, default="")
     created_at  = Column(String, default="")
@@ -898,6 +899,7 @@ class HrSignRequest(Base):
     body_snapshot    = Column(JSON, default=list)         # resolved template body, frozen at send
     pdf_storage_path = Column(String, default="")         # hr-docs path of uploaded source PDF
     fields           = Column(JSON, default=list)         # pdf source: [{id,role,type,page,x,y,w,h,required}] normalized coords
+    documents        = Column(JSON, default=list)         # extra PDFs in the packet: [{name, path, fields:[...]}] (from template attachments)
     status           = Column(String, default="pending")  # pending|completed|declined|voided|expired
     current_order    = Column(Integer, default=1)         # whose turn (matches HrSignParty.order)
     message          = Column(String, default="")

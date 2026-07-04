@@ -87,7 +87,8 @@ def _log(db: Session, request_id: str, type: str, detail: str = "",
 
 def _ser_template(t: HrSignTemplate) -> dict:
     return {"id": t.id, "name": t.name, "kind": t.kind, "entityId": t.entity_id,
-            "body": t.body or [], "roles": t.roles or [], "status": t.status,
+            "body": t.body or [], "roles": t.roles or [],
+            "attachments": t.attachments or [], "status": t.status,
             "createdBy": t.created_by, "createdAt": t.created_at, "updatedAt": t.updated_at}
 
 
@@ -270,12 +271,13 @@ def _notify_party(db: Session, party: HrSignParty, req: HrSignRequest, sender_na
 # ── Templates CRUD ────────────────────────────────────────────────────────────
 
 class TemplateIn(BaseModel):
-    name:      str
-    kind:      Optional[str] = "custom"
-    entity_id: Optional[str] = ""
-    body:      Optional[list] = None
-    roles:     Optional[list] = None
-    status:    Optional[str] = "active"
+    name:        str
+    kind:        Optional[str] = "custom"
+    entity_id:   Optional[str] = ""
+    body:        Optional[list] = None
+    roles:       Optional[list] = None
+    attachments: Optional[list] = None   # [{name, path, pages, fields:[...]}]
+    status:      Optional[str] = "active"
 
 
 @router.get("/templates")
@@ -293,6 +295,7 @@ def create_template(body: TemplateIn, user: dict = Depends(require_hr_write), db
     now = _now_iso()
     row = HrSignTemplate(id=str(uuid.uuid4()), name=body.name.strip(), kind=body.kind or "custom",
                          entity_id=body.entity_id or "", body=body.body or [], roles=body.roles or [],
+                         attachments=body.attachments or [],
                          status=body.status or "active", created_by=user["email"],
                          created_at=now, updated_at=now)
     db.add(row); db.commit(); db.refresh(row)
@@ -313,6 +316,8 @@ def update_template(tid: str, body: TemplateIn, user: dict = Depends(require_hr_
         row.body = body.body
     if body.roles is not None:
         row.roles = body.roles
+    if body.attachments is not None:
+        row.attachments = body.attachments
     row.status = body.status or row.status
     row.updated_at = _now_iso()
     db.commit(); db.refresh(row)
@@ -384,6 +389,44 @@ def seed_starter_templates(user: dict = Depends(require_hr_write), db: Session =
     return {"added": added}
 
 
+@router.post("/templates/attachments")
+def upload_template_attachment(file: UploadFile = File(...), user: dict = Depends(require_hr_write)):
+    """Upload a PDF to be attached to a template (multi-document packet). Returns
+    {name, path, pages}; the frontend adds it to the template's attachments list."""
+    if (file.content_type or "") not in ("application/pdf", "application/octet-stream"):
+        raise HTTPException(400, "Only PDF files can be attached")
+    blob = file.file.read()
+    if not blob or len(blob) > _MAX_PDF_BYTES:
+        raise HTTPException(400, "PDF is empty or larger than 15 MB")
+    try:
+        from pypdf import PdfReader
+        pages = len(PdfReader(io.BytesIO(blob)).pages)
+        if pages == 0:
+            raise ValueError("no pages")
+    except Exception:
+        raise HTTPException(400, "This PDF can't be processed — it may be corrupt or password-protected.")
+    safe = re.sub(r"[^a-zA-Z0-9._-]", "_", file.filename or "document.pdf")
+    path = f"esign/templates/{uuid.uuid4()}-{safe}"
+    up = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
+                    headers={**_storage_headers(), "Content-Type": "application/pdf"},
+                    content=blob, timeout=60)
+    if not up.is_success:
+        raise HTTPException(502, f"Storage upload failed: {up.text[:200]}")
+    return {"name": (file.filename or "document.pdf"), "path": path, "pages": pages, "fields": []}
+
+
+@router.get("/templates/attachment-url")
+def template_attachment_url(path: str, user: dict = Depends(require_hr_read)):
+    """Short-lived signed URL to render an attached PDF in the field placer."""
+    if not path.startswith("esign/"):
+        raise HTTPException(400, "Invalid attachment path")
+    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{path}",
+                      headers=_storage_headers(), json={"expiresIn": 300}, timeout=20)
+    if not resp.is_success:
+        raise HTTPException(502, "Could not create the preview link")
+    return {"url": f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}", "expiresIn": 300}
+
+
 # ── Create + send an envelope ─────────────────────────────────────────────────
 
 class PartyIn(BaseModel):
@@ -426,13 +469,15 @@ def _validate_parties(parties: List[PartyIn], needed_roles: set) -> None:
 def _create_request(db: Session, user: dict, *, title: str, source: str, template_id: str,
                     employee_id: str, candidate_id: str, entity_id: str, body_snapshot: list,
                     pdf_storage_path: str, fields: list, message: str, expires_on: str,
-                    parties: List[PartyIn], ip: str, user_agent: str) -> dict:
+                    parties: List[PartyIn], ip: str, user_agent: str,
+                    documents: Optional[list] = None) -> dict:
     now = _now_iso()
     ordered = sorted(parties, key=lambda p: p.ordinal or 1)
     req = HrSignRequest(id=str(uuid.uuid4()), title=title, source=source, template_id=template_id,
                         employee_id=employee_id or "", candidate_id=candidate_id or "",
                         entity_id=entity_id or "", body_snapshot=body_snapshot,
                         pdf_storage_path=pdf_storage_path, fields=fields, status="pending",
+                        documents=documents or [],
                         current_order=(ordered[0].ordinal or 1), message=message or "",
                         expires_on=expires_on or "", created_by=user["email"],
                         created_at=now)
@@ -466,7 +511,15 @@ def send_request(body: SendIn, request: Request, user: dict = Depends(require_hr
     if unresolved:
         raise HTTPException(400, f"Unresolved merge fields: {', '.join('{{' + u + '}}' for u in unresolved)}. "
                                  f"Fill them in the send form or pick a person with that data.")
+    # Roles must cover the body's tokens AND every field placed on attached PDFs;
+    # the whole packet travels as one envelope, frozen at send time.
+    attachments = [{"name": a.get("name", "document.pdf"), "path": a.get("path", ""),
+                    "fields": a.get("fields") or []}
+                   for a in (tpl.attachments or []) if a.get("path")]
     needed_roles = {f["role"] for f in _fields_in_body(snapshot)}
+    for a in attachments:
+        needed_roles |= {f.get("role", "") for f in a["fields"]}
+    needed_roles.discard("")
     _validate_parties(body.parties, needed_roles)
     ip, ua = _client_meta(request)
     return _create_request(db, user, title=(body.title or tpl.name).strip(), source="template",
@@ -475,7 +528,8 @@ def send_request(body: SendIn, request: Request, user: dict = Depends(require_hr
                            entity_id=body.entity_id or tpl.entity_id or "",
                            body_snapshot=snapshot, pdf_storage_path="", fields=[],
                            message=body.message or "", expires_on=body.expires_on or "",
-                           parties=body.parties, ip=ip, user_agent=ua)
+                           parties=body.parties, ip=ip, user_agent=ua,
+                           documents=attachments)
 
 
 @router.post("/requests/pdf")
@@ -648,17 +702,27 @@ def _render_payload(db: Session, req: HrSignRequest, party: HrSignParty) -> dict
                "myName": party.name, "myStatus": party.status, "parties": others,
                "consentText": _CONSENT_TEXT, "consentVersion": _CONSENT_VERSION,
                "expiresOn": req.expires_on}
+    def sign_url(path):
+        resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{path}",
+                          headers=_storage_headers(), json={"expiresIn": 300}, timeout=20)
+        return f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}" if resp.is_success else ""
+
     if req.source == "template":
         payload["body"] = req.body_snapshot or []
         payload["myFields"] = [f for f in _fields_in_body(req.body_snapshot or [])
                                if f["role"] == party.role_key]
     else:
-        resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{req.pdf_storage_path}",
-                          headers=_storage_headers(), json={"expiresIn": 300}, timeout=20)
-        payload["pdfUrl"] = (f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}"
-                             if resp.is_success else "")
+        payload["pdfUrl"] = sign_url(req.pdf_storage_path)
         payload["fields"] = req.fields or []
         payload["myFields"] = [f for f in (req.fields or []) if f.get("role") == party.role_key]
+    # Attached packet documents (template attachments) — signed as one envelope
+    docs = []
+    for d in (req.documents or []):
+        docs.append({"name": d.get("name", "document.pdf"), "pdfUrl": sign_url(d.get("path", "")),
+                     "fields": d.get("fields") or []})
+        payload["myFields"] = payload.get("myFields", []) + \
+            [f for f in (d.get("fields") or []) if f.get("role") == party.role_key]
+    payload["documents"] = docs
     return payload
 
 
@@ -921,7 +985,7 @@ def _build_template_pdf(req: HrSignRequest, parties: List[HrSignParty]) -> bytes
     return buf.getvalue()
 
 
-def _stamp_pdf(source: bytes, req: HrSignRequest, parties: List[HrSignParty]) -> bytes:
+def _stamp_pdf(source: bytes, fields: list, parties: List[HrSignParty]) -> bytes:
     """Overlay signatures/values onto an uploaded PDF at normalized coords."""
     from reportlab.pdfgen import canvas as rl_canvas
     from pypdf import PdfReader, PdfWriter
@@ -930,7 +994,7 @@ def _stamp_pdf(source: bytes, req: HrSignRequest, parties: List[HrSignParty]) ->
     writer = PdfWriter()
     for idx, page in enumerate(reader.pages):
         pw, ph = float(page.mediabox.width), float(page.mediabox.height)
-        page_fields = [f for f in (req.fields or []) if int(f.get("page", 0)) == idx]
+        page_fields = [f for f in (fields or []) if int(f.get("page", 0)) == idx]
         if page_fields:
             obuf = io.BytesIO()
             c = rl_canvas.Canvas(obuf, pagesize=(pw, ph))
@@ -1037,14 +1101,33 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
     req.completed_at = _now_iso()
     parties = _parties(db, req.id)
 
-    if req.source == "template":
-        content = _build_template_pdf(req, parties)
-    else:
-        src = httpx.get(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{req.pdf_storage_path}",
+    def fetch(path):
+        src = httpx.get(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
                         headers=_storage_headers(), timeout=60)
         if not src.is_success:
-            raise HTTPException(502, "Could not fetch the source PDF to finalize")
-        content = _stamp_pdf(src.content, req, parties)
+            raise HTTPException(502, f"Could not fetch {path} to finalize")
+        return src.content
+
+    # Content = the authored letter (or uploaded PDF) + every packet document,
+    # each stamped with its own fields, merged in order into ONE sealed PDF.
+    parts = []
+    if req.source == "template":
+        parts.append(_build_template_pdf(req, parties))
+    else:
+        parts.append(_stamp_pdf(fetch(req.pdf_storage_path), req.fields or [], parties))
+    for d in (req.documents or []):
+        parts.append(_stamp_pdf(fetch(d.get("path", "")), d.get("fields") or [], parties))
+    if len(parts) == 1:
+        content = parts[0]
+    else:
+        from pypdf import PdfReader as _PR, PdfWriter as _PW
+        w = _PW()
+        for part in parts:
+            for page in _PR(io.BytesIO(part)).pages:
+                w.add_page(page)
+        buf = io.BytesIO()
+        w.write(buf)
+        content = buf.getvalue()
 
     content_sha = hashlib.sha256(content).hexdigest()
     events = (db.query(HrSignEvent).filter(HrSignEvent.request_id == req.id)

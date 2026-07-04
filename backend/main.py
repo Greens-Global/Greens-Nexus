@@ -51,6 +51,9 @@ def _run_migrations():
             # audit_logs: track when an entry was reverted via the Undo action
             "ALTER TABLE audit_logs ADD COLUMN undone_at VARCHAR DEFAULT ''",
             "ALTER TABLE audit_logs ADD COLUMN undone_by VARCHAR DEFAULT ''",
+            # E-Sign multi-document packets (template attachments)
+            "ALTER TABLE hr_sign_templates ADD COLUMN attachments JSON",
+            "ALTER TABLE hr_sign_requests ADD COLUMN documents JSON",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -164,6 +167,9 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS status_log JSONB DEFAULT '[]'::jsonb",
         # HR mailbox export: progress total (table itself is created by create_all)
         "ALTER TABLE hr_mailbox_exports ADD COLUMN IF NOT EXISTS total INTEGER DEFAULT 0",
+        # E-Sign multi-document packets: PDFs attached to a template, carried on the envelope
+        "ALTER TABLE hr_sign_templates ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS documents JSONB DEFAULT '[]'::jsonb",
     ]
     with engine.connect() as conn:
         for sql in migrations:
