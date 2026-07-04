@@ -1235,6 +1235,14 @@ export default function ESign({ employees = [], entities = [], prefill = null, o
   const loadTemplates = () => api.getSignTemplates().then(setTemplates).catch(() => setTemplates([]));
   useEffect(() => { loadInbox(); loadRequests(); loadTemplates(); }, []);
   useEffect(() => { if (prefill) setSendOpen(true); }, [prefill]);
+  // Switching sub-tabs refetches that list — a doc sent (or signed) after mount
+  // must show up without leaving the module.
+  const switchSub = (id) => {
+    setSub(id);
+    if (id === 'inbox') loadInbox();
+    else if (id === 'requests') loadRequests();
+    else loadTemplates();
+  };
 
   const myTurnCount = (inbox || []).filter(x => x.myTurn).length;
   const tabs = [
@@ -1256,7 +1264,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, o
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
         <div className="scroll-tabs" style={{ display: 'flex', gap: 4, flex: 1, borderBottom: '1px solid var(--line)' }}>
           {tabs.map(([id, label]) => (
-            <button key={id} onClick={() => setSub(id)}
+            <button key={id} onClick={() => switchSub(id)}
               style={{ padding: '9px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', background: 'none', border: 'none', borderBottom: `2px solid ${sub === id ? 'var(--pine)' : 'transparent'}`, color: sub === id ? 'var(--ink)' : 'var(--muted)', cursor: 'pointer', whiteSpace: 'nowrap', marginBottom: -1 }}>
               {label}
             </button>
@@ -1349,7 +1357,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, o
       {sendOpen && <SendWizard templates={templates || []} employees={employees} entities={entities}
         prefill={prefill} toastOk={toastOk} toastErr={toastErr}
         onClose={() => { setSendOpen(false); onPrefillConsumed?.(); }}
-        onSent={() => { loadRequests(); }} />}
+        onSent={() => { loadRequests(); loadInbox(); }} />}
       {detailId && <RequestDetailModal requestId={detailId} toastOk={toastOk} toastErr={toastErr}
         onClose={() => setDetailId(null)} onChanged={loadRequests} />}
       {editTpl !== undefined && <TemplateEditorModal template={editTpl} entities={entities}

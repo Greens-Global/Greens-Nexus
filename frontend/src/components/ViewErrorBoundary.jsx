@@ -10,7 +10,12 @@ const RELOAD_KEY = 'nexus:chunk-reload-at';
 
 function isStaleChunkError(error) {
   const msg = String(error?.message || error || '');
-  return /failed to fetch dynamically imported module|importing a module script failed|error loading dynamically imported module|failed to load module script/i.test(msg);
+  // Browsers/bundlers phrase a 404'd chunk many ways — a JS module import
+  // ("failed to fetch dynamically imported module"), a CSS preload ("unable to
+  // preload CSS"), or a generic ChunkLoadError. Missing a variant shows the
+  // scary generic card instead of the quiet auto-reload.
+  return /failed to fetch dynamically imported module|importing a module script failed|error loading dynamically imported module|failed to load module script|unable to preload css|loading (css )?chunk|chunkloaderror|preload/i.test(msg)
+    || error?.name === 'ChunkLoadError';
 }
 
 // At most one automatic reload per minute — if the chunk is still missing

@@ -494,6 +494,16 @@ def send_pdf_request(request: Request, file: UploadFile = File(...), payload: st
     blob = file.file.read()
     if not blob or len(blob) > _MAX_PDF_BYTES:
         raise HTTPException(400, "PDF is empty or larger than 15 MB")
+    # Validate NOW with the same parser finalize uses — a corrupt PDF must be
+    # rejected at send time, not when the last signer hits Finish.
+    try:
+        from pypdf import PdfReader
+        page_count = len(PdfReader(io.BytesIO(blob)).pages)
+        if page_count == 0:
+            raise ValueError("no pages")
+    except Exception:
+        raise HTTPException(400, "This PDF can't be processed — it may be corrupt or password-protected. "
+                                 "Re-export it (e.g. print to PDF) and try again.")
     fields = data.get("fields") or []
     if not fields:
         raise HTTPException(400, "Place at least one field on the document")
@@ -708,7 +718,17 @@ def _apply_signature(db: Session, req: HrSignRequest, party: HrSignParty, body: 
         sender_name = req.created_by.split("@")[0].replace(".", " ").title()
         _notify_party(db, nxt, req, sender_name)
     else:
-        _finalize(db, req)
+        # Sealing must never surface as a raw 500 — an unhandled exception here
+        # bypasses CORSMiddleware and the browser reports a bare "Failed to
+        # fetch". Convert to a real error response; nothing is committed, so
+        # the signer can simply retry once the cause is fixed.
+        try:
+            _finalize(db, req)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(502, f"The sealed PDF could not be generated ({str(e)[:150]}). "
+                                     f"Your signature was not saved — please try again or contact HR.")
     db.commit()
     return {"ok": True, "status": req.status,
             "next": remaining[0].name if remaining else None}
