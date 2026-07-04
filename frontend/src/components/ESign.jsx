@@ -1149,7 +1149,9 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
   const [req, setReq] = useState(null);
   const [busy, setBusy] = useState('');
   const load = () => api.getSignRequest(requestId).then(setReq).catch(e => { toastErr(e?.message || 'Load failed'); onClose(); });
-  useEffect(load, [requestId]);
+  // NOT useEffect(load, ...) — load returns a Promise, and React 19 would call
+  // it as the effect's cleanup on unmount ("l is not a function" crash on close).
+  useEffect(() => { load(); }, [requestId]);
 
   async function act(kind, fn, okMsg) {
     if (busy) return; setBusy(kind);
