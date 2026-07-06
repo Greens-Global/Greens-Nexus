@@ -38,7 +38,9 @@ const winScript = (url, token) => [
   'New-Item -ItemType Directory -Force $d | Out-Null',
   `Set-Content -NoNewline "$d\\device-token.txt" '${q(token)}'`,
   'Remove-Item $p',
-  'Start-Process "$env:LOCALAPPDATA\\Programs\\greens-nexus-agent\\Greens Nexus Agent.exe"',
+  // Launch whatever the installer actually placed under Programs (folder name can vary)
+  '$exe = Get-ChildItem "$env:LOCALAPPDATA\\Programs" -Recurse -Filter "Greens Nexus Agent.exe" -ErrorAction SilentlyContinue | Select-Object -First 1',
+  'if ($exe) { Start-Process $exe.FullName }',
 ].join('\n');
 
 const CMD = {
