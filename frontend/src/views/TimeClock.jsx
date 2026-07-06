@@ -120,6 +120,7 @@ export default function TimeClock() {
     // is sent or explicitly acknowledged (see BodModal's ack-to-skip).
     if (kind === 'in' && status?.bodRequired) { setBodMode('bod-gate'); return; }
     if (kind === 'break_start') { setBodMode('break-gate'); return; }
+    if (kind === 'out') { setBodMode('eod-gate'); return; }  // EOD gates the checkout
     await actualPunch(kind);
   }
 
@@ -144,7 +145,6 @@ export default function TimeClock() {
         : pos ? '' : ' — location unavailable, recorded without it';
       toast(true, `${KIND_META[kind].label} at ${localTime(p.at)}${where}.`);
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed')); // sync the global mini-timer
-      if (r.promptEod) setBodMode('eod'); // punch-out → end-of-day message
       load();
     } catch (e) { toast(false, e?.message || 'Punch failed.'); }
     setBusy('');
@@ -440,13 +440,17 @@ export default function TimeClock() {
       </>)}
 
       {bodMode && (() => {
-        const modalMode = bodMode === 'bod-gate' ? 'bod' : bodMode === 'break-gate' ? 'break' : bodMode;
-        // in/break gates: proceed with the punch on send OR ack-skip; eod: just close (already punched)
+        const modalMode = bodMode === 'bod-gate' ? 'bod'
+          : bodMode === 'break-gate' ? 'break'
+          : bodMode === 'eod-gate' ? 'eod' : bodMode;
+        // All gates hold the punch until the message is sent OR explicitly
+        // acknowledged (ack-to-skip). Closing the modal cancels the punch.
         const proceed = bodMode === 'bod-gate' ? () => { setBodMode(null); actualPunch('in'); }
           : bodMode === 'break-gate' ? () => { setBodMode(null); actualPunch('break_start'); }
+          : bodMode === 'eod-gate' ? () => { setBodMode(null); actualPunch('out'); }
           : () => setBodMode(null);
         const onSkip = bodMode === 'bod-gate' ? () => { bodMarker('bod'); proceed(); }
-          : bodMode === 'eod' ? () => { bodMarker('eod'); setBodMode(null); }
+          : bodMode === 'eod-gate' ? () => { bodMarker('eod'); proceed(); }
           : proceed;
         return <BodModal mode={modalMode} required onSent={proceed} onSkip={onSkip}
           onClose={() => setBodMode(null)}
