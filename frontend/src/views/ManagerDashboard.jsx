@@ -7,6 +7,7 @@ import { useNotifications } from '../contexts/NotificationContext';
 import { useRole }          from '../contexts/RoleContext';
 import { api }              from '../api';
 import SwipeActions         from '../components/SwipeActions';
+import TimeAdmin            from '../components/TimeAdmin';
 
 const EMPLOYEES = [
   { name: 'Sarah Johnson',    dept: 'Accounting',  tasks: 8,  est: 32, act: 18, completed: 3, inprogress: 4, overdue: 1, workload: 85 },
@@ -48,6 +49,7 @@ export default function ManagerDashboard() {
   const { sendOverdueAlert, addNotification } = useNotifications();
 
   const [activeTab,       setActiveTab]       = useState('workload');
+  const [tmsg,            setTmsg]            = useState(null);   // Team Time tab toasts
   const [rejectingId,     setRejectingId]     = useState(null);
   const [rejectReason,    setRejectReason]    = useState('');
   const [expandedReq,     setExpandedReq]     = useState(null);
@@ -230,6 +232,7 @@ export default function ManagerDashboard() {
       { id: 'actions',      label: `Pending Actions${totalPending > 0 ? ` (${totalPending})` : ''}` },
     ] : []),
     { id: 'who-has-what', label: `Who Has What${overdueCount > 0 ? ` ⚠ ${overdueCount}` : ''}` },
+    ...(isManager ? [{ id: 'team-time', label: 'Team Time' }] : []),
     ...(isManager ? [{ id: 'calendar', label: 'Team Calendar' }] : []),
   ];
 
@@ -930,6 +933,22 @@ export default function ManagerDashboard() {
                 </table>
               </div>
             )}
+          </>
+        )}
+
+        {/* ── Team Time — direct reports' timecards (scoped server-side) ── */}
+        {effectiveTab === 'team-time' && (
+          <>
+            {tmsg && (
+              <div style={{ padding: '9px 14px', borderRadius: 10, marginBottom: 12, fontSize: 12.5, fontWeight: 600,
+                background: tmsg.ok ? 'hsla(var(--color-green),0.1)' : 'rgba(220,38,38,0.08)',
+                color: tmsg.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{tmsg.t}</div>
+            )}
+            <p style={{ color: 'var(--muted)', fontSize: '12.5px', margin: '0 0 14px' }}>
+              Your direct reports' punches, approvals and time off. HR sees the whole company under HR → Time.
+            </p>
+            <TimeAdmin toastOk={(t) => { setTmsg({ ok: true, t }); setTimeout(() => setTmsg(null), 5000); }}
+              toastErr={(t) => { setTmsg({ ok: false, t }); setTimeout(() => setTmsg(null), 6000); }} />
           </>
         )}
 

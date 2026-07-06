@@ -151,8 +151,14 @@ export default function TimeClock() {
   const days = status?.days || {};
   const dayKeys = Object.keys(days).sort().reverse();
 
+  const todayKey = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  const todayData = days[todayKey];
+  const weekTotal = Object.values(days).reduce((a, d) => a + d.workedMin, 0);
+  const weekBreak = Object.values(days).reduce((a, d) => a + d.breakMin, 0);
+  const weekFlags = Object.values(days).reduce((a, d) => a + d.flags.length, 0);
+
   return (
-    <div style={{ maxWidth: 860, margin: '0 auto', padding: '26px 18px', fontFamily: 'Inter,sans-serif' }}>
+    <div style={{ maxWidth: 1160, margin: '0 auto', padding: '26px 18px', fontFamily: 'Inter,sans-serif' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
         <Clock size={20} style={{ color: 'var(--pine)' }} />
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>Time Clock</h1>
@@ -179,9 +185,10 @@ export default function TimeClock() {
         </div>
       )}
 
-      {/* Punch card */}
+      {/* Punch card + today panel, side by side on wide screens */}
       {tab === 'clock' && (<>
-      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '26px 28px', marginBottom: 18, boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'stretch', marginBottom: 18 }}>
+      <div style={{ flex: '1.3 1 420px', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '26px 28px', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
         {!status ? (
           <div style={{ textAlign: 'center', color: 'var(--muted)', padding: 20 }}>
             <Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} />
@@ -222,14 +229,44 @@ export default function TimeClock() {
         )}
       </div>
 
+      <div style={{ flex: '1 1 320px', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '22px 24px' }}>
+        <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Today</div>
+        {todayData ? (
+          <>
+            <DayTimeline punches={todayData.punches} />
+            <div style={{ display: 'flex', gap: 26, marginTop: 18, flexWrap: 'wrap' }}>
+              {[['Worked today', fmtMin(todayData.workedMin), 'var(--pine)'],
+                ['Breaks', `${todayData.breakMin}m`, 'var(--ink)'],
+                ['Last 7 days', fmtMin(weekTotal), 'var(--ink)']].map(([l, v, c]) => (
+                <div key={l}>
+                  <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)' }}>{l}</div>
+                  <div style={{ fontSize: 19, fontWeight: 800, color: c, marginTop: 2 }}>{v}</div>
+                </div>
+              ))}
+            </div>
+            {todayData.flags.length > 0 && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 12, fontSize: 11, fontWeight: 700, color: '#b45309' }}>
+                <AlertTriangle size={11} /> {todayData.flags.length} item{todayData.flags.length === 1 ? '' : 's'} for review — see Timesheet
+              </div>
+            )}
+          </>
+        ) : (
+          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+            No punches yet today.{weekTotal > 0 ? ` You've worked ${fmtMin(weekTotal)} in the last 7 days.` : ''}
+          </div>
+        )}
+      </div>
+      </div>
       <p style={{ margin: '0 0 18px', fontSize: 12, color: 'var(--muted)' }}>
         Your location is captured only at the moment you punch, to confirm you're at a work site.
         If location is off or you're away from a site, the punch still counts — it's simply flagged for review.
       </p>
       </>)}
 
-      {/* Timesheet */}
+      {/* Timesheet — day list + week summary side panel */}
       {tab === 'timesheet' && (<>
+      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+      <div style={{ flex: '1.9 1 480px', minWidth: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 8px' }}>
         <CalendarDays size={15} style={{ color: 'var(--pine)' }} />
         <span style={{ fontSize: 13.5, fontWeight: 800 }}>Last 7 days</span>
@@ -305,6 +342,25 @@ export default function TimeClock() {
             </div>
           );
         })}
+      </div>
+      </div>
+      <div style={{ flex: '1 1 280px', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 20px' }}>
+        <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Week summary</div>
+        <div style={{ display: 'grid', gap: 12 }}>
+          {[['Worked', fmtMin(weekTotal), 'var(--pine)'],
+            ['Breaks', `${weekBreak}m`, 'var(--ink)'],
+            ['Days active', String(dayKeys.length), 'var(--ink)'],
+            ['Items for review', String(weekFlags), weekFlags ? '#b45309' : 'var(--muted)']].map(([l, v, c]) => (
+            <div key={l} style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{l}</span>
+              <span style={{ fontSize: 16, fontWeight: 800, color: c }}>{v}</span>
+            </div>
+          ))}
+        </div>
+        <p style={{ margin: '14px 0 0', fontSize: 11, color: 'var(--muted)', lineHeight: 1.5 }}>
+          Click a day to see every punch. ⓜ marks manual entries, ⚠ marks anything a manager should look at.
+        </p>
+      </div>
       </div>
       </>)}
 

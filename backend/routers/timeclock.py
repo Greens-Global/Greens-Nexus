@@ -41,6 +41,19 @@ router = APIRouter(prefix="/timeclock", tags=["timeclock"])
 require_team_read = require_level_or_module(3, "hr", "viewer")
 require_team_write = require_level_or_module(3, "hr", "editor")
 
+
+def _visible_emails(db: Session, user: dict):
+    """Team-data scope. None = whole company (administrators, or anyone holding
+    an HR-module grant). A plain level-3/4 manager sees only their DIRECT
+    reports (manager_email == them) plus themself — the Manager Dashboard view."""
+    from auth import _module_level
+    if user.get("level", 0) >= 4 or _module_level(user["email"], "hr", db) >= 1:
+        return None
+    directs = {(e.work_email or "").lower() for e in db.query(NexusEmployee)
+               .filter(NexusEmployee.manager_email == user["email"]).all() if e.work_email}
+    directs.add(user["email"])
+    return directs
+
 KINDS = ("in", "out", "break_start", "break_end")
 
 
@@ -310,8 +323,10 @@ def my_timesheet(start: str = "", end: str = "",
 
 # ── Manager / HR endpoints ────────────────────────────────────────────────────
 
-def _team_rows(db: Session, start: str, end: str) -> list:
+def _team_rows(db: Session, start: str, end: str, only_emails=None) -> list:
     q = db.query(TimePunch).filter(TimePunch.voided == 0)
+    if only_emails is not None:
+        q = q.filter(TimePunch.employee_email.in_(only_emails))
     if start:
         q = q.filter(TimePunch.local_date >= start)
     if end:
@@ -338,7 +353,7 @@ def _team_rows(db: Session, start: str, end: str) -> list:
 @router.get("/team")
 def team_timesheet(start: str = "", end: str = "",
                    user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    rows = _team_rows(db, start, end)
+    rows = _team_rows(db, start, end, only_emails=_visible_emails(db, user))
     # Approve-then-export status for this exact period, per employee
     approvals = {a.employee_email: a for a in db.query(TimeApproval)
                  .filter(TimeApproval.period_start == start, TimeApproval.period_end == end,
@@ -361,6 +376,9 @@ class ApprovalIn(BaseModel):
 def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
                      db: Session = Depends(get_db)):
     email = body.email.strip().lower()
+    scope = _visible_emails(db, user)
+    if scope is not None and email not in scope:
+        raise HTTPException(403, "You can only approve your own team's timecards.")
     existing = (db.query(TimeApproval)
                 .filter(TimeApproval.employee_email == email,
                         TimeApproval.period_start == body.start,
@@ -409,6 +427,9 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
     row = db.query(TimePunch).filter(TimePunch.id == punch_id).first()
     if not row:
         raise HTTPException(404, "Punch not found")
+    scope = _visible_emails(db, user)
+    if scope is not None and row.employee_email not in scope:
+        raise HTTPException(403, "You can only adjust your own team's punches.")
     if body.at is not None:
         t = _parse_iso(body.at)
         if t is None:
@@ -444,6 +465,9 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
         raise HTTPException(400, f"kind must be one of {KINDS}")
     if _parse_iso(body.at) is None:
         raise HTTPException(400, "at must be an ISO timestamp")
+    scope = _visible_emails(db, user)
+    if scope is not None and body.employee_email.strip().lower() not in scope:
+        raise HTTPException(403, "You can only add punches for your own team.")
     now = _now_iso()
     row = TimePunch(id=str(uuid.uuid4()), employee_email=body.employee_email.strip().lower(),
                     kind=body.kind, at=body.at[:19],
@@ -463,12 +487,15 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
     employee-day) or All Punch Details. Exact times, no rounding."""
     buf = io.StringIO()
     w = csv.writer(buf)
-    rows = _team_rows(db, start, end)
+    scope = _visible_emails(db, user)
+    rows = _team_rows(db, start, end, only_emails=scope)
     if mode == "punches":
         w.writerow(["Employee", "Email", "Local Date", "Kind", "Time (UTC)", "Original Time",
                     "Geofence", "Site", "Distance (m)", "Accuracy (m)", "Source", "Note",
                     "Adjusted By", "Voided"])
         q = db.query(TimePunch)
+        if scope is not None:
+            q = q.filter(TimePunch.employee_email.in_(scope))
         if start:
             q = q.filter(TimePunch.local_date >= start)
         if end:
@@ -636,6 +663,9 @@ def my_timeoff(user: dict = Depends(get_current_user), db: Session = Depends(get
 def list_timeoff(status: str = "", user: dict = Depends(require_team_read),
                  db: Session = Depends(get_db)):
     q = db.query(TimeOffRequest)
+    scope = _visible_emails(db, user)
+    if scope is not None:
+        q = q.filter(TimeOffRequest.employee_email.in_(scope))
     if status:
         q = q.filter(TimeOffRequest.status == status)
     rows = q.order_by(TimeOffRequest.created_at.desc()).limit(300).all()
@@ -657,6 +687,9 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
     row = db.query(TimeOffRequest).filter(TimeOffRequest.id == req_id).first()
     if not row:
         raise HTTPException(404, "Request not found")
+    scope = _visible_emails(db, user)
+    if scope is not None and row.employee_email not in scope:
+        raise HTTPException(403, "You can only decide your own team's requests.")
     if row.status != "pending":
         raise HTTPException(409, f"Already {row.status}")
     row.status = body.status
