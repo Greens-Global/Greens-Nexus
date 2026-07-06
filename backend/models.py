@@ -884,6 +884,7 @@ class HrSignTemplate(Base):
     created_by  = Column(String, default="")
     created_at  = Column(String, default="")
     updated_at  = Column(String, default="")
+    egnyte_folder = Column(String, default="")       # Egnyte path for a copy of the sealed PDF ('' = don't copy)
 
 
 class HrSignRequest(Base):
@@ -910,6 +911,7 @@ class HrSignRequest(Base):
     final_pdf_path   = Column(String, default="")         # hr-docs path of sealed final PDF
     final_sha256     = Column(String, default="")         # tamper-evidence hash of final bytes
     routing          = Column(String, default="sequential")  # sequential (ordered) | parallel (everyone at once)
+    egnyte_folder    = Column(String, default="")         # frozen from the template at send; sealed PDF is copied here
 
 
 class HrSignParty(Base):

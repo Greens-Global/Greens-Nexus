@@ -5,6 +5,7 @@ import {
   ChevronUp, ChevronDown, Eraser, Type, PenTool, Users, AlertTriangle,
   RefreshCw, Ban, Sparkles, UploadCloud, ZoomIn, ZoomOut, ArrowRight,
   CalendarDays, CheckSquare, ALargeSmall, GripVertical, Copy, Search, CopyPlus,
+  User, CircleDot,
 } from 'lucide-react';
 import { api } from '../api';
 import { PdfEditor } from './PdfEditor';
@@ -58,9 +59,12 @@ const rcolor = (i) => RCOLORS[i % RCOLORS.length];
 const FIELD_META = {
   sign:     { label: 'Signature',   Icon: PenTool,      w: 0.24, h: 0.055 },
   initials: { label: 'Initials',    Icon: Type,         w: 0.07, h: 0.035 },
+  name:     { label: 'Name',        Icon: User,         w: 0.16, h: 0.03 },   // auto-filled from the recipient
   date:     { label: 'Date signed', Icon: CalendarDays, w: 0.12, h: 0.03 },
   text:     { label: 'Text',        Icon: ALargeSmall,  w: 0.2,  h: 0.032 },
   check:    { label: 'Checkbox',    Icon: CheckSquare,  w: 0.03, h: 0.022 },
+  dropdown: { label: 'Dropdown',    Icon: ChevronDown,  w: 0.16, h: 0.032, opts: true },
+  radio:    { label: 'Radio',       Icon: CircleDot,    w: 0.16, h: 0.09,  opts: true },
 };
 
 const SIG_FONTS = ['"Segoe Script"', '"Brush Script MT"', '"Lucida Handwriting"'];
@@ -68,6 +72,40 @@ const SIG_FONTS = ['"Segoe Script"', '"Brush Script MT"', '"Lucida Handwriting"'
 const FL = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.05em', textTransform: 'uppercase' };
 const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
 const cardStyle = (maxWidth) => ({ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth, maxHeight: 'min(94dvh, 880px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' });
+
+// Options editor for dropdown / radio fields (shared by both field placers).
+function FieldOptionsModal({ field, onSave, onClose }) {
+  const [opts, setOpts] = useState(field.options?.length ? [...field.options] : ['', '']);
+  const clean = opts.map(o => o.trim()).filter(Boolean);
+  return (
+    <div style={{ ...overlayStyle, zIndex: 1500 }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={cardStyle(400)}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 14.5, fontWeight: 700, flex: 1 }}>{FIELD_META[field.type]?.label} options</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={16} /></button>
+        </div>
+        <div style={{ padding: '14px 20px', overflowY: 'auto' }}>
+          <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 10px' }}>The values the signer can choose from — at least two.</p>
+          {opts.map((o, i) => (
+            <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+              <input className="form-input" value={o} placeholder={`Option ${i + 1}`} autoFocus={i === opts.length - 1 && !o}
+                onChange={e => setOpts(os => os.map((x, j) => j === i ? e.target.value : x))} style={{ flex: 1 }} />
+              <button onClick={() => setOpts(os => os.filter((_, j) => j !== i))} disabled={opts.length <= 2}
+                style={{ background: 'none', border: 'none', color: opts.length <= 2 ? 'var(--line)' : 'hsl(var(--color-red))', cursor: opts.length <= 2 ? 'default' : 'pointer', display: 'flex', padding: 4 }}><Trash2 size={13} /></button>
+            </div>
+          ))}
+          <button className="secondary-btn" onClick={() => setOpts(os => [...os, ''])}
+            style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add option</button>
+        </div>
+        <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button className="secondary-btn" onClick={onClose}>Cancel</button>
+          <button className="primary-btn" disabled={clean.length < 2} onClick={() => { onSave(clean); onClose(); }}
+            style={{ opacity: clean.length < 2 ? 0.5 : 1 }}>Save options</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 const chip = (m) => ({ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: m.bg, color: m.fg, whiteSpace: 'nowrap' });
 const initialsOf = (name) => (name || '').split(' ').slice(0, 3).map(w => w[0]?.toUpperCase() || '').join('') || '—';
 
@@ -291,13 +329,13 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
       });
     } else {
       (payload.fields || []).filter(f => f.role === myRole).forEach(f => {
-        if (['sign', 'check', 'text'].includes(f.type)) out.push({ id: f.id, type: f.type, label: f.label || '' });
+        if (['sign', 'check', 'text', 'dropdown', 'radio'].includes(f.type)) out.push({ id: f.id, type: f.type, label: f.label || '' });
       });
     }
     // Packet documents (template attachments) carry their own fields
     for (const d of payload.documents || []) {
       (d.fields || []).filter(f => f.role === myRole).forEach(f => {
-        if (['sign', 'check', 'text'].includes(f.type)) out.push({ id: f.id, type: f.type, label: f.label || '' });
+        if (['sign', 'check', 'text', 'dropdown', 'radio'].includes(f.type)) out.push({ id: f.id, type: f.type, label: f.label || '' });
       });
     }
     return out;
@@ -407,6 +445,35 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
         if (f.type === 'text' && mine) {
           return <input key={f.id} ref={el => { fieldRefs.current[f.id] = el; }} value={values[f.id] || ''} disabled={!payload.myTurn} onChange={e => setVal(f.id, e.target.value)}
             placeholder="Text" style={{ ...st, border: '1.5px dashed #fbbf24', background: 'rgba(251,191,36,0.1)', borderRadius: 4, fontSize: 11, padding: '0 4px' }} />;
+        }
+        if (f.type === 'dropdown' && mine) {
+          return (
+            <select key={f.id} ref={el => { fieldRefs.current[f.id] = el; }} value={values[f.id] || ''} disabled={!payload.myTurn}
+              onChange={e => setVal(f.id, e.target.value)}
+              style={{ ...st, border: `1.5px solid ${values[f.id] ? '#10b981' : '#fbbf24'}`, borderRadius: 4, fontSize: 11,
+                fontFamily: 'Inter,sans-serif', background: values[f.id] ? 'rgba(16,185,129,0.07)' : 'rgba(251,191,36,0.12)', cursor: 'pointer' }}>
+              <option value="">— select —</option>
+              {(f.options || []).map(o => <option key={o} value={o}>{o}</option>)}
+            </select>);
+        }
+        if (f.type === 'radio' && mine) {
+          return (
+            <div key={f.id} ref={el => { fieldRefs.current[f.id] = el; }}
+              style={{ ...st, display: 'flex', flexDirection: 'column', justifyContent: 'space-around',
+                border: `1.5px solid ${values[f.id] ? '#10b981' : '#fbbf24'}`, borderRadius: 4, padding: '1px 4px', overflow: 'hidden',
+                background: values[f.id] ? 'rgba(16,185,129,0.05)' : 'rgba(251,191,36,0.1)', fontFamily: 'Inter,sans-serif' }}>
+              {(f.options || []).map(o => (
+                <label key={o} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10.5, whiteSpace: 'nowrap', overflow: 'hidden', cursor: payload.myTurn ? 'pointer' : 'default' }}>
+                  <input type="radio" name={f.id} checked={values[f.id] === o} disabled={!payload.myTurn}
+                    onChange={() => setVal(f.id, o)} style={{ width: 11, height: 11, accentColor: '#10b981', flexShrink: 0 }} />
+                  {o}
+                </label>
+              ))}
+            </div>);
+        }
+        if (f.type === 'name') {
+          const nm = mine ? payload.myName : ((payload.parties || []).find(p => p.roleKey === f.role)?.name || '');
+          return <span key={f.id} style={{ ...st, display: 'flex', alignItems: 'center', fontSize: 10, color: 'var(--muted)', border: '1px dotted #d1d5db', borderRadius: 4, paddingLeft: 4, background: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap', overflow: 'hidden' }}>{nm}</span>;
         }
         if (f.type === 'date' && mine) {
           return <span key={f.id} style={{ ...st, display: 'flex', alignItems: 'center', fontSize: 10, color: 'var(--muted)', border: '1px dotted #d1d5db', borderRadius: 4, paddingLeft: 4, background: 'rgba(255,255,255,0.6)' }}>{sig ? new Date().toISOString().slice(0, 10) : 'date signed'}</span>;
@@ -647,6 +714,7 @@ function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
   const [fields, setFields] = useState(attachment.fields || []);
   const [activeRole, setActiveRole] = useState(0);
   const [activeType, setActiveType] = useState('sign');
+  const [optsFor, setOptsFor] = useState(null);   // field id whose options are being edited
   const dragState = useRef(null);
 
   useEffect(() => {
@@ -657,9 +725,12 @@ function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
   const roleKey = (i) => roles[i]?.key || roles[0]?.key || 'employee';
   function place(page, x, y, type = activeType) {
     const meta = FIELD_META[type] || FIELD_META.sign;
-    setFields(fs => [...fs, { id: `a${Date.now()}${fs.length}`, role: roleKey(activeRole), type, page,
+    const id = `a${Date.now()}`;
+    setFields(fs => [...fs, { id, role: roleKey(activeRole), type, page,
       x: Math.min(0.98 - meta.w, Math.max(0, x - meta.w / 2)),
-      y: Math.min(0.98 - meta.h, Math.max(0, y - meta.h / 2)), w: meta.w, h: meta.h, required: true }]);
+      y: Math.min(0.98 - meta.h, Math.max(0, y - meta.h / 2)), w: meta.w, h: meta.h, required: true,
+      ...(meta.opts ? { options: ['Option 1', 'Option 2'] } : {}) }]);
+    if (meta.opts) setOptsFor(id); // choices matter more than position — edit them right away
   }
   const onDrag = useCallback((e) => {
     const s = dragState.current; if (!s) return;
@@ -692,6 +763,13 @@ function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
             <span style={{ fontSize: 10, fontWeight: 800, color: c.solid, display: 'inline-flex', alignItems: 'center', gap: 4, pointerEvents: 'none', whiteSpace: 'nowrap', overflow: 'hidden' }}>
               <M.Icon size={10} /> {M.label}
             </span>
+            {M.opts && (
+              <button onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setOptsFor(f.id); }}
+                title={`Edit choices (${(f.options || []).length})`}
+                style={{ position: 'absolute', top: -9, right: 12, width: 18, height: 18, borderRadius: '50%', background: '#fff', color: c.solid, border: `2px solid ${c.solid}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                <Pencil size={9} />
+              </button>
+            )}
             <button onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setFields(fs => fs.filter(x => x.id !== f.id)); }}
               style={{ position: 'absolute', top: -9, right: -9, width: 18, height: 18, borderRadius: '50%', background: c.solid, color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
               <X size={11} />
@@ -737,6 +815,10 @@ function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
              : <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} /></div>}
       </div>
       </div>
+      {optsFor && fields.find(f => f.id === optsFor) && (
+        <FieldOptionsModal field={fields.find(f => f.id === optsFor)} onClose={() => setOptsFor(null)}
+          onSave={(options) => setFields(fs => fs.map(f => f.id === optsFor ? { ...f, options } : f))} />
+      )}
     </div>
   );
 }
@@ -757,6 +839,7 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [focusPara, setFocusPara] = useState(null); // paragraph whose Insert dropdown is showing
+  const [egnyteFolder, setEgnyteFolder] = useState(t0.egnyteFolder || '');
   const paraRefs = useRef({});
 
   const setBlock = (i, patch) => setBlocks(bs => bs.map((b, j) => j === i ? { ...b, ...patch } : b));
@@ -826,7 +909,7 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
   async function save() {
     if (busy) return; setBusy(true);
     const data = { name, kind, entity_id: entityId, roles: roles.filter(r => r.key.trim()),
-      body: blocksToBody(blocks), attachments };
+      body: blocksToBody(blocks), attachments, egnyte_folder: egnyteFolder.trim() };
     try {
       const saved = template?.id ? await api.updateSignTemplate(template.id, data) : await api.createSignTemplate(data);
       toastOk('Template saved.'); onSaved(saved); onClose();
@@ -1010,6 +1093,13 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
                 style={{ background: 'none', border: 'none', color: 'hsl(var(--color-red))', cursor: 'pointer', display: 'flex', padding: 4 }}><Trash2 size={13} /></button>
             </div>
           ))}
+
+          <div style={{ margin: '18px 0 6px' }}><label style={FL}>Signed document location — Egnyte (optional)</label></div>
+          <input className="form-input" value={egnyteFolder} onChange={e => setEgnyteFolder(e.target.value)}
+            placeholder="/Shared/Human Resources/Signed Documents" style={{ width: '100%' }} />
+          <p style={{ fontSize: 11, color: 'var(--muted)', margin: '5px 0 0' }}>
+            When an envelope from this template completes, a copy of the sealed PDF is filed to this Egnyte folder.
+          </p>
         </div>
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
@@ -1055,6 +1145,7 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
   const [activeType, setActiveType] = useState('sign');
   const [zoom, setZoom] = useState(1);
   const [pdfEditOpen, setPdfEditOpen] = useState(false);
+  const [optsFor, setOptsFor] = useState(null);   // field id whose options are being edited
   const dragState = useRef(null);   // {fieldId, mode:'move'|'resize', rect, startX, startY, orig}
   const rkCounter = useRef(0);      // stable per-party field keys — survive removal/reorder
 
@@ -1156,12 +1247,15 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
     const owner = signerParties[activeRecipient]?.p;
     if (!owner?._rk) return;
     const meta = FIELD_META[type] || FIELD_META.sign;
+    const id = `f${Date.now()}`;
     setFields(fs => [...fs, {
-      id: `f${Date.now()}${fs.length}`, role: owner._rk, type, page,
+      id, role: owner._rk, type, page,
       x: Math.min(0.98 - meta.w, Math.max(0, x - meta.w / 2)),
       y: Math.min(0.98 - meta.h, Math.max(0, y - meta.h / 2)),
       w: meta.w, h: meta.h, required: true,
+      ...(meta.opts ? { options: ['Option 1', 'Option 2'] } : {}),
     }]);
+    if (meta.opts) setOptsFor(id); // choices matter more than position — edit them right away
   }
   const onFieldDrag = useCallback((e) => {
     const s = dragState.current; if (!s) return;
@@ -1205,6 +1299,13 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
             <span style={{ fontSize: 10, fontWeight: 800, color: c.solid, display: 'inline-flex', alignItems: 'center', gap: 4, pointerEvents: 'none', whiteSpace: 'nowrap', overflow: 'hidden' }}>
               <M.Icon size={10} /> {M.label}
             </span>
+            {M.opts && (
+              <button onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setOptsFor(f.id); }}
+                title={`Edit choices (${(f.options || []).length})`}
+                style={{ position: 'absolute', top: -9, right: 12, width: 18, height: 18, borderRadius: '50%', background: '#fff', color: c.solid, border: `2px solid ${c.solid}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                <Pencil size={9} />
+              </button>
+            )}
             <button onPointerDown={e => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setFields(fs => fs.filter(x => x.id !== f.id)); }}
               title="Remove" style={{ position: 'absolute', top: -9, right: -9, width: 18, height: 18, borderRadius: '50%', background: c.solid, color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
               <X size={11} />
@@ -1637,6 +1738,10 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
         <PdfEditor file={file} fileName={file.name} toastErr={toastErr}
           onClose={() => setPdfEditOpen(false)}
           onSave={(edited) => { pickFile(edited); toastOk('PDF updated — place the signature fields again.'); }} />
+      )}
+      {optsFor && fields.find(f => f.id === optsFor) && (
+        <FieldOptionsModal field={fields.find(f => f.id === optsFor)} onClose={() => setOptsFor(null)}
+          onSave={(options) => setFields(fs => fs.map(f => f.id === optsFor ? { ...f, options } : f))} />
       )}
     </div>
   );

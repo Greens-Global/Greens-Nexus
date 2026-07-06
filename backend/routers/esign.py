@@ -110,6 +110,7 @@ def _ser_template(t: HrSignTemplate) -> dict:
     return {"id": t.id, "name": t.name, "kind": t.kind, "entityId": t.entity_id,
             "body": t.body or [], "roles": t.roles or [],
             "attachments": t.attachments or [], "status": t.status,
+            "egnyteFolder": t.egnyte_folder or "",
             "createdBy": t.created_by, "createdAt": t.created_at, "updatedAt": t.updated_at}
 
 
@@ -359,6 +360,7 @@ class TemplateIn(BaseModel):
     roles:       Optional[list] = None
     attachments: Optional[list] = None   # [{name, path, pages, fields:[...]}]
     status:      Optional[str] = "active"
+    egnyte_folder: Optional[str] = None  # e.g. /Shared/Human Resources/Signed ('' = off)
 
 
 @router.get("/templates")
@@ -377,6 +379,7 @@ def create_template(body: TemplateIn, user: dict = Depends(require_hr_write), db
     row = HrSignTemplate(id=str(uuid.uuid4()), name=body.name.strip(), kind=body.kind or "custom",
                          entity_id=body.entity_id or "", body=body.body or [], roles=body.roles or [],
                          attachments=body.attachments or [],
+                         egnyte_folder=(body.egnyte_folder or "").strip(),
                          status=body.status or "active", created_by=user["email"],
                          created_at=now, updated_at=now)
     db.add(row); db.commit(); db.refresh(row)
@@ -399,6 +402,8 @@ def update_template(tid: str, body: TemplateIn, user: dict = Depends(require_hr_
         row.roles = body.roles
     if body.attachments is not None:
         row.attachments = body.attachments
+    if body.egnyte_folder is not None:
+        row.egnyte_folder = body.egnyte_folder.strip()
     row.status = body.status or row.status
     row.updated_at = _now_iso()
     db.commit(); db.refresh(row)
@@ -567,7 +572,8 @@ def _create_request(db: Session, user: dict, *, title: str, source: str, templat
                     employee_id: str, candidate_id: str, entity_id: str, body_snapshot: list,
                     pdf_storage_path: str, fields: list, message: str, expires_on: str,
                     parties: List[PartyIn], ip: str, user_agent: str,
-                    documents: Optional[list] = None, routing: str = "sequential") -> dict:
+                    documents: Optional[list] = None, routing: str = "sequential",
+                    egnyte_folder: str = "") -> dict:
     now = _now_iso()
     ordered = sorted(parties, key=lambda p: p.ordinal or 1)
     signer_ordinals = [p.ordinal or 1 for p in ordered if (p.party_role or "signer") == "signer"]
@@ -576,6 +582,7 @@ def _create_request(db: Session, user: dict, *, title: str, source: str, templat
                         entity_id=entity_id or "", body_snapshot=body_snapshot,
                         pdf_storage_path=pdf_storage_path, fields=fields, status="pending",
                         documents=documents or [], routing=routing,
+                        egnyte_folder=(egnyte_folder or "").strip(),
                         current_order=min(signer_ordinals), message=message or "",
                         expires_on=expires_on or "", created_by=user["email"],
                         created_at=now)
@@ -635,7 +642,8 @@ def send_request(body: SendIn, request: Request, user: dict = Depends(require_hr
                            body_snapshot=snapshot, pdf_storage_path="", fields=[],
                            message=body.message or "", expires_on=body.expires_on or "",
                            parties=body.parties, ip=ip, user_agent=ua,
-                           documents=attachments, routing=routing)
+                           documents=attachments, routing=routing,
+                           egnyte_folder=tpl.egnyte_folder or "")
 
 
 @router.post("/requests/pdf")
@@ -668,8 +676,13 @@ def send_pdf_request(request: Request, file: UploadFile = File(...), payload: st
     if not fields:
         raise HTTPException(400, "Place at least one field on the document")
     for f in fields:
-        if f.get("type") not in ("sign", "initials", "date", "text", "check"):
+        if f.get("type") not in ("sign", "initials", "date", "text", "check", "dropdown", "radio", "name"):
             raise HTTPException(400, f"Unknown field type: {f.get('type')}")
+        if f.get("type") in ("dropdown", "radio"):
+            opts = [str(o).strip()[:100] for o in (f.get("options") or []) if str(o).strip()][:30]
+            if len(opts) < 2:
+                raise HTTPException(400, "Dropdown and radio fields need at least two options")
+            f["options"] = opts
         # Freeze CLEAN geometry — _stamp_pdf does int(page)/float(x,y,w,h) at
         # finalize, and a null/non-numeric coord there crashes sealing and
         # permanently wedges a fully-signed envelope. Reject/normalize now.
@@ -700,7 +713,8 @@ def send_pdf_request(request: Request, file: UploadFile = File(...), payload: st
                            candidate_id=data.get("candidateId") or "", entity_id=data.get("entityId") or "",
                            body_snapshot=[], pdf_storage_path=path, fields=fields,
                            message=data.get("message") or "", expires_on=data.get("expiresOn") or "",
-                           parties=parties, ip=ip, user_agent=ua, routing=routing)
+                           parties=parties, ip=ip, user_agent=ua, routing=routing,
+                           egnyte_folder=str(data.get("egnyteFolder") or ""))
 
 
 # ── Envelope management (HR) ──────────────────────────────────────────────────
@@ -1348,10 +1362,32 @@ def _stamp_pdf(source: bytes, fields: list, parties: List[HrSignParty]) -> bytes
                 elif ftype == "initials":
                     c.setFont("Helvetica-Oblique", min(12, h * 0.7))
                     c.drawString(x, y + h * 0.25, _initials(p.name))
-                elif ftype in ("text", "check"):
+                elif ftype == "name":
+                    c.setFont("Helvetica", min(10, h * 0.6))
+                    c.drawString(x, y + h * 0.25, p.name or "")
+                elif ftype == "radio":
+                    # The chosen option only counts if it's still in the frozen list
+                    opts = [str(o) for o in (f.get("options") or [])]
+                    val = str((p.field_values or {}).get(f.get("id", ""), ""))
+                    if val not in opts:
+                        val = ""
+                    n = max(1, len(opts))
+                    rh = h / n
+                    fs = min(9, rh * 0.55)
+                    c.setFont("Helvetica", fs)
+                    for oi, opt in enumerate(opts):
+                        cy = y + h - (oi + 0.5) * rh
+                        r = min(3.2, rh * 0.3)
+                        c.circle(x + r + 1, cy, r, stroke=1, fill=0)
+                        if opt == val:
+                            c.circle(x + r + 1, cy, r * 0.5, stroke=0, fill=1)
+                        c.drawString(x + r * 2 + 5, cy - fs * 0.35, opt)
+                elif ftype in ("text", "check", "dropdown"):
                     val = (p.field_values or {}).get(f.get("id", ""), "")
                     if ftype == "check":
                         val = "[x]" if val else "[ ]"
+                    elif ftype == "dropdown" and str(val) not in [str(o) for o in (f.get("options") or [])]:
+                        val = ""
                     c.setFont("Helvetica", min(10, h * 0.6))
                     c.drawString(x, y + h * 0.25, str(val))
             c.save()
@@ -1460,6 +1496,33 @@ def _certificate_pdf(req: HrSignRequest, parties: List[HrSignParty],
     return buf.getvalue()
 
 
+def _egnyte_push(req: HrSignRequest, blob: bytes) -> str:
+    """Copy the sealed PDF into the request's Egnyte folder (like Egnyte Sign's
+    'Signed document location'). Best-effort and env-gated: needs EGNYTE_DOMAIN
+    (e.g. greensglobal.egnyte.com) + EGNYTE_TOKEN on the app service. Returns a
+    short status string for the audit log ('' = not configured / no folder)."""
+    import os as _os
+    from urllib.parse import quote as _q
+    dom = (_os.getenv("EGNYTE_DOMAIN") or "").strip().rstrip("/")
+    tok = (_os.getenv("EGNYTE_TOKEN") or "").strip()
+    folder = (req.egnyte_folder or "").strip().strip("/")
+    if not (dom and tok and folder):
+        return ""
+    if "." not in dom:
+        dom = f"{dom}.egnyte.com"
+    safe_title = re.sub(r'[\\/:*?"<>|]+', " ", req.title or "Document").strip()[:80] or "Document"
+    path = f"{folder}/{safe_title} - {req.id[:8]} (signed).pdf"
+    try:
+        r = httpx.post(f"https://{dom}/pubapi/v1/fs-content/{_q(path)}",
+                       headers={"Authorization": f"Bearer {tok}",
+                                "Content-Type": "application/pdf"},
+                       content=blob, timeout=60)
+        return f"copied to Egnyte /{path}" if r.is_success \
+            else f"Egnyte copy failed ({r.status_code})"
+    except Exception as e:  # a broken Egnyte copy must never block sealing
+        return f"Egnyte copy failed ({type(e).__name__})"
+
+
 def _finalize(db: Session, req: HrSignRequest) -> None:
     """All parties signed: render content, append certificate, hash, store, notify."""
     from pypdf import PdfReader, PdfWriter
@@ -1525,6 +1588,9 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
     req.final_sha256 = hashlib.sha256(final).hexdigest()
     req.status = "completed"
     _log(db, req.id, "completed", f"sealed · sha256 {req.final_sha256[:16]}…")
+    egnyte_note = _egnyte_push(req, final)
+    if egnyte_note:
+        _log(db, req.id, "archived", egnyte_note)
 
     # Attach to the subject employee's profile Documents tab
     if req.employee_id:
