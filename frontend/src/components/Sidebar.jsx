@@ -9,12 +9,13 @@ import {
   CreditCard, Building, Server, FileSpreadsheet, Landmark, BarChart3,
   Users, LogIn, PenTool, Files, Megaphone, Star, ExternalLink,
   Settings, ChevronLeft, ChevronRight,
-  HelpCircle, Store, Calendar, MessageSquare, Package,
+  HelpCircle, Store, Calendar, MessageSquare, Package, Clock,
 } from "lucide-react";
 
 // Exported: MobileMenu mirrors this exact order/grouping on phones
 export const NAV = [
   { view: "dashboard",         label: "Dashboard",          icon: LayoutDashboard },
+  { view: "timeclock",         label: "Time Clock",         icon: Clock },
   { view: "manager-dashboard", label: "Manager Dashboard",  icon: UserCheck,    minRole: 'supervisor' },
   { divider: true },
   { view: "tasks",             label: "Tasks",               icon: CheckSquare,  minRole: 'supervisor' },

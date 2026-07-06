@@ -39,6 +39,7 @@ const ManagerDashboard    = lazy(() => import("./views/ManagerDashboard"));
 const Support             = lazy(() => import("./views/Support"));
 const Placeholder         = lazy(() => import("./views/Placeholder"));
 const PublicSign          = lazy(() => import("./views/PublicSign"));
+const TimeClock           = lazy(() => import("./views/TimeClock"));
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // Views that aren't registered MODULES (e.g. "purchase") fall back to a
@@ -129,6 +130,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "admin":              return <Admin />;
     case "external-links":     return <ExternalLinks />;
     case "support":            return <Support />;
+    case "timeclock":          return <TimeClock />;
     default:                   return <Placeholder viewName={activeView} onBack={() => onNavigate("dashboard")} />;
   }
 }

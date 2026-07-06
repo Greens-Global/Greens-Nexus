@@ -470,6 +470,16 @@ export const api = {
   mySignDecline:      (pid, data) => req(`/esign/mine/${pid}/decline`, { method: 'POST', body: JSON.stringify(data) }),
   correctSignParty:   (rid, pid, data) => req(`/esign/requests/${rid}/parties/${pid}`, { method: 'PATCH', body: JSON.stringify(data) }),
   getSignPartyLink:   (rid, pid)  => req(`/esign/requests/${rid}/parties/${pid}/link`),
+
+  // ── Time clock (punch in/out with geofencing) ──────────────────────────────
+  timeStatus:        ()          => req('/timeclock/status'),
+  timePunch:         (data)      => req('/timeclock/punch', { method: 'POST', body: JSON.stringify(data) }),
+  timeSelfPunch:     (data)      => req('/timeclock/punch/manual', { method: 'POST', body: JSON.stringify(data) }),
+  timeMy:            (start, end) => req(`/timeclock/me?start=${start || ''}&end=${end || ''}`),
+  timeTeam:          (start, end) => req(`/timeclock/team?start=${start || ''}&end=${end || ''}`),
+  timeAdjustPunch:   (id, data)  => req(`/timeclock/punches/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  timeAddPunch:      (data)      => req('/timeclock/punches', { method: 'POST', body: JSON.stringify(data) }),
+  timeExportCsv:     (start, end, mode) => reqBlob(`/timeclock/export.csv?start=${start || ''}&end=${end || ''}&mode=${mode || 'summary'}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch —

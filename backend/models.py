@@ -951,3 +951,38 @@ class HrSignEvent(Base):
     ip          = Column(String, default="")
     user_agent  = Column(String, default="")
     at          = Column(String, default="")
+
+
+# ── Time tracking (SwipeClock replacement) ────────────────────────────────────
+# Punch-event model: every clock action is one immutable row; shifts/totals are
+# derived. Geofencing is a SOFT gate (research-verified SwipeClock behavior):
+# out-of-fence punches are recorded and flagged, never blocked. Corrections
+# never overwrite silently — original_at freezes the first value, voided rows
+# stay in the table (wage-and-hour record retention).
+
+class TimePunch(Base):
+    __tablename__ = "time_punches"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    kind           = Column(String, nullable=False)     # in|out|break_start|break_end
+    at             = Column(String, nullable=False)     # UTC ISO — effective time (adjustments edit this)
+    original_at    = Column(String, default="")         # frozen first value once adjusted
+    local_date     = Column(String, default="")         # YYYY-MM-DD in the puncher's timezone (grouping key)
+    tz_offset_min  = Column(Integer, default=0)         # JS getTimezoneOffset() at punch
+    lat            = Column(String, default="")
+    lng            = Column(String, default="")
+    accuracy_m     = Column(Integer, default=0)         # reported GPS accuracy radius (metres)
+    geo_status     = Column(String, default="no_location")  # in_fence|out_of_fence|no_location
+    work_site_id   = Column(String, default="")         # nearest HrWorkSite with a geofence
+    work_site_name = Column(String, default="")         # frozen at punch time
+    distance_m     = Column(Integer, default=0)         # raw distance to that site
+    source         = Column(String, default="web")      # web|self_manual (missed-punch fix)|manual (manager)
+    note           = Column(String, default="")
+    ip             = Column(String, default="")
+    user_agent     = Column(String, default="")
+    adjusted_by    = Column(String, default="")
+    adjusted_at    = Column(String, default="")
+    adjust_note    = Column(String, default="")
+    voided         = Column(Integer, default=0)         # 1 = excluded from totals, kept for audit
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")

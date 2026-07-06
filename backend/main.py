@@ -7,6 +7,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL, SessionLocal
+from routers import timeclock
 from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, inventory_requests, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign
 from audit import AuditMiddleware
 
@@ -360,4 +361,5 @@ app.include_router(hr.router)
 app.include_router(knowledge_base.router)
 app.include_router(help_router.router)
 app.include_router(esign.router)
+app.include_router(timeclock.router)
 

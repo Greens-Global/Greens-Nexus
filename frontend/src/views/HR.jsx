@@ -9,6 +9,7 @@ import {
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import ESign from '../components/ESign';
+import TimeAdmin from '../components/TimeAdmin';
 
 // ── HR module — Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -2168,7 +2169,7 @@ export default function HR({ activeSub, onSubChange }) {
   // 'hr-esign-*' deep-links (bell/toast clicks) land on the E-Sign tab — ESign
   // reads the raw navSub to pick its own sub-tab (inbox vs sent requests).
   const navSub = String(activeSub || '').startsWith('hr-esign') ? 'hr-esign' : activeSub;
-  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-esign'].includes(navSub) ? navSub : 'hr-people';
+  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-esign'].includes(navSub) ? navSub : 'hr-people';
   const [esignPrefill, setEsignPrefill] = useState(null);   // candidate → Send-for-signature handoff
   const isMobile = useIsMobile();
 
@@ -2261,7 +2262,7 @@ export default function HR({ activeSub, onSubChange }) {
   };
 
   const TABS = [
-    ['hr-people', 'People'], ['hr-hiring', 'Hiring'], ['hr-org', 'Org Chart'], ['hr-leave', 'Leave'], ['hr-esign', 'E-Sign'],
+    ['hr-people', 'People'], ['hr-hiring', 'Hiring'], ['hr-org', 'Org Chart'], ['hr-leave', 'Leave'], ['hr-time', 'Time'], ['hr-esign', 'E-Sign'],
   ];
 
   return (
@@ -2319,6 +2320,7 @@ export default function HR({ activeSub, onSubChange }) {
       )}
       {sub === 'hr-org' && <OrgChartTab employees={employees} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-time' && <TimeAdmin employees={employees} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-esign' && (
         <ESign employees={employees} entities={entities} prefill={esignPrefill} navSub={activeSub}
           onPrefillConsumed={() => setEsignPrefill(null)} toastOk={toastOk} toastErr={toastErr} />
