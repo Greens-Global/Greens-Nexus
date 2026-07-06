@@ -445,9 +445,10 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
     window.removeEventListener('pointermove', onDragMove);
   }, [onDragMove]); // eslint-disable-line react-hooks/exhaustive-deps
   const startDrag = (e, el, mode) => {
-    // Elements are directly manipulable in select AND Edit-text mode (Acrobat
-    // style): drag moves; in Edit-text, a click without movement opens the text.
-    if (tool !== 'select' && tool !== 'edittext') return;
+    // Element BODY drags only in select/Edit-text mode (drawing tools own the
+    // page there); the selection handles (endpoints, resize, block width) work
+    // in ANY mode — they sit above the page and stop propagation.
+    if (mode === 'move' && tool !== 'select' && tool !== 'edittext') return;
     e.stopPropagation(); e.preventDefault();
     if (editingId) commitTextEdit();
     setSelectedId(el.id);
@@ -1100,8 +1101,13 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
                         })}
                         <g style={{ pointerEvents: (tool === 'select' || tool === 'edittext') ? 'auto' : 'none' }}>
                           {pageEls.map(el => renderEl(el, d.w, d.h))}
-                          {selectedEl && selectedEl.pageId === pg.id && !editingEl && renderSelection(selectedEl, d.w, d.h)}
                         </g>
+                        {/* Selection chrome is ALWAYS interactive — with a draw
+                            tool active it would otherwise render but swallow no
+                            clicks (dead × button, dead endpoint handles). */}
+                        {selectedEl && selectedEl.pageId === pg.id && !editingEl && (
+                          <g style={{ pointerEvents: 'auto' }}>{renderSelection(selectedEl, d.w, d.h)}</g>
+                        )}
                         {draft && draft.pageId === pg.id && renderDraft(draft, d.w, d.h)}
                         {editingEl && (() => {
                           // WYSIWYG editing. Paragraph blocks (blockW) get a
