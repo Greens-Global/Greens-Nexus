@@ -190,6 +190,13 @@ async function silentTick() {
 
 // Master heartbeat: refresh token + clock state, then capture if it's time.
 async function tick() {
+  // Self-heal into silent mode: if a device token appears after launch (e.g. the
+  // installer auto-started us a moment before the install command wrote it), pick
+  // it up here instead of ever showing an interactive login.
+  if (!silentMode) {
+    const t = readDeviceToken();
+    if (t) { deviceToken = t; silentMode = true; refreshTray(); }
+  }
   if (silentMode) return silentTick();
   if (ticking) return;
   ticking = true;
@@ -218,9 +225,12 @@ app.whenReady().then(async () => {
       const idle = powerMonitor.getSystemIdleTime();
       activity.sample(idle, config.sampleMs / 1000, config.idleActiveSec).catch(() => {});
     }, config.sampleMs);
-  } else {
-    await signIn(true);                      // interactive: prompt on first launch
   }
+  // Non-silent: do NOT auto-open a Microsoft login (that popped AADSTS9002327 on
+  // silent deploys that started before the token landed). Sit idle in the tray;
+  // interactive users can choose "Sign in" from the tray menu. tick() will flip
+  // us to silent the moment a device token appears.
+  else { tick(); }                          // kick an immediate token re-check
   setInterval(tick, config.statusPollMs);   // heartbeat
   powerMonitor.on('resume', tick);          // wake from sleep → re-sync promptly
 });
