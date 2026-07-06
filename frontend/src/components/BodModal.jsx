@@ -1,15 +1,16 @@
 import { useState, useEffect } from 'react';
-import { Sunrise, Sunset, Coffee, X, Send, Loader2, Link2 as LinkIcon, MessageSquare } from 'lucide-react';
+import { Sunrise, Sunset, Coffee, X, Send, Loader2, MessageSquare } from 'lucide-react';
 import { api } from '../api';
-import { graphTokenSilent, graphTokenInteractive, graphToken, listMyChats, postChatMessage } from '../teamsGraph';
+import { graphToken, postChatMessage } from '../teamsGraph';
 
 // ── Beginning / End-of-day / Break message ────────────────────────────────────
 // BOD on first punch-in, EOD on punch-out, BREAK when stepping away. The message
 // posts to a Teams GROUP CHAT from the employee's OWN ACCOUNT and is recorded in
-// Nexus. The target chat is AUTO-RESOLVED from the employee's group binding
-// (admin-managed under Shifts → Presets & groups); only if their group has no
-// bound chat do they pick one manually. Prompts skip only via the "already sent"
-// tick, so nobody silently skips and nobody is nagged twice.
+// Nexus. Each person posts to exactly ONE chat — the one an admin bound to their
+// group (managed under Shifts → Presets & groups). Employees never pick from a
+// list; if their group has no bound chat, the message is recorded in Nexus only.
+// Prompts skip only via the "already sent" tick, so nobody silently skips and
+// nobody is nagged twice.
 
 const MODES = {
   bod: {
@@ -44,52 +45,21 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   const [message, setMessage] = useState('');
   const [tasks, setTasks] = useState('');
   const [bound, setBound] = useState(null);          // { id, name } from the group binding
-  const [chats, setChats] = useState(null);          // manual picker list (null until loaded)
-  const [chatId, setChatId] = useState('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [needsConnect, setNeedsConnect] = useState(false);
-  const [connecting, setConnecting] = useState(false);
   const [ack, setAck] = useState(false);
 
-  // On open: resolve the group-bound chat. If none, fall back to a manual picker.
+  // On open: resolve the ONE chat an admin bound to this person's group.
   useEffect(() => {
     let live = true;
     (async () => {
       const my = await api.timeMyChat().catch(() => null);
       if (!live) return;
-      if (my?.chatId) { setBound({ id: my.chatId, name: my.chatName }); setChatId(my.chatId); setLoading(false); return; }
-      const tok = await graphTokenSilent();
-      if (!live) return;
-      if (!tok) { setNeedsConnect(true); setLoading(false); return; }
-      const list = await listMyChats(tok);
-      if (!live) return;
-      setChats(list);
-      if (list.length === 1) setChatId(list[0].id);
+      if (my?.chatId) setBound({ id: my.chatId, name: my.chatName });
       setLoading(false);
     })();
     return () => { live = false; };
   }, []);
-
-  async function connectTeams() {
-    setConnecting(true);
-    try {
-      const tok = await graphTokenInteractive();
-      setNeedsConnect(false);
-      const list = await listMyChats(tok);
-      setChats(list);
-      if (list.length === 1) setChatId(list[0].id);
-    } catch (e) {
-      const msg = String(e?.errorMessage || e?.message || e || '');
-      // Surface the real reason so consent/permission issues are diagnosable.
-      const detail = /consent|AADSTS65001|admin/i.test(msg)
-        ? 'Teams access needs admin approval for this app (Chat.ReadBasic, ChatMessage.Send).'
-        : /popup|user_cancelled|window/i.test(msg)
-        ? 'The Teams sign-in window was closed or blocked — allow pop-ups and try again.'
-        : msg ? `Teams: ${msg.slice(0, 160)}` : 'Could not connect Teams.';
-      toastErr(`${detail} You can still Send to record it in Nexus.`);
-    } finally { setConnecting(false); }
-  }
 
   function buildHtml() {
     if (M.reasonOnly) return `I'm on a break${message.trim() ? ` for ${esc(message.trim())}` : ''}.`;
@@ -102,8 +72,8 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     if (busy) return;
     if (!message.trim()) { toastErr(M.reasonOnly ? 'Add a short reason.' : `Write a short ${M.title.toLowerCase()} message.`); return; }
     setBusy(true);
-    const targetId = bound?.id || chatId;
-    const targetName = bound?.name || (chats || []).find(c => c.id === chatId)?.name || '';
+    const targetId = bound?.id || '';
+    const targetName = bound?.name || '';
     let sent = false, sendError = '';
     if (targetId) {
       try {
@@ -112,7 +82,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
         await postChatMessage(tok, targetId, buildHtml());
         sent = true;
       } catch (e) { sendError = String(e?.message || e).slice(0, 180); }
-    } else sendError = 'No chat selected';
+    } else sendError = 'No team chat set up for your group';
     try {
       await api.timeBodRecord({
         kind: mode, message, tasks, channel_id: targetId, channel_name: targetName,
@@ -120,6 +90,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
       });
     } catch { /* the Teams post is the user-visible outcome */ }
     if (sent) toastOk(`Posted to ${targetName || 'your chat'} and recorded.`);
+    else if (!targetId) toastOk('Recorded in Nexus.');
     else toastErr(`Recorded in Nexus, but the Teams post failed${sendError ? ` — ${sendError}` : ''}.`);
     setBusy(false);
     if (onSent) onSent(); else onClose();
@@ -153,7 +124,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
                 placeholder={M.tasksPlaceholder} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} />
             </div>
           )}
-          {/* Target chat — auto from the group binding, else a manual picker */}
+          {/* Target chat — the single chat an admin bound to this person's group */}
           <div>
             <label style={FL}>Posts to</label>
             {loading ? (
@@ -164,20 +135,11 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 9, background: 'var(--bg)', fontSize: 12.5, fontWeight: 700 }}>
                 <MessageSquare size={13} style={{ color: 'var(--pine)' }} /> {bound.name || 'Your team chat'}
               </div>
-            ) : needsConnect ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <button className="secondary-btn" onClick={connectTeams} disabled={connecting}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-                  {connecting ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <LinkIcon size={13} />}
-                  Connect Teams
-                </button>
-                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>one-time — or just Send to record it in Nexus.</span>
-              </div>
             ) : (
-              <select className="form-input" value={chatId} onChange={e => setChatId(e.target.value)} style={{ width: '100%', fontSize: 12.5 }}>
-                <option value="">— pick a group chat —</option>
-                {(chats || []).map(c => <option key={c.id} value={c.id}>{c.name}{c.chatType === 'oneOnOne' ? ' (direct)' : ''}</option>)}
-              </select>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                No team chat set up for you yet — your message is recorded in Nexus.
+                An admin can link one under Shifts → Presets &amp; groups.
+              </div>
             )}
           </div>
         </div>
