@@ -496,6 +496,16 @@ export const api = {
   timeAgentDevices:  ()          => req('/timeclock/agent/devices'),
   timeAgentRevoke:   (id)        => req(`/timeclock/agent/devices/${id}`, { method: 'PATCH' }),
   timeActivity:      (email, start, end) => req(`/timeclock/activity?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
+  timeShifts:        ()          => req('/timeclock/shifts'),
+  timeShiftCreate:   (data)      => req('/timeclock/shifts', { method: 'POST', body: JSON.stringify(data) }),
+  timeShiftUpdate:   (id, data)  => req(`/timeclock/shifts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  timeShiftDelete:   (id)        => req(`/timeclock/shifts/${id}`, { method: 'DELETE' }),
+  timeShiftGroups:   ()          => req('/timeclock/shift-groups'),
+  timeShiftGroupCreate: (data)   => req('/timeclock/shift-groups', { method: 'POST', body: JSON.stringify(data) }),
+  timeShiftGroupSet: (id, data)  => req(`/timeclock/shift-groups/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  timeShiftGroupDelete: (id)     => req(`/timeclock/shift-groups/${id}`, { method: 'DELETE' }),
+  timeShiftAssign:   (data)      => req('/timeclock/shift-assign', { method: 'POST', body: JSON.stringify(data) }),
+  timeShiftAssignments: ()       => req('/timeclock/shift-assignments'),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch —

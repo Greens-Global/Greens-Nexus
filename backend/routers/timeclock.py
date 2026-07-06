@@ -34,7 +34,8 @@ from sqlalchemy.orm import Session
 from database import get_db
 from auth import get_current_user, require_level_or_module, require_administrator
 from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, TimeBod,
-                    AgentDevice, AgentActivity, HrWorkSite, NexusEmployee)
+                    AgentDevice, AgentActivity, Shift, ShiftGroup, ShiftGroupMember,
+                    ShiftAssignment, HrWorkSite, NexusEmployee)
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET
 from routers.esign import _client_meta
 
@@ -762,6 +763,142 @@ def agent_activity(body: ActivityIn, dev: AgentDevice = Depends(get_agent_device
                              title=(s.title or "")[:200], seconds=int(s.seconds), active_pct=pct))
     db.commit()
     return {"ok": True}
+
+
+# ── Shifts, groups, and bulk assignment ──────────────────────────────────────
+
+class ShiftIn(BaseModel):
+    name: str
+    start_hhmm: str = "09:00"
+    end_hhmm: str = "17:00"
+    days: str = "1,2,3,4,5"
+    grace_min: int = 10
+    color: Optional[str] = "#2563eb"
+
+
+def _shift_dict(s: Shift) -> dict:
+    return {"id": s.id, "name": s.name, "start": s.start_hhmm, "end": s.end_hhmm,
+            "days": s.days, "graceMin": s.grace_min, "color": s.color}
+
+
+@router.get("/shifts")
+def list_shifts(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    return {"shifts": [_shift_dict(s) for s in db.query(Shift).order_by(Shift.name).all()]}
+
+
+@router.post("/shifts")
+def create_shift(body: ShiftIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    if not body.name.strip():
+        raise HTTPException(400, "Name is required")
+    s = Shift(id=str(uuid.uuid4()), name=body.name.strip()[:80],
+              start_hhmm=body.start_hhmm[:5], end_hhmm=body.end_hhmm[:5],
+              days=body.days[:40], grace_min=max(0, int(body.grace_min or 0)),
+              color=(body.color or "#2563eb")[:9], created_by=user["email"], created_at=_now_iso())
+    db.add(s)
+    db.commit()
+    return _shift_dict(s)
+
+
+@router.patch("/shifts/{shift_id}")
+def update_shift(shift_id: str, body: ShiftIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    s = db.query(Shift).filter(Shift.id == shift_id).first()
+    if not s:
+        raise HTTPException(404, "Shift not found")
+    s.name = body.name.strip()[:80]
+    s.start_hhmm = body.start_hhmm[:5]
+    s.end_hhmm = body.end_hhmm[:5]
+    s.days = body.days[:40]
+    s.grace_min = max(0, int(body.grace_min or 0))
+    s.color = (body.color or "#2563eb")[:9]
+    db.commit()
+    return _shift_dict(s)
+
+
+@router.delete("/shifts/{shift_id}")
+def delete_shift(shift_id: str, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    db.query(Shift).filter(Shift.id == shift_id).delete()
+    db.query(ShiftAssignment).filter(ShiftAssignment.shift_id == shift_id).delete()
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/shift-groups")
+def list_shift_groups(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    members = {}
+    for m in db.query(ShiftGroupMember).all():
+        members.setdefault(m.group_id, []).append(m.employee_email)
+    return {"groups": [{"id": g.id, "name": g.name, "members": members.get(g.id, [])}
+                       for g in db.query(ShiftGroup).order_by(ShiftGroup.name).all()]}
+
+
+class GroupIn(BaseModel):
+    name: str
+    members: List[str] = []
+
+
+@router.post("/shift-groups")
+def create_shift_group(body: GroupIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    if not body.name.strip():
+        raise HTTPException(400, "Name is required")
+    g = ShiftGroup(id=str(uuid.uuid4()), name=body.name.strip()[:80],
+                   created_by=user["email"], created_at=_now_iso())
+    db.add(g)
+    for em in dict.fromkeys(e.strip().lower() for e in body.members if e.strip()):
+        db.add(ShiftGroupMember(id=str(uuid.uuid4()), group_id=g.id, employee_email=em))
+    db.commit()
+    return {"id": g.id, "name": g.name, "members": list(dict.fromkeys(e.strip().lower() for e in body.members if e.strip()))}
+
+
+@router.patch("/shift-groups/{group_id}")
+def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    g = db.query(ShiftGroup).filter(ShiftGroup.id == group_id).first()
+    if not g:
+        raise HTTPException(404, "Group not found")
+    if body.name.strip():
+        g.name = body.name.strip()[:80]
+    db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).delete()
+    for em in dict.fromkeys(e.strip().lower() for e in body.members if e.strip()):
+        db.add(ShiftGroupMember(id=str(uuid.uuid4()), group_id=group_id, employee_email=em))
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/shift-groups/{group_id}")
+def delete_shift_group(group_id: str, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    db.query(ShiftGroup).filter(ShiftGroup.id == group_id).delete()
+    db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).delete()
+    db.commit()
+    return {"ok": True}
+
+
+class AssignIn(BaseModel):
+    shift_id: str
+    emails: List[str] = []
+
+
+@router.post("/shift-assign")
+def assign_shift(body: AssignIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    """Bulk-assign a shift to a set of employees (typically a group's members).
+    An empty shift_id clears the assignment."""
+    now = _now_iso()
+    n = 0
+    for em in dict.fromkeys(e.strip().lower() for e in body.emails if e.strip()):
+        row = db.query(ShiftAssignment).filter(ShiftAssignment.employee_email == em).first()
+        if not row:
+            row = ShiftAssignment(id=str(uuid.uuid4()), employee_email=em)
+            db.add(row)
+        row.shift_id = body.shift_id or ""
+        row.assigned_by = user["email"]
+        row.assigned_at = now
+        n += 1
+    db.commit()
+    return {"ok": True, "assigned": n}
+
+
+@router.get("/shift-assignments")
+def shift_assignments(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    return {"assignments": {a.employee_email: a.shift_id
+                            for a in db.query(ShiftAssignment).all() if a.shift_id}}
 
 
 @router.get("/activity")

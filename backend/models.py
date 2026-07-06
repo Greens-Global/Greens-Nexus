@@ -1059,6 +1059,48 @@ class AgentDevice(Base):
     last_seen_at   = Column(String, default="")
 
 
+class Shift(Base):
+    """A named work schedule: start/end time + which weekdays it runs, with a
+    grace window before a late-arrival flag. Assigned to employees directly or
+    in bulk via a shift group."""
+    __tablename__ = "shifts"
+    id         = Column(String, primary_key=True)   # uuid
+    name       = Column(String, default="")
+    start_hhmm = Column(String, default="09:00")
+    end_hhmm   = Column(String, default="17:00")
+    days       = Column(String, default="1,2,3,4,5")  # ISO weekday nums (Mon=1)
+    grace_min  = Column(Integer, default=10)
+    color      = Column(String, default="#2563eb")
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+
+
+class ShiftGroup(Base):
+    """A reusable set of employees, so a shift can be applied to many at once."""
+    __tablename__ = "shift_groups"
+    id         = Column(String, primary_key=True)   # uuid
+    name       = Column(String, default="")
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+
+
+class ShiftGroupMember(Base):
+    __tablename__ = "shift_group_members"
+    id             = Column(String, primary_key=True)   # uuid
+    group_id       = Column(String, index=True, nullable=False)
+    employee_email = Column(String, index=True, nullable=False)
+
+
+class ShiftAssignment(Base):
+    """The shift an employee is currently on (one active shift per person)."""
+    __tablename__ = "shift_assignments"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, index=True, nullable=False)
+    shift_id       = Column(String, default="")
+    assigned_by    = Column(String, default="")
+    assigned_at    = Column(String, default="")
+
+
 class AgentActivity(Base):
     """App/window activity reported by a silent device: per reporting window,
     seconds spent in each foreground app + an activity % (share of samples where
