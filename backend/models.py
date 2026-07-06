@@ -1019,6 +1019,25 @@ class TimeApproval(Base):
     revoked_by     = Column(String, default="")
 
 
+class TimeBod(Base):
+    """Beginning-of-day message: on the first punch-in of a day the employee
+    posts their plan to a Teams channel (sent client-side AS THE USER via
+    delegated Graph); this row is the recorded copy."""
+    __tablename__ = "time_bod"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    local_date     = Column(String, default="")
+    message        = Column(String, default="")
+    tasks          = Column(String, default="")
+    team_id        = Column(String, default="")
+    team_name      = Column(String, default="")
+    channel_id     = Column(String, default="")
+    channel_name   = Column(String, default="")
+    sent           = Column(Integer, default=0)         # 1 = landed in Teams
+    send_error     = Column(String, default="")
+    created_at     = Column(String, default="")
+
+
 class TimeOffRequest(Base):
     """Leave inside the Time module: employee-submitted, manager/HR-decided."""
     __tablename__ = "time_off_requests"

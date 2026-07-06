@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import DayTimeline from '../components/DayTimeline';
+import BodModal from '../components/BodModal';
 
 const PUNCH_CHIP = {
   in:          { bg: 'hsla(var(--color-green),0.1)', fg: 'hsl(var(--color-green))' },
@@ -75,6 +76,7 @@ export default function TimeClock() {
   const [msg, setMsg] = useState(null);        // {ok, text}
   const [missedOpen, setMissedOpen] = useState(false);
   const [openDays, setOpenDays] = useState({});   // expanded timesheet days
+  const [bodOpen, setBodOpen] = useState(false);  // beginning-of-day Teams message
   const [missed, setMissed] = useState({ kind: 'out', at: '', note: '' });
   const [, setTick] = useState(0);             // re-render for the live timer
   const msgTimer = useRef(null);
@@ -127,6 +129,7 @@ export default function TimeClock() {
         : pos ? '' : ' — location unavailable, recorded without it';
       toast(true, `${KIND_META[kind].label} at ${localTime(p.at)}${where}.`);
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed')); // sync the global mini-timer
+      if (r.firstInToday) setBodOpen(true); // first punch-in today → beginning-of-day message
       load();
     } catch (e) { toast(false, e?.message || 'Punch failed.'); }
     setBusy('');
@@ -406,6 +409,9 @@ export default function TimeClock() {
         ))}
       </div>
       </>)}
+
+      {bodOpen && <BodModal onClose={() => setBodOpen(false)}
+        toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />}
     </div>
   );
 }

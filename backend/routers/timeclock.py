@@ -31,7 +31,8 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from auth import get_current_user, require_level_or_module, require_administrator
-from models import TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, HrWorkSite, NexusEmployee
+from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, TimeBod,
+                    HrWorkSite, NexusEmployee)
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET
 from routers.esign import _client_meta
 
@@ -277,8 +278,21 @@ def punch(body: PunchIn, request: Request,
                        f"{emp.first_name} {emp.last_name} punched in {geo['distance_m']}m from "
                        f"{geo['work_site_name'] or 'the nearest site'} — flagged for review.",
                        ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+    # First punch-in of the day → the client offers the Beginning-of-day
+    # Teams message (skipped automatically if one was already recorded).
+    first_in_today = False
+    if body.kind == "in":
+        prior_in = (db.query(TimePunch)
+                    .filter(TimePunch.employee_email == email, TimePunch.kind == "in",
+                            TimePunch.local_date == row.local_date,
+                            TimePunch.id != row.id, TimePunch.voided == 0).first())
+        bod_done = (db.query(TimeBod)
+                    .filter(TimeBod.employee_email == email,
+                            TimeBod.local_date == row.local_date).first())
+        first_in_today = prior_in is None and bod_done is None
     db.commit()
-    return {"punch": _serialize(row), "allowed": _allowed_kinds(body.kind)}
+    return {"punch": _serialize(row), "allowed": _allowed_kinds(body.kind),
+            "firstInToday": first_in_today}
 
 
 class SelfPunchIn(BaseModel):
@@ -602,6 +616,47 @@ def list_screenshots(date: str = "", email: str = "",
     return {"date": day, "email": email, "shots": [
         {"id": s.id, "at": s.at, "idleSec": s.idle_sec or 0, "activeView": s.active_view or "",
          "url": _signed_url(s.storage_path)} for s in rows]}
+
+
+# ── Beginning-of-day message (recorded copy; Teams post happens client-side) ─
+
+class BodIn(BaseModel):
+    message: str
+    tasks: Optional[str] = ""
+    team_id: Optional[str] = ""
+    team_name: Optional[str] = ""
+    channel_id: Optional[str] = ""
+    channel_name: Optional[str] = ""
+    sent: Optional[bool] = False
+    send_error: Optional[str] = ""
+    tz_offset_min: Optional[int] = 0
+
+
+@router.post("/bod")
+def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    now = _now_iso()
+    row = TimeBod(id=str(uuid.uuid4()), employee_email=user["email"],
+                  local_date=_local_date(now, body.tz_offset_min or 0),
+                  message=(body.message or "").strip()[:1000],
+                  tasks=(body.tasks or "").strip()[:2000],
+                  team_id=(body.team_id or "")[:80], team_name=(body.team_name or "")[:120],
+                  channel_id=(body.channel_id or "")[:120], channel_name=(body.channel_name or "")[:120],
+                  sent=1 if body.sent else 0, send_error=(body.send_error or "")[:300],
+                  created_at=now)
+    db.add(row)
+    db.commit()
+    return {"ok": True, "id": row.id}
+
+
+@router.get("/bod/last")
+def last_bod(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The employee's previous BOD post — prefills the channel picker."""
+    row = (db.query(TimeBod).filter(TimeBod.employee_email == user["email"])
+           .order_by(TimeBod.created_at.desc()).first())
+    if not row:
+        return None
+    return {"teamId": row.team_id, "teamName": row.team_name,
+            "channelId": row.channel_id, "channelName": row.channel_name}
 
 
 # ── Time off (leave requests inside the Time module) ─────────────────────────

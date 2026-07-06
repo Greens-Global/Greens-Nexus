@@ -466,6 +466,23 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                   ))}
                 </div>
 
+                {Object.keys(p.days || {}).length > 1 && (() => {
+                  const dts = Object.keys(p.days).sort();
+                  const mx = Math.max(1, ...dts.map(d => p.days[d].workedMin));
+                  return (
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>Daily hours</div>
+                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 90 }}>
+                        {dts.map(d => (
+                          <div key={d} title={`${d} — ${fmtMin(p.days[d].workedMin)}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, minWidth: 0 }}>
+                            <div style={{ width: '65%', maxWidth: 34, height: `${Math.max(4, (p.days[d].workedMin / mx) * 66)}px`, background: 'var(--pine)', borderRadius: '5px 5px 2px 2px', opacity: 0.9 }} />
+                            <span style={{ fontSize: 9, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{new Date(d + 'T12:00:00').toLocaleDateString([], { weekday: 'short' })}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>Days</div>
                 {Object.keys(p.days || {}).sort().map(date => {
                   const d = p.days[date];
