@@ -67,6 +67,21 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     try { await api.timeApprove({ email, start, end }); toastOk('Timecard approved — the employee gets a notification.'); load(); }
     catch (e) { toastErr(e?.message || 'Could not approve.'); }
   }
+  const [approvingAll, setApprovingAll] = useState(false);
+  async function approveAll() {
+    const targets = (rows || []).filter(r => !r.approval);
+    if (!targets.length || approvingAll) return;
+    setApprovingAll(true);
+    let ok = 0;
+    for (const r of targets) { // sequential — one bell per person, no request race
+      try { await api.timeApprove({ email: r.email, start, end }); ok++; }
+      catch { /* keep going; the count tells the story */ }
+    }
+    toastOk(`Approved ${ok} of ${targets.length} timecard${targets.length === 1 ? '' : 's'}.`);
+    setApprovingAll(false);
+    load();
+  }
+  const [person, setPerson] = useState(null);   // employee drill-down (their time portal)
   async function revokeApproval(id) {
     try { await api.timeApprovalRevoke(id); toastOk('Approval revoked.'); load(); }
     catch (e) { toastErr(e?.message || 'Could not revoke.'); }
@@ -169,6 +184,14 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         <input className="form-input" type="date" value={end} onChange={e => setRange([start, e.target.value])} style={{ fontSize: 12, width: 150 }} />
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--muted)' }}>Team total: <span style={{ color: 'var(--pine)' }}>{fmtMin(totalMin)}</span></span>
+        {(rows || []).some(r => !r.approval) && (
+          <button className="primary-btn" onClick={approveAll} disabled={approvingAll}
+            title="Approve every unapproved timecard in this period"
+            style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            {approvingAll ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={12} />}
+            Approve all ({(rows || []).filter(r => !r.approval).length})
+          </button>
+        )}
         <button className="secondary-btn" onClick={() => exportCsv('summary')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <Download size={12} /> Summary CSV
         </button>
@@ -191,7 +214,12 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           <div onClick={() => setOpen(o => ({ ...o, [r.email]: !o[r.email] }))} role="button"
             style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '11px 14px', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
             {open[r.email] ? <ChevronDown size={14} style={{ color: 'var(--muted)' }} /> : <ChevronRight size={14} style={{ color: 'var(--muted)' }} />}
-            <span style={{ fontSize: 13, fontWeight: 800, flex: '0 0 200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
+            <button onClick={e => { e.stopPropagation(); setPerson(r); }} title="Open their time profile"
+              style={{ fontSize: 13, fontWeight: 800, flex: '0 0 200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, fontFamily: 'Inter,sans-serif',
+                color: 'var(--pine)', textDecoration: 'underline', textDecorationColor: 'transparent', textUnderlineOffset: 3 }}
+              onMouseEnter={e => { e.currentTarget.style.textDecorationColor = 'var(--pine)'; }}
+              onMouseLeave={e => { e.currentTarget.style.textDecorationColor = 'transparent'; }}>{r.name}</button>
             <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.email}</span>
             {r.flagCount > 0 && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, color: '#b45309' }}>
@@ -207,9 +235,11 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'flex', padding: 0, marginLeft: 2 }}><X size={10} /></button>
               </span>
             ) : (
-              <button className="secondary-btn" onClick={e => { e.stopPropagation(); approveRow(r.email); }}
+              <button className="primary-btn" onClick={e => { e.stopPropagation(); approveRow(r.email); }}
                 title="Sign off this timecard for the selected period"
-                style={{ fontSize: 10.5, padding: '3px 11px' }}>Approve</button>
+                style={{ fontSize: 11, padding: '5px 14px', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <CheckCircle size={11} /> Approve
+              </button>
             )}
             <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--pine)', width: 62, textAlign: 'right' }}>{fmtMin(r.workedMin)}</span>
           </div>
@@ -397,6 +427,81 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           })}
         </div>
       )}
+
+      {/* Person time portal — everything time-related for one employee */}
+      {person && (() => {
+        const p = (rows || []).find(r => r.email === person.email) || person;
+        const myOff = timeoff.filter(t => t.email === p.email);
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+            onClick={e => e.target === e.currentTarget && setPerson(null)}>
+            <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 780, maxHeight: 'min(92dvh, 720px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+              <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--pine)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, flexShrink: 0 }}>
+                  {p.name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 800 }}>{p.name}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{p.email} · {start} → {end}</div>
+                </div>
+                {p.approval
+                  ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.1)', padding: '4px 11px', borderRadius: 10 }}><CheckCircle size={12} /> APPROVED</span>
+                  : <button className="primary-btn" onClick={() => { approveRow(p.email); setPerson(null); }} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><CheckCircle size={12} /> Approve period</button>}
+                <button onClick={() => setPerson(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+              </div>
+
+              <div style={{ flex: 1, overflowY: 'auto', padding: '16px 22px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginBottom: 16 }}>
+                  {[['Worked', fmtMin(p.workedMin), 'var(--pine)'],
+                    ['Breaks', `${p.breakMin}m`, 'var(--ink)'],
+                    ['Days', String(Object.keys(p.days || {}).length), 'var(--ink)'],
+                    ['Flags', String(p.flagCount), p.flagCount ? '#b45309' : 'var(--muted)']].map(([l, v, c]) => (
+                    <div key={l} style={{ background: 'var(--mist)', borderRadius: 10, padding: '10px 14px' }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>{l}</div>
+                      <div style={{ fontSize: 17, fontWeight: 800, color: c }}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>Days</div>
+                {Object.keys(p.days || {}).sort().map(date => {
+                  const d = p.days[date];
+                  return (
+                    <div key={date} style={{ padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ fontSize: 12, fontWeight: 800, width: 92, flexShrink: 0 }}>{new Date(date + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                        <DayTimeline punches={d.punches} height={18} />
+                        {d.flags.length > 0 && <AlertTriangle size={12} style={{ color: '#b45309', flexShrink: 0 }} />}
+                        <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--pine)', width: 58, textAlign: 'right', flexShrink: 0 }}>{fmtMin(d.workedMin)}</span>
+                      </div>
+                      {d.flags.length > 0 && (
+                        <div style={{ fontSize: 10, fontWeight: 700, color: '#b45309', marginTop: 3, marginLeft: 102, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                          {d.flags.map(f => f.replace(/_/g, ' ')).join(' · ')}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {Object.keys(p.days || {}).length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>No punches in this range.</div>}
+
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', margin: '18px 0 8px' }}>Time off</div>
+                {myOff.length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>No requests on record.</div>}
+                {myOff.map(t => (
+                  <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)', fontSize: 12 }}>
+                    <span style={{ fontWeight: 700, textTransform: 'capitalize', width: 80 }}>{t.type}</span>
+                    <span style={{ color: 'var(--muted)', flex: 1 }}>{t.startDate} → {t.endDate}{t.note ? ` · “${t.note}”` : ''}</span>
+                    <span style={{ fontWeight: 800, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '.04em',
+                      color: t.status === 'approved' ? 'hsl(var(--color-green))' : t.status === 'rejected' ? '#b91c1c' : '#b45309' }}>{t.status}</span>
+                  </div>
+                ))}
+                <p style={{ margin: '14px 0 0', fontSize: 10.5, color: 'var(--muted)' }}>
+                  To correct a punch, use the pencil on the Timecards list. Screenshots (if captured) are under your profile → Admin → Screenshots.
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Edit punch modal */}
       {edit && (
