@@ -18,6 +18,7 @@ Design notes:
 """
 import base64
 import hashlib
+import hmac
 import io
 import json
 import os
@@ -107,9 +108,11 @@ def _ser_party(p: HrSignParty, include_email: bool = True) -> dict:
     out = {"id": p.id, "roleKey": p.role_key, "name": p.name, "kind": p.kind,
            "ordinal": p.ordinal, "status": p.status, "signedAt": p.signed_at,
            "viewedAt": p.viewed_at, "declineReason": p.decline_reason,
-           "signatureKind": p.signature_kind}
+           "signatureKind": p.signature_kind,
+           "partyRole": p.party_role or "signer"}
     if include_email:
         out["email"] = p.email
+        out["hasAccessCode"] = bool((p.access_code or "").strip())
     return out
 
 
@@ -118,6 +121,7 @@ def _ser_request(r: HrSignRequest, parties: Optional[List[HrSignParty]] = None,
     out = {"id": r.id, "title": r.title, "source": r.source, "templateId": r.template_id,
            "employeeId": r.employee_id, "candidateId": r.candidate_id, "entityId": r.entity_id,
            "status": r.status, "currentOrder": r.current_order, "message": r.message,
+           "routing": r.routing or "sequential",
            "expiresOn": r.expires_on, "createdBy": r.created_by, "createdAt": r.created_at,
            "completedAt": r.completed_at, "finalSha256": r.final_sha256,
            "hasFinalPdf": bool(r.final_pdf_path)}
@@ -211,8 +215,13 @@ def _parties(db: Session, request_id: str) -> List[HrSignParty]:
 
 
 def _its_their_turn(req: HrSignRequest, party: HrSignParty) -> bool:
-    return req.status == "pending" and party.ordinal == req.current_order and \
-        party.status in ("waiting", "notified", "viewed")
+    if req.status != "pending" or (party.party_role or "signer") != "signer" \
+            or party.status not in ("waiting", "notified", "viewed"):
+        return False
+    # Parallel envelopes have no order — every unsigned signer may sign now.
+    if (req.routing or "sequential") == "parallel":
+        return True
+    return party.ordinal == req.current_order
 
 
 # ── Notifications (bell + branded Graph email) ────────────────────────────────
@@ -258,6 +267,49 @@ def _send_sign_email(party: HrSignParty, req: HrSignRequest, sender_name: str) -
             "message": {
                 "subject": f"Signature requested: {req.title}",
                 "body": {"contentType": "HTML", "content": _sign_email_html(party, req, sender_name, link)},
+                "toRecipients": [{"emailAddress": {"address": party.email}}],
+            }, "saveToSentItems": False}, timeout=20)
+        return resp.is_success, ("" if resp.is_success else resp.text[:300])
+    except Exception as e:
+        return False, str(getattr(e, "detail", e))[:300]
+
+
+def _send_completed_email(party: HrSignParty, req: HrSignRequest) -> tuple:
+    """Everyone-signed email for external parties (signers and CC) — their link
+    now serves the sealed copy, which is how they retain it (ESIGN retention)."""
+    from html import escape
+    sender = os.getenv("NEXUS_FROM_EMAIL", "")
+    if not (party.email and sender):
+        return False, "no recipient email" if not party.email else "NEXUS_FROM_EMAIL not set"
+    link = f"{_APP_URL}/sign/{party.token}"
+    html = f"""<div style="font-family:Inter,Segoe UI,Arial,sans-serif;background:#f3f4f6;padding:28px 12px">
+  <table style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;border-collapse:collapse;width:100%">
+    <tr><td style="background:#14532d;padding:26px 36px">
+      <div style="color:#ffffff;font-size:19px;font-weight:800">Greens Global</div>
+      <div style="color:#bbf7d0;font-size:12.5px;margin-top:4px">Document completed</div>
+    </td></tr>
+    <tr><td style="padding:28px 36px">
+      <p style="margin:0 0 14px;font-size:14.5px;color:#111827">Hi {escape(party.name or 'there')},</p>
+      <p style="margin:0 0 14px;font-size:14px;color:#374151;line-height:1.6">
+        Everyone has signed <strong>{escape(req.title)}</strong>. Your copy of the sealed
+        document (with its Certificate of Completion) is ready.</p>
+      <p style="margin:22px 0"><a href="{link}"
+        style="background:#15803d;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:11px 26px;border-radius:9px;display:inline-block">
+        View &amp; download</a></p>
+      <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.6">
+        The link is unique to you — please don't forward it.</p>
+    </td></tr>
+    <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 36px;font-size:11.5px;color:#6b7280;line-height:1.5">
+      Sent via Greens Nexus e-sign. This mailbox isn't monitored.
+    </td></tr>
+  </table>
+</div>"""
+    try:
+        resp = httpx.post(f"https://graph.microsoft.com/v1.0/users/{sender}/sendMail",
+                          headers={"Authorization": f"Bearer {_graph_token()}"}, json={
+            "message": {
+                "subject": f"Completed: {req.title}",
+                "body": {"contentType": "HTML", "content": html},
                 "toRecipients": [{"emailAddress": {"address": party.email}}],
             }, "saveToSentItems": False}, timeout=20)
         return resp.is_success, ("" if resp.is_success else resp.text[:300])
@@ -442,11 +494,13 @@ def template_attachment_url(path: str, user: dict = Depends(require_hr_read)):
 # ── Create + send an envelope ─────────────────────────────────────────────────
 
 class PartyIn(BaseModel):
-    role_key: str
-    name:     str
-    email:    str
-    kind:     Optional[str] = "internal"     # internal|external
-    ordinal:  Optional[int] = 1
+    role_key:    str
+    name:        str
+    email:       str
+    kind:        Optional[str] = "internal"  # internal|external
+    ordinal:     Optional[int] = 1
+    party_role:  Optional[str] = "signer"    # signer | cc (gets the sealed copy, never signs)
+    access_code: Optional[str] = ""          # external signers only — code the link asks for
 
 
 class SendIn(BaseModel):
@@ -457,12 +511,14 @@ class SendIn(BaseModel):
     entity_id:    Optional[str] = ""
     message:      Optional[str] = ""
     expires_on:   Optional[str] = ""
+    routing:      Optional[str] = "sequential"   # sequential | parallel
     merge:        Optional[dict] = None      # sender-typed overrides (e.g. salary)
     parties:      List[PartyIn]
 
 
 def _validate_parties(parties: List[PartyIn], needed_roles: set) -> None:
-    if not parties:
+    signers = [p for p in parties if (p.party_role or "signer") == "signer"]
+    if not signers:
         raise HTTPException(400, "At least one signing party is required")
     seen_roles = set()
     for p in parties:
@@ -472,25 +528,38 @@ def _validate_parties(parties: List[PartyIn], needed_roles: set) -> None:
             raise HTTPException(400, "Every party needs a name")
         if p.kind not in ("internal", "external"):
             raise HTTPException(400, "party kind must be internal or external")
-        seen_roles.add(p.role_key)
+        if (p.party_role or "signer") not in ("signer", "cc"):
+            raise HTTPException(400, "party_role must be signer or cc")
+        if (p.access_code or "").strip() and len(p.access_code.strip()) > 40:
+            raise HTTPException(400, "Access codes are limited to 40 characters")
+        if (p.party_role or "signer") == "signer":
+            seen_roles.add(p.role_key)
     missing = needed_roles - seen_roles
     if missing:
         raise HTTPException(400, f"No party assigned for role(s): {', '.join(sorted(missing))}")
+
+
+def _validate_routing(routing: str) -> str:
+    r = (routing or "sequential").strip()
+    if r not in ("sequential", "parallel"):
+        raise HTTPException(400, "routing must be sequential or parallel")
+    return r
 
 
 def _create_request(db: Session, user: dict, *, title: str, source: str, template_id: str,
                     employee_id: str, candidate_id: str, entity_id: str, body_snapshot: list,
                     pdf_storage_path: str, fields: list, message: str, expires_on: str,
                     parties: List[PartyIn], ip: str, user_agent: str,
-                    documents: Optional[list] = None) -> dict:
+                    documents: Optional[list] = None, routing: str = "sequential") -> dict:
     now = _now_iso()
     ordered = sorted(parties, key=lambda p: p.ordinal or 1)
+    signer_ordinals = [p.ordinal or 1 for p in ordered if (p.party_role or "signer") == "signer"]
     req = HrSignRequest(id=str(uuid.uuid4()), title=title, source=source, template_id=template_id,
                         employee_id=employee_id or "", candidate_id=candidate_id or "",
                         entity_id=entity_id or "", body_snapshot=body_snapshot,
                         pdf_storage_path=pdf_storage_path, fields=fields, status="pending",
-                        documents=documents or [],
-                        current_order=(ordered[0].ordinal or 1), message=message or "",
+                        documents=documents or [], routing=routing,
+                        current_order=min(signer_ordinals), message=message or "",
                         expires_on=expires_on or "", created_by=user["email"],
                         created_at=now)
     db.add(req)
@@ -499,12 +568,19 @@ def _create_request(db: Session, user: dict, *, title: str, source: str, templat
         rows.append(HrSignParty(id=str(uuid.uuid4()), request_id=req.id, role_key=p.role_key,
                                 name=p.name.strip(), email=p.email.strip().lower(),
                                 kind=p.kind or "internal", ordinal=p.ordinal or 1,
+                                party_role=p.party_role or "signer",
+                                access_code=(p.access_code or "").strip(),
                                 status="waiting", token=secrets.token_urlsafe(32)))
         db.add(rows[-1])
-    _log(db, req.id, "created", f"by {user['email']} — {len(rows)} parties", ip=ip, user_agent=user_agent)
+    _log(db, req.id, "created",
+         f"by {user['email']} — {len(rows)} parties ({routing})", ip=ip, user_agent=user_agent)
     sender_name = user["email"].split("@")[0].replace(".", " ").title()
-    first = rows[0]
-    _notify_party(db, first, req, sender_name)
+    # Sequential: only the first signer hears about it now. Parallel: every
+    # signer is invited at once. CC parties hear at completion, not at send.
+    signers = [r for r in rows if r.party_role == "signer"]
+    to_notify = signers if routing == "parallel" else signers[:1]
+    for r in to_notify:
+        _notify_party(db, r, req, sender_name)
     db.commit()
     return _ser_request(req, parties=_parties(db, req.id))
 
@@ -533,6 +609,7 @@ def send_request(body: SendIn, request: Request, user: dict = Depends(require_hr
         needed_roles |= {f.get("role", "") for f in a["fields"]}
     needed_roles.discard("")
     _validate_parties(body.parties, needed_roles)
+    routing = _validate_routing(body.routing)
     ip, ua = _client_meta(request)
     return _create_request(db, user, title=(body.title or tpl.name).strip(), source="template",
                            template_id=tpl.id, employee_id=body.employee_id or "",
@@ -541,7 +618,7 @@ def send_request(body: SendIn, request: Request, user: dict = Depends(require_hr
                            body_snapshot=snapshot, pdf_storage_path="", fields=[],
                            message=body.message or "", expires_on=body.expires_on or "",
                            parties=body.parties, ip=ip, user_agent=ua,
-                           documents=attachments)
+                           documents=attachments, routing=routing)
 
 
 @router.post("/requests/pdf")
@@ -578,8 +655,11 @@ def send_pdf_request(request: Request, file: UploadFile = File(...), payload: st
             raise HTTPException(400, f"Unknown field type: {f.get('type')}")
     parties = [PartyIn(role_key=p.get("roleKey", ""), name=p.get("name", ""),
                        email=p.get("email", ""), kind=p.get("kind", "internal"),
-                       ordinal=int(p.get("ordinal") or 1)) for p in (data.get("parties") or [])]
+                       ordinal=int(p.get("ordinal") or 1),
+                       party_role=p.get("partyRole", "signer"),
+                       access_code=p.get("accessCode", "")) for p in (data.get("parties") or [])]
     _validate_parties(parties, {f.get("role", "") for f in fields})
+    routing = _validate_routing(data.get("routing", "sequential"))
 
     path = f"esign/{uuid.uuid4()}/source.pdf"
     up = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
@@ -593,7 +673,7 @@ def send_pdf_request(request: Request, file: UploadFile = File(...), payload: st
                            candidate_id=data.get("candidateId") or "", entity_id=data.get("entityId") or "",
                            body_snapshot=[], pdf_storage_path=path, fields=fields,
                            message=data.get("message") or "", expires_on=data.get("expiresOn") or "",
-                           parties=parties, ip=ip, user_agent=ua)
+                           parties=parties, ip=ip, user_agent=ua, routing=routing)
 
 
 # ── Envelope management (HR) ──────────────────────────────────────────────────
@@ -632,14 +712,15 @@ def remind(rid: str, user: dict = Depends(require_hr_write), db: Session = Depen
     _check_expiry(db, req)
     if req.status != "pending":
         raise HTTPException(409, f"Request is {req.status}")
-    current = next((p for p in _parties(db, rid) if _its_their_turn(req, p)), None)
-    if not current:
+    pending = [p for p in _parties(db, rid) if _its_their_turn(req, p)]
+    if not pending:
         raise HTTPException(409, "No party is awaiting signature")
     sender_name = user["email"].split("@")[0].replace(".", " ").title()
-    _notify_party(db, current, req, sender_name)
-    _log(db, rid, "reminded", f"{current.name} reminded by {user['email']}", party_id=current.id)
+    for p in pending:                          # sequential: 1 party; parallel: all unsigned
+        _notify_party(db, p, req, sender_name)
+        _log(db, rid, "reminded", f"{p.name} reminded by {user['email']}", party_id=p.id)
     db.commit()
-    return {"ok": True, "reminded": current.name}
+    return {"ok": True, "reminded": ", ".join(p.name for p in pending)}
 
 
 @router.post("/requests/{rid}/void")
@@ -653,6 +734,82 @@ def void_request(rid: str, user: dict = Depends(require_hr_write), db: Session =
     _log(db, rid, "voided", f"by {user['email']}")
     db.commit()
     return _ser_request(req, parties=_parties(db, rid))
+
+
+class PartyFix(BaseModel):
+    name:        Optional[str] = None
+    email:       Optional[str] = None
+    access_code: Optional[str] = None
+
+
+@router.patch("/requests/{rid}/parties/{pid}")
+def correct_party(rid: str, pid: str, body: PartyFix, request: Request,
+                  user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Fix a recipient's name/email/access code on a live envelope (typo'd email
+    is THE support case). Email change rotates the token so the old link dies,
+    and re-notifies if it was already their turn."""
+    req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
+    party = db.query(HrSignParty).filter(HrSignParty.id == pid,
+                                         HrSignParty.request_id == rid).first()
+    if not req or not party:
+        raise HTTPException(404, "Not found")
+    _check_expiry(db, req)
+    if req.status != "pending":
+        raise HTTPException(409, f"Request is {req.status}")
+    if party.status in ("signed", "declined"):
+        raise HTTPException(409, f"{party.name} has already {party.status} — correction is impossible")
+    changes = []
+    if body.name is not None and body.name.strip() and body.name.strip() != party.name:
+        changes.append(f"name '{party.name}' → '{body.name.strip()}'")
+        party.name = body.name.strip()
+    if body.email is not None:
+        new_email = body.email.strip().lower()
+        if "@" not in new_email:
+            raise HTTPException(400, "A valid email is required")
+        if new_email != party.email:
+            changes.append(f"email {party.email} → {new_email}")
+            party.email = new_email
+            party.token = secrets.token_urlsafe(32)   # old link must stop working
+            party.viewed_at = ""
+            if party.status == "viewed":
+                party.status = "notified"
+    if body.access_code is not None and body.access_code.strip() != (party.access_code or ""):
+        if len(body.access_code.strip()) > 40:
+            raise HTTPException(400, "Access codes are limited to 40 characters")
+        party.access_code = body.access_code.strip()
+        changes.append("access code changed")
+    if not changes:
+        return _ser_request(req, parties=_parties(db, rid))
+    ip, ua = _client_meta(request)
+    _log(db, rid, "corrected", f"{'; '.join(changes)} — by {user['email']}",
+         party_id=party.id, ip=ip, user_agent=ua)
+    if "email" in " ".join(changes) and _its_their_turn(req, party):
+        sender_name = user["email"].split("@")[0].replace(".", " ").title()
+        _notify_party(db, party, req, sender_name)
+    db.commit()
+    return _ser_request(req, parties=_parties(db, rid))
+
+
+@router.get("/requests/{rid}/parties/{pid}/link")
+def party_link(rid: str, pid: str, user: dict = Depends(require_hr_write),
+               db: Session = Depends(get_db)):
+    """The external recipient's signing link, for the sender to copy into a chat
+    (email fallback). Write grant + audit trail — this link signs as them."""
+    req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
+    party = db.query(HrSignParty).filter(HrSignParty.id == pid,
+                                         HrSignParty.request_id == rid).first()
+    if not req or not party:
+        raise HTTPException(404, "Not found")
+    if party.kind != "external":
+        raise HTTPException(400, "Teammates sign inside Nexus — there is no external link")
+    if req.status != "pending":
+        raise HTTPException(409, f"Request is {req.status}")
+    _log(db, rid, "link_copied", f"{party.name}'s signing link copied by {user['email']}",
+         party_id=party.id)
+    db.commit()
+    return {"url": f"{_APP_URL}/sign/{party.token}",
+            "hasAccessCode": bool((party.access_code or "").strip()),
+            "accessCode": (party.access_code or "").strip()}
 
 
 @router.get("/requests/{rid}/download")
@@ -693,6 +850,8 @@ def my_signatures(user: dict = Depends(get_current_user), db: Session = Depends(
                HrSignParty.status.in_(["waiting", "notified", "viewed"])).all())
     out = []
     for p in parties:
+        if (p.party_role or "signer") != "signer":
+            continue                       # CC recipients never have anything to sign
         req = db.query(HrSignRequest).filter(HrSignRequest.id == p.request_id).first()
         if not req:
             continue
@@ -743,6 +902,7 @@ class SignIn(BaseModel):
     signature_kind: str                      # drawn|typed
     signature_data: str                      # PNG data-URL or typed name
     field_values:   Optional[dict] = None    # {fieldKey: value} for text/check fields
+    access_code:    Optional[str] = ""       # public links guarded by a code carry it here
 
 
 def _validate_signature(body: SignIn) -> None:
@@ -787,12 +947,15 @@ def _apply_signature(db: Session, req: HrSignRequest, party: HrSignParty, body: 
     _log(db, req.id, "signed", f"{party.name} signed ({body.signature_kind})",
          party_id=party.id, ip=ip, user_agent=ua)
 
-    remaining = [p for p in _parties(db, req.id) if p.status != "signed"]
+    remaining = [p for p in _parties(db, req.id)
+                 if (p.party_role or "signer") == "signer" and p.status != "signed"]
     if remaining:
-        nxt = min(remaining, key=lambda p: p.ordinal)
-        req.current_order = nxt.ordinal
-        sender_name = req.created_by.split("@")[0].replace(".", " ").title()
-        _notify_party(db, nxt, req, sender_name)
+        if (req.routing or "sequential") == "sequential":
+            nxt = min(remaining, key=lambda p: p.ordinal)
+            req.current_order = nxt.ordinal
+            sender_name = req.created_by.split("@")[0].replace(".", " ").title()
+            _notify_party(db, nxt, req, sender_name)
+        # parallel: every signer was invited at send — nothing to advance
     else:
         # Sealing must never surface as a raw 500 — an unhandled exception here
         # bypasses CORSMiddleware and the browser reports a bare "Failed to
@@ -841,7 +1004,8 @@ def my_sign(party_id: str, body: SignIn, request: Request,
 
 
 class DeclineIn(BaseModel):
-    reason: Optional[str] = ""
+    reason:      Optional[str] = ""
+    access_code: Optional[str] = ""          # public links guarded by a code carry it here
 
 
 def _apply_decline(db: Session, req: HrSignRequest, party: HrSignParty, reason: str,
@@ -877,6 +1041,9 @@ def my_decline(party_id: str, body: DeclineIn, request: Request,
 
 # ── Public signing (token is the credential — NO auth) ────────────────────────
 
+_CODE_LOCKOUT_ATTEMPTS = 10
+
+
 def _party_by_token(db: Session, token: str) -> tuple:
     if not token or len(token) < 20:
         raise HTTPException(404, "Not found")
@@ -889,10 +1056,46 @@ def _party_by_token(db: Session, token: str) -> tuple:
     return req, party
 
 
+def _check_access_code(db: Session, req: HrSignRequest, party: HrSignParty,
+                       code: str, request: Request) -> bool:
+    """True = unlocked. Wrong attempts are audited and locked out after
+    _CODE_LOCKOUT_ATTEMPTS — the code is the second factor on top of the token."""
+    expected = (party.access_code or "").strip()
+    if not expected:
+        return True
+    # A sender "correcting" the party (new code / new email+token) resets the
+    # lockout — only failures since the last correction count.
+    last_fix = (db.query(HrSignEvent)
+                .filter(HrSignEvent.request_id == req.id, HrSignEvent.party_id == party.id,
+                        HrSignEvent.type == "corrected")
+                .order_by(HrSignEvent.at.desc()).first())
+    fq = (db.query(HrSignEvent)
+          .filter(HrSignEvent.request_id == req.id, HrSignEvent.party_id == party.id,
+                  HrSignEvent.type == "code_failed"))
+    if last_fix:
+        fq = fq.filter(HrSignEvent.at > last_fix.at)
+    failed = fq.count()
+    if failed >= _CODE_LOCKOUT_ATTEMPTS:
+        raise HTTPException(429, "Too many wrong access-code attempts — ask the sender "
+                                 "to resend the document with a fresh link.")
+    if hmac.compare_digest(expected.encode(), (code or "").strip().encode()):
+        return True
+    if (code or "").strip():                   # typed something wrong → audit it
+        ip, ua = _client_meta(request)
+        _log(db, req.id, "code_failed", f"{party.name} entered a wrong access code",
+             party_id=party.id, ip=ip, user_agent=ua)
+        db.commit()
+    return False
+
+
 @router.get("/public/{token}")
-def public_render(token: str, request: Request, db: Session = Depends(get_db)):
+def public_render(token: str, request: Request, code: str = "", db: Session = Depends(get_db)):
     req, party = _party_by_token(db, token)
     _check_expiry(db, req)
+    if not _check_access_code(db, req, party, code, request):
+        # Locked teaser: enough to render the code prompt, nothing signable.
+        return {"locked": True, "title": req.title, "requiresCode": True,
+                "wrongCode": bool((code or "").strip())}
     if not party.viewed_at:
         party.viewed_at = _now_iso()
         if party.status == "notified":
@@ -907,6 +1110,8 @@ def public_render(token: str, request: Request, db: Session = Depends(get_db)):
 @router.post("/public/{token}/sign")
 def public_sign(token: str, body: SignIn, request: Request, db: Session = Depends(get_db)):
     req, party = _party_by_token(db, token)
+    if not _check_access_code(db, req, party, body.access_code or "", request):
+        raise HTTPException(403, "Wrong access code")
     ip, ua = _client_meta(request)
     return _apply_signature(db, req, party, body, ip, ua)
 
@@ -914,8 +1119,30 @@ def public_sign(token: str, body: SignIn, request: Request, db: Session = Depend
 @router.post("/public/{token}/decline")
 def public_decline(token: str, body: DeclineIn, request: Request, db: Session = Depends(get_db)):
     req, party = _party_by_token(db, token)
+    if not _check_access_code(db, req, party, body.access_code or "", request):
+        raise HTTPException(403, "Wrong access code")
     ip, ua = _client_meta(request)
     return _apply_decline(db, req, party, body.reason or "", ip, ua)
+
+
+@router.get("/public/{token}/download")
+def public_download(token: str, request: Request, code: str = "", db: Session = Depends(get_db)):
+    """A party's own copy of the SEALED document — only once completed. Externals
+    have no Nexus login; this is how they retain their copy (ESIGN retention)."""
+    req, party = _party_by_token(db, token)
+    if not _check_access_code(db, req, party, code, request):
+        raise HTTPException(403, "Wrong access code")
+    if req.status != "completed" or not req.final_pdf_path:
+        raise HTTPException(409, "This document is not completed yet")
+    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{req.final_pdf_path}",
+                      headers=_storage_headers(), json={"expiresIn": 300}, timeout=20)
+    if not resp.is_success:
+        raise HTTPException(502, "Could not create download link")
+    ip, ua = _client_meta(request)
+    _log(db, req.id, "downloaded", f"by {party.name} (public link)", party_id=party.id,
+         ip=ip, user_agent=ua)
+    db.commit()
+    return {"url": f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}", "expiresIn": 300}
 
 
 # ── Finalize: sealed PDF + Certificate of Completion ──────────────────────────
@@ -1093,12 +1320,14 @@ def _certificate_pdf(req: HrSignRequest, parties: List[HrSignParty],
         ("RIGHTPADDING", (0, 0), (-1, -1), 5),
     ])
 
-    n_signed = sum(1 for p in parties if p.status == "signed")
+    signers = [p for p in parties if (p.party_role or "signer") == "signer"]
+    ccs = [p for p in parties if (p.party_role or "signer") == "cc"]
+    n_signed = sum(1 for p in signers if p.status == "signed")
     flow = [Paragraph("GREENS NEXUS · ELECTRONIC SIGNATURE", brand),
             Paragraph("Certificate of Completion", ParagraphStyle("tc", parent=title, alignment=1)),
             Paragraph(f"{escape(req.title)}", ParagraphStyle("st", parent=sub, fontSize=10,
                                                              textColor=INK, spaceBefore=2)),
-            Paragraph(f"Envelope {req.id} · {n_signed} of {len(parties)} signed · "
+            Paragraph(f"Envelope {req.id} · {n_signed} of {len(signers)} signed · "
                       f"Completed {ts(req.completed_at)} UTC", sub),
             Spacer(1, 3 * mm),
             HRFlowable(width="100%", thickness=0.6, color=LINE),
@@ -1110,7 +1339,7 @@ def _certificate_pdf(req: HrSignRequest, parties: List[HrSignParty],
             Paragraph("Signers", h)]
 
     rows = [[PH("#"), PH("Signer"), PH("Consented"), PH("Viewed"), PH("Signed"), PH("IP address")]]
-    for p in sorted(parties, key=lambda x: x.ordinal):
+    for p in sorted(signers, key=lambda x: x.ordinal):
         who = (f"<b>{escape(p.name or '—')}</b><br/>{escape(p.email or '')}"
                f"<br/><font color='#6b7280'>{escape(p.kind or '')}</font>")
         rows.append([PM(str(p.ordinal)), P(who),
@@ -1120,7 +1349,11 @@ def _certificate_pdf(req: HrSignRequest, parties: List[HrSignParty],
     t = Table(rows, colWidths=[8 * mm, 58 * mm, 32 * mm, 28 * mm, 28 * mm, 28 * mm],
               repeatRows=1)
     t.setStyle(grid())
-    flow.extend([t, Paragraph("Event log", h)])
+    flow.append(t)
+    if ccs:
+        flow.append(Paragraph("Copies to: " + " · ".join(
+            f"{escape(p.name)} ({escape(p.email)})" for p in ccs), tiny))
+    flow.append(Paragraph("Event log", h))
 
     erows = [[PH("Time (UTC)"), PH("Event"), PH("Detail"), PH("IP address")]]
     for e in events:
@@ -1210,8 +1443,9 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
                           created_at=req.completed_at))
 
     # Tell the sender + every internal party; email externals a copy link
+    n_signers = sum(1 for p in parties if (p.party_role or "signer") == "signer")
     _hr_notify(db, req.created_by, f"Completed: {req.title}",
-               f"All {len(parties)} parties have signed \"{req.title}\". "
+               f"All {n_signers} signer{'s' if n_signers != 1 else ''} have signed \"{req.title}\". "
                f"The sealed document is in HR → E-Sign.", ref_id=req.id,
                action={"view": "hr", "sub": "hr-esign-requests"})
     for p in parties:
@@ -1220,3 +1454,9 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
                        "Everyone has signed. The sealed copy is available in HR → E-Sign.",
                        ref_id=req.id,
                        action={"view": "hr", "sub": "hr-esign"})
+        elif p.kind == "external":
+            # Externals have no Nexus login — their link now serves the sealed
+            # copy (public download). Best-effort, audited either way.
+            ok, detail = _send_completed_email(p, req)
+            _log(db, req.id, "sent", f"completion copy emailed to {p.name}"
+                 + ("" if ok else f" — email failed: {detail}"), party_id=p.id)

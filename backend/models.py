@@ -909,6 +909,7 @@ class HrSignRequest(Base):
     completed_at     = Column(String, default="")
     final_pdf_path   = Column(String, default="")         # hr-docs path of sealed final PDF
     final_sha256     = Column(String, default="")         # tamper-evidence hash of final bytes
+    routing          = Column(String, default="sequential")  # sequential (ordered) | parallel (everyone at once)
 
 
 class HrSignParty(Base):
@@ -933,6 +934,8 @@ class HrSignParty(Base):
     signed_at            = Column(String, default="")
     decline_reason       = Column(String, default="")
     field_values         = Column(JSON, default=dict)         # filled text/check/date/initials values
+    party_role           = Column(String, default="signer")   # signer | cc (receives the sealed copy, never signs)
+    access_code          = Column(String, default="")         # optional code an external signer must enter to open the link
 
 
 class HrSignEvent(Base):

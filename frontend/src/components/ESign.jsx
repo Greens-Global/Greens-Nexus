@@ -4,7 +4,7 @@ import {
   Pencil, FileText, Download, ShieldCheck, Bell, ChevronRight, ChevronLeft,
   ChevronUp, ChevronDown, Eraser, Type, PenTool, Users, AlertTriangle,
   RefreshCw, Ban, Sparkles, UploadCloud, ZoomIn, ZoomOut, ArrowRight,
-  CalendarDays, CheckSquare, ALargeSmall, GripVertical,
+  CalendarDays, CheckSquare, ALargeSmall, GripVertical, Copy, Search, CopyPlus,
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -901,24 +901,35 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
   const [title, setTitle] = useState(prefill?.title || '');
   const [message, setMessage] = useState('');
   const [expiresOn, setExpiresOn] = useState('');
+  const [routing, setRouting] = useState('sequential');   // sequential | parallel
   const [merge, setMerge] = useState({});
   const [parties, setParties] = useState(prefill?.parties?.map(p => ({ ...p })) || []);
   const [busy, setBusy] = useState(false);
   // Field editor state (pdf mode)
   const [fields, setFields] = useState([]);
-  const [activeRecipient, setActiveRecipient] = useState(0);
+  const [activeRecipient, setActiveRecipient] = useState(0); // index into signerParties
   const [activeType, setActiveType] = useState('sign');
   const [zoom, setZoom] = useState(1);
   const dragState = useRef(null);   // {fieldId, mode:'move'|'resize', rect, startX, startY, orig}
+  const rkCounter = useRef(0);      // stable per-party field keys — survive removal/reorder
 
   useEffect(() => { api.getCandidates().then(setCandidates).catch(() => setCandidates([])); }, []);
 
   const tpl = templates.find(t => t.id === templateId);
   const isPdf = source === 'pdf';
+  const isCC = (p) => (p.party_role || 'signer') === 'cc';
+  // Signers with their party-array index (colors key off the array index)
+  const signerParties = parties.map((p, i) => ({ p, i })).filter(x => !isCC(x.p));
 
   // PDF-mode recipients get invisible auto role keys — fields belong to PEOPLE,
-  // not typed role strings (the v1 mistake).
-  const withRoles = parties.map((p, i) => ({ ...p, role_key: isPdf ? `r${i + 1}` : p.role_key, ordinal: i + 1 }));
+  // not typed role strings (the v1 mistake). The key (_rk) is assigned once at
+  // add time and never re-derived from position, so removing a recipient can't
+  // silently re-point everyone else's fields.
+  const withRoles = parties.map((p, i) => ({
+    ...p,
+    role_key: isCC(p) ? (p._rk || `cc${i + 1}`) : (isPdf ? p._rk : p.role_key),
+    ordinal: i + 1,
+  }));
 
   const mergeTokens = useMemo(() => {
     if (!tpl) return [];
@@ -946,15 +957,17 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
     setTemplateId(t.id); setSource('template'); setTitle(t.name);
     setParties((t.roles || []).map(r => {
       const kept = prefill?.parties?.find(p => p.role_key === r.key);
-      return kept || { role_key: r.key, roleLabel: r.label || r.key, name: '', email: '', kind: 'internal' };
+      return { party_role: 'signer', access_code: '',
+               ...(kept || { role_key: r.key, roleLabel: r.label || r.key, name: '', email: '', kind: 'internal' }) };
     }));
   }
+  const newRk = () => `p${++rkCounter.current}`;
   function pickFile(fl) {
     if (!fl) return;
     if (fl.type !== 'application/pdf') { toastErr('Choose a PDF file.'); return; }
     setFile(fl); setSource('pdf'); setTemplateId(''); setFields([]);
     setTitle(t => t || fl.name.replace(/\.pdf$/i, ''));
-    setParties(ps => ps.length ? ps : [{ role_key: 'r1', name: '', email: '', kind: 'internal' }]);
+    setParties(ps => ps.length ? ps : [{ _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'signer', access_code: '' }]);
   }
 
   const setParty = (i, k, v) => setParties(ps => ps.map((p, j) => j === i ? { ...p, [k]: v } : p));
@@ -963,15 +976,17 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
     const next = [...ps]; [next[i], next[j]] = [next[j], next[i]]; return next;
   });
   const rmParty = (i) => {
+    const gone = parties[i];
     setParties(ps => ps.filter((_, j) => j !== i));
-    if (isPdf) {
-      // Re-key fields so they keep pointing at the same people after removal
-      setFields(fs => fs.filter(f => f.role !== `r${i + 1}`).map(f => {
-        const n = Number(f.role.slice(1));
-        return n > i + 1 ? { ...f, role: `r${n - 1}` } : f;
-      }));
-      setActiveRecipient(a => Math.max(0, Math.min(a, parties.length - 2)));
-    }
+    if (isPdf && gone?._rk) setFields(fs => fs.filter(f => f.role !== gone._rk));
+    setActiveRecipient(0);
+  };
+  // Flipping someone to CC drops their placed fields — CC recipients never sign.
+  const setPartyRole = (i, role) => {
+    const p = parties[i];
+    if (role === 'cc' && isPdf && p?._rk) setFields(fs => fs.filter(f => f.role !== p._rk));
+    setParty(i, 'party_role', role);
+    setActiveRecipient(0);
   };
   const pickEmployee = (i, id) => {
     const e = employees.find(x => x.id === id);
@@ -981,9 +996,11 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
 
   // ── Field placement (click OR drag from palette; move + resize on page) ─────
   function placeField(page, x, y, type = activeType) {
+    const owner = signerParties[activeRecipient]?.p;
+    if (!owner?._rk) return;
     const meta = FIELD_META[type] || FIELD_META.sign;
     setFields(fs => [...fs, {
-      id: `f${Date.now()}${fs.length}`, role: `r${activeRecipient + 1}`, type, page,
+      id: `f${Date.now()}${fs.length}`, role: owner._rk, type, page,
       x: Math.min(0.98 - meta.w, Math.max(0, x - meta.w / 2)),
       y: Math.min(0.98 - meta.h, Math.max(0, y - meta.h / 2)),
       w: meta.w, h: meta.h, required: true,
@@ -1014,7 +1031,7 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
     window.addEventListener('pointerup', endFieldDrag, { once: true });
   };
 
-  const recipIdx = (role) => Math.max(0, Number(String(role).slice(1)) - 1);
+  const recipIdx = (role) => Math.max(0, parties.findIndex(p => p._rk === role));
   const editorOverlay = (pageIdx) => (
     <div data-espage style={{ position: 'absolute', inset: 0 }}
       onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); placeField(pageIdx, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height); }}
@@ -1047,13 +1064,15 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
   const steps = ['Document', 'Recipients', isPdf ? 'Place fields' : 'Preview', 'Review & send'];
   const stepOk = () => {
     if (step === 0) return source === 'template' ? !!tpl : !!file;
-    if (step === 1) return parties.length > 0 && parties.every(p => p.name.trim() && /@/.test(p.email));
+    if (step === 1) return signerParties.length > 0 && parties.every(p => p.name.trim() && /@/.test(p.email));
     if (step === 2) return isPdf ? fields.length > 0 : true;
     return true;
   };
   const stepHint = () => {
     if (step === 0) return 'Pick a template or upload a PDF first.';
-    if (step === 1) return 'Every recipient needs a name and a valid email.';
+    if (step === 1) return signerParties.length === 0
+      ? 'At least one recipient has to sign — the rest can receive copies.'
+      : 'Every recipient needs a name and a valid email.';
     if (step === 2 && isPdf) return 'Drag at least one field onto the document.';
     return '';
   };
@@ -1067,9 +1086,9 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
       if (source === 'template') {
         sent = await api.sendSignRequest({
           template_id: tpl.id, title: title.trim(), ...subject, entity_id: entityId,
-          message, expires_on: expiresOn,
+          message, expires_on: expiresOn, routing,
           merge: Object.fromEntries(Object.entries(merge).filter(([, v]) => String(v).trim())),
-          parties: withRoles.map(p => ({ role_key: p.role_key, name: p.name, email: p.email, kind: p.kind, ordinal: p.ordinal })),
+          parties: withRoles.map(p => ({ role_key: p.role_key, name: p.name, email: p.email, kind: p.kind, ordinal: p.ordinal, party_role: p.party_role || 'signer', access_code: p.access_code || '' })),
         });
       } else {
         const form = new FormData();
@@ -1078,12 +1097,14 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
           title: title.trim() || file.name,
           ...(subject.employee_id ? { employeeId: subject.employee_id } : {}),
           ...(subject.candidate_id ? { candidateId: subject.candidate_id } : {}),
-          entityId, message, expiresOn, fields,
-          parties: withRoles.map(p => ({ roleKey: p.role_key, name: p.name, email: p.email, kind: p.kind, ordinal: p.ordinal })),
+          entityId, message, expiresOn, fields, routing,
+          parties: withRoles.map(p => ({ roleKey: p.role_key, name: p.name, email: p.email, kind: p.kind, ordinal: p.ordinal, partyRole: p.party_role || 'signer', accessCode: p.access_code || '' })),
         }));
         sent = await api.sendSignPdf(form);
       }
-      toastOk(`Sent "${sent.title}" to ${sent.parties.length} signer${sent.parties.length === 1 ? '' : 's'}.`);
+      const nSign = (sent.parties || []).filter(p => p.partyRole !== 'cc').length;
+      const nCC = (sent.parties || []).length - nSign;
+      toastOk(`Sent "${sent.title}" to ${nSign} signer${nSign === 1 ? '' : 's'}${nCC ? ` + ${nCC} CC` : ''}.`);
       onSent(sent); onClose();
     } catch (e) { toastErr(e?.message || 'Could not send.'); setBusy(false); }
   }
@@ -1229,23 +1250,43 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
         {/* STEP 1 — Recipients */}
         {step === 1 && (
           <div style={{ maxWidth: 760, margin: '0 auto', padding: '26px 18px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
               <Users size={16} style={{ color: 'var(--pine)' }} />
               <span style={{ fontSize: 14, fontWeight: 800 }}>Who signs?</span>
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>— they sign in this order, one after another</span>
+              <div style={{ flex: 1 }} />
+              {signerParties.length > 1 && (
+                <div style={{ display: 'inline-flex', borderRadius: 8, border: '1px solid var(--line)', overflow: 'hidden' }}
+                  title="In order: one signer at a time, in the numbered order. All at once: everyone is invited immediately.">
+                  {[['sequential', 'Sign in order'], ['parallel', 'All at once']].map(([v, l]) => (
+                    <button key={v} onClick={() => setRouting(v)}
+                      style={{ padding: '5px 14px', fontSize: 11.5, fontWeight: 700, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: routing === v ? 'var(--pine)' : 'var(--card)', color: routing === v ? '#fff' : 'var(--muted)' }}>{l}</button>
+                  ))}
+                </div>
+              )}
             </div>
             {parties.map((p, i) => {
               const c = rcolor(i);
+              const cc = isCC(p);
               return (
                 <div key={i} style={{ display: 'flex', gap: 12, marginBottom: 10, alignItems: 'stretch' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, paddingTop: 10 }}>
                     <button onClick={() => movParty(i, -1)} disabled={i === 0} style={{ background: 'none', border: 'none', cursor: i === 0 ? 'default' : 'pointer', color: i === 0 ? 'var(--line)' : 'var(--muted)', display: 'flex', padding: 2 }}><ChevronUp size={14} /></button>
-                    <span style={{ width: 26, height: 26, borderRadius: '50%', background: c.solid, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, fontWeight: 800 }}>{i + 1}</span>
+                    <span style={{ width: 26, height: 26, borderRadius: '50%', background: cc ? 'var(--mist)' : c.solid, color: cc ? 'var(--muted)' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: cc ? 10 : 12.5, fontWeight: 800 }}>{cc ? 'CC' : i + 1}</span>
                     <button onClick={() => movParty(i, 1)} disabled={i === parties.length - 1} style={{ background: 'none', border: 'none', cursor: i === parties.length - 1 ? 'default' : 'pointer', color: i === parties.length - 1 ? 'var(--line)' : 'var(--muted)', display: 'flex', padding: 2 }}><ChevronDown size={14} /></button>
                   </div>
-                  <div style={{ flex: 1, border: '1.5px solid var(--line)', borderLeft: `4px solid ${c.solid}`, borderRadius: 12, padding: '13px 15px', background: 'var(--card)' }}>
+                  <div style={{ flex: 1, border: '1.5px solid var(--line)', borderLeft: `4px solid ${cc ? 'var(--line)' : c.solid}`, borderRadius: 12, padding: '13px 15px', background: 'var(--card)', opacity: cc ? 0.92 : 1 }}>
                     <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
                       {p.roleLabel && <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: c.solid }}>{p.roleLabel}</span>}
+                      {/* Template roles are the document's signature slots — they must sign.
+                          Free (pdf/CC) parties can flip between signing and copy-only. */}
+                      {(isPdf || cc) && (
+                        <div style={{ display: 'inline-flex', borderRadius: 8, border: '1px solid var(--line)', overflow: 'hidden' }}>
+                          {[['signer', 'Needs to sign'], ['cc', 'Receives a copy']].map(([v, l]) => (
+                            <button key={v} onClick={() => setPartyRole(i, v)} disabled={!isPdf && v === 'signer'}
+                              style={{ padding: '4px 11px', fontSize: 11, fontWeight: 700, border: 'none', cursor: (!isPdf && v === 'signer') ? 'default' : 'pointer', fontFamily: 'Inter,sans-serif', background: (p.party_role || 'signer') === v ? 'var(--pine)' : 'var(--card)', color: (p.party_role || 'signer') === v ? '#fff' : 'var(--muted)', opacity: (!isPdf && v === 'signer') ? 0.45 : 1 }}>{l}</button>
+                          ))}
+                        </div>
+                      )}
                       <div style={{ flex: 1 }} />
                       <div style={{ display: 'inline-flex', borderRadius: 8, border: '1px solid var(--line)', overflow: 'hidden' }}>
                         {[['internal', 'Teammate'], ['external', 'External']].map(([v, l]) => (
@@ -1253,7 +1294,7 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                             style={{ padding: '4px 12px', fontSize: 11, fontWeight: 700, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: p.kind === v ? 'var(--pine)' : 'var(--card)', color: p.kind === v ? '#fff' : 'var(--muted)' }}>{l}</button>
                         ))}
                       </div>
-                      {!tpl && parties.length > 1 && (
+                      {((!tpl && parties.length > 1) || (tpl && cc)) && (
                         <button onClick={() => rmParty(i)} title="Remove" style={{ background: 'none', border: 'none', color: 'hsl(var(--color-red))', cursor: 'pointer', display: 'flex', padding: 3 }}><Trash2 size={14} /></button>
                       )}
                     </div>
@@ -1268,16 +1309,27 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                         {employees.filter(e => e.workEmail).map(e => <option key={e.id} value={e.id}>{e.firstName} {e.lastName} — {e.workEmail}</option>)}
                       </select>
                     )}
+                    {p.kind === 'external' && !cc && (
+                      <input className="form-input" style={{ marginTop: 8, width: '100%', fontSize: 12 }}
+                        placeholder="Access code (optional) — share it with them separately; the link will ask for it"
+                        value={p.access_code || ''} maxLength={40}
+                        onChange={e => setParty(i, 'access_code', e.target.value)} />
+                    )}
                   </div>
                 </div>
               );
             })}
-            {!tpl && (
-              <button className="secondary-btn" onClick={() => setParties(ps => [...ps, { role_key: `r${ps.length + 1}`, name: '', email: '', kind: 'internal' }])}
-                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 38 }}><Plus size={13} /> Add recipient</button>
-            )}
+            <div style={{ display: 'flex', gap: 8, marginLeft: 38, flexWrap: 'wrap' }}>
+              {!tpl && (
+                <button className="secondary-btn" onClick={() => setParties(ps => [...ps, { _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'signer', access_code: '' }])}
+                  style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add signer</button>
+              )}
+              <button className="secondary-btn" onClick={() => setParties(ps => [...ps, { _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'cc', access_code: '' }])}
+                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add CC (copy only)</button>
+            </div>
             <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 14, marginLeft: 38 }}>
               Teammates get a bell notification and sign inside Nexus. External recipients get a secure email link — no login needed.
+              CC recipients don't sign; they receive the sealed copy when everyone else has.
             </p>
           </div>
         )}
@@ -1288,12 +1340,12 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
             <div style={{ width: 232, borderRight: '1px solid var(--line)', background: 'var(--card)', padding: '16px 14px', flexShrink: 0, overflowY: 'auto' }}>
               <label style={FL}>Assign fields to</label>
               <div style={{ display: 'grid', gap: 6, marginBottom: 18 }}>
-                {parties.map((p, i) => {
+                {signerParties.map(({ p, i }, s) => {
                   const c = rcolor(i);
                   return (
-                    <button key={i} onClick={() => setActiveRecipient(i)}
+                    <button key={i} onClick={() => setActiveRecipient(s)}
                       style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 11px', borderRadius: 10, cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif',
-                        border: activeRecipient === i ? `2px solid ${c.solid}` : '1.5px solid var(--line)', background: activeRecipient === i ? c.soft : 'var(--card)' }}>
+                        border: activeRecipient === s ? `2px solid ${c.solid}` : '1.5px solid var(--line)', background: activeRecipient === s ? c.soft : 'var(--card)' }}>
                       <span style={{ width: 20, height: 20, borderRadius: '50%', background: c.solid, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, fontWeight: 800, flexShrink: 0 }}>{i + 1}</span>
                       <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name || `Recipient ${i + 1}`}</span>
                     </button>
@@ -1303,7 +1355,7 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
               <label style={FL}>Fields — drag onto the page</label>
               <div style={{ display: 'grid', gap: 6 }}>
                 {Object.entries(FIELD_META).map(([ft, M]) => {
-                  const c = rcolor(activeRecipient);
+                  const c = rcolor(signerParties[activeRecipient]?.i ?? 0);
                   return (
                     <div key={ft} draggable onDragStart={e => e.dataTransfer.setData('field', ft)} onClick={() => setActiveType(ft)}
                       style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 11px', borderRadius: 10, cursor: 'grab', fontFamily: 'Inter,sans-serif',
@@ -1382,14 +1434,19 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                 </div>
               </div>
               <div style={{ padding: '14px 0', borderBottom: '1px solid var(--line)' }}>
-                <label style={{ ...FL, marginBottom: 10 }}>Signing order</label>
-                {withRoles.map((p, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0' }}>
-                    <span style={{ width: 22, height: 22, borderRadius: '50%', background: rcolor(i).solid, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{i + 1}</span>
-                    <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{p.name}</span>
-                    <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{p.email} · {p.kind}</span>
-                  </div>
-                ))}
+                <label style={{ ...FL, marginBottom: 10 }}>
+                  Recipients — {routing === 'parallel' ? 'everyone signs at once' : 'they sign in order'}
+                </label>
+                {withRoles.map((p, i) => {
+                  const cc = (p.party_role || 'signer') === 'cc';
+                  return (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0' }}>
+                      <span style={{ width: 22, height: 22, borderRadius: '50%', background: cc ? 'var(--mist)' : rcolor(i).solid, color: cc ? 'var(--muted)' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: cc ? 9 : 11, fontWeight: 800, flexShrink: 0 }}>{cc ? 'CC' : i + 1}</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{p.name}{cc && <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 500 }}> · receives a copy</span>}</span>
+                      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{p.email} · {p.kind}{p.access_code ? ' · 🔒 code' : ''}</span>
+                    </div>
+                  );
+                })}
               </div>
               <div style={{ display: 'grid', gap: 12, paddingTop: 14 }}>
                 <div>
@@ -1417,10 +1474,34 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
 function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }) {
   const [req, setReq] = useState(null);
   const [busy, setBusy] = useState('');
+  const [editPid, setEditPid] = useState(null);
+  const [pf, setPf] = useState({ name: '', email: '', access_code: '' });
   const load = () => api.getSignRequest(requestId).then(setReq).catch(e => { toastErr(e?.message || 'Load failed'); onClose(); });
   // NOT useEffect(load, ...) — load returns a Promise, and React 19 would call
   // it as the effect's cleanup on unmount ("l is not a function" crash on close).
   useEffect(() => { load(); }, [requestId]);
+
+  async function copyLink(p) {
+    try {
+      const r = await api.getSignPartyLink(requestId, p.id);
+      await navigator.clipboard.writeText(r.url);
+      toastOk(r.hasAccessCode
+        ? `Link copied. Remember to share the access code (${r.accessCode}) separately.`
+        : 'Signing link copied to clipboard.');
+    } catch (e) { toastErr(e?.message || 'Could not copy the link.'); }
+  }
+  async function saveParty(p) {
+    if (busy) return; setBusy('fix');
+    try {
+      // Blank access code = keep the existing one (omit the key entirely)
+      const payload = { name: pf.name, email: pf.email };
+      if (pf.access_code.trim()) payload.access_code = pf.access_code.trim();
+      await api.correctSignParty(requestId, p.id, payload);
+      toastOk('Recipient updated' + (pf.email && pf.email !== p.email ? ' — old link disabled, new invite sent.' : '.'));
+      setEditPid(null); load(); onChanged();
+    } catch (e) { toastErr(e?.message || 'Could not update the recipient.'); }
+    setBusy('');
+  }
 
   async function act(kind, fn, okMsg) {
     if (busy) return; setBusy(kind);
@@ -1453,17 +1534,47 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
               {req.hasFinalPdf && <button className="secondary-btn" disabled={!!busy} onClick={() => act('verify', () => api.verifySign(requestId), r => r.valid ? 'Verified — document untampered.' : '⚠ HASH MISMATCH — document was modified!')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><ShieldCheck size={12} /> Verify integrity</button>}
             </div>
 
-            <label style={FL}>Signers</label>
+            <label style={FL}>
+              Recipients{req.routing === 'parallel' ? ' — all at once' : ' — in order'}
+            </label>
             {(req.parties || []).map((p, i) => {
               const m = PARTY_STATUS[p.status] || PARTY_STATUS.waiting;
+              const cc = p.partyRole === 'cc';
+              const fixable = req.status === 'pending' && !['signed', 'declined'].includes(p.status);
               return (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
-                  <span style={{ width: 22, height: 22, borderRadius: '50%', background: rcolor(i).solid, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{p.ordinal}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>{p.name} <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 400 }}>· {p.kind}</span></div>
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{p.email}{p.declineReason && ` — "${p.declineReason}"`}</div>
+                <div key={i} style={{ borderBottom: '1px solid var(--line)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0' }}>
+                    <span style={{ width: 22, height: 22, borderRadius: '50%', background: cc ? 'var(--mist)' : rcolor(i).solid, color: cc ? 'var(--muted)' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: cc ? 9 : 11, fontWeight: 800, flexShrink: 0 }}>{cc ? 'CC' : p.ordinal}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{p.name} <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 400 }}>· {p.kind}{cc ? ' · copy only' : ''}{p.hasAccessCode ? ' · 🔒 code' : ''}</span></div>
+                      <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{p.email}{p.declineReason && ` — "${p.declineReason}"`}</div>
+                    </div>
+                    {fixable && p.kind === 'external' && !cc && (
+                      <button className="secondary-btn" disabled={!!busy} onClick={() => copyLink(p)} title="Copy their signing link"
+                        style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px' }}><Copy size={11} /> Link</button>
+                    )}
+                    {fixable && (
+                      <button className="secondary-btn" disabled={!!busy} title="Fix their name, email or access code"
+                        onClick={() => { setEditPid(editPid === p.id ? null : p.id); setPf({ name: p.name, email: p.email, access_code: '' }); }}
+                        style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px' }}><Pencil size={11} /> Edit</button>
+                    )}
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: m.fg }}>{p.status === 'signed' && p.signedAt ? `Signed ${p.signedAt.slice(0, 10)}` : cc && p.status !== 'signed' ? '—' : m.label}</span>
                   </div>
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: m.fg }}>{p.status === 'signed' && p.signedAt ? `Signed ${p.signedAt.slice(0, 10)}` : m.label}</span>
+                  {editPid === p.id && (
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '0 0 10px 32px', alignItems: 'center' }}>
+                      <input className="form-input" style={{ fontSize: 12, width: 150 }} placeholder="Full name" value={pf.name} onChange={e => setPf(f => ({ ...f, name: e.target.value }))} />
+                      <input className="form-input" style={{ fontSize: 12, width: 200 }} placeholder="email@…" value={pf.email} onChange={e => setPf(f => ({ ...f, email: e.target.value }))} />
+                      {p.kind === 'external' && !cc && (
+                        <input className="form-input" style={{ fontSize: 12, width: 150 }} placeholder="New access code (blank = keep)" maxLength={40}
+                          value={pf.access_code} onChange={e => setPf(f => ({ ...f, access_code: e.target.value }))} />
+                      )}
+                      <button className="primary-btn" disabled={!!busy} onClick={() => saveParty(p)} style={{ fontSize: 11.5, padding: '5px 12px' }}>Save</button>
+                      <button className="secondary-btn" onClick={() => setEditPid(null)} style={{ fontSize: 11.5, padding: '5px 10px' }}>Cancel</button>
+                      <span style={{ fontSize: 10.5, color: 'var(--muted)', flexBasis: '100%' }}>
+                        Changing the email kills their old link and sends a fresh invite.
+                      </span>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1503,6 +1614,8 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   const [detailId, setDetailId] = useState(null);
   const [editTpl, setEditTpl] = useState(undefined);
   const [seedBusy, setSeedBusy] = useState(false);
+  const [reqSearch, setReqSearch] = useState('');
+  const [reqFilter, setReqFilter] = useState('all');
 
   const loadInbox = () => api.mySignatures().then(setInbox).catch(() => setInbox([]));
   const loadRequests = () => api.getSignRequests().then(setRequests).catch(() => setRequests([]));
@@ -1545,6 +1658,26 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
     </div>
   );
 
+  // Amber nudge when a pending envelope is running out of runway
+  const expiryChip = (expiresOn, status = 'pending') => {
+    if (!expiresOn || status !== 'pending') return null;
+    const days = Math.ceil((new Date(`${expiresOn}T23:59:59`) - Date.now()) / 86400000);
+    if (days < 0 || days > 3) return null;
+    return (
+      <span style={{ padding: '2px 9px', borderRadius: 14, fontSize: 10.5, fontWeight: 800, background: 'rgba(251,191,36,0.18)', color: '#b45309', whiteSpace: 'nowrap' }}>
+        {days <= 0 ? 'Expires today' : `Expires in ${days}d`}
+      </span>
+    );
+  };
+
+  const visibleRequests = (requests || []).filter(r => {
+    if (reqFilter !== 'all' && r.status !== reqFilter) return false;
+    const q = reqSearch.trim().toLowerCase();
+    if (!q) return true;
+    return (r.title || '').toLowerCase().includes(q) ||
+      (r.parties || []).some(p => (p.name || '').toLowerCase().includes(q) || (p.email || '').toLowerCase().includes(q));
+  });
+
   // Signing + send wizard REPLACE the tab content in place — the Nexus
   // sidebar/header and HR tabs stay put (not a full-screen portal).
   if (signParty) return (
@@ -1584,6 +1717,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
               <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>from {item.from}{item.expiresOn && ` · expires ${item.expiresOn}`}</div>
             </div>
+            {expiryChip(item.expiresOn)}
             {item.myTurn
               ? <button className="primary-btn" onClick={() => setSignParty(item.partyId)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>Review &amp; sign <ChevronRight size={13} /></button>
               : <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Clock size={12} /> Waiting on others</span>}
@@ -1595,28 +1729,58 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
         !requests ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
         : requests.length === 0 ? empty(Send, 'No signature requests yet.',
             <button className="primary-btn" onClick={() => setSendOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={13} /> Send your first</button>)
-        : requests.map(r => {
-          const m = REQ_STATUS[r.status] || REQ_STATUS.pending;
-          const signed = (r.parties || []).filter(p => p.status === 'signed').length;
-          const total = (r.parties || []).length;
-          return (
-            <div key={r.id} onClick={() => setDetailId(r.id)}
-              style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', border: '1px solid var(--line)', borderLeft: `4px solid ${m.fg}`, borderRadius: 12, marginBottom: 8, background: 'var(--card)', cursor: 'pointer' }}>
-              <FileSignature size={17} style={{ color: m.fg, flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</div>
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 8, marginTop: 3 }}>
-                  <span style={{ width: 70, height: 4, borderRadius: 4, background: 'var(--line)', overflow: 'hidden', display: 'inline-block' }}>
-                    <span style={{ display: 'block', height: '100%', width: `${total ? (signed / total) * 100 : 0}%`, background: m.fg }} />
-                  </span>
-                  {signed}/{total} signed · sent {(r.createdAt || '').slice(0, 10)}
-                </div>
+        : (
+          <>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 320 }}>
+                <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+                <input className="form-input" style={{ width: '100%', fontSize: 12.5, paddingLeft: 30 }}
+                  placeholder="Search title or recipient…" value={reqSearch} onChange={e => setReqSearch(e.target.value)} />
               </div>
-              <span style={chip(m)}>{m.label}</span>
-              <ChevronRight size={15} style={{ color: 'var(--muted)' }} />
+              <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
+                {[['all', 'All'], ['pending', 'Awaiting'], ['completed', 'Completed'], ['declined', 'Declined'], ['voided', 'Voided'], ['expired', 'Expired']].map(([v, l]) => (
+                  <button key={v} onClick={() => setReqFilter(v)}
+                    style={{ padding: '5px 12px', borderRadius: 16, fontSize: 11.5, fontWeight: 700, fontFamily: 'Inter,sans-serif', cursor: 'pointer', whiteSpace: 'nowrap',
+                      border: reqFilter === v ? '1.5px solid var(--pine)' : '1.5px solid var(--line)',
+                      background: reqFilter === v ? 'hsla(var(--color-green),0.1)' : 'var(--card)',
+                      color: reqFilter === v ? 'var(--pine)' : 'var(--muted)' }}>
+                    {l}{v !== 'all' && ` (${requests.filter(r => r.status === v).length})`}
+                  </button>
+                ))}
+              </div>
             </div>
-          );
-        })
+            {visibleRequests.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '30px 16px', fontSize: 12.5, color: 'var(--muted)' }}>
+                Nothing matches — clear the search or pick another status.
+              </div>
+            )}
+            {visibleRequests.map(r => {
+              const m = REQ_STATUS[r.status] || REQ_STATUS.pending;
+              const signers = (r.parties || []).filter(p => p.partyRole !== 'cc');
+              const signed = signers.filter(p => p.status === 'signed').length;
+              const total = signers.length;
+              return (
+                <div key={r.id} onClick={() => setDetailId(r.id)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', border: '1px solid var(--line)', borderLeft: `4px solid ${m.fg}`, borderRadius: 12, marginBottom: 8, background: 'var(--card)', cursor: 'pointer' }}>
+                  <FileSignature size={17} style={{ color: m.fg, flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 8, marginTop: 3 }}>
+                      <span style={{ width: 70, height: 4, borderRadius: 4, background: 'var(--line)', overflow: 'hidden', display: 'inline-block' }}>
+                        <span style={{ display: 'block', height: '100%', width: `${total ? (signed / total) * 100 : 0}%`, background: m.fg }} />
+                      </span>
+                      {signed}/{total} signed · sent {(r.createdAt || '').slice(0, 10)}
+                      {r.routing === 'parallel' && ' · all at once'}
+                    </div>
+                  </div>
+                  {expiryChip(r.expiresOn, r.status)}
+                  <span style={chip(m)}>{m.label}</span>
+                  <ChevronRight size={15} style={{ color: 'var(--muted)' }} />
+                </div>
+              );
+            })}
+          </>
+        )
       )}
 
       {sub === 'templates' && (
@@ -1643,6 +1807,14 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
                   </div>
                 </div>
                 <button className="secondary-btn" onClick={() => setEditTpl(t)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}><Pencil size={12} /> Edit</button>
+                <button className="secondary-btn" title="Duplicate this template"
+                  onClick={async () => {
+                    try {
+                      await api.createSignTemplate({ name: `${t.name} (copy)`, kind: t.kind, entity_id: t.entityId || '', roles: t.roles || [], body: t.body || [], attachments: t.attachments || [] });
+                      toastOk(`Duplicated as "${t.name} (copy)".`); loadTemplates();
+                    } catch (e) { toastErr(e?.message || 'Could not duplicate.'); }
+                  }}
+                  style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}><CopyPlus size={12} /> Duplicate</button>
                 <button title="Delete" onClick={async () => { try { await api.deleteSignTemplate(t.id); loadTemplates(); } catch (e) { toastErr(e?.message || 'Delete failed (owner grant needed).'); } }}
                   style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
               </div>

@@ -54,6 +54,10 @@ def _run_migrations():
             # E-Sign multi-document packets (template attachments)
             "ALTER TABLE hr_sign_templates ADD COLUMN attachments JSON",
             "ALTER TABLE hr_sign_requests ADD COLUMN documents JSON",
+            # E-Sign routing (sequential/parallel), CC recipients, external access codes
+            "ALTER TABLE hr_sign_requests ADD COLUMN routing VARCHAR DEFAULT 'sequential'",
+            "ALTER TABLE hr_sign_parties ADD COLUMN party_role VARCHAR DEFAULT 'signer'",
+            "ALTER TABLE hr_sign_parties ADD COLUMN access_code VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -170,6 +174,10 @@ def _run_migrations():
         # E-Sign multi-document packets: PDFs attached to a template, carried on the envelope
         "ALTER TABLE hr_sign_templates ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS documents JSONB DEFAULT '[]'::jsonb",
+        # E-Sign routing (sequential/parallel), CC recipients, external access codes
+        "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS routing TEXT DEFAULT 'sequential'",
+        "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS party_role TEXT DEFAULT 'signer'",
+        "ALTER TABLE hr_sign_parties ADD COLUMN IF NOT EXISTS access_code TEXT DEFAULT ''",
     ]
     with engine.connect() as conn:
         for sql in migrations:

@@ -468,6 +468,8 @@ export const api = {
   mySignRender:       (pid)       => req(`/esign/mine/${pid}`),
   mySignSubmit:       (pid, data) => req(`/esign/mine/${pid}/sign`, { method: 'POST', body: JSON.stringify(data) }),
   mySignDecline:      (pid, data) => req(`/esign/mine/${pid}/decline`, { method: 'POST', body: JSON.stringify(data) }),
+  correctSignParty:   (rid, pid, data) => req(`/esign/requests/${rid}/parties/${pid}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getSignPartyLink:   (rid, pid)  => req(`/esign/requests/${rid}/parties/${pid}/link`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch —
