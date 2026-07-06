@@ -829,13 +829,16 @@ def list_shift_groups(user: dict = Depends(require_team_read), db: Session = Dep
     members = {}
     for m in db.query(ShiftGroupMember).all():
         members.setdefault(m.group_id, []).append(m.employee_email)
-    return {"groups": [{"id": g.id, "name": g.name, "members": members.get(g.id, [])}
+    return {"groups": [{"id": g.id, "name": g.name, "members": members.get(g.id, []),
+                        "chatId": g.teams_chat_id or "", "chatName": g.teams_chat_name or ""}
                        for g in db.query(ShiftGroup).order_by(ShiftGroup.name).all()]}
 
 
 class GroupIn(BaseModel):
     name: str
     members: List[str] = []
+    teams_chat_id: Optional[str] = None
+    teams_chat_name: Optional[str] = None
 
 
 @router.post("/shift-groups")
@@ -843,6 +846,8 @@ def create_shift_group(body: GroupIn, user: dict = Depends(require_team_write), 
     if not body.name.strip():
         raise HTTPException(400, "Name is required")
     g = ShiftGroup(id=str(uuid.uuid4()), name=body.name.strip()[:80],
+                   teams_chat_id=(body.teams_chat_id or "")[:200],
+                   teams_chat_name=(body.teams_chat_name or "")[:200],
                    created_by=user["email"], created_at=_now_iso())
     db.add(g)
     for em in dict.fromkeys(e.strip().lower() for e in body.members if e.strip()):
@@ -858,11 +863,32 @@ def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require
         raise HTTPException(404, "Group not found")
     if body.name.strip():
         g.name = body.name.strip()[:80]
+    if body.teams_chat_id is not None:
+        g.teams_chat_id = body.teams_chat_id[:200]
+        g.teams_chat_name = (body.teams_chat_name or "")[:200]
     db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).delete()
     for em in dict.fromkeys(e.strip().lower() for e in body.members if e.strip()):
         db.add(ShiftGroupMember(id=str(uuid.uuid4()), group_id=group_id, employee_email=em))
     db.commit()
     return {"ok": True}
+
+
+@router.get("/my-chat")
+def my_group_chat(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The Teams group chat this employee's group is bound to — where their
+    BOD/EOD/Break messages should route. First group (with a binding) they belong
+    to wins. Empty chatId means no binding → the client falls back to a picker."""
+    email = user["email"].lower()
+    group_ids = [m.group_id for m in db.query(ShiftGroupMember)
+                 .filter(ShiftGroupMember.employee_email == email).all()]
+    if not group_ids:
+        return {"chatId": "", "chatName": "", "groupName": ""}
+    g = (db.query(ShiftGroup)
+         .filter(ShiftGroup.id.in_(group_ids), ShiftGroup.teams_chat_id != "")
+         .order_by(ShiftGroup.name).first())
+    if not g:
+        return {"chatId": "", "chatName": "", "groupName": ""}
+    return {"chatId": g.teams_chat_id, "chatName": g.teams_chat_name, "groupName": g.name}
 
 
 @router.delete("/shift-groups/{group_id}")

@@ -1096,12 +1096,15 @@ class ScheduledShift(Base):
 
 
 class ShiftGroup(Base):
-    """A reusable set of employees, so a shift can be applied to many at once."""
+    """A reusable set of employees — used to bulk-assign shifts AND to bind the
+    Teams group chat that this group's BOD/EOD/Break messages route to."""
     __tablename__ = "shift_groups"
-    id         = Column(String, primary_key=True)   # uuid
-    name       = Column(String, default="")
-    created_by = Column(String, default="")
-    created_at = Column(String, default="")
+    id              = Column(String, primary_key=True)   # uuid
+    name            = Column(String, default="")
+    teams_chat_id   = Column(String, default="")         # bound Teams group chat
+    teams_chat_name = Column(String, default="")
+    created_by      = Column(String, default="")
+    created_at      = Column(String, default="")
 
 
 class ShiftGroupMember(Base):
