@@ -439,7 +439,10 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
     if (d?.moved) pushSnapshot(d.snap);
     else if (d?.editOnTap) { // Edit-text mode: a tap (no drag) opens the text
       const el = stateRef.current.elements.find(x => x.id === d.id);
-      if (el) editTapRef.current?.(el);
+      // freshEdit = block created on this very pointerdown — keep the
+      // pre-creation editSnapRef so an untouched commit still cleans it up.
+      if (el && d.freshEdit) { setEditingId(el.id); setSelectedId(el.id); }
+      else if (el) editTapRef.current?.(el);
     }
     dragRef.current = null;
     window.removeEventListener('pointermove', onDragMove);
@@ -496,8 +499,15 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
         x: b.x / d.w, y: b.y / d.h, bold: hit.bold, italic: hit.italic, serif: hit.serif, mono: hit.mono,
         bg: { x: (b.x - 2) / d.w, y: (b.y - 2) / d.h, w: (b.w + 5) / d.w, h: (b.h + 4) / d.h } };
       setElements(es => [...es, el]);
-      // Stay in Edit-text mode (Acrobat-style): commit this block, click the next.
-      setSelectedId(el.id); setEditingId(el.id);
+      // Acrobat-style grab: dragging moves the block straight away; releasing
+      // without movement opens it for typing (resolved in onDragEnd). The
+      // pre-creation snapshot makes undo remove the block entirely.
+      setSelectedId(el.id);
+      dragRef.current = { id: el.id, mode: 'move', startX: e.clientX, startY: e.clientY,
+        editOnTap: true, freshEdit: true, rect: e.currentTarget.getBoundingClientRect(),
+        orig: { ...el }, snap: editSnapRef.current, moved: false };
+      window.addEventListener('pointermove', onDragMove);
+      window.addEventListener('pointerup', onDragEnd, { once: true });
       return;
     }
     if (tool === 'text') {
