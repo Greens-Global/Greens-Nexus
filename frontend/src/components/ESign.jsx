@@ -74,17 +74,50 @@ const FL = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'b
 const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
 const cardStyle = (maxWidth) => ({ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth, maxHeight: 'min(94dvh, 880px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' });
 
+// Name box that auto-fills the email: type a teammate's name, matching people
+// drop down beneath, picking one populates name + email. Free text stays as a
+// custom (external) name. The Egnyte-Sign "add recipient" interaction.
+function NameCombo({ value, employees, onChange, onPick, placeholder, style }) {
+  const [open, setOpen] = useState(false);
+  const matches = useMemo(() => {
+    const q = String(value || '').trim().toLowerCase();
+    if (!q) return [];
+    return (employees || []).filter(e => e.workEmail &&
+      (`${e.firstName} ${e.lastName}`.toLowerCase().includes(q) || String(e.workEmail).toLowerCase().includes(q))).slice(0, 6);
+  }, [value, employees]);
+  return (
+    <div style={{ position: 'relative', ...style }}>
+      <input className="form-input" style={{ width: '100%' }} placeholder={placeholder || 'Full name — type to search teammates'}
+        value={value} onChange={e => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} />
+      {open && matches.length > 0 && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 60, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', overflow: 'hidden', marginTop: 4 }}>
+          {matches.map(e => (
+            <button key={e.id} onMouseDown={ev => ev.preventDefault()} onClick={() => { onPick(e); setOpen(false); }}
+              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+              <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{e.firstName} {e.lastName}</span>
+              <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)' }}>{e.workEmail}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Egnyte-Sign-style right panel: numbered recipient list, a "place fields for"
 // dropdown, and a 2-column field grid (drag onto the page, or select + click).
 // Shared by the template-attachment placer and the send wizard's field step.
-function FieldsPanel({ recipients, activeIdx, onPick, activeType, setActiveType, placed }) {
+// `recipientsSlot` swaps the static list for an editable recipients section.
+function FieldsPanel({ recipients, activeIdx, onPick, activeType, setActiveType, placed, recipientsSlot, width = 330 }) {
   const c = (recipients[activeIdx] || recipients[0] || { color: rcolor(0) }).color;
   const initials = (s) => (s || '?').split(/\s+/).map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
   return (
-    <div style={{ width: 330, borderLeft: '1px solid var(--line)', background: 'var(--card)', overflowY: 'auto', padding: '16px 18px', flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
+    <div style={{ width, borderLeft: '1px solid var(--line)', background: 'var(--card)', overflowY: 'auto', padding: '16px 18px', flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
       <div style={{ fontSize: 13.5, fontWeight: 800, marginBottom: 10 }}>Recipients &amp; Fields</div>
+      {recipientsSlot}
       <div style={{ display: 'grid', gap: 8 }}>
-        {recipients.map((r, i) => (
+        {!recipientsSlot && recipients.map((r, i) => (
           <button key={i} onClick={() => onPick(i)}
             style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px 8px 0', borderRadius: 10, cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif', overflow: 'hidden',
               border: i === activeIdx ? `2px solid ${r.color.solid}` : '1.5px solid var(--line)', background: i === activeIdx ? r.color.soft : 'var(--card)' }}>
@@ -1389,19 +1422,21 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
   );
 
   // ── Steps + validation ──────────────────────────────────────────────────────
-  const steps = ['Document', 'Recipients', isPdf ? 'Place fields' : 'Preview', 'Review & send'];
+  // PDF envelopes: recipients and fields live on ONE page (Egnyte Sign style).
+  const steps = isPdf ? ['Document', 'Recipients & fields', 'Review & send']
+                      : ['Document', 'Recipients', 'Preview', 'Review & send'];
+  const partiesOk = () => signerParties.length > 0 && parties.every(p => p.name.trim() && /@/.test(p.email));
   const stepOk = () => {
     if (step === 0) return source === 'template' ? !!tpl : !!file;
-    if (step === 1) return signerParties.length > 0 && parties.every(p => p.name.trim() && /@/.test(p.email));
-    if (step === 2) return isPdf ? fields.length > 0 : true;
+    if (isPdf) return step !== 1 || (partiesOk() && fields.length > 0);
+    if (step === 1) return partiesOk();
     return true;
   };
   const stepHint = () => {
     if (step === 0) return 'Pick a template or upload a PDF first.';
-    if (step === 1) return signerParties.length === 0
-      ? 'At least one recipient has to sign — the rest can receive copies.'
-      : 'Every recipient needs a name and a valid email.';
-    if (step === 2 && isPdf) return 'Drag at least one field onto the document.';
+    if (signerParties.length === 0) return 'At least one recipient has to sign — the rest can receive copies.';
+    if (!partiesOk()) return 'Every recipient needs a name and a valid email.';
+    if (isPdf && step === 1 && fields.length === 0) return 'Drag at least one field onto the document.';
     return '';
   };
 
@@ -1489,7 +1524,7 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {step > 0 && <button className="secondary-btn" onClick={() => setStep(s => s - 1)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5 }}><ChevronLeft size={13} /> Back</button>}
-          {step < 3 ? (
+          {step < steps.length - 1 ? (
             <button className="primary-btn" onClick={() => stepOk() ? setStep(s => s + 1) : toastErr(stepHint())}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, opacity: stepOk() ? 1 : 0.55 }}>
               Next <ChevronRight size={13} />
@@ -1582,8 +1617,8 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
           </div>
         )}
 
-        {/* STEP 1 — Recipients */}
-        {step === 1 && (
+        {/* STEP 1 — Recipients (template envelopes; PDF mode edits them beside the fields) */}
+        {step === 1 && !isPdf && (
           <div style={{ maxWidth: 760, margin: '0 auto', padding: '26px 18px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
               <Users size={16} style={{ color: 'var(--pine)' }} />
@@ -1635,16 +1670,10 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                       )}
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                      <input className="form-input" placeholder="Full name" value={p.name} onChange={e => setParty(i, 'name', e.target.value)} />
+                      <NameCombo value={p.name} employees={employees}
+                        onChange={v => setParty(i, 'name', v)} onPick={emp => pickEmployee(i, emp.id)} />
                       <input className="form-input" placeholder="email@…" value={p.email} onChange={e => setParty(i, 'email', e.target.value)} />
                     </div>
-                    {p.kind === 'internal' && (
-                      <select className="form-input" style={{ marginTop: 8, width: '100%', fontSize: 12 }} value=""
-                        onChange={e => e.target.value && pickEmployee(i, e.target.value)}>
-                        <option value="">↳ pick a teammate to fill name + email…</option>
-                        {employees.filter(e => e.workEmail).map(e => <option key={e.id} value={e.id}>{e.firstName} {e.lastName} — {e.workEmail}</option>)}
-                      </select>
-                    )}
                     {p.kind === 'external' && !cc && (
                       <input className="form-input" style={{ marginTop: 8, width: '100%', fontSize: 12 }}
                         placeholder="Access code (optional) — share it with them separately; the link will ask for it"
@@ -1670,8 +1699,8 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
           </div>
         )}
 
-        {/* STEP 2 — Field editor (pdf), Egnyte-Sign layout: canvas + right panel */}
-        {step === 2 && isPdf && (
+        {/* STEP 1 (pdf) — Recipients & fields on ONE page, Egnyte-Sign style */}
+        {step === 1 && isPdf && (
           <div style={{ display: 'flex', height: '100%', minHeight: 0, alignItems: 'stretch' }}>
             <div style={{ flex: 1, overflowY: 'auto', padding: '30px 20px', minWidth: 0 }}>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 10, position: 'sticky', top: 0, zIndex: 30 }}>
@@ -1683,10 +1712,72 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
               </div>
               <PdfDoc file={file} zoom={zoom} renderOverlay={editorOverlay} />
             </div>
-            <FieldsPanel
+            <FieldsPanel width={368}
               recipients={signerParties.map(({ p, i }) => ({ label: p.name || `Recipient ${i + 1}`, sub: p.email || '', color: rcolor(i) }))}
               activeIdx={activeRecipient} onPick={setActiveRecipient}
-              activeType={activeType} setActiveType={setActiveType} placed={fields.length} />
+              activeType={activeType} setActiveType={setActiveType} placed={fields.length}
+              recipientsSlot={(
+                <div style={{ marginBottom: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', flex: 1 }}>Who signs?</span>
+                    {signerParties.length > 1 && (
+                      <div style={{ display: 'inline-flex', borderRadius: 7, border: '1px solid var(--line)', overflow: 'hidden' }}
+                        title="In order: one at a time. All at once: everyone is invited immediately.">
+                        {[['sequential', 'In order'], ['parallel', 'All at once']].map(([v, l]) => (
+                          <button key={v} onClick={() => setRouting(v)}
+                            style={{ padding: '3px 9px', fontSize: 10.5, fontWeight: 700, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: routing === v ? 'var(--pine)' : 'var(--card)', color: routing === v ? '#fff' : 'var(--muted)' }}>{l}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {parties.map((p, i) => {
+                      const c = rcolor(i), cc = isCC(p);
+                      return (
+                        <div key={i} style={{ border: '1.5px solid var(--line)', borderLeft: `4px solid ${cc ? 'var(--line)' : c.solid}`, borderRadius: 10, padding: '9px 10px', background: 'var(--card)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6, flexWrap: 'wrap' }}>
+                            <span style={{ width: 20, height: 20, borderRadius: '50%', background: cc ? 'var(--mist)' : c.solid, color: cc ? 'var(--muted)' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: cc ? 9 : 11, fontWeight: 800, flexShrink: 0 }}>{cc ? 'CC' : i + 1}</span>
+                            <div style={{ display: 'inline-flex', borderRadius: 7, border: '1px solid var(--line)', overflow: 'hidden' }}>
+                              {[['signer', 'Signs'], ['cc', 'Copy']].map(([v, l]) => (
+                                <button key={v} onClick={() => setPartyRole(i, v)}
+                                  style={{ padding: '2px 8px', fontSize: 10, fontWeight: 700, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: (p.party_role || 'signer') === v ? 'var(--pine)' : 'var(--card)', color: (p.party_role || 'signer') === v ? '#fff' : 'var(--muted)' }}>{l}</button>
+                              ))}
+                            </div>
+                            <div style={{ display: 'inline-flex', borderRadius: 7, border: '1px solid var(--line)', overflow: 'hidden' }}>
+                              {[['internal', 'Teammate'], ['external', 'External']].map(([v, l]) => (
+                                <button key={v} onClick={() => setParties(ps => ps.map((q, j) => j === i ? { ...q, kind: v, ...(v === 'internal' ? { access_code: '' } : {}) } : q))}
+                                  style={{ padding: '2px 8px', fontSize: 10, fontWeight: 700, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: p.kind === v ? 'var(--pine)' : 'var(--card)', color: p.kind === v ? '#fff' : 'var(--muted)' }}>{l}</button>
+                              ))}
+                            </div>
+                            <div style={{ flex: 1 }} />
+                            {parties.length > 1 && (
+                              <button onClick={() => rmParty(i)} title="Remove"
+                                style={{ background: 'none', border: 'none', color: 'hsl(var(--color-red))', cursor: 'pointer', display: 'flex', padding: 2 }}><Trash2 size={12} /></button>
+                            )}
+                          </div>
+                          <NameCombo value={p.name} employees={employees}
+                            onChange={v => setParty(i, 'name', v)} onPick={emp => pickEmployee(i, emp.id)}
+                            placeholder="Full name — type to search" />
+                          <input className="form-input" placeholder="email@…" value={p.email}
+                            onChange={e => setParty(i, 'email', e.target.value)} style={{ width: '100%', marginTop: 6, fontSize: 12 }} />
+                          {p.kind === 'external' && !cc && (
+                            <input className="form-input" style={{ marginTop: 6, width: '100%', fontSize: 11.5 }}
+                              placeholder="Access code (optional)" value={p.access_code || ''} maxLength={40}
+                              onChange={e => setParty(i, 'access_code', e.target.value)} />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                    <button className="secondary-btn" onClick={() => setParties(ps => [...ps, { _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'signer', access_code: '' }])}
+                      style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={11} /> Signer</button>
+                    <button className="secondary-btn" onClick={() => setParties(ps => [...ps, { _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'cc', access_code: '' }])}
+                      style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={11} /> CC (copy only)</button>
+                  </div>
+                  <div style={{ height: 1, background: 'var(--line)', margin: '14px 0 10px' }} />
+                </div>
+              )} />
           </div>
         )}
         {/* STEP 2 — Live preview (template) */}
@@ -1725,8 +1816,8 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
           </div>
         )}
 
-        {/* STEP 3 — Review & send */}
-        {step === 3 && (
+        {/* FINAL STEP — Review & send */}
+        {step === steps.length - 1 && step > 0 && (
           <div style={{ maxWidth: 620, margin: '0 auto', padding: '30px 18px' }}>
             <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '20px 22px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 14, borderBottom: '1px solid var(--line)' }}>
