@@ -23,7 +23,7 @@ const SEL = '#3b82f6'; // selection chrome color
 
 const TOOL_DEFS = [
   ['select',    MousePointer2, 'Select — drag to move, corner to resize, Delete to remove'],
-  ['edittext',  TextCursorInput, 'Edit text — click a line of existing text to rewrite it'],
+  ['edittext',  TextCursorInput, 'Edit text — click a line to rewrite it; click an edited block to change it again, drag to move it'],
   ['text',      Type,          'Text — click the page to add a text box'],
   ['pen',       PenTool,       'Pen — draw freehand'],
   ['highlight', Highlighter,   'Highlighter — thick translucent stroke'],
@@ -377,18 +377,27 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
       return { ...el, x: Math.min(1 - o.w, Math.max(0, o.x + dx)), y: Math.min(1 - o.h, Math.max(0, o.y + dy)) };
     }));
   }, []);
+  const editTapRef = useRef(null); // set to startTextEdit below (defined later)
   const onDragEnd = useCallback(() => {
     const d = dragRef.current;
     if (d?.moved) pushSnapshot(d.snap);
+    else if (d?.editOnTap) { // Edit-text mode: a tap (no drag) opens the text
+      const el = stateRef.current.elements.find(x => x.id === d.id);
+      if (el) editTapRef.current?.(el);
+    }
     dragRef.current = null;
     window.removeEventListener('pointermove', onDragMove);
   }, [onDragMove]); // eslint-disable-line react-hooks/exhaustive-deps
   const startDrag = (e, el, mode) => {
-    if (tool !== 'select') return;
+    // Elements are directly manipulable in select AND Edit-text mode (Acrobat
+    // style): drag moves; in Edit-text, a click without movement opens the text.
+    if (tool !== 'select' && tool !== 'edittext') return;
     e.stopPropagation(); e.preventDefault();
+    if (editingId) commitTextEdit();
     setSelectedId(el.id);
     const pageEl = pageRefs.current[el.pageId]; if (!pageEl) return;
     dragRef.current = { id: el.id, mode, startX: e.clientX, startY: e.clientY,
+      editOnTap: tool === 'edittext' && el.type === 'text' && mode === 'move',
       rect: pageEl.getBoundingClientRect(), orig: { ...el, points: el.points ? [...el.points] : undefined }, snap: takeSnap(), moved: false };
     window.addEventListener('pointermove', onDragMove);
     window.addEventListener('pointerup', onDragEnd, { once: true });
@@ -428,7 +437,8 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
         x: b.x / d.w, y: b.y / d.h, bold: hit.bold, italic: hit.italic, serif: hit.serif, mono: hit.mono,
         bg: { x: (b.x - 2) / d.w, y: (b.y - 1.5) / d.h, w: (b.w + 4) / d.w, h: (b.h + 3) / d.h } };
       setElements(es => [...es, el]);
-      setSelectedId(el.id); setEditingId(el.id); setTool('select');
+      // Stay in Edit-text mode (Acrobat-style): commit this line, click the next.
+      setSelectedId(el.id); setEditingId(el.id);
       return;
     }
     if (tool === 'text') {
@@ -519,6 +529,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
     if (snap && (!prev || prev.text !== el.text)) pushSnapshot(snap);
   }
   const startTextEdit = (el) => { editSnapRef.current = takeSnap(); setEditingId(el.id); setSelectedId(el.id); };
+  editTapRef.current = startTextEdit;
 
   // ── Toolbar property changes apply to the selection too ─────────────────────
   const applyToSelected = (patchFor) => {
@@ -759,7 +770,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
   };
 
   // ── Element rendering (SVG, viewBox units = PDF points → zoom-proof) ────────
-  const elCursor = tool === 'select' ? 'move' : undefined;
+  const elCursor = tool === 'select' ? 'move' : tool === 'edittext' ? 'text' : undefined;
   function renderEl(el, W, H) {
     const common = { style: { cursor: elCursor }, onPointerDown: (e) => startDrag(e, el, 'move') };
     if (el.type === 'pen' || el.type === 'highlight') {
@@ -1024,7 +1035,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
                             fill="rgba(59,130,246,0.05)" stroke={SEL} strokeOpacity={0.4} strokeWidth={0.7}
                             strokeDasharray="3 2.5" pointerEvents="none" />;
                         })}
-                        <g style={{ pointerEvents: tool === 'select' ? 'auto' : 'none' }}>
+                        <g style={{ pointerEvents: (tool === 'select' || tool === 'edittext') ? 'auto' : 'none' }}>
                           {pageEls.map(el => renderEl(el, d.w, d.h))}
                           {selectedEl && selectedEl.pageId === pg.id && !editingEl && renderSelection(selectedEl, d.w, d.h)}
                         </g>

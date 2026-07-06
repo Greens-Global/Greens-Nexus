@@ -292,14 +292,23 @@ def _send_sign_email(party: HrSignParty, req: HrSignRequest, sender_name: str) -
         return False, str(getattr(e, "detail", e))[:300]
 
 
-def _send_completed_email(party: HrSignParty, req: HrSignRequest) -> tuple:
-    """Everyone-signed email for external parties (signers and CC) — their link
-    now serves the sealed copy, which is how they retain it (ESIGN retention)."""
+_ATTACH_MAX = 3_000_000  # Graph simple sendMail caps the whole message at ~4 MB
+
+
+def _send_sealed_email(to_name: str, to_email: str, req: HrSignRequest, pdf: bytes,
+                       link: str, link_label: str, note: str = "") -> tuple:
+    """Everyone-signed email — sender, signers and CC alike get the sealed PDF
+    ATTACHED (their retained copy, ESIGN retention), plus a link. Oversized
+    documents fall back to link-only."""
     from html import escape
     sender = os.getenv("NEXUS_FROM_EMAIL", "")
-    if not (party.email and sender):
-        return False, "no recipient email" if not party.email else "NEXUS_FROM_EMAIL not set"
-    link = f"{_APP_URL}/sign/{party.token}"
+    if not (to_email and sender):
+        return False, "no recipient email" if not to_email else "NEXUS_FROM_EMAIL not set"
+    attach = len(pdf) <= _ATTACH_MAX
+    doc_line = ("The sealed document, with its Certificate of Completion, is attached to this email."
+                if attach else
+                "The sealed document (with its Certificate of Completion) is too large to attach — "
+                "use the button below to download your copy.")
     html = f"""<div style="font-family:Inter,Segoe UI,Arial,sans-serif;background:#f3f4f6;padding:28px 12px">
   <table style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;border-collapse:collapse;width:100%">
     <tr><td style="background:#14532d;padding:26px 36px">
@@ -307,29 +316,38 @@ def _send_completed_email(party: HrSignParty, req: HrSignRequest) -> tuple:
       <div style="color:#bbf7d0;font-size:12.5px;margin-top:4px">Document completed</div>
     </td></tr>
     <tr><td style="padding:28px 36px">
-      <p style="margin:0 0 14px;font-size:14.5px;color:#111827">Hi {escape(party.name or 'there')},</p>
+      <p style="margin:0 0 14px;font-size:14.5px;color:#111827">Hi {escape(to_name or 'there')},</p>
       <p style="margin:0 0 14px;font-size:14px;color:#374151;line-height:1.6">
-        Everyone has signed <strong>{escape(req.title)}</strong>. Your copy of the sealed
-        document (with its Certificate of Completion) is ready.</p>
+        Everyone has signed <strong>{escape(req.title)}</strong>. {doc_line}</p>
+      {f'<p style="margin:0 0 14px;font-size:13px;color:#374151;line-height:1.6">{escape(note)}</p>' if note else ''}
       <p style="margin:22px 0"><a href="{link}"
         style="background:#15803d;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:11px 26px;border-radius:9px;display:inline-block">
-        View &amp; download</a></p>
+        {escape(link_label)}</a></p>
       <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.6">
-        The link is unique to you — please don't forward it.</p>
+        SHA-256 fingerprint of the sealed file: {escape((req.final_sha256 or '')[:32])}…</p>
     </td></tr>
     <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 36px;font-size:11.5px;color:#6b7280;line-height:1.5">
       Sent via Greens Nexus e-sign. This mailbox isn't monitored.
     </td></tr>
   </table>
 </div>"""
+    message = {
+        "subject": f"Completed: {req.title}",
+        "body": {"contentType": "HTML", "content": html},
+        "toRecipients": [{"emailAddress": {"address": to_email}}],
+    }
+    if attach:
+        safe = re.sub(r'[\\/:*?"<>|]+', " ", req.title or "Document").strip()[:80] or "Document"
+        message["attachments"] = [{
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            "name": f"{safe} (signed).pdf",
+            "contentType": "application/pdf",
+            "contentBytes": base64.b64encode(pdf).decode(),
+        }]
     try:
         resp = httpx.post(f"https://graph.microsoft.com/v1.0/users/{sender}/sendMail",
-                          headers={"Authorization": f"Bearer {_graph_token()}"}, json={
-            "message": {
-                "subject": f"Completed: {req.title}",
-                "body": {"contentType": "HTML", "content": html},
-                "toRecipients": [{"emailAddress": {"address": party.email}}],
-            }, "saveToSentItems": False}, timeout=20)
+                          headers={"Authorization": f"Bearer {_graph_token()}"},
+                          json={"message": message, "saveToSentItems": False}, timeout=30)
         return resp.is_success, ("" if resp.is_success else resp.text[:300])
     except Exception as e:
         return False, str(getattr(e, "detail", e))[:300]
@@ -1642,21 +1660,37 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
                           size_bytes=len(final), uploaded_by="e-sign",
                           created_at=req.completed_at))
 
-    # Tell the sender + every internal party; email externals a copy link
+    # Completion fan-out: bell notification for the sender and every internal
+    # party, and an EMAIL WITH THE SEALED PDF ATTACHED for everyone involved —
+    # sender, signers and CC, internal or external (link fallback when the
+    # document is too big to attach). Best-effort and audited per recipient.
     n_signers = sum(1 for p in parties if (p.party_role or "signer") == "signer")
     _hr_notify(db, req.created_by, f"Completed: {req.title}",
                f"All {n_signers} signer{'s' if n_signers != 1 else ''} have signed \"{req.title}\". "
-               f"The sealed document is in HR → E-Sign.", ref_id=req.id,
+               f"The sealed document is in HR → E-Sign and in your email.", ref_id=req.id,
                action={"view": "hr", "sub": "hr-esign-requests"})
+    emailed = set()
+
+    def _mail_copy(name, email, link, label, party_id=""):
+        key = (email or "").strip().lower()
+        if not key or key in emailed:
+            return
+        emailed.add(key)
+        ok, detail = _send_sealed_email(name, email, req, final, link, label)
+        _log(db, req.id, "sent", f"sealed copy emailed to {name or email}"
+             + ("" if ok else f" — email failed: {detail}"), party_id=party_id)
+
+    sender_name = req.created_by.split("@")[0].replace(".", " ").title()
+    _mail_copy(sender_name, req.created_by, f"{_APP_URL}/hr/hr-esign", "Open in Nexus")
     for p in parties:
-        if p.kind == "internal" and p.email != req.created_by:
-            _hr_notify(db, p.email, f"Fully signed: {req.title}",
-                       "Everyone has signed. The sealed copy is available in HR → E-Sign.",
-                       ref_id=req.id,
-                       action={"view": "hr", "sub": "hr-esign"})
-        elif p.kind == "external":
-            # Externals have no Nexus login — their link now serves the sealed
-            # copy (public download). Best-effort, audited either way.
-            ok, detail = _send_completed_email(p, req)
-            _log(db, req.id, "sent", f"completion copy emailed to {p.name}"
-                 + ("" if ok else f" — email failed: {detail}"), party_id=p.id)
+        if p.kind == "internal":
+            if p.email != req.created_by:
+                _hr_notify(db, p.email, f"Fully signed: {req.title}",
+                           "Everyone has signed. The sealed copy is in HR → E-Sign and in your email.",
+                           ref_id=req.id,
+                           action={"view": "hr", "sub": "hr-esign"})
+            _mail_copy(p.name, p.email, f"{_APP_URL}/hr/hr-esign", "Open in Nexus", party_id=p.id)
+        else:
+            # Externals have no Nexus login — their unique link also serves the
+            # sealed copy (public download).
+            _mail_copy(p.name, p.email, f"{_APP_URL}/sign/{p.token}", "View & download", party_id=p.id)
