@@ -58,4 +58,14 @@ async function agentUploadShot(token, jpegBuffer, { idleSec, activeView, tzOffse
   return r.json();
 }
 
-module.exports = { getStatus, uploadShot, agentCheckin, agentUploadShot };
+async function agentPostActivity(token, body) {
+  const r = await fetch(`${config.apiBase}/timeclock/agent/activity`, {
+    method: 'POST',
+    headers: { 'X-Agent-Token': token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`activity ${r.status}`);
+  return r.json();
+}
+
+module.exports = { getStatus, uploadShot, agentCheckin, agentUploadShot, agentPostActivity };

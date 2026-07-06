@@ -11,6 +11,7 @@ const { app, Tray, Menu, nativeImage, powerMonitor, shell, dialog } = require('e
 const config = require('./config');
 const auth = require('./auth');
 const api = require('./api');
+const activity = require('./activity');
 const { captureAllScreens } = require('./capture');
 
 let tray = null;
@@ -158,6 +159,13 @@ async function silentTick() {
     }).catch(() => null);
     if (r) { silentEmail = r.email || silentEmail; silentCapture = !!r.capture && !paused; }
     refreshTray();
+    // Flush the last window of app activity (accumulated by sampleTick)
+    const act = activity.flush();
+    if (act.segments.length) {
+      api.agentPostActivity(deviceToken, {
+        segments: act.segments, active_pct: act.activePct, tz_offset_min: new Date().getTimezoneOffset(),
+      }).catch(() => {});
+    }
     if (silentCapture && Date.now() - lastShotAt >= config.captureIntervalMs) {
       try {
         const screens = await captureAllScreens();
@@ -193,8 +201,17 @@ app.whenReady().then(async () => {
   if (process.platform === 'darwin' && app.dock) app.dock.hide(); // tray-only
   tray = new Tray(trayIcon());
   refreshTray();
-  if (silentMode) tick();                   // headless: no login prompt
-  else await signIn(true);                  // interactive: prompt on first launch
+  if (silentMode) {
+    tick();                                  // headless: no login prompt
+    // Sample the foreground app between heartbeats (silent mode only)
+    setInterval(() => {
+      if (paused) return;
+      const idle = powerMonitor.getSystemIdleTime();
+      activity.sample(idle, config.sampleMs / 1000, config.idleActiveSec).catch(() => {});
+    }, config.sampleMs);
+  } else {
+    await signIn(true);                      // interactive: prompt on first launch
+  }
   setInterval(tick, config.statusPollMs);   // heartbeat
   powerMonitor.on('resume', tick);          // wake from sleep → re-sync promptly
 });

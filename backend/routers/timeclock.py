@@ -23,7 +23,7 @@ import math
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import List, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -34,7 +34,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from auth import get_current_user, require_level_or_module, require_administrator
 from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, TimeBod,
-                    AgentDevice, HrWorkSite, NexusEmployee)
+                    AgentDevice, AgentActivity, HrWorkSite, NexusEmployee)
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET
 from routers.esign import _client_meta
 
@@ -722,6 +722,66 @@ def agent_screenshot(request: Request, file: UploadFile = File(...),
     and no web punch-clock gate (the agent gates on its own activity)."""
     row = _store_shot(db, dev.employee_email, file.file.read(), idle_sec, active_view, tz_offset_min)
     return {"ok": True, "id": row.id}
+
+
+class ActivitySeg(BaseModel):
+    app: Optional[str] = ""
+    title: Optional[str] = ""
+    seconds: int = 0
+
+
+class ActivityIn(BaseModel):
+    segments: List[ActivitySeg] = []
+    active_pct: int = 0
+    tz_offset_min: Optional[int] = 0
+
+
+@router.post("/agent/activity")
+def agent_activity(body: ActivityIn, dev: AgentDevice = Depends(get_agent_device),
+                   db: Session = Depends(get_db)):
+    """A reporting window of app usage from a silent device: seconds per
+    foreground app + the window's activity %."""
+    now = _now_iso()
+    ld = _local_date(now, body.tz_offset_min or 0)
+    pct = max(0, min(100, int(body.active_pct or 0)))
+    for s in body.segments[:200]:
+        if not s.seconds or s.seconds <= 0:
+            continue
+        db.add(AgentActivity(id=str(uuid.uuid4()), employee_email=dev.employee_email,
+                             local_date=ld, at=now, app=(s.app or "Unknown")[:120],
+                             title=(s.title or "")[:200], seconds=int(s.seconds), active_pct=pct))
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/activity")
+def read_activity(email: str = "", start: str = "", end: str = "",
+                  user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """App-usage breakdown + activity score for one employee over a date range.
+    Scoped like the rest of the team endpoints (managers see only their reports)."""
+    email = email.strip().lower()
+    scope = _visible_emails(db, user)
+    if scope is not None and email not in scope:
+        raise HTTPException(403, "Outside your team")
+    q = db.query(AgentActivity).filter(AgentActivity.employee_email == email)
+    if start:
+        q = q.filter(AgentActivity.local_date >= start)
+    if end:
+        q = q.filter(AgentActivity.local_date <= end)
+    rows = q.all()
+    apps: dict = {}
+    pcts = []
+    for r in rows:
+        apps[r.app or "Unknown"] = apps.get(r.app or "Unknown", 0) + (r.seconds or 0)
+        if r.active_pct:
+            pcts.append(r.active_pct)
+    top = sorted(apps.items(), key=lambda x: -x[1])[:12]
+    return {
+        "email": email,
+        "totalSeconds": sum(apps.values()),
+        "activePct": round(sum(pcts) / len(pcts)) if pcts else 0,
+        "apps": [{"app": a, "seconds": s} for a, s in top],
+    }
 
 
 def _signed_url(path: str) -> str:

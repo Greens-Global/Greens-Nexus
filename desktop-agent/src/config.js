@@ -27,4 +27,5 @@ module.exports = {
   jpegQuality: 55,
   idleBadgeSec: 300,                // parity with the web gallery's idle badge
   idleActiveSec: 120,               // silent mode: idle beyond this = "not working"
+  sampleMs: 15 * 1000,              // how often to sample the foreground app
 };
