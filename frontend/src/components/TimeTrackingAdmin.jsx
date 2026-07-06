@@ -34,7 +34,7 @@ const winScript = (url, token) => [
   '$p="$env:TEMP\\GNAgent.exe"',
   // 1) Clear leftovers from any previous attempt FIRST, so nothing is locked:
   //    kill the agent AND any stuck installer, then delete the stale temp file.
-  'Get-Process -Name "Greens Nexus Agent","GNAgent" -ErrorAction SilentlyContinue | Stop-Process -Force',
+  'taskkill /F /IM "GNAgent.exe" /T 2>$null; taskkill /F /IM "Greens Nexus Agent.exe" /T 2>$null',
   'Start-Sleep -Milliseconds 700',
   'Remove-Item $p -Force -ErrorAction SilentlyContinue',
   // 2) Cleanly uninstall the old build (avoids "Failed to uninstall old files").

@@ -655,7 +655,9 @@ def agent_devices(user: dict = Depends(require_administrator), db: Session = Dep
     """Silent App Tracking: every enrolled computer, self-described on check-in."""
     names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
              for e in db.query(NexusEmployee).all() if e.work_email}
-    rows = db.query(AgentDevice).order_by(AgentDevice.created_at.desc()).all()
+    # Revoked devices vanish from the list (row kept for audit; token already dead).
+    rows = (db.query(AgentDevice).filter(AgentDevice.revoked == 0)
+            .order_by(AgentDevice.created_at.desc()).all())
     return {"devices": [{
         "id": d.id, "email": d.employee_email,
         "name": names.get(d.employee_email) or d.employee_email.split("@")[0].replace(".", " ").title(),
