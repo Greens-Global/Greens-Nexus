@@ -32,21 +32,23 @@ const q = (s) => String(s).replace(/'/g, "''");   // PowerShell single-quote esc
 const winScript = (url, token) => [
   "$ErrorActionPreference='Stop'",
   '$p="$env:TEMP\\GNAgent.exe"',
-  `Invoke-WebRequest -Uri '${q(url)}' -OutFile $p`,
-  // Stop any running agent, then cleanly uninstall the old build first — else the
-  // installer fails with "Failed to uninstall old application files" on locked
-  // or leftover files.
-  'Get-Process -Name "Greens Nexus Agent" -ErrorAction SilentlyContinue | Stop-Process -Force',
-  'Start-Sleep -Milliseconds 800',
+  // 1) Clear leftovers from any previous attempt FIRST, so nothing is locked:
+  //    kill the agent AND any stuck installer, then delete the stale temp file.
+  'Get-Process -Name "Greens Nexus Agent","GNAgent" -ErrorAction SilentlyContinue | Stop-Process -Force',
+  'Start-Sleep -Milliseconds 700',
+  'Remove-Item $p -Force -ErrorAction SilentlyContinue',
+  // 2) Cleanly uninstall the old build (avoids "Failed to uninstall old files").
   '$u = Get-ChildItem "$env:LOCALAPPDATA\\Programs" -Recurse -Filter "Uninstall Greens Nexus Agent.exe" -ErrorAction SilentlyContinue | Select-Object -First 1',
   'if ($u) { Start-Process -Wait $u.FullName -ArgumentList "/S"; Start-Sleep -Milliseconds 800 }',
+  // 3) Download + install fresh.
+  `Invoke-WebRequest -Uri '${q(url)}' -OutFile $p`,
   "Start-Process -Wait $p -ArgumentList '/S'",
-  // Machine-wide token (ProgramData) so the agent finds it whatever user it runs as
+  // 4) Machine-wide token (ProgramData) so the agent finds it whatever user it runs as.
   '$d="$env:ProgramData\\Greens Nexus Agent"',
   'New-Item -ItemType Directory -Force $d | Out-Null',
   `Set-Content -NoNewline "$d\\device-token.txt" '${q(token)}'`,
-  'Remove-Item $p',
-  // Launch whatever the installer actually placed under Programs (folder name can vary)
+  'Remove-Item $p -Force -ErrorAction SilentlyContinue',
+  // 5) Launch whatever the installer placed under Programs (folder name can vary).
   '$exe = Get-ChildItem "$env:LOCALAPPDATA\\Programs" -Recurse -Filter "Greens Nexus Agent.exe" -ErrorAction SilentlyContinue | Select-Object -First 1',
   'if ($exe) { Start-Process $exe.FullName }',
 ].join('\n');
