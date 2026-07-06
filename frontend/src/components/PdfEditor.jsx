@@ -131,6 +131,57 @@ function buildLines(tc, pdfPage) {
   return lines;
 }
 
+// Cluster consecutive lines into PARAGRAPH blocks (Acrobat-style edit units):
+// same font size, horizontally overlapping, and a normal line pitch. Yields
+// {x0,y0,x1,y1, text (unwrapped), size, lh (pitch ratio), bold/italic/serif/mono}.
+function clusterParas(lines) {
+  const paras = [];
+  for (const L of lines) {
+    const P = paras[paras.length - 1];
+    const last = P && P.lines[P.lines.length - 1];
+    const pitch = last ? last.key - L.key : 0;
+    const sameSize = last && Math.abs(last.size - L.size) < Math.max(1, L.size * 0.16);
+    const sameStyle = last && last.bold === L.bold && last.serif === L.serif;
+    const hOverlap = last && Math.min(last.x1, L.x1) - Math.max(last.x0, L.x0) > -2;
+    if (last && sameSize && sameStyle && hOverlap && pitch > 0 && pitch < L.size * 1.9) {
+      P.lines.push(L);
+      P.x0 = Math.min(P.x0, L.x0); P.y0 = Math.min(P.y0, L.y0);
+      P.x1 = Math.max(P.x1, L.x1); P.y1 = Math.max(P.y1, L.y1);
+    } else {
+      paras.push({ lines: [L], x0: L.x0, y0: L.y0, x1: L.x1, y1: L.y1,
+                   size: L.size, bold: L.bold, italic: L.italic, serif: L.serif, mono: L.mono });
+    }
+  }
+  for (const P of paras) {
+    P.text = P.lines.map(l => l.text.trim()).join(' ').replace(/\s+/g, ' ').trim();
+    if (P.lines.length > 1) {
+      const pitches = P.lines.slice(1).map((l, i) => P.lines[i].key - l.key);
+      P.lh = Math.min(2, Math.max(1.05, (pitches.reduce((a, b) => a + b, 0) / pitches.length) / P.size));
+    } else P.lh = 1.25;
+  }
+  return paras;
+}
+
+// Layout a text element's lines: block elements (blockW set) word-wrap each
+// hard line to the block width with real measurement; plain ones just split.
+function layoutLines(el) {
+  const segs = String(el.text || '').split('\n');
+  if (!el.blockW) return segs;
+  const out = [];
+  for (const seg of segs) {
+    const words = seg.split(/\s+/).filter(Boolean);
+    if (!words.length) { out.push(''); continue; }
+    let cur = '';
+    for (const w of words) {
+      const t = cur ? cur + ' ' + w : w;
+      if (cur && measureW(el, t) > el.blockW) { out.push(cur); cur = w; }
+      else cur = t;
+    }
+    out.push(cur);
+  }
+  return out;
+}
+
 // Rotating a page re-maps its overlay elements so they stay glued to the same
 // spot on the (now rotated) content. dir 1 = 90° clockwise, -1 = counter.
 // Text and images additionally accumulate `rot` — their CONTENT must rotate
@@ -185,9 +236,9 @@ function bboxOf(el, W, H) {
     return { x: x - 4, y: y - 4, w: Math.abs(el.x2 - el.x1) * W + 8, h: Math.abs(el.y2 - el.y1) * H + 8 };
   }
   if (el.type === 'text') {
-    const fs = el.fontSize, lines = textLines(el);
-    const w = Math.max(30, ...lines.map(l => measureW(el, l))) + 6;
-    return { x: el.x * W, y: el.y * H, w, h: Math.max(1, lines.length) * fs * 1.25 + 4 };
+    const fs = el.fontSize, lines = layoutLines(el), lh = el.lh || 1.25;
+    const w = el.blockW || Math.max(30, ...lines.map(l => measureW(el, l))) + 6;
+    return { x: el.x * W, y: el.y * H, w, h: Math.max(1, lines.length) * fs * lh + 4 };
   }
   return { x: el.x * W, y: el.y * H, w: el.w * W, h: el.h * H };
 }
@@ -306,7 +357,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
           const p = await doc.getPage(pg.idx + 1);
           const tc = await p.getTextContent();
           if (!live) return;
-          linesRef.current.set(key, buildLines(tc, p));
+          linesRef.current.set(key, clusterParas(buildLines(tc, p)));
         } catch { if (live) linesRef.current.set(key, []); }
         if (live) setTick(t => t + 1);
       }
@@ -368,6 +419,11 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
       if (d.mode === 'resize') {
         return { ...el, w: Math.min(1 - o.x, Math.max(0.01, o.w + dx)), h: Math.min(1 - o.y, Math.max(0.01, o.h + dy)) };
       }
+      if (d.mode === 'blockw') { // paragraph block: dragging the handle reflows the text
+        const pg = stateRef.current.pages.find(x => x.id === el.pageId);
+        const Wd = pg ? dispDims(pg).w : 612;
+        return { ...el, blockW: Math.max(40, (o.blockW || 100) + dx * Wd) };
+      }
       if (d.mode === 'p1') return { ...el, x1: clamp01(o.x1 + dx), y1: clamp01(o.y1 + dy) };
       if (d.mode === 'p2') return { ...el, x2: clamp01(o.x2 + dx), y2: clamp01(o.y2 + dy) };
       // move
@@ -421,12 +477,13 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
     const p = norm(e);
     if (tool === 'select') { setSelectedId(null); return; }
     if (tool === 'edittext') {
-      // Click a detected line → cover the original with white and hand the user
-      // a pre-filled text box in the same spot, size and font style.
-      const Ls = pg.blank ? [] : (linesRef.current.get(`${pg.src}:${pg.idx}`) || []);
+      // Click a detected PARAGRAPH → cover the original block with white and
+      // hand the user the whole paragraph in a wrapping editor at the block's
+      // width, size and line pitch. Commit re-wraps within the block.
+      const Ps = pg.blank ? [] : (linesRef.current.get(`${pg.src}:${pg.idx}`) || []);
       const px = p.x * d.w, py = p.y * d.h;
-      const hit = Ls.find(L => {
-        const b = lineBox(pg, L);
+      const hit = Ps.find(P => {
+        const b = lineBox(pg, P);
         return px >= b.x - 2 && px <= b.x + b.w + 2 && py >= b.y - 2 && py <= b.y + b.h + 2;
       });
       if (!hit) return;
@@ -434,10 +491,11 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
       editSnapRef.current = takeSnap();
       const el = { id: nid('el'), pageId: pg.id, type: 'text', text: hit.text, origText: hit.text,
         fontSize: Math.max(6, Math.round(hit.size * 10) / 10), color: '#111827',
+        blockW: Math.max(40, b.w + 3), lh: hit.lh || 1.25,
         x: b.x / d.w, y: b.y / d.h, bold: hit.bold, italic: hit.italic, serif: hit.serif, mono: hit.mono,
-        bg: { x: (b.x - 2) / d.w, y: (b.y - 1.5) / d.h, w: (b.w + 4) / d.w, h: (b.h + 3) / d.h } };
+        bg: { x: (b.x - 2) / d.w, y: (b.y - 2) / d.h, w: (b.w + 5) / d.w, h: (b.h + 4) / d.h } };
       setElements(es => [...es, el]);
-      // Stay in Edit-text mode (Acrobat-style): commit this line, click the next.
+      // Stay in Edit-text mode (Acrobat-style): commit this block, click the next.
       setSelectedId(el.id); setEditingId(el.id);
       return;
     }
@@ -691,12 +749,12 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
               const r = mapRect(el.bg.x * Wd, el.bg.y * Hd, el.bg.w * Wd, el.bg.h * Hd);
               page.drawRectangle({ x: r.x, y: r.y, width: r.w, height: r.h, color: rgb(1, 1, 1) });
             }
-            const fs = el.fontSize;
+            const fs = el.fontSize, lh = el.lh || 1.25;
             const font = await getFont(el);
             const er = rotN(el.rot); // element spin from page rotations after placement
-            textLines(el).forEach((line, i) => {
+            layoutLines(el).forEach((line, i) => {
               const txt = winAnsi(line); if (!txt.trim()) return;
-              const off = rotOff(0, fs * 0.8 + i * fs * 1.25, er);
+              const off = rotOff(0, fs * 0.8 + i * fs * lh, er);
               const p = mapPt(el.x * Wd + off.x, el.y * Hd + off.y);
               page.drawText(txt, { x: p.x, y: p.y, size: fs, font, color: col, rotate: degrees(R - er) });
             });
@@ -815,7 +873,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
         // the textarea takes over while typing — keep only the white cover
         return el.bg ? <rect key={el.id} x={el.bg.x * W} y={el.bg.y * H} width={el.bg.w * W} height={el.bg.h * H} fill="#fff" pointerEvents="none" /> : null;
       }
-      const fs = el.fontSize, lines = textLines(el), bb = bboxOf(el, W, H);
+      const fs = el.fontSize, lines = layoutLines(el), bb = bboxOf(el, W, H);
       return (
         <g key={el.id} {...common} onDoubleClick={(e) => { e.stopPropagation(); startTextEdit(el); }}>
           {el.bg && <rect x={el.bg.x * W} y={el.bg.y * H} width={el.bg.w * W} height={el.bg.h * H} fill="#fff" />}
@@ -824,7 +882,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
           <text x={el.x * W} y={el.y * H + fs * 0.8} fontSize={fs} fill={el.color}
             fontFamily={famOf(el)} fontWeight={el.bold ? 700 : 400} fontStyle={el.italic ? 'italic' : 'normal'}
             style={{ userSelect: 'none', whiteSpace: 'pre' }}>
-            {lines.map((ln, i) => <tspan key={i} x={el.x * W} dy={i === 0 ? 0 : fs * 1.25}>{ln || ' '}</tspan>)}
+            {lines.map((ln, i) => <tspan key={i} x={el.x * W} dy={i === 0 ? 0 : fs * (el.lh || 1.25)}>{ln || ' '}</tspan>)}
           </text>
           </g>
         </g>
@@ -846,6 +904,11 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
           <rect x={el.x * W + el.w * W - 5} y={el.y * H + el.h * H - 5} width={10} height={10} rx={2}
             fill="#fff" stroke={SEL} strokeWidth={1.5} style={{ cursor: 'nwse-resize' }}
             onPointerDown={(e) => startDrag(e, el, 'resize')} />
+        )}
+        {el.type === 'text' && el.blockW && (
+          <rect x={el.x * W + el.blockW - 5} y={bb.y + bb.h - 5} width={10} height={10} rx={2}
+            fill="#fff" stroke={SEL} strokeWidth={1.5} style={{ cursor: 'ew-resize' }}
+            onPointerDown={(e) => startDrag(e, el, 'blockw')} />
         )}
         {el.x1 !== undefined && (['p1', 'p2']).map(m => (
           <circle key={m} cx={(m === 'p1' ? el.x1 : el.x2) * W} cy={(m === 'p1' ? el.y1 : el.y2) * H} r={6}
@@ -1041,29 +1104,32 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
                         </g>
                         {draft && draft.pageId === pg.id && renderDraft(draft, d.w, d.h)}
                         {editingEl && (() => {
-                          // WYSIWYG editing: no wrapping (lines break only on Enter,
-                          // exactly like the baked output), width from real text
-                          // measurement, and the box offset so the first line sits on
-                          // the same baseline the committed text will use.
-                          const fs = editingEl.fontSize;
-                          const lines = textLines(editingEl);
-                          const wMax = Math.max(40, ...lines.map(l => measureW(editingEl, l)));
-                          const foW = wMax + Math.max(50, wMax * 0.25) + 9;
-                          const foH = lines.length * fs * 1.25 + 10;
+                          // WYSIWYG editing. Paragraph blocks (blockW) get a
+                          // WRAPPING editor at the block's width and line pitch;
+                          // plain text boxes stay no-wrap (Enter breaks lines,
+                          // exactly like the baked output). Offset so the first
+                          // line sits on the committed baseline.
+                          const fs = editingEl.fontSize, lh = editingEl.lh || 1.25;
+                          const block = !!editingEl.blockW;
+                          const lines = layoutLines(editingEl);
+                          const wMax = block ? editingEl.blockW
+                            : Math.max(40, ...lines.map(l => measureW(editingEl, l)));
+                          const foW = block ? wMax + 12 : wMax + Math.max(50, wMax * 0.25) + 9;
+                          const foH = (lines.length + (block ? 1 : 0)) * fs * lh + 10;
                           const er = rotN(editingEl.rot);
                           return (
                             <foreignObject x={editingEl.x * d.w - 4.5} y={editingEl.y * d.h - fs * 0.125 - 4.5} width={foW} height={foH}
                               transform={er ? `rotate(${er} ${editingEl.x * d.w} ${editingEl.y * d.h})` : undefined}>
-                              <textarea autoFocus value={editingEl.text} wrap="off" spellCheck={false}
+                              <textarea autoFocus value={editingEl.text} wrap={block ? 'soft' : 'off'} spellCheck={false}
                                 onChange={e => setElements(es => es.map(x => x.id === editingEl.id ? { ...x, text: e.target.value } : x))}
                                 onBlur={commitTextEdit}
                                 onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); e.currentTarget.blur(); } }}
                                 onPointerDown={e => e.stopPropagation()}
                                 placeholder="Type here…"
-                                style={{ width: '100%', height: '100%', fontSize: fs, lineHeight: 1.25, fontFamily: famOf(editingEl),
+                                style={{ width: '100%', height: '100%', fontSize: fs, lineHeight: lh, fontFamily: famOf(editingEl),
                                   fontWeight: editingEl.bold ? 700 : 400, fontStyle: editingEl.italic ? 'italic' : 'normal',
-                                  color: editingEl.color, background: editingEl.bg ? 'transparent' : 'rgba(255,255,255,0.75)',
-                                  border: `1.5px dashed ${SEL}`, borderRadius: 3, whiteSpace: 'pre',
+                                  color: editingEl.color, background: editingEl.bg ? 'rgba(255,255,255,0.97)' : 'rgba(255,255,255,0.75)',
+                                  border: `1.5px dashed ${SEL}`, borderRadius: 3, whiteSpace: block ? 'pre-wrap' : 'pre',
                                   outline: 'none', resize: 'none', padding: '3px 3px', boxSizing: 'border-box', overflow: 'hidden' }} />
                             </foreignObject>
                           );
