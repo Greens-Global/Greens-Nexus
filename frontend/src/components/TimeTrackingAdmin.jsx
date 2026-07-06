@@ -33,10 +33,13 @@ const winScript = (url, token) => [
   "$ErrorActionPreference='Stop'",
   '$p="$env:TEMP\\GNAgent.exe"',
   `Invoke-WebRequest -Uri '${q(url)}' -OutFile $p`,
-  // Stop any running agent first, else the installer can't replace its locked
-  // files ("Failed to uninstall old application files").
+  // Stop any running agent, then cleanly uninstall the old build first — else the
+  // installer fails with "Failed to uninstall old application files" on locked
+  // or leftover files.
   'Get-Process -Name "Greens Nexus Agent" -ErrorAction SilentlyContinue | Stop-Process -Force',
   'Start-Sleep -Milliseconds 800',
+  '$u = Get-ChildItem "$env:LOCALAPPDATA\\Programs" -Recurse -Filter "Uninstall Greens Nexus Agent.exe" -ErrorAction SilentlyContinue | Select-Object -First 1',
+  'if ($u) { Start-Process -Wait $u.FullName -ArgumentList "/S"; Start-Sleep -Milliseconds 800 }',
   "Start-Process -Wait $p -ArgumentList '/S'",
   // Machine-wide token (ProgramData) so the agent finds it whatever user it runs as
   '$d="$env:ProgramData\\Greens Nexus Agent"',
