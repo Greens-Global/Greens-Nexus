@@ -1241,11 +1241,32 @@ def agent_download_url(platform: str = "win", user: dict = Depends(require_admin
     return {"platform": platform, "exists": bool(url), "url": url, "ttlDays": _AGENT_LINK_TTL // 86400}
 
 
+@router.get("/agent/upload-url")
+def agent_upload_url(platform: str = "win", user: dict = Depends(require_administrator)):
+    """A one-time signed URL the browser PUTs the installer straight to (Supabase
+    Storage), so the big file never streams through this API — no request timeout,
+    no double hop. The client uploads with header x-upsert: true."""
+    key = _AGENT_KEYS.get(platform)
+    if not key:
+        raise HTTPException(400, "platform must be win, mac or linux")
+    try:
+        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/upload/sign/{_AGENT_BUCKET}/{key}",
+                       headers=_storage_headers(), timeout=20)
+        if not r.is_success:
+            raise HTTPException(502, f"Could not create upload URL: {r.text[:200]}")
+        signed = r.json().get("url", "")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"Could not create upload URL: {str(e)[:200]}")
+    return {"platform": platform, "uploadUrl": f"{_SUPABASE_URL}/storage/v1{signed}", "key": key}
+
+
 @router.post("/agent/upload")
 def agent_upload(platform: str = Form("win"), file: UploadFile = File(...),
                  user: dict = Depends(require_administrator)):
-    """Upload (or replace) a signed installer for a platform, straight from the
-    Time Tracking portal — no Supabase dashboard needed."""
+    """Legacy: upload through the API (kept for small files / fallback). Prefer
+    /agent/upload-url for large installers."""
     key = _AGENT_KEYS.get(platform)
     if not key:
         raise HTTPException(400, "platform must be win, mac or linux")

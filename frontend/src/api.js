@@ -492,6 +492,7 @@ export const api = {
   timeBodLast:       ()          => req('/timeclock/bod/last'),
   timeAgentDownloadUrl: (platform) => req(`/timeclock/agent/download-url?platform=${encodeURIComponent(platform)}`),
   timeAgentUpload:   (platform, formData) => req(`/timeclock/agent/upload?platform=${encodeURIComponent(platform)}`, { method: 'POST', body: formData, timeoutMs: 30 * 60_000 }),
+  timeAgentUploadUrl:(platform) => req(`/timeclock/agent/upload-url?platform=${encodeURIComponent(platform)}`),
   timeAgentEnroll:   (data)      => req('/timeclock/agent/enroll', { method: 'POST', body: JSON.stringify(data) }),
   timeAgentDevices:  ()          => req('/timeclock/agent/devices'),
   timeAgentRevoke:   (id)        => req(`/timeclock/agent/devices/${id}`, { method: 'PATCH' }),

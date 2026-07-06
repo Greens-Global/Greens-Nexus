@@ -119,12 +119,27 @@ export default function TimeTrackingAdmin() {
     e.target.value = '';
     if (!f || uploading) return;
     setUploading(true);
-    setUploadMsg(null);
+    setUploadMsg({ ok: true, text: 'Preparing upload…' });
     try {
-      const form = new FormData();
-      form.append('file', f, f.name);
-      const r = await api.timeAgentUpload(plat, form);
-      setUploadMsg({ ok: true, text: `Uploaded ${f.name} (${r.sizeMb} MB). Download link is live.` });
+      // Get a one-time signed URL and PUT the file STRAIGHT to Supabase Storage
+      // (never through our API) via XHR — no request timeout, real progress.
+      const { uploadUrl } = await api.timeAgentUploadUrl(plat);
+      const mb = (f.size / 1_000_000).toFixed(1);
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', uploadUrl);
+        xhr.setRequestHeader('x-upsert', 'true');
+        xhr.setRequestHeader('Content-Type', f.type || 'application/octet-stream');
+        xhr.upload.onprogress = (ev) => {
+          if (ev.lengthComputable) setUploadMsg({ ok: true, text: `Uploading ${mb} MB — ${Math.round((ev.loaded / ev.total) * 100)}%` });
+        };
+        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300)
+          ? resolve()
+          : reject(new Error(`Upload failed (${xhr.status})${xhr.responseText ? `: ${xhr.responseText.slice(0, 150)}` : ''}`));
+        xhr.onerror = () => reject(new Error('Network error during upload'));
+        xhr.send(f);
+      });
+      setUploadMsg({ ok: true, text: `Uploaded ${f.name} (${mb} MB). Download link is live.` });
       loadUrl(plat);
     } catch (err) {
       setUploadMsg({ ok: false, text: err?.message || 'Upload failed.' });
