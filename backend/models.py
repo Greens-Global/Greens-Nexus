@@ -1020,12 +1020,13 @@ class TimeApproval(Base):
 
 
 class TimeBod(Base):
-    """Beginning-of-day message: on the first punch-in of a day the employee
-    posts their plan to a Teams channel (sent client-side AS THE USER via
-    delegated Graph); this row is the recorded copy."""
+    """Beginning/End-of-day message: on the first punch-in (bod) or a punch-out
+    (eod) the employee posts to a Teams channel (sent client-side AS THE USER
+    via delegated Graph); this row is the recorded copy."""
     __tablename__ = "time_bod"
     id             = Column(String, primary_key=True)   # uuid
     employee_email = Column(String, nullable=False, index=True)
+    kind           = Column(String, default="bod")      # bod | eod
     local_date     = Column(String, default="")
     message        = Column(String, default="")
     tasks          = Column(String, default="")

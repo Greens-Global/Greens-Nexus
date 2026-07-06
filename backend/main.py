@@ -62,6 +62,7 @@ def _run_migrations():
             # E-Sign: Egnyte folder for a copy of the sealed PDF
             "ALTER TABLE hr_sign_templates ADD COLUMN egnyte_folder VARCHAR DEFAULT ''",
             "ALTER TABLE hr_sign_requests ADD COLUMN egnyte_folder VARCHAR DEFAULT ''",
+            "ALTER TABLE time_bod ADD COLUMN kind VARCHAR DEFAULT 'bod'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -185,6 +186,7 @@ def _run_migrations():
         # E-Sign: Egnyte folder for a copy of the sealed PDF
         "ALTER TABLE hr_sign_templates ADD COLUMN IF NOT EXISTS egnyte_folder TEXT DEFAULT ''",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS egnyte_folder TEXT DEFAULT ''",
+        "ALTER TABLE time_bod ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'bod'",
     ]
     with engine.connect() as conn:
         for sql in migrations:

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Clock, LogOut, MonitorUp, MonitorX, Loader2 } from 'lucide-react';
 import { api } from '../api';
+import BodModal from './BodModal';
 
 // ── Global mini-timer — lives on EVERY screen while clocked in ────────────────
 // A floating pill with a live HH:MM:SS stopwatch, a quick punch-out, and the
@@ -21,6 +22,7 @@ export default function TimeclockWidget() {
   const [status, setStatus] = useState(null);
   const [capturing, setCapturing] = useState(0);   // number of screens being captured
   const [busy, setBusy] = useState(false);
+  const [eodOpen, setEodOpen] = useState(false);   // end-of-day message after punch-out
   const [, setTick] = useState(0);
   const streamsRef = useRef([]);                   // one MediaStream per shared screen
   const videoRef = useRef(null);
@@ -121,14 +123,19 @@ export default function TimeclockWidget() {
     if (busy) return;
     setBusy(true);
     try {
-      await api.timePunch({ kind: 'out', tz_offset_min: new Date().getTimezoneOffset() });
+      const r = await api.timePunch({ kind: 'out', tz_offset_min: new Date().getTimezoneOffset() });
       stopCapture();
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
+      if (r?.promptEod) setEodOpen(true); // offer the end-of-day message
     } catch { /* the Time Clock page shows details */ }
     setBusy(false);
   }
 
-  if (!clockedIn) return null;
+  // Keep rendering while the EOD modal is up, even though the shift just ended.
+  if (!clockedIn) {
+    return eodOpen ? <BodModal mode="eod" onClose={() => setEodOpen(false)}
+      toastOk={() => {}} toastErr={() => {}} /> : null;
+  }
 
   return (
     <div style={{ position: 'fixed', bottom: 18, right: 18, zIndex: 1190, display: 'flex', alignItems: 'center', gap: 8,

@@ -76,7 +76,7 @@ export default function TimeClock() {
   const [msg, setMsg] = useState(null);        // {ok, text}
   const [missedOpen, setMissedOpen] = useState(false);
   const [openDays, setOpenDays] = useState({});   // expanded timesheet days
-  const [bodOpen, setBodOpen] = useState(false);  // beginning-of-day Teams message
+  const [bodMode, setBodMode] = useState(null);   // 'bod' | 'eod' | null — day-message modal
   const [missed, setMissed] = useState({ kind: 'out', at: '', note: '' });
   const [, setTick] = useState(0);             // re-render for the live timer
   const msgTimer = useRef(null);
@@ -129,7 +129,8 @@ export default function TimeClock() {
         : pos ? '' : ' — location unavailable, recorded without it';
       toast(true, `${KIND_META[kind].label} at ${localTime(p.at)}${where}.`);
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed')); // sync the global mini-timer
-      if (r.firstInToday) setBodOpen(true); // first punch-in today → beginning-of-day message
+      if (r.firstInToday) setBodMode('bod');  // first punch-in today → beginning-of-day message
+      else if (r.promptEod) setBodMode('eod'); // punch-out → end-of-day message
       load();
     } catch (e) { toast(false, e?.message || 'Punch failed.'); }
     setBusy('');
@@ -410,7 +411,7 @@ export default function TimeClock() {
       </div>
       </>)}
 
-      {bodOpen && <BodModal onClose={() => setBodOpen(false)}
+      {bodMode && <BodModal mode={bodMode} onClose={() => setBodMode(null)}
         toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />}
     </div>
   );

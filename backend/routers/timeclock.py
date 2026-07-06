@@ -278,21 +278,27 @@ def punch(body: PunchIn, request: Request,
                        f"{emp.first_name} {emp.last_name} punched in {geo['distance_m']}m from "
                        f"{geo['work_site_name'] or 'the nearest site'} — flagged for review.",
                        ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
-    # First punch-in of the day → the client offers the Beginning-of-day
-    # Teams message (skipped automatically if one was already recorded).
+    # First punch-in → offer the Beginning-of-day message; punch-out → offer the
+    # End-of-day message (each skipped automatically once recorded that day).
     first_in_today = False
+    prompt_eod = False
     if body.kind == "in":
         prior_in = (db.query(TimePunch)
                     .filter(TimePunch.employee_email == email, TimePunch.kind == "in",
                             TimePunch.local_date == row.local_date,
                             TimePunch.id != row.id, TimePunch.voided == 0).first())
         bod_done = (db.query(TimeBod)
-                    .filter(TimeBod.employee_email == email,
+                    .filter(TimeBod.employee_email == email, TimeBod.kind == "bod",
                             TimeBod.local_date == row.local_date).first())
         first_in_today = prior_in is None and bod_done is None
+    elif body.kind == "out":
+        eod_done = (db.query(TimeBod)
+                    .filter(TimeBod.employee_email == email, TimeBod.kind == "eod",
+                            TimeBod.local_date == row.local_date).first())
+        prompt_eod = eod_done is None
     db.commit()
     return {"punch": _serialize(row), "allowed": _allowed_kinds(body.kind),
-            "firstInToday": first_in_today}
+            "firstInToday": first_in_today, "promptEod": prompt_eod}
 
 
 class SelfPunchIn(BaseModel):
@@ -621,6 +627,7 @@ def list_screenshots(date: str = "", email: str = "",
 # ── Beginning-of-day message (recorded copy; Teams post happens client-side) ─
 
 class BodIn(BaseModel):
+    kind: Optional[str] = "bod"      # bod | eod
     message: str
     tasks: Optional[str] = ""
     team_id: Optional[str] = ""
@@ -636,6 +643,7 @@ class BodIn(BaseModel):
 def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     now = _now_iso()
     row = TimeBod(id=str(uuid.uuid4()), employee_email=user["email"],
+                  kind="eod" if body.kind == "eod" else "bod",
                   local_date=_local_date(now, body.tz_offset_min or 0),
                   message=(body.message or "").strip()[:1000],
                   tasks=(body.tasks or "").strip()[:2000],

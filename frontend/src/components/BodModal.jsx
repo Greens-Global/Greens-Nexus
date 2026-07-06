@@ -1,13 +1,32 @@
 import { useState, useEffect } from 'react';
-import { Sunrise, X, Send, Loader2 } from 'lucide-react';
+import { Sunrise, Sunset, X, Send, Loader2 } from 'lucide-react';
 import { msalInstance } from '../msalInstance';
 import { api } from '../api';
 
-// ── Beginning-of-day message ──────────────────────────────────────────────────
-// Shown on the FIRST punch-in of the day: the employee writes their plan and
-// today's tasks, picks a Teams channel, and the message posts to that channel
-// FROM THEIR OWN ACCOUNT (delegated Graph — the browser asks for consent the
-// first time). A copy is recorded in Nexus either way.
+// ── Beginning / End-of-day message ────────────────────────────────────────────
+// BOD shows on the FIRST punch-in (plan + today's tasks); EOD shows on punch-out
+// (summary + what got done / blockers). Either way the employee picks a Teams
+// channel and the message posts to it FROM THEIR OWN ACCOUNT (delegated Graph —
+// the browser asks for consent the first time). A copy is recorded in Nexus.
+
+const MODES = {
+  bod: {
+    title: 'Beginning of day', Icon: Sunrise, color: '#f59e0b', emoji: '🌅',
+    sub: "First punch-in today — tell the team what's on your plate. Sent from your account.",
+    msgLabel: 'Message', msgPlaceholder: 'Good morning! Starting my day…',
+    tasksLabel: "Today's tasks (one per line)", tasksHead: "Today's tasks",
+    tasksPlaceholder: 'Finish the Lakeline report\nCall the Riverside vendor',
+    cta: 'Send & start the day',
+  },
+  eod: {
+    title: 'End of day', Icon: Sunset, color: '#7c3aed', emoji: '🌇',
+    sub: "Wrapping up — post a quick summary of your day. Sent from your account.",
+    msgLabel: 'Summary', msgPlaceholder: 'Wrapping up for the day — good progress overall.',
+    tasksLabel: 'What got done / blockers (one per line)', tasksHead: 'Today',
+    tasksPlaceholder: 'Shipped the Lakeline report\nBlocked on Riverside vendor callback',
+    cta: 'Send & clock out',
+  },
+};
 
 const GRAPH_SCOPES = ['Team.ReadBasic.All', 'Channel.ReadBasic.All', 'ChannelMessage.Send'];
 const GRAPH = 'https://graph.microsoft.com/v1.0';
@@ -25,7 +44,8 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 
 const FL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.05em', textTransform: 'uppercase', display: 'block', marginBottom: 5 };
 
-export default function BodModal({ onClose, toastOk, toastErr }) {
+export default function BodModal({ mode = 'bod', onClose, toastOk, toastErr }) {
+  const M = MODES[mode] || MODES.bod;
   const [message, setMessage] = useState('');
   const [tasks, setTasks] = useState('');
   const [teams, setTeams] = useState(null);       // null = loading Graph
@@ -76,7 +96,7 @@ export default function BodModal({ onClose, toastOk, toastErr }) {
 
   async function send() {
     if (busy) return;
-    if (!message.trim()) { toastErr('Write a short beginning-of-day message.'); return; }
+    if (!message.trim()) { toastErr(`Write a short ${M.title.toLowerCase()} message.`); return; }
     setBusy(true);
     const team = teams?.find(t => t.id === teamId);
     const channel = channels.find(c => c.id === channelId);
@@ -85,8 +105,8 @@ export default function BodModal({ onClose, toastOk, toastErr }) {
       try {
         const tok = await graphToken();
         const taskLines = tasks.split('\n').map(t => t.trim()).filter(Boolean);
-        const html = `<b>🌅 Beginning of day</b><br/>${esc(message)}`
-          + (taskLines.length ? `<br/><br/><b>Today's tasks</b><br/>${taskLines.map(t => `• ${esc(t)}`).join('<br/>')}` : '');
+        const html = `<b>${M.emoji} ${M.title}</b><br/>${esc(message)}`
+          + (taskLines.length ? `<br/><br/><b>${M.tasksHead}</b><br/>${taskLines.map(t => `• ${esc(t)}`).join('<br/>')}` : '');
         const r = await fetch(`${GRAPH}/teams/${teamId}/channels/${channelId}/messages`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
@@ -98,7 +118,7 @@ export default function BodModal({ onClose, toastOk, toastErr }) {
     } else sendError = 'No channel selected';
     try {
       await api.timeBodRecord({
-        message, tasks, team_id: teamId, team_name: team?.displayName || '',
+        kind: mode, message, tasks, team_id: teamId, team_name: team?.displayName || '',
         channel_id: channelId, channel_name: channel?.displayName || '',
         sent, send_error: sent ? '' : sendError,
         tz_offset_min: new Date().getTimezoneOffset(),
@@ -115,24 +135,24 @@ export default function BodModal({ onClose, toastOk, toastErr }) {
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 520, boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '15px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Sunrise size={17} style={{ color: '#f59e0b' }} />
+          <M.Icon size={17} style={{ color: M.color }} />
           <div style={{ flex: 1 }}>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>Beginning of day</h3>
-            <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)' }}>First punch-in today — tell the team what's on your plate. Sent from your account.</p>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>{M.title}</h3>
+            <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)' }}>{M.sub}</p>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
 
         <div style={{ padding: '16px 22px', display: 'grid', gap: 12 }}>
           <div>
-            <label style={FL}>Message</label>
+            <label style={FL}>{M.msgLabel}</label>
             <textarea className="form-input" rows={2} value={message} onChange={e => setMessage(e.target.value)}
-              placeholder="Good morning! Starting my day…" style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} />
+              placeholder={M.msgPlaceholder} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} />
           </div>
           <div>
-            <label style={FL}>Today's tasks (one per line)</label>
+            <label style={FL}>{M.tasksLabel}</label>
             <textarea className="form-input" rows={4} value={tasks} onChange={e => setTasks(e.target.value)}
-              placeholder={'Finish the Lakeline report\nCall the Riverside vendor'} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} />
+              placeholder={M.tasksPlaceholder} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
@@ -160,10 +180,10 @@ export default function BodModal({ onClose, toastOk, toastErr }) {
         </div>
 
         <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button className="secondary-btn" onClick={onClose}>Skip today</button>
+          <button className="secondary-btn" onClick={onClose}>Skip</button>
           <button className="primary-btn" onClick={send} disabled={busy}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={13} />} Send &amp; start the day
+            {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={13} />} {M.cta}
           </button>
         </div>
       </div>
