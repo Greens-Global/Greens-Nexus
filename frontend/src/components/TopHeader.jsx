@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, ChevronDown, LayoutDashboard, Maximize2, Minimize2, ZoomIn, ZoomOut, Camera } from "lucide-react";
+import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, ChevronDown, LayoutDashboard, Maximize2, Minimize2, ZoomIn, ZoomOut, Camera, Clock } from "lucide-react";
 import ScreenshotsAdmin from "./ScreenshotsAdmin";
 import NotificationBell from "./NotificationBell";
 import PageHelp from "./PageHelp";
@@ -265,6 +265,10 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
                   <button className="hud-item" onClick={() => { setOpen(false); setShotsOpen(true); }}
                     style={{ color: 'hsl(var(--color-purple))' }}>
                     <Camera size={14} /> Screenshots
+                  </button>
+                  <button className="hud-item" onClick={() => { setOpen(false); onOpenAdmin?.('timetracking'); }}
+                    style={{ color: 'hsl(var(--color-purple))' }}>
+                    <Clock size={14} /> Time Tracking
                   </button>
                 </>
               )}

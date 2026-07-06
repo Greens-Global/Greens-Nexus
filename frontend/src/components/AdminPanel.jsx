@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Shield, Activity, Search, RefreshCw, ChevronDown, Users } from 'lucide-react';
+import { X, Shield, Activity, Search, RefreshCw, ChevronDown, Users, Clock } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import { useNameResolver } from '../lib/useNameResolver';
 import Admin from '../views/Admin';
+import TimeTrackingAdmin from './TimeTrackingAdmin';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -263,6 +264,7 @@ export default function AdminPanel({ open, initialTab = 'access', onClose }) {
   const tabs = [
     { id: 'access', icon: <Users size={14} />,    label: 'Access Manager' },
     { id: 'audit',  icon: <Activity size={14} />, label: 'Audit Logs' },
+    { id: 'timetracking', icon: <Clock size={14} />, label: 'Time Tracking' },
   ];
 
   return (
@@ -340,6 +342,7 @@ export default function AdminPanel({ open, initialTab = 'access', onClose }) {
         <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
           {tab === 'access' && <Admin />}
           {tab === 'audit'  && <AuditLogs />}
+          {tab === 'timetracking' && <TimeTrackingAdmin />}
         </div>
       </div>
     </>
