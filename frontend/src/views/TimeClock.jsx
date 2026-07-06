@@ -49,6 +49,11 @@ function GeoChip({ p }) {
       title="Recorded and flagged for review — this never blocks your punch.">
       <AlertTriangle size={12} /> {p.distanceM}m from {p.workSiteName || 'nearest site'} — flagged
     </span>);
+  if (p.geoStatus === 'low_accuracy') return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}
+      title="This device gave only a rough Wi-Fi/IP location (no GPS) — too coarse to judge the geofence. Punch from a phone for a precise fix.">
+      <MapPinOff size={12} /> approx. location (±{p.accuracyM >= 1000 ? `${(p.accuracyM / 1000).toFixed(1)}km` : `${p.accuracyM}m`})
+    </span>);
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}>
       <MapPinOff size={12} /> no location
@@ -56,6 +61,7 @@ function GeoChip({ p }) {
 }
 
 export default function TimeClock() {
+  const [tab, setTab] = useState('clock');     // clock | timesheet | timeoff
   const [status, setStatus] = useState(null);
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState(null);        // {ok, text}
@@ -108,6 +114,7 @@ export default function TimeClock() {
       const p = r.punch;
       const where = p.geoStatus === 'in_fence' ? ` at ${p.workSiteName}`
         : p.geoStatus === 'out_of_fence' ? ` — ${p.distanceM}m from ${p.workSiteName || 'the nearest site'}, flagged for review`
+        : p.geoStatus === 'low_accuracy' ? ' — location too approximate to judge (no GPS on this device)'
         : pos ? '' : ' — location unavailable, recorded without it';
       toast(true, `${KIND_META[kind].label} at ${localTime(p.at)}${where}.`);
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed')); // sync the global mini-timer
@@ -137,14 +144,23 @@ export default function TimeClock() {
 
   return (
     <div style={{ maxWidth: 860, margin: '0 auto', padding: '26px 18px', fontFamily: 'Inter,sans-serif' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
         <Clock size={20} style={{ color: 'var(--pine)' }} />
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>Time Clock</h1>
       </div>
-      <p style={{ margin: '0 0 18px', fontSize: 12.5, color: 'var(--muted)' }}>
-        Your location is captured only at the moment you punch, to confirm you're at a work site.
-        If location is off or you're away from a site, the punch still counts — it's simply flagged for review.
-      </p>
+
+      {/* Tabs — one job per screen (the everything-in-one page read as clutter) */}
+      <div className="chip-row scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
+        {[['clock', 'Clock'], ['timesheet', 'Timesheet'], ['timeoff', 'Time off']].map(([key, label]) => (
+          <button key={key} onClick={() => setTab(key)}
+            style={{ padding: '7px 16px', borderRadius: 10, border: `1px solid ${tab === key ? 'var(--pine)' : 'var(--line)'}`,
+              background: tab === key ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
+              color: tab === key ? 'hsl(var(--color-green))' : 'var(--muted)',
+              fontWeight: tab === key ? 700 : 600, fontSize: 13, cursor: 'pointer', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap', flexShrink: 0 }}>
+            {label}
+          </button>
+        ))}
+      </div>
 
       {msg && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 10, marginBottom: 14,
@@ -155,6 +171,7 @@ export default function TimeClock() {
       )}
 
       {/* Punch card */}
+      {tab === 'clock' && (<>
       <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '26px 28px', marginBottom: 18, boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
         {!status ? (
           <div style={{ textAlign: 'center', color: 'var(--muted)', padding: 20 }}>
@@ -196,7 +213,14 @@ export default function TimeClock() {
         )}
       </div>
 
-      {/* This week */}
+      <p style={{ margin: '0 0 18px', fontSize: 12, color: 'var(--muted)' }}>
+        Your location is captured only at the moment you punch, to confirm you're at a work site.
+        If location is off or you're away from a site, the punch still counts — it's simply flagged for review.
+      </p>
+      </>)}
+
+      {/* Timesheet */}
+      {tab === 'timesheet' && (<>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 8px' }}>
         <CalendarDays size={15} style={{ color: 'var(--pine)' }} />
         <span style={{ fontSize: 13.5, fontWeight: 800 }}>Last 7 days</span>
@@ -268,9 +292,11 @@ export default function TimeClock() {
           );
         })}
       </div>
+      </>)}
 
       {/* Time off */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '22px 0 8px' }}>
+      {tab === 'timeoff' && (<>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 8px' }}>
         <CalendarDays size={15} style={{ color: 'var(--pine)' }} />
         <span style={{ fontSize: 13.5, fontWeight: 800 }}>Time off</span>
       </div>
@@ -309,6 +335,7 @@ export default function TimeClock() {
           </div>
         ))}
       </div>
+      </>)}
     </div>
   );
 }

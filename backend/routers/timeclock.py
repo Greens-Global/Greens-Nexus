@@ -90,13 +90,17 @@ def _geofence(db: Session, lat, lng, accuracy_m: int) -> dict:
         return {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
     d, site = best
     radius = max(25, int(site.radius_m or 150))
-    effective = max(0.0, d - max(0, int(accuracy_m or 0)))  # accuracy credit
-    return {
-        "geo_status": "in_fence" if effective <= radius else "out_of_fence",
-        "work_site_id": site.id,
-        "work_site_name": site.name or "",
-        "distance_m": int(round(d)),
-    }
+    acc = max(0, int(accuracy_m or 0))
+    base = {"work_site_id": site.id, "work_site_name": site.name or "", "distance_m": int(round(d))}
+    # Desktops have no GPS: browsers triangulate from Wi-Fi/IP and can be
+    # kilometres off with a huge reported accuracy. Crediting that in full
+    # would let a coarse fix "pass" any fence, so the credit is capped at
+    # 150 m, and past ±500 m the fix can't be judged at all → low_accuracy
+    # (recorded, neutral — phones give GPS fixes and judge normally).
+    if acc > 500:
+        return {**base, "geo_status": "low_accuracy"}
+    effective = max(0.0, d - min(acc, 150))
+    return {**base, "geo_status": "in_fence" if effective <= radius else "out_of_fence"}
 
 
 def _allowed_kinds(last_kind: Optional[str]) -> list:

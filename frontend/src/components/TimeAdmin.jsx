@@ -32,6 +32,7 @@ function weekRange(offset = 0) {
 const FL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.05em', textTransform: 'uppercase' };
 
 export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
+  const [view, setView] = useState('timecards');   // timecards | timeoff
   const [[start, end], setRange] = useState(() => weekRange(0));
   const [rows, setRows] = useState(null);
   const [open, setOpen] = useState({});          // email -> bool
@@ -100,9 +101,38 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
   }
 
   const totalMin = (rows || []).reduce((a, r) => a + r.workedMin, 0);
+  const totalFlags = (rows || []).reduce((a, r) => a + r.flagCount, 0);
+  const pendingCount = timeoff.filter(r => r.status === 'pending').length;
 
   return (
     <div style={{ fontFamily: 'Inter,sans-serif' }}>
+      {/* KPI strip — the at-a-glance row (TrackingTime-style status header) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
+        {[['Team hours', fmtMin(totalMin), 'var(--pine)'],
+          ['People tracked', String((rows || []).length), 'var(--ink)'],
+          ['Punch flags', String(totalFlags), totalFlags ? '#b45309' : 'var(--muted)'],
+          ['Time off pending', String(pendingCount), pendingCount ? '#b45309' : 'var(--muted)']].map(([label, value, color]) => (
+          <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 16px' }}>
+            <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>{label}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color, marginTop: 2 }}>{value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Sub-tabs: timecards vs time-off register */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {[['timecards', 'Timecards'], ['timeoff', `Time off${pendingCount ? ` (${pendingCount})` : ''}`]].map(([key, label]) => (
+          <button key={key} onClick={() => setView(key)}
+            style={{ padding: '6px 15px', borderRadius: 10, border: `1px solid ${view === key ? 'var(--pine)' : 'var(--line)'}`,
+              background: view === key ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
+              color: view === key ? 'hsl(var(--color-green))' : 'var(--muted)',
+              fontWeight: view === key ? 700 : 600, fontSize: 12.5, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'timecards' && (<>
       {/* Range + export bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         {[['This week', 0], ['Last week', -1]].map(([l, off]) => {
@@ -125,28 +155,6 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           <Download size={12} /> All punches CSV
         </button>
       </div>
-
-      {/* Time-off requests — pending first, decisions notify the employee */}
-      {timeoff.filter(r => r.status === 'pending').length > 0 && (
-        <div style={{ background: 'var(--card)', border: '1.5px solid #f6c78e', borderRadius: 12, marginBottom: 14, overflow: 'hidden' }}>
-          <div style={{ padding: '9px 14px', fontSize: 11.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: '#b45309', borderBottom: '1px solid var(--line)' }}>
-            Time-off requests pending approval
-          </div>
-          {timeoff.filter(r => r.status === 'pending').map(r => (
-            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12.5, fontWeight: 800, width: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || r.email}</span>
-              <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'capitalize' }}>{r.type}</span>
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>{r.startDate} → {r.endDate}</span>
-              {r.note && <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>“{r.note}”</span>}
-              <div style={{ flex: 1 }} />
-              <button className="secondary-btn" onClick={() => decideTimeoff(r.id, 'rejected')}
-                style={{ fontSize: 11.5, color: '#b91c1c' }}>Reject</button>
-              <button className="primary-btn" onClick={() => decideTimeoff(r.id, 'approved')}
-                style={{ fontSize: 11.5 }}>Approve</button>
-            </div>
-          ))}
-        </div>
-      )}
 
       {rows === null && <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>}
       {rows !== null && rows.length === 0 && (
@@ -193,7 +201,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                           {p.lat && (
                             <a href={`https://www.google.com/maps?q=${p.lat},${p.lng}`} target="_blank" rel="noopener noreferrer"
                               title={`${p.geoStatus === 'in_fence' ? `At ${p.workSiteName}` : `${p.distanceM}m from ${p.workSiteName || 'nearest site'}`} (±${p.accuracyM}m)`}
-                              style={{ display: 'inline-flex', color: p.geoStatus === 'out_of_fence' ? '#b45309' : 'hsl(var(--color-green))' }}>
+                              style={{ display: 'inline-flex', color: p.geoStatus === 'out_of_fence' ? '#b45309' : p.geoStatus === 'in_fence' ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
                               <MapPin size={11} />
                             </a>
                           )}
@@ -216,6 +224,42 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           )}
         </div>
       ))}
+      </>)}
+
+      {/* Time-off register — requests table, pending rows carry the decisions */}
+      {view === 'timeoff' && (
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, padding: '9px 14px', borderBottom: '1px solid var(--line)', fontSize: 10.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+            <span>Requested by</span><span>Type</span><span>Period</span><span>Days</span><span>Approver</span><span style={{ textAlign: 'right' }}>Status</span>
+          </div>
+          {timeoff.length === 0 && (
+            <div style={{ padding: '20px 16px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>No time-off requests yet.</div>
+          )}
+          {timeoff.map(r => {
+            const days = Math.round((new Date(r.endDate) - new Date(r.startDate)) / 86400000) + 1;
+            return (
+              <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)', background: r.status === 'pending' ? 'rgba(251,191,36,0.05)' : 'transparent' }}>
+                <span style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || r.email}</span>
+                <span style={{ fontSize: 12, textTransform: 'capitalize' }}>{r.type}</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }} title={r.note}>{r.startDate} → {r.endDate}{r.note ? ' · “' + r.note + '”' : ''}</span>
+                <span style={{ fontSize: 12, fontWeight: 700 }}>{isNaN(days) ? '—' : days}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.approver || '—'}</span>
+                <span style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                  {r.status === 'pending' ? (<>
+                    <button className="secondary-btn" onClick={() => decideTimeoff(r.id, 'rejected')} style={{ fontSize: 11, color: '#b91c1c', padding: '4px 10px' }}>Reject</button>
+                    <button className="primary-btn" onClick={() => decideTimeoff(r.id, 'approved')} style={{ fontSize: 11, padding: '4px 10px' }}>Approve</button>
+                  </>) : (
+                    <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.04em',
+                      color: r.status === 'approved' ? 'hsl(var(--color-green))' : r.status === 'rejected' ? '#b91c1c' : 'var(--muted)' }}>
+                      {r.status}
+                    </span>
+                  )}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Edit punch modal */}
       {edit && (
