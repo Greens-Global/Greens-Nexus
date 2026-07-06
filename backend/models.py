@@ -1121,6 +1121,16 @@ class ShiftAssignment(Base):
     assigned_at    = Column(String, default="")
 
 
+class PayrollRate(Base):
+    """Manager-set hourly pay rate used by the payroll timecard. One current rate
+    per employee (history is not kept here — corrections just overwrite)."""
+    __tablename__ = "payroll_rates"
+    employee_email = Column(String, primary_key=True)
+    hourly_rate    = Column(Float, default=0)
+    updated_by     = Column(String, default="")
+    updated_at     = Column(String, default="")
+
+
 class AgentActivity(Base):
     """App/window activity reported by a silent device: per reporting window,
     seconds spent in each foreground app + an activity % (share of samples where

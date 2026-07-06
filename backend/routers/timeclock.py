@@ -35,7 +35,7 @@ from database import get_db
 from auth import get_current_user, require_level_or_module, require_administrator
 from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, TimeBod,
                     AgentDevice, AgentActivity, Shift, ShiftGroup, ShiftGroupMember,
-                    ShiftAssignment, ScheduledShift, HrWorkSite, NexusEmployee)
+                    ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee)
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET
 from routers.esign import _client_meta
 
@@ -1012,6 +1012,129 @@ def delete_scheduled(sched_id: str, user: dict = Depends(require_team_write),
         db.delete(row)
         db.commit()
     return {"ok": True}
+
+
+# ── Payroll timecard (manager-editable, per pay period) ───────────────────────
+
+_WEEK_OT_MIN = 40 * 60   # federal weekly overtime threshold; WA/OR follow weekly
+_OT_MULT = 1.5
+
+
+def _monday_str(date_str: str) -> str:
+    d = datetime.strptime(date_str, "%Y-%m-%d")
+    return (d - timedelta(days=d.weekday())).strftime("%Y-%m-%d")
+
+
+@router.get("/payroll")
+def payroll_timecard(email: str, start: str, end: str,
+                     user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """A SwipeClock-style timecard for one employee over a pay period: in/out
+    segments per day, weekly overtime split (>40h at 1.5x), and wage totals off
+    the manager-set hourly rate. Exact minutes, no rounding."""
+    em = email.strip().lower()
+    scope = _visible_emails(db, user)
+    if scope is not None and em not in scope:
+        raise HTTPException(403, "Outside your team")
+    punches = _live_punches(db, em, start, end)
+    byday = {}
+    for p in punches:
+        byday.setdefault(p.local_date, []).append(p)
+    rate_row = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
+    rate = float(rate_row.hourly_rate) if rate_row else 0.0
+
+    weekly_cum, days_out = {}, []
+    total_reg = total_ot = missing_punches = 0
+    edited_punches = sum(1 for p in punches if p.adjusted_by)
+
+    for date in sorted(byday.keys()):
+        segs = []
+        open_in = None
+        open_in_at = ""
+        open_in_id = ""
+        open_break = None
+        brk = 0.0
+        sflags = set()
+        for p in byday[date]:
+            t = _parse_iso(p.at)
+            if t is None:
+                continue
+            if p.kind == "in":
+                open_in, open_in_at, open_in_id, brk, sflags = t, p.at, p.id, 0.0, set()
+                if p.geo_status == "out_of_fence":
+                    sflags.add("out_of_fence")
+                if p.source in ("manual", "self_manual"):
+                    sflags.add("manual")
+                if p.adjusted_by:
+                    sflags.add("adjusted")
+            elif p.kind == "out":
+                if open_break is not None:
+                    brk += (t - open_break).total_seconds() / 60
+                    open_break = None
+                if open_in is not None:
+                    if p.adjusted_by:
+                        sflags.add("adjusted")
+                    mins = int(round((t - open_in).total_seconds() / 60 - brk))
+                    segs.append({"in": open_in_at, "out": p.at, "inId": open_in_id, "outId": p.id,
+                                 "workedMin": max(0, mins), "flags": sorted(sflags)})
+                    open_in = None
+            elif p.kind == "break_start":
+                if open_break is None and open_in is not None:
+                    open_break = t
+            elif p.kind == "break_end":
+                if open_break is not None:
+                    brk += (t - open_break).total_seconds() / 60
+                    open_break = None
+        if open_in is not None:
+            segs.append({"in": open_in_at, "out": "", "inId": open_in_id, "outId": "",
+                         "workedMin": 0, "flags": sorted(sflags | {"missing_out"})})
+            missing_punches += 1
+
+        mon = _monday_str(date)
+        day_reg = day_ot = 0
+        for seg in segs:
+            cum = weekly_cum.get(mon, 0)
+            reg = min(seg["workedMin"], max(0, _WEEK_OT_MIN - cum))
+            ot = seg["workedMin"] - reg
+            weekly_cum[mon] = cum + seg["workedMin"]
+            seg["regMin"], seg["otMin"] = reg, ot
+            seg["amount"] = round(reg / 60 * rate + ot / 60 * rate * _OT_MULT, 2)
+            day_reg += reg
+            day_ot += ot
+        total_reg += day_reg
+        total_ot += day_ot
+        days_out.append({"date": date, "weekStart": mon, "segments": segs,
+                         "workedMin": day_reg + day_ot, "regMin": day_reg, "otMin": day_ot})
+
+    reg_pay = round(total_reg / 60 * rate, 2)
+    ot_pay = round(total_ot / 60 * rate * _OT_MULT, 2)
+    return {"email": em, "start": start, "end": end, "rate": rate, "rateSet": rate_row is not None,
+            "days": days_out,
+            "totals": {"regMin": total_reg, "otMin": total_ot, "regPay": reg_pay, "otPay": ot_pay,
+                       "totalPay": round(reg_pay + ot_pay, 2),
+                       "missingPunches": missing_punches, "editedPunches": edited_punches}}
+
+
+class RateIn(BaseModel):
+    email: str
+    hourly_rate: float
+
+
+@router.put("/payroll/rate")
+def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
+                     db: Session = Depends(get_db)):
+    em = body.email.strip().lower()
+    scope = _visible_emails(db, user)
+    if scope is not None and em not in scope:
+        raise HTTPException(403, "Outside your team")
+    row = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
+    if not row:
+        row = PayrollRate(employee_email=em)
+        db.add(row)
+    row.hourly_rate = max(0.0, float(body.hourly_rate or 0))
+    row.updated_by = user["email"]
+    row.updated_at = _now_iso()
+    db.commit()
+    return {"ok": True, "rate": row.hourly_rate}
 
 
 @router.get("/activity")

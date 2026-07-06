@@ -9,3 +9,5 @@ out/
 *.blockmap
 *.pfx
 *.p12
+
+dist-packaged/
