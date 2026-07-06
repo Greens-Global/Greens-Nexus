@@ -480,6 +480,12 @@ export const api = {
   timeAdjustPunch:   (id, data)  => req(`/timeclock/punches/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   timeAddPunch:      (data)      => req('/timeclock/punches', { method: 'POST', body: JSON.stringify(data) }),
   timeExportCsv:     (start, end, mode) => reqBlob(`/timeclock/export.csv?start=${start || ''}&end=${end || ''}&mode=${mode || 'summary'}`),
+  timeShotUpload:    (form)      => req('/timeclock/screenshot', { method: 'POST', body: form }),
+  timeShots:         (date, email) => req(`/timeclock/screenshots?date=${date || ''}&email=${encodeURIComponent(email || '')}`),
+  timeOffCreate:     (data)      => req('/timeclock/timeoff', { method: 'POST', body: JSON.stringify(data) }),
+  timeOffMine:       ()          => req('/timeclock/timeoff/mine'),
+  timeOffList:       (status)    => req(`/timeclock/timeoff?status=${status || ''}`),
+  timeOffDecide:     (id, data)  => req(`/timeclock/timeoff/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch —

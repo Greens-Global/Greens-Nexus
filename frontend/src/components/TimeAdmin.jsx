@@ -46,6 +46,21 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
   }, [start, end, toastErr]);
   useEffect(() => { load(); }, [load]);
 
+  const [timeoff, setTimeoff] = useState([]);
+  const loadTimeoff = useCallback(() => {
+    api.timeOffList().then(setTimeoff).catch(() => setTimeoff([]));
+  }, []);
+  useEffect(() => { loadTimeoff(); }, [loadTimeoff]);
+
+  async function decideTimeoff(id, status) {
+    const note = status === 'rejected' ? (window.prompt('Reason (sent to the employee):') || '') : '';
+    try {
+      await api.timeOffDecide(id, { status, note });
+      toastOk(`Request ${status}.`);
+      loadTimeoff();
+    } catch (e) { toastErr(e?.message || 'Could not update the request.'); }
+  }
+
   async function exportCsv(mode) {
     try {
       const blob = await api.timeExportCsv(start, end, mode);
@@ -110,6 +125,28 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           <Download size={12} /> All punches CSV
         </button>
       </div>
+
+      {/* Time-off requests — pending first, decisions notify the employee */}
+      {timeoff.filter(r => r.status === 'pending').length > 0 && (
+        <div style={{ background: 'var(--card)', border: '1.5px solid #f6c78e', borderRadius: 12, marginBottom: 14, overflow: 'hidden' }}>
+          <div style={{ padding: '9px 14px', fontSize: 11.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: '#b45309', borderBottom: '1px solid var(--line)' }}>
+            Time-off requests pending approval
+          </div>
+          {timeoff.filter(r => r.status === 'pending').map(r => (
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12.5, fontWeight: 800, width: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || r.email}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'capitalize' }}>{r.type}</span>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>{r.startDate} → {r.endDate}</span>
+              {r.note && <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>“{r.note}”</span>}
+              <div style={{ flex: 1 }} />
+              <button className="secondary-btn" onClick={() => decideTimeoff(r.id, 'rejected')}
+                style={{ fontSize: 11.5, color: '#b91c1c' }}>Reject</button>
+              <button className="primary-btn" onClick={() => decideTimeoff(r.id, 'approved')}
+                style={{ fontSize: 11.5 }}>Approve</button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {rows === null && <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>}
       {rows !== null && rows.length === 0 && (

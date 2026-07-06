@@ -23,15 +23,16 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+import httpx
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
-from auth import get_current_user, require_level_or_module
-from models import TimePunch, HrWorkSite, NexusEmployee
-from routers.hr import _hr_notify
+from auth import get_current_user, require_level_or_module, require_administrator
+from models import TimePunch, TimeScreenshot, TimeOffRequest, HrWorkSite, NexusEmployee
+from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET
 from routers.esign import _client_meta
 
 router = APIRouter(prefix="/timeclock", tags=["timeclock"])
@@ -438,3 +439,170 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
     return StreamingResponse(iter([buf.getvalue()]),
                              media_type="text/csv",
                              headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+
+# ── Work-session screenshots (consent-based screen capture) ──────────────────
+# The browser can only capture after the user explicitly picks their screen in
+# the OS dialog, and it shows a persistent "sharing" indicator — transparency
+# is enforced by the platform, which is also what monitoring law expects.
+
+def _clocked_in(db: Session, email: str) -> bool:
+    last = (db.query(TimePunch)
+            .filter(TimePunch.employee_email == email, TimePunch.voided == 0)
+            .order_by(TimePunch.at.desc()).first())
+    return bool(last and last.kind != "out")
+
+
+@router.post("/screenshot")
+def upload_screenshot(request: Request, file: UploadFile = File(...),
+                      idle_sec: int = Form(0), active_view: str = Form(""),
+                      tz_offset_min: int = Form(0),
+                      user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    email = user["email"]
+    if not _clocked_in(db, email):
+        raise HTTPException(409, "Not clocked in — capture stops with the shift.")
+    blob = file.file.read()
+    if not blob or len(blob) > 2_000_000:
+        raise HTTPException(400, "Screenshot missing or larger than 2 MB")
+    now = _now_iso()
+    path = f"timeclock/{email}/{_local_date(now, tz_offset_min)}/{now.replace(':', '-')}-{uuid.uuid4().hex[:6]}.jpg"
+    up = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
+                    headers={**_storage_headers(), "Content-Type": "image/jpeg"},
+                    content=blob, timeout=30)
+    if not up.is_success:
+        raise HTTPException(502, f"Storage upload failed: {up.text[:200]}")
+    row = TimeScreenshot(id=str(uuid.uuid4()), employee_email=email, at=now,
+                         local_date=_local_date(now, tz_offset_min), storage_path=path,
+                         idle_sec=max(0, int(idle_sec or 0)),
+                         active_view=(active_view or "")[:120], created_at=now)
+    db.add(row)
+    db.commit()
+    return {"ok": True, "id": row.id}
+
+
+def _signed_url(path: str) -> str:
+    try:
+        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{path}",
+                       headers=_storage_headers(), json={"expiresIn": 3600}, timeout=20)
+        if r.is_success:
+            return f"{_SUPABASE_URL}/storage/v1{r.json().get('signedURL', '')}"
+    except Exception:
+        pass
+    return ""
+
+
+@router.get("/screenshots")
+def list_screenshots(date: str = "", email: str = "",
+                     user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """Admin gallery. Without an email: per-person counts for the day. With one:
+    the frames themselves, each with a fresh signed URL."""
+    day = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    q = db.query(TimeScreenshot).filter(TimeScreenshot.local_date == day)
+    if not email:
+        counts = {}
+        for s in q.all():
+            counts[s.employee_email] = counts.get(s.employee_email, 0) + 1
+        names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
+                 for e in db.query(NexusEmployee).all() if e.work_email}
+        return {"date": day, "people": [
+            {"email": em, "name": names.get(em) or em.split("@")[0].replace(".", " ").title(), "count": n}
+            for em, n in sorted(counts.items())]}
+    rows = q.filter(TimeScreenshot.employee_email == email.strip().lower()) \
+            .order_by(TimeScreenshot.at).all()
+    return {"date": day, "email": email, "shots": [
+        {"id": s.id, "at": s.at, "idleSec": s.idle_sec or 0, "activeView": s.active_view or "",
+         "url": _signed_url(s.storage_path)} for s in rows]}
+
+
+# ── Time off (leave requests inside the Time module) ─────────────────────────
+
+TIMEOFF_TYPES = ("vacation", "sick", "personal", "unpaid", "other")
+
+
+def _ser_timeoff(r: TimeOffRequest, names: dict = None) -> dict:
+    return {"id": r.id, "email": r.employee_email,
+            "name": (names or {}).get(r.employee_email, ""),
+            "type": r.type, "startDate": r.start_date, "endDate": r.end_date,
+            "note": r.note or "", "status": r.status, "approver": r.approver or "",
+            "decidedAt": r.decided_at or "", "decideNote": r.decide_note or "",
+            "createdAt": r.created_at}
+
+
+class TimeOffIn(BaseModel):
+    type: str
+    start_date: str
+    end_date: str
+    note: Optional[str] = ""
+
+
+@router.post("/timeoff")
+def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    if body.type not in TIMEOFF_TYPES:
+        raise HTTPException(400, f"type must be one of {TIMEOFF_TYPES}")
+    try:
+        s = datetime.strptime(body.start_date, "%Y-%m-%d")
+        e = datetime.strptime(body.end_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "Dates must be YYYY-MM-DD")
+    if e < s:
+        raise HTTPException(400, "End date is before the start date")
+    now = _now_iso()
+    row = TimeOffRequest(id=str(uuid.uuid4()), employee_email=user["email"], type=body.type,
+                         start_date=body.start_date, end_date=body.end_date,
+                         note=(body.note or "").strip()[:400], created_at=now)
+    db.add(row)
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == user["email"]).first()
+    if emp and emp.manager_email:
+        _hr_notify(db, emp.manager_email, "Time-off request",
+                   f"{emp.first_name} {emp.last_name} requested {body.type} "
+                   f"{body.start_date} → {body.end_date}.",
+                   ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+    db.commit()
+    return _ser_timeoff(row)
+
+
+@router.get("/timeoff/mine")
+def my_timeoff(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = (db.query(TimeOffRequest).filter(TimeOffRequest.employee_email == user["email"])
+            .order_by(TimeOffRequest.created_at.desc()).limit(50).all())
+    return [_ser_timeoff(r) for r in rows]
+
+
+@router.get("/timeoff")
+def list_timeoff(status: str = "", user: dict = Depends(require_team_read),
+                 db: Session = Depends(get_db)):
+    q = db.query(TimeOffRequest)
+    if status:
+        q = q.filter(TimeOffRequest.status == status)
+    rows = q.order_by(TimeOffRequest.created_at.desc()).limit(300).all()
+    names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
+             for e in db.query(NexusEmployee).all() if e.work_email}
+    return [_ser_timeoff(r, names) for r in rows]
+
+
+class TimeOffDecision(BaseModel):
+    status: str                      # approved | rejected
+    note: Optional[str] = ""
+
+
+@router.patch("/timeoff/{req_id}")
+def decide_timeoff(req_id: str, body: TimeOffDecision,
+                   user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    if body.status not in ("approved", "rejected"):
+        raise HTTPException(400, "status must be approved or rejected")
+    row = db.query(TimeOffRequest).filter(TimeOffRequest.id == req_id).first()
+    if not row:
+        raise HTTPException(404, "Request not found")
+    if row.status != "pending":
+        raise HTTPException(409, f"Already {row.status}")
+    row.status = body.status
+    row.approver = user["email"]
+    row.decided_at = _now_iso()
+    row.decide_note = (body.note or "").strip()[:400]
+    _hr_notify(db, row.employee_email, f"Time off {body.status}",
+               f"Your {row.type} request {row.start_date} → {row.end_date} was {body.status}."
+               + (f" Note: {row.decide_note}" if row.decide_note else ""),
+               ref_id=row.id, action={"view": "timeclock", "sub": ""})
+    db.commit()
+    return _ser_timeoff(row)

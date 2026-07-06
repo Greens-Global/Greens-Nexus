@@ -986,3 +986,34 @@ class TimePunch(Base):
     voided         = Column(Integer, default=0)         # 1 = excluded from totals, kept for audit
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
+
+
+class TimeScreenshot(Base):
+    """Work-session screen captures (consent-based getDisplayMedia — the browser
+    shows a persistent sharing indicator the whole time; nothing is covert).
+    One row per captured frame, image in the private hr-docs bucket."""
+    __tablename__ = "time_screenshots"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    at             = Column(String, nullable=False)     # UTC ISO
+    local_date     = Column(String, default="")
+    storage_path   = Column(String, default="")         # hr-docs path
+    idle_sec       = Column(Integer, default=0)         # seconds since last input at capture
+    active_view    = Column(String, default="")         # Nexus view/path when captured
+    created_at     = Column(String, default="")
+
+
+class TimeOffRequest(Base):
+    """Leave inside the Time module: employee-submitted, manager/HR-decided."""
+    __tablename__ = "time_off_requests"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    type           = Column(String, default="vacation") # vacation|sick|personal|unpaid|other
+    start_date     = Column(String, default="")         # YYYY-MM-DD
+    end_date       = Column(String, default="")
+    note           = Column(String, default="")
+    status         = Column(String, default="pending")  # pending|approved|rejected|cancelled
+    approver       = Column(String, default="")
+    decided_at     = Column(String, default="")
+    decide_note    = Column(String, default="")
+    created_at     = Column(String, default="")

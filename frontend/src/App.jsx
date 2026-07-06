@@ -10,6 +10,7 @@ import MobileMenu from "./components/MobileMenu";
 import TopHeader from "./components/TopHeader";
 import AdminPanel from "./components/AdminPanel";
 import NotificationToasts from "./components/NotificationToasts";
+import TimeclockWidget from "./components/TimeclockWidget";
 import GlobalSearch from "./components/GlobalSearch";
 import PullToRefresh from "./components/PullToRefresh";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
@@ -288,6 +289,7 @@ export default function App() {
         <RequisitionProvider>
         <InventoryProvider>
         <NotificationToasts onNavigate={navigate} />
+        <TimeclockWidget />
         <GlobalSearch onNavigate={navigate} />
         <PullToRefresh />
         {backendDown && (

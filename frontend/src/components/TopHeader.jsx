@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, ChevronDown, LayoutDashboard, Maximize2, Minimize2, ZoomIn, ZoomOut } from "lucide-react";
+import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, ChevronDown, LayoutDashboard, Maximize2, Minimize2, ZoomIn, ZoomOut, Camera } from "lucide-react";
+import ScreenshotsAdmin from "./ScreenshotsAdmin";
 import NotificationBell from "./NotificationBell";
 import PageHelp from "./PageHelp";
 import { useMsal }        from "@azure/msal-react";
@@ -16,6 +17,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
   const isAdmin  = can?.('administrator') ?? false;
 
   const [open,         setOpen]         = useState(false);
+  const [shotsOpen,    setShotsOpen]    = useState(false);   // Admin → Screenshots gallery
   const [searchQuery,  setSearchQuery]  = useState('');
   const [searchOpen,   setSearchOpen]   = useState(false);
   const dropRef   = useRef(null);
@@ -260,6 +262,10 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
                     style={{ color: 'hsl(var(--color-purple))' }}>
                     <Activity size={14} /> Audit Logs
                   </button>
+                  <button className="hud-item" onClick={() => { setOpen(false); setShotsOpen(true); }}
+                    style={{ color: 'hsl(var(--color-purple))' }}>
+                    <Camera size={14} /> Screenshots
+                  </button>
                 </>
               )}
 
@@ -271,6 +277,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
           )}
         </div>
       </div>
+      {shotsOpen && <ScreenshotsAdmin onClose={() => setShotsOpen(false)} />}
     </header>
   );
 }

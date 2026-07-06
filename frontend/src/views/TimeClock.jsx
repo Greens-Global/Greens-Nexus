@@ -21,6 +21,9 @@ const KIND_LABEL = { in: 'In', out: 'Out', break_start: 'Break start', break_end
 
 const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
 const fmtMin = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
+const fmtHMS = (sec) => `${Math.floor(sec / 3600)}:${String(Math.floor((sec % 3600) / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
+const TIMEOFF_TYPES = { vacation: 'Vacation', sick: 'Sick', personal: 'Personal', unpaid: 'Unpaid', other: 'Other' };
+const TO_STATUS = { pending: '#b45309', approved: 'hsl(var(--color-green))', rejected: '#b91c1c', cancelled: 'var(--muted)' };
 
 // One-shot position with a hard timeout: never keep the user waiting on GPS.
 const getPosition = () => new Promise((resolve) => {
@@ -72,9 +75,27 @@ export default function TimeClock() {
   }, []);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    const t = setInterval(() => setTick(x => x + 1), 30000);
+    const t = setInterval(() => setTick(x => x + 1), 1000); // live stopwatch
     return () => clearInterval(t);
   }, []);
+
+  const [timeoff, setTimeoff] = useState(null);
+  const [toForm, setToForm] = useState({ type: 'vacation', start: '', end: '', note: '' });
+  const [toBusy, setToBusy] = useState(false);
+  useEffect(() => { api.timeOffMine().then(setTimeoff).catch(() => setTimeoff([])); }, []);
+
+  async function submitTimeoff() {
+    if (toBusy) return;
+    if (!toForm.start || !toForm.end) { toast(false, 'Pick the start and end dates.'); return; }
+    setToBusy(true);
+    try {
+      await api.timeOffCreate({ type: toForm.type, start_date: toForm.start, end_date: toForm.end, note: toForm.note });
+      toast(true, 'Time-off request sent — your manager gets a notification.');
+      setToForm({ type: 'vacation', start: '', end: '', note: '' });
+      api.timeOffMine().then(setTimeoff).catch(() => {});
+    } catch (e) { toast(false, e?.message || 'Could not send the request.'); }
+    setToBusy(false);
+  }
 
   async function doPunch(kind) {
     if (busy) return;
@@ -89,6 +110,7 @@ export default function TimeClock() {
         : p.geoStatus === 'out_of_fence' ? ` — ${p.distanceM}m from ${p.workSiteName || 'the nearest site'}, flagged for review`
         : pos ? '' : ' — location unavailable, recorded without it';
       toast(true, `${KIND_META[kind].label} at ${localTime(p.at)}${where}.`);
+      window.dispatchEvent(new CustomEvent('nexus:timeclock-changed')); // sync the global mini-timer
       load();
     } catch (e) { toast(false, e?.message || 'Punch failed.'); }
     setBusy('');
@@ -109,7 +131,7 @@ export default function TimeClock() {
   const last = status?.lastPunch;
   const clockedIn = last && last.kind !== 'out';
   const onBreak = last && last.kind === 'break_start';
-  const sinceMin = last ? Math.max(0, Math.round((Date.now() - new Date(last.at + 'Z').getTime()) / 60000)) : 0;
+  const sinceSec = last ? Math.max(0, Math.floor((Date.now() - new Date(last.at + 'Z').getTime()) / 1000)) : 0;
   const days = status?.days || {};
   const dayKeys = Object.keys(days).sort().reverse();
 
@@ -144,9 +166,14 @@ export default function TimeClock() {
               <span style={{ fontSize: 26, fontWeight: 800, color: onBreak ? '#b45309' : clockedIn ? 'var(--pine)' : 'var(--ink)' }}>
                 {onBreak ? 'On break' : clockedIn ? 'Clocked in' : 'Clocked out'}
               </span>
+              {last && clockedIn && (
+                <span style={{ fontSize: 22, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: onBreak ? '#b45309' : 'var(--pine)' }}>
+                  {fmtHMS(sinceSec)}
+                </span>
+              )}
               {last && (
                 <span style={{ fontSize: 13, color: 'var(--muted)' }}>
-                  since {localTime(last.at)} · {fmtMin(sinceMin)}
+                  since {localTime(last.at)}
                 </span>
               )}
             </div>
@@ -240,6 +267,47 @@ export default function TimeClock() {
             </div>
           );
         })}
+      </div>
+
+      {/* Time off */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '22px 0 8px' }}>
+        <CalendarDays size={15} style={{ color: 'var(--pine)' }} />
+        <span style={{ fontSize: 13.5, fontWeight: 800 }}>Time off</span>
+      </div>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '14px 16px', marginBottom: 10 }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <select className="form-input" value={toForm.type} onChange={e => setToForm(f => ({ ...f, type: e.target.value }))}
+            style={{ width: 140, fontSize: 12.5 }}>
+            {Object.entries(TIMEOFF_TYPES).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+          <input className="form-input" type="date" value={toForm.start} onChange={e => setToForm(f => ({ ...f, start: e.target.value }))} style={{ fontSize: 12.5, width: 150 }} />
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
+          <input className="form-input" type="date" value={toForm.end} onChange={e => setToForm(f => ({ ...f, end: e.target.value }))} style={{ fontSize: 12.5, width: 150 }} />
+          <input className="form-input" placeholder="Note (optional)" value={toForm.note}
+            onChange={e => setToForm(f => ({ ...f, note: e.target.value }))} style={{ flex: 1, minWidth: 160, fontSize: 12.5 }} />
+          <button className="primary-btn" onClick={submitTimeoff} disabled={toBusy} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {toBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={13} />} Request
+          </button>
+        </div>
+      </div>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 24 }}>
+        {(timeoff || []).length === 0 && (
+          <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
+            No time-off requests yet.
+          </div>
+        )}
+        {(timeoff || []).map(r => (
+          <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12.5, fontWeight: 800, width: 90 }}>{TIMEOFF_TYPES[r.type] || r.type}</span>
+            <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{r.startDate} → {r.endDate}</span>
+            {r.note && <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>“{r.note}”</span>}
+            <div style={{ flex: 1 }} />
+            {r.decideNote && <span style={{ fontSize: 11, color: 'var(--muted)' }} title={r.decideNote}>💬</span>}
+            <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.04em', color: TO_STATUS[r.status] || 'var(--muted)' }}>
+              {r.status}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );
