@@ -55,6 +55,7 @@ const RCOLORS = [
   { solid: '#f97316', soft: 'rgba(249,115,22,0.15)' },   // orange
 ];
 const rcolor = (i) => RCOLORS[i % RCOLORS.length];
+const _ord = (n) => n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`;
 
 const FIELD_META = {
   sign:     { label: 'Signature',   Icon: PenTool,      w: 0.24, h: 0.055 },
@@ -72,6 +73,58 @@ const SIG_FONTS = ['"Segoe Script"', '"Brush Script MT"', '"Lucida Handwriting"'
 const FL = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.05em', textTransform: 'uppercase' };
 const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
 const cardStyle = (maxWidth) => ({ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth, maxHeight: 'min(94dvh, 880px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' });
+
+// Egnyte-Sign-style right panel: numbered recipient list, a "place fields for"
+// dropdown, and a 2-column field grid (drag onto the page, or select + click).
+// Shared by the template-attachment placer and the send wizard's field step.
+function FieldsPanel({ recipients, activeIdx, onPick, activeType, setActiveType, placed }) {
+  const c = (recipients[activeIdx] || recipients[0] || { color: rcolor(0) }).color;
+  const initials = (s) => (s || '?').split(/\s+/).map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+  return (
+    <div style={{ width: 330, borderLeft: '1px solid var(--line)', background: 'var(--card)', overflowY: 'auto', padding: '16px 18px', flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ fontSize: 13.5, fontWeight: 800, marginBottom: 10 }}>Recipients &amp; Fields</div>
+      <div style={{ display: 'grid', gap: 8 }}>
+        {recipients.map((r, i) => (
+          <button key={i} onClick={() => onPick(i)}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px 8px 0', borderRadius: 10, cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif', overflow: 'hidden',
+              border: i === activeIdx ? `2px solid ${r.color.solid}` : '1.5px solid var(--line)', background: i === activeIdx ? r.color.soft : 'var(--card)' }}>
+            <span style={{ width: 4, alignSelf: 'stretch', background: r.color.solid, borderRadius: '0 2px 2px 0', flexShrink: 0 }} />
+            <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)', flexShrink: 0 }}>{i + 1}</span>
+            <span style={{ width: 30, height: 30, borderRadius: '50%', background: r.color.soft, border: `1.5px solid ${r.color.solid}`, color: r.color.solid, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{initials(r.label)}</span>
+            <span style={{ minWidth: 0 }}>
+              <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</span>
+              {r.sub && <span style={{ display: 'block', fontSize: 10.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.sub}</span>}
+            </span>
+          </button>
+        ))}
+      </div>
+      <div style={{ margin: '18px 0 6px' }}><label style={{ ...FL, marginBottom: 0 }}>Drag and drop fields on the document for</label></div>
+      <select className="form-input" value={activeIdx} onChange={e => onPick(+e.target.value)} style={{ width: '100%', fontWeight: 700 }}>
+        {recipients.map((r, i) => <option key={i} value={i}>{r.label}</option>)}
+      </select>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
+        {Object.entries(FIELD_META).map(([ft, M]) => (
+          <button key={ft} draggable onDragStart={e => e.dataTransfer.setData('field', ft)} onClick={() => setActiveType(ft)}
+            title="Drag onto the document, or select and click the page"
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 7, borderRadius: 10, cursor: 'grab', textAlign: 'left', fontFamily: 'Inter,sans-serif',
+              border: activeType === ft ? `2px solid ${c.solid}` : '1.5px solid var(--line)', background: activeType === ft ? c.soft : 'var(--card)' }}>
+            <span style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <M.Icon size={14} style={{ color: c.solid }} />
+            </span>
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink)' }}>{M.label}</span>
+          </button>
+        ))}
+      </div>
+      <div style={{ flex: 1 }} />
+      <div style={{ marginTop: 14, fontSize: 11.5, fontWeight: 700, color: placed ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
+        {placed} field{placed === 1 ? '' : 's'} placed
+      </div>
+      <p style={{ fontSize: 10.5, color: 'var(--muted)', margin: '6px 0 0', lineHeight: 1.5 }}>
+        Drag placed fields to move · corner handle resizes · × removes · ✎ edits choices.
+      </p>
+    </div>
+  );
+}
 
 // Options editor for dropdown / radio fields (shared by both field placers).
 function FieldOptionsModal({ field, onSave, onClose }) {
@@ -751,7 +804,9 @@ function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
   const roleIdx = (key) => Math.max(0, roles.findIndex(r => r.key === key));
   const overlay = (pageIdx) => (
     <div data-atpage style={{ position: 'absolute', inset: 0 }}
-      onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); place(pageIdx, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height); }}>
+      onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); place(pageIdx, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height); }}
+      onDragOver={e => e.preventDefault()}
+      onDrop={(e) => { e.preventDefault(); const t = e.dataTransfer.getData('field'); if (t) { const r = e.currentTarget.getBoundingClientRect(); place(pageIdx, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height, t); } }}>
       {fields.filter(f => f.page === pageIdx).map(f => {
         const c = rcolor(roleIdx(f.role));
         const M = FIELD_META[f.type];
@@ -784,35 +839,34 @@ function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
 
   return (
     <div style={{ ...overlayStyle, zIndex: 1350 }}>
-      <div style={{ background: 'var(--bg, #f3f4f6)', borderRadius: 16, width: '100%', maxWidth: 1240, height: 'min(94dvh, 900px)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: 'var(--shadow-lg)' }}>
-      <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card)', flexShrink: 0, flexWrap: 'wrap' }}>
-        <FileText size={16} style={{ color: 'var(--pine)' }} />
-        <span style={{ fontWeight: 800, fontSize: 14, flex: '0 1 auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attachment.name}</span>
-        <div style={{ display: 'flex', gap: 6, flex: 1, flexWrap: 'wrap' }}>
-          {roles.map((r, i) => (
-            <button key={r.key} onClick={() => setActiveRole(i)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 16, fontSize: 11.5, fontWeight: 700, fontFamily: 'Inter,sans-serif', cursor: 'pointer',
-                border: activeRole === i ? `2px solid ${rcolor(i).solid}` : '1.5px solid var(--line)', background: activeRole === i ? rcolor(i).soft : 'var(--card)', color: 'var(--ink)' }}>
-              <span style={{ width: 9, height: 9, borderRadius: '50%', background: rcolor(i).solid }} />{r.label || r.key}
-            </button>
-          ))}
-          {Object.entries(FIELD_META).map(([ft, M]) => (
-            <button key={ft} onClick={() => setActiveType(ft)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 8, fontSize: 11.5, fontWeight: 700, fontFamily: 'Inter,sans-serif', cursor: 'pointer',
-                border: activeType === ft ? `2px solid ${rcolor(activeRole).solid}` : '1.5px solid var(--line)', background: activeType === ft ? rcolor(activeRole).soft : 'var(--card)', color: 'var(--ink)' }}>
-              <M.Icon size={12} /> {M.label}
-            </button>
-          ))}
+      <div style={{ background: 'var(--bg, #f3f4f6)', borderRadius: 16, width: '100%', maxWidth: 1400, height: 'min(94dvh, 940px)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: 'var(--shadow-lg)' }}>
+      <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card)', flexShrink: 0 }}>
+        <FileText size={16} style={{ color: 'var(--pine)', flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 800, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attachment.name}</div>
+          <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Signing template · place the fields once, every send reuses them</div>
         </div>
-        <span style={{ fontSize: 11.5, fontWeight: 700, color: fields.length ? 'hsl(var(--color-green))' : 'var(--muted)' }}>{fields.length} placed</span>
         <button className="secondary-btn" onClick={onClose} style={{ fontSize: 12.5 }}>Cancel</button>
         <button className="primary-btn" onClick={() => { onSave(fields); onClose(); }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
           <CheckCircle size={13} /> Save fields
         </button>
       </div>
-      <div style={{ flex: 1, overflowY: 'auto', padding: '26px 20px' }}>
-        {url ? <PdfDoc url={url} renderOverlay={overlay} />
-             : <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} /></div>}
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        <div style={{ width: 180, borderRight: '1px solid var(--line)', background: 'var(--card)', padding: '14px 12px', flexShrink: 0, overflowY: 'auto' }}>
+          <label style={FL}>Included documents</label>
+          <div style={{ border: '1.5px solid var(--pine)', borderRadius: 10, padding: '14px 10px', textAlign: 'center', background: 'var(--mist)' }}>
+            <FileText size={26} style={{ color: 'var(--pine)' }} />
+            <div style={{ fontSize: 11.5, fontWeight: 700, marginTop: 6, wordBreak: 'break-word' }}>{attachment.name}</div>
+            <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 2 }}>{attachment.pages || '–'} page{attachment.pages === 1 ? '' : 's'}</div>
+          </div>
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '26px 20px', minWidth: 0 }}>
+          {url ? <PdfDoc url={url} renderOverlay={overlay} />
+               : <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} /></div>}
+        </div>
+        <FieldsPanel recipients={roles.map((r, i) => ({ label: r.label || r.key, sub: `Signs ${_ord(i + 1)}`, color: rcolor(i) }))}
+          activeIdx={activeRole} onPick={setActiveRole}
+          activeType={activeType} setActiveType={setActiveType} placed={fields.length} />
       </div>
       </div>
       {optsFor && fields.find(f => f.id === optsFor) && (
@@ -1600,46 +1654,9 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
           </div>
         )}
 
-        {/* STEP 2 — Field editor (pdf) */}
+        {/* STEP 2 — Field editor (pdf), Egnyte-Sign layout: canvas + right panel */}
         {step === 2 && isPdf && (
           <div style={{ display: 'flex', height: '100%', minHeight: 0, alignItems: 'stretch' }}>
-            <div style={{ width: 232, borderRight: '1px solid var(--line)', background: 'var(--card)', padding: '16px 14px', flexShrink: 0, overflowY: 'auto' }}>
-              <label style={FL}>Assign fields to</label>
-              <div style={{ display: 'grid', gap: 6, marginBottom: 18 }}>
-                {signerParties.map(({ p, i }, s) => {
-                  const c = rcolor(i);
-                  return (
-                    <button key={i} onClick={() => setActiveRecipient(s)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 11px', borderRadius: 10, cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif',
-                        border: activeRecipient === s ? `2px solid ${c.solid}` : '1.5px solid var(--line)', background: activeRecipient === s ? c.soft : 'var(--card)' }}>
-                      <span style={{ width: 20, height: 20, borderRadius: '50%', background: c.solid, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, fontWeight: 800, flexShrink: 0 }}>{i + 1}</span>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name || `Recipient ${i + 1}`}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              <label style={FL}>Fields — drag onto the page</label>
-              <div style={{ display: 'grid', gap: 6 }}>
-                {Object.entries(FIELD_META).map(([ft, M]) => {
-                  const c = rcolor(signerParties[activeRecipient]?.i ?? 0);
-                  return (
-                    <div key={ft} draggable onDragStart={e => e.dataTransfer.setData('field', ft)} onClick={() => setActiveType(ft)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 11px', borderRadius: 10, cursor: 'grab', fontFamily: 'Inter,sans-serif',
-                        border: activeType === ft ? `2px solid ${c.solid}` : '1.5px solid var(--line)', background: activeType === ft ? c.soft : 'var(--card)' }}>
-                      <GripVertical size={12} style={{ color: 'var(--muted)' }} />
-                      <M.Icon size={14} style={{ color: c.solid }} />
-                      <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{M.label}</span>
-                    </div>
-                  );
-                })}
-              </div>
-              <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 14, lineHeight: 1.5 }}>
-                Drag a field onto the page (or select one and click the page). Drag placed fields to move, corner handle to resize, × to remove.
-              </p>
-              <div style={{ marginTop: 12, fontSize: 11.5, fontWeight: 700, color: fields.length ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
-                {fields.length} field{fields.length === 1 ? '' : 's'} placed
-              </div>
-            </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '30px 20px', minWidth: 0 }}>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 10, position: 'sticky', top: 0, zIndex: 30 }}>
                 <button className="secondary-btn" onClick={() => setPdfEditOpen(true)} title="Edit the PDF itself (placed fields reset afterwards)"
@@ -1650,6 +1667,10 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
               </div>
               <PdfDoc file={file} zoom={zoom} renderOverlay={editorOverlay} />
             </div>
+            <FieldsPanel
+              recipients={signerParties.map(({ p, i }) => ({ label: p.name || `Recipient ${i + 1}`, sub: p.email || '', color: rcolor(i) }))}
+              activeIdx={activeRecipient} onPick={setActiveRecipient}
+              activeType={activeType} setActiveType={setActiveType} placed={fields.length} />
           </div>
         )}
         {/* STEP 2 — Live preview (template) */}
