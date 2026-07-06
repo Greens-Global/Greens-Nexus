@@ -2252,6 +2252,12 @@ export default function HR({ activeSub, onSubChange }) {
       const next = [...prev]; next[i] = saved; return next;
     });
     setSelectedId(saved.id);
+    // Profile edits auto-mirror to the linked Entra account (backend, best-effort)
+    // — tell the user whether M365 actually took the change.
+    if (saved.entra) {
+      if (saved.entra.synced) toastOk('Saved — profile synced to Microsoft 365.');
+      else toastErr(`Saved in Nexus, but the M365 sync failed: ${saved.entra.error || 'Graph error'}. Use "Push to M365" to retry.`);
+    }
   };
 
   const TABS = [

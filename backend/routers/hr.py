@@ -177,7 +177,19 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
     row.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit()
     db.refresh(row)
-    return _serialize(row)
+    out = _serialize(row)
+    # Nexus is the source of truth for profile edits — mirror them onto the
+    # linked Entra account automatically (best-effort: a Graph hiccup must never
+    # fail the save; the response says whether Entra took the change).
+    if row.m365_id and (set(fields) & ENTRA_MAPPED_FIELDS):
+        try:
+            token = _graph_token()
+            written = _graph_writeback(token, row, db)
+            manager = _graph_set_manager(token, row) if "manager_email" in fields else None
+            out["entra"] = {"synced": True, "written": written, "manager": manager}
+        except Exception as e:
+            out["entra"] = {"synced": False, "error": str(e)[:200]}
+    return out
 
 
 @router.delete("/employees/{eid}")
@@ -591,7 +603,17 @@ def _graph_token() -> str:
     return resp.json()["access_token"]
 
 
-def _graph_writeback(token: str, emp) -> list:
+# Human labels Entra admins expect in the freeform employeeType attribute
+_EMPLOYEE_TYPE_LABEL = {"full_time": "Full-time", "part_time": "Part-time",
+                        "contractor": "Contractor", "intern": "Intern"}
+
+# Nexus employee fields whose edit means the linked Entra user is now stale
+ENTRA_MAPPED_FIELDS = {"first_name", "last_name", "job_title", "department", "phone",
+                       "location", "employee_code", "employment_type", "start_date",
+                       "company", "personal", "manager_email"}
+
+
+def _graph_writeback(token: str, emp, db: Optional[Session] = None) -> list:
     """Push the editable profile attributes from Nexus back onto the linked Entra
     user (the reverse of Sync-from-M365). Only sends fields that have a value, so
     an empty Nexus field never wipes an existing Entra one. Returns the attribute
@@ -599,17 +621,49 @@ def _graph_writeback(token: str, emp) -> list:
     first = (emp.first_name or "").strip()
     last  = (emp.last_name or "").strip()
     payload = {"displayName": f"{first} {last}".strip(), "givenName": first, "surname": last}
+    company_name = ""
+    if db is not None and (emp.company or "").strip():
+        from models import HrEntity
+        ent = db.query(HrEntity).filter(HrEntity.id == emp.company).first()
+        company_name = (ent.name if ent else "") or ""
+    street = " ".join(str((emp.personal or {}).get("currentAddress", "")).split())[:1024]
     for attr, value in (("jobTitle", emp.job_title), ("department", emp.department),
-                        ("mobilePhone", emp.phone), ("officeLocation", emp.location)):
+                        ("mobilePhone", emp.phone), ("officeLocation", emp.location),
+                        ("employeeId", emp.employee_code),
+                        ("employeeType", _EMPLOYEE_TYPE_LABEL.get(emp.employment_type or "", "")),
+                        ("companyName", company_name),
+                        ("streetAddress", street)):
         v = (value or "").strip()
         if v:
             payload[attr] = v
+    # Graph wants a full DateTimeOffset for hire date, not a bare ISO date
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", (emp.start_date or "").strip()):
+        payload["employeeHireDate"] = f"{emp.start_date.strip()}T00:00:00Z"
     resp = httpx.patch(f"{_GRAPH}/users/{emp.m365_id}",
                        headers={"Authorization": f"Bearer {token}"},
                        json=payload, timeout=20)
     if not resp.is_success:
         raise RuntimeError(f"Entra write-back failed: {resp.text[:200]}")
     return list(payload.keys())
+
+
+def _graph_set_manager(token: str, emp) -> Optional[bool]:
+    """Point the Entra manager edge at emp.manager_email. Best-effort: None = no
+    manager set on the profile, True/False = the $ref write's result."""
+    if not (emp.manager_email or "").strip():
+        return None
+    try:
+        mgr = httpx.get(f"{_GRAPH}/users/{emp.manager_email}",
+                        headers={"Authorization": f"Bearer {token}"}, timeout=20)
+        mid = mgr.json().get("id") if mgr.is_success else None
+        if not mid:
+            return False
+        ref = httpx.put(f"{_GRAPH}/users/{emp.m365_id}/manager/$ref",
+                        headers={"Authorization": f"Bearer {token}"},
+                        json={"@odata.id": f"{_GRAPH}/users/{mid}"}, timeout=20)
+        return ref.is_success
+    except Exception:
+        return False
 
 
 # Graph only returns internal SKU part numbers — map the ones in our tenant to
@@ -826,23 +880,10 @@ def push_to_entra(eid: str, user: dict = Depends(require_hr_write), db: Session 
     if not emp.m365_id:
         raise HTTPException(400, "This person has no linked M365 account to push to.")
     token = _graph_token()
-    written = _graph_writeback(token, emp)
-    # Manager relationship is a separate Graph edge — best-effort, never blocks the
-    # attribute push. None = no manager set; True/False = the $ref write's result.
-    manager = None
-    if emp.manager_email:
-        manager = False
-        try:
-            mgr = httpx.get(f"{_GRAPH}/users/{emp.manager_email}",
-                            headers={"Authorization": f"Bearer {token}"}, timeout=20)
-            mid = mgr.json().get("id") if mgr.is_success else None
-            if mid:
-                ref = httpx.put(f"{_GRAPH}/users/{emp.m365_id}/manager/$ref",
-                                headers={"Authorization": f"Bearer {token}"},
-                                json={"@odata.id": f"{_GRAPH}/users/{mid}"}, timeout=20)
-                manager = ref.is_success
-        except Exception:
-            manager = False
+    written = _graph_writeback(token, emp, db)
+    # Manager relationship is a separate Graph edge — best-effort, never blocks
+    # the attribute push.
+    manager = _graph_set_manager(token, emp)
     return {"written": written, "manager": manager}
 
 
