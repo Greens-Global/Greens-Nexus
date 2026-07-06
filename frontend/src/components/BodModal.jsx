@@ -44,7 +44,7 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 
 const FL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.05em', textTransform: 'uppercase', display: 'block', marginBottom: 5 };
 
-export default function BodModal({ mode = 'bod', onClose, toastOk, toastErr }) {
+export default function BodModal({ mode = 'bod', required = false, onSent, onClose, toastOk, toastErr }) {
   const M = MODES[mode] || MODES.bod;
   const [message, setMessage] = useState('');
   const [tasks, setTasks] = useState('');
@@ -127,20 +127,22 @@ export default function BodModal({ mode = 'bod', onClose, toastOk, toastErr }) {
     if (sent) toastOk(`Posted to ${team?.displayName} › ${channel?.displayName} and recorded.`);
     else toastErr(`Recorded in Nexus, but the Teams post failed${sendError ? ` — ${sendError}` : ''}.`);
     setBusy(false);
-    onClose();
+    if (onSent) onSent(); else onClose();
   }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1420, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onClick={e => { if (e.target === e.currentTarget && !required) onClose(); }}>
       <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 520, boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '15px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <M.Icon size={17} style={{ color: M.color }} />
           <div style={{ flex: 1 }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>{M.title}</h3>
-            <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)' }}>{M.sub}</p>
+            <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)' }}>
+              {required ? 'Required before you punch in — send this to start your shift.' : M.sub}
+            </p>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          {!required && <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>}
         </div>
 
         <div style={{ padding: '16px 22px', display: 'grid', gap: 12 }}>
@@ -180,7 +182,7 @@ export default function BodModal({ mode = 'bod', onClose, toastOk, toastErr }) {
         </div>
 
         <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button className="secondary-btn" onClick={onClose}>Skip</button>
+          <button className="secondary-btn" onClick={onClose}>{required ? 'Cancel' : 'Skip'}</button>
           <button className="primary-btn" onClick={send} disabled={busy}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={13} />} {M.cta}

@@ -472,7 +472,7 @@ export const api = {
   getSignPartyLink:   (rid, pid)  => req(`/esign/requests/${rid}/parties/${pid}/link`),
 
   // ── Time clock (punch in/out with geofencing) ──────────────────────────────
-  timeStatus:        ()          => req('/timeclock/status'),
+  timeStatus:        ()          => req(`/timeclock/status?tz_offset_min=${new Date().getTimezoneOffset()}`),
   timePunch:         (data)      => req('/timeclock/punch', { method: 'POST', body: JSON.stringify(data) }),
   timeSelfPunch:     (data)      => req('/timeclock/punch/manual', { method: 'POST', body: JSON.stringify(data) }),
   timeMy:            (start, end) => req(`/timeclock/me?start=${start || ''}&end=${end || ''}`),

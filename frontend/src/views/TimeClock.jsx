@@ -116,6 +116,17 @@ export default function TimeClock() {
 
   async function doPunch(kind) {
     if (busy) return;
+    // Beginning-of-day message is REQUIRED before the first punch-in: open it
+    // first and only punch once it's been sent (no skipping into a shift).
+    if (kind === 'in' && status?.bodRequired) {
+      setBodMode('bod-gate');
+      return;
+    }
+    await actualPunch(kind);
+  }
+
+  async function actualPunch(kind) {
+    if (busy) return;
     setBusy(kind);
     const pos = await getPosition();
     try {
@@ -129,8 +140,7 @@ export default function TimeClock() {
         : pos ? '' : ' — location unavailable, recorded without it';
       toast(true, `${KIND_META[kind].label} at ${localTime(p.at)}${where}.`);
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed')); // sync the global mini-timer
-      if (r.firstInToday) setBodMode('bod');  // first punch-in today → beginning-of-day message
-      else if (r.promptEod) setBodMode('eod'); // punch-out → end-of-day message
+      if (r.promptEod) setBodMode('eod'); // punch-out → end-of-day message
       load();
     } catch (e) { toast(false, e?.message || 'Punch failed.'); }
     setBusy('');
@@ -411,7 +421,11 @@ export default function TimeClock() {
       </div>
       </>)}
 
-      {bodMode && <BodModal mode={bodMode} onClose={() => setBodMode(null)}
+      {bodMode && <BodModal
+        mode={bodMode === 'bod-gate' ? 'bod' : bodMode}
+        required={bodMode === 'bod-gate'}
+        onSent={bodMode === 'bod-gate' ? () => { setBodMode(null); actualPunch('in'); } : undefined}
+        onClose={() => setBodMode(null)}
         toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />}
     </div>
   );

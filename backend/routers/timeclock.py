@@ -222,7 +222,7 @@ class PunchIn(BaseModel):
 
 
 @router.get("/status")
-def my_status(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     email = user["email"]
     last = (db.query(TimePunch)
             .filter(TimePunch.employee_email == email, TimePunch.voided == 0)
@@ -232,12 +232,22 @@ def my_status(user: dict = Depends(get_current_user), db: Session = Depends(get_
     summaries = _day_summaries(_live_punches(db, email, start=week_start))
     sites = [{"id": s.id, "name": s.name} for s in db.query(HrWorkSite).all()
              if (s.latitude or "").strip() and (s.longitude or "").strip()]
+    # Beginning-of-day message is required before the first punch-in of the day:
+    # true only until either the BOD is posted or an in-punch already exists today.
+    local_today = _local_date(_now_iso(), tz_offset_min)
+    has_bod = (db.query(TimeBod)
+               .filter(TimeBod.employee_email == email, TimeBod.kind == "bod",
+                       TimeBod.local_date == local_today).first())
+    has_in = (db.query(TimePunch)
+              .filter(TimePunch.employee_email == email, TimePunch.kind == "in",
+                      TimePunch.local_date == local_today, TimePunch.voided == 0).first())
     return {
         "lastPunch": _serialize(last) if last else None,
         "allowed": _allowed_kinds(last.kind if last else None),
         "days": summaries,
         "todayUtc": today,
         "geofencedSites": sites,
+        "bodRequired": has_bod is None and has_in is None,
     }
 
 
