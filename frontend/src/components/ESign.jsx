@@ -7,6 +7,7 @@ import {
   CalendarDays, CheckSquare, ALargeSmall, GripVertical, Copy, Search, CopyPlus,
 } from 'lucide-react';
 import { api } from '../api';
+import { PdfEditor } from './PdfEditor';
 
 // ── HR Section C — Native E-Sign (DocuSign-style UX) ──────────────────────────
 // Send wizard (Document → Recipients → Fields → Review) with color-coded
@@ -702,6 +703,7 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
   });
   const [attachments, setAttachments] = useState(t0.attachments || []);
   const [placerIdx, setPlacerIdx] = useState(null);
+  const [editPdf, setEditPdf] = useState(null);   // { idx, url } — attachment open in the PDF editor
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const paraRefs = useRef({});
@@ -736,6 +738,30 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
       toastOk(`Attached ${a.name} (${a.pages} page${a.pages === 1 ? '' : 's'}). Now place its signature fields.`);
     } catch (e) { toastErr(e?.message || 'Upload failed.'); }
     setUploading(false);
+  }
+
+  async function openPdfEditor(i) {
+    try {
+      const r = await api.getSignAttachmentUrl(attachments[i].path);
+      setEditPdf({ idx: i, url: r.url });
+    } catch (e) { toastErr(e?.message || 'Could not load the PDF.'); }
+  }
+  // The editor hands back a brand-new PDF: re-upload it and swap the attachment.
+  // Fields survive only if the page count didn't shrink (geometry may differ —
+  // the placer is one click away); page indexes are clamped defensively.
+  async function savePdfEdit(edited) {
+    const form = new FormData();
+    form.append('file', edited);
+    const a = await api.uploadSignAttachment(form);
+    setAttachments(as => as.map((old, j) => {
+      if (j !== editPdf.idx) return old;
+      const fields = (a.pages >= (old.pages || 0))
+        ? (old.fields || []).map(f => ({ ...f, page: Math.min(f.page || 0, a.pages - 1) }))
+        : [];
+      return { ...a, fields };
+    }));
+    const shrunk = a.pages < (attachments[editPdf.idx]?.pages || 0);
+    toastOk(shrunk ? 'PDF updated — pages changed, place its fields again.' : 'PDF updated.');
   }
 
   async function save() {
@@ -876,6 +902,10 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
                     : 'no fields yet — signers will only view it'}
                 </div>
               </div>
+              <button className="secondary-btn" onClick={() => openPdfEditor(i)} title="Fix the PDF itself — text, pages, images — before placing fields"
+                style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px' }}>
+                <Pencil size={11} /> Edit PDF
+              </button>
               <button className="secondary-btn" onClick={() => setPlacerIdx(i)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px' }}>
                 <PenTool size={11} /> Place fields
               </button>
@@ -895,6 +925,10 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
         <AttachmentPlacer attachment={attachments[placerIdx]} roles={roles.filter(r => r.key)}
           toastErr={toastErr} onClose={() => setPlacerIdx(null)}
           onSave={(fields) => setAttachments(as => as.map((a, j) => j === placerIdx ? { ...a, fields } : a))} />
+      )}
+      {editPdf !== null && attachments[editPdf.idx] && (
+        <PdfEditor url={editPdf.url} fileName={attachments[editPdf.idx].name} toastErr={toastErr}
+          onClose={() => setEditPdf(null)} onSave={savePdfEdit} />
       )}
     </div>
   );
@@ -923,6 +957,7 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
   const [activeRecipient, setActiveRecipient] = useState(0); // index into signerParties
   const [activeType, setActiveType] = useState('sign');
   const [zoom, setZoom] = useState(1);
+  const [pdfEditOpen, setPdfEditOpen] = useState(false);
   const dragState = useRef(null);   // {fieldId, mode:'move'|'resize', rect, startX, startY, orig}
   const rkCounter = useRef(0);      // stable per-party field keys — survive removal/reorder
 
@@ -1243,6 +1278,13 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                   )}
                   <input type="file" accept="application/pdf" style={{ display: 'none' }} onChange={e => pickFile(e.target.files?.[0])} />
                 </label>
+                {isPdf && file && (
+                  <button className="secondary-btn" onClick={() => setPdfEditOpen(true)}
+                    title="Fix the PDF itself — text, pages, images — before placing fields"
+                    style={{ marginTop: 10, width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 12.5 }}>
+                    <Pencil size={13} /> Edit PDF
+                  </button>
+                )}
 
                 <div style={{ marginTop: 18, display: 'grid', gap: 12 }}>
                   <div>
@@ -1399,6 +1441,8 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '30px 20px', minWidth: 0 }}>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginBottom: 10, position: 'sticky', top: 0, zIndex: 30 }}>
+                <button className="secondary-btn" onClick={() => setPdfEditOpen(true)} title="Edit the PDF itself (placed fields reset afterwards)"
+                  style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5 }}><Pencil size={12} /> Edit PDF</button>
                 <button className="secondary-btn" onClick={() => setZoom(z => Math.max(0.6, +(z - 0.15).toFixed(2)))} style={{ padding: '5px 9px' }}><ZoomOut size={13} /></button>
                 <span style={{ alignSelf: 'center', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', width: 42, textAlign: 'center' }}>{Math.round(zoom * 100)}%</span>
                 <button className="secondary-btn" onClick={() => setZoom(z => Math.min(1.6, +(z + 0.15).toFixed(2)))} style={{ padding: '5px 9px' }}><ZoomIn size={13} /></button>
@@ -1489,6 +1533,11 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
           </div>
         )}
       </div>
+      {pdfEditOpen && file && (
+        <PdfEditor file={file} fileName={file.name} toastErr={toastErr}
+          onClose={() => setPdfEditOpen(false)}
+          onSave={(edited) => { pickFile(edited); toastOk('PDF updated — place the signature fields again.'); }} />
+      )}
     </div>
   );
 }
