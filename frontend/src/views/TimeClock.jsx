@@ -116,13 +116,17 @@ export default function TimeClock() {
 
   async function doPunch(kind) {
     if (busy) return;
-    // Beginning-of-day message is REQUIRED before the first punch-in: open it
-    // first and only punch once it's been sent (no skipping into a shift).
-    if (kind === 'in' && status?.bodRequired) {
-      setBodMode('bod-gate');
-      return;
-    }
+    // Login/break prompts come FIRST — the punch happens only after the message
+    // is sent or explicitly acknowledged (see BodModal's ack-to-skip).
+    if (kind === 'in' && status?.bodRequired) { setBodMode('bod-gate'); return; }
+    if (kind === 'break_start') { setBodMode('break-gate'); return; }
     await actualPunch(kind);
+  }
+
+  // Record a "already sent elsewhere" marker so the prompt doesn't nag again today.
+  function bodMarker(kind) {
+    return api.timeBodRecord({ kind, message: '(sent outside Nexus)', sent: false,
+      tz_offset_min: new Date().getTimezoneOffset() }).catch(() => {});
   }
 
   async function actualPunch(kind) {
@@ -169,6 +173,10 @@ export default function TimeClock() {
   const todayData = days[todayKey];
   const weekTotal = Object.values(days).reduce((a, d) => a + d.workedMin, 0);
   const weekBreak = Object.values(days).reduce((a, d) => a + d.breakMin, 0);
+  // Daily break allowance: 1 hour. Used = completed breaks today + the live open one.
+  const BREAK_ALLOWANCE_MIN = 60;
+  const breakUsedMin = (todayData?.breakMin || 0) + (onBreak ? Math.floor(sinceSec / 60) : 0);
+  const breakLeftMin = BREAK_ALLOWANCE_MIN - breakUsedMin;
   const weekFlags = Object.values(days).reduce((a, d) => a + d.flags.length, 0);
 
   return (
@@ -224,7 +232,17 @@ export default function TimeClock() {
                 </span>
               )}
             </div>
-            {last && <div style={{ marginBottom: 16 }}><GeoChip p={last} /></div>}
+            {last && <div style={{ marginBottom: onBreak ? 10 : 16 }}><GeoChip p={last} /></div>}
+            {onBreak && (
+              <div style={{ marginBottom: 16, display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 13px', borderRadius: 10,
+                background: breakLeftMin < 0 ? 'hsla(var(--color-red),0.1)' : 'rgba(180,83,9,0.09)',
+                color: breakLeftMin < 0 ? 'hsl(var(--color-red))' : '#b45309', fontSize: 13, fontWeight: 700 }}>
+                <Coffee size={14} />
+                {breakLeftMin >= 0
+                  ? `${breakLeftMin} min left of your 1h daily break`
+                  : `Break over by ${-breakLeftMin} min — over your 1h daily allowance`}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               {(status.allowed || []).map(kind => {
                 const M = KIND_META[kind];
@@ -250,7 +268,7 @@ export default function TimeClock() {
             <DayTimeline punches={todayData.punches} />
             <div style={{ display: 'flex', gap: 26, marginTop: 18, flexWrap: 'wrap' }}>
               {[['Worked today', fmtMin(todayData.workedMin), 'var(--pine)'],
-                ['Breaks', `${todayData.breakMin}m`, 'var(--ink)'],
+                ['Breaks', `${breakUsedMin} / 60m`, breakUsedMin > 60 ? 'hsl(var(--color-red))' : 'var(--ink)'],
                 ['Last 7 days', fmtMin(weekTotal), 'var(--ink)']].map(([l, v, c]) => (
                 <div key={l}>
                   <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)' }}>{l}</div>
@@ -421,12 +439,19 @@ export default function TimeClock() {
       </div>
       </>)}
 
-      {bodMode && <BodModal
-        mode={bodMode === 'bod-gate' ? 'bod' : bodMode}
-        required={bodMode === 'bod-gate'}
-        onSent={bodMode === 'bod-gate' ? () => { setBodMode(null); actualPunch('in'); } : undefined}
-        onClose={() => setBodMode(null)}
-        toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />}
+      {bodMode && (() => {
+        const modalMode = bodMode === 'bod-gate' ? 'bod' : bodMode === 'break-gate' ? 'break' : bodMode;
+        // in/break gates: proceed with the punch on send OR ack-skip; eod: just close (already punched)
+        const proceed = bodMode === 'bod-gate' ? () => { setBodMode(null); actualPunch('in'); }
+          : bodMode === 'break-gate' ? () => { setBodMode(null); actualPunch('break_start'); }
+          : () => setBodMode(null);
+        const onSkip = bodMode === 'bod-gate' ? () => { bodMarker('bod'); proceed(); }
+          : bodMode === 'eod' ? () => { bodMarker('eod'); setBodMode(null); }
+          : proceed;
+        return <BodModal mode={modalMode} required onSent={proceed} onSkip={onSkip}
+          onClose={() => setBodMode(null)}
+          toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />;
+      })()}
     </div>
   );
 }

@@ -1278,7 +1278,7 @@ class BodIn(BaseModel):
 def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     now = _now_iso()
     row = TimeBod(id=str(uuid.uuid4()), employee_email=user["email"],
-                  kind="eod" if body.kind == "eod" else "bod",
+                  kind=body.kind if body.kind in ("bod", "eod", "break") else "bod",
                   local_date=_local_date(now, body.tz_offset_min or 0),
                   message=(body.message or "").strip()[:1000],
                   tasks=(body.tasks or "").strip()[:2000],
