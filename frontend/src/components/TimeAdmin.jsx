@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Clock, ChevronDown, ChevronRight, ChevronLeft, MapPin, AlertTriangle, Download,
   Pencil, Plus, Loader2, X, CheckCircle, Ban,
@@ -428,8 +429,10 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         </div>
       )}
 
-      {/* Person time portal — everything time-related for one employee */}
-      {person && (() => {
+      {/* Person time portal — everything time-related for one employee.
+          Portaled to <body>: host cards (Manager Dashboard) have transformed
+          ancestors that would otherwise trap position:fixed overlays. */}
+      {person && createPortal((() => {
         const p = (rows || []).find(r => r.email === person.email) || person;
         const myOff = timeoff.filter(t => t.email === p.email);
         return (
@@ -501,10 +504,10 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
             </div>
           </div>
         );
-      })()}
+      })(), document.body)}
 
       {/* Edit punch modal */}
-      {edit && (
+      {edit && createPortal(
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
           onClick={e => e.target === e.currentTarget && setEdit(null)}>
           <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 430, boxShadow: 'var(--shadow-lg)' }}>
@@ -539,10 +542,10 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
             </div>
           </div>
         </div>
-      )}
+      , document.body)}
 
       {/* Add punch modal */}
-      {addFor && (
+      {addFor && createPortal(
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
           onClick={e => e.target === e.currentTarget && setAddFor(null)}>
           <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 430, boxShadow: 'var(--shadow-lg)' }}>
@@ -570,7 +573,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
             </div>
           </div>
         </div>
-      )}
+      , document.body)}
     </div>
   );
 }
