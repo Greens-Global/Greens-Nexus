@@ -17,8 +17,10 @@ Design decisions are research-backed (Jul 2026 deep-research pass):
   (WA/OR break policy, retention windows) are open questions for counsel.
 """
 import csv
+import hashlib
 import io
 import math
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -32,7 +34,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from auth import get_current_user, require_level_or_module, require_administrator
 from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, TimeBod,
-                    HrWorkSite, NexusEmployee)
+                    AgentDevice, HrWorkSite, NexusEmployee)
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET
 from routers.esign import _client_meta
 
@@ -563,15 +565,7 @@ def _clocked_in(db: Session, email: str) -> bool:
     return bool(last and last.kind != "out")
 
 
-@router.post("/screenshot")
-def upload_screenshot(request: Request, file: UploadFile = File(...),
-                      idle_sec: int = Form(0), active_view: str = Form(""),
-                      tz_offset_min: int = Form(0),
-                      user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    email = user["email"]
-    if not _clocked_in(db, email):
-        raise HTTPException(409, "Not clocked in — capture stops with the shift.")
-    blob = file.file.read()
+def _store_shot(db: Session, email: str, blob: bytes, idle_sec: int, active_view: str, tz_offset_min: int):
     if not blob or len(blob) > 2_000_000:
         raise HTTPException(400, "Screenshot missing or larger than 2 MB")
     now = _now_iso()
@@ -587,6 +581,146 @@ def upload_screenshot(request: Request, file: UploadFile = File(...),
                          active_view=(active_view or "")[:120], created_at=now)
     db.add(row)
     db.commit()
+    return row
+
+
+@router.post("/screenshot")
+def upload_screenshot(request: Request, file: UploadFile = File(...),
+                      idle_sec: int = Form(0), active_view: str = Form(""),
+                      tz_offset_min: int = Form(0),
+                      user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    email = user["email"]
+    if not _clocked_in(db, email):
+        raise HTTPException(409, "Not clocked in — capture stops with the shift.")
+    row = _store_shot(db, email, file.file.read(), idle_sec, active_view, tz_offset_min)
+    return {"ok": True, "id": row.id}
+
+
+# ── Silent agent enrollment (no-login, token-authenticated devices) ───────────
+# The "Silent App User" model: an admin mints a device token bound to an
+# employee; the install command drops it on the machine; the agent authenticates
+# with X-Agent-Token instead of a Microsoft login. The token is scoped to ONLY
+# the agent endpoints below — it grants no access to the rest of the API.
+
+def _hash_token(raw: str) -> str:
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def get_agent_device(request: Request, db: Session = Depends(get_db)) -> AgentDevice:
+    raw = request.headers.get("X-Agent-Token", "")
+    if not raw:
+        raise HTTPException(401, "Missing agent token")
+    dev = (db.query(AgentDevice)
+           .filter(AgentDevice.token_hash == _hash_token(raw), AgentDevice.revoked == 0)
+           .first())
+    if not dev:
+        raise HTTPException(401, "Invalid or revoked agent token")
+    return dev
+
+
+class EnrollIn(BaseModel):
+    email: str
+    label: Optional[str] = ""
+
+
+@router.post("/agent/enroll")
+def agent_enroll(body: EnrollIn, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """Mint a fresh device token for an employee. The raw token is returned ONCE
+    (only its hash is stored) — the portal bakes it into the install command."""
+    email = body.email.strip().lower()
+    if "@" not in email:
+        raise HTTPException(400, "A valid employee email is required")
+    raw = secrets.token_urlsafe(32)
+    now = _now_iso()
+    dev = AgentDevice(id=str(uuid.uuid4()), employee_email=email, token_hash=_hash_token(raw),
+                      label=(body.label or "").strip()[:120], created_by=user["email"], created_at=now)
+    db.add(dev)
+    db.commit()
+    return {"deviceId": dev.id, "token": raw, "email": email}
+
+
+@router.get("/agent/devices")
+def agent_devices(user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """Silent App Tracking: every enrolled computer, self-described on check-in."""
+    names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
+             for e in db.query(NexusEmployee).all() if e.work_email}
+    rows = db.query(AgentDevice).order_by(AgentDevice.created_at.desc()).all()
+    return {"devices": [{
+        "id": d.id, "email": d.employee_email,
+        "name": names.get(d.employee_email) or d.employee_email.split("@")[0].replace(".", " ").title(),
+        "label": d.label or "", "deviceName": d.device_name or "", "deviceUser": d.device_user or "",
+        "mac": d.mac or "", "platform": d.platform or "", "revoked": bool(d.revoked),
+        "lastSeen": d.last_seen_at or "", "createdAt": d.created_at or "",
+    } for d in rows]}
+
+
+@router.patch("/agent/devices/{device_id}")
+def agent_revoke(device_id: str, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    dev = db.query(AgentDevice).filter(AgentDevice.id == device_id).first()
+    if not dev:
+        raise HTTPException(404, "Device not found")
+    dev.revoked = 1
+    db.commit()
+    return {"ok": True}
+
+
+class AgentCheckinIn(BaseModel):
+    active: bool = True
+    idle_sec: int = 0
+    device_name: Optional[str] = ""
+    device_user: Optional[str] = ""
+    mac: Optional[str] = ""
+    platform: Optional[str] = ""
+    tz_offset_min: Optional[int] = 0
+
+
+_AGENT_IDLE_OUT_SEC = 600   # 10 min idle → auto punch-out
+
+
+@router.post("/agent/checkin")
+def agent_checkin(body: AgentCheckinIn, dev: AgentDevice = Depends(get_agent_device),
+                  db: Session = Depends(get_db)):
+    """Heartbeat from a silent device. Records who/what the machine is, and
+    auto-manages the punch clock (active → in, idle → out) so hours flow into the
+    same timesheets/approvals as manual punches — every such punch is
+    source='agent' and adjustable. Returns whether the agent should capture now."""
+    email = dev.employee_email
+    now = _now_iso()
+    dev.last_seen_at = now
+    if body.device_name: dev.device_name = body.device_name[:120]
+    if body.device_user: dev.device_user = body.device_user[:120]
+    if body.mac:         dev.mac = body.mac[:40]
+    if body.platform:    dev.platform = body.platform[:20]
+
+    working = bool(body.active) and int(body.idle_sec or 0) < _AGENT_IDLE_OUT_SEC
+    last = (db.query(TimePunch)
+            .filter(TimePunch.employee_email == email, TimePunch.voided == 0)
+            .order_by(TimePunch.at.desc()).first())
+    clocked = bool(last and last.kind != "out")
+    if working and not clocked:
+        db.add(TimePunch(id=str(uuid.uuid4()), employee_email=email, kind="in", at=now[:19],
+                         local_date=_local_date(now, body.tz_offset_min or 0),
+                         tz_offset_min=body.tz_offset_min or 0, geo_status="no_location",
+                         source="agent", created_by="agent", created_at=now))
+        clocked = True
+    elif not working and clocked:
+        db.add(TimePunch(id=str(uuid.uuid4()), employee_email=email, kind="out", at=now[:19],
+                         local_date=_local_date(now, body.tz_offset_min or 0),
+                         tz_offset_min=body.tz_offset_min or 0, geo_status="no_location",
+                         source="agent", created_by="agent", created_at=now))
+        clocked = False
+    db.commit()
+    return {"capture": working, "email": email}
+
+
+@router.post("/agent/screenshot")
+def agent_screenshot(request: Request, file: UploadFile = File(...),
+                     idle_sec: int = Form(0), active_view: str = Form(""),
+                     tz_offset_min: int = Form(0),
+                     dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
+    """Frame from a silent device — identity comes from the token, so no login
+    and no web punch-clock gate (the agent gates on its own activity)."""
+    row = _store_shot(db, dev.employee_email, file.file.read(), idle_sec, active_view, tz_offset_min)
     return {"ok": True, "id": row.id}
 
 

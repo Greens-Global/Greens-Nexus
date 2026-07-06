@@ -22,8 +22,9 @@ module.exports = {
   webBase: (process.env.NEXUS_WEB_BASE || 'https://dev.nexus.greensglobal.com').replace(/\/+$/, ''),
 
   captureIntervalMs: Number(process.env.NEXUS_CAPTURE_MS) || 5 * 60 * 1000, // one frame set / 5 min
-  statusPollMs: 60 * 1000,          // how often we re-check clock state
+  statusPollMs: 60 * 1000,          // how often we re-check clock state / heartbeat
   maxWidth: 1280,                   // longest edge of each saved frame
   jpegQuality: 55,
   idleBadgeSec: 300,                // parity with the web gallery's idle badge
+  idleActiveSec: 120,               // silent mode: idle beyond this = "not working"
 };

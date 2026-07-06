@@ -4,6 +4,9 @@
 // web app uses. No window, no Chrome sharing bar — it lives in the system tray.
 // Capture is gated on clock state and pausable by the employee from the menu.
 
+const os = require('os');
+const fs = require('fs');
+const path = require('path');
 const { app, Tray, Menu, nativeImage, powerMonitor, shell, dialog } = require('electron');
 const config = require('./config');
 const auth = require('./auth');
@@ -17,6 +20,30 @@ let paused = false;
 let status = null;
 let lastShotAt = 0;
 let ticking = false;
+
+// ── Silent (token) mode ────────────────────────────────────────────────────────
+// If a device token was provisioned (env var, or a file the install command
+// dropped in userData), the agent runs headless: it authenticates with the token
+// and never shows a Microsoft login. This is the "Silent App User" deployment.
+const TOKEN_FILE = path.join(app.getPath('userData'), 'device-token.txt');
+function readDeviceToken() {
+  if (process.env.NEXUS_AGENT_TOKEN) return process.env.NEXUS_AGENT_TOKEN.trim();
+  try { return fs.readFileSync(TOKEN_FILE, 'utf8').trim() || null; } catch { return null; }
+}
+let deviceToken = readDeviceToken();
+let silentMode = !!deviceToken;
+let silentEmail = '';           // learned from the first check-in
+let silentCapture = false;      // server says capture right now
+
+function firstMac() {
+  const ifaces = os.networkInterfaces();
+  for (const name of Object.keys(ifaces)) {
+    for (const ni of ifaces[name] || []) {
+      if (!ni.internal && ni.mac && ni.mac !== '00:00:00:00:00:00') return ni.mac;
+    }
+  }
+  return '';
+}
 
 // A 16×16 tray icon drawn as raw BGRA pixels (a filled brand-green disc) — no
 // image asset to ship or risk corrupting.
@@ -39,6 +66,11 @@ function clockedIn() {
 }
 
 function stateLabel() {
+  if (silentMode) {
+    const who = silentEmail ? ` · ${silentEmail}` : '';
+    if (paused) return `Silent${who} — PAUSED`;
+    return `Silent${who} — ${silentCapture ? 'active, capturing' : 'idle'}`;
+  }
   if (!signedIn) return 'Not signed in';
   if (!status) return 'Connecting…';
   if (!clockedIn()) return 'Off the clock — not capturing';
@@ -48,24 +80,24 @@ function stateLabel() {
 
 function refreshTray() {
   if (!tray) return;
-  const menu = Menu.buildFromTemplate([
+  const items = [
     { label: stateLabel(), enabled: false },
     { type: 'separator' },
-    {
-      label: paused ? 'Resume capture' : 'Pause capture',
-      enabled: signedIn,
-      click: () => { paused = !paused; refreshTray(); },
-    },
-    { label: 'Capture now', enabled: signedIn && clockedIn() && !paused, click: () => doCapture(true) },
+    { label: paused ? 'Resume capture' : 'Pause capture',
+      enabled: silentMode || signedIn,
+      click: () => { paused = !paused; refreshTray(); } },
     { label: 'Open Time Clock', click: () => shell.openExternal(`${config.webBase}/timeclock`) },
     { type: 'separator' },
-    signedIn
+  ];
+  if (!silentMode) {
+    items.splice(3, 0, { label: 'Capture now', enabled: signedIn && clockedIn() && !paused, click: () => doCapture(true) });
+    items.push(signedIn
       ? { label: 'Sign out', click: signOut }
-      : { label: 'Sign in', click: () => signIn(true) },
-    { label: 'Quit', click: () => app.quit() },
-  ]);
+      : { label: 'Sign in', click: () => signIn(true) });
+  }
+  items.push({ label: 'Quit', click: () => app.quit() });
   tray.setToolTip(`Greens Nexus Agent — ${stateLabel()}`);
-  tray.setContextMenu(menu);
+  tray.setContextMenu(Menu.buildFromTemplate(items));
 }
 
 async function ensureToken() {
@@ -108,8 +140,40 @@ async function doCapture(manual) {
   } catch { /* a failed pass never crashes the agent; next tick retries */ }
 }
 
+// Silent heartbeat: report activity (auto-punches happen server-side), learn
+// whether to capture, then capture every 5 min while active.
+async function silentTick() {
+  if (ticking) return;
+  ticking = true;
+  try {
+    const idleSec = powerMonitor.getSystemIdleTime();
+    const r = await api.agentCheckin(deviceToken, {
+      active: !paused && idleSec < config.idleActiveSec,
+      idle_sec: idleSec,
+      device_name: os.hostname(),
+      device_user: (os.userInfo().username || ''),
+      mac: firstMac(),
+      platform: process.platform,
+      tz_offset_min: new Date().getTimezoneOffset(),
+    }).catch(() => null);
+    if (r) { silentEmail = r.email || silentEmail; silentCapture = !!r.capture && !paused; }
+    refreshTray();
+    if (silentCapture && Date.now() - lastShotAt >= config.captureIntervalMs) {
+      try {
+        const screens = await captureAllScreens();
+        for (const s of screens) {
+          const label = `desktop agent${s.total > 1 ? ` · screen ${s.index}/${s.total}` : ''}`;
+          await api.agentUploadShot(deviceToken, s.jpeg, { idleSec, activeView: label, tzOffsetMin: new Date().getTimezoneOffset() });
+        }
+        lastShotAt = Date.now();
+      } catch { /* next tick retries */ }
+    }
+  } finally { ticking = false; }
+}
+
 // Master heartbeat: refresh token + clock state, then capture if it's time.
 async function tick() {
+  if (silentMode) return silentTick();
   if (ticking) return;
   ticking = true;
   try {
@@ -129,7 +193,8 @@ app.whenReady().then(async () => {
   if (process.platform === 'darwin' && app.dock) app.dock.hide(); // tray-only
   tray = new Tray(trayIcon());
   refreshTray();
-  await signIn(true);                       // prompt on first ever launch
+  if (silentMode) tick();                   // headless: no login prompt
+  else await signIn(true);                  // interactive: prompt on first launch
   setInterval(tick, config.statusPollMs);   // heartbeat
   powerMonitor.on('resume', tick);          // wake from sleep → re-sync promptly
 });

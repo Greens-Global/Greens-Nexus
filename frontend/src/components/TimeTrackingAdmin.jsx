@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   Monitor, Command, Terminal, Download, Copy, Check, AlertTriangle,
-  ShieldCheck, Trash2, ChevronRight, Upload, Loader2,
+  ShieldCheck, Trash2, ChevronRight, Upload, Loader2, KeyRound,
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -17,19 +17,27 @@ import { api } from '../api';
 
 const AGENT_VERSION = 'v0.1.0';
 
-// Command builders take the live signed URL so what the admin copies is ready to
-// paste on the target machine. Windows: download → run NSIS /S (per-user, no
-// admin prompt) → clean up.
+// Command builders take the live signed URL + a device TOKEN so the machine
+// enrolls to a user with NO Microsoft login: the command installs the agent and
+// drops the token into the agent's config dir, where it reads it on startup.
+// Windows: download → NSIS /S (per-user, no admin) → write token → clean up.
 const CMD = {
-  win: (url) =>
+  win: (url, token) =>
     `powershell -Command "$p=\\"$env:TEMP\\GNAgent.exe\\"; Invoke-WebRequest -Uri '${url}' -OutFile $p; ` +
-    `Start-Process -Wait $p -ArgumentList '/S'; Remove-Item $p"`,
-  mac: (url) =>
+    `Start-Process -Wait $p -ArgumentList '/S'; $d=\\"$env:APPDATA\\Greens Nexus Agent\\"; ` +
+    `New-Item -ItemType Directory -Force $d | Out-Null; Set-Content -NoNewline \\"$d\\device-token.txt\\" '${token}'; ` +
+    `Remove-Item $p; Start-Process \\"$env:LOCALAPPDATA\\Programs\\greens-nexus-agent\\Greens Nexus Agent.exe\\""`,
+  mac: (url, token) =>
     `curl -L '${url}' -o /tmp/GNAgent.dmg && hdiutil attach /tmp/GNAgent.dmg -nobrowse -quiet && ` +
     `cp -R "/Volumes/Greens Nexus Agent/Greens Nexus Agent.app" /Applications/ && ` +
-    `hdiutil detach "/Volumes/Greens Nexus Agent" -quiet && open "/Applications/Greens Nexus Agent.app"`,
-  linux: (url) =>
-    `curl -L '${url}' -o ~/.local/bin/gn-agent.AppImage && chmod +x ~/.local/bin/gn-agent.AppImage && ~/.local/bin/gn-agent.AppImage &`,
+    `hdiutil detach "/Volumes/Greens Nexus Agent" -quiet && ` +
+    `mkdir -p ~/Library/Application\\ Support/Greens\\ Nexus\\ Agent && ` +
+    `printf '%s' '${token}' > ~/Library/Application\\ Support/Greens\\ Nexus\\ Agent/device-token.txt && ` +
+    `open "/Applications/Greens Nexus Agent.app"`,
+  linux: (url, token) =>
+    `curl -L '${url}' -o ~/.local/bin/gn-agent.AppImage && chmod +x ~/.local/bin/gn-agent.AppImage && ` +
+    `mkdir -p ~/.config/Greens\\ Nexus\\ Agent && printf '%s' '${token}' > ~/.config/Greens\\ Nexus\\ Agent/device-token.txt && ` +
+    `~/.local/bin/gn-agent.AppImage &`,
 };
 
 const WIN_UNINSTALL =
@@ -67,11 +75,17 @@ function CopyBox({ text }) {
 }
 
 const STEPS = [
-  { n: 1, title: 'Host the installer (one-time)', body: 'Build the agent in the desktop-agent/ folder (npm run dist:win / dist:mac), code-sign it, and upload it to your host so the download link below resolves.' },
-  { n: 2, title: 'Deploy to the machine', body: 'Run the silent command on the employee’s computer, or push it through Intune / your RMM. It installs per-user — no admin prompt on Windows.' },
-  { n: 3, title: 'Employee signs in once', body: 'The agent opens the normal Microsoft sign-in in the system browser. After that it remembers the session and starts silently on login.' },
-  { n: 4, title: 'Verify it’s reporting', body: 'While the employee is clocked in, frames appear under your avatar → Admin → Screenshots, one per monitor, every 5 minutes.' },
+  { n: 1, title: 'Host the installer (one-time)', body: 'Build the agent in the desktop-agent/ folder (npm run dist:win / dist:mac), code-sign it, then upload it here with the button above.' },
+  { n: 2, title: 'Enroll the person', body: 'Enter the employee’s email below and generate their install command. It carries a device token, so no Microsoft login is needed on the machine.' },
+  { n: 3, title: 'Run it on the computer', body: 'Paste the command into the machine’s terminal, or push it via Intune / RMM. It installs silently and tags that computer to the person automatically.' },
+  { n: 4, title: 'It tracks itself', body: 'The agent auto-records worked time while the person is active and captures every monitor — visible under Admin → Screenshots and in their timesheet. It appears below in Silent App Tracking.' },
 ];
+
+function fmtWhen(iso) {
+  if (!iso) return 'never';
+  try { return new Date(iso + 'Z').toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+  catch { return iso.slice(0, 16).replace('T', ' '); }
+}
 
 export default function TimeTrackingAdmin() {
   const [mode, setMode] = useState('silent');   // 'interactive' (UI only) | 'silent'
@@ -79,6 +93,11 @@ export default function TimeTrackingAdmin() {
   const [dl, setDl] = useState({ loading: true, exists: false, url: '' });
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState(null);   // {ok, text}
+  const [enrollEmail, setEnrollEmail] = useState('');
+  const [enrolling, setEnrolling] = useState(false);
+  const [enrollErr, setEnrollErr] = useState('');
+  const [token, setToken] = useState('');             // shown once, after enroll
+  const [devices, setDevices] = useState(null);
   const fileRef = useRef(null);
   const P = PLATFORMS.find(p => p.id === plat);
 
@@ -88,8 +107,12 @@ export default function TimeTrackingAdmin() {
       .then(r => setDl({ loading: false, exists: !!r.exists, url: r.url || '' }))
       .catch(() => setDl({ loading: false, exists: false, url: '' }));
   }
+  function loadDevices() {
+    api.timeAgentDevices().then(r => setDevices(r.devices || [])).catch(() => setDevices([]));
+  }
 
   useEffect(() => { if (mode === 'silent') loadUrl(plat); }, [plat, mode]);
+  useEffect(() => { if (mode === 'silent') loadDevices(); }, [mode]);
 
   async function onUpload(e) {
     const f = e.target.files?.[0];
@@ -109,7 +132,25 @@ export default function TimeTrackingAdmin() {
     setUploading(false);
   }
 
-  const cmdText = dl.url ? CMD[plat](dl.url) : CMD[plat]('<upload an installer first>');
+  async function enroll() {
+    const email = enrollEmail.trim().toLowerCase();
+    if (!email.includes('@')) { setEnrollErr('Enter a valid employee email.'); return; }
+    setEnrolling(true); setEnrollErr('');
+    try {
+      const r = await api.timeAgentEnroll({ email });
+      setToken(r.token);
+      loadDevices();
+    } catch (err) {
+      setEnrollErr(err?.message || 'Could not create enrollment.');
+    }
+    setEnrolling(false);
+  }
+
+  async function revoke(id) {
+    try { await api.timeAgentRevoke(id); loadDevices(); } catch {}
+  }
+
+  const cmdText = token && dl.url ? CMD[plat](dl.url, token) : '';
 
   return (
     <div style={{ fontFamily: 'Inter,sans-serif', maxWidth: 860, margin: '0 auto' }}>
@@ -196,16 +237,38 @@ export default function TimeTrackingAdmin() {
           </div>
         </div>
 
-        {/* Silent command */}
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 7 }}>
-            Silent install command
+        {/* Enroll a computer → install command with a device token (no login) */}
+        <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '16px', marginBottom: 20 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 800, marginBottom: 4 }}>Enroll a computer</div>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 12px', lineHeight: 1.55 }}>
+            Enter the employee this machine belongs to. We generate a one-time device token and bake it into the command —
+            the person is tagged automatically, with no Microsoft login on the machine.
+          </p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input type="email" className="form-input" placeholder="employee@greensglobal.com"
+              value={enrollEmail} onChange={e => { setEnrollEmail(e.target.value); setToken(''); }}
+              style={{ flex: 1, minWidth: 220, fontSize: 13 }} />
+            <button className="primary-btn" onClick={enroll} disabled={enrolling || !dl.exists}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+              {enrolling ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <KeyRound size={13} />}
+              Generate install command
+            </button>
           </div>
-          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 10px', lineHeight: 1.6 }}>{P.cmdIntro}</p>
-          <CopyBox text={cmdText} />
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'hsla(45,90%,55%,0.12)', border: '1px solid hsla(45,80%,45%,0.35)', borderRadius: 9, padding: '8px 12px', fontSize: 11.5, color: '#8a5a00', margin: '0 0 24px' }}>
-          <AlertTriangle size={13} style={{ flexShrink: 0 }} /> Copy the full command, not just the link. The link is signed and expires in 7 days — regenerate it here for a later rollout.
+          {!dl.exists && <p style={{ fontSize: 11, color: '#b45309', margin: '8px 0 0' }}>Upload a {P.label} installer first.</p>}
+          {enrollErr && <p style={{ fontSize: 11.5, color: '#b91c1c', margin: '8px 0 0' }}>{enrollErr}</p>}
+
+          {token && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 7 }}>
+                Silent install command · {enrollEmail.trim().toLowerCase()}
+              </div>
+              <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 10px', lineHeight: 1.6 }}>{P.cmdIntro}</p>
+              <CopyBox text={cmdText} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'hsla(45,90%,55%,0.12)', border: '1px solid hsla(45,80%,45%,0.35)', borderRadius: 9, padding: '8px 12px', fontSize: 11.5, color: '#8a5a00', marginTop: 10 }}>
+                <AlertTriangle size={13} style={{ flexShrink: 0 }} /> Copy the full command now — the token is shown once. The download link inside is signed and expires in 7 days. Generate a fresh command per computer.
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Steps */}
@@ -224,18 +287,59 @@ export default function TimeTrackingAdmin() {
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', border: '1px solid var(--line)', borderRadius: 12, padding: '14px 16px', background: 'hsla(var(--color-green),0.04)', marginBottom: 14 }}>
           <ShieldCheck size={17} style={{ color: 'hsl(var(--color-green))', flexShrink: 0, marginTop: 1 }} />
           <div style={{ fontSize: 12.5, color: 'var(--ink)', lineHeight: 1.6 }}>
-            <strong>How it behaves.</strong> The agent captures <strong>only while the employee is clocked in</strong> (it checks the punch clock every minute) and the employee can pause it from the tray. It never records off the clock. Signing out from the tray clears the saved session on that machine.
+            <strong>How it behaves.</strong> A silent device auto-records worked time while the person is <strong>active</strong> (it punches them in on activity and out after 10 minutes idle — every such punch is marked <em>agent</em> and is adjustable in their timecard) and captures each monitor every 5 minutes. It never records once revoked here or uninstalled.
           </div>
         </div>
 
         {/* Uninstall */}
-        <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '14px 16px' }}>
+        <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '14px 16px', marginBottom: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <Trash2 size={15} style={{ color: '#b91c1c' }} />
             <span style={{ fontSize: 13, fontWeight: 800 }}>Uninstall on {P.label}</span>
           </div>
           <CopyBox text={P.uninstall} />
-          <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '9px 0 0', lineHeight: 1.55 }}>{P.uninstallNote}</p>
+          <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '9px 0 0', lineHeight: 1.55 }}>{P.uninstallNote} You can also <strong>Revoke</strong> a device below to cut it off instantly.</p>
+        </div>
+
+        {/* Silent App Tracking — enrolled computers */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 10px' }}>
+          <Monitor size={15} style={{ color: 'var(--pine)' }} />
+          <span style={{ fontSize: 13.5, fontWeight: 800 }}>Silent App Tracking</span>
+          <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>enrolled computers</span>
+        </div>
+        <div style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'auto' }}>
+          <table className="stack-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: 'var(--mist)' }}>
+                {['Member', 'Email', 'Device name', 'Device user', 'MAC', 'Last seen', ''].map(h => (
+                  <th key={h} style={{ padding: '9px 12px', textAlign: 'left', fontSize: 10.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', whiteSpace: 'nowrap' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {devices === null && (
+                <tr><td colSpan={7} style={{ padding: 22, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /></td></tr>
+              )}
+              {devices && devices.length === 0 && (
+                <tr><td colSpan={7} style={{ padding: 22, textAlign: 'center', color: 'var(--muted)', fontSize: 12.5 }}>No computers enrolled yet.</td></tr>
+              )}
+              {devices && devices.map(d => (
+                <tr key={d.id} style={{ borderTop: '1px solid var(--line)', opacity: d.revoked ? 0.5 : 1 }}>
+                  <td data-th="Member" style={{ padding: '9px 12px', fontWeight: 700 }}>{d.name}</td>
+                  <td data-th="Email" style={{ padding: '9px 12px', color: 'var(--muted)' }}>{d.email}</td>
+                  <td data-th="Device name" style={{ padding: '9px 12px' }}>{d.deviceName || '—'}</td>
+                  <td data-th="Device user" style={{ padding: '9px 12px' }}>{d.deviceUser || '—'}</td>
+                  <td data-th="MAC" style={{ padding: '9px 12px', fontFamily: 'monospace', fontSize: 11 }}>{d.mac || '—'}</td>
+                  <td data-th="Last seen" style={{ padding: '9px 12px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>{fmtWhen(d.lastSeen)}</td>
+                  <td style={{ padding: '9px 12px', textAlign: 'right' }}>
+                    {d.revoked
+                      ? <span style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', color: '#b91c1c' }}>Revoked</span>
+                      : <button onClick={() => revoke(d.id)} className="secondary-btn" style={{ fontSize: 11, color: '#b91c1c', padding: '3px 10px' }}>Revoke</button>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </>)}
     </div>

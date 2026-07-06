@@ -492,6 +492,9 @@ export const api = {
   timeBodLast:       ()          => req('/timeclock/bod/last'),
   timeAgentDownloadUrl: (platform) => req(`/timeclock/agent/download-url?platform=${encodeURIComponent(platform)}`),
   timeAgentUpload:   (platform, formData) => req(`/timeclock/agent/upload?platform=${encodeURIComponent(platform)}`, { method: 'POST', body: formData }),
+  timeAgentEnroll:   (data)      => req('/timeclock/agent/enroll', { method: 'POST', body: JSON.stringify(data) }),
+  timeAgentDevices:  ()          => req('/timeclock/agent/devices'),
+  timeAgentRevoke:   (id)        => req(`/timeclock/agent/devices/${id}`, { method: 'PATCH' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch —

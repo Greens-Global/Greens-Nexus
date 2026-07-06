@@ -1039,6 +1039,26 @@ class TimeBod(Base):
     created_at     = Column(String, default="")
 
 
+class AgentDevice(Base):
+    """A desktop-agent enrollment. Silent (no-login) model: an admin mints a
+    token tied to an employee, the install command drops it on the machine, and
+    the agent authenticates with it (X-Agent-Token) — no Microsoft sign-in. Each
+    row is one enrolled computer, self-describing on first check-in."""
+    __tablename__ = "agent_devices"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    token_hash     = Column(String, index=True, default="")   # sha256 of the secret
+    label          = Column(String, default="")         # optional admin note
+    device_name    = Column(String, default="")         # hostname
+    device_user    = Column(String, default="")         # OS username
+    mac            = Column(String, default="")
+    platform       = Column(String, default="")
+    revoked        = Column(Integer, default=0)
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+    last_seen_at   = Column(String, default="")
+
+
 class TimeOffRequest(Base):
     """Leave inside the Time module: employee-submitted, manager/HR-decided."""
     __tablename__ = "time_off_requests"

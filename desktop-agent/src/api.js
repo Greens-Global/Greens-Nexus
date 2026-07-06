@@ -32,4 +32,30 @@ async function uploadShot(token, jpegBuffer, { idleSec, activeView, tzOffsetMin 
   return r.json();
 }
 
-module.exports = { getStatus, uploadShot };
+// ── Silent (token) mode ───────────────────────────────────────────────────────
+// Identity comes from the device token (X-Agent-Token), not a Microsoft login.
+
+async function agentCheckin(token, body) {
+  const r = await fetch(`${config.apiBase}/timeclock/agent/checkin`, {
+    method: 'POST',
+    headers: { 'X-Agent-Token': token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`checkin ${r.status}`);
+  return r.json();
+}
+
+async function agentUploadShot(token, jpegBuffer, { idleSec, activeView, tzOffsetMin }) {
+  const form = new FormData();
+  form.append('file', new Blob([jpegBuffer], { type: 'image/jpeg' }), 'shot.jpg');
+  form.append('idle_sec', String(Math.max(0, Math.round(idleSec || 0))));
+  form.append('active_view', String(activeView || '').slice(0, 100));
+  form.append('tz_offset_min', String(tzOffsetMin || 0));
+  const r = await fetch(`${config.apiBase}/timeclock/agent/screenshot`, {
+    method: 'POST', headers: { 'X-Agent-Token': token }, body: form,
+  });
+  if (!r.ok) throw new Error(`upload ${r.status}`);
+  return r.json();
+}
+
+module.exports = { getStatus, uploadShot, agentCheckin, agentUploadShot };
