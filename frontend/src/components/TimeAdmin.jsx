@@ -98,9 +98,9 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
               style={{ fontSize: 12, ...(active ? { background: 'var(--pine)', color: '#fff', borderColor: 'var(--pine)' } : {}) }}>{l}</button>
           );
         })}
-        <input className="form-input" type="date" value={start} onChange={e => setRange([e.target.value, end])} style={{ fontSize: 12 }} />
+        <input className="form-input" type="date" value={start} onChange={e => setRange([e.target.value, end])} style={{ fontSize: 12, width: 150 }} />
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
-        <input className="form-input" type="date" value={end} onChange={e => setRange([start, e.target.value])} style={{ fontSize: 12 }} />
+        <input className="form-input" type="date" value={end} onChange={e => setRange([start, e.target.value])} style={{ fontSize: 12, width: 150 }} />
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--muted)' }}>Team total: <span style={{ color: 'var(--pine)' }}>{fmtMin(totalMin)}</span></span>
         <button className="secondary-btn" onClick={() => exportCsv('summary')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
