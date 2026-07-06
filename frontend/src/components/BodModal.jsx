@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Sunrise, Sunset, X, Send, Loader2 } from 'lucide-react';
+import { Sunrise, Sunset, X, Send, Loader2, Link2 as LinkIcon } from 'lucide-react';
 import { msalInstance } from '../msalInstance';
 import { api } from '../api';
 
@@ -11,19 +11,19 @@ import { api } from '../api';
 
 const MODES = {
   bod: {
-    title: 'Beginning of day', Icon: Sunrise, color: '#f59e0b', emoji: '🌅',
+    title: 'Beginning of day', Icon: Sunrise, color: '#f59e0b', tag: 'BOD',
     sub: "First punch-in today — tell the team what's on your plate. Sent from your account.",
     msgLabel: 'Message', msgPlaceholder: 'Good morning! Starting my day…',
-    tasksLabel: "Today's tasks (one per line)", tasksHead: "Today's tasks",
-    tasksPlaceholder: 'Finish the Lakeline report\nCall the Riverside vendor',
+    tasksLabel: "Today's tasks (one per line)", tasksHead: 'Tasks',
+    tasksPlaceholder: 'Finish the Lakeline report\nCall the Riverside vendor\nReview Q2 numbers',
     cta: 'Send & start the day',
   },
   eod: {
-    title: 'End of day', Icon: Sunset, color: '#7c3aed', emoji: '🌇',
-    sub: "Wrapping up — post a quick summary of your day. Sent from your account.",
-    msgLabel: 'Summary', msgPlaceholder: 'Wrapping up for the day — good progress overall.',
-    tasksLabel: 'What got done / blockers (one per line)', tasksHead: 'Today',
-    tasksPlaceholder: 'Shipped the Lakeline report\nBlocked on Riverside vendor callback',
+    title: 'End of day', Icon: Sunset, color: '#7c3aed', tag: 'EOD',
+    sub: 'Wrapping up — post your summary and the tasks you worked on. Sent from your account.',
+    msgLabel: 'Summary', msgPlaceholder: 'Wrapping up — good progress today.',
+    tasksLabel: 'Tasks (one per line)', tasksHead: 'Tasks',
+    tasksPlaceholder: 'Lakeline report\nRiverside vendor call\nQ2 numbers review',
     cta: 'Send & clock out',
   },
 };
@@ -31,13 +31,37 @@ const MODES = {
 const GRAPH_SCOPES = ['Team.ReadBasic.All', 'Channel.ReadBasic.All', 'ChannelMessage.Send'];
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 
-async function graphToken() {
+// joined-teams list cached for the session so reopening the modal is instant.
+let cachedTeams = null;
+
+function withTimeout(promise, ms) {
+  return Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+}
+
+// Silent only, fails fast — never hangs the modal. Returns null if a login popup
+// would be needed (we surface a "Connect Teams" button for that instead).
+async function graphTokenSilent() {
   const account = msalInstance.getAllAccounts()[0];
+  if (!account) return null;
   try {
-    return (await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account })).accessToken;
-  } catch {
-    return (await msalInstance.acquireTokenPopup({ scopes: GRAPH_SCOPES, account })).accessToken;
-  }
+    const r = await withTimeout(msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account }), 6000);
+    return r.accessToken;
+  } catch { return null; }
+}
+
+// Interactive — only ever called from a user click (popups need a gesture).
+async function graphTokenInteractive() {
+  const account = msalInstance.getAllAccounts()[0];
+  return (await msalInstance.acquireTokenPopup({ scopes: GRAPH_SCOPES, account })).accessToken;
+}
+
+async function graphJSON(url, tok, ms = 8000) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${tok}` }, signal: ctl.signal });
+    return r.ok ? await r.json() : null;
+  } catch { return null; } finally { clearTimeout(t); }
 }
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -48,48 +72,68 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onClo
   const M = MODES[mode] || MODES.bod;
   const [message, setMessage] = useState('');
   const [tasks, setTasks] = useState('');
-  const [teams, setTeams] = useState(null);       // null = loading Graph
+  const [teams, setTeams] = useState(cachedTeams);   // null until loaded
   const [channels, setChannels] = useState([]);
   const [teamId, setTeamId] = useState('');
   const [channelId, setChannelId] = useState('');
   const [busy, setBusy] = useState(false);
-  const [graphErr, setGraphErr] = useState('');
+  const [loadingTeams, setLoadingTeams] = useState(false);
+  const [needsConnect, setNeedsConnect] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
+  async function prefillLast(list) {
+    const last = await api.timeBodLast().catch(() => null);
+    if (last?.teamId && list.some(t => t.id === last.teamId)) {
+      setTeamId(last.teamId); setChannelId(last.channelId || '');
+    } else if (list.length === 1) setTeamId(list[0].id);
+  }
+
+  async function loadTeams(tok) {
+    const data = await graphJSON(`${GRAPH}/me/joinedTeams?$select=id,displayName`, tok);
+    const list = data?.value || [];
+    cachedTeams = list; setTeams(list);
+    prefillLast(list);
+    return list;
+  }
+
+  // On open: use the cache, else try a fast SILENT token. If that can't get one
+  // (needs consent/login), show a Connect button — never block on a popup here.
   useEffect(() => {
     let live = true;
     (async () => {
-      try {
-        const tok = await graphToken();
-        const r = await fetch(`${GRAPH}/me/joinedTeams?$select=id,displayName`, { headers: { Authorization: `Bearer ${tok}` } });
-        if (!r.ok) throw new Error(`Teams list failed (${r.status})`);
-        const list = (await r.json()).value || [];
-        if (!live) return;
-        setTeams(list);
-        const last = await api.timeBodLast().catch(() => null);
-        if (!live) return;
-        if (last?.teamId && list.some(t => t.id === last.teamId)) {
-          setTeamId(last.teamId);
-          setChannelId(last.channelId || '');
-        } else if (list.length === 1) setTeamId(list[0].id);
-      } catch (e) {
-        if (live) { setTeams([]); setGraphErr(e?.message || 'Could not reach Teams.'); }
-      }
+      if (cachedTeams) { setTeams(cachedTeams); prefillLast(cachedTeams); return; }
+      setLoadingTeams(true);
+      const tok = await graphTokenSilent();
+      if (!live) return;
+      if (!tok) { setNeedsConnect(true); setLoadingTeams(false); return; }
+      await loadTeams(tok);
+      if (live) setLoadingTeams(false);
     })();
     return () => { live = false; };
   }, []);
+
+  async function connectTeams() {
+    setConnecting(true);
+    try {
+      const tok = await graphTokenInteractive();
+      setNeedsConnect(false); setLoadingTeams(true);
+      await loadTeams(tok);
+    } catch (e) {
+      toastErr('Could not connect Teams — you can still Send to record it in Nexus.');
+    } finally { setConnecting(false); setLoadingTeams(false); }
+  }
 
   useEffect(() => {
     if (!teamId) { setChannels([]); return; }
     let live = true;
     (async () => {
-      try {
-        const tok = await graphToken();
-        const r = await fetch(`${GRAPH}/teams/${teamId}/channels?$select=id,displayName`, { headers: { Authorization: `Bearer ${tok}` } });
-        const list = r.ok ? (await r.json()).value || [] : [];
-        if (!live) return;
-        setChannels(list);
-        setChannelId(c => (list.some(x => x.id === c) ? c : (list[0]?.id || '')));
-      } catch { if (live) setChannels([]); }
+      const tok = await graphTokenSilent();
+      if (!tok || !live) return;
+      const data = await graphJSON(`${GRAPH}/teams/${teamId}/channels?$select=id,displayName`, tok);
+      if (!live) return;
+      const list = data?.value || [];
+      setChannels(list);
+      setChannelId(c => (list.some(x => x.id === c) ? c : (list[0]?.id || '')));
     })();
     return () => { live = false; };
   }, [teamId]);
@@ -103,9 +147,10 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onClo
     let sent = false, sendError = '';
     if (teamId && channelId) {
       try {
-        const tok = await graphToken();
+        const tok = (await graphTokenSilent()) || (await graphTokenInteractive().catch(() => null));
+        if (!tok) throw new Error('Teams not connected');
         const taskLines = tasks.split('\n').map(t => t.trim()).filter(Boolean);
-        const html = `<b>${M.emoji} ${M.title}</b><br/>${esc(message)}`
+        const html = `<b>${M.tag}:</b> ${esc(message)}`
           + (taskLines.length ? `<br/><br/><b>${M.tasksHead}</b><br/>${taskLines.map(t => `• ${esc(t)}`).join('<br/>')}` : '');
         const r = await fetch(`${GRAPH}/teams/${teamId}/channels/${channelId}/messages`, {
           method: 'POST',
@@ -156,29 +201,35 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onClo
             <textarea className="form-input" rows={4} value={tasks} onChange={e => setTasks(e.target.value)}
               placeholder={M.tasksPlaceholder} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div>
-              <label style={FL}>Team</label>
-              {teams === null
-                ? <div style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Loading your teams…</div>
-                : <select className="form-input" value={teamId} onChange={e => setTeamId(e.target.value)} style={{ width: '100%', fontSize: 12.5 }}>
-                    <option value="">— pick a team —</option>
-                    {teams.map(t => <option key={t.id} value={t.id}>{t.displayName}</option>)}
-                  </select>}
-            </div>
-            <div>
-              <label style={FL}>Channel</label>
-              <select className="form-input" value={channelId} onChange={e => setChannelId(e.target.value)} disabled={!channels.length} style={{ width: '100%', fontSize: 12.5 }}>
-                {!channels.length && <option value="">—</option>}
-                {channels.map(c => <option key={c.id} value={c.id}>{c.displayName}</option>)}
-              </select>
-            </div>
+          {/* Teams channel — post to a channel, or just record in Nexus */}
+          <div>
+            <label style={FL}>Post to Teams <span style={{ textTransform: 'none', fontWeight: 500 }}>(optional)</span></label>
+            {needsConnect ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <button className="secondary-btn" onClick={connectTeams} disabled={connecting}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+                  {connecting ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <LinkIcon size={13} />}
+                  Connect Teams
+                </button>
+                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>one-time — or just Send to record it in Nexus.</span>
+              </div>
+            ) : loadingTeams ? (
+              <div style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Loading your teams…
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <select className="form-input" value={teamId} onChange={e => setTeamId(e.target.value)} style={{ width: '100%', fontSize: 12.5 }}>
+                  <option value="">— team —</option>
+                  {(teams || []).map(t => <option key={t.id} value={t.id}>{t.displayName}</option>)}
+                </select>
+                <select className="form-input" value={channelId} onChange={e => setChannelId(e.target.value)} disabled={!channels.length} style={{ width: '100%', fontSize: 12.5 }}>
+                  {!channels.length && <option value="">— channel —</option>}
+                  {channels.map(c => <option key={c.id} value={c.id}>{c.displayName}</option>)}
+                </select>
+              </div>
+            )}
           </div>
-          {graphErr && (
-            <p style={{ margin: 0, fontSize: 11, color: '#b45309' }}>
-              Teams isn't reachable ({graphErr}) — you can still record your plan in Nexus; the first use may need a one-time permission popup.
-            </p>
-          )}
         </div>
 
         <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
