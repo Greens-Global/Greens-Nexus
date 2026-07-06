@@ -2236,3 +2236,21 @@ button, [role="button"], select { touch-action: manipulation; }
 .tpl-inline:hover { border-bottom-color: var(--line); }
 .tpl-inline:focus { border-bottom-color: #93c5fd; }
 .tpl-inline::placeholder { color: #9ca3af; font-style: italic; }
+.tpl-rich { min-height: 1.7em; white-space: pre-wrap; word-break: break-word; cursor: text; }
+.tpl-rich:empty::before { content: attr(data-ph); color: #9ca3af; font-style: italic; pointer-events: none; }
+.tpl-chip {
+  display: inline-block;
+  padding: 0 8px;
+  margin: 0 1px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.13);
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  color: #92400e;
+  font-family: Inter, sans-serif;
+  font-size: 0.8em;
+  font-weight: 700;
+  line-height: 1.55;
+  white-space: nowrap;
+  user-select: none;
+  cursor: default;
+}

@@ -80,6 +80,12 @@ const FONT_NAMES = {
   c: 'Courier', cb: 'CourierBold', ci: 'CourierOblique', cbi: 'CourierBoldOblique',
 };
 const fkey = (el) => (el.mono ? 'c' : el.serif ? 't' : 'h') + (el.bold ? 'b' : '') + (el.italic ? 'i' : '');
+let _mctx = null; // canvas 2d context for real text measurement (same font as preview)
+const measureW = (el, text) => {
+  if (!_mctx) _mctx = document.createElement('canvas').getContext('2d');
+  _mctx.font = `${el.italic ? 'italic ' : ''}${el.bold ? '700 ' : ''}${el.fontSize}px ${famOf(el)}`;
+  return _mctx.measureText(text).width;
+};
 
 // Turn pdfjs text items into editable LINES (user-space bboxes + merged text).
 // Runs are clustered by their baseline (projected on the item's up-axis), so it
@@ -168,7 +174,7 @@ function bboxOf(el, W, H) {
   }
   if (el.type === 'text') {
     const fs = el.fontSize, lines = textLines(el);
-    const w = Math.max(30, Math.max(...lines.map(l => l.length)) * fs * 0.52 + 6);
+    const w = Math.max(30, ...lines.map(l => measureW(el, l))) + 6;
     return { x: el.x * W, y: el.y * H, w, h: Math.max(1, lines.length) * fs * 1.25 + 4 };
   }
   return { x: el.x * W, y: el.y * H, w: el.w * W, h: el.h * H };
@@ -393,7 +399,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
       if (!hit) return;
       const b = lineBox(pg, hit);
       editSnapRef.current = takeSnap();
-      const el = { id: nid('el'), pageId: pg.id, type: 'text', text: hit.text,
+      const el = { id: nid('el'), pageId: pg.id, type: 'text', text: hit.text, origText: hit.text,
         fontSize: Math.max(6, Math.round(hit.size * 10) / 10), color: '#111827',
         x: b.x / d.w, y: b.y / d.h, bold: hit.bold, italic: hit.italic, serif: hit.serif, mono: hit.mono,
         bg: { x: (b.x - 2) / d.w, y: (b.y - 1.5) / d.h, w: (b.w + 4) / d.w, h: (b.h + 3) / d.h } };
@@ -469,6 +475,13 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
     const snap = editSnapRef.current; editSnapRef.current = null;
     if (!el) return;
     const prev = snap?.elements.find(x => x.id === id);
+    // Clicked a line but changed nothing → drop the replacement entirely, so
+    // the untouched original (exact font and spacing) stays in the PDF.
+    if (!prev && el.bg && el.text === el.origText) {
+      setElements(es => es.filter(x => x.id !== id));
+      setSelectedId(null);
+      return;
+    }
     if (!String(el.text || '').trim()) {
       if (el.bg) { // emptied an edited line — keep the white cover: the line is deleted
         if (snap && (!prev || prev.text !== el.text)) pushSnapshot(snap);
@@ -972,13 +985,18 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
                         </g>
                         {draft && draft.pageId === pg.id && renderDraft(draft, d.w, d.h)}
                         {editingEl && (() => {
+                          // WYSIWYG editing: no wrapping (lines break only on Enter,
+                          // exactly like the baked output), width from real text
+                          // measurement, and the box offset so the first line sits on
+                          // the same baseline the committed text will use.
                           const fs = editingEl.fontSize;
                           const lines = textLines(editingEl);
-                          const foW = Math.min(d.w - editingEl.x * d.w, Math.max(220, Math.max(...lines.map(l => l.length)) * fs * 0.6 + 24));
-                          const foH = Math.max(fs * 1.25 * (lines.length + 1) + 10, 42);
+                          const wMax = Math.max(40, ...lines.map(l => measureW(editingEl, l)));
+                          const foW = wMax + Math.max(50, wMax * 0.25) + 9;
+                          const foH = lines.length * fs * 1.25 + 10;
                           return (
-                            <foreignObject x={editingEl.x * d.w - 3} y={editingEl.y * d.h - 3} width={foW} height={foH}>
-                              <textarea autoFocus value={editingEl.text}
+                            <foreignObject x={editingEl.x * d.w - 4.5} y={editingEl.y * d.h - fs * 0.125 - 4.5} width={foW} height={foH}>
+                              <textarea autoFocus value={editingEl.text} wrap="off" spellCheck={false}
                                 onChange={e => setElements(es => es.map(x => x.id === editingEl.id ? { ...x, text: e.target.value } : x))}
                                 onBlur={commitTextEdit}
                                 onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); e.currentTarget.blur(); } }}
@@ -986,7 +1004,8 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
                                 placeholder="Type here…"
                                 style={{ width: '100%', height: '100%', fontSize: fs, lineHeight: 1.25, fontFamily: famOf(editingEl),
                                   fontWeight: editingEl.bold ? 700 : 400, fontStyle: editingEl.italic ? 'italic' : 'normal',
-                                  color: editingEl.color, background: 'rgba(255,255,255,0.9)', border: `1.5px dashed ${SEL}`, borderRadius: 3,
+                                  color: editingEl.color, background: editingEl.bg ? 'transparent' : 'rgba(255,255,255,0.75)',
+                                  border: `1.5px dashed ${SEL}`, borderRadius: 3, whiteSpace: 'pre',
                                   outline: 'none', resize: 'none', padding: '3px 3px', boxSizing: 'border-box', overflow: 'hidden' }} />
                             </foreignObject>
                           );

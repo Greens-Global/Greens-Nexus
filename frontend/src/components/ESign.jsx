@@ -591,8 +591,54 @@ const blocksToBody = (blocks) => blocks
     : `[[${b.type}:${b.role}${(b.type === 'check' || b.type === 'text') ? `:${b.label || ''}` : ''}]]`)
   .filter(s => String(s).trim());
 
-// Paragraphs edit in place on the paper — the textarea grows to fit its text.
-const fitPara = (el) => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px`; } };
+// Paragraphs edit in place on the paper as contentEditable text; {{merge}}
+// tokens display as friendly non-editable chips ("Full name") and serialize
+// back to the exact same token format the backend understands.
+const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const chipEl = (k) => {
+  const span = document.createElement('span');
+  span.className = 'tpl-chip'; span.contentEditable = 'false'; span.dataset.k = k;
+  span.textContent = FRIENDLY_MERGE[k] || k;
+  return span;
+};
+const paraToHtml = (text) => String(text || '').split('\n').map(line =>
+  line.split(/(\{\{\w+\}\})/).map(part => {
+    const m = part.match(/^\{\{(\w+)\}\}$/);
+    return m ? chipEl(m[1]).outerHTML : escHtml(part);
+  }).join('')
+).join('<br>');
+function paraFromDom(root) {
+  let out = '';
+  const walk = (n) => {
+    for (const ch of n.childNodes) {
+      if (ch.nodeType === 3) { out += ch.textContent; continue; }
+      if (ch.nodeType !== 1) continue;
+      if (ch.tagName === 'BR') { out += '\n'; continue; }
+      if (ch.dataset?.k) { out += `{{${ch.dataset.k}}}`; continue; }
+      if (/^(DIV|P)$/.test(ch.tagName) && out && !out.endsWith('\n')) out += '\n';
+      walk(ch);
+    }
+  };
+  walk(root);
+  return out;
+}
+function MergePara({ text, onChange, onFocus, innerRef }) {
+  const ref = useRef(null);
+  // Push external changes (mount, block reorder) into the DOM — never while the
+  // user is typing, or the caret would jump.
+  useEffect(() => {
+    const el = ref.current; if (!el) return;
+    if (paraFromDom(el) !== String(text || '')) el.innerHTML = paraToHtml(text);
+  }, [text]);
+  return (
+    <div ref={el => { ref.current = el; innerRef?.(el); }}
+      className="tpl-para tpl-rich" contentEditable suppressContentEditableWarning
+      data-ph="Write a paragraph…" onFocus={onFocus}
+      onInput={() => onChange(paraFromDom(ref.current))}
+      onPaste={e => { e.preventDefault(); document.execCommand('insertText', false, e.clipboardData.getData('text/plain')); }}
+      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); document.execCommand('insertLineBreak'); } }} />
+  );
+}
 
 // Place fields on an attached PDF — same interaction as the send wizard's
 // editor, but saved onto the template so every send reuses the placement.
@@ -722,12 +768,19 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
   const addBlock = (type) => setBlocks(bs => [...bs,
     type === 'para' ? { type: 'para', text: '' }
       : { type, role: roles[0]?.key || 'employee', label: type === 'check' ? 'I agree' : type === 'text' ? 'Label' : '' }]);
+  // Drop a merge CHIP at the caret of the paragraph's contentEditable (falls
+  // back to the end when the caret is elsewhere), then re-serialize to tokens.
   const insertMerge = (i, token) => {
-    const ta = paraRefs.current[i];
-    const cur = blocks[i]?.text || '';
-    const at = ta ? ta.selectionStart : cur.length;
-    setBlock(i, { text: cur.slice(0, at) + `{{${token}}}` + cur.slice(at) });
-    setTimeout(() => { ta?.focus(); fitPara(ta); }, 0);
+    const el = paraRefs.current[i]; if (!el) return;
+    el.focus();
+    const sel = window.getSelection();
+    let range = sel.rangeCount && el.contains(sel.getRangeAt(0).startContainer) ? sel.getRangeAt(0) : null;
+    if (!range) { range = document.createRange(); range.selectNodeContents(el); range.collapse(false); }
+    const chip = chipEl(token);
+    range.deleteContents(); range.insertNode(chip);
+    range.setStartAfter(chip); range.collapse(true);
+    sel.removeAllRanges(); sel.addRange(range);
+    setBlock(i, { text: paraFromDom(el) });
   };
   const setRole = (i, k, v) => setRoles(rs => rs.map((r, j) => j === i ? { ...r, [k]: v } : r));
   const roleIdx = (key) => Math.max(0, roles.findIndex(r => r.key === key));
@@ -865,10 +918,8 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
                       style={{ ...ctl(blocks.length === 1), position: 'absolute', right: -30, top: 3, color: blocks.length === 1 ? 'var(--line)' : 'hsl(var(--color-red))' }}><Trash2 size={13} /></button>
                     {b.type === 'para' ? (
                       <>
-                        <textarea ref={el => { paraRefs.current[i] = el; fitPara(el); }} className="tpl-para" rows={1}
-                          value={b.text} placeholder="Write a paragraph…"
-                          onFocus={() => setFocusPara(i)}
-                          onChange={e => { setBlock(i, { text: e.target.value }); fitPara(e.target); }} />
+                        <MergePara text={b.text} innerRef={el => { paraRefs.current[i] = el; }}
+                          onFocus={() => setFocusPara(i)} onChange={t => setBlock(i, { text: t })} />
                         {focusPara === i && (
                           <select value="" onChange={e => e.target.value && insertMerge(i, e.target.value)}
                             style={{ display: 'block', margin: '0 0 10px', fontSize: 11, padding: '2px 6px', height: 24, width: 200, color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 6, background: 'transparent', fontFamily: 'Inter,sans-serif', cursor: 'pointer', outline: 'none' }}>
