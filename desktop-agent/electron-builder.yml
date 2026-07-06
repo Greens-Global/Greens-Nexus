@@ -1,0 +1,45 @@
+appId: com.greensglobal.nexus.agent
+productName: Greens Nexus Agent
+copyright: Greens Global
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - src/**/*
+  - package.json
+
+# Windows — NSIS installer. Point win.certificateFile / CSC_LINK at your code
+# signing cert before distributing, or installs show SmartScreen warnings.
+win:
+  target:
+    - nsis
+  # icon: build/icon.ico          # add a 256x256 .ico here before shipping
+nsis:
+  oneClick: false
+  perMachine: false               # per-user install → no admin prompt
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: false
+  # Launch at login so capture "just works" once installed:
+  # (users can still remove it from Startup; the agent only captures while
+  # clocked in, and never covertly beyond the consent you've collected.)
+
+# macOS — dmg. Requires an Apple Developer ID cert + notarization to run
+# without Gatekeeper blocking. Screen Recording permission is prompted once
+# by macOS on first capture (unavoidable OS consent gate).
+mac:
+  target:
+    - dmg
+  category: public.app-category.business
+  # icon: build/icon.icns
+  extendInfo:
+    NSScreenCaptureUsageDescription: >-
+      Greens Nexus captures your screen only while you are clocked in, per your
+      employment agreement, for time-and-activity records.
+
+# Auto-update feed. Fill in when you have a hosting location (e.g. a Supabase
+# storage bucket, S3, or GitHub Releases) and uncomment electron-updater usage.
+# publish:
+#   provider: generic
+#   url: https://updates.nexus.greensglobal.com/agent
