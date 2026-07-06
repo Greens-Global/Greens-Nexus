@@ -34,7 +34,8 @@ const winScript = (url, token) => [
   '$p="$env:TEMP\\GNAgent.exe"',
   `Invoke-WebRequest -Uri '${q(url)}' -OutFile $p`,
   "Start-Process -Wait $p -ArgumentList '/S'",
-  '$d="$env:APPDATA\\Greens Nexus Agent"',
+  // Machine-wide token (ProgramData) so the agent finds it whatever user it runs as
+  '$d="$env:ProgramData\\Greens Nexus Agent"',
   'New-Item -ItemType Directory -Force $d | Out-Null',
   `Set-Content -NoNewline "$d\\device-token.txt" '${q(token)}'`,
   'Remove-Item $p',

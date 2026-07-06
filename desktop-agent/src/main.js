@@ -26,10 +26,19 @@ let ticking = false;
 // If a device token was provisioned (env var, or a file the install command
 // dropped in userData), the agent runs headless: it authenticates with the token
 // and never shows a Microsoft login. This is the "Silent App User" deployment.
+// Candidate token locations, checked in order. ProgramData is machine-wide so
+// the token is found no matter which user context the agent runs in (installing
+// admin, SYSTEM via Intune/RMM, or the logged-in employee) — this is why silent
+// deploys don't fall back to an interactive Microsoft login.
 const TOKEN_FILE = path.join(app.getPath('userData'), 'device-token.txt');
+const MACHINE_TOKEN_FILE = path.join(
+  process.env.PROGRAMDATA || 'C:\\ProgramData', 'Greens Nexus Agent', 'device-token.txt');
 function readDeviceToken() {
   if (process.env.NEXUS_AGENT_TOKEN) return process.env.NEXUS_AGENT_TOKEN.trim();
-  try { return fs.readFileSync(TOKEN_FILE, 'utf8').trim() || null; } catch { return null; }
+  for (const f of [MACHINE_TOKEN_FILE, TOKEN_FILE]) {
+    try { const t = fs.readFileSync(f, 'utf8').trim(); if (t) return t; } catch { /* next */ }
+  }
+  return null;
 }
 let deviceToken = readDeviceToken();
 let silentMode = !!deviceToken;

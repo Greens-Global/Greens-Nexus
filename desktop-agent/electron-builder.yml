@@ -26,6 +26,11 @@ nsis:
   perMachine: false               # per-user install → no admin prompt
   allowToChangeInstallationDirectory: false
   createDesktopShortcut: false
+  # CRITICAL for silent deploys: do NOT auto-launch after a /S install. The
+  # install command writes the device token AFTER the installer returns, then
+  # launches the agent itself. If NSIS launched first, the agent would boot with
+  # no token, think it's interactive, and pop a Microsoft sign-in (AADSTS9002327).
+  runAfterFinish: false
   # Launch at login so capture "just works" once installed:
   # (users can still remove it from Startup; the agent only captures while
   # clocked in, and never covertly beyond the consent you've collected.)
