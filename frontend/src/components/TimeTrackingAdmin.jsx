@@ -21,12 +21,29 @@ const AGENT_VERSION = 'v0.1.0';
 // enrolls to a user with NO Microsoft login: the command installs the agent and
 // drops the token into the agent's config dir, where it reads it on startup.
 // Windows: download → NSIS /S (per-user, no admin) → write token → clean up.
+// PowerShell -EncodedCommand takes UTF-16LE base64 — this pastes cleanly into
+// BOTH Command Prompt and PowerShell (no quote-escaping to get wrong).
+function psEncoded(script) {
+  let bin = '';
+  for (const ch of script) { const c = ch.charCodeAt(0); bin += String.fromCharCode(c & 0xff, (c >> 8) & 0xff); }
+  return btoa(bin);
+}
+const q = (s) => String(s).replace(/'/g, "''");   // PowerShell single-quote escape
+const winScript = (url, token) => [
+  "$ErrorActionPreference='Stop'",
+  '$p="$env:TEMP\\GNAgent.exe"',
+  `Invoke-WebRequest -Uri '${q(url)}' -OutFile $p`,
+  "Start-Process -Wait $p -ArgumentList '/S'",
+  '$d="$env:APPDATA\\Greens Nexus Agent"',
+  'New-Item -ItemType Directory -Force $d | Out-Null',
+  `Set-Content -NoNewline "$d\\device-token.txt" '${q(token)}'`,
+  'Remove-Item $p',
+  'Start-Process "$env:LOCALAPPDATA\\Programs\\greens-nexus-agent\\Greens Nexus Agent.exe"',
+].join('\n');
+
 const CMD = {
   win: (url, token) =>
-    `powershell -Command "$p=\\"$env:TEMP\\GNAgent.exe\\"; Invoke-WebRequest -Uri '${url}' -OutFile $p; ` +
-    `Start-Process -Wait $p -ArgumentList '/S'; $d=\\"$env:APPDATA\\Greens Nexus Agent\\"; ` +
-    `New-Item -ItemType Directory -Force $d | Out-Null; Set-Content -NoNewline \\"$d\\device-token.txt\\" '${token}'; ` +
-    `Remove-Item $p; Start-Process \\"$env:LOCALAPPDATA\\Programs\\greens-nexus-agent\\Greens Nexus Agent.exe\\""`,
+    `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${psEncoded(winScript(url, token))}`,
   mac: (url, token) =>
     `curl -L '${url}' -o /tmp/GNAgent.dmg && hdiutil attach /tmp/GNAgent.dmg -nobrowse -quiet && ` +
     `cp -R "/Volumes/Greens Nexus Agent/Greens Nexus Agent.app" /Applications/ && ` +
