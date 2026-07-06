@@ -1250,8 +1250,10 @@ def agent_upload_url(platform: str = "win", user: dict = Depends(require_adminis
     if not key:
         raise HTTPException(400, "platform must be win, mac or linux")
     try:
+        # x-upsert lets the resulting URL REPLACE an existing installer (without
+        # it Supabase 409s "Duplicate" once a build has been uploaded).
         r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/upload/sign/{_AGENT_BUCKET}/{key}",
-                       headers=_storage_headers(), timeout=20)
+                       headers={**_storage_headers(), "x-upsert": "true"}, timeout=20)
         if not r.is_success:
             raise HTTPException(502, f"Could not create upload URL: {r.text[:200]}")
         signed = r.json().get("url", "")
