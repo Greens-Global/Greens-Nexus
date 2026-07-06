@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import {
   FileSignature, Plus, X, Loader2, CheckCircle, XCircle, Clock, Send, Trash2,
   Pencil, FileText, Download, ShieldCheck, Bell, ChevronRight, ChevronLeft,
@@ -9,10 +9,12 @@ import {
 import { api } from '../api';
 
 // ── HR Section C — Native E-Sign (DocuSign-style UX) ──────────────────────────
-// Full-screen send wizard (Document → Recipients → Fields → Review) with
-// color-coded recipients and a drag/resize field editor; guided signing with a
-// START/NEXT tab, progress bar and adopt-signature modal. Backend contracts
-// unchanged. PublicSign.jsx reuses SignaturePad + SigningDoc for /sign/{token}.
+// Send wizard (Document → Recipients → Fields → Review) with color-coded
+// recipients and a drag/resize field editor; guided signing with a START/NEXT
+// tab, progress bar and adopt-signature modal. Wizard + signing render INSIDE
+// the Nexus shell (in-flow panels via useFillHeight), never as full-screen
+// overlays. Backend contracts unchanged. PublicSign.jsx reuses SignaturePad +
+// SigningDoc for /sign/{token}.
 
 const FIELD_RE = /\[\[(sign|initials|date|text|check):([a-z0-9_]+)(?::([^\]]*))?\]\]/g;
 const MERGE_RE = /\{\{([a-z0-9_]+)\}\}/g;
@@ -66,6 +68,28 @@ const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55
 const cardStyle = (maxWidth) => ({ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth, maxHeight: 'min(94dvh, 880px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' });
 const chip = (m) => ({ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: m.bg, color: m.fg, whiteSpace: 'nowrap' });
 const initialsOf = (name) => (name || '').split(' ').slice(0, 3).map(w => w[0]?.toUpperCase() || '').join('') || '—';
+
+// Full-page E-Sign screens (send wizard, signing) render IN the Nexus shell —
+// an in-flow panel sized to the space under the header/HR tabs, not a
+// fixed overlay that hides the sidebar (Neil: "keep it within Nexus").
+// Measured because the chrome above varies (HR tabs, banners, mobile bar).
+function useFillHeight(minH = 420) {
+  const ref = useRef(null);
+  const [h, setH] = useState(minH);
+  useLayoutEffect(() => {
+    window.scrollTo(0, 0);
+    const measure = () => {
+      if (!ref.current) return;
+      const bottomPad = window.matchMedia('(max-width: 900px)').matches ? 80 : 14;
+      setH(Math.max(minH, window.innerHeight - ref.current.getBoundingClientRect().top - bottomPad));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [minH]);
+  return [ref, h];
+}
+const fillPanelStyle = (h) => ({ height: h, display: 'flex', flexDirection: 'column', border: '1px solid var(--line)', borderRadius: 14, background: 'var(--bg, #f3f4f6)', overflow: 'hidden' });
 
 // ── Signature pad — draw or type (with font styles), DocuSign "adopt" flow ────
 export function SignaturePad({ name = '', onAdopt, onClose }) {
@@ -495,10 +519,11 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
   );
 }
 
-// ── Internal signing — full-screen, not a cramped modal ───────────────────────
+// ── Internal signing — in-shell panel replacing the E-Sign tab content ────────
 function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
   const [payload, setPayload] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [boxRef, boxH] = useFillHeight();
   useEffect(() => {
     api.mySignRender(partyId).then(setPayload)
       .catch(e => { toastErr(e?.message || 'Could not load the document.'); onClose(); });
@@ -519,14 +544,14 @@ function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'var(--bg, #f3f4f6)', zIndex: 1200, display: 'flex', flexDirection: 'column' }}>
+    <div ref={boxRef} style={fillPanelStyle(boxH)}>
       <div style={{ padding: '12px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card)', flexShrink: 0 }}>
+        <button className="secondary-btn" onClick={onClose} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5 }}><ChevronLeft size={14} /> Back</button>
         <FileSignature size={18} style={{ color: 'var(--pine)' }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{payload?.title || 'Loading…'}</div>
           <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Review &amp; sign</div>
         </div>
-        <button className="secondary-btn" onClick={onClose} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><X size={14} /> Close</button>
       </div>
       <div style={{ overflowY: 'auto', flex: 1, padding: '20px clamp(12px, 6vw, 60px)' }}>
         <div style={{ maxWidth: 900, margin: '0 auto' }}>
@@ -628,7 +653,8 @@ function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
   );
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'var(--bg, #f3f4f6)', zIndex: 1350, display: 'flex', flexDirection: 'column' }}>
+    <div style={{ ...overlayStyle, zIndex: 1350 }}>
+      <div style={{ background: 'var(--bg, #f3f4f6)', borderRadius: 16, width: '100%', maxWidth: 1240, height: 'min(94dvh, 900px)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: 'var(--shadow-lg)' }}>
       <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card)', flexShrink: 0, flexWrap: 'wrap' }}>
         <FileText size={16} style={{ color: 'var(--pine)' }} />
         <span style={{ fontWeight: 800, fontSize: 14, flex: '0 1 auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attachment.name}</span>
@@ -657,6 +683,7 @@ function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
       <div style={{ flex: 1, overflowY: 'auto', padding: '26px 20px' }}>
         {url ? <PdfDoc url={url} renderOverlay={overlay} />
              : <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} /></div>}
+      </div>
       </div>
     </div>
   );
@@ -860,8 +887,9 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
   );
 }
 
-// ── Send wizard — full-screen, DocuSign-style: Doc → Recipients → Fields → Send
+// ── Send wizard — in-shell, DocuSign-style: Doc → Recipients → Fields → Send ──
 function SendWizard({ templates, employees, entities, prefill, onClose, onSent, toastOk, toastErr }) {
+  const [boxRef, boxH] = useFillHeight();
   const [step, setStep] = useState(0);
   const [source, setSource] = useState(prefill ? 'template' : '');
   const [templateId, setTemplateId] = useState('');
@@ -1091,10 +1119,10 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
   }, [tpl, previewMerge]);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'var(--bg, #f3f4f6)', zIndex: 1200, display: 'flex', flexDirection: 'column' }}>
+    <div ref={boxRef} style={fillPanelStyle(boxH)}>
       {/* Top bar: title + step pills + nav */}
       <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12, background: 'var(--card)', flexShrink: 0, flexWrap: 'wrap' }}>
-        <button onClick={onClose} title="Discard" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 6 }}><X size={19} /></button>
+        <button onClick={onClose} title="Discard and go back" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 6 }}><X size={19} /></button>
         <input className="form-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="Envelope title…"
           style={{ fontWeight: 700, fontSize: 14, width: 'min(300px, 26vw)' }} />
         <div style={{ flex: 1, display: 'flex', gap: 4, justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -1502,6 +1530,19 @@ export default function ESign({ employees = [], entities = [], prefill = null, o
     </div>
   );
 
+  // Signing + send wizard REPLACE the tab content in place — the Nexus
+  // sidebar/header and HR tabs stay put (not a full-screen portal).
+  if (signParty) return (
+    <SignModal partyId={signParty} toastOk={toastOk} toastErr={toastErr}
+      onClose={() => setSignParty(null)} onDone={() => { setSignParty(null); loadInbox(); loadRequests(); }} />
+  );
+  if (sendOpen) return (
+    <SendWizard templates={templates || []} employees={employees} entities={entities}
+      prefill={prefill} toastOk={toastOk} toastErr={toastErr}
+      onClose={() => { setSendOpen(false); onPrefillConsumed?.(); }}
+      onSent={() => { loadRequests(); loadInbox(); }} />
+  );
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
@@ -1595,12 +1636,6 @@ export default function ESign({ employees = [], entities = [], prefill = null, o
         )
       )}
 
-      {signParty && <SignModal partyId={signParty} toastOk={toastOk} toastErr={toastErr}
-        onClose={() => setSignParty(null)} onDone={() => { setSignParty(null); loadInbox(); loadRequests(); }} />}
-      {sendOpen && <SendWizard templates={templates || []} employees={employees} entities={entities}
-        prefill={prefill} toastOk={toastOk} toastErr={toastErr}
-        onClose={() => { setSendOpen(false); onPrefillConsumed?.(); }}
-        onSent={() => { loadRequests(); loadInbox(); }} />}
       {detailId && <RequestDetailModal requestId={detailId} toastOk={toastOk} toastErr={toastErr}
         onClose={() => setDetailId(null)} onChanged={loadRequests} />}
       {editTpl !== undefined && <TemplateEditorModal template={editTpl} entities={entities}
