@@ -133,10 +133,18 @@ function buildLines(tc, pdfPage) {
 
 // Rotating a page re-maps its overlay elements so they stay glued to the same
 // spot on the (now rotated) content. dir 1 = 90° clockwise, -1 = counter.
+// Text and images additionally accumulate `rot` — their CONTENT must rotate
+// with the page (a box swap alone would leave text running across its own
+// white cover and squeeze bitmaps into a swapped box).
+const rotN = (r) => ((r || 0) % 360 + 360) % 360;
+// Rotate an offset vector clockwise (display space, y down) by 0/90/180/270.
+const rotOff = (u, v, r) =>
+  r === 90 ? { x: -v, y: u } : r === 180 ? { x: -u, y: -v } : r === 270 ? { x: v, y: -u } : { x: u, y: v };
 function rotateEls(els, pageId, dir) {
   const mp = dir === 1 ? (p) => ({ x: 1 - p.y, y: p.x }) : (p) => ({ x: p.y, y: 1 - p.x });
   const mb = dir === 1 ? (b) => ({ x: 1 - b.y - b.h, y: b.x, w: b.h, h: b.w })
                        : (b) => ({ x: b.y, y: 1 - b.x - b.w, w: b.h, h: b.w });
+  const spin = (el) => rotN((el.rot || 0) + (dir === 1 ? 90 : 270));
   return els.map(el => {
     if (el.pageId !== pageId) return el;
     if (el.points) return { ...el, points: el.points.map(mp) };
@@ -145,10 +153,14 @@ function rotateEls(els, pageId, dir) {
       return { ...el, x1: a.x, y1: a.y, x2: b.x, y2: b.y };
     }
     if (el.type === 'text') {
+      // The anchor (text box top-left) maps as a point; rendering rotates the
+      // glyphs about that anchor by `rot`, so the ink lands exactly where the
+      // original line now lies.
       const p = mp({ x: el.x, y: el.y });
-      return { ...el, x: p.x, y: p.y, ...(el.bg ? { bg: mb(el.bg) } : {}) };
+      return { ...el, x: p.x, y: p.y, rot: spin(el), ...(el.bg ? { bg: mb(el.bg) } : {}) };
     }
-    return { ...el, ...mb(el) };
+    if (el.type === 'image') return { ...el, ...mb(el), rot: spin(el) };
+    return { ...el, ...mb(el) }; // rects/ellipses/covers are symmetric under the box swap
   });
 }
 
@@ -216,6 +228,8 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
   const imgInputRef = useRef(null);
   const mergeInputRef = useRef(null);
   stateRef.current = { pages, elements };
+  const stacksRef = useRef({ u: [], r: [] }); // mirrors for undo/redo (updaters must stay pure)
+  stacksRef.current = { u: undoStack, r: redoStack };
 
   const nid = (p) => `${p}${++idRef.current}`;
   const takeSnap = () => ({ pages: stateRef.current.pages, elements: stateRef.current.elements });
@@ -302,23 +316,25 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
   }, [tool, pages]);
 
   // ── History ─────────────────────────────────────────────────────────────────
+  // No side effects inside state updaters — StrictMode double-invokes them,
+  // which was duplicating stack entries in dev. Read via refs, set plainly.
   const undo = useCallback(() => {
-    setUndoStack(s => {
-      if (!s.length) return s;
-      const last = s[s.length - 1];
-      setRedoStack(r => [...r, { pages: stateRef.current.pages, elements: stateRef.current.elements }]);
-      setPages(last.pages); setElements(last.elements); setSelectedId(null); setEditingId(null);
-      return s.slice(0, -1);
-    });
+    const { u } = stacksRef.current;
+    if (!u.length) return;
+    const last = u[u.length - 1];
+    const cur = { pages: stateRef.current.pages, elements: stateRef.current.elements };
+    setUndoStack(u.slice(0, -1));
+    setRedoStack(r => [...r, cur]);
+    setPages(last.pages); setElements(last.elements); setSelectedId(null); setEditingId(null);
   }, []);
   const redo = useCallback(() => {
-    setRedoStack(r => {
-      if (!r.length) return r;
-      const last = r[r.length - 1];
-      setUndoStack(s => [...s, { pages: stateRef.current.pages, elements: stateRef.current.elements }]);
-      setPages(last.pages); setElements(last.elements); setSelectedId(null); setEditingId(null);
-      return r.slice(0, -1);
-    });
+    const { r } = stacksRef.current;
+    if (!r.length) return;
+    const last = r[r.length - 1];
+    const cur = { pages: stateRef.current.pages, elements: stateRef.current.elements };
+    setRedoStack(r.slice(0, -1));
+    setUndoStack(s => [...s, cur]);
+    setPages(last.pages); setElements(last.elements); setSelectedId(null); setEditingId(null);
   }, []);
 
   const deleteSelected = useCallback(() => {
@@ -658,17 +674,23 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
             }
             const fs = el.fontSize;
             const font = await getFont(el);
+            const er = rotN(el.rot); // element spin from page rotations after placement
             textLines(el).forEach((line, i) => {
               const txt = winAnsi(line); if (!txt.trim()) return;
-              const p = mapPt(el.x * Wd, el.y * Hd + fs * 0.8 + i * fs * 1.25);
-              page.drawText(txt, { x: p.x, y: p.y, size: fs, font, color: col, rotate: degrees(R) });
+              const off = rotOff(0, fs * 0.8 + i * fs * 1.25, er);
+              const p = mapPt(el.x * Wd + off.x, el.y * Hd + off.y);
+              page.drawText(txt, { x: p.x, y: p.y, size: fs, font, color: col, rotate: degrees(R - er) });
             });
           } else if (el.type === 'pen' || el.type === 'highlight') {
             const pts = el.points.map(p => mapPt(p.x * Wd, p.y * Hd));
             const opacity = el.type === 'highlight' ? 0.4 : 1;
-            for (let i = 1; i < pts.length; i++)
-              page.drawLine({ start: pts[i - 1], end: pts[i], thickness: el.w, color: col, opacity, lineCap: LineCapStyle.Round });
-            if (pts.length === 1)
+            if (pts.length > 1) {
+              // ONE stroked path, like the preview — per-segment drawLine stacks
+              // translucent ink at every joint (visible highlighter blobs).
+              // drawSvgPath's y grows downward from its origin, so negate y.
+              const dPath = pts.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(2)} ${(-p.y).toFixed(2)}`).join(' ');
+              page.drawSvgPath(dPath, { x: 0, y: 0, borderColor: col, borderWidth: el.w, borderOpacity: opacity, borderLineCap: LineCapStyle.Round });
+            } else if (pts.length === 1)
               page.drawLine({ start: pts[0], end: { x: pts[0].x + 0.1, y: pts[0].y }, thickness: el.w, color: col, opacity, lineCap: LineCapStyle.Round });
           } else if (el.type === 'rect' || el.type === 'whiteout' || el.type === 'redact') {
             const r = mapRect(el.x * Wd, el.y * Hd, el.w * Wd, el.h * Hd);
@@ -692,9 +714,14 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
               emb = /png/.test(el.mime) ? await out.embedPng(el.bytes) : await out.embedJpg(el.bytes);
               imgCache.set(el.dataUrl, emb);
             }
-            const xd = el.x * Wd, yd = el.y * Hd, wd = el.w * Wd, hd = el.h * Hd;
-            const p = mapPt(xd, yd + hd); // display bottom-left corner
-            page.drawImage(emb, { x: p.x, y: p.y, width: wd, height: hd, rotate: degrees(R) });
+            // Spin the bitmap with the page: content dims (swapped for 90/270)
+            // rotated about the footprint centre — mirrors the SVG preview.
+            const er = rotN(el.rot);
+            const bw = el.w * Wd, bh = el.h * Hd, cx = el.x * Wd + bw / 2, cy = el.y * Hd + bh / 2;
+            const iw = er % 180 ? bh : bw, ih = er % 180 ? bw : bh;
+            const bl = rotOff(-iw / 2, ih / 2, er); // content bottom-left, offset from centre
+            const p = mapPt(cx + bl.x, cy + bl.y);
+            page.drawImage(emb, { x: p.x, y: p.y, width: iw, height: ih, rotate: degrees(R - er) });
           }
         } catch { /* one bad element must never sink the export */ }
       }
@@ -755,7 +782,13 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
       </g>;
     }
     if (el.type === 'image') {
-      return <image key={el.id} href={el.dataUrl} x={el.x * W} y={el.y * H} width={el.w * W} height={el.h * H}
+      // `rot` spins the bitmap with the page: draw at content dims (swapped for
+      // 90/270) rotated about the box centre, filling the remapped footprint.
+      const er = rotN(el.rot);
+      const bw = el.w * W, bh = el.h * H, cx = el.x * W + bw / 2, cy = el.y * H + bh / 2;
+      const iw = er % 180 ? bh : bw, ih = er % 180 ? bw : bh;
+      return <image key={el.id} href={el.dataUrl} x={cx - iw / 2} y={cy - ih / 2} width={iw} height={ih}
+        transform={er ? `rotate(${er} ${cx} ${cy})` : undefined}
         preserveAspectRatio="none" {...common} />;
     }
     if (el.type === 'text') {
@@ -767,12 +800,14 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
       return (
         <g key={el.id} {...common} onDoubleClick={(e) => { e.stopPropagation(); startTextEdit(el); }}>
           {el.bg && <rect x={el.bg.x * W} y={el.bg.y * H} width={el.bg.w * W} height={el.bg.h * H} fill="#fff" />}
+          <g transform={rotN(el.rot) ? `rotate(${rotN(el.rot)} ${el.x * W} ${el.y * H})` : undefined}>
           <rect x={bb.x - 2} y={bb.y - 2} width={bb.w + 4} height={bb.h + 4} fill="transparent" />
           <text x={el.x * W} y={el.y * H + fs * 0.8} fontSize={fs} fill={el.color}
             fontFamily={famOf(el)} fontWeight={el.bold ? 700 : 400} fontStyle={el.italic ? 'italic' : 'normal'}
             style={{ userSelect: 'none', whiteSpace: 'pre' }}>
             {lines.map((ln, i) => <tspan key={i} x={el.x * W} dy={i === 0 ? 0 : fs * 1.25}>{ln || ' '}</tspan>)}
           </text>
+          </g>
         </g>
       );
     }
@@ -782,8 +817,10 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
   function renderSelection(el, W, H) {
     const bb = bboxOf(el, W, H);
     const boxTypes = ['rect', 'ellipse', 'image', 'whiteout', 'redact'];
+    // Rotated text draws its glyphs spun about the anchor — spin the chrome too
+    const er = el.type === 'text' ? rotN(el.rot) : 0;
     return (
-      <g key="sel">
+      <g key="sel" transform={er ? `rotate(${er} ${el.x * W} ${el.y * H})` : undefined}>
         <rect x={bb.x - 3} y={bb.y - 3} width={bb.w + 6} height={bb.h + 6} fill="none"
           stroke={SEL} strokeWidth={1.5} strokeDasharray="5 4" vectorEffect="non-scaling-stroke" pointerEvents="none" />
         {boxTypes.includes(el.type) && (
@@ -994,8 +1031,10 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
                           const wMax = Math.max(40, ...lines.map(l => measureW(editingEl, l)));
                           const foW = wMax + Math.max(50, wMax * 0.25) + 9;
                           const foH = lines.length * fs * 1.25 + 10;
+                          const er = rotN(editingEl.rot);
                           return (
-                            <foreignObject x={editingEl.x * d.w - 4.5} y={editingEl.y * d.h - fs * 0.125 - 4.5} width={foW} height={foH}>
+                            <foreignObject x={editingEl.x * d.w - 4.5} y={editingEl.y * d.h - fs * 0.125 - 4.5} width={foW} height={foH}
+                              transform={er ? `rotate(${er} ${editingEl.x * d.w} ${editingEl.y * d.h})` : undefined}>
                               <textarea autoFocus value={editingEl.text} wrap="off" spellCheck={false}
                                 onChange={e => setElements(es => es.map(x => x.id === editingEl.id ? { ...x, text: e.target.value } : x))}
                                 onBlur={commitTextEdit}

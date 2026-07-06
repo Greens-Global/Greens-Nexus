@@ -350,6 +350,47 @@ def _notify_party(db: Session, party: HrSignParty, req: HrSignRequest, sender_na
     party.status = "notified"
 
 
+_FIELD_TYPES = ("sign", "initials", "date", "text", "check", "dropdown", "radio", "name")
+
+
+def _clean_fields(fields: list) -> list:
+    """Normalize/validate placed field boxes — shared by PDF sends AND template
+    attachments. _stamp_pdf at finalize must never meet garbage: a crash there
+    permanently wedges a fully-signed envelope, so reject/coerce at save time."""
+    for f in fields:
+        if not isinstance(f, dict) or f.get("type") not in _FIELD_TYPES:
+            raise HTTPException(400, f"Unknown field type: {f.get('type') if isinstance(f, dict) else f!r}")
+        if f.get("type") in ("dropdown", "radio"):
+            raw = f.get("options") if isinstance(f.get("options"), list) else []
+            # Deduped: twin values make the chosen radio ambiguous at seal time
+            opts = list(dict.fromkeys(str(o).strip()[:100] for o in raw if str(o).strip()))[:30]
+            if len(opts) < 2:
+                raise HTTPException(400, "Dropdown and radio fields need at least two options")
+            f["options"] = opts
+        # Freeze CLEAN geometry — _stamp_pdf does int(page)/float(x,y,w,h) at
+        # finalize; a null/non-numeric coord there crashes sealing.
+        try:
+            f["page"] = max(0, int(f.get("page") or 0))
+            for k in ("x", "y", "w", "h"):
+                if f.get(k) is not None:
+                    f[k] = min(1.0, max(0.0, float(f[k])))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "A field has an invalid position — please replace it and re-send.")
+    return fields
+
+
+def _clean_attachments(attachments: Optional[list]) -> list:
+    """Template attachments carry field boxes that are frozen verbatim onto
+    envelopes at send — validate them with the same rules as PDF sends."""
+    out = []
+    for a in attachments or []:
+        if not isinstance(a, dict) or not a.get("path"):
+            continue
+        a["fields"] = _clean_fields(a.get("fields") or [])
+        out.append(a)
+    return out
+
+
 # ── Templates CRUD ────────────────────────────────────────────────────────────
 
 class TemplateIn(BaseModel):
@@ -378,7 +419,7 @@ def create_template(body: TemplateIn, user: dict = Depends(require_hr_write), db
     now = _now_iso()
     row = HrSignTemplate(id=str(uuid.uuid4()), name=body.name.strip(), kind=body.kind or "custom",
                          entity_id=body.entity_id or "", body=body.body or [], roles=body.roles or [],
-                         attachments=body.attachments or [],
+                         attachments=_clean_attachments(body.attachments),
                          egnyte_folder=(body.egnyte_folder or "").strip(),
                          status=body.status or "active", created_by=user["email"],
                          created_at=now, updated_at=now)
@@ -401,7 +442,7 @@ def update_template(tid: str, body: TemplateIn, user: dict = Depends(require_hr_
     if body.roles is not None:
         row.roles = body.roles
     if body.attachments is not None:
-        row.attachments = body.attachments
+        row.attachments = _clean_attachments(body.attachments)
     if body.egnyte_folder is not None:
         row.egnyte_folder = body.egnyte_folder.strip()
     row.status = body.status or row.status
@@ -675,24 +716,7 @@ def send_pdf_request(request: Request, file: UploadFile = File(...), payload: st
     fields = data.get("fields") or []
     if not fields:
         raise HTTPException(400, "Place at least one field on the document")
-    for f in fields:
-        if f.get("type") not in ("sign", "initials", "date", "text", "check", "dropdown", "radio", "name"):
-            raise HTTPException(400, f"Unknown field type: {f.get('type')}")
-        if f.get("type") in ("dropdown", "radio"):
-            opts = [str(o).strip()[:100] for o in (f.get("options") or []) if str(o).strip()][:30]
-            if len(opts) < 2:
-                raise HTTPException(400, "Dropdown and radio fields need at least two options")
-            f["options"] = opts
-        # Freeze CLEAN geometry — _stamp_pdf does int(page)/float(x,y,w,h) at
-        # finalize, and a null/non-numeric coord there crashes sealing and
-        # permanently wedges a fully-signed envelope. Reject/normalize now.
-        try:
-            f["page"] = max(0, int(f.get("page") or 0))
-            for k in ("x", "y", "w", "h"):
-                if f.get(k) is not None:
-                    f[k] = min(1.0, max(0.0, float(f[k])))
-        except (TypeError, ValueError):
-            raise HTTPException(400, "A field has an invalid position — please replace it and re-send.")
+    fields = _clean_fields(fields)
     parties = [PartyIn(role_key=p.get("roleKey", ""), name=p.get("name", ""),
                        email=p.get("email", ""), kind=p.get("kind", "internal"),
                        ordinal=int(p.get("ordinal") or 1),
@@ -1296,7 +1320,9 @@ def _build_template_pdf(req: HrSignRequest, parties: List[HrSignParty]) -> bytes
         text = _FIELD_RE.sub(resolve_inline, _FIELD_RE.sub(
             lambda m: "" if m.group(1) == "sign" else m.group(0), para)).strip()
         if text:
-            flow.append(Paragraph(_pesc(text), body_style))
+            # The template editor allows in-paragraph line breaks (Enter) and
+            # shows them to the author — Paragraph collapses \n, so <br/> them.
+            flow.append(Paragraph(_pesc(text).replace("\n", "<br/>"), body_style))
         for m in sig_tokens:
             p = by_role.get(m.group(2))
             if not p:
@@ -1334,18 +1360,27 @@ def _stamp_pdf(source: bytes, fields: list, parties: List[HrSignParty]) -> bytes
             except Exception:
                 pass
         pw, ph = float(page.mediabox.width), float(page.mediabox.height)
-        page_fields = [f for f in (fields or []) if int(f.get("page", 0)) == idx]
+
+        def _pg(f):
+            try:
+                return int(f.get("page") or 0)
+            except (TypeError, ValueError):
+                return 0
+        page_fields = [f for f in (fields or []) if isinstance(f, dict) and _pg(f) == idx]
         if page_fields:
             obuf = io.BytesIO()
             c = rl_canvas.Canvas(obuf, pagesize=(pw, ph))
             for f in page_fields:
+              # One malformed field (legacy template data predating _clean_fields)
+              # must never sink sealing — a _finalize crash bricks the envelope.
+              try:
                 p = by_role.get(f.get("role", ""))
                 if not p:
                     continue
                 # normalized coords: x/y from top-left, w/h fractions of the page
-                x, w = float(f.get("x", 0)) * pw, max(0.02, float(f.get("w", 0.2))) * pw
-                h = max(0.015, float(f.get("h", 0.05))) * ph
-                y = ph - float(f.get("y", 0)) * ph - h
+                x, w = float(f.get("x") or 0) * pw, max(0.02, float(f.get("w") or 0.2)) * pw
+                h = max(0.015, float(f.get("h") or 0.05)) * ph
+                y = ph - float(f.get("y") or 0) * ph - h
                 ftype = f.get("type")
                 if ftype == "sign" and p.signature_kind == "drawn" and \
                         p.signature_data.startswith("data:image/png;base64,"):
@@ -1390,6 +1425,8 @@ def _stamp_pdf(source: bytes, fields: list, parties: List[HrSignParty]) -> bytes
                         val = ""
                     c.setFont("Helvetica", min(10, h * 0.6))
                     c.drawString(x, y + h * 0.25, str(val))
+              except Exception:
+                continue
             c.save()
             obuf.seek(0)
             page.merge_page(PdfReader(obuf).pages[0])
@@ -1496,18 +1533,23 @@ def _certificate_pdf(req: HrSignRequest, parties: List[HrSignParty],
     return buf.getvalue()
 
 
-def _egnyte_push(req: HrSignRequest, blob: bytes) -> str:
+def _egnyte_push(req: HrSignRequest, blob: bytes) -> tuple:
     """Copy the sealed PDF into the request's Egnyte folder (like Egnyte Sign's
     'Signed document location'). Best-effort and env-gated: needs EGNYTE_DOMAIN
-    (e.g. greensglobal.egnyte.com) + EGNYTE_TOKEN on the app service. Returns a
-    short status string for the audit log ('' = not configured / no folder)."""
+    (e.g. greensglobal.egnyte.com) + EGNYTE_TOKEN on the app service. Returns
+    (ok, note) for the audit log; note '' = not configured / no folder.
+    NOTE: runs inside the sealing transaction (like the completion emails), so
+    the timeout stays short — a slow Egnyte must not hold the envelope lock."""
     import os as _os
     from urllib.parse import quote as _q
     dom = (_os.getenv("EGNYTE_DOMAIN") or "").strip().rstrip("/")
     tok = (_os.getenv("EGNYTE_TOKEN") or "").strip()
-    folder = (req.egnyte_folder or "").strip().strip("/")
+    # The folder is client-supplied config — strip empty/'.'/'..' segments so it
+    # can't traverse outside the intended tree with the service-wide token.
+    folder = "/".join(s.strip() for s in (req.egnyte_folder or "").split("/")
+                      if s.strip() and s.strip() not in (".", ".."))[:400]
     if not (dom and tok and folder):
-        return ""
+        return True, ""
     if "." not in dom:
         dom = f"{dom}.egnyte.com"
     safe_title = re.sub(r'[\\/:*?"<>|]+', " ", req.title or "Document").strip()[:80] or "Document"
@@ -1516,11 +1558,12 @@ def _egnyte_push(req: HrSignRequest, blob: bytes) -> str:
         r = httpx.post(f"https://{dom}/pubapi/v1/fs-content/{_q(path)}",
                        headers={"Authorization": f"Bearer {tok}",
                                 "Content-Type": "application/pdf"},
-                       content=blob, timeout=60)
-        return f"copied to Egnyte /{path}" if r.is_success \
-            else f"Egnyte copy failed ({r.status_code})"
+                       content=blob, timeout=20)
+        if r.is_success:
+            return True, f"copied to Egnyte /{path}"
+        return False, f"Egnyte copy failed ({r.status_code})"
     except Exception as e:  # a broken Egnyte copy must never block sealing
-        return f"Egnyte copy failed ({type(e).__name__})"
+        return False, f"Egnyte copy failed ({type(e).__name__})"
 
 
 def _finalize(db: Session, req: HrSignRequest) -> None:
@@ -1588,9 +1631,9 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
     req.final_sha256 = hashlib.sha256(final).hexdigest()
     req.status = "completed"
     _log(db, req.id, "completed", f"sealed · sha256 {req.final_sha256[:16]}…")
-    egnyte_note = _egnyte_push(req, final)
-    if egnyte_note:
-        _log(db, req.id, "archived", egnyte_note)
+    egnyte_ok, egnyte_note = _egnyte_push(req, final)
+    if egnyte_note:  # 'archived' only when the copy actually landed
+        _log(db, req.id, "archived" if egnyte_ok else "archive_failed", egnyte_note)
 
     # Attach to the subject employee's profile Documents tab
     if req.employee_id:

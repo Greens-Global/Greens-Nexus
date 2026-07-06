@@ -129,7 +129,9 @@ function FieldsPanel({ recipients, activeIdx, onPick, activeType, setActiveType,
 // Options editor for dropdown / radio fields (shared by both field placers).
 function FieldOptionsModal({ field, onSave, onClose }) {
   const [opts, setOpts] = useState(field.options?.length ? [...field.options] : ['', '']);
-  const clean = opts.map(o => o.trim()).filter(Boolean);
+  // Deduped — twin values make radio selection ambiguous (both rows tick) and
+  // the sealed PDF would fill both circles.
+  const clean = [...new Set(opts.map(o => o.trim()).filter(Boolean))];
   return (
     <div style={{ ...overlayStyle, zIndex: 1500 }} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={cardStyle(400)}>
@@ -476,7 +478,9 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
       last = m.index + m[0].length;
     }
     if (last < para.length) parts.push(<span key={`${pi}-end`}>{para.slice(last)}</span>);
-    return <div key={pi} style={{ margin: '0 0 13px', fontSize: 14.5, lineHeight: 1.7 }}>{parts}</div>;
+    // pre-wrap: the template editor lets authors put line breaks inside a
+    // paragraph — signers must see them too, not a collapsed single line.
+    return <div key={pi} style={{ margin: '0 0 13px', fontSize: 14.5, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{parts}</div>;
   }
 
   const signingOverlay = (docFields) => (pageIdx) => (
@@ -744,10 +748,13 @@ function paraFromDom(root) {
 }
 function MergePara({ text, onChange, onFocus, innerRef }) {
   const ref = useRef(null);
-  // Push external changes (mount, block reorder) into the DOM — never while the
-  // user is typing, or the caret would jump.
-  useEffect(() => {
+  // Push external changes (mount, block reorder) into the DOM. Layout effect +
+  // focus guard: a passive effect can flush DURING the next keystroke and see
+  // DOM that is newer than the prop, and rewriting then would eat the keystroke
+  // and collapse the caret. While the user is typing here, the DOM is truth.
+  useLayoutEffect(() => {
     const el = ref.current; if (!el) return;
+    if (document.activeElement === el) return;
     if (paraFromDom(el) !== String(text || '')) el.innerHTML = paraToHtml(text);
   }, [text]);
   return (
@@ -897,11 +904,20 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
   const paraRefs = useRef({});
 
   const setBlock = (i, patch) => setBlocks(bs => bs.map((b, j) => j === i ? { ...b, ...patch } : b));
-  const rmBlock = (i) => setBlocks(bs => bs.length > 1 ? bs.filter((_, j) => j !== i) : bs);
-  const movBlock = (i, dir) => setBlocks(bs => {
-    const j = i + dir; if (j < 0 || j >= bs.length) return bs;
-    const next = [...bs]; [next[i], next[j]] = [next[j], next[i]]; return next;
-  });
+  // focusPara is an INDEX — remap it on reorder/removal, or the Insert dropdown
+  // reattaches to whichever block slides into the old index and merge tokens
+  // land in the wrong paragraph.
+  const rmBlock = (i) => {
+    if (blocks.length <= 1) return;
+    setBlocks(bs => bs.filter((_, j) => j !== i));
+    setFocusPara(fp => fp === null ? null : fp === i ? null : fp > i ? fp - 1 : fp);
+  };
+  const movBlock = (i, dir) => {
+    const j = i + dir;
+    if (j < 0 || j >= blocks.length) return;
+    setBlocks(bs => { const next = [...bs]; [next[i], next[j]] = [next[j], next[i]]; return next; });
+    setFocusPara(fp => fp === i ? j : fp === j ? i : fp);
+  };
   const addBlock = (type) => setBlocks(bs => [...bs,
     type === 'para' ? { type: 'para', text: '' }
       : { type, role: roles[0]?.key || 'employee', label: type === 'check' ? 'I agree' : type === 'text' ? 'Label' : '' }]);
@@ -1441,7 +1457,7 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
     }
     if (last < resolved.length) parts.push(<span key="end">{resolved.slice(last)}</span>);
     const unresolvedHere = [...resolved.matchAll(MERGE_RE)].length > 0;
-    return <div key={pi} style={{ margin: '0 0 12px', fontSize: 14, lineHeight: 1.7, background: unresolvedHere ? 'rgba(251,191,36,0.09)' : 'transparent', borderRadius: 6 }}>{parts}</div>;
+    return <div key={pi} style={{ margin: '0 0 12px', fontSize: 14, lineHeight: 1.7, whiteSpace: 'pre-wrap', background: unresolvedHere ? 'rgba(251,191,36,0.09)' : 'transparent', borderRadius: 6 }}>{parts}</div>;
   };
   const unresolvedTokens = useMemo(() => {
     if (!tpl) return [];
