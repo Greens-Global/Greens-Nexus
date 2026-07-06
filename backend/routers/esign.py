@@ -26,7 +26,7 @@ import re
 import secrets
 import uuid
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, Header
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
@@ -211,10 +211,18 @@ def _fields_in_body(body: list) -> List[dict]:
 def _check_expiry(db: Session, req: HrSignRequest) -> None:
     """Lazy expiry — flip a stale pending envelope to expired on any access."""
     if req.status == "pending" and req.expires_on:
+        exp = str(req.expires_on)[:10]
+        # Compare dates, not raw strings: a non-ISO value (e.g. '12/31/2026')
+        # would lose a lexicographic compare and instantly expire the envelope.
+        # If it isn't a clean ISO date, don't expire on a guess.
+        try:
+            datetime.strptime(exp, "%Y-%m-%d")
+        except ValueError:
+            return
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        if today > req.expires_on:
+        if today > exp:
             req.status = "expired"
-            _log(db, req.id, "expired", f"expired on {req.expires_on}")
+            _log(db, req.id, "expired", f"expired on {exp}")
             db.commit()
 
 
@@ -662,6 +670,16 @@ def send_pdf_request(request: Request, file: UploadFile = File(...), payload: st
     for f in fields:
         if f.get("type") not in ("sign", "initials", "date", "text", "check"):
             raise HTTPException(400, f"Unknown field type: {f.get('type')}")
+        # Freeze CLEAN geometry — _stamp_pdf does int(page)/float(x,y,w,h) at
+        # finalize, and a null/non-numeric coord there crashes sealing and
+        # permanently wedges a fully-signed envelope. Reject/normalize now.
+        try:
+            f["page"] = max(0, int(f.get("page") or 0))
+            for k in ("x", "y", "w", "h"):
+                if f.get(k) is not None:
+                    f[k] = min(1.0, max(0.0, float(f[k])))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "A field has an invalid position — please replace it and re-send.")
     parties = [PartyIn(role_key=p.get("roleKey", ""), name=p.get("name", ""),
                        email=p.get("email", ""), kind=p.get("kind", "internal"),
                        ordinal=int(p.get("ordinal") or 1),
@@ -734,6 +752,10 @@ def remind(rid: str, user: dict = Depends(require_hr_write), db: Session = Depen
 
 @router.post("/requests/{rid}/void")
 def void_request(rid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    # Lock + re-read so a void can't race a concurrent final signature (else the
+    # envelope could seal 'completed' after the sender thought they'd voided it).
+    db.query(HrSignRequest).filter(HrSignRequest.id == rid).with_for_update().first()
+    db.expire_all()
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     if not req:
         raise HTTPException(404, "Request not found")
@@ -886,6 +908,7 @@ def _render_payload(db: Session, req: HrSignRequest, party: HrSignParty) -> dict
     payload = {"partyId": party.id, "requestId": req.id, "title": req.title,
                "message": req.message, "status": req.status, "source": req.source,
                "myTurn": _its_their_turn(req, party), "myRole": party.role_key,
+               "myPartyRole": party.party_role or "signer",
                "myName": party.name, "myStatus": party.status, "parties": others,
                "consentText": _CONSENT_TEXT, "consentVersion": _CONSENT_VERSION,
                "expiresOn": req.expires_on}
@@ -1136,9 +1159,11 @@ def _check_access_code(db: Session, req: HrSignRequest, party: HrSignParty,
 
 
 @router.get("/public/{token}")
-def public_render(token: str, request: Request, code: str = "", db: Session = Depends(get_db)):
+def public_render(token: str, request: Request, code: str = "",
+                  x_access_code: str = Header(""), db: Session = Depends(get_db)):
     req, party = _party_by_token(db, token)
     _check_expiry(db, req)
+    code = code or x_access_code   # prefer the header — a query param leaks into logs/history
     if not _check_access_code(db, req, party, code, request):
         # Locked teaser: enough to render the code prompt, nothing signable.
         return {"locked": True, "title": req.title, "requiresCode": True,
@@ -1173,10 +1198,12 @@ def public_decline(token: str, body: DeclineIn, request: Request, db: Session = 
 
 
 @router.get("/public/{token}/download")
-def public_download(token: str, request: Request, code: str = "", db: Session = Depends(get_db)):
+def public_download(token: str, request: Request, code: str = "",
+                    x_access_code: str = Header(""), db: Session = Depends(get_db)):
     """A party's own copy of the SEALED document — only once completed. Externals
     have no Nexus login; this is how they retain their copy (ESIGN retention)."""
     req, party = _party_by_token(db, token)
+    code = code or x_access_code   # prefer the header — a query param leaks into logs/history
     if not _check_access_code(db, req, party, code, request):
         raise HTTPException(403, "Wrong access code")
     if req.status != "completed" or not req.final_pdf_path:
@@ -1240,7 +1267,10 @@ def _build_template_pdf(req: HrSignRequest, parties: List[HrSignParty]) -> bytes
         if ftype == "initials":
             return _initials(p.name)
         if ftype == "check":
-            checked = (p.field_values or {}).get(f"check:{label}", True)
+            # Default UNCHECKED: a checkbox the signer never affirmatively ticked
+            # must never seal as [x] — that would fabricate an acknowledgment on a
+            # legal document. The signing UI starts these unchecked too.
+            checked = bool((p.field_values or {}).get(f"check:{label}", False))
             return f"[{'x' if checked else ' '}] {label}"
         if ftype == "text":
             return str((p.field_values or {}).get(f"text:{label}", "")) or "____________"
@@ -1465,6 +1495,11 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
         content = buf.getvalue()
 
     content_sha = hashlib.sha256(content).hexdigest()
+    # Flush first: the caller (_apply_signature) just _log()'d the final signer's
+    # 'consented' + 'signed' events but hasn't committed. autoflush=False means
+    # this query wouldn't see them, so the certificate's audit trail would omit
+    # the very signature that triggered completion.
+    db.flush()
     events = (db.query(HrSignEvent).filter(HrSignEvent.request_id == req.id)
               .order_by(HrSignEvent.at).all())
     cert = _certificate_pdf(req, parties, events, content_sha)

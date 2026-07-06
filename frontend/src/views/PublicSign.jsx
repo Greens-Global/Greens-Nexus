@@ -8,8 +8,10 @@ import { SigningDoc } from '../components/ESign';
 // is the credential. Talks to /esign/public/* with plain fetch — never MSAL.
 
 async function pfetch(path, opts = {}) {
+  const { code, ...rest } = opts;   // access code travels as a header, never a query param (logs/history leak)
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' }, ...opts,
+    headers: { 'Content-Type': 'application/json', ...(code ? { 'X-Access-Code': code } : {}) },
+    ...rest,
   });
   if (!res.ok) {
     let msg = '';
@@ -28,7 +30,7 @@ export default function PublicSign({ token }) {
   const [codeInput, setCodeInput] = useState('');
 
   const load = (c = '') =>
-    pfetch(`/esign/public/${token}${c ? `?code=${encodeURIComponent(c)}` : ''}`)
+    pfetch(`/esign/public/${token}`, { code: c })
       .then(p => { setPayload(p); if (!p.locked) setCode(c); })
       .catch(e => setError(e.message === 'Error 404' || /not found/i.test(e.message)
         ? 'This signing link is invalid or no longer active.' : e.message));
@@ -55,7 +57,7 @@ export default function PublicSign({ token }) {
   async function download() {
     setBusy(true);
     try {
-      const r = await pfetch(`/esign/public/${token}/download${code ? `?code=${encodeURIComponent(code)}` : ''}`);
+      const r = await pfetch(`/esign/public/${token}/download`, { code });
       window.open(r.url, '_blank', 'noopener');
     } catch (e) { setError(e.message); }
     setBusy(false);

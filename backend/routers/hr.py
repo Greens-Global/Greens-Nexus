@@ -620,7 +620,15 @@ def _graph_writeback(token: str, emp, db: Optional[Session] = None) -> list:
     names written. Needs User.ReadWrite.All (already consented for provisioning)."""
     first = (emp.first_name or "").strip()
     last  = (emp.last_name or "").strip()
-    payload = {"displayName": f"{first} {last}".strip(), "givenName": first, "surname": last}
+    # Same rule as every other attribute below: only send names that have a
+    # value, so a blank Nexus first/last never WIPES the existing Entra name.
+    payload = {}
+    if first:
+        payload["givenName"] = first
+    if last:
+        payload["surname"] = last
+    if first or last:
+        payload["displayName"] = f"{first} {last}".strip()
     company_name = ""
     if db is not None and (emp.company or "").strip():
         from models import HrEntity
@@ -879,11 +887,21 @@ def push_to_entra(eid: str, user: dict = Depends(require_hr_write), db: Session 
         raise HTTPException(404, "Employee not found")
     if not emp.m365_id:
         raise HTTPException(400, "This person has no linked M365 account to push to.")
-    token = _graph_token()
-    written = _graph_writeback(token, emp, db)
+    # A Graph/token failure must surface as a clean error, not an unhandled 500 —
+    # a raw 500 bypasses CORSMiddleware and the browser only sees "Failed to fetch".
+    try:
+        token = _graph_token()
+        written = _graph_writeback(token, emp, db)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't update Entra: {str(e)[:200]}")
     # Manager relationship is a separate Graph edge — best-effort, never blocks
     # the attribute push.
-    manager = _graph_set_manager(token, emp)
+    try:
+        manager = _graph_set_manager(token, emp)
+    except Exception:
+        manager = None
     return {"written": written, "manager": manager}
 
 

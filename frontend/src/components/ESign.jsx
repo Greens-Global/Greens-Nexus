@@ -443,7 +443,8 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
         </div>
       )}
 
-      {!payload.myTurn && payload.myStatus !== 'signed' && (
+      {payload.status === 'pending' && (payload.myPartyRole || 'signer') === 'signer'
+        && !payload.myTurn && payload.myStatus !== 'signed' && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '11px 15px', borderRadius: 10, background: 'hsla(var(--color-blue),0.08)', color: 'hsl(var(--color-blue))', fontSize: 13, marginBottom: 14 }}>
           <Clock size={15} /> It isn't your turn yet — you'll be notified when it is. You can review the document below.
         </div>
@@ -779,7 +780,11 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
               <input className="form-input" style={{ flex: 1 }} value={r.label} placeholder="e.g. Employee, Hiring manager…"
                 onChange={e => {
                   const label = e.target.value;
-                  const key = r.key || label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || `signer${i + 1}`;
+                  let key = r.key || label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || `signer${i + 1}`;
+                  // Keep it unique — two roles labelled the same must not share a
+                  // key (duplicate keys mis-stamp signatures in the sealed PDF).
+                  const used = new Set(roles.filter((_, j) => j !== i).map(x => x.key));
+                  if (!r.key) { let base = key, n = 2; while (used.has(key)) key = `${base}_${n++}`; }
                   setRole(i, 'label', label); if (!r.key) setRole(i, 'key', key);
                 }} />
               <button onClick={() => setRoles(rs => rs.filter((_, j) => j !== i).map((x, j) => ({ ...x, order: j + 1 })))}
@@ -787,7 +792,15 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
                 style={{ background: 'none', border: 'none', color: roles.length === 1 ? 'var(--line)' : 'hsl(var(--color-red))', cursor: roles.length === 1 ? 'default' : 'pointer', display: 'flex', padding: 4 }}><Trash2 size={14} /></button>
             </div>
           ))}
-          <button className="secondary-btn" onClick={() => setRoles(rs => [...rs, { key: `signer${rs.length + 1}`, label: '', order: rs.length + 1 }])}
+          <button className="secondary-btn" onClick={() => setRoles(rs => {
+            // Unique key — `signer{length+1}` collides after a delete (delete
+            // signer1 from [signer1,signer2] → length 1 → 'signer2' dup), and a
+            // duplicate role key stamps one signer's signature into another's slot.
+            const used = new Set(rs.map(x => x.key));
+            let n = rs.length + 1;
+            while (used.has(`signer${n}`)) n++;
+            return [...rs, { key: `signer${n}`, label: '', order: rs.length + 1 }];
+          })}
             style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add signer role</button>
 
           <div style={{ margin: '18px 0 6px' }}><label style={FL}>Document</label></div>
@@ -955,10 +968,14 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
 
   function pickTemplate(t) {
     setTemplateId(t.id); setSource('template'); setTitle(t.name);
-    setParties((t.roles || []).map(r => {
+    setParties(prev => (t.roles || []).map(r => {
+      // Preserve anything the user already typed for this role, then prefill,
+      // then blank — re-clicking a template (or picking another) must not wipe
+      // recipient names/emails/CCs/access codes entered at the next step.
       const kept = prefill?.parties?.find(p => p.role_key === r.key);
-      return { party_role: 'signer', access_code: '',
-               ...(kept || { role_key: r.key, roleLabel: r.label || r.key, name: '', email: '', kind: 'internal' }) };
+      const existing = prev.find(p => p.role_key === r.key);
+      return { party_role: 'signer', access_code: '', name: '', email: '', kind: 'internal',
+               ...(kept || {}), ...(existing || {}), role_key: r.key, roleLabel: r.label || r.key };
     }));
   }
   const newRk = () => `p${++rkCounter.current}`;
@@ -1509,9 +1526,16 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
     setBusy('');
   }
 
-  async function act(kind, fn, okMsg) {
+  async function act(kind, fn, okMsg, isErr) {
     if (busy) return; setBusy(kind);
-    try { const r = await fn(); toastOk(typeof okMsg === 'function' ? okMsg(r) : okMsg); load(); onChanged(); }
+    try {
+      const r = await fn();
+      const msg = typeof okMsg === 'function' ? okMsg(r) : okMsg;
+      // A call can succeed yet report a bad outcome (e.g. verify returns
+      // valid:false = tampered) — that must show as an error, not a green toast.
+      if (isErr && isErr(r)) toastErr(msg); else toastOk(msg);
+      load(); onChanged();
+    }
     catch (e) { toastErr(e?.message || `Could not ${kind}.`); }
     setBusy('');
   }
@@ -1537,7 +1561,7 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
               {req.status === 'pending' && <button className="secondary-btn" disabled={!!busy} onClick={() => act('remind', () => api.remindSign(requestId), r => `Reminded ${r.reminded}.`)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Bell size={12} /> Remind</button>}
               {req.status === 'pending' && <button className="secondary-btn" disabled={!!busy} onClick={() => act('void', () => api.voidSign(requestId), 'Voided.')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'hsl(var(--color-red))' }}><Ban size={12} /> Void</button>}
               {req.hasFinalPdf && <button className="secondary-btn" disabled={!!busy} onClick={download} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={12} /> Sealed PDF</button>}
-              {req.hasFinalPdf && <button className="secondary-btn" disabled={!!busy} onClick={() => act('verify', () => api.verifySign(requestId), r => r.valid ? 'Verified — document untampered.' : '⚠ HASH MISMATCH — document was modified!')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><ShieldCheck size={12} /> Verify integrity</button>}
+              {req.hasFinalPdf && <button className="secondary-btn" disabled={!!busy} onClick={() => act('verify', () => api.verifySign(requestId), r => r.valid ? 'Verified — document untampered.' : '⚠ HASH MISMATCH — document was modified!', r => !r.valid)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><ShieldCheck size={12} /> Verify integrity</button>}
             </div>
 
             <label style={FL}>
@@ -1667,7 +1691,10 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   // Amber nudge when a pending envelope is running out of runway
   const expiryChip = (expiresOn, status = 'pending') => {
     if (!expiresOn || status !== 'pending') return null;
-    const days = Math.ceil((new Date(`${expiresOn}T23:59:59`) - Date.now()) / 86400000);
+    // Whole-day UTC difference so this agrees with the backend's UTC-date expiry
+    // (was Math.ceil of a 23:59:59 stamp — overstated by one and never hit 'today').
+    const dayNum = ms => Math.floor(ms / 86400000);
+    const days = dayNum(new Date(`${expiresOn}T00:00:00Z`).getTime()) - dayNum(Date.now());
     if (days < 0 || days > 3) return null;
     return (
       <span style={{ padding: '2px 9px', borderRadius: 14, fontSize: 10.5, fontWeight: 800, background: 'rgba(251,191,36,0.18)', color: '#b45309', whiteSpace: 'nowrap' }}>
