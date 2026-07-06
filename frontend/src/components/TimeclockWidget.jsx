@@ -19,10 +19,10 @@ const fmtHMS = (sec) => {
 
 export default function TimeclockWidget() {
   const [status, setStatus] = useState(null);
-  const [capturing, setCapturing] = useState(false);
+  const [capturing, setCapturing] = useState(0);   // number of screens being captured
   const [busy, setBusy] = useState(false);
   const [, setTick] = useState(0);
-  const streamRef = useRef(null);
+  const streamsRef = useRef([]);                   // one MediaStream per shared screen
   const videoRef = useRef(null);
   const shotTimer = useRef(null);
   const lastActive = useRef(Date.now());
@@ -55,43 +55,53 @@ export default function TimeclockWidget() {
   const onBreak = last?.kind === 'break_start';
   const elapsedSec = last ? Math.max(0, Math.floor((Date.now() - new Date(last.at + 'Z').getTime()) / 1000)) : 0;
 
+  function dropStream(stream) {
+    stream.getTracks().forEach(t => t.stop());
+    streamsRef.current = streamsRef.current.filter(s => s !== stream);
+    setCapturing(streamsRef.current.length);
+    if (!streamsRef.current.length) {
+      clearInterval(shotTimer.current);
+      shotTimer.current = null;
+    }
+  }
+
   function stopCapture() {
-    clearInterval(shotTimer.current);
-    shotTimer.current = null;
-    streamRef.current?.getTracks().forEach(t => t.stop());
-    streamRef.current = null;
-    setCapturing(false);
+    [...streamsRef.current].forEach(dropStream);
   }
 
   // Capture stops the moment the shift ends (or the user revokes sharing).
   useEffect(() => { if (!clockedIn && capturing) stopCapture(); }, [clockedIn, capturing]);
 
   async function takeShot() {
-    const stream = streamRef.current;
-    if (!stream || !stream.active) { stopCapture(); return; }
-    try {
-      let video = videoRef.current;
-      if (!video) {
-        video = document.createElement('video');
-        video.muted = true;
-        videoRef.current = video;
-      }
-      video.srcObject = stream;
-      await video.play();
-      const scale = Math.min(1, 1280 / (video.videoWidth || 1280));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round((video.videoWidth || 1280) * scale);
-      canvas.height = Math.round((video.videoHeight || 720) * scale);
-      canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-      const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.55));
-      if (!blob) return;
-      const form = new FormData();
-      form.append('file', blob, 'shot.jpg');
-      form.append('idle_sec', String(Math.round((Date.now() - lastActive.current) / 1000)));
-      form.append('active_view', window.location.pathname.slice(0, 120));
-      form.append('tz_offset_min', String(new Date().getTimezoneOffset()));
-      await api.timeShotUpload(form);
-    } catch { /* one failed frame never disturbs the session */ }
+    // Snapshot EVERY shared screen (multi-monitor: one stream per screen)
+    for (let i = 0; i < streamsRef.current.length; i++) {
+      const stream = streamsRef.current[i];
+      if (!stream.active) { dropStream(stream); continue; }
+      try {
+        let video = videoRef.current;
+        if (!video) {
+          video = document.createElement('video');
+          video.muted = true;
+          videoRef.current = video;
+        }
+        video.srcObject = stream;
+        await video.play();
+        const scale = Math.min(1, 1280 / (video.videoWidth || 1280));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round((video.videoWidth || 1280) * scale);
+        canvas.height = Math.round((video.videoHeight || 720) * scale);
+        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+        const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.55));
+        if (!blob) continue;
+        const form = new FormData();
+        form.append('file', blob, 'shot.jpg');
+        form.append('idle_sec', String(Math.round((Date.now() - lastActive.current) / 1000)));
+        form.append('active_view', window.location.pathname.slice(0, 100)
+          + (streamsRef.current.length > 1 ? ` · screen ${i + 1}` : ''));
+        form.append('tz_offset_min', String(new Date().getTimezoneOffset()));
+        await api.timeShotUpload(form);
+      } catch { /* one failed frame never disturbs the session */ }
+    }
   }
 
   async function startCapture() {
@@ -99,11 +109,11 @@ export default function TimeclockWidget() {
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: 'monitor', frameRate: 1 }, audio: false,
       });
-      streamRef.current = stream;
-      stream.getVideoTracks()[0].addEventListener('ended', stopCapture);
-      setCapturing(true);
+      streamsRef.current = [...streamsRef.current, stream];
+      stream.getVideoTracks()[0].addEventListener('ended', () => dropStream(stream));
+      setCapturing(streamsRef.current.length);
       takeShot(); // first frame right away, then every 5 minutes
-      shotTimer.current = setInterval(takeShot, SHOT_EVERY_MS);
+      if (!shotTimer.current) shotTimer.current = setInterval(takeShot, SHOT_EVERY_MS);
     } catch { /* user dismissed the picker — stays off */ }
   }
 
@@ -138,14 +148,21 @@ export default function TimeclockWidget() {
         </span>
       </button>
       <button onClick={capturing ? stopCapture : startCapture}
-        title={capturing ? 'Screen capture is ON — a frame is saved every 5 minutes. Click to stop.'
+        title={capturing ? `Screen capture is ON (${capturing} screen${capturing === 1 ? '' : 's'}) — a frame of each is saved every 5 minutes. Click to stop.`
           : 'Start work-session screen capture (you pick the screen; your browser shows a sharing indicator the whole time)'}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 9px', borderRadius: 999, cursor: 'pointer',
           border: capturing ? '1.5px solid #b91c1c' : '1.5px solid var(--line)',
           background: capturing ? 'rgba(220,38,38,0.08)' : 'transparent',
           color: capturing ? '#b91c1c' : 'var(--muted)', fontSize: 10.5, fontWeight: 800, fontFamily: 'Inter,sans-serif' }}>
-        {capturing ? <MonitorUp size={12} /> : <MonitorX size={12} />} {capturing ? 'REC' : 'capture off'}
+        {capturing ? <MonitorUp size={12} /> : <MonitorX size={12} />} {capturing ? `REC${capturing > 1 ? ` ×${capturing}` : ''}` : 'capture off'}
       </button>
+      {capturing > 0 && (
+        <button onClick={startCapture} title="Also capture another screen (pick your second monitor)"
+          style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', cursor: 'pointer',
+            border: '1.5px solid var(--line)', background: 'transparent', color: 'var(--muted)', fontSize: 13, fontWeight: 800, fontFamily: 'Inter,sans-serif', padding: 0 }}>
+          +
+        </button>
+      )}
       <button onClick={quickPunchOut} disabled={busy} title="Punch out"
         style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: '50%',
           border: 'none', cursor: 'pointer', background: '#b91c1c', color: '#fff' }}>
