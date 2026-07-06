@@ -26,7 +26,8 @@ export default function TimeclockWidget() {
   const [, setTick] = useState(0);
   const streamsRef = useRef([]);                   // one MediaStream per shared screen
   const videoRef = useRef(null);
-  const shotTimer = useRef(null);
+  const lastShot = useRef(0);                       // wall-clock ms of the last frame
+  const shotInFlight = useRef(false);
   const lastActive = useRef(Date.now());
 
   const load = useCallback(() => {
@@ -39,6 +40,13 @@ export default function TimeclockWidget() {
     window.addEventListener('nexus:timeclock-changed', onChange);
     const poll = setInterval(load, 120000);
     const sec = setInterval(() => setTick(t => t + 1), 1000);
+    // Wall-clock scheduler: a frequent tick that fires a shot only once the full
+    // interval has actually elapsed. Browsers throttle/freeze background-tab
+    // timers, so a plain 5-min setInterval silently stops firing once the tab is
+    // hidden — this catches up as soon as any tick lands or the tab refocuses.
+    const due = setInterval(maybeShot, 20000);
+    const onVis = () => { if (document.visibilityState === 'visible') maybeShot(); };
+    document.addEventListener('visibilitychange', onVis);
     const bump = () => { lastActive.current = Date.now(); };
     window.addEventListener('pointermove', bump);
     window.addEventListener('keydown', bump);
@@ -46,7 +54,8 @@ export default function TimeclockWidget() {
       window.removeEventListener('nexus:timeclock-changed', onChange);
       window.removeEventListener('pointermove', bump);
       window.removeEventListener('keydown', bump);
-      clearInterval(poll); clearInterval(sec);
+      document.removeEventListener('visibilitychange', onVis);
+      clearInterval(poll); clearInterval(sec); clearInterval(due);
       stopCapture();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -61,10 +70,6 @@ export default function TimeclockWidget() {
     stream.getTracks().forEach(t => t.stop());
     streamsRef.current = streamsRef.current.filter(s => s !== stream);
     setCapturing(streamsRef.current.length);
-    if (!streamsRef.current.length) {
-      clearInterval(shotTimer.current);
-      shotTimer.current = null;
-    }
   }
 
   function stopCapture() {
@@ -74,8 +79,19 @@ export default function TimeclockWidget() {
   // Capture stops the moment the shift ends (or the user revokes sharing).
   useEffect(() => { if (!clockedIn && capturing) stopCapture(); }, [clockedIn, capturing]);
 
+  // Fire a shot only when a full interval has really elapsed (wall-clock guard
+  // against throttled/coalesced background timers) and none is already running.
+  function maybeShot() {
+    if (!streamsRef.current.length || shotInFlight.current) return;
+    if (Date.now() - lastShot.current >= SHOT_EVERY_MS) takeShot();
+  }
+
   async function takeShot() {
+    if (shotInFlight.current) return;
+    shotInFlight.current = true;
+    lastShot.current = Date.now();
     // Snapshot EVERY shared screen (multi-monitor: one stream per screen)
+    try {
     for (let i = 0; i < streamsRef.current.length; i++) {
       const stream = streamsRef.current[i];
       if (!stream.active) { dropStream(stream); continue; }
@@ -104,6 +120,7 @@ export default function TimeclockWidget() {
         await api.timeShotUpload(form);
       } catch { /* one failed frame never disturbs the session */ }
     }
+    } finally { shotInFlight.current = false; }
   }
 
   async function startCapture() {
@@ -114,8 +131,7 @@ export default function TimeclockWidget() {
       streamsRef.current = [...streamsRef.current, stream];
       stream.getVideoTracks()[0].addEventListener('ended', () => dropStream(stream));
       setCapturing(streamsRef.current.length);
-      takeShot(); // first frame right away, then every 5 minutes
-      if (!shotTimer.current) shotTimer.current = setInterval(takeShot, SHOT_EVERY_MS);
+      takeShot(); // first frame right away; the wall-clock ticker handles the rest
     } catch { /* user dismissed the picker — stays off */ }
   }
 
