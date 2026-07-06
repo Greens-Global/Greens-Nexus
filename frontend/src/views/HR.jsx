@@ -2164,8 +2164,11 @@ function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr
 }
 
 export default function HR({ activeSub, onSubChange }) {
-  // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now
-  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-esign'].includes(activeSub) ? activeSub : 'hr-people';
+  // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now.
+  // 'hr-esign-*' deep-links (bell/toast clicks) land on the E-Sign tab — ESign
+  // reads the raw navSub to pick its own sub-tab (inbox vs sent requests).
+  const navSub = String(activeSub || '').startsWith('hr-esign') ? 'hr-esign' : activeSub;
+  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-esign'].includes(navSub) ? navSub : 'hr-people';
   const [esignPrefill, setEsignPrefill] = useState(null);   // candidate → Send-for-signature handoff
   const isMobile = useIsMobile();
 
@@ -2311,7 +2314,7 @@ export default function HR({ activeSub, onSubChange }) {
       {sub === 'hr-org' && <OrgChartTab employees={employees} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-esign' && (
-        <ESign employees={employees} entities={entities} prefill={esignPrefill}
+        <ESign employees={employees} entities={entities} prefill={esignPrefill} navSub={activeSub}
           onPrefillConsumed={() => setEsignPrefill(null)} toastOk={toastOk} toastErr={toastErr} />
       )}
 

@@ -1,3 +1,4 @@
+import json
 import re
 import uuid
 from datetime import datetime, timezone
@@ -196,15 +197,18 @@ from models import HrCandidate, HrStageEvent, HrLeaveRequest, HrLeaveBalance, Ne
 _STAGES = ("applied", "screening", "interview", "offer", "hired", "rejected")
 
 
-def _hr_notify(db: Session, recipient: str, title: str, body: str, ref_id: str = "", requested_by: str = "") -> None:
+def _hr_notify(db: Session, recipient: str, title: str, body: str, ref_id: str = "", requested_by: str = "",
+               action: Optional[dict] = None) -> None:
     """Server-side bell notification (items.py pattern). Empty recipient = noop —
-    HR events must always target a person, never broadcast to all managers."""
+    HR events must always target a person, never broadcast to all managers.
+    `action` = {"view": ..., "sub": ...} makes the bell/toast click navigate there."""
     if not (recipient or "").strip():
         return
     db.add(NexusNotification(
         id=str(uuid.uuid4()), type="custom_alert", recipient=recipient.strip().lower(),
         title=title, body=body, ref_id=ref_id, item_name="", requested_by=requested_by,
-        action="", actioned=False, read_by="", created_at=datetime.now(timezone.utc).isoformat(),
+        action=json.dumps(action) if action else "", actioned=False, read_by="",
+        created_at=datetime.now(timezone.utc).isoformat(),
     ))
 
 

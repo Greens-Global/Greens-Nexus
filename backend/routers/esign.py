@@ -260,7 +260,8 @@ def _notify_party(db: Session, party: HrSignParty, req: HrSignRequest, sender_na
     if party.kind == "internal":
         _hr_notify(db, party.email, f"Signature required: {req.title}",
                    f"{sender_name} sent you \"{req.title}\" to sign. Open HR → E-Sign.",
-                   ref_id=req.id, requested_by=sender_name)
+                   ref_id=req.id, requested_by=sender_name,
+                   action={"view": "hr", "sub": "hr-esign"})
     ok, detail = _send_sign_email(party, req, sender_name)
     _log(db, req.id, "sent",
          f"notified {party.name} ({party.kind})" + ("" if ok else f" — email failed: {detail}"),
@@ -846,7 +847,8 @@ def _apply_decline(db: Session, req: HrSignRequest, party: HrSignParty, reason: 
          party_id=party.id, ip=ip, user_agent=ua)
     _hr_notify(db, req.created_by, f"Signature declined: {req.title}",
                f"{party.name} declined to sign. {party.decline_reason}".strip(),
-               ref_id=req.id, requested_by=party.name)
+               ref_id=req.id, requested_by=party.name,
+               action={"view": "hr", "sub": "hr-esign-requests"})
     db.commit()
     return {"ok": True, "status": "declined"}
 
@@ -1166,9 +1168,11 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
     # Tell the sender + every internal party; email externals a copy link
     _hr_notify(db, req.created_by, f"Completed: {req.title}",
                f"All {len(parties)} parties have signed \"{req.title}\". "
-               f"The sealed document is in HR → E-Sign.", ref_id=req.id)
+               f"The sealed document is in HR → E-Sign.", ref_id=req.id,
+               action={"view": "hr", "sub": "hr-esign-requests"})
     for p in parties:
         if p.kind == "internal" and p.email != req.created_by:
             _hr_notify(db, p.email, f"Fully signed: {req.title}",
                        "Everyone has signed. The sealed copy is available in HR → E-Sign.",
-                       ref_id=req.id)
+                       ref_id=req.id,
+                       action={"view": "hr", "sub": "hr-esign"})

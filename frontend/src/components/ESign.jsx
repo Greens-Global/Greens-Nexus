@@ -1490,8 +1490,11 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
 }
 
 // ── Main E-Sign tab ───────────────────────────────────────────────────────────
-export default function ESign({ employees = [], entities = [], prefill = null, onPrefillConsumed, toastOk, toastErr }) {
-  const [sub, setSub] = useState('inbox');
+// Bell/toast deep-links: navSub 'hr-esign' → Inbox, 'hr-esign-requests' → Sent.
+const NAV_TAB = { 'hr-esign': 'inbox', 'hr-esign-requests': 'requests' };
+
+export default function ESign({ employees = [], entities = [], prefill = null, navSub = '', onPrefillConsumed, toastOk, toastErr }) {
+  const [sub, setSub] = useState(NAV_TAB[navSub] || 'inbox');
   const [inbox, setInbox] = useState(null);
   const [requests, setRequests] = useState(null);
   const [templates, setTemplates] = useState(null);
@@ -1514,6 +1517,18 @@ export default function ESign({ employees = [], entities = [], prefill = null, o
     else if (id === 'requests') loadRequests();
     else loadTemplates();
   };
+
+  // Notification clicks while already mounted: the window event fires even when
+  // the app-level view/sub didn't change (repeat clicks — same pattern as the
+  // inventory panels). Leaves the send/sign screens alone if one is open.
+  useEffect(() => {
+    const onNav = (e) => {
+      const t = NAV_TAB[e.detail?.sub];
+      if (e.detail?.view === 'hr' && t) switchSub(t);
+    };
+    window.addEventListener('nexus:navigate', onNav);
+    return () => window.removeEventListener('nexus:navigate', onNav);
+  }, []);
 
   const myTurnCount = (inbox || []).filter(x => x.myTurn).length;
   const tabs = [
