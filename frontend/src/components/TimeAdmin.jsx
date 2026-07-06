@@ -1,9 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Clock, ChevronDown, ChevronRight, MapPin, AlertTriangle, Download,
+  Clock, ChevronDown, ChevronRight, ChevronLeft, MapPin, AlertTriangle, Download,
   Pencil, Plus, Loader2, X, CheckCircle, Ban,
 } from 'lucide-react';
 import { api } from '../api';
+import DayTimeline from './DayTimeline';
+
+const TYPE_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
 
 // ── HR → Time: team timesheets, corrections, payroll export ──────────────────
 // Single-screen review (the SwipeClock manager expectation): every employee's
@@ -52,6 +55,22 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     api.timeOffList().then(setTimeoff).catch(() => setTimeoff([]));
   }, []);
   useEffect(() => { loadTimeoff(); }, [loadTimeoff]);
+
+  const [attMonth, setAttMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const shiftMonth = (delta) => {
+    const [y, m] = attMonth.split('-').map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    setAttMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
+
+  async function approveRow(email) {
+    try { await api.timeApprove({ email, start, end }); toastOk('Timecard approved — the employee gets a notification.'); load(); }
+    catch (e) { toastErr(e?.message || 'Could not approve.'); }
+  }
+  async function revokeApproval(id) {
+    try { await api.timeApprovalRevoke(id); toastOk('Approval revoked.'); load(); }
+    catch (e) { toastErr(e?.message || 'Could not revoke.'); }
+  }
 
   async function decideTimeoff(id, status) {
     const note = status === 'rejected' ? (window.prompt('Reason (sent to the employee):') || '') : '';
@@ -103,13 +122,14 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
   const totalMin = (rows || []).reduce((a, r) => a + r.workedMin, 0);
   const totalFlags = (rows || []).reduce((a, r) => a + r.flagCount, 0);
   const pendingCount = timeoff.filter(r => r.status === 'pending').length;
+  const approvedCount = (rows || []).filter(r => r.approval).length;
 
   return (
     <div style={{ fontFamily: 'Inter,sans-serif' }}>
       {/* KPI strip — the at-a-glance row (TrackingTime-style status header) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
         {[['Team hours', fmtMin(totalMin), 'var(--pine)'],
-          ['People tracked', String((rows || []).length), 'var(--ink)'],
+          ['Approved', `${approvedCount}/${(rows || []).length}`, approvedCount === (rows || []).length && rows?.length ? 'hsl(var(--color-green))' : 'var(--ink)'],
           ['Punch flags', String(totalFlags), totalFlags ? '#b45309' : 'var(--muted)'],
           ['Time off pending', String(pendingCount), pendingCount ? '#b45309' : 'var(--muted)']].map(([label, value, color]) => (
           <div key={label} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 16px' }}>
@@ -119,9 +139,10 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         ))}
       </div>
 
-      {/* Sub-tabs: timecards vs time-off register */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        {[['timecards', 'Timecards'], ['timeoff', `Time off${pendingCount ? ` (${pendingCount})` : ''}`]].map(([key, label]) => (
+      {/* Sub-tabs */}
+      <div className="chip-row scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {[['timecards', 'Timecards'], ['attendance', 'Attendance'], ['insights', 'Insights'],
+          ['timeoff', `Time off${pendingCount ? ` (${pendingCount})` : ''}`]].map(([key, label]) => (
           <button key={key} onClick={() => setView(key)}
             style={{ padding: '6px 15px', borderRadius: 10, border: `1px solid ${view === key ? 'var(--pine)' : 'var(--line)'}`,
               background: view === key ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
@@ -132,8 +153,8 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         ))}
       </div>
 
-      {view === 'timecards' && (<>
-      {/* Range + export bar */}
+      {/* Range + export bar (shared by Timecards and Insights) */}
+      {(view === 'timecards' || view === 'insights') && (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         {[['This week', 0], ['Last week', -1]].map(([l, off]) => {
           const r = weekRange(off);
@@ -155,7 +176,9 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           <Download size={12} /> All punches CSV
         </button>
       </div>
+      )}
 
+      {view === 'timecards' && (<>
       {rows === null && <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>}
       {rows !== null && rows.length === 0 && (
         <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
@@ -165,10 +188,10 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
 
       {(rows || []).map(r => (
         <div key={r.email} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, marginBottom: 8, overflow: 'hidden' }}>
-          <button onClick={() => setOpen(o => ({ ...o, [r.email]: !o[r.email] }))}
-            style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '11px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
+          <div onClick={() => setOpen(o => ({ ...o, [r.email]: !o[r.email] }))} role="button"
+            style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '11px 14px', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
             {open[r.email] ? <ChevronDown size={14} style={{ color: 'var(--muted)' }} /> : <ChevronRight size={14} style={{ color: 'var(--muted)' }} />}
-            <span style={{ fontSize: 13, fontWeight: 800, flex: '0 0 220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
+            <span style={{ fontSize: 13, fontWeight: 800, flex: '0 0 200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
             <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.email}</span>
             {r.flagCount > 0 && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, color: '#b45309' }}>
@@ -176,8 +199,20 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
               </span>
             )}
             {r.breakMin > 0 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{r.breakMin}m break</span>}
-            <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--pine)' }}>{fmtMin(r.workedMin)}</span>
-          </button>
+            {r.approval ? (
+              <span title={`Approved by ${r.approval.by} · ${(r.approval.at || '').slice(0, 16).replace('T', ' ')}`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 800, letterSpacing: '.04em', color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.1)', padding: '3px 9px', borderRadius: 10 }}>
+                <CheckCircle size={11} /> APPROVED
+                <button onClick={e => { e.stopPropagation(); revokeApproval(r.approval.id); }} title="Revoke approval"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'flex', padding: 0, marginLeft: 2 }}><X size={10} /></button>
+              </span>
+            ) : (
+              <button className="secondary-btn" onClick={e => { e.stopPropagation(); approveRow(r.email); }}
+                title="Sign off this timecard for the selected period"
+                style={{ fontSize: 10.5, padding: '3px 11px' }}>Approve</button>
+            )}
+            <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--pine)', width: 62, textAlign: 'right' }}>{fmtMin(r.workedMin)}</span>
+          </div>
 
           {open[r.email] && (
             <div style={{ borderTop: '1px solid var(--line)', padding: '10px 14px 12px 38px' }}>
@@ -190,6 +225,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                       <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{fmtMin(d.workedMin)}{d.breakMin ? ` · ${d.breakMin}m break` : ''}</span>
                       {d.flags.map(f => <span key={f} style={{ fontSize: 10, fontWeight: 800, color: '#b45309', textTransform: 'uppercase' }}>{f.replace(/_/g, ' ')}</span>)}
                     </div>
+                    <div style={{ margin: '5px 0 4px', maxWidth: 560 }}><DayTimeline punches={d.punches} height={18} /></div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 5 }}>
                       {d.punches.map(p => (
                         <span key={p.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, padding: '4px 10px', borderRadius: 10,
@@ -225,6 +261,107 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         </div>
       ))}
       </>)}
+
+      {/* Attendance — month calendar with leave bars (TrackingTime overview) */}
+      {view === 'attendance' && (() => {
+        const [y, m] = attMonth.split('-').map(Number);
+        const daysIn = new Date(y, m, 0).getDate();
+        const offset = (new Date(y, m - 1, 1).getDay() + 6) % 7; // Monday-start
+        const cells = [...Array(offset).fill(null), ...Array.from({ length: daysIn }, (_, i) => i + 1)];
+        const leaves = timeoff.filter(r => r.status === 'approved' || r.status === 'pending');
+        const onDay = (n) => {
+          const ds = `${attMonth}-${String(n).padStart(2, '0')}`;
+          return leaves.filter(r => r.startDate <= ds && ds <= r.endDate);
+        };
+        const today = new Date().toISOString().slice(0, 10);
+        return (
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+              <button className="secondary-btn" onClick={() => shiftMonth(-1)} style={{ padding: '4px 8px' }}><ChevronLeft size={13} /></button>
+              <span style={{ fontSize: 14, fontWeight: 800, width: 150, textAlign: 'center' }}>
+                {new Date(y, m - 1, 1).toLocaleDateString([], { month: 'long', year: 'numeric' })}
+              </span>
+              <button className="secondary-btn" onClick={() => shiftMonth(1)} style={{ padding: '4px 8px' }}><ChevronRight size={13} /></button>
+              <div style={{ flex: 1 }} />
+              {Object.entries(TYPE_COLOR).map(([t, c]) => (
+                <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--muted)', textTransform: 'capitalize' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: c }} /> {t}
+                </span>
+              ))}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
+                <div key={d} style={{ fontSize: 10, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', padding: '2px 6px' }}>{d}</div>
+              ))}
+              {cells.map((n, i) => {
+                if (n === null) return <div key={`e${i}`} />;
+                const ds = `${attMonth}-${String(n).padStart(2, '0')}`;
+                const entries = onDay(n);
+                return (
+                  <div key={n} style={{ minHeight: 72, border: '1px solid var(--line)', borderRadius: 8, padding: '4px 6px',
+                    background: ds === today ? 'hsla(var(--color-green),0.06)' : 'var(--card)' }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 800, color: ds === today ? 'hsl(var(--color-green))' : 'var(--muted)' }}>{n}</div>
+                    {entries.slice(0, 3).map(r => (
+                      <div key={r.id} title={`${r.name || r.email} — ${r.type} ${r.startDate} → ${r.endDate}${r.status === 'pending' ? ' (pending)' : ''}`}
+                        style={{ fontSize: 9.5, fontWeight: 700, color: '#fff', background: TYPE_COLOR[r.type] || '#6b7280',
+                          borderRadius: 4, padding: '1px 5px', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          opacity: r.status === 'pending' ? 0.55 : 1 }}>
+                        {(r.name || r.email).split(' ')[0]}
+                      </div>
+                    ))}
+                    {entries.length > 3 && <div style={{ fontSize: 9.5, color: 'var(--muted)', marginTop: 2 }}>+{entries.length - 3} more</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Insights — hours by person + daily team hours, straight off the range */}
+      {view === 'insights' && (rows === null
+        ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+        : (() => {
+          const sorted = [...rows].sort((a, b) => b.workedMin - a.workedMin);
+          const maxWork = Math.max(1, ...rows.map(r => r.workedMin));
+          const dayTotals = {};
+          rows.forEach(r => Object.entries(r.days).forEach(([d, v]) => { dayTotals[d] = (dayTotals[d] || 0) + v.workedMin; }));
+          const dates = Object.keys(dayTotals).sort();
+          const maxDay = Math.max(1, ...Object.values(dayTotals));
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, alignItems: 'start' }}>
+              <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 16 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Hours by person</div>
+                {sorted.length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>No hours in this range.</div>}
+                {sorted.map(r => (
+                  <div key={r.email} style={{ marginBottom: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
+                      <span style={{ fontWeight: 700 }}>{r.name}</span>
+                      <span style={{ fontWeight: 800, color: 'var(--pine)' }}>{fmtMin(r.workedMin)}</span>
+                    </div>
+                    <div style={{ height: 8, background: 'var(--mist)', borderRadius: 6, overflow: 'hidden' }}>
+                      <div style={{ width: `${(r.workedMin / maxWork) * 100}%`, height: '100%', background: 'var(--pine)', borderRadius: 6, transition: 'width .4s ease' }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 16 }}>
+                <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Daily team hours</div>
+                {dates.length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>No hours in this range.</div>}
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 140 }}>
+                  {dates.map(d => (
+                    <div key={d} title={`${d} — ${fmtMin(dayTotals[d])}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                      <div style={{ width: '70%', maxWidth: 38, height: `${Math.max(4, (dayTotals[d] / maxDay) * 110)}px`, background: 'var(--pine)', borderRadius: '6px 6px 2px 2px', opacity: 0.9 }} />
+                      <span style={{ fontSize: 9.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        {new Date(d + 'T12:00:00').toLocaleDateString([], { weekday: 'short' })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })())}
 
       {/* Time-off register — requests table, pending rows carry the decisions */}
       {view === 'timeoff' && (

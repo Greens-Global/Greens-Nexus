@@ -486,6 +486,8 @@ export const api = {
   timeOffMine:       ()          => req('/timeclock/timeoff/mine'),
   timeOffList:       (status)    => req(`/timeclock/timeoff?status=${status || ''}`),
   timeOffDecide:     (id, data)  => req(`/timeclock/timeoff/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  timeApprove:       (data)      => req('/timeclock/approvals', { method: 'POST', body: JSON.stringify(data) }),
+  timeApprovalRevoke: (id)       => req(`/timeclock/approvals/${id}`, { method: 'PATCH' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch —

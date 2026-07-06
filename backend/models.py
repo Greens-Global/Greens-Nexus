@@ -1003,6 +1003,22 @@ class TimeScreenshot(Base):
     created_at     = Column(String, default="")
 
 
+class TimeApproval(Base):
+    """Approve-then-export: a manager's sign-off on one employee's timecard for
+    an exact period. Revocations keep the row (audit) and clear the status."""
+    __tablename__ = "time_approvals"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    period_start   = Column(String, default="")         # YYYY-MM-DD
+    period_end     = Column(String, default="")
+    worked_min     = Column(Integer, default=0)         # snapshot at approval
+    approved_by    = Column(String, default="")
+    approved_at    = Column(String, default="")
+    note           = Column(String, default="")
+    revoked        = Column(Integer, default=0)
+    revoked_by     = Column(String, default="")
+
+
 class TimeOffRequest(Base):
     """Leave inside the Time module: employee-submitted, manager/HR-decided."""
     __tablename__ = "time_off_requests"

@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from auth import get_current_user, require_level_or_module, require_administrator
-from models import TimePunch, TimeScreenshot, TimeOffRequest, HrWorkSite, NexusEmployee
+from models import TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, HrWorkSite, NexusEmployee
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET
 from routers.esign import _client_meta
 
@@ -338,7 +338,62 @@ def _team_rows(db: Session, start: str, end: str) -> list:
 @router.get("/team")
 def team_timesheet(start: str = "", end: str = "",
                    user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    return {"rows": _team_rows(db, start, end)}
+    rows = _team_rows(db, start, end)
+    # Approve-then-export status for this exact period, per employee
+    approvals = {a.employee_email: a for a in db.query(TimeApproval)
+                 .filter(TimeApproval.period_start == start, TimeApproval.period_end == end,
+                         TimeApproval.revoked == 0).all()}
+    for r in rows:
+        a = approvals.get(r["email"])
+        r["approval"] = ({"id": a.id, "by": a.approved_by, "at": a.approved_at,
+                          "workedMin": a.worked_min} if a else None)
+    return {"rows": rows}
+
+
+class ApprovalIn(BaseModel):
+    email: str
+    start: str
+    end: str
+    note: Optional[str] = ""
+
+
+@router.post("/approvals")
+def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
+                     db: Session = Depends(get_db)):
+    email = body.email.strip().lower()
+    existing = (db.query(TimeApproval)
+                .filter(TimeApproval.employee_email == email,
+                        TimeApproval.period_start == body.start,
+                        TimeApproval.period_end == body.end,
+                        TimeApproval.revoked == 0).first())
+    if existing:
+        raise HTTPException(409, "Already approved for this period")
+    worked = sum(d["workedMin"] for d in _day_summaries(
+        _live_punches(db, email, body.start, body.end)).values())
+    now = _now_iso()
+    row = TimeApproval(id=str(uuid.uuid4()), employee_email=email,
+                       period_start=body.start, period_end=body.end,
+                       worked_min=worked, approved_by=user["email"], approved_at=now,
+                       note=(body.note or "").strip()[:300])
+    db.add(row)
+    _hr_notify(db, email, "Timecard approved",
+               f"Your hours for {body.start} → {body.end} ({worked // 60}h {worked % 60:02d}m) "
+               f"were approved for payroll.",
+               ref_id=row.id, action={"view": "timeclock", "sub": ""})
+    db.commit()
+    return {"id": row.id, "by": row.approved_by, "at": row.approved_at, "workedMin": worked}
+
+
+@router.patch("/approvals/{approval_id}")
+def revoke_approval(approval_id: str, user: dict = Depends(require_team_write),
+                    db: Session = Depends(get_db)):
+    row = db.query(TimeApproval).filter(TimeApproval.id == approval_id).first()
+    if not row:
+        raise HTTPException(404, "Approval not found")
+    row.revoked = 1
+    row.revoked_by = user["email"]
+    db.commit()
+    return {"ok": True}
 
 
 class PunchAdjust(BaseModel):
@@ -426,8 +481,11 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                         p.accuracy_m or 0, p.source, p.note or "",
                         p.adjusted_by or "", "yes" if p.voided else ""])
     else:
+        approved = {a.employee_email for a in db.query(TimeApproval)
+                    .filter(TimeApproval.period_start == start, TimeApproval.period_end == end,
+                            TimeApproval.revoked == 0).all()}
         w.writerow(["Employee", "Email", "Date", "First In", "Last Out",
-                    "Worked Hours", "Break Minutes", "Flags"])
+                    "Worked Hours", "Break Minutes", "Flags", "Approved"])
         for r in rows:
             for date in sorted(r["days"]):
                 d = r["days"][date]
@@ -435,9 +493,10 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                             d["firstIn"][11:16] if d["firstIn"] else "",
                             d["lastOut"][11:16] if d["lastOut"] else "",
                             f"{d['workedMin'] / 60:.2f}", d["breakMin"],
-                            " ".join(d["flags"])])
+                            " ".join(d["flags"]), ""])
             w.writerow([r["name"], r["email"], "TOTAL", "", "",
-                        f"{r['workedMin'] / 60:.2f}", r["breakMin"], ""])
+                        f"{r['workedMin'] / 60:.2f}", r["breakMin"], "",
+                        "yes" if r["email"] in approved else "no"])
     buf.seek(0)
     fname = f"timeclock-{mode}-{start or 'all'}-to-{end or 'now'}.csv"
     return StreamingResponse(iter([buf.getvalue()]),

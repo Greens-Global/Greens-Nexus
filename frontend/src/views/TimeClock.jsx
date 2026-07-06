@@ -4,6 +4,14 @@ import {
   CheckCircle, Loader2, Plus, X, CalendarDays,
 } from 'lucide-react';
 import { api } from '../api';
+import DayTimeline from '../components/DayTimeline';
+
+const PUNCH_CHIP = {
+  in:          { bg: 'hsla(var(--color-green),0.1)', fg: 'hsl(var(--color-green))' },
+  out:         { bg: 'rgba(185,28,28,0.07)',         fg: '#b91c1c' },
+  break_start: { bg: 'rgba(245,158,11,0.12)',        fg: '#b45309' },
+  break_end:   { bg: 'rgba(245,158,11,0.12)',        fg: '#b45309' },
+};
 
 // ── Time Clock — punch in/out with geofencing (all employees) ─────────────────
 // Soft-gate design (research-verified SwipeClock behavior): location is asked
@@ -66,6 +74,7 @@ export default function TimeClock() {
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState(null);        // {ok, text}
   const [missedOpen, setMissedOpen] = useState(false);
+  const [openDays, setOpenDays] = useState({});   // expanded timesheet days
   const [missed, setMissed] = useState({ kind: 'out', at: '', note: '' });
   const [, setTick] = useState(0);             // re-render for the live timer
   const msgTimer = useRef(null);
@@ -258,36 +267,41 @@ export default function TimeClock() {
         )}
         {dayKeys.map(date => {
           const d = days[date];
+          const isOpen = !!openDays[date];
           return (
-            <div key={date} style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 13, fontWeight: 800, width: 110 }}>
+            <div key={date} style={{ borderBottom: '1px solid var(--line)' }}>
+              <button onClick={() => setOpenDays(o => ({ ...o, [date]: !o[date] }))}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '12px 18px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
+                <span style={{ fontSize: 13, fontWeight: 800, width: 96, flexShrink: 0, color: 'var(--ink)' }}>
                   {new Date(date + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
                 </span>
-                <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-                  {d.firstIn ? `${localTime(d.firstIn)} → ${d.lastOut ? localTime(d.lastOut) : '…'}` : '—'}
-                </span>
-                <div style={{ flex: 1 }} />
-                {d.breakMin > 0 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{d.breakMin}m break</span>}
-                <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--pine)' }}>{fmtMin(d.workedMin)}</span>
-              </div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                {d.punches.map(p => (
-                  <span key={p.id} title={`${p.geoStatus}${p.workSiteName ? ' · ' + p.workSiteName : ''}${p.note ? ' · ' + p.note : ''}`}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 12,
-                      background: p.geoStatus === 'out_of_fence' ? 'rgba(180,83,9,0.1)' : 'var(--mist)',
-                      color: p.geoStatus === 'out_of_fence' ? '#b45309' : 'var(--muted)',
-                      border: p.source !== 'web' ? '1px dashed var(--line)' : '1px solid transparent' }}>
-                    {KIND_LABEL[p.kind]} {localTime(p.at)}
-                    {p.geoStatus === 'in_fence' && <MapPin size={10} />}
-                    {p.geoStatus === 'out_of_fence' && <AlertTriangle size={10} />}
-                    {p.source !== 'web' && 'ⓜ'}
-                  </span>
-                ))}
-                {d.flags.includes('missing_out') && (
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#b45309' }}>· missing punch-out</span>
-                )}
-              </div>
+                <DayTimeline punches={d.punches} />
+                {d.flags.length > 0 && <AlertTriangle size={13} style={{ color: '#b45309', flexShrink: 0 }} />}
+                <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--pine)', width: 66, textAlign: 'right', flexShrink: 0 }}>{fmtMin(d.workedMin)}</span>
+              </button>
+              {isOpen && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '0 18px 12px 126px' }}>
+                  {d.punches.map(p => {
+                    const c = PUNCH_CHIP[p.kind] || PUNCH_CHIP.in;
+                    return (
+                      <span key={p.id} title={`${p.geoStatus}${p.workSiteName ? ' · ' + p.workSiteName : ''}${p.note ? ' · ' + p.note : ''}`}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 12,
+                          background: p.geoStatus === 'out_of_fence' ? 'rgba(180,83,9,0.12)' : c.bg,
+                          color: p.geoStatus === 'out_of_fence' ? '#b45309' : c.fg,
+                          border: p.source !== 'web' ? '1px dashed currentColor' : '1px solid transparent' }}>
+                        {KIND_LABEL[p.kind]} {localTime(p.at)}
+                        {p.geoStatus === 'in_fence' && <MapPin size={10} />}
+                        {p.geoStatus === 'out_of_fence' && <AlertTriangle size={10} />}
+                        {p.source !== 'web' && 'ⓜ'}
+                      </span>
+                    );
+                  })}
+                  {d.breakMin > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: '#b45309', alignSelf: 'center' }}>{d.breakMin}m break</span>}
+                  {d.flags.includes('missing_out') && (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#b45309', alignSelf: 'center' }}>· missing punch-out</span>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
