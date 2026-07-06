@@ -967,7 +967,12 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
     if (fl.type !== 'application/pdf') { toastErr('Choose a PDF file.'); return; }
     setFile(fl); setSource('pdf'); setTemplateId(''); setFields([]);
     setTitle(t => t || fl.name.replace(/\.pdf$/i, ''));
-    setParties(ps => ps.length ? ps : [{ _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'signer', access_code: '' }]);
+    // Switching INTO pdf mode: fields belong to people via _rk. Parties carried
+    // over from a template pick or candidate prefill have no _rk — without one,
+    // placeField no-ops and role_key sends as undefined. Backfill it here.
+    setParties(ps => ps.length
+      ? ps.map(p => p._rk ? p : { party_role: 'signer', access_code: '', ...p, _rk: newRk() })
+      : [{ _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'signer', access_code: '' }]);
   }
 
   const setParty = (i, k, v) => setParties(ps => ps.map((p, j) => j === i ? { ...p, [k]: v } : p));
@@ -1290,7 +1295,8 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                       <div style={{ flex: 1 }} />
                       <div style={{ display: 'inline-flex', borderRadius: 8, border: '1px solid var(--line)', overflow: 'hidden' }}>
                         {[['internal', 'Teammate'], ['external', 'External']].map(([v, l]) => (
-                          <button key={v} onClick={() => setParty(i, 'kind', v)}
+                          <button key={v} onClick={() => setParties(ps => ps.map((q, j) => j === i
+                            ? { ...q, kind: v, ...(v === 'internal' ? { access_code: '' } : {}) } : q))}
                             style={{ padding: '4px 12px', fontSize: 11, fontWeight: 700, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', background: p.kind === v ? 'var(--pine)' : 'var(--card)', color: p.kind === v ? '#fff' : 'var(--muted)' }}>{l}</button>
                         ))}
                       </div>

@@ -68,6 +68,15 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _pesc(s) -> str:
+    """Escape a user string for reportlab Paragraph markup. reportlab's paraparser
+    treats <...> and & as XML — an unescaped name/title/typed-signature (e.g.
+    'Ben & Co', 'a<b') otherwise CRASHES sealing and permanently bricks the
+    envelope (nothing is committed, so every retry re-crashes)."""
+    from xml.sax.saxutils import escape
+    return escape(str(s or ""))
+
+
 def _strip_port(addr: str) -> str:
     """Azure's x-forwarded-for carries the client port ('1.2.3.4:56789',
     '[::1]:443') — an audit trail wants the address only."""
@@ -759,9 +768,11 @@ def correct_party(rid: str, pid: str, body: PartyFix, request: Request,
     if party.status in ("signed", "declined"):
         raise HTTPException(409, f"{party.name} has already {party.status} — correction is impossible")
     changes = []
+    credential_changed = False   # token rotation or new code → resets brute-force lockout
     if body.name is not None and body.name.strip() and body.name.strip() != party.name:
         changes.append(f"name '{party.name}' → '{body.name.strip()}'")
         party.name = body.name.strip()
+    email_changed = False
     if body.email is not None:
         new_email = body.email.strip().lower()
         if "@" not in new_email:
@@ -771,6 +782,7 @@ def correct_party(rid: str, pid: str, body: PartyFix, request: Request,
             party.email = new_email
             party.token = secrets.token_urlsafe(32)   # old link must stop working
             party.viewed_at = ""
+            email_changed = credential_changed = True
             if party.status == "viewed":
                 party.status = "notified"
     if body.access_code is not None and body.access_code.strip() != (party.access_code or ""):
@@ -778,12 +790,16 @@ def correct_party(rid: str, pid: str, body: PartyFix, request: Request,
             raise HTTPException(400, "Access codes are limited to 40 characters")
         party.access_code = body.access_code.strip()
         changes.append("access code changed")
+        credential_changed = True
     if not changes:
         return _ser_request(req, parties=_parties(db, rid))
     ip, ua = _client_meta(request)
     _log(db, rid, "corrected", f"{'; '.join(changes)} — by {user['email']}",
          party_id=party.id, ip=ip, user_agent=ua)
-    if "email" in " ".join(changes) and _its_their_turn(req, party):
+    if credential_changed:   # only a fresh credential clears the lockout, not a name typo fix
+        _log(db, rid, "code_reset", "credential changed — access-code lockout reset",
+             party_id=party.id)
+    if email_changed and _its_their_turn(req, party):
         sender_name = user["email"].split("@")[0].replace(".", " ").title()
         _notify_party(db, party, req, sender_name)
     db.commit()
@@ -925,7 +941,24 @@ def _validate_signature(body: SignIn) -> None:
 
 def _apply_signature(db: Session, req: HrSignRequest, party: HrSignParty, body: SignIn,
                      ip: str, ua: str) -> dict:
-    """The shared engine: record the signature, advance the order, finalize when done."""
+    """The shared engine: record the signature, advance the order, finalize when done.
+
+    Serialized on the request row: two signers of the SAME envelope (parallel
+    routing, or a double-submit of the last signer) must not both read sibling
+    statuses before the other commits — otherwise each sees the other unsigned,
+    both skip finalize (envelope stuck pending forever) or both finalize (double
+    HrDocument + double notifications). This is the batch-notification race
+    CLAUDE.md warns needs with_for_update(). SQLite ignores the lock but
+    serializes writes anyway; Postgres (dev/prod) takes a real row lock."""
+    db.query(HrSignRequest).filter(HrSignRequest.id == req.id).with_for_update().first()
+    # Drop any party/request rows cached before we held the lock, so the turn
+    # check and the finalize decision read state committed by whoever just
+    # released it (autoflush=False + READ COMMITTED would otherwise show stale).
+    db.expire_all()
+    req = db.query(HrSignRequest).filter(HrSignRequest.id == req.id).first()
+    party = db.query(HrSignParty).filter(HrSignParty.id == party.id).first()
+    if not req or not party:
+        raise HTTPException(404, "Not found")
     _check_expiry(db, req)
     if req.status != "pending":
         raise HTTPException(409, f"This document is {req.status}")
@@ -1010,6 +1043,18 @@ class DeclineIn(BaseModel):
 
 def _apply_decline(db: Session, req: HrSignRequest, party: HrSignParty, reason: str,
                    ip: str, ua: str) -> dict:
+    # Same row lock as signing: a decline must not race a concurrent finalize
+    # (else it flips a just-completed envelope back to 'declined').
+    db.query(HrSignRequest).filter(HrSignRequest.id == req.id).with_for_update().first()
+    db.expire_all()
+    req = db.query(HrSignRequest).filter(HrSignRequest.id == req.id).first()
+    party = db.query(HrSignParty).filter(HrSignParty.id == party.id).first()
+    if not req or not party:
+        raise HTTPException(404, "Not found")
+    # CC recipients receive a copy, they never sign — so they can't decline the
+    # whole envelope out from under the real signers.
+    if (party.party_role or "signer") != "signer":
+        raise HTTPException(403, "You are on this document for a copy only — there is nothing to decline.")
     _check_expiry(db, req)
     if req.status != "pending":
         raise HTTPException(409, f"This document is {req.status}")
@@ -1063,11 +1108,13 @@ def _check_access_code(db: Session, req: HrSignRequest, party: HrSignParty,
     expected = (party.access_code or "").strip()
     if not expected:
         return True
-    # A sender "correcting" the party (new code / new email+token) resets the
-    # lockout — only failures since the last correction count.
+    # A NEW code or a rotated token (email change) makes old brute-force attempts
+    # moot, so it resets the lockout. A cosmetic fix (name-only) must NOT — it
+    # leaves the credential unchanged. correct_party logs 'code_reset' only when
+    # the code/token actually changed.
     last_fix = (db.query(HrSignEvent)
                 .filter(HrSignEvent.request_id == req.id, HrSignEvent.party_id == party.id,
-                        HrSignEvent.type == "corrected")
+                        HrSignEvent.type == "code_reset")
                 .order_by(HrSignEvent.at.desc()).first())
     fq = (db.query(HrSignEvent)
           .filter(HrSignEvent.request_id == req.id, HrSignEvent.party_id == party.id,
@@ -1160,7 +1207,7 @@ def _sig_flowable(party: HrSignParty, width_mm: float = 58):
         img.drawHeight = max(10, min(30, width_mm * ratio)) * mm
         return img
     style = ParagraphStyle("sig", fontName="Helvetica-Oblique", fontSize=18, leading=22)
-    return Paragraph((party.signature_data or party.name), style)
+    return Paragraph(_pesc(party.signature_data or party.name), style)
 
 
 def _initials(name: str) -> str:
@@ -1180,7 +1227,7 @@ def _build_template_pdf(req: HrSignRequest, parties: List[HrSignParty]) -> bytes
                                 fontSize=10.5, leading=15, spaceAfter=8)
     cap_style = ParagraphStyle("cap", parent=styles["Normal"], fontName="Helvetica",
                                fontSize=8, leading=10, textColor=colors.HexColor("#6b7280"))
-    flow = [Paragraph(req.title, ParagraphStyle("t", parent=styles["Title"], fontSize=15)),
+    flow = [Paragraph(_pesc(req.title), ParagraphStyle("t", parent=styles["Title"], fontSize=15)),
             Spacer(1, 6 * mm)]
 
     def resolve_inline(m):
@@ -1205,13 +1252,13 @@ def _build_template_pdf(req: HrSignRequest, parties: List[HrSignParty]) -> bytes
         text = _FIELD_RE.sub(resolve_inline, _FIELD_RE.sub(
             lambda m: "" if m.group(1) == "sign" else m.group(0), para)).strip()
         if text:
-            flow.append(Paragraph(text.replace("&", "&amp;").replace("<", "&lt;"), body_style))
+            flow.append(Paragraph(_pesc(text), body_style))
         for m in sig_tokens:
             p = by_role.get(m.group(2))
             if not p:
                 continue
             sig = _sig_flowable(p)
-            t = Table([[sig], [Paragraph(f"{p.name} — signed {(p.signed_at or '')[:19].replace('T', ' ')} UTC",
+            t = Table([[sig], [Paragraph(f"{_pesc(p.name)} — signed {(p.signed_at or '')[:19].replace('T', ' ')} UTC",
                                          cap_style)]], colWidths=[75 * mm])
             t.setStyle(TableStyle([("LINEBELOW", (0, 0), (0, 0), 0.7, colors.black),
                                    ("TOPPADDING", (0, 1), (0, 1), 2),
@@ -1233,6 +1280,15 @@ def _stamp_pdf(source: bytes, fields: list, parties: List[HrSignParty]) -> bytes
     reader = PdfReader(io.BytesIO(source))
     writer = PdfWriter()
     for idx, page in enumerate(reader.pages):
+        # A /Rotate 90/270 page (common from scanners/phones) renders upright in
+        # viewers, so the field coords were placed against the VISUAL size — but
+        # merge_page ignores /Rotate and works in mediabox space. Bake the
+        # rotation into the content first so mediabox == what the placer saw.
+        if getattr(page, "rotation", 0):
+            try:
+                page.transfer_rotation_to_content()
+            except Exception:
+                pass
         pw, ph = float(page.mediabox.width), float(page.mediabox.height)
         page_fields = [f for f in (fields or []) if int(f.get("page", 0)) == idx]
         if page_fields:
