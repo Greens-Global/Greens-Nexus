@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Monitor, Command, Terminal, Download, Copy, Check, AlertTriangle,
-  ShieldCheck, Trash2, ChevronRight,
+  ShieldCheck, Trash2, ChevronRight, Upload, Loader2,
 } from 'lucide-react';
+import { api } from '../api';
 
 // ── Time Tracking (admin portal) ──────────────────────────────────────────────
 // How to deploy + remove the Greens Nexus desktop Agent (silent multi-monitor
@@ -10,29 +11,26 @@ import {
 // (Interactive | Silent) over a platform strip (Windows | Mac | Linux). We only
 // ship SILENT mode; the Interactive tab is shown for parity but is not enabled.
 //
-// The installer URLs below are placeholders — build the agent in `desktop-agent/`
-// (npm run dist:win / dist:mac), sign it, host it, then set AGENT_HOST + version.
+// Installers live in a PRIVATE Supabase bucket. Admins upload the signed build
+// here; the Download button and the silent-install command carry a fresh 7-day
+// signed URL fetched from /timeclock/agent/download-url — never a public link.
 
-const AGENT_HOST = 'https://updates.nexus.greensglobal.com/agent'; // where you host the signed installers
 const AGENT_VERSION = 'v0.1.0';
 
-const WIN_URL = `${AGENT_HOST}/GreensNexusAgent-Setup.exe`;
-const MAC_URL = `${AGENT_HOST}/GreensNexusAgent.dmg`;
-const LINUX_URL = `${AGENT_HOST}/GreensNexusAgent.AppImage`;
-
-// One-line silent Windows deploy: download the signed installer to TEMP, run it
-// with NSIS's /S (per-user, no admin prompt), then clean up.
-const WIN_SILENT_CMD =
-  `powershell -Command "$p=\\"$env:TEMP\\GNAgent.exe\\"; Invoke-WebRequest -Uri '${WIN_URL}' -OutFile $p; ` +
-  `Start-Process -Wait $p -ArgumentList '/S'; Remove-Item $p"`;
-
-const MAC_SILENT_CMD =
-  `curl -L '${MAC_URL}' -o /tmp/GNAgent.dmg && hdiutil attach /tmp/GNAgent.dmg -nobrowse -quiet && ` +
-  `cp -R "/Volumes/Greens Nexus Agent/Greens Nexus Agent.app" /Applications/ && ` +
-  `hdiutil detach "/Volumes/Greens Nexus Agent" -quiet && open "/Applications/Greens Nexus Agent.app"`;
-
-const LINUX_SILENT_CMD =
-  `curl -L '${LINUX_URL}' -o ~/.local/bin/gn-agent.AppImage && chmod +x ~/.local/bin/gn-agent.AppImage && ~/.local/bin/gn-agent.AppImage &`;
+// Command builders take the live signed URL so what the admin copies is ready to
+// paste on the target machine. Windows: download → run NSIS /S (per-user, no
+// admin prompt) → clean up.
+const CMD = {
+  win: (url) =>
+    `powershell -Command "$p=\\"$env:TEMP\\GNAgent.exe\\"; Invoke-WebRequest -Uri '${url}' -OutFile $p; ` +
+    `Start-Process -Wait $p -ArgumentList '/S'; Remove-Item $p"`,
+  mac: (url) =>
+    `curl -L '${url}' -o /tmp/GNAgent.dmg && hdiutil attach /tmp/GNAgent.dmg -nobrowse -quiet && ` +
+    `cp -R "/Volumes/Greens Nexus Agent/Greens Nexus Agent.app" /Applications/ && ` +
+    `hdiutil detach "/Volumes/Greens Nexus Agent" -quiet && open "/Applications/Greens Nexus Agent.app"`,
+  linux: (url) =>
+    `curl -L '${url}' -o ~/.local/bin/gn-agent.AppImage && chmod +x ~/.local/bin/gn-agent.AppImage && ~/.local/bin/gn-agent.AppImage &`,
+};
 
 const WIN_UNINSTALL =
   `"%LOCALAPPDATA%\\Programs\\greens-nexus-agent\\Uninstall Greens Nexus Agent.exe" /S`;
@@ -41,14 +39,14 @@ const MAC_UNINSTALL =
 const LINUX_UNINSTALL = `rm -f ~/.local/bin/gn-agent.AppImage`;
 
 const PLATFORMS = [
-  { id: 'win',   label: 'Windows', Icon: Monitor,  compat: 'Compatible with Windows 10 or later',
-    url: WIN_URL,   cmd: WIN_SILENT_CMD,   cmdIntro: 'Copy this into an elevated Command Prompt / PowerShell on the user’s profile, or push it through Intune / RMM:',
+  { id: 'win',   label: 'Windows', Icon: Monitor,  compat: 'Compatible with Windows 10 or later', accept: '.exe',
+    cmdIntro: 'Copy this into Command Prompt / PowerShell on the target machine, or push it through Intune / RMM. The link is a 7-day signed URL — no login needed on that machine:',
     uninstall: WIN_UNINSTALL, uninstallNote: 'Or: Settings → Apps → Greens Nexus Agent → Uninstall.' },
-  { id: 'mac',   label: 'Mac',     Icon: Command,  compat: 'Compatible with macOS 11 or later',
-    url: MAC_URL,   cmd: MAC_SILENT_CMD,   cmdIntro: 'Run in Terminal (or push via your MDM). macOS shows a one-time Screen Recording permission prompt on first capture — this cannot be suppressed by any app.',
+  { id: 'mac',   label: 'Mac',     Icon: Command,  compat: 'Compatible with macOS 11 or later', accept: '.dmg',
+    cmdIntro: 'Run in Terminal (or push via your MDM). macOS shows a one-time Screen Recording permission prompt on first capture — this cannot be suppressed by any app.',
     uninstall: MAC_UNINSTALL, uninstallNote: 'Then remove it from System Settings → Privacy → Screen Recording and Login Items.' },
-  { id: 'linux', label: 'Linux',   Icon: Terminal, compat: 'AppImage — most modern distros',
-    url: LINUX_URL, cmd: LINUX_SILENT_CMD, cmdIntro: 'Run in a terminal on the user’s session:',
+  { id: 'linux', label: 'Linux',   Icon: Terminal, compat: 'AppImage — most modern distros', accept: '.AppImage',
+    cmdIntro: 'Run in a terminal on the user’s session:',
     uninstall: LINUX_UNINSTALL, uninstallNote: 'Also remove any autostart entry you created in ~/.config/autostart.' },
 ];
 
@@ -78,7 +76,40 @@ const STEPS = [
 export default function TimeTrackingAdmin() {
   const [mode, setMode] = useState('silent');   // 'interactive' (UI only) | 'silent'
   const [plat, setPlat] = useState('win');
+  const [dl, setDl] = useState({ loading: true, exists: false, url: '' });
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState(null);   // {ok, text}
+  const fileRef = useRef(null);
   const P = PLATFORMS.find(p => p.id === plat);
+
+  function loadUrl(platform) {
+    setDl({ loading: true, exists: false, url: '' });
+    api.timeAgentDownloadUrl(platform)
+      .then(r => setDl({ loading: false, exists: !!r.exists, url: r.url || '' }))
+      .catch(() => setDl({ loading: false, exists: false, url: '' }));
+  }
+
+  useEffect(() => { if (mode === 'silent') loadUrl(plat); }, [plat, mode]);
+
+  async function onUpload(e) {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f || uploading) return;
+    setUploading(true);
+    setUploadMsg(null);
+    try {
+      const form = new FormData();
+      form.append('file', f, f.name);
+      const r = await api.timeAgentUpload(plat, form);
+      setUploadMsg({ ok: true, text: `Uploaded ${f.name} (${r.sizeMb} MB). Download link is live.` });
+      loadUrl(plat);
+    } catch (err) {
+      setUploadMsg({ ok: false, text: err?.message || 'Upload failed.' });
+    }
+    setUploading(false);
+  }
+
+  const cmdText = dl.url ? CMD[plat](dl.url) : CMD[plat]('<upload an installer first>');
 
   return (
     <div style={{ fontFamily: 'Inter,sans-serif', maxWidth: 860, margin: '0 auto' }}>
@@ -133,13 +164,36 @@ export default function TimeTrackingAdmin() {
           Frames land under Admin → Screenshots. Deploy only where you have consent on file.
         </p>
 
-        {/* Download */}
+        {/* Download + upload */}
         <div style={{ textAlign: 'center', marginBottom: 22 }}>
-          <a href={P.url} target="_blank" rel="noreferrer" className="primary-btn"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'none', padding: '11px 30px', fontSize: 14 }}>
-            <Download size={16} /> Download installer
-          </a>
+          {dl.loading ? (
+            <div style={{ fontSize: 13, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+              <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Checking for an installer…
+            </div>
+          ) : dl.exists ? (
+            <a href={dl.url} target="_blank" rel="noreferrer" className="primary-btn"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, textDecoration: 'none', padding: '11px 30px', fontSize: 14 }}>
+              <Download size={16} /> Download installer
+            </a>
+          ) : (
+            <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+              No {P.label} installer uploaded yet — upload your signed build below.
+            </div>
+          )}
           <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>{AGENT_VERSION} · {P.compat}</div>
+
+          {/* Admin upload — replaces touching the storage dashboard */}
+          <div style={{ marginTop: 14 }}>
+            <input ref={fileRef} type="file" accept={P.accept} onChange={onUpload} style={{ display: 'none' }} />
+            <button className="secondary-btn" disabled={uploading} onClick={() => fileRef.current?.click()}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+              {uploading ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={13} />}
+              {dl.exists ? 'Replace installer' : `Upload ${P.label} installer`}
+            </button>
+            {uploadMsg && (
+              <div style={{ fontSize: 11.5, marginTop: 8, color: uploadMsg.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{uploadMsg.text}</div>
+            )}
+          </div>
         </div>
 
         {/* Silent command */}
@@ -148,10 +202,10 @@ export default function TimeTrackingAdmin() {
             Silent install command
           </div>
           <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 10px', lineHeight: 1.6 }}>{P.cmdIntro}</p>
-          <CopyBox text={P.cmd} />
+          <CopyBox text={cmdText} />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'hsla(45,90%,55%,0.12)', border: '1px solid hsla(45,80%,45%,0.35)', borderRadius: 9, padding: '8px 12px', fontSize: 11.5, color: '#8a5a00', margin: '0 0 24px' }}>
-          <AlertTriangle size={13} style={{ flexShrink: 0 }} /> Copy the full command, not just the link — a partial copy will fail. Set the download host before shipping (see step 1).
+          <AlertTriangle size={13} style={{ flexShrink: 0 }} /> Copy the full command, not just the link. The link is signed and expires in 7 days — regenerate it here for a later rollout.
         </div>
 
         {/* Steps */}

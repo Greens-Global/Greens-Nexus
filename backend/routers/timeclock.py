@@ -601,6 +601,64 @@ def _signed_url(path: str) -> str:
     return ""
 
 
+# ── Desktop agent installers (private bucket, admin-only signed links) ────────
+# Signed builds live in the private 'agent-releases' bucket at a fixed path per
+# platform. Admins upload from the Time Tracking portal; the download link and
+# the silent-install command carry a 7-day signed URL so no login is needed on
+# the target machine and the installer is never world-readable.
+
+_AGENT_BUCKET = "agent-releases"
+_AGENT_KEYS = {
+    "win":   "win/GreensNexusAgent-Setup.exe",
+    "mac":   "mac/GreensNexusAgent.dmg",
+    "linux": "linux/GreensNexusAgent.AppImage",
+}
+_AGENT_LINK_TTL = 7 * 24 * 3600  # 7 days
+
+
+def _agent_signed_url(path: str, ttl: int = _AGENT_LINK_TTL) -> str:
+    try:
+        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_AGENT_BUCKET}/{path}",
+                       headers=_storage_headers(), json={"expiresIn": ttl}, timeout=20)
+        if r.is_success:
+            return f"{_SUPABASE_URL}/storage/v1{r.json().get('signedURL', '')}"
+    except Exception:
+        pass
+    return ""
+
+
+@router.get("/agent/download-url")
+def agent_download_url(platform: str = "win", user: dict = Depends(require_administrator)):
+    """A fresh 7-day signed URL for the platform's installer (empty + exists:false
+    if nothing's been uploaded yet)."""
+    key = _AGENT_KEYS.get(platform)
+    if not key:
+        raise HTTPException(400, "platform must be win, mac or linux")
+    url = _agent_signed_url(key)
+    return {"platform": platform, "exists": bool(url), "url": url, "ttlDays": _AGENT_LINK_TTL // 86400}
+
+
+@router.post("/agent/upload")
+def agent_upload(platform: str = Form("win"), file: UploadFile = File(...),
+                 user: dict = Depends(require_administrator)):
+    """Upload (or replace) a signed installer for a platform, straight from the
+    Time Tracking portal — no Supabase dashboard needed."""
+    key = _AGENT_KEYS.get(platform)
+    if not key:
+        raise HTTPException(400, "platform must be win, mac or linux")
+    blob = file.file.read()
+    if not blob:
+        raise HTTPException(400, "Empty file")
+    if len(blob) > 400_000_000:
+        raise HTTPException(400, "Installer larger than 400 MB")
+    up = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_AGENT_BUCKET}/{key}",
+                    headers={**_storage_headers(), "Content-Type": "application/octet-stream", "x-upsert": "true"},
+                    content=blob, timeout=180)
+    if not up.is_success:
+        raise HTTPException(502, f"Upload failed: {up.text[:200]}")
+    return {"ok": True, "platform": platform, "sizeMb": round(len(blob) / 1_000_000, 1)}
+
+
 @router.get("/screenshots")
 def list_screenshots(date: str = "", email: str = "",
                      user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
