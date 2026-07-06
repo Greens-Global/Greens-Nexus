@@ -401,6 +401,14 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
   };
   function pageDown(e, pg, d) {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
+    // The browser applies mousedown's DEFAULT focus action after handlers run:
+    // the svg isn't focusable, so it would move focus to <body> — instantly
+    // blurring the textarea we're about to mount (blur → commit → the new
+    // element evaporates before pointerup). Suppress it; clicks that should
+    // commit an open edit are handled explicitly below (the textarea's own
+    // pointerdown never reaches here — it stops propagation).
+    e.preventDefault();
+    if (editingId) commitTextEdit();
     const p = norm(e);
     if (tool === 'select') { setSelectedId(null); return; }
     if (tool === 'edittext') {
