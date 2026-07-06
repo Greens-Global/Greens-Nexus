@@ -2200,3 +2200,39 @@ button, [role="button"], select { touch-action: manipulation; }
   background-size: 200% 100%;
   animation: shimmer 1.4s ease-in-out infinite;
 }
+
+/* ── E-Sign template editor — paper document (WYSIWYG block editing) ────────── */
+.tpl-block { position: relative; }
+.tpl-block .tpl-ctl { opacity: 0; transition: opacity 0.13s ease; }
+.tpl-block:hover .tpl-ctl,
+.tpl-block:focus-within .tpl-ctl { opacity: 1; }
+.tpl-para {
+  display: block;
+  width: calc(100% + 14px);
+  margin: 0 -7px 8px;
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+  font-family: Inter, sans-serif;
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: #111827;
+}
+.tpl-para:hover { border-color: var(--line); }
+.tpl-para:focus { border-color: #93c5fd; background: #fafcff; }
+.tpl-para::placeholder { color: #9ca3af; font-style: italic; }
+.tpl-inline {
+  border: none;
+  border-bottom: 1px dashed transparent;
+  background: transparent;
+  outline: none;
+  padding: 2px;
+  font-family: Inter, sans-serif;
+}
+.tpl-inline:hover { border-bottom-color: var(--line); }
+.tpl-inline:focus { border-bottom-color: #93c5fd; }
+.tpl-inline::placeholder { color: #9ca3af; font-style: italic; }

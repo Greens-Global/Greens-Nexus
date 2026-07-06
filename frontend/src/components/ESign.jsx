@@ -590,6 +590,9 @@ const blocksToBody = (blocks) => blocks
     : `[[${b.type}:${b.role}${(b.type === 'check' || b.type === 'text') ? `:${b.label || ''}` : ''}]]`)
   .filter(s => String(s).trim());
 
+// Paragraphs edit in place on the paper — the textarea grows to fit its text.
+const fitPara = (el) => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px`; } };
+
 // Place fields on an attached PDF — same interaction as the send wizard's
 // editor, but saved onto the template so every send reuses the placement.
 function AttachmentPlacer({ attachment, roles, onSave, onClose, toastErr }) {
@@ -706,6 +709,7 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
   const [editPdf, setEditPdf] = useState(null);   // { idx, url } — attachment open in the PDF editor
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [focusPara, setFocusPara] = useState(null); // paragraph whose Insert dropdown is showing
   const paraRefs = useRef({});
 
   const setBlock = (i, patch) => setBlocks(bs => bs.map((b, j) => j === i ? { ...b, ...patch } : b));
@@ -722,7 +726,7 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
     const cur = blocks[i]?.text || '';
     const at = ta ? ta.selectionStart : cur.length;
     setBlock(i, { text: cur.slice(0, at) + `{{${token}}}` + cur.slice(at) });
-    setTimeout(() => { ta?.focus(); }, 0);
+    setTimeout(() => { ta?.focus(); fitPara(ta); }, 0);
   };
   const setRole = (i, k, v) => setRoles(rs => rs.map((r, j) => j === i ? { ...r, [k]: v } : r));
   const roleIdx = (key) => Math.max(0, roles.findIndex(r => r.key === key));
@@ -829,47 +833,87 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
           })}
             style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add signer role</button>
 
-          <div style={{ margin: '18px 0 6px' }}><label style={FL}>Document</label></div>
-          <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '14px 14px', background: '#fff' }}>
-            {blocks.map((b, i) => (
-              <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'flex-start' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 0, paddingTop: 4 }}>
-                  <button onClick={() => movBlock(i, -1)} disabled={i === 0} style={{ background: 'none', border: 'none', cursor: i === 0 ? 'default' : 'pointer', color: i === 0 ? 'var(--line)' : 'var(--muted)', display: 'flex', padding: 1 }}><ChevronUp size={12} /></button>
-                  <button onClick={() => movBlock(i, 1)} disabled={i === blocks.length - 1} style={{ background: 'none', border: 'none', cursor: i === blocks.length - 1 ? 'default' : 'pointer', color: i === blocks.length - 1 ? 'var(--line)' : 'var(--muted)', display: 'flex', padding: 1 }}><ChevronDown size={12} /></button>
-                </div>
-                {b.type === 'para' ? (
-                  <div style={{ flex: 1 }}>
-                    <textarea ref={el => { paraRefs.current[i] = el; }} className="form-input" rows={Math.max(2, Math.ceil((b.text || '').length / 90))}
-                      value={b.text} placeholder="Write a paragraph… use Insert to drop in auto-filled details"
-                      onChange={e => setBlock(i, { text: e.target.value })}
-                      style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13, lineHeight: 1.6, color: '#111827' }} />
-                    <select className="form-input" value="" onChange={e => e.target.value && insertMerge(i, e.target.value)}
-                      style={{ marginTop: 4, fontSize: 11.5, padding: '3px 8px', height: 28, width: 210, color: 'var(--muted)' }}>
-                      <option value="">✨ Insert auto-filled detail…</option>
-                      {Object.entries(FRIENDLY_MERGE).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                    </select>
-                  </div>
-                ) : (
-                  <div style={{ flex: 1, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', border: `1.5px solid ${rcolor(roleIdx(b.role)).solid}`, background: rcolor(roleIdx(b.role)).soft, borderRadius: 10, padding: '9px 12px' }}>
-                    {(() => { const [lbl, Icon] = fieldBlockMeta[b.type]; return (<>
-                      <Icon size={14} style={{ color: rcolor(roleIdx(b.role)).solid }} />
-                      <span style={{ fontSize: 12.5, fontWeight: 800, color: rcolor(roleIdx(b.role)).solid }}>{lbl}</span>
-                    </>); })()}
-                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>for</span>
-                    <select className="form-input" value={b.role} onChange={e => setBlock(i, { role: e.target.value })}
-                      style={{ fontSize: 12, padding: '3px 8px', height: 28, width: 170 }}>
+          <div style={{ margin: '18px 0 6px', display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <label style={{ ...FL, marginBottom: 0 }}>Document</label>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>shown exactly as signers will read it — click any text to edit</span>
+          </div>
+          {/* The paper matches the signing screen (same padding + typography), so
+              what you compose here is literally what the signer gets. */}
+          <div style={{ background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 12, padding: '20px 16px 12px' }}>
+            <div style={{ background: '#fff', borderRadius: 4, boxShadow: '0 1px 3px rgba(0,0,0,0.12), 0 5px 18px rgba(0,0,0,0.07)', padding: '30px 38px', maxWidth: 620, margin: '0 auto', color: '#111827', minHeight: 140 }}>
+              {blocks.map((b, i) => {
+                const ctl = (dis) => ({ background: 'none', border: 'none', cursor: dis ? 'default' : 'pointer', color: dis ? 'var(--line)' : 'var(--muted)', display: 'flex', padding: 2 });
+                const c = b.type !== 'para' ? rcolor(roleIdx(b.role)) : null;
+                const meta = b.type !== 'para' && (() => { const [lbl, Icon] = fieldBlockMeta[b.type]; return (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 'auto', fontFamily: 'Inter,sans-serif', flexShrink: 0 }}>
+                    <Icon size={12} style={{ color: c.solid }} />
+                    <span style={{ fontSize: 10.5, fontWeight: 800, color: c.solid, letterSpacing: '.03em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{lbl}</span>
+                    <select value={b.role} onChange={e => setBlock(i, { role: e.target.value })} title="Who fills this in"
+                      style={{ border: `1.5px solid ${c.solid}`, color: c.solid, background: c.soft, borderRadius: 14, fontSize: 11, fontWeight: 800, padding: '2px 8px', fontFamily: 'Inter,sans-serif', cursor: 'pointer', outline: 'none' }}>
                       {roles.filter(r => r.key).map(r => <option key={r.key} value={r.key}>{r.label || r.key}</option>)}
                     </select>
-                    {(b.type === 'check' || b.type === 'text') && (
-                      <input className="form-input" value={b.label} placeholder={b.type === 'check' ? 'Checkbox text' : 'Field label'}
-                        onChange={e => setBlock(i, { label: e.target.value })} style={{ flex: 1, minWidth: 140, fontSize: 12, padding: '3px 8px', height: 28 }} />
+                  </span>); })();
+                return (
+                  <div key={i} className="tpl-block">
+                    <div className="tpl-ctl" style={{ position: 'absolute', left: -32, top: 1, display: 'flex', flexDirection: 'column' }}>
+                      <button onClick={() => movBlock(i, -1)} disabled={i === 0} style={ctl(i === 0)} title="Move up"><ChevronUp size={13} /></button>
+                      <button onClick={() => movBlock(i, 1)} disabled={i === blocks.length - 1} style={ctl(i === blocks.length - 1)} title="Move down"><ChevronDown size={13} /></button>
+                    </div>
+                    <button className="tpl-ctl" onClick={() => rmBlock(i)} disabled={blocks.length === 1} title="Remove"
+                      style={{ ...ctl(blocks.length === 1), position: 'absolute', right: -30, top: 3, color: blocks.length === 1 ? 'var(--line)' : 'hsl(var(--color-red))' }}><Trash2 size={13} /></button>
+                    {b.type === 'para' ? (
+                      <>
+                        <textarea ref={el => { paraRefs.current[i] = el; fitPara(el); }} className="tpl-para" rows={1}
+                          value={b.text} placeholder="Write a paragraph…"
+                          onFocus={() => setFocusPara(i)}
+                          onChange={e => { setBlock(i, { text: e.target.value }); fitPara(e.target); }} />
+                        {focusPara === i && (
+                          <select value="" onChange={e => e.target.value && insertMerge(i, e.target.value)}
+                            style={{ display: 'block', margin: '0 0 10px', fontSize: 11, padding: '2px 6px', height: 24, width: 200, color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 6, background: 'transparent', fontFamily: 'Inter,sans-serif', cursor: 'pointer', outline: 'none' }}>
+                            <option value="">✨ Insert auto-filled detail…</option>
+                            {Object.entries(FRIENDLY_MERGE).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                          </select>
+                        )}
+                      </>
+                    ) : b.type === 'sign' ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 20px', borderRadius: 8, background: '#fbbf24', color: '#78350f', fontWeight: 800, fontSize: 13, fontFamily: 'Inter,sans-serif', boxShadow: '0 2px 6px rgba(245,158,11,0.35)', position: 'relative', marginLeft: 7 }}>
+                          <span style={{ position: 'absolute', left: -7, top: '50%', transform: 'translateY(-50%)', width: 0, height: 0, borderTop: '7px solid transparent', borderBottom: '7px solid transparent', borderRight: '7px solid #fbbf24' }} />
+                          <PenTool size={13} /> Sign here
+                        </span>
+                        {meta}
+                      </div>
+                    ) : b.type === 'date' ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '8px 0' }}>
+                        <span style={{ color: 'var(--muted)', fontSize: 12.5, fontStyle: 'italic', borderBottom: '1px dotted var(--line)', padding: '0 2px' }}>date signed</span>
+                        {meta}
+                      </div>
+                    ) : b.type === 'initials' ? (
+                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, margin: '8px 0' }}>
+                        <span style={{ fontFamily: '"Segoe Script",cursive', fontWeight: 700, fontSize: 15, borderBottom: '1px solid #9ca3af', padding: '0 14px' }}>··</span>
+                        {meta}
+                      </div>
+                    ) : b.type === 'check' ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '8px 0' }}>
+                        <input type="checkbox" disabled style={{ width: 16, height: 16, accentColor: '#10b981', flexShrink: 0 }} />
+                        <input className="tpl-inline" value={b.label} placeholder="Checkbox text…"
+                          onChange={e => setBlock(i, { label: e.target.value })}
+                          style={{ flex: 1, minWidth: 120, fontSize: 14, color: '#111827' }} />
+                        {meta}
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, margin: '10px 0' }}>
+                        <input className="tpl-inline" value={b.label} placeholder="Field label…"
+                          onChange={e => setBlock(i, { label: e.target.value })}
+                          style={{ width: 220, borderBottom: '1px solid #9ca3af', fontSize: 12.5, color: 'var(--muted)' }} />
+                        {meta}
+                      </div>
                     )}
                   </div>
-                )}
-                <button onClick={() => rmBlock(i)} style={{ background: 'none', border: 'none', color: 'hsl(var(--color-red))', cursor: 'pointer', display: 'flex', padding: 4, marginTop: 4 }}><Trash2 size={13} /></button>
-              </div>
-            ))}
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                );
+              })}
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12, justifyContent: 'center' }}>
               <button className="secondary-btn" onClick={() => addBlock('para')} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px' }}><Plus size={11} /> Paragraph</button>
               {Object.entries(fieldBlockMeta).map(([ft, [lbl, Icon]]) => (
                 <button key={ft} className="secondary-btn" onClick={() => addBlock(ft)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px' }}>
