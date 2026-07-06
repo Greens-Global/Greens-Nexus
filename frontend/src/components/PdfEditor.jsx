@@ -3,8 +3,9 @@ import {
   X, CheckCircle, Loader2, FileText, MousePointer2, Type, PenTool, Highlighter,
   Square, Circle, Minus, MoveUpRight, Image as ImageIcon, Eraser, EyeOff,
   Undo2, Redo2, ZoomIn, ZoomOut, Maximize, RotateCcw, RotateCw, Trash2,
-  CopyPlus, FilePlus, Layers,
+  CopyPlus, FilePlus, Layers, TextCursorInput, Bold, Italic,
 } from 'lucide-react';
+import { docxToPdf, isDocx } from '../lib/docx2pdf';
 
 // ── In-browser PDF editor ──────────────────────────────────────────────────────
 // Renders pages with pdfjs (same worker pattern as PdfDoc in ESign.jsx — bytes
@@ -22,6 +23,7 @@ const SEL = '#3b82f6'; // selection chrome color
 
 const TOOL_DEFS = [
   ['select',    MousePointer2, 'Select — drag to move, corner to resize, Delete to remove'],
+  ['edittext',  TextCursorInput, 'Edit text — click a line of existing text to rewrite it'],
   ['text',      Type,          'Text — click the page to add a text box'],
   ['pen',       PenTool,       'Pen — draw freehand'],
   ['highlight', Highlighter,   'Highlighter — thick translucent stroke'],
@@ -54,10 +56,81 @@ const dispDims = (pg) => {
   return (R === 90 || R === 270) ? { w: pg.hu, h: pg.wu, R } : { w: pg.wu, h: pg.hu, R };
 };
 
+// User space (bottom-left origin, unrotated) → display points (top-left origin,
+// /Rotate applied). Exact inverse of bake's mapPt, quadrant by quadrant.
+const u2d = (pg, xu, yu) => {
+  const R = rotOf(pg), Wu = pg.wu, Hu = pg.hu, X = xu - (pg.ox || 0), Y = yu - (pg.oy || 0);
+  if (R === 90) return { x: Y, y: X };
+  if (R === 180) return { x: Wu - X, y: Y };
+  if (R === 270) return { x: Hu - Y, y: Wu - X };
+  return { x: X, y: Hu - Y };
+};
+const lineBox = (pg, L) => {
+  const a = u2d(pg, L.x0, L.y0), b = u2d(pg, L.x1, L.y1);
+  return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
+};
+
+// Text-element font styling — mirrored between preview (CSS) and bake (pdf-lib
+// standard fonts), so what you type is what the saved PDF shows.
+const famOf = (el) => el.mono ? '"Courier New",Courier,monospace'
+  : el.serif ? '"Times New Roman",Times,serif' : 'Helvetica,Arial,sans-serif';
+const FONT_NAMES = {
+  h: 'Helvetica', hb: 'HelveticaBold', hi: 'HelveticaOblique', hbi: 'HelveticaBoldOblique',
+  t: 'TimesRoman', tb: 'TimesRomanBold', ti: 'TimesRomanItalic', tbi: 'TimesRomanBoldItalic',
+  c: 'Courier', cb: 'CourierBold', ci: 'CourierOblique', cbi: 'CourierBoldOblique',
+};
+const fkey = (el) => (el.mono ? 'c' : el.serif ? 't' : 'h') + (el.bold ? 'b' : '') + (el.italic ? 'i' : '');
+
+// Turn pdfjs text items into editable LINES (user-space bboxes + merged text).
+// Runs are clustered by their baseline (projected on the item's up-axis), so it
+// also works on pages whose content is drawn rotated to match a /Rotate.
+function buildLines(tc, pdfPage) {
+  const styles = tc.styles || {};
+  const runs = [];
+  for (const it of tc.items || []) {
+    if (!it.str || !it.str.trim()) continue;
+    const t = it.transform;
+    const size = Math.hypot(t[2], t[3]) || 10;
+    const st = styles[it.fontName] || {};
+    const asc = st.ascent || 0.8, desc = st.descent || -0.2;
+    const dl = Math.hypot(t[0], t[1]) || 1, ul = Math.hypot(t[2], t[3]) || 1;
+    const dx = t[0] / dl, dy = t[1] / dl, ux = t[2] / ul, uy = t[3] / ul;
+    const w = it.width || it.str.length * size * 0.5;
+    const cs = [0, 1].flatMap(k => [desc, asc].map(v => [
+      t[4] + dx * w * k + ux * v * size, t[5] + dy * w * k + uy * v * size]));
+    let fname = '';
+    try { fname = String(pdfPage.commonObjs.get(it.fontName)?.name || ''); } catch { /* font not resolved yet */ }
+    const pos = t[4] * dx + t[5] * dy;
+    runs.push({
+      x0: Math.min(...cs.map(c => c[0])), y0: Math.min(...cs.map(c => c[1])),
+      x1: Math.max(...cs.map(c => c[0])), y1: Math.max(...cs.map(c => c[1])),
+      key: t[4] * ux + t[5] * uy, pos, endPos: pos + w, str: it.str, size,
+      bold: /bold|black|heavy|semi|demi/i.test(fname), italic: /italic|oblique/i.test(fname),
+      serif: /^serif/.test(st.fontFamily || ''), mono: /mono/.test(st.fontFamily || ''),
+    });
+  }
+  runs.sort((a, b) => b.key - a.key || a.pos - b.pos);
+  const lines = [];
+  for (const r of runs) {
+    const L = lines[lines.length - 1];
+    if (L && Math.abs(L.key - r.key) < Math.max(L.size, r.size) * 0.45) {
+      const gap = r.pos - L.endPos;
+      L.text += (gap > r.size * 0.18 && !/\s$/.test(L.text) && !/^\s/.test(r.str) ? ' ' : '') + r.str;
+      L.x0 = Math.min(L.x0, r.x0); L.y0 = Math.min(L.y0, r.y0);
+      L.x1 = Math.max(L.x1, r.x1); L.y1 = Math.max(L.y1, r.y1);
+      L.endPos = Math.max(L.endPos, r.endPos);
+      L.size = Math.max(L.size, r.size);
+    } else lines.push({ ...r, text: r.str });
+  }
+  return lines;
+}
+
 // Rotating a page re-maps its overlay elements so they stay glued to the same
 // spot on the (now rotated) content. dir 1 = 90° clockwise, -1 = counter.
 function rotateEls(els, pageId, dir) {
   const mp = dir === 1 ? (p) => ({ x: 1 - p.y, y: p.x }) : (p) => ({ x: p.y, y: 1 - p.x });
+  const mb = dir === 1 ? (b) => ({ x: 1 - b.y - b.h, y: b.x, w: b.h, h: b.w })
+                       : (b) => ({ x: b.y, y: 1 - b.x - b.w, w: b.h, h: b.w });
   return els.map(el => {
     if (el.pageId !== pageId) return el;
     if (el.points) return { ...el, points: el.points.map(mp) };
@@ -65,10 +138,11 @@ function rotateEls(els, pageId, dir) {
       const a = mp({ x: el.x1, y: el.y1 }), b = mp({ x: el.x2, y: el.y2 });
       return { ...el, x1: a.x, y1: a.y, x2: b.x, y2: b.y };
     }
-    if (el.type === 'text') { const p = mp({ x: el.x, y: el.y }); return { ...el, x: p.x, y: p.y }; }
-    return dir === 1
-      ? { ...el, x: 1 - el.y - el.h, y: el.x, w: el.h, h: el.w }
-      : { ...el, x: el.y, y: 1 - el.x - el.w, w: el.h, h: el.w };
+    if (el.type === 'text') {
+      const p = mp({ x: el.x, y: el.y });
+      return { ...el, x: p.x, y: p.y, ...(el.bg ? { bg: mb(el.bg) } : {}) };
+    }
+    return { ...el, ...mb(el) };
   });
 }
 
@@ -108,6 +182,9 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
   const [color, setColor] = useState('#111827');
   const [strokeW, setStrokeW] = useState(2);
   const [fontSize, setFontSize] = useState(14);
+  const [bold, setBold] = useState(false);
+  const [italic, setItalic] = useState(false);
+  const [extracting, setExtracting] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [editingId, setEditingId] = useState(null); // text element being typed into
   const [zoom, setZoom] = useState(1);
@@ -122,6 +199,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
   const docsRef = useRef([]);      // pdfjs document handles, same indexing
   const pdfjsRef = useRef(null);
   const cacheRef = useRef(new Map());  // `${src}:${idx}:${rot}` -> dataUrl
+  const linesRef = useRef(new Map());  // `${src}:${idx}` -> editable text lines
   const idRef = useRef(0);
   const stateRef = useRef({ pages: [], elements: [] });
   const dragRef = useRef(null);    // select-tool move/resize drag
@@ -192,6 +270,30 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
     })();
     return () => { live = false; };
   }, [pages]);
+
+  // ── Extract editable text lines (lazy, on entering Edit-text mode) ──────────
+  useEffect(() => {
+    if (tool !== 'edittext') return;
+    let live = true;
+    (async () => {
+      setExtracting(true);
+      for (const pg of stateRef.current.pages) {
+        if (pg.blank) continue;
+        const key = `${pg.src}:${pg.idx}`;
+        if (linesRef.current.has(key)) continue;
+        try {
+          const doc = docsRef.current[pg.src]; if (!doc) continue;
+          const p = await doc.getPage(pg.idx + 1);
+          const tc = await p.getTextContent();
+          if (!live) return;
+          linesRef.current.set(key, buildLines(tc, p));
+        } catch { if (live) linesRef.current.set(key, []); }
+        if (live) setTick(t => t + 1);
+      }
+      if (live) setExtracting(false);
+    })();
+    return () => { live = false; };
+  }, [tool, pages]);
 
   // ── History ─────────────────────────────────────────────────────────────────
   const undo = useCallback(() => {
@@ -279,9 +381,29 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
     const p = norm(e);
     if (tool === 'select') { setSelectedId(null); return; }
+    if (tool === 'edittext') {
+      // Click a detected line → cover the original with white and hand the user
+      // a pre-filled text box in the same spot, size and font style.
+      const Ls = pg.blank ? [] : (linesRef.current.get(`${pg.src}:${pg.idx}`) || []);
+      const px = p.x * d.w, py = p.y * d.h;
+      const hit = Ls.find(L => {
+        const b = lineBox(pg, L);
+        return px >= b.x - 2 && px <= b.x + b.w + 2 && py >= b.y - 2 && py <= b.y + b.h + 2;
+      });
+      if (!hit) return;
+      const b = lineBox(pg, hit);
+      editSnapRef.current = takeSnap();
+      const el = { id: nid('el'), pageId: pg.id, type: 'text', text: hit.text,
+        fontSize: Math.max(6, Math.round(hit.size * 10) / 10), color: '#111827',
+        x: b.x / d.w, y: b.y / d.h, bold: hit.bold, italic: hit.italic, serif: hit.serif, mono: hit.mono,
+        bg: { x: (b.x - 2) / d.w, y: (b.y - 1.5) / d.h, w: (b.w + 4) / d.w, h: (b.h + 3) / d.h } };
+      setElements(es => [...es, el]);
+      setSelectedId(el.id); setEditingId(el.id); setTool('select');
+      return;
+    }
     if (tool === 'text') {
       editSnapRef.current = takeSnap();
-      const el = { id: nid('el'), pageId: pg.id, type: 'text', x: p.x, y: p.y, fontSize, color, text: '' };
+      const el = { id: nid('el'), pageId: pg.id, type: 'text', x: p.x, y: p.y, fontSize, color, bold, italic, text: '' };
       setElements(es => [...es, el]);
       setSelectedId(el.id); setEditingId(el.id); setTool('select');
       return;
@@ -348,6 +470,10 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
     if (!el) return;
     const prev = snap?.elements.find(x => x.id === id);
     if (!String(el.text || '').trim()) {
+      if (el.bg) { // emptied an edited line — keep the white cover: the line is deleted
+        if (snap && (!prev || prev.text !== el.text)) pushSnapshot(snap);
+        return;
+      }
       setElements(es => es.filter(x => x.id !== id));
       if (prev && snap) pushSnapshot(snap); // deleting pre-existing text is undoable
       setSelectedId(null);
@@ -380,6 +506,18 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
     setFontSize(fs);
     applyToSelected(el => el.type === 'text' ? { fontSize: fs } : null);
   };
+  const changeBold = () => {
+    const sel = stateRef.current.elements.find(x => x.id === selectedId);
+    const v = sel?.type === 'text' ? !sel.bold : !bold;
+    setBold(v);
+    applyToSelected(el => el.type === 'text' ? { bold: v } : null);
+  };
+  const changeItalic = () => {
+    const sel = stateRef.current.elements.find(x => x.id === selectedId);
+    const v = sel?.type === 'text' ? !sel.italic : !italic;
+    setItalic(v);
+    applyToSelected(el => el.type === 'text' ? { italic: v } : null);
+  };
 
   // ── Image + merge pickers ───────────────────────────────────────────────────
   async function pickImage(fl) {
@@ -400,8 +538,9 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
   }
   async function mergePdf(fl) {
     if (!fl) return;
-    if (fl.type !== 'application/pdf') { toastErr('Choose a PDF file.'); return; }
     try {
+      if (isDocx(fl)) fl = await docxToPdf(fl);
+      else if (fl.type !== 'application/pdf') { toastErr('Choose a PDF or Word (.docx) file.'); return; }
       const bytes = new Uint8Array(await fl.arrayBuffer());
       const doc = await pdfjsRef.current.getDocument({ data: bytes.slice() }).promise;
       const srcIdx = sourcesRef.current.length;
@@ -460,7 +599,12 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
     const { PDFDocument, StandardFonts, rgb, degrees, LineCapStyle } = await import('pdf-lib');
     const srcDocs = await Promise.all(sourcesRef.current.map(b => PDFDocument.load(b, { ignoreEncryption: true })));
     const out = await PDFDocument.create();
-    const font = await out.embedFont(StandardFonts.Helvetica);
+    const fontCache = new Map();
+    const getFont = async (el) => {
+      const k = fkey(el);
+      if (!fontCache.has(k)) fontCache.set(k, await out.embedFont(StandardFonts[FONT_NAMES[k]]));
+      return fontCache.get(k);
+    };
     const imgCache = new Map();
 
     for (const pg of stateRef.current.pages) {
@@ -495,7 +639,12 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
           const c = hexRgb(el.color);
           const col = rgb(c.r, c.g, c.b);
           if (el.type === 'text') {
+            if (el.bg) { // white cover over the original line this text replaces
+              const r = mapRect(el.bg.x * Wd, el.bg.y * Hd, el.bg.w * Wd, el.bg.h * Hd);
+              page.drawRectangle({ x: r.x, y: r.y, width: r.w, height: r.h, color: rgb(1, 1, 1) });
+            }
             const fs = el.fontSize;
+            const font = await getFont(el);
             textLines(el).forEach((line, i) => {
               const txt = winAnsi(line); if (!txt.trim()) return;
               const p = mapPt(el.x * Wd, el.y * Hd + fs * 0.8 + i * fs * 1.25);
@@ -597,13 +746,18 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
         preserveAspectRatio="none" {...common} />;
     }
     if (el.type === 'text') {
-      if (el.id === editingId) return null; // the textarea takes over while typing
+      if (el.id === editingId) {
+        // the textarea takes over while typing — keep only the white cover
+        return el.bg ? <rect key={el.id} x={el.bg.x * W} y={el.bg.y * H} width={el.bg.w * W} height={el.bg.h * H} fill="#fff" pointerEvents="none" /> : null;
+      }
       const fs = el.fontSize, lines = textLines(el), bb = bboxOf(el, W, H);
       return (
         <g key={el.id} {...common} onDoubleClick={(e) => { e.stopPropagation(); startTextEdit(el); }}>
+          {el.bg && <rect x={el.bg.x * W} y={el.bg.y * H} width={el.bg.w * W} height={el.bg.h * H} fill="#fff" />}
           <rect x={bb.x - 2} y={bb.y - 2} width={bb.w + 4} height={bb.h + 4} fill="transparent" />
           <text x={el.x * W} y={el.y * H + fs * 0.8} fontSize={fs} fill={el.color}
-            fontFamily="Helvetica, Arial, sans-serif" style={{ userSelect: 'none', whiteSpace: 'pre' }}>
+            fontFamily={famOf(el)} fontWeight={el.bold ? 700 : 400} fontStyle={el.italic ? 'italic' : 'normal'}
+            style={{ userSelect: 'none', whiteSpace: 'pre' }}>
             {lines.map((ln, i) => <tspan key={i} x={el.x * W} dy={i === 0 ? 0 : fs * 1.25}>{ln || ' '}</tspan>)}
           </text>
         </g>
@@ -669,8 +823,9 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
   );
   const selectedEl = elements.find(e => e.id === selectedId);
   const hint = pendingImg ? 'Click on a page to place the image.'
+    : tool === 'edittext' && extracting ? 'Reading the document text…'
     : (TOOL_DEFS.find(t => t[0] === tool)?.[2] || '');
-  const cursorFor = tool === 'select' ? 'default' : tool === 'text' ? 'text' : 'crosshair';
+  const cursorFor = tool === 'select' ? 'default' : (tool === 'text' || tool === 'edittext') ? 'text' : 'crosshair';
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1380, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14, animation: 'fadeIn 0.12s ease' }}>
@@ -722,6 +877,17 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
             style={{ fontSize: 11.5, padding: '2px 6px', height: 26, width: 60 }}>
             {FONT_SIZES.map(s => <option key={s} value={s}>{s}pt</option>)}
           </select>
+          {[[Bold, 'Bold', bold, changeBold], [Italic, 'Italic', italic, changeItalic]].map(([Icon, tip, on, fn]) => {
+            const sel = selectedEl?.type === 'text' ? selectedEl : null;
+            const active = sel ? (tip === 'Bold' ? sel.bold : sel.italic) : on;
+            return (
+              <button key={tip} title={tip} onClick={fn}
+                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 7, cursor: 'pointer',
+                  border: '1.5px solid ' + (active ? 'var(--pine)' : 'var(--line)'), background: active ? 'var(--pine)' : 'transparent', color: active ? '#fff' : 'var(--ink)' }}>
+                <Icon size={13} />
+              </button>
+            );
+          })}
           {selectedEl && (
             <>
               <span style={{ width: 1, height: 20, background: 'var(--line)', margin: '0 4px' }} />
@@ -768,8 +934,8 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
             })}
             <button className="secondary-btn" onClick={() => mergeInputRef.current?.click()}
               style={{ width: '100%', fontSize: 11, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '6px 4px' }}
-              title="Append every page of another PDF to the end of this one">
-              <Layers size={12} /> Merge PDF
+              title="Append another PDF or Word (.docx) file to the end of this one">
+              <Layers size={12} /> Merge file
             </button>
           </div>
 
@@ -794,6 +960,12 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
                       <svg viewBox={`0 0 ${d.w} ${d.h}`} preserveAspectRatio="none"
                         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', cursor: cursorFor, touchAction: 'none', overflow: 'visible' }}
                         onPointerDown={e => pageDown(e, pg, d)} onPointerMove={pageMove} onPointerUp={pageUp}>
+                        {tool === 'edittext' && !pg.blank && (linesRef.current.get(`${pg.src}:${pg.idx}`) || []).map((L, li) => {
+                          const b = lineBox(pg, L);
+                          return <rect key={`tl${li}`} x={b.x - 2} y={b.y - 1.5} width={b.w + 4} height={b.h + 3} rx={2}
+                            fill="rgba(59,130,246,0.05)" stroke={SEL} strokeOpacity={0.4} strokeWidth={0.7}
+                            strokeDasharray="3 2.5" pointerEvents="none" />;
+                        })}
                         <g style={{ pointerEvents: tool === 'select' ? 'auto' : 'none' }}>
                           {pageEls.map(el => renderEl(el, d.w, d.h))}
                           {selectedEl && selectedEl.pageId === pg.id && !editingEl && renderSelection(selectedEl, d.w, d.h)}
@@ -812,7 +984,8 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
                                 onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); e.currentTarget.blur(); } }}
                                 onPointerDown={e => e.stopPropagation()}
                                 placeholder="Type here…"
-                                style={{ width: '100%', height: '100%', fontSize: fs, lineHeight: 1.25, fontFamily: 'Helvetica, Arial, sans-serif',
+                                style={{ width: '100%', height: '100%', fontSize: fs, lineHeight: 1.25, fontFamily: famOf(editingEl),
+                                  fontWeight: editingEl.bold ? 700 : 400, fontStyle: editingEl.italic ? 'italic' : 'normal',
                                   color: editingEl.color, background: 'rgba(255,255,255,0.9)', border: `1.5px dashed ${SEL}`, borderRadius: 3,
                                   outline: 'none', resize: 'none', padding: '3px 3px', boxSizing: 'border-box', overflow: 'hidden' }} />
                             </foreignObject>
@@ -838,7 +1011,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
 
       <input ref={imgInputRef} type="file" accept="image/png,image/jpeg" style={{ display: 'none' }}
         onChange={e => { pickImage(e.target.files?.[0]); e.target.value = ''; }} />
-      <input ref={mergeInputRef} type="file" accept="application/pdf" style={{ display: 'none' }}
+      <input ref={mergeInputRef} type="file" accept="application/pdf,.docx" style={{ display: 'none' }}
         onChange={e => { mergePdf(e.target.files?.[0]); e.target.value = ''; }} />
     </div>
   );

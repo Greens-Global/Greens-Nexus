@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { PdfEditor } from './PdfEditor';
+import { docxToPdf, isDocx } from '../lib/docx2pdf';
 
 // ── HR Section C — Native E-Sign (DocuSign-style UX) ──────────────────────────
 // Send wizard (Document → Recipients → Fields → Review) with color-coded
@@ -735,6 +736,7 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
     if (!fl) return;
     setUploading(true);
     try {
+      if (isDocx(fl)) fl = await docxToPdf(fl); // Word docs convert client-side, upload as PDF
       const form = new FormData();
       form.append('file', fl);
       const a = await api.uploadSignAttachment(form);
@@ -926,8 +928,8 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
           <div style={{ margin: '18px 0 6px', display: 'flex', alignItems: 'center', gap: 8 }}>
             <label style={{ ...FL, marginBottom: 0, flex: 1 }}>Attached documents — signed together as one packet</label>
             <label className="secondary-btn" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-              {uploading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <UploadCloud size={13} />} Attach PDF
-              <input type="file" accept="application/pdf" style={{ display: 'none' }}
+              {uploading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <UploadCloud size={13} />} Attach PDF / Word
+              <input type="file" accept="application/pdf,.docx" style={{ display: 'none' }}
                 onChange={e => { uploadAttachment(e.target.files?.[0]); e.target.value = ''; }} />
             </label>
           </div>
@@ -1058,9 +1060,12 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
     }));
   }
   const newRk = () => `p${++rkCounter.current}`;
-  function pickFile(fl) {
+  async function pickFile(fl) {
     if (!fl) return;
-    if (fl.type !== 'application/pdf') { toastErr('Choose a PDF file.'); return; }
+    if (isDocx(fl)) {
+      try { fl = await docxToPdf(fl); toastOk('Word document converted to PDF.'); }
+      catch { toastErr('Could not convert that Word file — is it a valid .docx?'); return; }
+    } else if (fl.type !== 'application/pdf') { toastErr('Choose a PDF or Word (.docx) file.'); return; }
     setFile(fl); setSource('pdf'); setTemplateId(''); setFields([]);
     setTitle(t => t || fl.name.replace(/\.pdf$/i, ''));
     // Switching INTO pdf mode: fields belong to people via _rk. Parties carried
@@ -1303,7 +1308,7 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                 </div>
               </div>
               <div>
-                <label style={FL}>Or upload a PDF</label>
+                <label style={FL}>Or upload a PDF / Word document</label>
                 <label onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)}
                   onDrop={e => { e.preventDefault(); setDragOver(false); pickFile(e.dataTransfer.files?.[0]); }}
                   style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, minHeight: 180, borderRadius: 14, cursor: 'pointer',
@@ -1316,11 +1321,11 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
                     </>
                   ) : (
                     <>
-                      <span style={{ fontSize: 13.5, fontWeight: 700 }}>Drop a PDF here</span>
-                      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>or click to browse</span>
+                      <span style={{ fontSize: 13.5, fontWeight: 700 }}>Drop a PDF or Word file here</span>
+                      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>or click to browse — .docx converts to PDF automatically</span>
                     </>
                   )}
-                  <input type="file" accept="application/pdf" style={{ display: 'none' }} onChange={e => pickFile(e.target.files?.[0])} />
+                  <input type="file" accept="application/pdf,.docx" style={{ display: 'none' }} onChange={e => pickFile(e.target.files?.[0])} />
                 </label>
                 {isPdf && file && (
                   <button className="secondary-btn" onClick={() => setPdfEditOpen(true)}
