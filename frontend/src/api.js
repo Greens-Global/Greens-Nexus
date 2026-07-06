@@ -506,6 +506,10 @@ export const api = {
   timeShiftGroupDelete: (id)     => req(`/timeclock/shift-groups/${id}`, { method: 'DELETE' }),
   timeShiftAssign:   (data)      => req('/timeclock/shift-assign', { method: 'POST', body: JSON.stringify(data) }),
   timeShiftAssignments: ()       => req('/timeclock/shift-assignments'),
+  timeSchedule:      (start, end) => req(`/timeclock/schedule?start=${start}&end=${end}`),
+  timeSchedCreate:   (data)      => req('/timeclock/schedule', { method: 'POST', body: JSON.stringify(data) }),
+  timeSchedUpdate:   (id, data)  => req(`/timeclock/schedule/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  timeSchedDelete:   (id)        => req(`/timeclock/schedule/${id}`, { method: 'DELETE' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch —

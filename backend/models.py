@@ -1060,12 +1060,13 @@ class AgentDevice(Base):
 
 
 class Shift(Base):
-    """A named work schedule: start/end time + which weekdays it runs, with a
-    grace window before a late-arrival flag. Assigned to employees directly or
-    in bulk via a shift group."""
+    """A reusable shift preset: a short code (e.g. GSV), start/end time, colour
+    and grace window. Placed onto an employee+date in the schedule grid, or
+    bulk-applied to a group's default weekdays."""
     __tablename__ = "shifts"
     id         = Column(String, primary_key=True)   # uuid
     name       = Column(String, default="")
+    code       = Column(String, default="")         # short label shown in the grid
     start_hhmm = Column(String, default="09:00")
     end_hhmm   = Column(String, default="17:00")
     days       = Column(String, default="1,2,3,4,5")  # ISO weekday nums (Mon=1)
@@ -1073,6 +1074,25 @@ class Shift(Base):
     color      = Column(String, default="#2563eb")
     created_by = Column(String, default="")
     created_at = Column(String, default="")
+
+
+class ScheduledShift(Base):
+    """One shift placed on a specific employee for a specific calendar date —
+    the cells of the weekly schedule grid. Links a preset for code/colour but
+    keeps its own times/label so a placement can be tweaked without editing the
+    preset."""
+    __tablename__ = "scheduled_shifts"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, index=True, nullable=False)
+    work_date      = Column(String, index=True, nullable=False)  # YYYY-MM-DD
+    shift_id       = Column(String, default="")          # preset ref (optional)
+    start_hhmm     = Column(String, default="09:00")
+    end_hhmm       = Column(String, default="17:00")
+    label          = Column(String, default="")          # e.g. "All Properties"
+    note           = Column(String, default="")
+    published      = Column(Integer, default=1)
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
 
 
 class ShiftGroup(Base):

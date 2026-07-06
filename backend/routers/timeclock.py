@@ -35,7 +35,7 @@ from database import get_db
 from auth import get_current_user, require_level_or_module, require_administrator
 from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, TimeBod,
                     AgentDevice, AgentActivity, Shift, ShiftGroup, ShiftGroupMember,
-                    ShiftAssignment, HrWorkSite, NexusEmployee)
+                    ShiftAssignment, ScheduledShift, HrWorkSite, NexusEmployee)
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET
 from routers.esign import _client_meta
 
@@ -769,6 +769,7 @@ def agent_activity(body: ActivityIn, dev: AgentDevice = Depends(get_agent_device
 
 class ShiftIn(BaseModel):
     name: str
+    code: Optional[str] = ""
     start_hhmm: str = "09:00"
     end_hhmm: str = "17:00"
     days: str = "1,2,3,4,5"
@@ -777,8 +778,8 @@ class ShiftIn(BaseModel):
 
 
 def _shift_dict(s: Shift) -> dict:
-    return {"id": s.id, "name": s.name, "start": s.start_hhmm, "end": s.end_hhmm,
-            "days": s.days, "graceMin": s.grace_min, "color": s.color}
+    return {"id": s.id, "name": s.name, "code": s.code or "", "start": s.start_hhmm,
+            "end": s.end_hhmm, "days": s.days, "graceMin": s.grace_min, "color": s.color}
 
 
 @router.get("/shifts")
@@ -790,7 +791,7 @@ def list_shifts(user: dict = Depends(require_team_read), db: Session = Depends(g
 def create_shift(body: ShiftIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
     if not body.name.strip():
         raise HTTPException(400, "Name is required")
-    s = Shift(id=str(uuid.uuid4()), name=body.name.strip()[:80],
+    s = Shift(id=str(uuid.uuid4()), name=body.name.strip()[:80], code=(body.code or "").strip()[:12],
               start_hhmm=body.start_hhmm[:5], end_hhmm=body.end_hhmm[:5],
               days=body.days[:40], grace_min=max(0, int(body.grace_min or 0)),
               color=(body.color or "#2563eb")[:9], created_by=user["email"], created_at=_now_iso())
@@ -805,6 +806,7 @@ def update_shift(shift_id: str, body: ShiftIn, user: dict = Depends(require_team
     if not s:
         raise HTTPException(404, "Shift not found")
     s.name = body.name.strip()[:80]
+    s.code = (body.code or "").strip()[:12]
     s.start_hhmm = body.start_hhmm[:5]
     s.end_hhmm = body.end_hhmm[:5]
     s.days = body.days[:40]
@@ -899,6 +901,117 @@ def assign_shift(body: AssignIn, user: dict = Depends(require_team_write), db: S
 def shift_assignments(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
     return {"assignments": {a.employee_email: a.shift_id
                             for a in db.query(ShiftAssignment).all() if a.shift_id}}
+
+
+# ── Weekly schedule grid (Teams-Shifts style) ────────────────────────────────
+
+def _sched_dict(row: ScheduledShift, presets: dict) -> dict:
+    p = presets.get(row.shift_id)
+    return {"id": row.id, "email": row.employee_email, "date": row.work_date,
+            "shiftId": row.shift_id, "start": row.start_hhmm, "end": row.end_hhmm,
+            "label": row.label, "note": row.note, "published": bool(row.published),
+            "code": (p.code or p.name) if p else "", "color": p.color if p else "#64748b"}
+
+
+@router.get("/schedule")
+def read_schedule(start: str, end: str, user: dict = Depends(require_team_read),
+                  db: Session = Depends(get_db)):
+    """Everything the grid needs for a date range: visible employees (scoped),
+    shift presets, groups, the placed shifts, and time off to overlay."""
+    scope = _visible_emails(db, user)
+    names = {(e.work_email or "").lower(): f"{e.first_name} {e.last_name}".strip()
+             for e in db.query(NexusEmployee).all() if e.work_email}
+    if scope is None:
+        emails = list(names.keys())
+    else:
+        emails = sorted(scope)
+    employees = [{"email": em, "name": names.get(em, em)} for em in emails]
+
+    presets = {s.id: s for s in db.query(Shift).all()}
+    members = {}
+    for m in db.query(ShiftGroupMember).all():
+        members.setdefault(m.group_id, []).append(m.employee_email)
+    groups = [{"id": g.id, "name": g.name, "members": members.get(g.id, [])}
+              for g in db.query(ShiftGroup).order_by(ShiftGroup.name).all()]
+
+    q = (db.query(ScheduledShift)
+         .filter(ScheduledShift.work_date >= start, ScheduledShift.work_date <= end))
+    if scope is not None:
+        q = q.filter(ScheduledShift.employee_email.in_(list(scope)))
+    scheduled = [_sched_dict(r, presets) for r in q.all()]
+
+    tq = (db.query(TimeOffRequest)
+          .filter(TimeOffRequest.status.in_(["approved", "pending"]),
+                  TimeOffRequest.start_date <= end, TimeOffRequest.end_date >= start))
+    if scope is not None:
+        tq = tq.filter(TimeOffRequest.employee_email.in_(list(scope)))
+    timeoff = [{"email": t.employee_email, "startDate": t.start_date, "endDate": t.end_date,
+                "type": t.type, "status": t.status} for t in tq.all()]
+
+    return {"employees": employees, "shifts": [_shift_dict(s) for s in presets.values()],
+            "groups": groups, "scheduled": scheduled, "timeoff": timeoff}
+
+
+class ScheduledShiftIn(BaseModel):
+    employee_email: str
+    work_date: str
+    shift_id: Optional[str] = ""
+    start_hhmm: Optional[str] = ""
+    end_hhmm: Optional[str] = ""
+    label: Optional[str] = ""
+    note: Optional[str] = ""
+
+
+@router.post("/schedule")
+def create_scheduled(body: ScheduledShiftIn, user: dict = Depends(require_team_write),
+                     db: Session = Depends(get_db)):
+    em = body.employee_email.strip().lower()
+    scope = _visible_emails(db, user)
+    if scope is not None and em not in scope:
+        raise HTTPException(403, "Outside your team")
+    preset = db.query(Shift).filter(Shift.id == body.shift_id).first() if body.shift_id else None
+    row = ScheduledShift(
+        id=str(uuid.uuid4()), employee_email=em, work_date=body.work_date[:10],
+        shift_id=body.shift_id or "",
+        start_hhmm=(body.start_hhmm or (preset.start_hhmm if preset else "09:00"))[:5],
+        end_hhmm=(body.end_hhmm or (preset.end_hhmm if preset else "17:00"))[:5],
+        label=(body.label or "")[:80], note=(body.note or "")[:200],
+        created_by=user["email"], created_at=_now_iso())
+    db.add(row)
+    db.commit()
+    return _sched_dict(row, {preset.id: preset} if preset else {})
+
+
+@router.patch("/schedule/{sched_id}")
+def update_scheduled(sched_id: str, body: ScheduledShiftIn,
+                     user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    row = db.query(ScheduledShift).filter(ScheduledShift.id == sched_id).first()
+    if not row:
+        raise HTTPException(404, "Shift not found")
+    scope = _visible_emails(db, user)
+    if scope is not None and row.employee_email not in scope:
+        raise HTTPException(403, "Outside your team")
+    preset = db.query(Shift).filter(Shift.id == body.shift_id).first() if body.shift_id else None
+    row.shift_id = body.shift_id or ""
+    row.start_hhmm = (body.start_hhmm or (preset.start_hhmm if preset else row.start_hhmm))[:5]
+    row.end_hhmm = (body.end_hhmm or (preset.end_hhmm if preset else row.end_hhmm))[:5]
+    row.label = (body.label or "")[:80]
+    row.note = (body.note or "")[:200]
+    db.commit()
+    return _sched_dict(row, {preset.id: preset} if preset else {})
+
+
+@router.delete("/schedule/{sched_id}")
+def delete_scheduled(sched_id: str, user: dict = Depends(require_team_write),
+                     db: Session = Depends(get_db)):
+    row = db.query(ScheduledShift).filter(ScheduledShift.id == sched_id).first()
+    if row:
+        scope = _visible_emails(db, user)
+        if scope is not None and row.employee_email not in scope:
+            raise HTTPException(403, "Outside your team")
+        db.delete(row)
+        db.commit()
+    return {"ok": True}
 
 
 @router.get("/activity")

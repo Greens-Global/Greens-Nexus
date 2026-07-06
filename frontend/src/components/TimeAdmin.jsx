@@ -7,6 +7,7 @@ import {
 import { api } from '../api';
 import DayTimeline from './DayTimeline';
 import ShiftsPanel from './ShiftsPanel';
+import ShiftSchedule from './ShiftSchedule';
 
 const TYPE_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
 
@@ -85,6 +86,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
   }
   const [person, setPerson] = useState(null);   // employee drill-down (their time portal)
   const [personAct, setPersonAct] = useState(null);   // app-usage for that person
+  const [shiftMode, setShiftMode] = useState('schedule'); // schedule | presets
 
   useEffect(() => {
     if (!person) { setPersonAct(null); return; }
@@ -407,11 +409,26 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
           );
         })())}
 
-      {/* Shifts — define schedules, group people, bulk-assign */}
+      {/* Shifts — weekly schedule grid + preset/group manager */}
       {view === 'shifts' && (
-        <ShiftsPanel
-          people={employees.length ? employees : (rows || []).map(r => ({ email: r.email, name: r.name }))}
-          toastOk={toastOk} toastErr={toastErr} />
+        <>
+          <div className="chip-row" style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+            {[['schedule', 'Schedule'], ['presets', 'Presets & groups']].map(([key, label]) => (
+              <button key={key} onClick={() => setShiftMode(key)}
+                style={{ padding: '5px 13px', borderRadius: 9, border: `1px solid ${shiftMode === key ? 'var(--pine)' : 'var(--line)'}`,
+                  background: shiftMode === key ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
+                  color: shiftMode === key ? 'hsl(var(--color-green))' : 'var(--muted)',
+                  fontWeight: shiftMode === key ? 700 : 600, fontSize: 12, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {shiftMode === 'schedule'
+            ? <ShiftSchedule toastOk={toastOk} toastErr={toastErr} />
+            : <ShiftsPanel
+                people={employees.length ? employees : (rows || []).map(r => ({ email: r.email, name: r.name }))}
+                toastOk={toastOk} toastErr={toastErr} />}
+        </>
       )}
 
       {/* Time-off register — requests table, pending rows carry the decisions */}

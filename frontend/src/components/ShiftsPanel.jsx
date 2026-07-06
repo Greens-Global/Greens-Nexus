@@ -7,7 +7,8 @@ import { api } from '../api';
 // and apply a shift to a whole group (or a hand-picked set) in one click.
 
 const DAYS = [['1', 'Mon'], ['2', 'Tue'], ['3', 'Wed'], ['4', 'Thu'], ['5', 'Fri'], ['6', 'Sat'], ['7', 'Sun']];
-const BLANK = { name: '', start_hhmm: '09:00', end_hhmm: '17:00', days: '1,2,3,4,5', grace_min: 10, color: '#2563eb' };
+const BLANK = { name: '', code: '', start_hhmm: '09:00', end_hhmm: '17:00', days: '1,2,3,4,5', grace_min: 10, color: '#2563eb' };
+const COLORS = ['#2563eb', '#16a34a', '#8b5cf6', '#f59e0b', '#ec4899', '#0891b2', '#dc2626', '#64748b'];
 
 function daysLabel(csv) {
   const set = new Set((csv || '').split(',').filter(Boolean));
@@ -99,7 +100,9 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
           {shifts && shifts.map(s => (
             <div key={s.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                <span style={{ width: 10, height: 10, borderRadius: 3, background: s.color, flexShrink: 0 }} />
+                {s.code
+                  ? <span style={{ fontSize: 10.5, fontWeight: 800, color: '#334155', background: (s.color || '#64748b') + '22', borderLeft: `3px solid ${s.color}`, borderRadius: 5, padding: '2px 6px', flexShrink: 0 }}>{s.code}</span>
+                  : <span style={{ width: 10, height: 10, borderRadius: 3, background: s.color, flexShrink: 0 }} />}
                 <span style={{ fontSize: 13, fontWeight: 800, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
                 <button onClick={() => setForm({ ...s, start_hhmm: s.start, end_hhmm: s.end, grace_min: s.graceMin })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11 }}>Edit</button>
                 <button onClick={() => delShift(s.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b91c1c', display: 'flex' }}><Trash2 size={12} /></button>
@@ -174,7 +177,19 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
               <button onClick={() => setForm(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
             </div>
             <div style={{ display: 'grid', gap: 12 }}>
-              <input className="form-input" placeholder="Shift name (e.g. Day shift)" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} style={{ fontSize: 13 }} />
+              <div style={{ display: 'flex', gap: 10 }}>
+                <input className="form-input" placeholder="Shift name (e.g. Day shift)" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} style={{ fontSize: 13, flex: 1 }} />
+                <input className="form-input" placeholder="Code" value={form.code} maxLength={12} onChange={e => setForm({ ...form, code: e.target.value })} style={{ fontSize: 13, width: 90 }} title="Short label shown in the schedule grid (e.g. GSV)" />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Colour</div>
+                <div style={{ display: 'flex', gap: 7 }}>
+                  {COLORS.map(c => (
+                    <button key={c} onClick={() => setForm({ ...form, color: c })}
+                      style={{ width: 24, height: 24, borderRadius: 7, background: c, cursor: 'pointer', border: form.color === c ? '2px solid var(--ink)' : '2px solid transparent' }} />
+                  ))}
+                </div>
+              </div>
               <div style={{ display: 'flex', gap: 10 }}>
                 <label style={{ flex: 1, fontSize: 11, color: 'var(--muted)' }}>Start<input type="time" className="form-input" value={form.start_hhmm} onChange={e => setForm({ ...form, start_hhmm: e.target.value })} style={{ width: '100%', fontSize: 13 }} /></label>
                 <label style={{ flex: 1, fontSize: 11, color: 'var(--muted)' }}>End<input type="time" className="form-input" value={form.end_hhmm} onChange={e => setForm({ ...form, end_hhmm: e.target.value })} style={{ width: '100%', fontSize: 13 }} /></label>
