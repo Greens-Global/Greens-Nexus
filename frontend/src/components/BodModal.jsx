@@ -79,8 +79,15 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
       const list = await listMyChats(tok);
       setChats(list);
       if (list.length === 1) setChatId(list[0].id);
-    } catch {
-      toastErr('Could not connect Teams — you can still Send to record it in Nexus.');
+    } catch (e) {
+      const msg = String(e?.errorMessage || e?.message || e || '');
+      // Surface the real reason so consent/permission issues are diagnosable.
+      const detail = /consent|AADSTS65001|admin/i.test(msg)
+        ? 'Teams access needs admin approval for this app (Chat.ReadBasic, ChatMessage.Send).'
+        : /popup|user_cancelled|window/i.test(msg)
+        ? 'The Teams sign-in window was closed or blocked — allow pop-ups and try again.'
+        : msg ? `Teams: ${msg.slice(0, 160)}` : 'Could not connect Teams.';
+      toastErr(`${detail} You can still Send to record it in Nexus.`);
     } finally { setConnecting(false); }
   }
 
