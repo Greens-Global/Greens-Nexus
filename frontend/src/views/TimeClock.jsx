@@ -118,9 +118,11 @@ export default function TimeClock() {
     if (busy) return;
     // Login/break prompts come FIRST — the punch happens only after the message
     // is sent or explicitly acknowledged (see BodModal's ack-to-skip).
-    if (kind === 'in' && status?.bodRequired) { setBodMode('bod-gate'); return; }
+    // Every punch prompts for its message; the "already sent" checkbox lets a
+    // repeat punch skip. (BOD gates punch-in, EOD gates checkout, break gates.)
+    if (kind === 'in') { setBodMode('bod-gate'); return; }
     if (kind === 'break_start') { setBodMode('break-gate'); return; }
-    if (kind === 'out') { setBodMode('eod-gate'); return; }  // EOD gates the checkout
+    if (kind === 'out') { setBodMode('eod-gate'); return; }
     await actualPunch(kind);
   }
 
