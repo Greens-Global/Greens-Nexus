@@ -104,12 +104,17 @@ export default function TimeclockWidget() {
         }
         video.srcObject = stream;
         await video.play();
-        const scale = Math.min(1, 1280 / (video.videoWidth || 1280));
+        // Keep full resolution up to 1920px wide so screen text stays legible;
+        // only downscale genuinely huge (4K/ultrawide) monitors.
+        const scale = Math.min(1, 1920 / (video.videoWidth || 1920));
         const canvas = document.createElement('canvas');
-        canvas.width = Math.round((video.videoWidth || 1280) * scale);
-        canvas.height = Math.round((video.videoHeight || 720) * scale);
-        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-        const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.55));
+        canvas.width = Math.round((video.videoWidth || 1920) * scale);
+        canvas.height = Math.round((video.videoHeight || 1080) * scale);
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', 0.85));
         if (!blob) continue;
         const form = new FormData();
         form.append('file', blob, 'shot.jpg');

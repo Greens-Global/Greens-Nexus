@@ -23,8 +23,8 @@ module.exports = {
 
   captureIntervalMs: Number(process.env.NEXUS_CAPTURE_MS) || 5 * 60 * 1000, // one frame set / 5 min
   statusPollMs: 60 * 1000,          // how often we re-check clock state / heartbeat
-  maxWidth: 1280,                   // longest edge of each saved frame
-  jpegQuality: 55,
+  maxWidth: 1920,                   // longest edge of each saved frame (keeps screen text legible)
+  jpegQuality: 85,
   idleBadgeSec: 300,                // parity with the web gallery's idle badge
   idleActiveSec: 120,               // silent mode: idle beyond this = "not working"
   sampleMs: 15 * 1000,              // how often to sample the foreground app
