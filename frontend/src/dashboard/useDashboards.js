@@ -29,6 +29,28 @@ const DEFAULTS = {
 
 const rid = () => `w${Math.random().toString(36).slice(2, 8)}`;
 
+const collides = (a, b) =>
+  a.i !== b.i && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+// Auto-fit: compact the layout — every widget slides up as far as it can, then
+// left, repeatedly, so blank pockets collapse. Deterministic: items are placed
+// in reading order (top-left first).
+export function compactLayout(items) {
+  const sorted = [...items].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  const placed = [];
+  for (const it of sorted) {
+    const cur = { ...it };
+    let moved = true;
+    while (moved) {
+      moved = false;
+      while (cur.y > 0 && !placed.some(p => collides({ ...cur, y: cur.y - 1 }, p))) { cur.y--; moved = true; }
+      while (cur.x > 0 && !placed.some(p => collides({ ...cur, x: cur.x - 1 }, p))) { cur.x--; moved = true; }
+    }
+    placed.push(cur);
+  }
+  return items.map(it => placed.find(p => p.i === it.i) || it);
+}
+
 export function useDashboards(target) {
   const [views, setViews] = useState([]);
   const [activeId, setActiveId] = useState(null);   // null = built-in default
@@ -86,6 +108,7 @@ export function useDashboards(target) {
     setEditing(true);
   };
   const removeWidget = (i) => setLayout(layout.filter(w => w.i !== i));
+  const autoFit = () => setLayout(compactLayout(layoutRef.current));
   const updateWidgetConfig = (i, patch) => setLayout(layout.map(w => w.i === i ? { ...w, config: { ...(w.config || {}), ...patch } } : w));
 
   const switchView = (id) => {
@@ -157,7 +180,7 @@ export function useDashboards(target) {
 
   return {
     views, activeId, activeView, layout, kpis, department, canPublish, dirty, loading, editing,
-    setEditing, setLayout, addWidget, removeWidget, updateWidgetConfig,
+    setEditing, setLayout, addWidget, removeWidget, autoFit, updateWidgetConfig,
     switchView, save, saveAsNew, createNewView, publishDepartment, setDefaultView, removeView, renameView, reload: load,
   };
 }

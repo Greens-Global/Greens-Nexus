@@ -1,5 +1,5 @@
 import { useState, Suspense } from 'react';
-import { LayoutGrid, Plus, Save, Pencil, MoreHorizontal, Star, Share2, Trash2, Copy, X } from 'lucide-react';
+import { LayoutGrid, Plus, Save, Pencil, MoreHorizontal, Star, Share2, Trash2, Copy, X, Wand2 } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useDashboards } from './useDashboards';
@@ -201,6 +201,7 @@ export default function CustomDashboard({ target }) {
         {d.editing ? (
           <>
             <button className="secondary-btn" style={btn} onClick={() => setGallery(true)}><Plus size={14} /> Add widget</button>
+            <button className="secondary-btn" style={btn} onClick={d.autoFit} title="Slide widgets up and left to fill blank space"><Wand2 size={14} /> Auto-fit</button>
             <button className="primary-btn" style={{ ...btn, opacity: d.dirty ? 1 : 0.6 }} onClick={save} disabled={!d.dirty}><Save size={14} /> {d.dirty ? 'Save' : 'Saved'}</button>
             <button className="secondary-btn" style={btn} onClick={guardedDone}><X size={14} /> Done</button>
           </>
