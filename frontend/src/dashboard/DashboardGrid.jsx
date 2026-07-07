@@ -10,7 +10,7 @@ export const COLS = 12;
 const ROW_H = 92;      // px per row unit (gutter included via card inset)
 const GAP = 14;
 const MOBILE_BP = 700;
-const MIN_W = 2, MIN_H = 2;
+const MIN_W = 2, MIN_H = 2, MAX_H = 8;
 
 export default function DashboardGrid({ layout, editing, onLayoutChange, renderWidget, onRemove, onConfigure }) {
   const ref = useRef(null);
@@ -50,7 +50,7 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
         }
         return { ...prev,
           curW: Math.min(Math.max(MIN_W, base.ow + dx), COLS - base.ox),
-          curH: Math.max(MIN_H, base.oh + dy) };
+          curH: Math.min(MAX_H, Math.max(MIN_H, base.oh + dy)) };
       });
     };
     const up = () => {
