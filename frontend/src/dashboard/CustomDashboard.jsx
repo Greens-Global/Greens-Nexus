@@ -41,7 +41,7 @@ function NameModal({ title, label = 'View name', initial = '', cta = 'Save', onS
 }
 
 export default function CustomDashboard({ target }) {
-  const { can } = useRole();
+  const { can, myEmail } = useRole();
   const { notifications, markRead, markAllRead, dismiss, clearRead } = useNotifications();
   const d = useDashboards(target);
   const [gallery, setGallery] = useState(false);
@@ -120,18 +120,36 @@ export default function CustomDashboard({ target }) {
     onSubmit: wrap(name => d.publishDepartment(name), 'Published to your department'),
   });
   const makeDefault = wrap(async () => { setMenu(false); if (d.activeId) await d.setDefaultView(d.activeId); }, 'Set as your default');
-  const del = wrap(async () => { setMenu(false); if (d.activeId && window.confirm('Delete this view?')) await d.removeView(d.activeId); }, 'View deleted');
+  const del = wrap(async () => {
+    setMenu(false);
+    if (!d.activeId) return;
+    const msg = d.activeView?.scope === 'department'
+      ? `Delete "${d.activeView?.name}" for everyone in ${d.activeView?.department || 'the department'}?`
+      : `Delete "${d.activeView?.name}"?`;
+    if (window.confirm(msg)) await d.removeView(d.activeId);
+  }, 'View deleted');
+
+  // Guard against silently losing unsaved layout changes.
+  const confirmDiscard = () => !d.dirty || window.confirm('You have unsaved layout changes — discard them?');
+  const guardedSwitch = (id) => { if (confirmDiscard()) d.switchView(id); };
+  const guardedNew = () => { if (confirmDiscard()) createNew(); };
+  const guardedDone = () => { if (confirmDiscard()) { d.setEditing(false); d.reload(); } };
 
   const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter,sans-serif', cursor: 'pointer' };
+
+  // Delete: your own personal views always; a department view only if you're a
+  // manager AND you're the one who published it — members can never delete a
+  // view that was pushed to them.
+  const canDelete = isOwnPersonal ||
+    (d.activeView?.scope === 'department' && d.canPublish &&
+     (d.activeView?.createdBy || '').toLowerCase() === (myEmail || '').toLowerCase());
 
   const menuItems = [
     { label: 'Save as new view', icon: Copy, on: saveAsNew },
     ...(canRename ? [{ label: 'Rename view', icon: Pencil, on: rename }] : []),
-    ...(isOwnPersonal ? [
-      { label: 'Set as my default', icon: Star, on: makeDefault },
-      { label: 'Delete view', icon: Trash2, on: del, danger: true },
-    ] : []),
+    ...(isOwnPersonal ? [{ label: 'Set as my default', icon: Star, on: makeDefault }] : []),
     ...(d.canPublish ? [{ label: 'Publish to department', icon: Share2, on: publish }] : []),
+    ...(canDelete ? [{ label: 'Delete view', icon: Trash2, on: del, danger: true }] : []),
   ];
 
   return (
@@ -148,7 +166,7 @@ export default function CustomDashboard({ target }) {
           <LayoutGrid size={16} />
         </div>
         <select value={d.activeId || ''}
-          onChange={e => { const val = e.target.value; if (val === '__new__') createNew(); else d.switchView(val || null); }}
+          onChange={e => { const val = e.target.value; if (val === '__new__') guardedNew(); else guardedSwitch(val || null); }}
           className="form-input" style={{ fontSize: 13, fontWeight: 600, maxWidth: 260, padding: '8px 28px 8px 12px', lineHeight: 1.4, height: 'auto' }}>
           <option value="">Default layout</option>
           {d.views.filter(v => v.scope === 'personal').length > 0 && (
@@ -172,6 +190,11 @@ export default function CustomDashboard({ target }) {
             <Pencil size={13} />
           </button>
         )}
+        {d.activeView && canDelete && (
+          <button className="secondary-btn" style={{ ...btn, padding: '6px 9px', color: 'hsl(var(--color-red))' }} onClick={del} title="Delete this view">
+            <Trash2 size={13} />
+          </button>
+        )}
 
         <div style={{ flex: 1 }} />
 
@@ -179,7 +202,7 @@ export default function CustomDashboard({ target }) {
           <>
             <button className="secondary-btn" style={btn} onClick={() => setGallery(true)}><Plus size={14} /> Add widget</button>
             <button className="primary-btn" style={{ ...btn, opacity: d.dirty ? 1 : 0.6 }} onClick={save} disabled={!d.dirty}><Save size={14} /> {d.dirty ? 'Save' : 'Saved'}</button>
-            <button className="secondary-btn" style={btn} onClick={() => { d.setEditing(false); d.reload(); }}><X size={14} /> Done</button>
+            <button className="secondary-btn" style={btn} onClick={guardedDone}><X size={14} /> Done</button>
           </>
         ) : (
           <button className="secondary-btn" style={btn} onClick={() => d.setEditing(true)}><Pencil size={14} /> Customize</button>

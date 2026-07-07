@@ -88,7 +88,8 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
 
   // ── Desktop: absolute-positioned grid ──
   return (
-    <div ref={ref} style={{ position: 'relative', width: '100%', height: maxRow * ROW_H,
+    <div ref={ref} style={{ position: 'relative', width: '100%',
+      height: maxRow * ROW_H, minHeight: '68vh',
       transition: drag ? 'none' : 'height 0.15s',
       // Edit mode: a soft dot at every grid intersection reads as "snap points"
       // without the noisy full-height column lines.
@@ -98,6 +99,14 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
       backgroundSize: `${unitW}px ${ROW_H}px`,
       backgroundPosition: `${unitW / 2}px ${ROW_H / 2}px`,
       borderRadius: 16 }}>
+      {/* View mode: a whisper-light line grid so the canvas doesn't feel bare */}
+      {!editing && (
+        <div aria-hidden style={{ position: 'absolute', inset: 0, borderRadius: 16, pointerEvents: 'none', opacity: 0.45,
+          backgroundImage: 'linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px)',
+          backgroundSize: '46px 46px',
+          maskImage: 'radial-gradient(ellipse at 50% 30%, black 55%, transparent 100%)',
+          WebkitMaskImage: 'radial-gradient(ellipse at 50% 30%, black 55%, transparent 100%)' }} />
+      )}
       {eff.map(it => (
         <div key={it.i} style={{
           position: 'absolute', left: it.x * unitW, top: it.y * ROW_H,
