@@ -1163,3 +1163,24 @@ class TimeOffRequest(Base):
     decided_at     = Column(String, default="")
     decide_note    = Column(String, default="")
     created_at     = Column(String, default="")
+
+
+class DashboardView(Base):
+    """A saved, customizable dashboard layout (drag-and-drop widget grid).
+    scope='personal' → belongs to one user (owner_email); scope='department' →
+    a manager-published template every member of that department inherits and
+    can fork into their own. `target` picks the screen it applies to
+    ('dashboard' or 'manager-dashboard'). `layout` is a JSON array of widget
+    placements: [{ i, type, x, y, w, h, config }]."""
+    __tablename__ = "dashboard_views"
+    id           = Column(String, primary_key=True)   # uuid
+    owner_email  = Column(String, index=True, default="")   # "" for department scope
+    target       = Column(String, default="dashboard", index=True)  # dashboard | manager-dashboard
+    name         = Column(String, default="My view")
+    scope        = Column(String, default="personal")       # personal | department
+    department   = Column(String, default="")               # set when scope=department
+    layout       = Column(JSON, default=list)               # [{i,type,x,y,w,h,config}]
+    is_default   = Column(Boolean, default=False)           # this user's default for the target
+    created_by   = Column(String, default="")
+    created_at   = Column(String, default="")
+    updated_at   = Column(String, default="")
