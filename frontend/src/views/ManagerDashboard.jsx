@@ -40,7 +40,7 @@ function useIsMobile() {
   return m;
 }
 
-export default function ManagerDashboard() {
+export default function ManagerDashboard({ activeSub } = {}) {
   // ── All hooks must be at the top ──────────────────────────────────────────
   const { can }            = useRole();
   const { accounts }       = useMsal();
@@ -241,6 +241,15 @@ export default function ManagerDashboard() {
 
   // Default to who-has-what for supervisors who can't see workload
   const effectiveTab = activeTab === 'workload' && !isManager ? 'who-has-what' : activeTab;
+
+  // Deep-link from a dashboard widget/KPI (e.g. nexus:navigate → manager-dashboard
+  // with sub 'actions' / 'team-time'): jump to Team Analytics and select the tab.
+  useEffect(() => {
+    if (activeSub && tabs.some(t => t.id === activeSub)) {
+      setMode('overview');
+      setActiveTab(activeSub);
+    }
+  }, [activeSub]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Phone bottom bar: this dashboard's tabs become the bar's actions
   // (contextual-bar pattern; the in-page pills hide ≤640 via .md-tabs)

@@ -14,17 +14,17 @@ const CA = (name, a = 0.12) => `hsla(var(--color-${name}),${a})`;
 
 // Every KPI the /dashboards/kpis endpoint can return, with how to present it.
 export const KPI_CATALOG = {
-  open_tasks:           { label: 'Open tasks',              color: 'blue',   Icon: ListTodo,      nav: { view: 'tasks' } },
-  my_open_tasks:        { label: 'My open tasks',           color: 'blue',   Icon: ListTodo,      nav: { view: 'tasks' } },
-  pending_requisitions: { label: 'Requisitions to approve', color: 'orange', Icon: ClipboardCheck, nav: { view: 'manager-dashboard', sub: 'actions' } },
-  pending_inventory:    { label: 'Inventory requests',      color: 'orange', Icon: Package,       nav: { view: 'manager-dashboard', sub: 'actions' } },
-  open_purchases:       { label: 'Open purchases',          color: 'purple', Icon: Package,       nav: { view: 'inventory' } },
-  my_checkouts:         { label: 'My active checkouts',     color: 'green',  Icon: Boxes,         nav: { view: 'inventory', sub: 'my-requests' } },
-  my_assignments:       { label: 'Items assigned to me',    color: 'green',  Icon: Package,       nav: { view: 'inventory' } },
-  unread_notifications: { label: 'Unread notifications',    color: 'blue',   Icon: Bell },
-  warranties_expiring:  { label: 'Warranties expiring',     color: 'red',    Icon: ShieldCheck,   nav: { view: 'property-asset' } },
-  clocked_in_now:       { label: 'Clocked in now',          color: 'green',  Icon: Users,         nav: { view: 'manager-dashboard', sub: 'team-time' } },
-  time_off_pending:     { label: 'Time off to review',      color: 'orange', Icon: CalendarClock, nav: { view: 'manager-dashboard', sub: 'team-time' } },
+  open_tasks:           { label: 'Open tasks',              color: 'blue',   Icon: ListTodo,      hint: 'Across your team',     nav: { view: 'tasks' } },
+  my_open_tasks:        { label: 'My open tasks',           color: 'blue',   Icon: ListTodo,      hint: 'Assigned to you',      nav: { view: 'tasks' } },
+  pending_requisitions: { label: 'Requisitions to approve', color: 'orange', Icon: ClipboardCheck, hint: 'Awaiting approval',   nav: { view: 'manager-dashboard', sub: 'actions' } },
+  pending_inventory:    { label: 'Inventory requests',      color: 'orange', Icon: Package,       hint: 'Awaiting approval',    nav: { view: 'manager-dashboard', sub: 'actions' } },
+  open_purchases:       { label: 'Open purchases',          color: 'purple', Icon: Package,       hint: 'In progress',          nav: { view: 'purchase' } },
+  my_checkouts:         { label: 'My active checkouts',     color: 'green',  Icon: Boxes,         hint: 'Currently with you',   nav: { view: 'inventory', sub: 'checkouts' } },
+  my_assignments:       { label: 'Items assigned to me',    color: 'green',  Icon: Package,       hint: 'Your equipment',       nav: { view: 'inventory' } },
+  unread_notifications: { label: 'Unread notifications',    color: 'blue',   Icon: Bell,          hint: 'Tap to review' },
+  warranties_expiring:  { label: 'Warranties expiring',     color: 'red',    Icon: ShieldCheck,   hint: 'Within 60 days',       nav: { view: 'property-asset' } },
+  clocked_in_now:       { label: 'Clocked in now',          color: 'green',  Icon: Users,         hint: 'On the clock now',     nav: { view: 'manager-dashboard', sub: 'team-time' } },
+  time_off_pending:     { label: 'Time off to review',      color: 'orange', Icon: CalendarClock, hint: 'Awaiting your review',  nav: { view: 'manager-dashboard', sub: 'team-time' } },
 };
 
 // Curated shortcut destinations for the picker (module + optional sub-screen).
@@ -32,8 +32,9 @@ export const SHORTCUT_TARGETS = [
   { view: 'timeclock',        label: 'Time Clock' },
   { view: 'tasks',            label: 'Tasks' },
   { view: 'inventory',        label: 'Item Management' },
-  { view: 'inventory', sub: 'checkouts',   label: 'Item Management · Checkouts' },
-  { view: 'inventory', sub: 'my-requests', label: 'Item Management · My Requests' },
+  { view: 'inventory', sub: 'catalog',   label: 'Item Management · Browse catalog' },
+  { view: 'inventory', sub: 'checkouts', label: 'Item Management · Checkouts' },
+  { view: 'purchase',         label: 'Purchase Requests' },
   { view: 'property-asset',   label: 'Asset Management' },
   { view: 'sop',              label: 'Knowledge Base' },
   { view: 'hr',               label: 'HR' },
@@ -68,18 +69,22 @@ function DashCard({ title, sub, action, children, onClick, style }) {
   );
 }
 
-function StatCard({ label, value, color, Icon, nav }) {
+function StatCard({ label, value, color, Icon, nav, hint }) {
   const go = () => nav && navigate(nav.view, nav.sub);
+  const I = Icon || BarChart3;
   return (
-    <div className="kpi-card" onClick={nav ? go : undefined}
-      style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', cursor: nav ? 'pointer' : 'default' }}>
-      <div className="kpi-card-header" style={{ marginBottom: 0 }}>
+    <div className="kpi-card kpi-hover" onClick={nav ? go : undefined}
+      style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', cursor: nav ? 'pointer' : 'default', position: 'relative', overflow: 'hidden' }}>
+      {/* soft corner accent for depth */}
+      <div style={{ position: 'absolute', top: -34, right: -34, width: 120, height: 120, borderRadius: '50%', background: CA(color, 0.09), pointerEvents: 'none' }} />
+      <div className="kpi-card-header" style={{ marginBottom: 0, position: 'relative' }}>
         <span className="kpi-label">{label}</span>
-        <div className="kpi-icon-container" style={{ background: CA(color), color: C(color) }}>{Icon ? <Icon size={16} /> : <BarChart3 size={16} />}</div>
+        <div className="kpi-icon-container" style={{ width: 38, height: 38, borderRadius: 11, background: CA(color, 0.15), color: C(color) }}><I size={18} /></div>
       </div>
-      <div>
-        <div className="kpi-value" style={{ fontSize: 32, margin: '8px 0 2px' }}>{value}</div>
-        {nav && <div className="kpi-delta" style={{ color: C(color), fontWeight: 600 }}>Open <ArrowRight size={12} /></div>}
+      <div className="kpi-value" style={{ fontSize: 36, lineHeight: 1, margin: '16px 0 6px', position: 'relative' }}>{value}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, position: 'relative' }}>
+        {hint && <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 500 }}>{hint}</span>}
+        {nav && <span style={{ fontSize: 12, color: C(color), fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}>Open <ArrowRight size={12} /></span>}
       </div>
     </div>
   );
@@ -88,12 +93,12 @@ function StatCard({ label, value, color, Icon, nav }) {
 // ── Widgets ───────────────────────────────────────────────────────────────────
 function KpiWidget({ config, kpis }) {
   const meta = KPI_CATALOG[config?.metric] || { label: 'Metric', color: 'blue', Icon: BarChart3 };
-  return <StatCard label={meta.label} value={kpis?.[config?.metric] ?? 0} color={meta.color} Icon={meta.Icon} nav={meta.nav} />;
+  return <StatCard label={meta.label} value={kpis?.[config?.metric] ?? 0} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={meta.hint} />;
 }
 
 function TeamStatWidget({ config, kpis }) {
   const meta = KPI_CATALOG[config?.metric] || { label: config?.metric, color: 'green', Icon: Users };
-  return <StatCard label={meta.label} value={kpis?.[config?.metric] ?? 0} color={meta.color} Icon={meta.Icon} nav={meta.nav} />;
+  return <StatCard label={meta.label} value={kpis?.[config?.metric] ?? 0} color={meta.color} Icon={meta.Icon} nav={meta.nav} hint={meta.hint} />;
 }
 
 function KpiBarWidget({ config, kpis }) {

@@ -1,11 +1,44 @@
 import { useState } from 'react';
-import { LayoutGrid, Plus, Save, Pencil, MoreHorizontal, Star, Share2, Trash2, Copy, Check, X } from 'lucide-react';
+import { LayoutGrid, Plus, Save, Pencil, MoreHorizontal, Star, Share2, Trash2, Copy, X } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useDashboards } from './useDashboards';
 import { WIDGETS } from './widgets.jsx';
 import DashboardGrid from './DashboardGrid';
 import { WidgetGallery, ConfigModal } from './WidgetGallery';
+
+// Small, reliable name dialog (replaces window.prompt, which wouldn't let the
+// user type / was silently blocked). Auto-focuses; Enter submits, Esc cancels.
+function NameModal({ title, label = 'View name', initial = '', cta = 'Save', onSubmit, onClose }) {
+  const [v, setV] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (!v.trim() || busy) return;
+    setBusy(true);
+    try { await onSubmit(v.trim()); onClose(); } catch { setBusy(false); }
+  };
+  return (
+    <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1450, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 420, boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+        <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center' }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800, flex: 1 }}>{title}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: 18 }}>
+          <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>{label}</label>
+          <input autoFocus value={v} onChange={e => setV(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') onClose(); }}
+            className="form-input" style={{ width: '100%' }} placeholder="e.g. Operations team" />
+          <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
+            <button className="secondary-btn" onClick={onClose}>Cancel</button>
+            <button className="primary-btn" onClick={submit} disabled={!v.trim() || busy}>{busy ? 'Saving…' : cta}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function CustomDashboard({ target }) {
   const { can } = useRole();
@@ -14,10 +47,15 @@ export default function CustomDashboard({ target }) {
   const [gallery, setGallery] = useState(false);
   const [configItem, setConfigItem] = useState(null);
   const [menu, setMenu] = useState(false);
+  const [nameModal, setNameModal] = useState(null);
   const [toast, setToast] = useState(null);
 
   const flash = (t, ok = true) => { setToast({ t, ok }); setTimeout(() => setToast(null), 3000); };
   const wrap = (fn, okMsg) => async (...a) => { try { await fn(...a); if (okMsg) flash(okMsg); } catch (e) { flash(e?.message || 'Something went wrong', false); } };
+
+  const isOwnPersonal  = d.activeView?.scope === 'personal';
+  const canEditInPlace = isOwnPersonal || (d.activeView?.scope === 'department' && d.canPublish);
+  const canRename      = isOwnPersonal || (d.activeView?.scope === 'department' && d.canPublish);
 
   const renderWidget = (it) => {
     const def = WIDGETS[it.type];
@@ -28,14 +66,42 @@ export default function CustomDashboard({ target }) {
     });
   };
 
-  const save = wrap(async () => { await d.save(); }, 'Layout saved');
-  const saveAsNew = wrap(async () => { const name = window.prompt('Name this view:', 'New view'); if (name) await d.saveAsNew(name); }, 'View created');
-  const publish = wrap(async () => { const name = window.prompt('Publish a department view named:', `${d.department || 'Department'} view`); if (name) await d.publishDepartment(name); }, 'Published to your department');
-  const makeDefault = wrap(async () => { if (d.activeId) await d.setDefaultView(d.activeId); }, 'Set as your default');
-  const rename = wrap(async () => { if (d.activeView && d.activeView.scope === 'personal') { const n = window.prompt('Rename view:', d.activeView.name); if (n) await d.renameView(d.activeId, n); } }, 'Renamed');
-  const del = wrap(async () => { if (d.activeId && window.confirm('Delete this view?')) await d.removeView(d.activeId); }, 'View deleted');
+  const openName = (opts) => { setMenu(false); setNameModal(opts); };
+
+  // Save: update your own view in place; otherwise ask for a name and create one.
+  const save = () => {
+    if (canEditInPlace) return wrap(() => d.save(), 'Layout saved')();
+    openName({
+      title: 'Save your dashboard', initial: 'My view', cta: 'Save view',
+      onSubmit: wrap(async (name) => { const v = await d.saveAsNew(name); await d.setDefaultView(v.id); }, 'View saved'),
+    });
+  };
+  const saveAsNew = () => openName({
+    title: 'Save as a new view', initial: '', cta: 'Create view',
+    onSubmit: wrap(name => d.saveAsNew(name), 'View created'),
+  });
+  const rename = () => openName({
+    title: 'Rename view', initial: d.activeView?.name || '', cta: 'Rename',
+    onSubmit: wrap(name => d.renameView(d.activeId, name), 'Renamed'),
+  });
+  const publish = () => openName({
+    title: 'Publish to your department', label: 'Everyone in your department gets this view', initial: `${d.department || 'Department'} view`, cta: 'Publish',
+    onSubmit: wrap(name => d.publishDepartment(name), 'Published to your department'),
+  });
+  const makeDefault = wrap(async () => { setMenu(false); if (d.activeId) await d.setDefaultView(d.activeId); }, 'Set as your default');
+  const del = wrap(async () => { setMenu(false); if (d.activeId && window.confirm('Delete this view?')) await d.removeView(d.activeId); }, 'View deleted');
 
   const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'Inter,sans-serif', cursor: 'pointer' };
+
+  const menuItems = [
+    { label: 'Save as new view', icon: Copy, on: saveAsNew },
+    ...(canRename ? [{ label: 'Rename view', icon: Pencil, on: rename }] : []),
+    ...(isOwnPersonal ? [
+      { label: 'Set as my default', icon: Star, on: makeDefault },
+      { label: 'Delete view', icon: Trash2, on: del, danger: true },
+    ] : []),
+    ...(d.canPublish ? [{ label: 'Publish to department', icon: Share2, on: publish }] : []),
+  ];
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -80,16 +146,8 @@ export default function CustomDashboard({ target }) {
               <button className="secondary-btn" style={{ ...btn, padding: '6px 9px' }} onClick={() => setMenu(m => !m)}><MoreHorizontal size={15} /></button>
               {menu && (
                 <div onMouseLeave={() => setMenu(false)} style={{ position: 'absolute', right: 0, top: 40, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6, zIndex: 50, minWidth: 210 }}>
-                  {[
-                    { label: 'Save as new view', icon: Copy, on: saveAsNew },
-                    ...(d.activeView?.scope === 'personal' ? [
-                      { label: 'Set as my default', icon: Star, on: makeDefault },
-                      { label: 'Rename view', icon: Pencil, on: rename },
-                      { label: 'Delete view', icon: Trash2, on: del, danger: true },
-                    ] : []),
-                    ...(d.canPublish ? [{ label: 'Publish to department', icon: Share2, on: publish }] : []),
-                  ].map((m, i) => (
-                    <button key={i} onClick={() => { setMenu(false); m.on(); }} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', fontFamily: 'Inter,sans-serif', color: m.danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
+                  {menuItems.map((m, i) => (
+                    <button key={i} onClick={m.on} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', fontFamily: 'Inter,sans-serif', color: m.danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
                       onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
                       <m.icon size={14} /> {m.label}
                     </button>
@@ -118,6 +176,7 @@ export default function CustomDashboard({ target }) {
 
       {gallery && <WidgetGallery target={target} can={can} onAdd={d.addWidget} onClose={() => setGallery(false)} />}
       {configItem && <ConfigModal item={configItem} onSave={(cfg) => d.updateWidgetConfig(configItem.i, cfg)} onClose={() => setConfigItem(null)} />}
+      {nameModal && <NameModal {...nameModal} onClose={() => setNameModal(null)} />}
     </div>
   );
 }
