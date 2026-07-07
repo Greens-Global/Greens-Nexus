@@ -9,7 +9,7 @@
 >
 > Sources: Neil's "Greens Global — People Platform" mockup (Jun 2026),
 > Busacta HR teardown, Rippling/BambooHR research, Nexus build sessions.
-> Status: ✅ built · 🟡 partial · ❌ not started   (last updated 2026-07-03 — Sections A + B complete; Section C: offboarding engine + **native e-sign** done (feat/hr-esign). Remaining C: onboarding checklist, interview scheduling, resume upload, profile self-fill)
+> Status: ✅ built · 🟡 partial · ❌ not started   (last updated 2026-07-07 — Sections A + B complete; C: offboarding + native e-sign done; **D: geofenced Time Clock + timesheets/approvals + shifts + BOD/EOD + desktop agent shipped Jul 6–7**; **E: self-service requests via My HR**; **H: employee portal shipped as "My HR"** (profile self-edit, docs, paystubs, timesheet, leave, equipment, Ask HR requests). Remaining: see ❌ rows.)
 
 ---
 
@@ -63,11 +63,12 @@
 
 | Status | Item | Source |
 |---|---|---|
-| ❌ | **Time Clock** — clock in/out with geofence validation (inside/outside site radius), punch log | Neil |
-| ❌ | Timesheets — weekly view, manager approval/reversal, overtime rules | Neil |
+| ✅ | **Time Clock** — geofenced punch in/out (soft-gate + accuracy credit), punch log, missed-punch fix, manager adjustments (Jul 6) | Neil |
+| ✅ | Timesheets — day summaries, HR Time tab + Manager Dashboard Team Time, approvals, CSV export (Jul 6) | Neil |
+| ✅ | BOD/EOD/break Teams updates (dated headers, pending tasks, break duration) + **desktop monitoring agent** (silent multi-monitor capture) | Neil |
+| 🟡 | Shift scheduling — shifts + shift groups CRUD built; open-shift claiming + **shift swaps** still ❌ | Neil |
 | ❌ | **Client time tracking** — billable hours by client (contractor invoicing basis) | Neil |
-| ❌ | Shift scheduling — publish per site, open-shift claiming, **shift swaps** (offer/approve/decline) | Neil |
-| ❌ | Attendance & tardiness views + punch-system CSV import (largely derivable from Time Clock once it exists) | Busacta |
+| ❌ | Attendance & tardiness views (day-summary flags exist; no dedicated view) | Busacta |
 | ❌ | Holiday calendar + attendance policies (grace minutes, half-day rules) | Busacta |
 
 ## E. Time off *(upgrade v1)*
@@ -75,8 +76,8 @@
 | Status | Item | Source |
 |---|---|---|
 | ✅ | Requests, approve/reject, allocated-vs-used balances, manager + employee notifications | built |
+| ✅ | Employee self-service requests — Time Clock + **My HR "My leave"** (Jul 7) | Rippling |
 | ❌ | Accrual policies — per-month, annualized, tenure-based; per worker type | Neil |
-| ❌ | Employee self-service requests (from portal, not HR-recorded) | Rippling |
 | ❌ | Team leave calendar ("who's out this week") + on-leave-today on dashboard | Busacta |
 | ❌ | Multi-level approval (manager → HR) if wanted | open |
 
@@ -97,8 +98,8 @@
 
 | Status | Item | Source |
 |---|---|---|
-| 🟡 | Server-side notifications (leave + hiring wired). Add: doc/visa expiry, contract end, review due, upcoming start dates — needs one daily scheduled job | built/Neil |
-| ❌ | **Employee portal** — My Profile / My Time Off / My Timesheet / My Schedule / My Documents / My Performance / **My Assets (links to Item Management "My Items")**; HR gets View-as-employee | Neil |
+| 🟡 | Server-side notifications (leave + hiring + Ask HR wired). Add: doc/visa expiry, contract end, review due, upcoming start dates — needs one daily scheduled job | built/Neil |
+| ✅ | **Employee portal — shipped as "My HR"** (Jul 7): My Profile (self-edit contact/emergency), My Timesheet + hours graph w/ range filter, My Leave, My Documents (sealed e-sign), **My Paystubs** (HR uploads, hr_comp-gated), My Equipment (live Items read), **Ask HR** requests w/ attachments HR can file in one click. Still ❌: My Schedule, My Performance (needs F), View-as-employee | Neil |
 | ❌ | Approvals inbox — leave, timesheets, swaps, signatures in one queue | Neil |
 | ❌ | Reports — headcount by entity/dept/type, joiners/leavers, attrition, hours by client/site, leave utilization; CSV export | Rippling |
 | ❌ | Audit views (salary changes, document access) | compliance |

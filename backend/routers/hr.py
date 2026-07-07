@@ -1,8 +1,9 @@
 import json
 import re
 import uuid
+import httpx
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -248,6 +249,7 @@ class CandidateUpdate(BaseModel):
     notes:          Optional[str] = None
     stage:          Optional[str] = None
     stage_note:     Optional[str] = None
+    interview_at:   Optional[str] = None   # ISO datetime; '' clears
 
 
 def _ser_candidate(c: HrCandidate) -> dict:
@@ -256,6 +258,7 @@ def _ser_candidate(c: HrCandidate) -> dict:
         "email": c.email, "phone": c.phone, "roleTitle": c.role_title,
         "department": c.department, "stage": c.stage,
         "expectedStart": c.expected_start, "source": c.source,
+        "interviewAt": c.interview_at or "",
         "resumeUrl": c.resume_url, "notes": c.notes, "employeeId": c.employee_id,
         "createdAt": c.created_at, "updatedAt": c.updated_at,
     }
@@ -335,6 +338,21 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
                        + (f"\nNote: {body.stage_note.strip()}" if (body.stage_note or '').strip() else ''),
                        ref_id=row.id, requested_by=user["email"])
 
+    # Interview scheduling: record + notify the candidate owner (the daily
+    # reminder job pings again on the day itself).
+    if body.interview_at is not None and body.interview_at != (row.interview_at or ""):
+        row.interview_at = body.interview_at.strip()
+        if row.interview_at and row.created_by:
+            cand_name = f"{row.first_name} {row.last_name}".strip()
+            try:
+                pretty = datetime.fromisoformat(row.interview_at).strftime("%a, %b %d at %H:%M")
+            except ValueError:
+                pretty = row.interview_at
+            _hr_notify(db, row.created_by, f"Interview scheduled — {cand_name}",
+                       f"{cand_name} ({row.role_title or 'candidate'}) is booked for {pretty}.",
+                       ref_id=row.id, requested_by=user["email"],
+                       action={"view": "hr", "sub": "hr-hiring"})
+
     for key in ("first_name", "last_name", "email", "phone", "role_title",
                 "department", "expected_start", "source", "notes"):
         value = getattr(body, key)
@@ -356,6 +374,44 @@ def delete_candidate(cid: str, user: dict = Depends(require_hr_delete), db: Sess
     db.query(HrCandidate).filter(HrCandidate.id == cid).delete()
     db.commit()
     return {"ok": True}
+
+
+@router.post("/candidates/{cid}/resume")
+async def upload_resume(cid: str, file: UploadFile = File(...),
+                        user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Resume / any candidate doc — private hr-docs bucket, path on the record."""
+    row = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
+    if not row:
+        raise HTTPException(404, "Candidate not found")
+    data = await file.read()
+    if len(data) > _MAX_DOC_BYTES:
+        raise HTTPException(400, "File too large (max 15 MB)")
+    safe = re.sub(r"[^a-zA-Z0-9._-]", "_", file.filename or "resume.pdf")
+    path = f"candidates/{cid}/{uuid.uuid4()}-{safe}"
+    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
+                      headers={**_storage_headers(), "Content-Type": file.content_type or "application/octet-stream"},
+                      content=data, timeout=60)
+    if not resp.is_success:
+        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    row.resume_url = path
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit()
+    return _ser_candidate(row)
+
+
+@router.get("/candidates/{cid}/resume-url")
+def candidate_resume_url(cid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    row = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
+    if not row or not row.resume_url:
+        raise HTTPException(404, "No resume on file")
+    # Legacy rows may hold a full external URL rather than a storage path.
+    if row.resume_url.startswith("http"):
+        return {"url": row.resume_url, "expiresIn": 0}
+    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{row.resume_url}",
+                      headers=_storage_headers(), json={"expiresIn": 300}, timeout=15)
+    if not resp.is_success:
+        raise HTTPException(502, "Could not sign URL")
+    return {"url": f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}", "expiresIn": 300}
 
 
 # ── Leave tracker (Phase 6) ───────────────────────────────────────────────────

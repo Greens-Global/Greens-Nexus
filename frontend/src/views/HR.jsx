@@ -1173,14 +1173,40 @@ function CandidateFormModal({ onClose, onSaved, toastErr }) {
   );
 }
 
-function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignature, busy }) {
+function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignature, onUpdated, busy }) {
   const [history, setHistory] = useState(null);
   const [note, setNote] = useState('');
+  const [ivEdit, setIvEdit] = useState(false);
+  const [ivAt, setIvAt] = useState(c.interviewAt ? c.interviewAt.slice(0, 16) : '');
+  const [ivBusy, setIvBusy] = useState(false);
+  const [resumeBusy, setResumeBusy] = useState(false);
+  const resumeRef = useRef(null);
   useEffect(() => { api.getCandidateHistory(c.id).then(setHistory).catch(() => setHistory([])); }, [c.id]);
   const idx = STAGES.indexOf(c.stage);
   const next = idx >= 0 && idx < STAGES.length - 1 ? STAGES[idx + 1] : null;
   const terminal = c.stage === 'hired' || c.stage === 'rejected';
   const sm = STAGE_META[c.stage];
+
+  const saveInterview = async (value) => {
+    setIvBusy(true);
+    try { const u = await api.updateCandidate(c.id, { interview_at: value }); onUpdated?.(u); setIvEdit(false); }
+    catch { /* keep editor open */ }
+    finally { setIvBusy(false); }
+  };
+  const uploadResume = async (file) => {
+    if (!file) return;
+    setResumeBusy(true);
+    try { const u = await api.candidateResumeUpload(c.id, (() => { const f = new FormData(); f.append('file', file); return f; })()); onUpdated?.(u); }
+    catch { /* noop */ }
+    finally { setResumeBusy(false); if (resumeRef.current) resumeRef.current.value = ''; }
+  };
+  const viewResume = async () => {
+    try { const { url } = await api.candidateResumeUrl(c.id); window.open(url, '_blank', 'noopener'); } catch { /* noop */ }
+  };
+  const prettyIv = c.interviewAt ? (() => {
+    try { return new Date(c.interviewAt).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+    catch { return c.interviewAt; }
+  })() : '';
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
@@ -1200,6 +1226,55 @@ function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignatu
             {c.expectedStart && <span><CalendarDays size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Expected start {c.expectedStart}</span>}
             {c.notes && <span style={{ background: 'var(--mist)', borderRadius: 8, padding: '8px 12px', color: 'var(--ink)', marginTop: 4 }}>{c.notes}</span>}
           </div>
+          {/* Interview + resume */}
+          <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <CalendarDays size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+              {!ivEdit ? (
+                <>
+                  <span style={{ fontSize: 12.5, color: c.interviewAt ? 'var(--ink)' : 'var(--muted)', fontWeight: c.interviewAt ? 600 : 400 }}>
+                    {c.interviewAt ? `Interview: ${prettyIv}` : 'No interview scheduled'}
+                  </span>
+                  {!terminal && (
+                    <button className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={() => { setIvAt(c.interviewAt ? c.interviewAt.slice(0, 16) : ''); setIvEdit(true); }}>
+                      {c.interviewAt ? 'Reschedule' : 'Schedule interview'}
+                    </button>
+                  )}
+                  {c.interviewAt && !terminal && (
+                    <button onClick={() => saveInterview('')} disabled={ivBusy}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, color: 'var(--muted)', fontFamily: 'Inter,sans-serif', padding: 0 }}>
+                      Clear
+                    </button>
+                  )}
+                </>
+              ) : (
+                <>
+                  <input type="datetime-local" className="form-input" value={ivAt} onChange={e => setIvAt(e.target.value)}
+                    style={{ fontSize: 12.5, padding: '5px 9px', height: 'auto' }} />
+                  <button className="primary-btn" style={{ fontSize: 11.5, padding: '5px 12px' }} disabled={!ivAt || ivBusy} onClick={() => saveInterview(ivAt)}>
+                    {ivBusy ? 'Saving…' : 'Save'}
+                  </button>
+                  <button className="secondary-btn" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => setIvEdit(false)}>Cancel</button>
+                </>
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <FileText size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+              {c.resumeUrl ? (
+                <button onClick={viewResume}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-blue))', fontFamily: 'Inter,sans-serif', padding: 0 }}>
+                  View resume
+                </button>
+              ) : (
+                <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>No resume on file</span>
+              )}
+              <input ref={resumeRef} type="file" accept=".pdf,.doc,.docx" style={{ display: 'none' }} onChange={e => uploadResume(e.target.files?.[0])} />
+              <button className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} disabled={resumeBusy} onClick={() => resumeRef.current?.click()}>
+                {resumeBusy ? 'Uploading…' : c.resumeUrl ? 'Replace' : 'Upload resume'}
+              </button>
+            </div>
+          </div>
+
           {c.email && onSendForSignature && c.stage !== 'rejected' && (
             <button className="secondary-btn" onClick={() => { onSendForSignature(c); onClose(); }}
               title="Send an offer letter or other document to this candidate via a secure e-sign link (no login needed)"
@@ -1297,6 +1372,12 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           </div>
           <span style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600, flexShrink: 0 }}>{daysSince(c.updatedAt)}d</span>
         </div>
+        {c.interviewAt && !['hired', 'rejected'].includes(c.stage) && (
+          <div style={{ marginTop: 7, display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: 'hsla(var(--color-purple),0.1)', color: 'hsl(var(--color-purple))' }}>
+            <CalendarDays size={10} />
+            {(() => { try { return new Date(c.interviewAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return c.interviewAt; } })()}
+          </div>
+        )}
       </button>
     );
   };
@@ -1359,7 +1440,8 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
 
       {addOpen && <CandidateFormModal onClose={() => setAddOpen(false)} toastErr={toastErr}
         onSaved={c => { setCandidates(prev => [c, ...prev]); toastOk(`${candName(c)} added to the pipeline.`); }} />}
-      {detail && <CandidateDetailModal candidate={detail} onClose={() => setDetail(null)} onStage={moveStage} onSendForSignature={onSendForSignature} busy={busy} />}
+      {detail && <CandidateDetailModal candidate={detail} onClose={() => setDetail(null)} onStage={moveStage} onSendForSignature={onSendForSignature} busy={busy}
+        onUpdated={u => { setCandidates(prev => prev.map(x => x.id === u.id ? u : x)); setDetail(u); }} />}
     </div>
   );
 }
@@ -1576,6 +1658,71 @@ function LeaveFormModal({ employees, onClose, onSaved, toastErr }) {
   );
 }
 
+// "Who's out this week" — Mon–Sun strip merging both leave sources: HR-recorded
+// leave (HrLeaveRequest) and self-service time off (Time Clock / My HR).
+function WhosOutWeek({ employees, hrLeave }) {
+  const [timeoff, setTimeoff] = useState([]);
+  useEffect(() => { api.timeOffList('').then(setTimeoff).catch(() => {}); }, []);
+  const byId = Object.fromEntries(employees.map(e => [e.id, e]));
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const monday = new Date(today); monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+  const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(monday); d.setDate(monday.getDate() + i); return d; });
+  const isoD = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  const entries = [
+    ...(hrLeave || []).filter(r => ['approved', 'pending'].includes(r.status)).map(r => ({
+      name: fullName(byId[r.employeeId] || { firstName: '?' }),
+      start: r.startDate || r.start_date || '', end: r.endDate || r.end_date || '',
+      status: r.status, type: r.leaveType || r.type || '',
+    })),
+    ...timeoff.filter(r => ['approved', 'pending'].includes(r.status)).map(r => ({
+      name: r.name || (r.email || '').split('@')[0].replace('.', ' '),
+      start: r.startDate || '', end: r.endDate || '', status: r.status, type: r.type || '',
+    })),
+  ].filter(e => e.start && e.end);
+
+  const weekHasAnyone = days.some(d => entries.some(e => e.start <= isoD(d) && isoD(d) <= e.end));
+
+  return (
+    <div style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', padding: '12px 14px', marginBottom: 16, boxShadow: 'var(--shadow-sm)' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 10 }}>
+        Who's out this week
+      </div>
+      {!weekHasAnyone ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Everyone's in — no approved or pending leave this week.</div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8 }}>
+          {days.map(d => {
+            const key = isoD(d);
+            const isToday = key === isoD(today);
+            const out = entries.filter(e => e.start <= key && key <= e.end);
+            return (
+              <div key={key} style={{ borderRadius: 10, padding: '7px 8px', minHeight: 58, background: isToday ? 'hsla(var(--color-blue),0.06)' : 'var(--mist)', outline: isToday ? '1.5px solid hsla(var(--color-blue),0.4)' : 'none' }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: isToday ? 'hsl(var(--color-blue))' : 'var(--muted)', marginBottom: 5 }}>
+                  {d.toLocaleDateString('en-US', { weekday: 'short' })} {d.getDate()}
+                </div>
+                {out.length === 0 ? (
+                  <div style={{ fontSize: 10.5, color: 'var(--muted)', opacity: 0.6 }}>—</div>
+                ) : out.map((e, i) => (
+                  <div key={i} title={`${e.name} · ${e.type}${e.status === 'pending' ? ' (pending)' : ''}`}
+                    style={{ fontSize: 10.5, fontWeight: 600, padding: '2px 6px', borderRadius: 8, marginBottom: 3,
+                      background: e.status === 'approved' ? 'hsla(var(--color-green),0.12)' : 'hsla(var(--color-orange),0.12)',
+                      color: e.status === 'approved' ? 'hsl(var(--color-green))' : 'hsl(var(--color-orange))',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {e.name.split(' ')[0]}{e.status === 'pending' ? ' ?' : ''}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function LeaveTab({ employees, toastOk, toastErr }) {
   const [leave, setLeave] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -1620,6 +1767,8 @@ function LeaveTab({ employees, toastOk, toastErr }) {
           <Plus size={14} /> New Leave
         </button>
       </div>
+
+      <WhosOutWeek employees={employees} hrLeave={leave} />
 
       {/* Balance cards when a person is picked — used computes from approvals */}
       {balances && (

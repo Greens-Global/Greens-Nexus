@@ -195,6 +195,7 @@ def _run_migrations():
         "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS teams_chat_name TEXT DEFAULT ''",
         "ALTER TABLE hr_self_requests ADD COLUMN IF NOT EXISTS attachment_path TEXT DEFAULT ''",
         "ALTER TABLE hr_self_requests ADD COLUMN IF NOT EXISTS attachment_name TEXT DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS interview_at TEXT DEFAULT ''",
     ]
     with engine.connect() as conn:
         for sql in migrations:
@@ -308,6 +309,15 @@ async def lifespan(app: FastAPI):
         print("[startup] DB connection pool warmed")
     except Exception as e:
         print(f"[startup] DB pool warm-up skipped: {e}")
+    # Daily HR reminders (doc/visa expiry, contract ends, new starters,
+    # interviews, expiring e-sign) — dedupes per day, safe across restarts.
+    try:
+        import asyncio as _asyncio
+        from reminders import reminders_loop
+        _asyncio.create_task(reminders_loop())
+        print("[startup] daily reminders scheduled")
+    except Exception as e:
+        print(f"[startup] reminders skipped: {e}")
     yield
 
 

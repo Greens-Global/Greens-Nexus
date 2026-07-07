@@ -424,6 +424,8 @@ export const api = {
   getCandidateHistory: (id)       => req(`/hr/candidates/${id}/history`),
   createCandidate:     (data)     => req('/hr/candidates', { method: 'POST', body: JSON.stringify(data) }),
   updateCandidate:     (id, data) => req(`/hr/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  candidateResumeUpload: (id, form) => req(`/hr/candidates/${id}/resume`, { method: 'POST', body: form }),
+  candidateResumeUrl:  (id)       => req(`/hr/candidates/${id}/resume-url`),
 
   // HR — documents (private bucket, signed URLs)
   getEmployeeDocs:   (empId)        => req(`/hr/employees/${empId}/documents`),

@@ -180,6 +180,8 @@ def _describe(method: str, path: str) -> tuple[str, str]:
         if rid == "sync":                       return "Synced people from M365", ""
         if rid == "entities":                   return "Updated companies / legal entities", ""
         if rid == "work-sites":                 return "Updated work sites", ""
+        if rid == "candidates" and len(parts) > 3 and parts[3] == "resume":
+            return "Uploaded a candidate resume", sub
         if rid == "candidates":                 return "Updated the hiring pipeline", ""
         if rid == "leave":                      return "Updated leave records", ""
 

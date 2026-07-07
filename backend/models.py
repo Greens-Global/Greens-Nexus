@@ -498,8 +498,9 @@ class HrCandidate(Base):
     department     = Column(String, default="")
     stage          = Column(String, default="applied")        # applied|screening|interview|offer|hired|rejected
     expected_start = Column(String, default="")               # ISO date
+    interview_at   = Column(String, default="")               # ISO datetime of the next interview
     source         = Column(String, default="")               # referral, LinkedIn, ...
-    resume_url     = Column(String, default="")
+    resume_url     = Column(String, default="")               # hr-docs storage path (private; signed URL to view)
     notes          = Column(String, default="")
     employee_id    = Column(String, default="")               # set when hired
     created_by     = Column(String, default="")
