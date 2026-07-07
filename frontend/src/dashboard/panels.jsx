@@ -321,7 +321,8 @@ export function WhoHasWhatPanel() {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {pendingAlloc.map(row => (
-              <div key={row.key} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', border: '1px solid var(--line)', borderRadius: 8, padding: '9px 11px', background: 'var(--card)' }}>
+              <div key={row.key} onClick={() => navigate('inventory', 'checkouts')} title="Open in Item Management"
+                style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', cursor: 'pointer', border: '1px solid var(--line)', borderRadius: 8, padding: '9px 11px', background: 'var(--card)' }}>
                 <div style={{ flex: 1, minWidth: 150 }}>
                   <strong style={{ fontSize: 13 }}>{row.employee}</strong>
                   <span style={{ fontSize: 12.5, color: 'var(--muted)' }}> — {row.item}</span>
@@ -331,7 +332,7 @@ export function WhoHasWhatPanel() {
                   </div>
                 </div>
                 <div>
-                  <button onClick={() => handleAllocate(row)} disabled={!!allocating[row.key]}
+                  <button onClick={(e) => { e.stopPropagation(); handleAllocate(row); }} disabled={!!allocating[row.key]}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 7, border: 'none', background: 'hsl(var(--color-green))', color: '#fff', fontSize: 12, fontWeight: 600, cursor: allocating[row.key] ? 'default' : 'pointer', opacity: allocating[row.key] ? 0.6 : 1, fontFamily: 'Inter,sans-serif' }}>
                     {allocating[row.key]
                       ? <><Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> Allocating…</>
@@ -356,7 +357,11 @@ export function WhoHasWhatPanel() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {filtered.map(row => (
-            <div key={row.key} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', border: `1px solid ${row.isOverdue ? 'hsla(var(--color-red),0.35)' : 'var(--line)'}`, borderRadius: 8, padding: '9px 11px', background: row.isOverdue ? 'hsla(var(--color-red),0.03)' : 'var(--paper)' }}>
+            <div key={row.key} onClick={() => navigate('inventory', 'checkouts')}
+              title="Open in Item Management"
+              onMouseEnter={e => e.currentTarget.style.borderColor = 'hsl(var(--color-blue))'}
+              onMouseLeave={e => e.currentTarget.style.borderColor = row.isOverdue ? 'hsla(var(--color-red),0.35)' : 'var(--line)'}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', cursor: 'pointer', border: `1px solid ${row.isOverdue ? 'hsla(var(--color-red),0.35)' : 'var(--line)'}`, borderRadius: 8, padding: '9px 11px', background: row.isOverdue ? 'hsla(var(--color-red),0.03)' : 'var(--paper)' }}>
               <div style={{ flex: 1, minWidth: 160 }}>
                 <strong style={{ fontSize: 13 }}>{row.employee}</strong>
                 <span style={{ fontSize: 12.5, color: 'var(--muted)' }}> — {row.item}</span>
@@ -379,7 +384,7 @@ export function WhoHasWhatPanel() {
                     <CheckCircle size={12} /> Alert sent
                   </span>
                 ) : (
-                  <button onClick={() => { sendOverdueAlert(row.reqId, row.employee, row.item); setAlertSent(p => ({ ...p, [row.key]: true })); }}
+                  <button onClick={(e) => { e.stopPropagation(); sendOverdueAlert(row.reqId, row.employee, row.item); setAlertSent(p => ({ ...p, [row.key]: true })); }}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 7, border: '1px solid hsla(var(--color-orange),0.3)', background: 'hsla(var(--color-orange),0.08)', color: 'hsl(var(--color-orange))', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
                     <Mail size={11} /> Send Alert
                   </button>
