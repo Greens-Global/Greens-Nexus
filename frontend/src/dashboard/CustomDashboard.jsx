@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import { LayoutGrid, Plus, Save, Pencil, MoreHorizontal, Star, Share2, Trash2, Copy, X } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { useNotifications } from '../contexts/NotificationContext';
@@ -42,7 +42,7 @@ function NameModal({ title, label = 'View name', initial = '', cta = 'Save', onS
 
 export default function CustomDashboard({ target }) {
   const { can } = useRole();
-  const { notifications, markRead, markAllRead, dismiss } = useNotifications();
+  const { notifications, markRead, markAllRead, dismiss, clearRead } = useNotifications();
   const d = useDashboards(target);
   const [gallery, setGallery] = useState(false);
   const [configItem, setConfigItem] = useState(null);
@@ -60,15 +60,37 @@ export default function CustomDashboard({ target }) {
   // Render each widget as a real component (<Comp/>), never a direct function
   // call — widgets use hooks, and calling them inline would register those hooks
   // under this component, crashing when widgets are added/removed.
+  // "Clear all": mark everything read, then delete the read ones — the two
+  // functional state updates queue in order so this clears the whole list.
+  const clearAllNotifs = () => { markAllRead(); clearRead(); };
+
   const renderWidget = (it) => {
     const def = WIDGETS[it.type];
     if (!def) return <div style={{ padding: 16, fontSize: 12, color: 'var(--muted)' }}>Unknown widget</div>;
+    // Role-gated widget in a layout the user inherited (e.g. a dept template):
+    // show an inert card instead of the real panel — and never delete it from
+    // their saved layout.
+    if (def.minRole && !can(def.minRole)) {
+      return (
+        <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 12.5, textAlign: 'center', padding: 16 }}>
+          "{def.title}" needs {def.minRole} access
+        </div>
+      );
+    }
     const Comp = def.render;
-    return <Comp
-      config={it.config || {}} kpis={d.kpis} notifications={notifications}
-      markRead={markRead} markAllRead={markAllRead} dismiss={dismiss}
-      updateConfig={(patch) => d.updateWidgetConfig(it.i, patch)}
-    />;
+    return (
+      <Suspense fallback={
+        <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 12.5 }}>
+          Loading…
+        </div>
+      }>
+        <Comp
+          config={it.config || {}} kpis={d.kpis} notifications={notifications}
+          markRead={markRead} markAllRead={markAllRead} dismiss={dismiss} clearAll={clearAllNotifs}
+          updateConfig={(patch) => d.updateWidgetConfig(it.i, patch)}
+        />
+      </Suspense>
+    );
   };
 
   const openName = (opts) => { setMenu(false); setNameModal(opts); };

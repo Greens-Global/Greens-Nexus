@@ -1,8 +1,22 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy } from 'react';
 import {
   ArrowRight, ListTodo, Package, ShieldCheck, Bell, Clock, StickyNote,
   BarChart3, Layers, Zap, Users, ClipboardCheck, CalendarClock, ExternalLink, Boxes, X,
+  ClipboardList, HandCoins, TrendingUp, Building2, FolderKanban, CalendarDays, Timer,
 } from 'lucide-react';
+
+// Heavy panels (ported from the old Overview / Team Analytics screens) load
+// lazily so TimeAdmin & the approval flows stay out of the main bundle.
+const lazyPanel = (name) => lazy(() => import('./panels.jsx').then(m => ({ default: m[name] })));
+const ApprovalsPanel    = lazyPanel('ApprovalsPanel');
+const WhoHasWhatPanel   = lazyPanel('WhoHasWhatPanel');
+const TeamTimePanel     = lazyPanel('TeamTimePanel');
+const OccupancyPanel    = lazyPanel('OccupancyPanel');
+const FacilitiesPanel   = lazyPanel('FacilitiesPanel');
+const TasksPanel        = lazyPanel('TasksPanel');
+const WorkloadPanel     = lazyPanel('WorkloadPanel');
+const ProjectsPanel     = lazyPanel('ProjectsPanel');
+const TeamCalendarPanel = lazyPanel('TeamCalendarPanel');
 
 // Fire the app's cross-view navigation event (see CLAUDE.md).
 export function navigate(view, sub) {
@@ -16,15 +30,15 @@ const CA = (name, a = 0.12) => `hsla(var(--color-${name}),${a})`;
 export const KPI_CATALOG = {
   open_tasks:           { label: 'Open tasks',              color: 'blue',   Icon: ListTodo,      hint: 'Across your team',     nav: { view: 'tasks' } },
   my_open_tasks:        { label: 'My open tasks',           color: 'blue',   Icon: ListTodo,      hint: 'Assigned to you',      nav: { view: 'tasks' } },
-  pending_requisitions: { label: 'Requisitions to approve', color: 'orange', Icon: ClipboardCheck, hint: 'Awaiting approval',   nav: { view: 'manager-dashboard', sub: 'actions' } },
-  pending_inventory:    { label: 'Inventory requests',      color: 'orange', Icon: Package,       hint: 'Awaiting approval',    nav: { view: 'manager-dashboard', sub: 'actions' } },
+  pending_requisitions: { label: 'Requisitions to approve', color: 'orange', Icon: ClipboardCheck, hint: 'Awaiting approval',   nav: { view: 'manager-dashboard' } },
+  pending_inventory:    { label: 'Inventory requests',      color: 'orange', Icon: Package,       hint: 'Awaiting approval',    nav: { view: 'manager-dashboard' } },
   open_purchases:       { label: 'Open purchases',          color: 'purple', Icon: Package,       hint: 'In progress',          nav: { view: 'purchase' } },
   my_checkouts:         { label: 'My active checkouts',     color: 'green',  Icon: Boxes,         hint: 'Currently with you',   nav: { view: 'inventory', sub: 'checkouts' } },
   my_assignments:       { label: 'Items assigned to me',    color: 'green',  Icon: Package,       hint: 'Your equipment',       nav: { view: 'inventory' } },
   unread_notifications: { label: 'Unread notifications',    color: 'blue',   Icon: Bell,          hint: 'Tap to review' },
   warranties_expiring:  { label: 'Warranties expiring',     color: 'red',    Icon: ShieldCheck,   hint: 'Within 60 days',       nav: { view: 'property-asset' } },
-  clocked_in_now:       { label: 'Clocked in now',          color: 'green',  Icon: Users,         hint: 'On the clock now',     nav: { view: 'manager-dashboard', sub: 'team-time' } },
-  time_off_pending:     { label: 'Time off to review',      color: 'orange', Icon: CalendarClock, hint: 'Awaiting your review',  nav: { view: 'manager-dashboard', sub: 'team-time' } },
+  clocked_in_now:       { label: 'Clocked in now',          color: 'green',  Icon: Users,         hint: 'On the clock now',     nav: { view: 'manager-dashboard' } },
+  time_off_pending:     { label: 'Time off to review',      color: 'orange', Icon: CalendarClock, hint: 'Awaiting your review',  nav: { view: 'manager-dashboard' } },
 };
 
 // Curated shortcut destinations for the picker (module + optional sub-screen).
@@ -184,13 +198,16 @@ function QuickActionsWidget() {
   );
 }
 
-function NotificationsWidget({ notifications, markRead, markAllRead, dismiss }) {
+function NotificationsWidget({ notifications, markRead, markAllRead, dismiss, clearAll }) {
   const list = (notifications || []).slice(0, 12);
   const unread = (notifications || []).filter(n => !n.read).length;
   return (
     <DashCard title="Notifications" sub={unread ? `${unread} unread` : 'All caught up'}
-      action={unread > 0 && markAllRead ? (
-        <button onClick={markAllRead} className="link-btn" style={{ marginTop: 0 }}>Mark all read</button>
+      action={list.length > 0 ? (
+        <span style={{ display: 'inline-flex', gap: 12 }}>
+          {unread > 0 && markAllRead && <button onClick={markAllRead} className="link-btn" style={{ marginTop: 0 }}>Mark all read</button>}
+          {clearAll && <button onClick={clearAll} className="link-btn" style={{ marginTop: 0, color: 'hsl(var(--color-red))' }}>Clear all</button>}
+        </span>
       ) : <Bell size={15} style={{ color: 'var(--muted)' }} />}>
       {list.length === 0 ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>You're all caught up.</div>
@@ -271,6 +288,17 @@ export const WIDGETS = {
   'team-attendance': { title: 'Team clocked-in', cat: 'Team',  icon: Users,        size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'clocked_in_now' }} />, minRole: 'supervisor' },
   'team-approvals':  { title: 'Team approvals',  cat: 'Team',  icon: ClipboardCheck, size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'pending_requisitions' }} />, minRole: 'manager' },
   'time-off':        { title: 'Time off to review', cat: 'Team', icon: CalendarClock, size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'time_off_pending' }} />, minRole: 'manager' },
+
+  // ── Panels ported from the old Overview / Team Analytics screens ──
+  approvals:       { title: 'Pending approvals',  cat: 'Team',      icon: ClipboardList, size: { w: 8, h: 5 }, limits: { minW: 6, minH: 4, maxW: 12, maxH: 8 }, render: ApprovalsPanel,    minRole: 'manager' },
+  'who-has-what':  { title: 'Who has what',       cat: 'Team',      icon: HandCoins,     size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: WhoHasWhatPanel,   minRole: 'supervisor' },
+  'team-time':     { title: 'Team time',          cat: 'Team',      icon: Timer,         size: { w: 12, h: 6 }, limits: { minW: 8, minH: 5, maxW: 12, maxH: 8 }, render: TeamTimePanel,     minRole: 'manager' },
+  'team-workload': { title: 'Workload by employee', cat: 'Team',    icon: Users,         size: { w: 6, h: 5 }, limits: { minW: 4, minH: 4, maxW: 8, maxH: 8 },  render: WorkloadPanel,     minRole: 'supervisor' },
+  'team-projects': { title: 'Project-wise tasks', cat: 'Team',      icon: FolderKanban,  size: { w: 6, h: 4 }, limits: { minW: 4, minH: 3, maxW: 8, maxH: 7 },  render: ProjectsPanel,     minRole: 'supervisor' },
+  'team-calendar': { title: 'Team calendar',      cat: 'Team',      icon: CalendarDays,  size: { w: 6, h: 3 }, limits: { minW: 4, minH: 3, maxW: 12, maxH: 5 }, render: TeamCalendarPanel, minRole: 'supervisor' },
+  occupancy:       { title: 'Occupancy trend',    cat: 'Portfolio', icon: TrendingUp,    size: { w: 6, h: 4 }, limits: { minW: 4, minH: 3, maxW: 9, maxH: 6 },  render: OccupancyPanel },
+  facilities:      { title: 'Facilities',         cat: 'Portfolio', icon: Building2,     size: { w: 6, h: 4 }, limits: { minW: 4, minH: 3, maxW: 12, maxH: 7 }, render: FacilitiesPanel },
+  'tasks-list':    { title: 'Tasks overview',     cat: 'Portfolio', icon: ListTodo,      size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 6 },  render: TasksPanel },
 };
 
 // Clamp a layout item to its widget's limits (also keeps it inside the 12-col grid).

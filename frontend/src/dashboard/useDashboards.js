@@ -19,10 +19,11 @@ const DEFAULTS = {
     { i: 'm1', type: 'team-attendance', x: 0, y: 0, w: 3, h: 2 },
     { i: 'm2', type: 'team-approvals',  x: 3, y: 0, w: 3, h: 2 },
     { i: 'm3', type: 'kpi',             x: 6, y: 0, w: 3, h: 2, config: { metric: 'pending_inventory' } },
-    { i: 'm4', type: 'kpi',             x: 9, y: 0, w: 3, h: 2, config: { metric: 'open_tasks' } },
-    { i: 'm5', type: 'kpi-bar',         x: 0, y: 2, w: 4, h: 4 },
-    { i: 'm6', type: 'notifications',   x: 4, y: 2, w: 4, h: 4 },
-    { i: 'm7', type: 'links',           x: 8, y: 2, w: 4, h: 4 },
+    { i: 'm4', type: 'kpi',             x: 9, y: 0, w: 3, h: 2, config: { metric: 'time_off_pending' } },
+    { i: 'm8', type: 'approvals',       x: 0, y: 2, w: 8, h: 5 },
+    { i: 'm6', type: 'notifications',   x: 8, y: 2, w: 4, h: 5 },
+    { i: 'm9', type: 'who-has-what',    x: 0, y: 7, w: 8, h: 5 },
+    { i: 'm7', type: 'links',           x: 8, y: 7, w: 4, h: 5 },
   ],
 };
 
