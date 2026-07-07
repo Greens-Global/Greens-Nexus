@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
-import { WIDGETS } from './widgets.jsx';
+import { WIDGETS, clampToLimits } from './widgets.jsx';
 
 // Sensible starting layouts so a brand-new user never sees an empty screen.
 const DEFAULTS = {
@@ -42,13 +42,12 @@ export function useDashboards(target) {
   layoutRef.current = layout;
 
   const applyView = useCallback((view) => {
-    if (view && Array.isArray(view.layout) && view.layout.length) {
-      setActiveId(view.id);
-      setLayoutState(view.layout);
-    } else {
-      setActiveId(view?.id ?? null);
-      setLayoutState(view?.layout?.length ? view.layout : (DEFAULTS[target] || []));
-    }
+    // clampToLimits normalizes layouts saved before per-widget size caps existed
+    // (e.g. a KPI tile stretched over half the page).
+    const items = (view && Array.isArray(view.layout) && view.layout.length)
+      ? view.layout : (DEFAULTS[target] || []);
+    setActiveId(view?.id ?? null);
+    setLayoutState(items.map(clampToLimits));
     setDirty(false);
   }, [target]);
 

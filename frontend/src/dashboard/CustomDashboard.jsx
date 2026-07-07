@@ -171,6 +171,7 @@ export default function CustomDashboard({ target }) {
           renderWidget={renderWidget}
           onRemove={d.removeWidget}
           onConfigure={(it) => WIDGETS[it.type]?.configurable ? setConfigItem(it) : null}
+          limitsFor={(it) => WIDGETS[it.type]?.limits}
         />
       )}
 

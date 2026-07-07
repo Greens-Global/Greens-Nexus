@@ -12,7 +12,7 @@ const GAP = 14;
 const MOBILE_BP = 700;
 const MIN_W = 2, MIN_H = 2, MAX_H = 8;
 
-export default function DashboardGrid({ layout, editing, onLayoutChange, renderWidget, onRemove, onConfigure }) {
+export default function DashboardGrid({ layout, editing, onLayoutChange, renderWidget, onRemove, onConfigure, limitsFor }) {
   const ref = useRef(null);
   const [width, setWidth] = useState(1000);
   const [drag, setDrag] = useState(null);   // live drag/resize session
@@ -36,6 +36,11 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
     e.preventDefault(); e.stopPropagation();
     const sx = e.clientX, sy = e.clientY;
     const base = { ox: it.x, oy: it.y, ow: it.w, oh: it.h };
+    // Per-widget resize bounds (falls back to grid-wide MIN/MAX).
+    const lim = limitsFor?.(it) || {};
+    const minW = lim.minW ?? MIN_W, minH = lim.minH ?? MIN_H;
+    const maxW = Math.min(lim.maxW ?? COLS, COLS - base.ox);
+    const maxH = lim.maxH ?? MAX_H;
     setDrag({ i: it.i, curX: it.x, curY: it.y, curW: it.w, curH: it.h });
 
     const move = (ev) => {
@@ -49,8 +54,8 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
             curY: Math.max(0, base.oy + dy) };
         }
         return { ...prev,
-          curW: Math.min(Math.max(MIN_W, base.ow + dx), COLS - base.ox),
-          curH: Math.min(MAX_H, Math.max(MIN_H, base.oh + dy)) };
+          curW: Math.min(Math.max(minW, base.ow + dx), maxW),
+          curH: Math.min(maxH, Math.max(minH, base.oh + dy)) };
       });
     };
     const up = () => {
@@ -85,10 +90,14 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
   return (
     <div ref={ref} style={{ position: 'relative', width: '100%', height: maxRow * ROW_H,
       transition: drag ? 'none' : 'height 0.15s',
+      // Edit mode: a soft dot at every grid intersection reads as "snap points"
+      // without the noisy full-height column lines.
       backgroundImage: editing
-        ? `repeating-linear-gradient(to right, transparent 0 calc(${100 / COLS}% - 1px), var(--line) calc(${100 / COLS}% - 1px) ${100 / COLS}%)`
+        ? 'radial-gradient(circle, var(--line) 1.5px, transparent 1.5px)'
         : 'none',
-      backgroundSize: `100% ${ROW_H}px` }}>
+      backgroundSize: `${unitW}px ${ROW_H}px`,
+      backgroundPosition: `${unitW / 2}px ${ROW_H / 2}px`,
+      borderRadius: 16 }}>
       {eff.map(it => (
         <div key={it.i} style={{
           position: 'absolute', left: it.x * unitW, top: it.y * ROW_H,
@@ -116,7 +125,7 @@ function Card({ it, editing, onRemove, onConfigure, renderWidget, startDrag, dra
       </div>
       {editing && (
         <div style={{ position: 'absolute', inset: 0, borderRadius: 16, pointerEvents: 'none',
-          outline: '2px dashed hsla(var(--color-blue),0.45)', outlineOffset: -2 }} />
+          boxShadow: 'inset 0 0 0 1.5px hsla(var(--color-blue),0.35)' }} />
       )}
       {editing && (
         <div style={{ position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 1,

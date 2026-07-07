@@ -242,16 +242,29 @@ function ClockWidget() {
 
 // ── Registry ──────────────────────────────────────────────────────────────────
 // target: undefined = both dashboards; minRole gates the gallery.
+// limits bound how far each widget can be resized — enforced during drag AND
+// re-applied to saved layouts on load, so a stat tile can never balloon.
+const STAT_LIMITS = { minW: 2, minH: 2, maxW: 4, maxH: 3 };
 export const WIDGETS = {
-  kpi:           { title: 'KPI stat',        cat: 'Metrics',   icon: BarChart3,    size: { w: 3, h: 2 }, render: KpiWidget,          configurable: 'kpi' },
-  'kpi-bar':     { title: 'KPI bar chart',   cat: 'Metrics',   icon: BarChart3,    size: { w: 4, h: 3 }, render: KpiBarWidget },
-  shortcut:      { title: 'Shortcut tile',   cat: 'Navigation', icon: Layers,      size: { w: 3, h: 2 }, render: ShortcutWidget,     configurable: 'shortcut' },
-  links:         { title: 'Quick links',     cat: 'Navigation', icon: ExternalLink, size: { w: 3, h: 4 }, render: LinksWidget },
-  'quick-actions': { title: 'Quick actions', cat: 'Navigation', icon: Zap,         size: { w: 3, h: 3 }, render: QuickActionsWidget },
-  notifications: { title: 'Notifications',   cat: 'Live',      icon: Bell,         size: { w: 4, h: 4 }, render: NotificationsWidget },
-  clock:         { title: 'Clock & greeting', cat: 'Utility',  icon: Clock,        size: { w: 3, h: 3 }, render: ClockWidget },
-  notes:         { title: 'Notes',           cat: 'Utility',   icon: StickyNote,   size: { w: 3, h: 3 }, render: NotesWidget },
-  'team-attendance': { title: 'Team clocked-in', cat: 'Team',  icon: Users,        size: { w: 3, h: 2 }, render: (p) => <TeamStatWidget {...p} config={{ metric: 'clocked_in_now' }} />, minRole: 'supervisor' },
-  'team-approvals':  { title: 'Team approvals',  cat: 'Team',  icon: ClipboardCheck, size: { w: 3, h: 2 }, render: (p) => <TeamStatWidget {...p} config={{ metric: 'pending_requisitions' }} />, minRole: 'manager' },
-  'time-off':        { title: 'Time off to review', cat: 'Team', icon: CalendarClock, size: { w: 3, h: 2 }, render: (p) => <TeamStatWidget {...p} config={{ metric: 'time_off_pending' }} />, minRole: 'manager' },
+  kpi:           { title: 'KPI stat',        cat: 'Metrics',   icon: BarChart3,    size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: KpiWidget,          configurable: 'kpi' },
+  'kpi-bar':     { title: 'KPI bar chart',   cat: 'Metrics',   icon: BarChart3,    size: { w: 4, h: 3 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 5 }, render: KpiBarWidget },
+  shortcut:      { title: 'Shortcut tile',   cat: 'Navigation', icon: Layers,      size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: ShortcutWidget,     configurable: 'shortcut' },
+  links:         { title: 'Quick links',     cat: 'Navigation', icon: ExternalLink, size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksWidget },
+  'quick-actions': { title: 'Quick actions', cat: 'Navigation', icon: Zap,         size: { w: 3, h: 3 }, limits: { minW: 3, minH: 2, maxW: 6, maxH: 4 }, render: QuickActionsWidget },
+  notifications: { title: 'Notifications',   cat: 'Live',      icon: Bell,         size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: NotificationsWidget },
+  clock:         { title: 'Clock & greeting', cat: 'Utility',  icon: Clock,        size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 4 }, render: ClockWidget },
+  notes:         { title: 'Notes',           cat: 'Utility',   icon: StickyNote,   size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 6, maxH: 6 }, render: NotesWidget },
+  'team-attendance': { title: 'Team clocked-in', cat: 'Team',  icon: Users,        size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'clocked_in_now' }} />, minRole: 'supervisor' },
+  'team-approvals':  { title: 'Team approvals',  cat: 'Team',  icon: ClipboardCheck, size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'pending_requisitions' }} />, minRole: 'manager' },
+  'time-off':        { title: 'Time off to review', cat: 'Team', icon: CalendarClock, size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'time_off_pending' }} />, minRole: 'manager' },
 };
+
+// Clamp a layout item to its widget's limits (also keeps it inside the 12-col grid).
+export function clampToLimits(it) {
+  const lim = WIDGETS[it.type]?.limits || {};
+  const w = Math.min(Math.max(it.w, lim.minW ?? 2), lim.maxW ?? 12);
+  const h = Math.min(Math.max(it.h, lim.minH ?? 2), lim.maxH ?? 8);
+  const x = Math.min(Math.max(0, it.x), 12 - w);
+  const y = Math.max(0, it.y);
+  return (w === it.w && h === it.h && x === it.x && y === it.y) ? it : { ...it, w, h, x, y };
+}
