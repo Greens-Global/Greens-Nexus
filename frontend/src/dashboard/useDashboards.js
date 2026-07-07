@@ -29,26 +29,50 @@ const DEFAULTS = {
 
 const rid = () => `w${Math.random().toString(36).slice(2, 8)}`;
 
+const COLS = 12;
+
 const collides = (a, b) =>
   a.i !== b.i && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
-// Auto-fit: compact the layout — every widget slides up as far as it can, then
-// left, repeatedly, so blank pockets collapse. Deterministic: items are placed
-// in reading order (top-left first).
-export function compactLayout(items) {
-  const sorted = [...items].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+// Place items one by one at the topmost-leftmost free spot — unlike a plain
+// "slide up/left", an item can jump across columns into a hole.
+function placeAll(order) {
   const placed = [];
-  for (const it of sorted) {
-    const cur = { ...it };
-    let moved = true;
-    while (moved) {
-      moved = false;
-      while (cur.y > 0 && !placed.some(p => collides({ ...cur, y: cur.y - 1 }, p))) { cur.y--; moved = true; }
-      while (cur.x > 0 && !placed.some(p => collides({ ...cur, x: cur.x - 1 }, p))) { cur.x--; moved = true; }
+  for (const it of order) {
+    const w = Math.max(1, Math.min(it.w || 2, COLS));
+    const h = Math.max(1, it.h || 2);
+    let done = false;
+    for (let y = 0; y < 500 && !done; y++) {
+      for (let x = 0; x <= COLS - w && !done; x++) {
+        const cand = { ...it, x, y, w, h };
+        if (!placed.some(p => collides(cand, p))) { placed.push(cand); done = true; }
+      }
     }
-    placed.push(cur);
+    if (!done) placed.push({ ...it, x: 0, w, h });   // unreachable backstop
   }
-  return items.map(it => placed.find(p => p.i === it.i) || it);
+  return placed;
+}
+
+// Auto-fit: true bin-packing. Tries several orderings — reading order (keeps
+// the user's arrangement), biggest-area-first and tallest-first (pack better
+// when sizes vary) — and picks the one with the shortest board; ties go to the
+// result that moved widgets the least. Deterministic, never overlaps.
+export function compactLayout(items) {
+  if (!items.length) return items;
+  const reading = [...items].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  const byArea  = [...items].sort((a, b) => (b.w * b.h - a.w * a.h) || (a.y - b.y) || (a.x - b.x));
+  const byH     = [...items].sort((a, b) => (b.h - a.h) || (b.w - a.w) || (a.y - b.y) || (a.x - b.x));
+  const score = (placed) => {
+    const height = Math.max(...placed.map(p => p.y + p.h));
+    const moved = placed.reduce((s, p) => {
+      const o = items.find(i => i.i === p.i);
+      return s + Math.abs(p.x - o.x) + Math.abs(p.y - o.y);
+    }, 0);
+    return height * 10000 + moved;   // height dominates; displacement tie-breaks
+  };
+  const best = [reading, byArea, byH].map(placeAll)
+    .reduce((a, b) => (score(b) < score(a) ? b : a));
+  return items.map(it => best.find(p => p.i === it.i) || it);
 }
 
 export function useDashboards(target) {
