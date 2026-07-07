@@ -649,8 +649,54 @@ def list_self_requests(status: str = "", user: dict = Depends(require_hr_read), 
     rows = q.order_by(HrSelfRequest.created_at.desc()).limit(200).all()
     return [{"id": r.id, "email": r.employee_email, "name": r.employee_name,
              "type": r.type, "message": r.message, "status": r.status,
+             "attachmentName": r.attachment_name or "",
              "response": r.response or "", "resolvedBy": r.resolved_by or "",
              "resolvedAt": r.resolved_at or "", "createdAt": r.created_at} for r in rows]
+
+
+@router.get("/requests/{rid}/attachment-url")
+def self_request_attachment_url(rid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    r = db.query(HrSelfRequest).filter(HrSelfRequest.id == rid).first()
+    if not r or not r.attachment_path:
+        raise HTTPException(404, "No attachment")
+    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{r.attachment_path}",
+                      headers=_storage_headers(), json={"expiresIn": 300}, timeout=15)
+    if not resp.is_success:
+        raise HTTPException(502, "Could not sign URL")
+    return {"url": f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}", "expiresIn": 300}
+
+
+class AttachToEmployeeIn(BaseModel):
+    kind: str = "other"
+
+
+@router.post("/requests/{rid}/attach-to-employee")
+def attach_request_to_employee(rid: str, body: AttachToEmployeeIn,
+                               user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """One click: copy the employee's attached file into their official HR
+    document set (storage copy + HrDocument row) — nothing to re-upload."""
+    r = db.query(HrSelfRequest).filter(HrSelfRequest.id == rid).first()
+    if not r or not r.attachment_path:
+        raise HTTPException(404, "No attachment on this request")
+    emp = (db.query(NexusEmployee)
+           .filter(func.lower(NexusEmployee.work_email) == r.employee_email.lower()).first())
+    if not emp:
+        raise HTTPException(404, "No employee record for this request")
+    kind = body.kind if body.kind in _DOC_KINDS else "other"
+    fname = r.attachment_name or "document"
+    dest = f"{emp.id}/{uuid.uuid4()}-{re.sub(r'[^a-zA-Z0-9._-]', '_', fname)}"
+    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/copy",
+                      headers={**_storage_headers(), "Content-Type": "application/json"},
+                      json={"bucketId": _DOC_BUCKET, "sourceKey": r.attachment_path,
+                            "destinationKey": dest}, timeout=30)
+    if not resp.is_success:
+        raise HTTPException(502, f"Storage copy failed: {resp.text[:200]}")
+    row = HrDocument(id=str(uuid.uuid4()), employee_id=emp.id, kind=kind,
+                     file_name=fname, storage_path=dest, size_bytes=0, expires_on="",
+                     uploaded_by=user["email"], created_at=datetime.now(timezone.utc).isoformat())
+    db.add(row)
+    db.commit()
+    return _ser_doc(row)
 
 
 class ResolveRequestIn(BaseModel):

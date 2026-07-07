@@ -795,6 +795,8 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
   const [resolving, setResolving] = useState(null);   // request id with the reply box open
   const [response, setResponse] = useState('');
   const [busy, setBusy] = useState(false);
+  const [filedKind, setFiledKind] = useState('other');
+  const [filed, setFiled] = useState({});             // request id -> true once added to docs
   useEffect(() => { api.hrSelfRequests().then(setReqs).catch(() => {}); }, []);
   const open = reqs.filter(r => r.status === 'open');
   if (open.length === 0) return null;
@@ -809,6 +811,17 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
     } catch (e) { toastErr?.(e?.message || 'Could not resolve'); }
     finally { setBusy(false); }
   };
+  const viewAttachment = async (id) => {
+    try { const { url } = await api.hrSelfRequestAttachmentUrl(id); window.open(url, '_blank', 'noopener'); }
+    catch (e) { toastErr?.(e?.message || 'Could not open attachment'); }
+  };
+  const fileAttachment = async (id) => {
+    try {
+      await api.hrSelfRequestAttachToEmployee(id, filedKind);
+      setFiled(p => ({ ...p, [id]: true }));
+      toastOk?.("Added to the employee's documents");
+    } catch (e) { toastErr?.(e?.message || 'Could not add to documents'); }
+  };
   return (
     <div style={{ border: '1px solid hsla(var(--color-blue),0.25)', borderRadius: 12, background: 'hsla(var(--color-blue),0.03)', padding: '14px 16px', marginBottom: 18 }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-blue))', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 10 }}>
@@ -822,6 +835,32 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{r.name}</span>
                 <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {TYPE_LABEL[r.type] || r.type} · {r.createdAt?.slice(0, 10)}</span>
                 <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 3 }}>{r.message}</div>
+                {r.attachmentName && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7, flexWrap: 'wrap' }}>
+                    <button onClick={() => viewAttachment(r.id)}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-blue))', fontSize: 12, fontWeight: 600, fontFamily: 'Inter,sans-serif', padding: 0 }}>
+                      <FileText size={12} /> {r.attachmentName}
+                    </button>
+                    {filed[r.id] ? (
+                      <span style={{ fontSize: 11.5, color: 'hsl(var(--color-green))', fontWeight: 600 }}>✓ Added to their documents</span>
+                    ) : (
+                      <>
+                        <select className="form-input" value={filedKind} onChange={e => setFiledKind(e.target.value)}
+                          style={{ fontSize: 11.5, padding: '3px 22px 3px 8px', height: 'auto' }}>
+                          <option value="id">ID</option>
+                          <option value="contract">Contract</option>
+                          <option value="certificate">Certificate</option>
+                          <option value="resume">Resume</option>
+                          <option value="other">Other</option>
+                        </select>
+                        <button className="secondary-btn" style={{ fontSize: 11.5, padding: '4px 10px' }}
+                          onClick={() => fileAttachment(r.id)}>
+                          Add to employee documents
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
               {resolving !== r.id && (
                 <button className="secondary-btn" style={{ fontSize: 12, padding: '5px 12px', flexShrink: 0 }}

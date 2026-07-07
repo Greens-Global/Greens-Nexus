@@ -12,7 +12,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -166,6 +166,7 @@ def _hr_team_emails(db: Session) -> list:
 def _ser_req(r: HrSelfRequest) -> dict:
     return {"id": r.id, "email": r.employee_email, "name": r.employee_name,
             "type": r.type, "message": r.message, "status": r.status,
+            "attachmentName": r.attachment_name or "",
             "response": r.response or "", "resolvedBy": r.resolved_by or "",
             "resolvedAt": r.resolved_at or "", "createdAt": r.created_at}
 
@@ -173,6 +174,27 @@ def _ser_req(r: HrSelfRequest) -> dict:
 class AskHrIn(BaseModel):
     type: str = "document"
     message: str
+    attachment_path: Optional[str] = ""
+    attachment_name: Optional[str] = ""
+
+
+@router.post("/requests/attachment")
+async def upload_request_attachment(file: UploadFile = File(...),
+                                    user: dict = Depends(get_current_user)):
+    """Stage the document an employee wants HR to file — uploaded to the private
+    hr-docs bucket, referenced by the request created right after."""
+    data = await file.read()
+    if len(data) > 15 * 1024 * 1024:
+        raise HTTPException(400, "File too large (max 15 MB)")
+    import re as _re
+    safe = _re.sub(r"[^a-zA-Z0-9._-]", "_", file.filename or "document")
+    path = f"self-requests/{user['email'].lower()}/{uuid.uuid4()}-{safe}"
+    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
+                      headers={**_storage_headers(), "Content-Type": file.content_type or "application/octet-stream"},
+                      content=data, timeout=60)
+    if not resp.is_success:
+        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    return {"path": path, "name": file.filename or safe}
 
 
 @router.post("/requests")
@@ -182,10 +204,15 @@ def create_request(body: AskHrIn, user: dict = Depends(get_current_user), db: Se
     msg = (body.message or "").strip()
     if not msg:
         raise HTTPException(400, "Say what you need from HR")
+    # Only accept attachment paths this user staged themselves.
+    apath = (body.attachment_path or "").strip()
+    if apath and not apath.startswith(f"self-requests/{user['email'].lower()}/"):
+        raise HTTPException(400, "Bad attachment")
     e = _me(db, user["email"])
     name = f"{e.first_name} {e.last_name}".strip() or user["email"]
     row = HrSelfRequest(id=str(uuid.uuid4()), employee_email=user["email"].lower(),
                         employee_name=name, type=body.type, message=msg[:2000],
+                        attachment_path=apath, attachment_name=(body.attachment_name or "")[:200],
                         status="open", created_at=_now())
     db.add(row)
     # One targeted notification per HR-team member (server-side only).

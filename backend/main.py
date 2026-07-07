@@ -193,6 +193,8 @@ def _run_migrations():
         "ALTER TABLE shifts ADD COLUMN IF NOT EXISTS code TEXT DEFAULT ''",
         "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS teams_chat_id TEXT DEFAULT ''",
         "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS teams_chat_name TEXT DEFAULT ''",
+        "ALTER TABLE hr_self_requests ADD COLUMN IF NOT EXISTS attachment_path TEXT DEFAULT ''",
+        "ALTER TABLE hr_self_requests ADD COLUMN IF NOT EXISTS attachment_name TEXT DEFAULT ''",
     ]
     with engine.connect() as conn:
         for sql in migrations:

@@ -1196,6 +1196,8 @@ class HrSelfRequest(Base):
     employee_name  = Column(String, default="")
     type           = Column(String, default="document")  # document | profile | question | other
     message        = Column(String, default="")
+    attachment_path = Column(String, default="")         # hr-docs object the employee attached
+    attachment_name = Column(String, default="")
     status         = Column(String, default="open")      # open | resolved
     response       = Column(String, default="")
     resolved_by    = Column(String, default="")

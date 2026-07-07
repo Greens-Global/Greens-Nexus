@@ -32,6 +32,25 @@ const fmtD = (iso) => iso ? new Date(iso + (iso.length === 10 ? 'T00:00:00' : ''
 const hm = (min) => `${Math.floor((min || 0) / 60)}h ${String((min || 0) % 60).padStart(2, '0')}m`;
 const fmtT = (v) => !v ? '—' : (String(v).includes('T') ? new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : v);
 
+// Hours range filter — start/end in local time, ISO date keys.
+const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const HOUR_RANGES = [
+  ['week',     'This week'],
+  ['lastweek', 'Last week'],
+  ['14d',      'Last 14 days'],
+  ['month',    'This month'],
+  ['30d',      'Last 30 days'],
+];
+function rangeBounds(range) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const monday = new Date(today); monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+  if (range === 'week')     return { start: monday, end: today };
+  if (range === 'lastweek') { const s = new Date(monday); s.setDate(monday.getDate() - 7); const e = new Date(monday); e.setDate(monday.getDate() - 1); return { start: s, end: e }; }
+  if (range === 'month')    return { start: new Date(today.getFullYear(), today.getMonth(), 1), end: today };
+  if (range === '30d')      { const s = new Date(today); s.setDate(today.getDate() - 29); return { start: s, end: today }; }
+  const s = new Date(today); s.setDate(today.getDate() - 13); return { start: s, end: today };
+}
+
 function Row({ Icon, label, value }) {
   if (!value) return null;
   return (
@@ -57,9 +76,9 @@ function Stat({ label, value, hint, color, Icon }) {
   );
 }
 
-// 14-day worked-hours bar chart (same dependency-free SVG idiom as the
-// dashboard's occupancy chart).
-function HoursChart({ days }) {
+// Worked-hours bar chart over any date range (same dependency-free SVG idiom
+// as the dashboard's occupancy chart).
+function HoursChart({ days, start, end }) {
   const ref = useRef(null);
   const [w, setW] = useState(420);
   const [hov, setHov] = useState(null);
@@ -70,17 +89,22 @@ function HoursChart({ days }) {
     return () => ro.disconnect();
   }, []);
 
-  // Build a continuous 14-day series ending today.
+  // Continuous day series across the selected range.
   const series = [];
-  for (let i = 13; i >= 0; i--) {
-    const d = new Date(Date.now() - i * 86400000);
-    const key = d.toISOString().slice(0, 10);
-    series.push({ key, day: d.toLocaleDateString('en-US', { weekday: 'narrow' }), min: days?.[key]?.workedMin || 0 });
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const key = iso(d);
+    series.push({ key, date: new Date(d), min: days?.[key]?.workedMin || 0 });
   }
+  const n = series.length || 1;
+  // Short ranges label every day by weekday; long ones label every k-th day of month.
+  const labelEvery = n <= 9 ? 1 : Math.ceil(n / 10);
+  const label = (s, i) => (i % labelEvery !== 0) ? '' : (n <= 9
+    ? s.date.toLocaleDateString('en-US', { weekday: 'short' })
+    : String(s.date.getDate()));
   const h = 150, padB = 20, padT = 26;
   const max = Math.max(60 * 8, ...series.map(s => s.min));
-  const bw = Math.max(8, Math.min(30, (w - 20) / series.length - 8));
-  const gap = (w - series.length * bw) / (series.length + 1);
+  const bw = Math.max(6, Math.min(34, (w - 20) / n - 6));
+  const gap = (w - n * bw) / (n + 1);
   return (
     <div ref={ref} style={{ width: '100%' }}>
       <svg width={w} height={h} style={{ display: 'block' }}>
@@ -96,11 +120,11 @@ function HoursChart({ days }) {
                 fill={active ? 'hsl(var(--color-blue))' : 'hsla(var(--color-blue),0.35)'}
                 style={{ transition: 'fill 0.15s' }} />
               <text x={x + bw / 2} y={h - 6} textAnchor="middle" fontSize="9.5" fontFamily="Inter,sans-serif"
-                style={{ fill: active ? 'var(--ink)' : 'var(--muted)' }}>{s.day}</text>
+                style={{ fill: active ? 'var(--ink)' : 'var(--muted)' }}>{label(s, i)}</text>
               {active && (
-                <text x={Math.min(Math.max(x + bw / 2, 30), w - 30)} y={14} textAnchor="middle" fontSize="11" fontWeight="700"
+                <text x={Math.min(Math.max(x + bw / 2, 40), w - 40)} y={14} textAnchor="middle" fontSize="11" fontWeight="700"
                   fontFamily="Inter,sans-serif" style={{ fill: 'var(--ink)' }}>
-                  {new Date(s.key + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · {hm(s.min)}
+                  {s.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · {hm(s.min)}
                 </text>
               )}
             </g>
@@ -129,7 +153,17 @@ export default function MyHR() {
   const [loOpen, setLoOpen] = useState(false);
   const [loBusy, setLoBusy] = useState(false);
   const [askForm, setAskForm] = useState({ type: 'document', message: '' });
+  const [askFile, setAskFile] = useState(null);
+  const askFileRef = useRef(null);
   const [askBusy, setAskBusy] = useState(false);
+
+  // ── Card filters ──
+  const [range, setRange] = useState('week');         // hours card + tile
+  const [leaveFilter, setLeaveFilter] = useState('all');
+  const [docQuery, setDocQuery] = useState('');
+  const [stubQuery, setStubQuery] = useState('');
+  const [assetFilter, setAssetFilter] = useState('all');
+  const [askFilter, setAskFilter] = useState('all');
 
   const flash = (t, ok = true) => { setToast({ t, ok }); setTimeout(() => setToast(null), 4000); };
 
@@ -140,11 +174,15 @@ export default function MyHR() {
     api.myPaystubs().then(setStubs).catch(() => {});
     api.myAssets().then(setAssets).catch(() => setAssets({ assignments: [], checkouts: [] }));
     api.myHrRequests().then(setAsks).catch(() => {});
-    const end = new Date();
-    const start = new Date(end.getTime() - 13 * 86400000);
-    const d = (x) => x.toISOString().slice(0, 10);
-    api.timeMy(d(start), d(end)).then(setSheet).catch(() => setSheet({ days: {} }));
   }, []);
+
+  // Hours follow the selected range.
+  const { start: rStart, end: rEnd } = rangeBounds(range);
+  useEffect(() => {
+    setSheet(null);
+    const { start, end } = rangeBounds(range);
+    api.timeMy(iso(start), iso(end)).then(setSheet).catch(() => setSheet({ days: {} }));
+  }, [range]);
 
   const startEdit = () => {
     const em = profile?.personal?.emergency || {};
@@ -186,9 +224,17 @@ export default function MyHR() {
     if (!askForm.message.trim()) return;
     setAskBusy(true);
     try {
-      const created = await api.myHrRequestCreate(askForm);
+      let attachment = {};
+      if (askFile) {
+        const form = new FormData();
+        form.append('file', askFile);
+        attachment = await api.myHrRequestAttach(form);   // { path, name }
+      }
+      const created = await api.myHrRequestCreate({ ...askForm, attachment_path: attachment.path || '', attachment_name: attachment.name || '' });
       setAsks(a => [created, ...a]);
       setAskForm({ type: 'document', message: '' });
+      setAskFile(null);
+      if (askFileRef.current) askFileRef.current.value = '';
       flash('Sent to HR — you’ll hear back here');
     } catch (e) { flash(e?.message || 'Could not send', false); }
     finally { setAskBusy(false); }
@@ -252,7 +298,7 @@ export default function MyHR() {
         <>
           {/* ── Stat tiles ── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14, marginBottom: 16 }}>
-            <Stat label="Hours · 14 days" value={hm(workedTotal)} hint={`${daysWorked} day${daysWorked === 1 ? '' : 's'} worked`} color="blue" Icon={Clock} />
+            <Stat label={`Hours · ${(HOUR_RANGES.find(([v]) => v === range)?.[1] || '').toLowerCase()}`} value={sheet ? hm(workedTotal) : '…'} hint={`${daysWorked} day${daysWorked === 1 ? '' : 's'} worked`} color="blue" Icon={Clock} />
             <Stat label="Leave this year" value={`${leaveDaysThisYear}d`} hint="Approved time off" color="green" Icon={CalendarOff} />
             <Stat label="My documents" value={docs.length} hint="Signed & sealed" color="purple" Icon={FileText} />
             <Stat label="Time at Greens" value={tenure} hint={profile.startDate ? `Since ${fmtD(profile.startDate)}` : ''} color="orange" Icon={Hourglass} />
@@ -335,21 +381,29 @@ export default function MyHR() {
 
               {/* ── My equipment ── */}
               <div className="dash-card">
-                {cardHead('My equipment', 'Assigned to you or checked out', <Package size={15} style={{ color: 'var(--muted)' }} />)}
+                {cardHead('My equipment', 'Assigned to you or checked out',
+                  assets && assets.assignments.length > 0 && assets.checkouts.length > 0 ? (
+                    <select className="form-input" value={assetFilter} onChange={e => setAssetFilter(e.target.value)}
+                      style={{ fontSize: 12, fontWeight: 600, padding: '5px 24px 5px 9px', height: 'auto' }}>
+                      <option value="all">All</option>
+                      <option value="assigned">Assigned</option>
+                      <option value="checkouts">Checkouts</option>
+                    </select>
+                  ) : <Package size={15} style={{ color: 'var(--muted)' }} />)}
                 {!assets ? (
                   <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>
                 ) : assets.assignments.length + assets.checkouts.length === 0 ? (
                   <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>Nothing checked out to you right now.</div>
                 ) : (
                   <div>
-                    {assets.assignments.map((a, i) => (
+                    {(assetFilter === 'checkouts' ? [] : assets.assignments).map((a, i) => (
                       <div key={`a${i}`} onClick={goInventory} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)', cursor: 'pointer' }}>
                         <Package size={14} style={{ color: 'hsl(var(--color-purple))', flexShrink: 0 }} />
                         <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{a.item}</span>
                         <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{a.since ? `since ${fmtD(a.since)}` : 'Permanent'}</span>
                       </div>
                     ))}
-                    {assets.checkouts.map((c, i) => (
+                    {(assetFilter === 'assigned' ? [] : assets.checkouts).map((c, i) => (
                       <div key={`c${i}`} onClick={goInventory} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)', cursor: 'pointer' }}>
                         <Package size={14} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0 }} />
                         <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{c.item}</span>
@@ -365,13 +419,19 @@ export default function MyHR() {
             {/* ── Column 2: hours graph + documents + paystubs ── */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div className="dash-card">
-                {cardHead('My hours', 'Last 14 days — full detail lives in Time Clock',
-                  <span style={{ fontSize: 12.5, color: 'var(--muted)' }}><strong style={{ color: 'var(--ink)' }}>{hm(workedTotal)}</strong> total</span>)}
+                {cardHead('My hours', 'Full detail lives in Time Clock',
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12.5, color: 'var(--muted)' }}><strong style={{ color: 'var(--ink)' }}>{sheet ? hm(workedTotal) : '…'}</strong> total</span>
+                    <select className="form-input" value={range} onChange={e => setRange(e.target.value)}
+                      style={{ fontSize: 12, fontWeight: 600, padding: '5px 24px 5px 9px', height: 'auto' }}>
+                      {HOUR_RANGES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                  </span>)}
                 {!sheet ? (
                   <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>
                 ) : (
                   <>
-                    <HoursChart days={sheet.days} />
+                    <HoursChart days={sheet.days} start={rStart} end={rEnd} />
                     {dayEntries.length > 0 && (
                       <div style={{ marginTop: 8 }}>
                         {dayEntries.sort((a, b) => b[0].localeCompare(a[0])).slice(0, 5).map(([date, d]) => (
@@ -392,10 +452,14 @@ export default function MyHR() {
               </div>
 
               <div className="dash-card">
-                {cardHead('My documents', 'Signed and sealed copies of everything you were part of', <FileText size={15} style={{ color: 'var(--muted)' }} />)}
+                {cardHead('My documents', 'Signed and sealed copies of everything you were part of',
+                  docs.length > 3 ? (
+                    <input className="form-input" placeholder="Search…" value={docQuery} onChange={e => setDocQuery(e.target.value)}
+                      style={{ fontSize: 12, padding: '5px 10px', height: 'auto', width: 130 }} />
+                  ) : <FileText size={15} style={{ color: 'var(--muted)' }} />)}
                 {docs.length === 0 ? (
                   <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No completed documents yet.</div>
-                ) : docs.map(d => (
+                ) : docs.filter(d => !docQuery || (d.title || '').toLowerCase().includes(docQuery.toLowerCase())).map(d => (
                   <div key={d.requestId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
                     <FileText size={15} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -411,10 +475,14 @@ export default function MyHR() {
               </div>
 
               <div className="dash-card">
-                {cardHead('My paystubs', 'Uploaded by HR each pay period', <Banknote size={15} style={{ color: 'var(--muted)' }} />)}
+                {cardHead('My paystubs', 'Uploaded by HR each pay period',
+                  stubs.length > 3 ? (
+                    <input className="form-input" placeholder="Search…" value={stubQuery} onChange={e => setStubQuery(e.target.value)}
+                      style={{ fontSize: 12, padding: '5px 10px', height: 'auto', width: 130 }} />
+                  ) : <Banknote size={15} style={{ color: 'var(--muted)' }} />)}
                 {stubs.length === 0 ? (
                   <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No paystubs yet — they'll appear here when HR uploads them.</div>
-                ) : stubs.map(s => (
+                ) : stubs.filter(s => !stubQuery || (s.name || '').toLowerCase().includes(stubQuery.toLowerCase())).map(s => (
                   <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
                     <Banknote size={15} style={{ color: 'hsl(var(--color-green))', flexShrink: 0 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -434,9 +502,18 @@ export default function MyHR() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div className="dash-card">
                 {cardHead('My leave', 'Time-off requests and their status',
-                  <button className="primary-btn" onClick={() => setLoOpen(o => !o)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '6px 12px' }}>
-                    <Plus size={13} /> Request time off
-                  </button>)}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <select className="form-input" value={leaveFilter} onChange={e => setLeaveFilter(e.target.value)}
+                      style={{ fontSize: 12, fontWeight: 600, padding: '5px 24px 5px 9px', height: 'auto' }}>
+                      <option value="all">All</option>
+                      <option value="pending">Pending</option>
+                      <option value="approved">Approved</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                    <button className="primary-btn" onClick={() => setLoOpen(o => !o)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '6px 12px' }}>
+                      <Plus size={13} /> Request time off
+                    </button>
+                  </span>)}
 
                 {loOpen && (
                   <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: 12, marginBottom: 12, background: 'var(--mist)' }}>
@@ -467,7 +544,7 @@ export default function MyHR() {
 
                 {leave.length === 0 ? (
                   <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>No time-off requests yet.</div>
-                ) : leave.map(r => (
+                ) : leave.filter(r => leaveFilter === 'all' || r.status === leaveFilter).map(r => (
                   <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
                     <CalendarOff size={15} style={{ color: 'var(--muted)', flexShrink: 0 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -492,7 +569,21 @@ export default function MyHR() {
                 <textarea className="form-input" rows={3} style={{ ...input, resize: 'vertical' }} value={askForm.message}
                   placeholder='e.g. "My visa was renewed — please update my right-to-work document."'
                   onChange={e => setAskForm(f => ({ ...f, message: e.target.value }))} />
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+                {/* Optional attachment — the new/updated document itself */}
+                <input ref={askFileRef} type="file" style={{ display: 'none' }}
+                  onChange={e => setAskFile(e.target.files?.[0] || null)} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                  <button className="secondary-btn" onClick={() => askFileRef.current?.click()}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '6px 12px' }}>
+                    <FileText size={13} /> {askFile ? 'Change file' : 'Attach the document'}
+                  </button>
+                  {askFile && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink)', background: 'var(--mist)', borderRadius: 8, padding: '4px 10px', maxWidth: 220 }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{askFile.name}</span>
+                      <X size={12} style={{ cursor: 'pointer', flexShrink: 0 }} onClick={() => { setAskFile(null); if (askFileRef.current) askFileRef.current.value = ''; }} />
+                    </span>
+                  )}
+                  <div style={{ flex: 1 }} />
                   <button className="primary-btn" onClick={submitAsk} disabled={askBusy || !askForm.message.trim()}>
                     {askBusy ? <><Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> Sending…</> : 'Send to HR'}
                   </button>
@@ -500,8 +591,16 @@ export default function MyHR() {
 
                 {asks.length > 0 && (
                   <div style={{ marginTop: 14 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 6 }}>My requests</div>
-                    {asks.map(a => (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <span style={{ flex: 1, fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase' }}>My requests</span>
+                      <select className="form-input" value={askFilter} onChange={e => setAskFilter(e.target.value)}
+                        style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 22px 3px 8px', height: 'auto' }}>
+                        <option value="all">All</option>
+                        <option value="open">Open</option>
+                        <option value="resolved">Resolved</option>
+                      </select>
+                    </div>
+                    {asks.filter(a => askFilter === 'all' || a.status === askFilter).map(a => (
                       <div key={a.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
@@ -510,6 +609,11 @@ export default function MyHR() {
                           {chip(a.status)}
                         </div>
                         <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{a.message}</div>
+                        {a.attachmentName && (
+                          <div style={{ fontSize: 11.5, color: 'hsl(var(--color-blue))', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <FileText size={11} /> {a.attachmentName}
+                          </div>
+                        )}
                         {a.response && (
                           <div style={{ fontSize: 12, color: 'var(--ink)', marginTop: 5, padding: '7px 10px', background: 'var(--mist)', borderRadius: 8 }}>
                             <strong>HR:</strong> {a.response}
