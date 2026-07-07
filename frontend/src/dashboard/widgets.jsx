@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   ArrowRight, ListTodo, Package, ShieldCheck, Bell, Clock, StickyNote,
-  BarChart3, Layers, Zap, Users, ClipboardCheck, CalendarClock, ExternalLink, Boxes,
+  BarChart3, Layers, Zap, Users, ClipboardCheck, CalendarClock, ExternalLink, Boxes, X,
 } from 'lucide-react';
 
 // Fire the app's cross-view navigation event (see CLAUDE.md).
@@ -184,10 +184,14 @@ function QuickActionsWidget() {
   );
 }
 
-function NotificationsWidget({ notifications }) {
-  const list = (notifications || []).slice(0, 8);
+function NotificationsWidget({ notifications, markRead, markAllRead, dismiss }) {
+  const list = (notifications || []).slice(0, 12);
+  const unread = (notifications || []).filter(n => !n.read).length;
   return (
-    <DashCard title="Notifications" action={<Bell size={15} style={{ color: 'var(--muted)' }} />}>
+    <DashCard title="Notifications" sub={unread ? `${unread} unread` : 'All caught up'}
+      action={unread > 0 && markAllRead ? (
+        <button onClick={markAllRead} className="link-btn" style={{ marginTop: 0 }}>Mark all read</button>
+      ) : <Bell size={15} style={{ color: 'var(--muted)' }} />}>
       {list.length === 0 ? (
         <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 4px', textAlign: 'center' }}>You're all caught up.</div>
       ) : (
@@ -195,12 +199,22 @@ function NotificationsWidget({ notifications }) {
           {list.map((n, i) => {
             const act = n.action || {};
             return (
-              <div key={n.id || i} className="task-row" onClick={() => act.view && navigate(act.view, act.sub)}
-                style={{ cursor: act.view ? 'pointer' : 'default', alignItems: 'flex-start' }}>
+              <div key={n.id || i} className="task-row"
+                onClick={() => { if (!n.read && markRead) markRead(n.id); if (act.view) navigate(act.view, act.sub); }}
+                style={{ cursor: 'pointer', alignItems: 'flex-start', gap: 8 }}>
+                {/* unread dot */}
+                <span style={{ width: 7, height: 7, borderRadius: '50%', marginTop: 6, flexShrink: 0,
+                  background: n.read ? 'transparent' : C('blue') }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="task-title">{n.title || 'Notification'}</div>
+                  <div className="task-title" style={{ fontWeight: n.read ? 500 : 600, color: n.read ? 'var(--muted)' : 'var(--ink)' }}>{n.title || 'Notification'}</div>
                   {n.body && <div className="task-dept" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.body}</div>}
                 </div>
+                {dismiss && (
+                  <button onClick={(e) => { e.stopPropagation(); dismiss(n.id); }} title="Clear"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2, flexShrink: 0 }}>
+                    <X size={13} />
+                  </button>
+                )}
               </div>
             );
           })}

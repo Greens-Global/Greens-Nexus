@@ -42,7 +42,7 @@ function NameModal({ title, label = 'View name', initial = '', cta = 'Save', onS
 
 export default function CustomDashboard({ target }) {
   const { can } = useRole();
-  const { notifications } = useNotifications();
+  const { notifications, markRead, markAllRead, dismiss } = useNotifications();
   const d = useDashboards(target);
   const [gallery, setGallery] = useState(false);
   const [configItem, setConfigItem] = useState(null);
@@ -57,13 +57,18 @@ export default function CustomDashboard({ target }) {
   const canEditInPlace = isOwnPersonal || (d.activeView?.scope === 'department' && d.canPublish);
   const canRename      = isOwnPersonal || (d.activeView?.scope === 'department' && d.canPublish);
 
+  // Render each widget as a real component (<Comp/>), never a direct function
+  // call — widgets use hooks, and calling them inline would register those hooks
+  // under this component, crashing when widgets are added/removed.
   const renderWidget = (it) => {
     const def = WIDGETS[it.type];
     if (!def) return <div style={{ padding: 16, fontSize: 12, color: 'var(--muted)' }}>Unknown widget</div>;
-    return def.render({
-      config: it.config || {}, kpis: d.kpis, notifications,
-      updateConfig: (patch) => d.updateWidgetConfig(it.i, patch),
-    });
+    const Comp = def.render;
+    return <Comp
+      config={it.config || {}} kpis={d.kpis} notifications={notifications}
+      markRead={markRead} markAllRead={markAllRead} dismiss={dismiss}
+      updateConfig={(patch) => d.updateWidgetConfig(it.i, patch)}
+    />;
   };
 
   const openName = (opts) => { setMenu(false); setNameModal(opts); };
@@ -117,7 +122,7 @@ export default function CustomDashboard({ target }) {
           <LayoutGrid size={16} />
         </div>
         <select value={d.activeId || ''} onChange={e => d.switchView(e.target.value || null)}
-          className="form-input" style={{ height: 34, fontSize: 13, fontWeight: 600, maxWidth: 260, paddingRight: 28 }}>
+          className="form-input" style={{ fontSize: 13, fontWeight: 600, maxWidth: 260, padding: '8px 28px 8px 12px', lineHeight: 1.4, height: 'auto' }}>
           <option value="">Default layout</option>
           {d.views.filter(v => v.scope === 'personal').length > 0 && (
             <optgroup label="My views">
@@ -142,23 +147,25 @@ export default function CustomDashboard({ target }) {
             <button className="secondary-btn" style={btn} onClick={() => setGallery(true)}><Plus size={14} /> Add widget</button>
             <button className="primary-btn" style={{ ...btn, opacity: d.dirty ? 1 : 0.6 }} onClick={save} disabled={!d.dirty}><Save size={14} /> {d.dirty ? 'Save' : 'Saved'}</button>
             <button className="secondary-btn" style={btn} onClick={() => { d.setEditing(false); d.reload(); }}><X size={14} /> Done</button>
-            <div style={{ position: 'relative' }}>
-              <button className="secondary-btn" style={{ ...btn, padding: '6px 9px' }} onClick={() => setMenu(m => !m)}><MoreHorizontal size={15} /></button>
-              {menu && (
-                <div onMouseLeave={() => setMenu(false)} style={{ position: 'absolute', right: 0, top: 40, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6, zIndex: 50, minWidth: 210 }}>
-                  {menuItems.map((m, i) => (
-                    <button key={i} onClick={m.on} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', fontFamily: 'Inter,sans-serif', color: m.danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-                      <m.icon size={14} /> {m.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
           </>
         ) : (
           <button className="secondary-btn" style={btn} onClick={() => d.setEditing(true)}><Pencil size={14} /> Customize</button>
         )}
+        {/* View actions (rename, default, delete, publish) live outside edit mode
+            too — renaming a view shouldn't require entering Customize. */}
+        <div style={{ position: 'relative' }}>
+          <button className="secondary-btn" style={{ ...btn, padding: '6px 9px' }} onClick={() => setMenu(m => !m)} title="View options"><MoreHorizontal size={15} /></button>
+          {menu && (
+            <div onMouseLeave={() => setMenu(false)} style={{ position: 'absolute', right: 0, top: 40, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6, zIndex: 50, minWidth: 210 }}>
+              {menuItems.map((m, i) => (
+                <button key={i} onClick={m.on} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', fontFamily: 'Inter,sans-serif', color: m.danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                  <m.icon size={14} /> {m.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {d.loading ? (
