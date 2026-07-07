@@ -9,13 +9,14 @@ import {
   CreditCard, Building, Server, FileSpreadsheet, Landmark, BarChart3,
   Users, LogIn, PenTool, Files, Megaphone, Star, ExternalLink,
   Settings, ChevronLeft, ChevronRight,
-  HelpCircle, Store, Calendar, MessageSquare, Package, Clock,
+  HelpCircle, Store, Calendar, MessageSquare, Package, Clock, Contact,
 } from "lucide-react";
 
 // Exported: MobileMenu mirrors this exact order/grouping on phones
 export const NAV = [
   { view: "dashboard",         label: "Dashboard",          icon: LayoutDashboard },
   { view: "timeclock",         label: "Time Clock",         icon: Clock },
+  { view: "myhr",              label: "My HR",              icon: Contact },
   { view: "manager-dashboard", label: "Manager Dashboard",  icon: UserCheck,    minRole: 'supervisor' },
   { divider: true },
   // Tasks + Knowledge Base are baseline: employees work their own tasks and the
