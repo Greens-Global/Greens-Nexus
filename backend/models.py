@@ -1184,3 +1184,20 @@ class DashboardView(Base):
     created_by   = Column(String, default="")
     created_at   = Column(String, default="")
     updated_at   = Column(String, default="")
+
+
+class HrSelfRequest(Base):
+    """Employee → HR ask raised from My HR (update a document, profile change,
+    question). HR members are notified on create and resolve it in the HR
+    module; the employee tracks status + response on My HR."""
+    __tablename__ = "hr_self_requests"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    employee_name  = Column(String, default="")
+    type           = Column(String, default="document")  # document | profile | question | other
+    message        = Column(String, default="")
+    status         = Column(String, default="open")      # open | resolved
+    response       = Column(String, default="")
+    resolved_by    = Column(String, default="")
+    resolved_at    = Column(String, default="")
+    created_at     = Column(String, default="")

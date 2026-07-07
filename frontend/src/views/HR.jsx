@@ -787,6 +787,70 @@ function PayTab({ employee, reloadToken, onEdit }) {
   );
 }
 
+// "Ask HR" inbox — employee self-service requests raised from My HR. Open ones
+// surface at the top of the People tab; resolving notifies the employee and
+// shows your response on their My HR screen.
+function EmployeeRequestsPanel({ toastOk, toastErr }) {
+  const [reqs, setReqs] = useState([]);
+  const [resolving, setResolving] = useState(null);   // request id with the reply box open
+  const [response, setResponse] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api.hrSelfRequests().then(setReqs).catch(() => {}); }, []);
+  const open = reqs.filter(r => r.status === 'open');
+  if (open.length === 0) return null;
+  const TYPE_LABEL = { document: 'Document update', profile: 'Profile change', question: 'Question', other: 'Request' };
+  const resolve = async (id) => {
+    setBusy(true);
+    try {
+      await api.hrSelfRequestResolve(id, { response });
+      setReqs(rs => rs.map(r => r.id === id ? { ...r, status: 'resolved', response } : r));
+      setResolving(null); setResponse('');
+      toastOk?.('Resolved — the employee has been notified');
+    } catch (e) { toastErr?.(e?.message || 'Could not resolve'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div style={{ border: '1px solid hsla(var(--color-blue),0.25)', borderRadius: 12, background: 'hsla(var(--color-blue),0.03)', padding: '14px 16px', marginBottom: 18 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-blue))', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 10 }}>
+        Employee requests — {open.length} open
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {open.map(r => (
+          <div key={r.id} style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', padding: '10px 12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{r.name}</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {TYPE_LABEL[r.type] || r.type} · {r.createdAt?.slice(0, 10)}</span>
+                <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 3 }}>{r.message}</div>
+              </div>
+              {resolving !== r.id && (
+                <button className="secondary-btn" style={{ fontSize: 12, padding: '5px 12px', flexShrink: 0 }}
+                  onClick={() => { setResolving(r.id); setResponse(''); }}>
+                  Resolve
+                </button>
+              )}
+            </div>
+            {resolving === r.id && (
+              <div style={{ marginTop: 8 }}>
+                <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontSize: '0.85rem' }}
+                  placeholder="Reply to the employee (they see this on My HR)…" value={response}
+                  onChange={e => setResponse(e.target.value)} autoFocus />
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
+                  <button className="secondary-btn" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => setResolving(null)} disabled={busy}>Cancel</button>
+                  <button className="primary-btn" style={{ fontSize: 12, padding: '5px 14px' }} onClick={() => resolve(r.id)} disabled={busy}>
+                    {busy ? 'Resolving…' : 'Mark resolved'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
 function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated }) {
   const [provisionOpen, setProvisionOpen] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
@@ -2379,6 +2443,7 @@ export default function HR({ activeSub, onSubChange }) {
       )}
 
       {sub === 'hr-people' && (<>
+        <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />
         {/* KPI strip — skeleton shimmer while loading, never a flash of zeros */}
         <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
           {[['card-blue', 'Total People', counts.total], ['card-green', 'Active', counts.active],

@@ -637,6 +637,47 @@ async def upload_paystub(eid: str, file: UploadFile = File(...), period: str = F
     return _ser_doc(row)
 
 
+# ── Employee requests ("Ask HR" on My HR) — list + resolve ───────────────────
+from models import HrSelfRequest
+
+
+@router.get("/requests")
+def list_self_requests(status: str = "", user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    q = db.query(HrSelfRequest)
+    if status:
+        q = q.filter(HrSelfRequest.status == status)
+    rows = q.order_by(HrSelfRequest.created_at.desc()).limit(200).all()
+    return [{"id": r.id, "email": r.employee_email, "name": r.employee_name,
+             "type": r.type, "message": r.message, "status": r.status,
+             "response": r.response or "", "resolvedBy": r.resolved_by or "",
+             "resolvedAt": r.resolved_at or "", "createdAt": r.created_at} for r in rows]
+
+
+class ResolveRequestIn(BaseModel):
+    response: str = ""
+
+
+@router.patch("/requests/{rid}")
+def resolve_self_request(rid: str, body: ResolveRequestIn,
+                         user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    r = db.query(HrSelfRequest).filter(HrSelfRequest.id == rid).first()
+    if not r:
+        raise HTTPException(404, "Request not found")
+    r.status = "resolved"
+    r.response = (body.response or "").strip()[:2000]
+    r.resolved_by = user["email"]
+    r.resolved_at = datetime.now(timezone.utc).isoformat()
+    # Tell the employee (server-side notification; shows on their bell + My HR).
+    db.add(NexusNotification(
+        id=str(uuid.uuid4()), type="hr_request_resolved", recipient=r.employee_email,
+        title="HR resolved your request",
+        body=(r.response or "Your request to HR has been handled.")[:300],
+        ref_id=r.id, action="", actioned=False, read_by="",
+        created_at=datetime.now(timezone.utc).isoformat()))
+    db.commit()
+    return {"ok": True}
+
+
 # ── Provisioning engine (Phase 4): one click -> M365 account ─────────────────
 
 _AZ_TENANT = os.getenv("AZURE_TENANT_ID", "")

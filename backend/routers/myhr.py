@@ -7,7 +7,8 @@ the HR team; this router is the scoped-to-self counterpart:
   - my signed documents (sealed e-sign PDFs where I was a party)
 Leave (time off) reuses the existing /timeclock/timeoff endpoints.
 """
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import httpx
@@ -18,7 +19,9 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from auth import get_current_user
-from models import NexusEmployee, HrSignRequest, HrSignParty, HrDocument
+from models import (NexusEmployee, HrSignRequest, HrSignParty, HrDocument,
+                    HrSelfRequest, ItemAssignment, ItemCheckout,
+                    NexusGroup, NexusGroupMember, NexusNotification)
 from routers.hr import _SUPABASE_URL, _storage_headers, _DOC_BUCKET
 from routers.esign import _log
 
@@ -111,6 +114,97 @@ def my_documents(user: dict = Depends(get_current_user), db: Session = Depends(g
         out.append({"requestId": req.id, "title": req.title, "from": req.created_by,
                     "completedAt": req.completed_at, "signedByMe": p.status == "signed"})
     return sorted(out, key=lambda x: x["completedAt"] or "", reverse=True)
+
+
+# ── My equipment — items assigned / checked out to me ────────────────────────
+
+@router.get("/assets")
+def my_assets(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    email = user["email"].lower()
+    assignments = (db.query(ItemAssignment)
+                   .filter(func.lower(ItemAssignment.assignee_email) == email,
+                           ItemAssignment.status == "active")
+                   .order_by(ItemAssignment.accepted_at.desc()).all())
+    checkouts = (db.query(ItemCheckout)
+                 .filter(func.lower(ItemCheckout.requested_by_email) == email,
+                         ItemCheckout.status.in_(["approved", "allocated", "pending_receipt"]))
+                 .order_by(ItemCheckout.created_at.desc()).all())
+    def due_of(c):
+        start = c.allocated_at or c.created_at
+        if not start or c.status != "allocated":
+            return ""
+        try:
+            return (datetime.fromisoformat(start.replace("Z", "+00:00"))
+                    + timedelta(days=c.days or 1)).strftime("%Y-%m-%d")
+        except Exception:
+            return ""
+    return {
+        "assignments": [{"item": a.item_name, "since": (a.accepted_at or "")[:10]} for a in assignments],
+        "checkouts": [{"item": c.item_name, "status": c.status, "due": due_of(c)} for c in checkouts],
+    }
+
+
+# ── Ask HR — employee requests (document updates, profile changes, questions) ─
+
+_REQ_TYPES = ("document", "profile", "question", "other")
+_REQ_LABEL = {"document": "Document update", "profile": "Profile change",
+              "question": "Question", "other": "Request"}
+
+
+def _hr_team_emails(db: Session) -> list:
+    """Everyone in an Access Group that grants the hr module — the audience for
+    'Ask HR' notifications. Falls back to empty (request still lands in the HR
+    module's Requests panel)."""
+    out = set()
+    for g in db.query(NexusGroup).all():
+        if "hr:" in (g.allowed_modules or ""):
+            for m in db.query(NexusGroupMember).filter(NexusGroupMember.group_id == g.id).all():
+                out.add(m.email.lower())
+    return sorted(out)
+
+
+def _ser_req(r: HrSelfRequest) -> dict:
+    return {"id": r.id, "email": r.employee_email, "name": r.employee_name,
+            "type": r.type, "message": r.message, "status": r.status,
+            "response": r.response or "", "resolvedBy": r.resolved_by or "",
+            "resolvedAt": r.resolved_at or "", "createdAt": r.created_at}
+
+
+class AskHrIn(BaseModel):
+    type: str = "document"
+    message: str
+
+
+@router.post("/requests")
+def create_request(body: AskHrIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if body.type not in _REQ_TYPES:
+        raise HTTPException(400, f"type must be one of {_REQ_TYPES}")
+    msg = (body.message or "").strip()
+    if not msg:
+        raise HTTPException(400, "Say what you need from HR")
+    e = _me(db, user["email"])
+    name = f"{e.first_name} {e.last_name}".strip() or user["email"]
+    row = HrSelfRequest(id=str(uuid.uuid4()), employee_email=user["email"].lower(),
+                        employee_name=name, type=body.type, message=msg[:2000],
+                        status="open", created_at=_now())
+    db.add(row)
+    # One targeted notification per HR-team member (server-side only).
+    for email in _hr_team_emails(db):
+        db.add(NexusNotification(
+            id=str(uuid.uuid4()), type="hr_request", recipient=email,
+            title=f"{_REQ_LABEL[body.type]} — {name}",
+            body=msg[:300], ref_id=row.id, requested_by=name,
+            action="", actioned=False, read_by="", created_at=_now()))
+    db.commit()
+    return _ser_req(row)
+
+
+@router.get("/requests")
+def my_requests(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = (db.query(HrSelfRequest)
+            .filter(HrSelfRequest.employee_email == user["email"].lower())
+            .order_by(HrSelfRequest.created_at.desc()).limit(30).all())
+    return [_ser_req(r) for r in rows]
 
 
 # ── My paystubs — comp documents HR uploaded for me (kind="paystub") ─────────
