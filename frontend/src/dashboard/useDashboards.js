@@ -123,6 +123,16 @@ export function useDashboards(target) {
     return created;
   };
 
+  // Brand-new view starting from the built-in default layout (vs. saveAsNew,
+  // which copies whatever is currently on screen).
+  const createNewView = async (name) => {
+    const created = await api.dashCreateView({ target, name: name || 'New view', layout: DEFAULTS[target] || [] });
+    setViews(vs => [...vs, created]);
+    applyView(created);
+    setEditing(true);
+    return created;
+  };
+
   const publishDepartment = async (name) => {
     const created = await api.dashCreateView({ target, name: name || `${department || 'Department'} view`, layout: layoutRef.current, scope: 'department', department });
     setViews(vs => [...vs, created]);
@@ -148,6 +158,6 @@ export function useDashboards(target) {
   return {
     views, activeId, activeView, layout, kpis, department, canPublish, dirty, loading, editing,
     setEditing, setLayout, addWidget, removeWidget, updateWidgetConfig,
-    switchView, save, saveAsNew, publishDepartment, setDefaultView, removeView, renameView, reload: load,
+    switchView, save, saveAsNew, createNewView, publishDepartment, setDefaultView, removeView, renameView, reload: load,
   };
 }

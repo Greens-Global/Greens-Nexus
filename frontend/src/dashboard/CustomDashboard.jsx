@@ -111,6 +111,10 @@ export default function CustomDashboard({ target }) {
     title: 'Rename view', initial: d.activeView?.name || '', cta: 'Rename',
     onSubmit: wrap(name => d.renameView(d.activeId, name), 'Renamed'),
   });
+  const createNew = () => openName({
+    title: 'Create a new view', label: 'Starts from the default layout — customize it after', initial: '', cta: 'Create view',
+    onSubmit: wrap(name => d.createNewView(name), 'View created — customize away'),
+  });
   const publish = () => openName({
     title: 'Publish to your department', label: 'Everyone in your department gets this view', initial: `${d.department || 'Department'} view`, cta: 'Publish',
     onSubmit: wrap(name => d.publishDepartment(name), 'Published to your department'),
@@ -143,7 +147,8 @@ export default function CustomDashboard({ target }) {
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, color: 'var(--muted)' }}>
           <LayoutGrid size={16} />
         </div>
-        <select value={d.activeId || ''} onChange={e => d.switchView(e.target.value || null)}
+        <select value={d.activeId || ''}
+          onChange={e => { const val = e.target.value; if (val === '__new__') createNew(); else d.switchView(val || null); }}
           className="form-input" style={{ fontSize: 13, fontWeight: 600, maxWidth: 260, padding: '8px 28px 8px 12px', lineHeight: 1.4, height: 'auto' }}>
           <option value="">Default layout</option>
           {d.views.filter(v => v.scope === 'personal').length > 0 && (
@@ -160,7 +165,13 @@ export default function CustomDashboard({ target }) {
               ))}
             </optgroup>
           )}
+          <option value="__new__">＋ New view…</option>
         </select>
+        {d.activeView && canRename && (
+          <button className="secondary-btn" style={{ ...btn, padding: '6px 9px' }} onClick={rename} title="Rename this view">
+            <Pencil size={13} />
+          </button>
+        )}
 
         <div style={{ flex: 1 }} />
 
