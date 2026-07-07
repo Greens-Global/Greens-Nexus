@@ -119,8 +119,8 @@ function Card({ it, editing, onRemove, onConfigure, renderWidget, startDrag, dra
           outline: '2px dashed hsla(var(--color-blue),0.45)', outlineOffset: -2 }} />
       )}
       {editing && (
-        <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 1, background: 'var(--card)',
-          border: '1px solid var(--line)', borderRadius: 9, padding: 2, boxShadow: 'var(--shadow-sm)' }}>
+        <div style={{ position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 1,
+          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 9, padding: '2px 4px', boxShadow: 'var(--shadow-md)', zIndex: 5 }}>
           <span onPointerDown={draggable ? (e) => startDrag(e, it, 'move') : undefined} title="Drag to move"
             style={{ cursor: draggable ? 'grab' : 'default', display: 'flex', alignItems: 'center', color: 'var(--muted)', padding: 3 }}>
             <GripVertical size={14} />
