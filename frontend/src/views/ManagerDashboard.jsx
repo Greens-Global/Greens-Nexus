@@ -8,6 +8,8 @@ import { useRole }          from '../contexts/RoleContext';
 import { api }              from '../api';
 import SwipeActions         from '../components/SwipeActions';
 import TimeAdmin            from '../components/TimeAdmin';
+import CustomDashboard      from '../dashboard/CustomDashboard';
+import { DashModeToggle }   from './Dashboard';
 
 const EMPLOYEES = [
   { name: 'Sarah Johnson',    dept: 'Accounting',  tasks: 8,  est: 32, act: 18, completed: 3, inprogress: 4, overdue: 1, workload: 85 },
@@ -48,6 +50,7 @@ export default function ManagerDashboard() {
   const { requests: invRequests, approveRequest: approveInvReq, rejectRequest: rejectInvReq, allocateItem } = useInventory();
   const { sendOverdueAlert, addNotification } = useNotifications();
 
+  const [mode,            setMode]            = useState('custom');
   const [activeTab,       setActiveTab]       = useState('workload');
   const [tmsg,            setTmsg]            = useState(null);   // Team Time tab toasts
   const [rejectingId,     setRejectingId]     = useState(null);
@@ -257,6 +260,9 @@ export default function ManagerDashboard() {
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
+      <DashModeToggle mode={mode} setMode={setMode} overviewLabel="Team Analytics" />
+      {mode === 'custom' && <CustomDashboard target="manager-dashboard" />}
+      {mode === 'overview' && (<>
       <div className="view-header">
         <div className="view-title-group">
           <h2>Manager Dashboard</h2>
@@ -976,6 +982,7 @@ export default function ManagerDashboard() {
         )}
 
       </div>
+      </>)}
     </div>
   );
 }

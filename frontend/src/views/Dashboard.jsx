@@ -1,7 +1,29 @@
 import { useMsal } from '@azure/msal-react';
-import { MapPin, RefreshCw, AlertTriangle, X } from 'lucide-react';
+import { MapPin, RefreshCw, AlertTriangle, X, LayoutGrid, PieChart } from 'lucide-react';
 import { useRef, useEffect, useState } from 'react';
 import { useNotifications } from '../contexts/NotificationContext';
+import CustomDashboard from '../dashboard/CustomDashboard';
+
+// Segmented toggle between the personal customizable dashboard and the classic
+// portfolio overview. Shared by Dashboard + Manager Dashboard.
+export function DashModeToggle({ mode, setMode, overviewLabel = 'Overview' }) {
+  const opts = [
+    { id: 'custom', label: 'My Dashboard', Icon: LayoutGrid },
+    { id: 'overview', label: overviewLabel, Icon: PieChart },
+  ];
+  return (
+    <div style={{ display: 'inline-flex', background: 'var(--mist)', borderRadius: 10, padding: 3, marginBottom: 18, gap: 2 }}>
+      {opts.map(o => (
+        <button key={o.id} onClick={() => setMode(o.id)}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif', fontSize: 12.5, fontWeight: 600,
+            background: mode === o.id ? 'var(--card)' : 'transparent', color: mode === o.id ? 'var(--ink)' : 'var(--muted)',
+            boxShadow: mode === o.id ? 'var(--shadow-sm)' : 'none' }}>
+          <o.Icon size={14} /> {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 const FACILITIES = [
   { id: "hv", name: "Harbor View Storage",  city: "Tacoma, WA",   occ: 94, units: 612, rented: 575, mrr: 88200,  climate: true  },
@@ -148,6 +170,7 @@ export default function Dashboard({ onNavigate }) {
 
   const totalMrr = FACILITIES.reduce((a, f) => a + f.mrr, 0);
   const avgOcc   = Math.round(FACILITIES.reduce((a, f) => a + f.occ, 0) / FACILITIES.length);
+  const [mode, setMode] = useState('custom');
 
   return (
     <div className="dashboard-view">
@@ -170,6 +193,10 @@ export default function Dashboard({ onNavigate }) {
           </button>
         </div>
       ))}
+
+      <DashModeToggle mode={mode} setMode={setMode} />
+      {mode === 'custom' && <CustomDashboard target="dashboard" />}
+      {mode === 'overview' && (<>
       {/* Greeting */}
       <div className="greeting-section">
         <div>
@@ -274,6 +301,7 @@ export default function Dashboard({ onNavigate }) {
           ))}
         </div>
       </div>
+      </>)}
     </div>
   );
 }

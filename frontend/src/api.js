@@ -493,6 +493,14 @@ export const api = {
   timeAgentDownloadUrl: (platform) => req(`/timeclock/agent/download-url?platform=${encodeURIComponent(platform)}`),
   timeAgentUpload:   (platform, formData) => req(`/timeclock/agent/upload?platform=${encodeURIComponent(platform)}`, { method: 'POST', body: formData, timeoutMs: 30 * 60_000 }),
   timeAgentUploadUrl:(platform) => req(`/timeclock/agent/upload-url?platform=${encodeURIComponent(platform)}`),
+
+  // ── Customizable dashboards (drag-and-drop widget layouts) ──
+  dashViews:      (target)     => req(`/dashboards/views?target=${encodeURIComponent(target)}`),
+  dashCreateView: (body)       => req('/dashboards/views', { method: 'POST', body: JSON.stringify(body) }),
+  dashUpdateView: (id, body)   => req(`/dashboards/views/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  dashSetDefault: (id)         => req(`/dashboards/views/${id}/default`, { method: 'PUT' }),
+  dashDeleteView: (id)         => req(`/dashboards/views/${id}`, { method: 'DELETE' }),
+  dashKpis:       (scope = 'self') => req(`/dashboards/kpis?scope=${encodeURIComponent(scope)}`),
   timeAgentEnroll:   (data)      => req('/timeclock/agent/enroll', { method: 'POST', body: JSON.stringify(data) }),
   timeAgentDevices:  ()          => req('/timeclock/agent/devices'),
   timeAgentRevoke:   (id)        => req(`/timeclock/agent/devices/${id}`, { method: 'PATCH' }),
