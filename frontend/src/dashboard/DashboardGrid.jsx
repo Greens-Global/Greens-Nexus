@@ -103,38 +103,35 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
   );
 }
 
+const iconBtn = { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 3 };
+
+// The cell is a transparent frame: the widget renders its OWN native card
+// (.kpi-card / .dash-card) so it looks identical to the rest of the app. In edit
+// mode we overlay a small control cluster + resize handle on top.
 function Card({ it, editing, onRemove, onConfigure, renderWidget, startDrag, draggable }) {
   return (
-    <div style={{ width: '100%', height: '100%', background: 'var(--card)', border: '1px solid var(--line)',
-      borderRadius: 14, boxShadow: 'var(--shadow-sm)', overflow: 'hidden', display: 'flex', flexDirection: 'column',
-      position: 'relative', outline: editing ? '1px dashed hsla(var(--color-blue),0.35)' : 'none' }}>
-      {editing && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px',
-          borderBottom: '1px solid var(--line)', background: 'var(--mist)', flexShrink: 0 }}>
-          <span onPointerDown={draggable ? (e) => startDrag(e, it, 'move') : undefined}
-            style={{ cursor: draggable ? 'grab' : 'default', display: 'flex', alignItems: 'center', color: 'var(--muted)', padding: 2 }}
-            title="Drag to move">
-            <GripVertical size={14} />
-          </span>
-          <div style={{ flex: 1 }} />
-          {onConfigure && (
-            <button onClick={() => onConfigure(it)} title="Configure"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 3 }}>
-              <Settings2 size={13} />
-            </button>
-          )}
-          <button onClick={() => onRemove(it.i)} title="Remove"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 3 }}>
-            <X size={14} />
-          </button>
-        </div>
-      )}
-      <div style={{ flex: 1, minHeight: 0, overflow: 'auto', pointerEvents: editing ? 'none' : 'auto' }}>
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <div style={{ width: '100%', height: '100%', pointerEvents: editing ? 'none' : 'auto' }}>
         {renderWidget(it)}
       </div>
+      {editing && (
+        <div style={{ position: 'absolute', inset: 0, borderRadius: 16, pointerEvents: 'none',
+          outline: '2px dashed hsla(var(--color-blue),0.45)', outlineOffset: -2 }} />
+      )}
+      {editing && (
+        <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 1, background: 'var(--card)',
+          border: '1px solid var(--line)', borderRadius: 9, padding: 2, boxShadow: 'var(--shadow-sm)' }}>
+          <span onPointerDown={draggable ? (e) => startDrag(e, it, 'move') : undefined} title="Drag to move"
+            style={{ cursor: draggable ? 'grab' : 'default', display: 'flex', alignItems: 'center', color: 'var(--muted)', padding: 3 }}>
+            <GripVertical size={14} />
+          </span>
+          {onConfigure && <button onClick={() => onConfigure(it)} title="Configure" style={iconBtn}><Settings2 size={13} /></button>}
+          <button onClick={() => onRemove(it.i)} title="Remove" style={iconBtn}><X size={14} /></button>
+        </div>
+      )}
       {editing && draggable && (
         <span onPointerDown={(e) => startDrag(e, it, 'resize')} title="Drag to resize"
-          style={{ position: 'absolute', right: 0, bottom: 0, width: 18, height: 18, cursor: 'nwse-resize',
+          style={{ position: 'absolute', right: 3, bottom: 3, width: 16, height: 16, cursor: 'nwse-resize',
             background: 'linear-gradient(135deg, transparent 50%, var(--muted) 50%, var(--muted) 62%, transparent 62%, transparent 74%, var(--muted) 74%, var(--muted) 86%, transparent 86%)',
             opacity: 0.7 }} />
       )}
