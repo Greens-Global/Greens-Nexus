@@ -133,8 +133,99 @@ def _describe(method: str, path: str) -> tuple[str, str]:
         if method == "POST":                    return "Added external link", ""
         if sub == "click":                      return "Clicked external link", ""
 
-    # ── Fallback ──────────────────────────────────────────────────────────────
-    return f"{method} /{resource}", rid
+    # ── Time clock ────────────────────────────────────────────────────────────
+    if resource == "timeclock":
+        if rid == "punch" and sub == "manual":  return "Fixed a missed punch", ""
+        if rid == "punch":                      return "Punched the time clock", ""
+        if rid == "punches" and method == "POST":  return "Added a punch for someone (manual)", ""
+        if rid == "punches" and method == "PATCH": return "Adjusted a punch", sub
+        if rid == "screenshot":                 return "Desktop agent saved a screenshot", ""
+        if rid == "bod":                        return "Posted a start/end-of-day update", ""
+        if rid == "timeoff" and method == "POST":  return "Requested time off", ""
+        if rid == "timeoff" and method == "PATCH": return "Decided a time-off request", sub
+        if rid == "approvals":                  return "Approved a timesheet", ""
+        if rid == "shifts":
+            if method == "POST":                return "Created a shift", ""
+            if method == "PATCH":               return "Updated a shift", sub
+            if method == "DELETE":              return "Deleted a shift", sub
+        if rid == "shift-groups":               return "Updated shift groups", ""
+        if rid == "agent" and sub == "enroll":  return "Enrolled a monitoring device", ""
+        if rid == "agent" and sub == "devices": return "Revoked a monitoring device", ""
+
+    # ── My HR (employee self-service) ────────────────────────────────────────
+    if resource == "myhr":
+        if rid == "profile":                    return "Updated their own profile (My HR)", ""
+        if rid == "requests" and sub == "attachment": return "Attached a document for HR", ""
+        if rid == "requests":                   return "Sent a request to HR", ""
+
+    # ── HR module ────────────────────────────────────────────────────────────
+    if resource == "hr":
+        if rid == "employees":
+            emp = sub
+            deep = parts[3] if len(parts) > 3 else ""
+            if sub == "" and method == "POST":  return "Added an employee", ""
+            if deep == "":
+                if method == "PATCH":           return "Updated an employee profile", emp
+                if method == "DELETE":          return "Deleted an employee", emp
+            if deep == "documents":             return "Uploaded an HR document", emp
+            if deep == "paystubs":              return "Uploaded a paystub", emp
+            if deep == "photo":                 return "Updated an employee photo", emp
+            if deep == "provision":             return "Provisioned an M365 account", emp
+            if deep == "compensation":          return "Updated compensation (restricted)", emp
+            if deep == "status":                return "Changed employment status", emp
+        if rid == "documents" and method == "DELETE": return "Deleted an HR document", sub
+        if rid == "requests" and len(parts) > 3 and parts[3] == "attach-to-employee":
+            return "Filed an employee's document", sub
+        if rid == "requests" and method == "PATCH": return "Resolved an employee HR request", sub
+        if rid == "sync":                       return "Synced people from M365", ""
+        if rid == "entities":                   return "Updated companies / legal entities", ""
+        if rid == "work-sites":                 return "Updated work sites", ""
+        if rid == "candidates":                 return "Updated the hiring pipeline", ""
+        if rid == "leave":                      return "Updated leave records", ""
+
+    # ── E-sign ────────────────────────────────────────────────────────────────
+    if resource == "esign":
+        deep = parts[3] if len(parts) > 3 else ""
+        if rid == "templates" and method == "POST":   return "Created an e-sign template", ""
+        if rid == "templates" and method == "PUT":    return "Updated an e-sign template", sub
+        if rid == "templates" and method == "DELETE": return "Deleted an e-sign template", sub
+        if rid == "requests" and deep == "void":      return "Voided a signature request", sub
+        if rid == "requests" and deep == "remind":    return "Sent a signing reminder", sub
+        if rid == "requests" and deep == "fix-party": return "Fixed a signer on a request", sub
+        if rid == "requests" and method == "POST" and not sub: return "Sent a document for signature", ""
+        if sub == "sign" or deep == "sign":     return "Signed a document", ""
+        if sub == "decline" or deep == "decline": return "Declined to sign", ""
+        if rid == "upload-pdf":                 return "Uploaded a PDF for signing", ""
+        if rid == "sign":                       return "Signed a document (public link)", ""
+
+    # ── Dashboards (custom views) ────────────────────────────────────────────
+    if resource == "dashboards":
+        if rid == "views" and method == "POST":   return "Created a dashboard view", ""
+        if rid == "views" and method == "PUT" and parts[3:] == ["default"]: return "Set default dashboard view", sub
+        if rid == "views" and len(parts) > 3 and parts[3] == "default": return "Set default dashboard view", sub
+        if rid == "views" and method == "PUT":    return "Updated a dashboard view", sub
+        if rid == "views" and method == "DELETE": return "Deleted a dashboard view", sub
+
+    # ── Knowledge base / groups / assets / help ──────────────────────────────
+    if resource == "knowledge-base":
+        if rid == "documents" and method == "POST": return "Added a KB document", ""
+        if rid == "documents":                  return "Updated a KB document", sub
+        if rid == "courses" and method == "POST":   return "Created a course", ""
+        if rid == "courses":                    return "Updated a course", sub
+    if resource == "groups":
+        if method == "POST" and not rid:        return "Created an access group", ""
+        if sub == "members":                    return "Changed access group members", rid
+        if method in ("PUT", "PATCH"):          return "Updated an access group", rid
+        if method == "DELETE":                  return "Deleted an access group", rid
+    if resource == "property-assets":
+        if rid == "workspace":                  return "Saved the asset portfolio", ""
+        if rid == "reminders":                  return "Scanned asset expiry reminders", ""
+    if resource == "help":                      return "Updated page help", ""
+
+    # ── Fallback: plain verbs instead of raw HTTP ─────────────────────────────
+    verb = {"POST": "Created", "PUT": "Updated", "PATCH": "Updated", "DELETE": "Deleted"}.get(method, method)
+    pretty = resource.replace("-", " ") or "record"
+    return f"{verb} {pretty}".strip(), rid
 
 
 def _extract_email(request: Request) -> str:

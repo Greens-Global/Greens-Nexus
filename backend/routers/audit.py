@@ -20,9 +20,10 @@ def list_audit_logs(
 ):
     q = db.query(models.AuditLog).order_by(models.AuditLog.id.desc())
     if user_email:
-        q = q.filter(models.AuditLog.user_email == user_email.lower())
+        # Partial + case-insensitive so "Filter by email…" works as you type.
+        q = q.filter(models.AuditLog.user_email.ilike(f"%{user_email.lower()}%"))
     if action:
-        q = q.filter(models.AuditLog.action.contains(action))
+        q = q.filter(models.AuditLog.action.ilike(f"%{action}%"))
     if resource_type:
         q = q.filter(models.AuditLog.resource_type == resource_type)
     total = q.count()
