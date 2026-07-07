@@ -53,8 +53,9 @@ const viewLabel = (view) => VIEW_LABELS[view]
 // Views absent from this map are accessible to everyone (dashboard, inventory, support).
 const VIEW_MIN_ROLES = {
   'manager-dashboard':  'supervisor',
-  'tasks':              'supervisor',
-  'sop':                'supervisor',
+  // tasks / sop / external-links are baseline (all employees): own tasks, the
+  // KB/LMS with assigned courses, and plain links. Admin actions inside each
+  // stay role-gated server-side.
   'it':                 'supervisor',
   'ops':                'supervisor',
   'operations':         'supervisor',
@@ -64,7 +65,6 @@ const VIEW_MIN_ROLES = {
   'investor-relations': 'supervisor',
   'hr':                 'supervisor',
   'marketing':          'supervisor',
-  'external-links':     'supervisor',
   'admin':              'administrator',
 };
 

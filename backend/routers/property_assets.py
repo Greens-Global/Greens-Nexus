@@ -23,10 +23,15 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
-from auth import get_current_user
+from auth import get_current_user, require_module_grant
 from models import PropertyAsset, PropertyRecord, PropertyActivityLog, NexusNotification
 
 router = APIRouter(tags=["Asset Management"])
+
+# Screen access is grant-driven (property-asset Access Group grant); mirror it
+# here so the API can't be read/overwritten by users the UI hides it from.
+require_asset_read  = require_module_grant("property-asset", "viewer")
+require_asset_write = require_module_grant("property-asset", "editor")
 
 # The flat child collections the module persists alongside properties + logs.
 # vservice/odometer are the vehicle & equipment service/maintenance + odometer logs.
@@ -54,7 +59,7 @@ class Workspace(BaseModel):
 
 
 @router.get("/property-assets/workspace")
-def get_workspace(db: Session = Depends(get_db), user=Depends(get_current_user)):
+def get_workspace(db: Session = Depends(get_db), user=Depends(require_asset_read)):
     """Return the whole portfolio workspace in the shape the module renders."""
     ws: Dict[str, Any] = {"properties": []}
     for c in COLLECTIONS:
@@ -71,7 +76,7 @@ def get_workspace(db: Session = Depends(get_db), user=Depends(get_current_user))
 
 
 @router.put("/property-assets/workspace")
-def put_workspace(ws: Workspace, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def put_workspace(ws: Workspace, db: Session = Depends(get_db), user=Depends(require_asset_write)):
     """Replace the whole workspace. Tiny dataset → delete-all + re-insert in one
     request is simplest and matches the module's whole-blob save semantics."""
     now = _now()
@@ -135,7 +140,7 @@ def _parse_ymd(s):
 
 
 @router.post("/property-assets/reminders/scan")
-def scan_reminders(db: Session = Depends(get_db), user=Depends(get_current_user)):
+def scan_reminders(db: Session = Depends(get_db), user=Depends(require_asset_read)):
     """Scan the portfolio for upcoming/overdue dates and raise ONE deduped bell
     notification per item (broadcast to managers — recipient=''). Idempotent: a
     reminder is keyed by (type, ref_id) so re-running on every module open never

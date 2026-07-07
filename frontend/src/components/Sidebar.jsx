@@ -18,8 +18,11 @@ export const NAV = [
   { view: "timeclock",         label: "Time Clock",         icon: Clock },
   { view: "manager-dashboard", label: "Manager Dashboard",  icon: UserCheck,    minRole: 'supervisor' },
   { divider: true },
-  { view: "tasks",             label: "Tasks",               icon: CheckSquare,  minRole: 'supervisor' },
-  { view: "sop", label: "Knowledge Base", icon: BookOpen, minRole: 'supervisor' },
+  // Tasks + Knowledge Base are baseline: employees work their own tasks and the
+  // KB is the LMS — assigned courses/SOPs must be reachable by everyone.
+  // Manage/author actions inside stay role-gated (KB admin ops are level 3+).
+  { view: "tasks",             label: "Tasks",               icon: CheckSquare },
+  { view: "sop", label: "Knowledge Base", icon: BookOpen },
   { divider: true },
   {
     view: "it", label: "IT", icon: Monitor, minRole: 'supervisor',
@@ -101,7 +104,7 @@ export const NAV = [
   },
   { divider: true },
   { view: "support",        label: "Support",        icon: HelpCircle },
-  { view: "external-links", label: "External Links", icon: ExternalLink, minRole: 'supervisor' },
+  { view: "external-links", label: "External Links", icon: ExternalLink },
 ];
 
 const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }, ref) {
