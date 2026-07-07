@@ -518,10 +518,20 @@ def _ser_doc(d: HrDocument) -> dict:
             "createdAt": d.created_at}
 
 
+def _has_comp(user: dict, db: Session) -> bool:
+    """Inline hr_comp check (paystubs are salary documents). Mirrors
+    require_hr_comp_read: Global Admin bypass OR an explicit hr_comp grant."""
+    from auth import _module_level, _LEVELS
+    return user["level"] >= _LEVELS["owner"] or _module_level(user["email"], "hr_comp", db) >= 1
+
+
 @router.get("/employees/{eid}/documents")
 def list_documents(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     rows = (db.query(HrDocument).filter(HrDocument.employee_id == eid)
             .order_by(HrDocument.created_at.desc()).all())
+    # Paystubs are comp-restricted — hidden from plain hr viewers/editors.
+    if not _has_comp(user, db):
+        rows = [d for d in rows if d.kind != "paystub"]
     return [_ser_doc(d) for d in rows]
 
 
@@ -561,6 +571,8 @@ def document_url(did: str, user: dict = Depends(require_hr_read), db: Session = 
     row = db.query(HrDocument).filter(HrDocument.id == did).first()
     if not row:
         raise HTTPException(404, "Document not found")
+    if row.kind == "paystub" and not _has_comp(user, db):
+        raise HTTPException(403, "Paystubs require the compensation grant")
     resp = httpx.post(
         f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{row.storage_path}",
         headers=_storage_headers(), json={"expiresIn": 300}, timeout=15,
@@ -575,11 +587,54 @@ def delete_document(did: str, user: dict = Depends(require_hr_write), db: Sessio
     row = db.query(HrDocument).filter(HrDocument.id == did).first()
     if not row:
         return {"ok": True}
+    if row.kind == "paystub" and not _has_comp(user, db):
+        raise HTTPException(403, "Paystubs require the compensation grant")
     httpx.request("DELETE", f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{row.storage_path}",
                   headers=_storage_headers(), timeout=30)
     db.delete(row)
     db.commit()
     return {"ok": True}
+
+
+# ── Paystubs — HrDocument rows with kind="paystub", hr_comp-gated ────────────
+# Employees see/download their own via /myhr/paystubs (routers/myhr.py).
+
+@router.get("/employees/{eid}/paystubs")
+def list_paystubs(eid: str, user: dict = Depends(require_hr_comp_read), db: Session = Depends(get_db)):
+    rows = (db.query(HrDocument)
+            .filter(HrDocument.employee_id == eid, HrDocument.kind == "paystub")
+            .order_by(HrDocument.created_at.desc()).all())
+    return [_ser_doc(d) for d in rows]
+
+
+@router.post("/employees/{eid}/paystubs")
+async def upload_paystub(eid: str, file: UploadFile = File(...), period: str = Form(""),
+                         user: dict = Depends(require_hr_comp_write), db: Session = Depends(get_db)):
+    """One paystub PDF per pay period; `period` becomes the display name
+    (e.g. "Jun 16 – Jun 30, 2026")."""
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    data = await file.read()
+    if len(data) > _MAX_DOC_BYTES:
+        raise HTTPException(400, "File too large (max 15 MB)")
+    safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", file.filename or "paystub.pdf")
+    path = f"paystubs/{eid}/{uuid.uuid4()}-{safe_name}"
+    resp = httpx.post(
+        f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
+        headers={**_storage_headers(), "Content-Type": file.content_type or "application/pdf"},
+        content=data, timeout=60,
+    )
+    if not resp.is_success:
+        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    display = f"Paystub — {period.strip()}" if period.strip() else (file.filename or "Paystub")
+    row = HrDocument(id=str(uuid.uuid4()), employee_id=eid, kind="paystub",
+                     file_name=display[:200], storage_path=path,
+                     size_bytes=len(data), expires_on="",
+                     uploaded_by=user["email"], created_at=datetime.now(timezone.utc).isoformat())
+    db.add(row)
+    db.commit()
+    return _ser_doc(row)
 
 
 # ── Provisioning engine (Phase 4): one click -> M365 account ─────────────────

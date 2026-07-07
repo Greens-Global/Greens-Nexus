@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   User, Phone, Mail, Heart, Briefcase, Building2, CalendarDays, MapPin, Network,
   FileText, Download, CalendarOff, Plus, Loader2, Pencil, Check, X, BadgeCheck,
+  Clock, Banknote,
 } from 'lucide-react';
 import { api } from '../api';
 
@@ -39,6 +40,9 @@ export default function MyHR() {
   const [profErr, setProfErr] = useState('');
   const [docs, setDocs] = useState([]);
   const [leave, setLeave] = useState([]);
+  const [sheet, setSheet] = useState(null);       // { days: { date: {...} } }
+  const [stubs, setStubs] = useState([]);
+  const [stubBusy, setStubBusy] = useState({});
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
@@ -54,6 +58,11 @@ export default function MyHR() {
     api.myHrProfile().then(setProfile).catch(e => setProfErr(e?.message || 'Could not load your profile'));
     api.myHrDocs().then(setDocs).catch(() => {});
     api.timeOffMine().then(setLeave).catch(() => {});
+    api.myPaystubs().then(setStubs).catch(() => {});
+    const end = new Date();
+    const start = new Date(end.getTime() - 13 * 86400000);
+    const d = (x) => x.toISOString().slice(0, 10);
+    api.timeMy(d(start), d(end)).then(setSheet).catch(() => setSheet({ days: {} }));
   }, []);
 
   const startEdit = () => {
@@ -83,6 +92,15 @@ export default function MyHR() {
       window.open(url, '_blank', 'noopener');
     } catch (e) { flash(e?.message || 'Could not download', false); }
     finally { setDlBusy(p => ({ ...p, [rid]: false })); }
+  };
+
+  const downloadStub = async (id) => {
+    setStubBusy(p => ({ ...p, [id]: true }));
+    try {
+      const { url } = await api.myPaystubDownload(id);
+      window.open(url, '_blank', 'noopener');
+    } catch (e) { flash(e?.message || 'Could not download', false); }
+    finally { setStubBusy(p => ({ ...p, [id]: false })); }
   };
 
   const submitLeave = async () => {
@@ -125,6 +143,7 @@ export default function MyHR() {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, alignItems: 'start' }}>
 
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* ── Profile ── */}
           <div className="dash-card">
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
@@ -197,6 +216,46 @@ export default function MyHR() {
             )}
           </div>
 
+          {/* ── My timesheet (last 14 days) ── */}
+          <div className="dash-card">
+            <div className="dash-card-head">
+              <div>
+                <div className="dash-card-title">My timesheet</div>
+                <div className="dash-card-sub">Last 14 days — full detail lives in Time Clock</div>
+              </div>
+              <Clock size={15} style={{ color: 'var(--muted)' }} />
+            </div>
+            {!sheet ? (
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>
+            ) : (() => {
+              const fmtT = (v) => !v ? '—' : (String(v).includes('T') ? new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : v);
+              const hm = (min) => `${Math.floor((min || 0) / 60)}h ${String((min || 0) % 60).padStart(2, '0')}m`;
+              const entries = Object.entries(sheet.days || {}).sort((a, b) => b[0].localeCompare(a[0]));
+              const total = entries.reduce((s, [, d]) => s + (d.workedMin || 0), 0);
+              if (!entries.length) return <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 0', textAlign: 'center' }}>No punches in the last two weeks.</div>;
+              return (
+                <div>
+                  {entries.map(([date, d]) => (
+                    <div key={date} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', width: 108, flexShrink: 0 }}>
+                        {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                      </span>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', flex: 1 }}>
+                        {fmtT(d.firstIn)} → {fmtT(d.lastOut)}{d.breakMin ? ` · ${hm(d.breakMin)} break` : ''}
+                      </span>
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{hm(d.workedMin)}</span>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 10, fontSize: 12.5, fontWeight: 700 }}>
+                    <span style={{ color: 'var(--muted)' }}>Total</span>
+                    <span style={{ color: 'var(--ink)' }}>{hm(total)}</span>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+          </div>
+
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {/* ── My documents ── */}
             <div className="dash-card">
@@ -219,6 +278,32 @@ export default function MyHR() {
                   <button className="secondary-btn" onClick={() => download(d.requestId)} disabled={!!dlBusy[d.requestId]}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', flexShrink: 0 }}>
                     {dlBusy[d.requestId] ? <Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Download size={12} />} PDF
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* ── My paystubs ── */}
+            <div className="dash-card">
+              <div className="dash-card-head">
+                <div>
+                  <div className="dash-card-title">My paystubs</div>
+                  <div className="dash-card-sub">Uploaded by HR each pay period</div>
+                </div>
+                <Banknote size={15} style={{ color: 'var(--muted)' }} />
+              </div>
+              {stubs.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '16px 0', textAlign: 'center' }}>No paystubs yet — they'll appear here when HR uploads them.</div>
+              ) : stubs.map(s => (
+                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
+                  <Banknote size={15} style={{ color: 'hsl(var(--color-green))', flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Added {fmtD(s.createdAt?.slice(0, 10))}</div>
+                  </div>
+                  <button className="secondary-btn" onClick={() => downloadStub(s.id)} disabled={!!stubBusy[s.id]}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '5px 12px', flexShrink: 0 }}>
+                    {stubBusy[s.id] ? <Loader2 size={12} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Download size={12} />} PDF
                   </button>
                 </div>
               ))}

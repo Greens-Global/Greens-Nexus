@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from auth import get_current_user
-from models import NexusEmployee, HrSignRequest, HrSignParty
+from models import NexusEmployee, HrSignRequest, HrSignParty, HrDocument
 from routers.hr import _SUPABASE_URL, _storage_headers, _DOC_BUCKET
 from routers.esign import _log
 
@@ -111,6 +111,32 @@ def my_documents(user: dict = Depends(get_current_user), db: Session = Depends(g
         out.append({"requestId": req.id, "title": req.title, "from": req.created_by,
                     "completedAt": req.completed_at, "signedByMe": p.status == "signed"})
     return sorted(out, key=lambda x: x["completedAt"] or "", reverse=True)
+
+
+# ── My paystubs — comp documents HR uploaded for me (kind="paystub") ─────────
+
+@router.get("/paystubs")
+def my_paystubs(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    e = _me(db, user["email"])
+    rows = (db.query(HrDocument)
+            .filter(HrDocument.employee_id == e.id, HrDocument.kind == "paystub")
+            .order_by(HrDocument.created_at.desc()).all())
+    return [{"id": d.id, "name": d.file_name, "createdAt": d.created_at} for d in rows]
+
+
+@router.get("/paystubs/{did}/download")
+def download_my_paystub(did: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    e = _me(db, user["email"])
+    row = (db.query(HrDocument)
+           .filter(HrDocument.id == did, HrDocument.employee_id == e.id,
+                   HrDocument.kind == "paystub").first())
+    if not row:
+        raise HTTPException(404, "Paystub not found")
+    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{row.storage_path}",
+                      headers=_storage_headers(), json={"expiresIn": 300}, timeout=20)
+    if not resp.is_success:
+        raise HTTPException(502, "Could not create download link")
+    return {"url": f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}", "expiresIn": 300}
 
 
 @router.get("/documents/{rid}/download")

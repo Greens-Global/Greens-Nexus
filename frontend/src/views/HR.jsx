@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Users, Plus, Search, X, Loader2, Mail, Phone, Briefcase, MapPin,
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
@@ -689,13 +689,39 @@ function StatCard({ label, value, sub, tone }) {
 // reloadToken bumps after the modal closes so saved changes show without a reload.
 function PayTab({ employee, reloadToken, onEdit }) {
   const [data, setData] = useState(null);
+  const [stubs, setStubs] = useState([]);
+  const [stubPeriod, setStubPeriod] = useState('');
+  const [stubBusy, setStubBusy] = useState(false);
+  const stubFileRef = useRef(null);
   useEffect(() => {
     let live = true;
     api.getCompensation(employee.id)
       .then(r => { if (live) setData({ comp: r.compensation || {}, bank: r.bank || [] }); })
       .catch(() => { if (live) setData({ comp: {}, bank: [] }); });
+    api.hrPaystubs(employee.id).then(r => { if (live) setStubs(r); }).catch(() => {});
     return () => { live = false; };
   }, [employee.id, reloadToken]);
+
+  const uploadStub = async (file) => {
+    if (!file) return;
+    setStubBusy(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('period', stubPeriod);
+      const created = await api.hrPaystubUpload(employee.id, form);
+      setStubs(s => [created, ...s]);
+      setStubPeriod('');
+    } catch { /* surfaced by list not changing */ }
+    finally { setStubBusy(false); if (stubFileRef.current) stubFileRef.current.value = ''; }
+  };
+  const openStub = async (id) => {
+    try { const { url } = await api.getDocUrl(id); window.open(url, '_blank', 'noopener'); } catch { /* noop */ }
+  };
+  const deleteStub = async (id) => {
+    if (!window.confirm('Delete this paystub?')) return;
+    try { await api.deleteEmployeeDoc(id); setStubs(s => s.filter(x => x.id !== id)); } catch { /* noop */ }
+  };
 
   const money = (v, cur) => v ? `${cur === 'INR' ? '₹' : '$'}${Number(v).toLocaleString()}` : '—';
   const label = (list, v) => (list.find(([x]) => x === v) || [])[1] || v || '';
@@ -729,6 +755,32 @@ function PayTab({ employee, reloadToken, onEdit }) {
           {data.bank.length === 0
             ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None recorded.</div>
             : data.bank.map((acc, i) => row2(`bk${i}`, acc.bankName || 'Account', [acc.holder, maskId(acc.number), acc.routingOrIfsc, label(BANK_TYPES, acc.type)].filter(Boolean).join(' · ')))}
+
+          {sectionLabel('Paystubs')}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+            <input className="form-input" placeholder='Pay period, e.g. "Jun 16 – Jun 30, 2026"' value={stubPeriod}
+              onChange={e => setStubPeriod(e.target.value)} style={{ flex: 1, minWidth: 200, fontSize: 12.5 }} />
+            <input ref={stubFileRef} type="file" accept="application/pdf" style={{ display: 'none' }}
+              onChange={e => uploadStub(e.target.files?.[0])} />
+            <button className="secondary-btn" disabled={stubBusy} onClick={() => stubFileRef.current?.click()}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+              {stubBusy ? 'Uploading…' : 'Upload PDF'}
+            </button>
+          </div>
+          {stubs.length === 0
+            ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None uploaded. The employee sees these under My HR.</div>
+            : stubs.map(s => (
+              <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
+                <FileText size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                <button onClick={() => openStub(s.id)} style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontFamily: 'Inter,sans-serif', padding: 0 }}>
+                  {s.fileName}
+                </button>
+                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{s.createdAt?.slice(0, 10)}</span>
+                <button onClick={() => deleteStub(s.id)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
         </>
       )}
     </div>
