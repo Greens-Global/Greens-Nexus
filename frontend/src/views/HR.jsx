@@ -1529,19 +1529,14 @@ function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName
   return (
     <div data-orgcard="1" data-email={email} style={{ position: 'relative', paddingBottom: kids > 0 ? 12 : 0 }}>
       <div
-        draggable
-        onDragStart={ev => { ev.dataTransfer.effectAllowed = 'move'; dnd.setDraggingId(e.id); }}
-        onDragEnd={() => { dnd.setDraggingId(null); dnd.setOverKey(null); }}
-        onDragOver={ev => { if (dnd.draggingId && dnd.draggingId !== e.id && email) { ev.preventDefault(); dnd.setOverKey(email); } }}
-        onDragLeave={() => { if (dnd.overKey === email) dnd.setOverKey(null); }}
-        onDrop={ev => { ev.preventDefault(); dnd.drop(email); }}
-        onClick={() => onSelect(e)}
+        onPointerDown={ev => dnd.onCardPointerDown(ev, e)}
         style={{
           position: 'relative', width: 216, padding: '12px 14px 12px 18px', display: 'flex', alignItems: 'center', gap: 11,
           background: isTarget ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
           border: `1.5px solid ${isTarget ? 'hsl(var(--color-green))' : highlight ? 'hsl(var(--color-blue))' : 'var(--line)'}`,
           borderRadius: 14, boxShadow: highlight ? '0 0 0 3px hsla(var(--color-blue),0.15)' : 'var(--shadow-sm)',
-          cursor: 'pointer', opacity: dim ? 0.3 : isDragging ? 0.45 : 1, overflow: 'hidden',
+          cursor: 'grab', opacity: dim ? 0.3 : isDragging ? 0.4 : 1, overflow: 'hidden',
+          touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none',
           transition: 'border-color 0.1s, box-shadow 0.1s, opacity 0.12s',
         }}>
         {divColor && <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 5, background: `hsl(${divColor})` }} />}
@@ -1731,8 +1726,10 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
   const [activeDiv, setActiveDiv] = useState('');   // legend highlight filter
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 40, y: 24 });
+  const [dragGhost, setDragGhost] = useState(null);   // {name, x, y} while dragging a card
   const canvasRef = useRef(null);
   const contentRef = useRef(null);
+  const dragRef = useRef(null);
   const people = employees.filter(e => e.status !== 'offboarded');
 
   // First render: show the top two levels at full size (roots + their direct
@@ -1799,7 +1796,46 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
     } catch (err) { toastErr(err?.message || 'Could not change the reporting line.'); }
   }
 
-  const dnd = { draggingId, setDraggingId, overKey, setOverKey, drop };
+  // Pointer-based drag (works with mouse AND touch — native HTML5 drag does
+  // neither on a touch display). A small threshold distinguishes a tap (opens
+  // the side panel) from a drag; while dragging we track the card under the
+  // pointer via elementFromPoint (robust through the zoom transform) and show a
+  // floating name ghost. Drop on a card = re-assign; on the detach zone = unlink.
+  const onCardPointerDown = (ev, person) => {
+    if (ev.button != null && ev.button > 0) return;   // primary button / touch only
+    const start = { x: ev.clientX, y: ev.clientY };
+    dragRef.current = { person, start, dragging: false, target: null };
+    const move = (m) => {
+      const st = dragRef.current; if (!st) return;
+      if (!st.dragging) {
+        if (Math.hypot(m.clientX - start.x, m.clientY - start.y) < 6) return;
+        st.dragging = true; setDraggingId(st.person.id);
+      }
+      const el = document.elementFromPoint(m.clientX, m.clientY);
+      const detach = el && el.closest ? el.closest('[data-detach]') : null;
+      const card = el && el.closest ? el.closest('[data-email]') : null;
+      const em = card && card.getAttribute('data-email');
+      st.target = detach ? '__none__'
+        : (em && em !== (st.person.workEmail || '').toLowerCase()) ? em : null;
+      setOverKey(st.target);
+      setDragGhost({ name: fullName(st.person), x: m.clientX, y: m.clientY });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      const st = dragRef.current; dragRef.current = null;
+      setDragGhost(null);
+      if (st && st.dragging) {
+        if (st.target) drop(st.target); else { setDraggingId(null); setOverKey(null); }
+      } else if (st) {
+        setSelected(st.person);    // no meaningful movement → treat as a tap
+      }
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  const dnd = { draggingId, setDraggingId, overKey, setOverKey, drop, onCardPointerDown };
   // Managers (people with reports) before leaves, then alphabetical — keeps
   // wide sibling rows readable
   const kidCount = e => (childrenMap.get((e.workEmail || '').toLowerCase()) || []).length;
@@ -2007,32 +2043,18 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
         </div>
       )}
 
-      {/* Clear-zone appears only mid-drag — drop here to detach from a manager */}
+      {/* Detach zone appears only mid-drag — drag a card here to unlink it */}
       {draggingId && (
-        <div
-          onDragOver={ev => { ev.preventDefault(); setOverKey('__none__'); }}
-          onDragLeave={() => { if (overKey === '__none__') setOverKey(null); }}
-          onDrop={ev => { ev.preventDefault(); drop('__none__'); }}
+        <div data-detach="1"
           style={{ marginBottom: 10, border: `2px dashed ${overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--line)'}`, borderRadius: 12, padding: '10px 16px', textAlign: 'center', fontSize: 12, fontWeight: 700, color: overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--muted)', background: overKey === '__none__' ? 'hsla(var(--color-red),0.06)' : 'transparent' }}>
-          Drop here to remove their reporting line
+          Drag here to remove their reporting line
         </div>
       )}
 
       {/* The chart canvas — drag empty space to pan, controls to zoom/fit.
-          Canvas-level drop resolves the card under the cursor (via data-email),
-          so dragging a card in from the "no reporting line" strip works even
-          through the zoom transform. */}
+          Card drag is pointer-based (see onCardPointerDown), so it works with a
+          finger and resolves the drop target through the zoom transform. */}
       <div ref={canvasRef} onPointerDown={startPan}
-        onDragOver={ev => { if (draggingId) ev.preventDefault(); }}
-        onDrop={ev => {
-          if (!draggingId) return;
-          ev.preventDefault();
-          const t = document.elementFromPoint(ev.clientX, ev.clientY);
-          const card = t && t.closest ? t.closest('[data-email]') : null;
-          const target = card && card.getAttribute('data-email');
-          if (target) drop(target);
-          else { setDraggingId(null); setOverKey(null); }
-        }}
         style={{ position: 'relative', height: 'max(480px, calc(100vh - 380px))', overflow: 'hidden',
           borderRadius: 16, border: `1px solid ${draggingId ? 'hsl(var(--color-green))' : 'var(--line)'}`, cursor: 'grab', touchAction: 'none',
           background: 'var(--card)',
@@ -2079,6 +2101,16 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* Floating drag ghost — follows the pointer/finger while dragging a card */}
+      {dragGhost && (
+        <div style={{ position: 'fixed', left: dragGhost.x + 14, top: dragGhost.y + 8, zIndex: 2000, pointerEvents: 'none',
+          background: 'var(--ink)', color: 'var(--card)', fontSize: 12, fontWeight: 700, padding: '5px 11px', borderRadius: 8,
+          boxShadow: 'var(--shadow-lg)', whiteSpace: 'nowrap' }}>
+          {dragGhost.name}
+          <span style={{ opacity: 0.7, fontWeight: 500 }}>{overKey === '__none__' ? ' → unlink' : overKey ? ' → drop to re-assign' : ''}</span>
         </div>
       )}
 
