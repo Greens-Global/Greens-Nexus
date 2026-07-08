@@ -1502,17 +1502,15 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
 // indented under their manager with elbow connectors. Tap a row → side panel
 // with details + editable reporting line (the touch path); drag a row onto
 // another (desktop) for quick re-assignment. Filters rebuild the tree.
-function OrgRow({ e, depth, kids, isCollapsed, onToggle, onSelect, dnd, entityName, highlight }) {
+// A single node card — minimal, fixed-width, avatar-forward. The reports pill
+// hangs off the bottom edge and doubles as the collapse toggle (44px+ touch
+// target). data-orgcard lets the canvas tell "card press" from "pan the chart".
+function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName, highlight }) {
   const email = (e.workEmail || '').toLowerCase();
   const isTarget = dnd.overKey === email && dnd.draggingId && dnd.draggingId !== e.id;
   const isDragging = dnd.draggingId === e.id;
   return (
-    <div style={{ position: 'relative', marginLeft: depth * 30 }}>
-      {/* elbow connector to the parent rail */}
-      {depth > 0 && (
-        <span style={{ position: 'absolute', left: -18, top: 0, bottom: '50%', width: 16,
-          borderLeft: '2px solid var(--line)', borderBottom: '2px solid var(--line)', borderBottomLeftRadius: 8 }} />
-      )}
+    <div data-orgcard="1" style={{ position: 'relative', paddingBottom: kids > 0 ? 12 : 0 }}>
       <div
         draggable
         onDragStart={ev => { ev.dataTransfer.effectAllowed = 'move'; dnd.setDraggingId(e.id); }}
@@ -1522,41 +1520,67 @@ function OrgRow({ e, depth, kids, isCollapsed, onToggle, onSelect, dnd, entityNa
         onDrop={ev => { ev.preventDefault(); dnd.drop(email); }}
         onClick={() => onSelect(e)}
         style={{
-          display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px', marginBottom: 6,
-          background: isTarget ? 'hsla(var(--color-green),0.08)' : highlight ? 'hsla(var(--color-blue),0.06)' : 'var(--card)',
-          border: `1.5px solid ${isTarget ? 'hsl(var(--color-green))' : 'var(--line)'}`,
-          borderRadius: 12, boxShadow: 'var(--shadow-sm)', cursor: 'pointer',
-          opacity: isDragging ? 0.45 : 1, minHeight: 56, transition: 'border-color 0.1s, background 0.1s',
+          width: 216, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 11,
+          background: isTarget ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
+          border: `1.5px solid ${isTarget ? 'hsl(var(--color-green))' : highlight ? 'hsl(var(--color-blue))' : 'var(--line)'}`,
+          borderRadius: 14, boxShadow: highlight ? '0 0 0 3px hsla(var(--color-blue),0.15)' : 'var(--shadow-sm)',
+          cursor: 'pointer', opacity: isDragging ? 0.45 : 1, transition: 'border-color 0.1s, box-shadow 0.1s',
         }}>
-        {kids > 0 ? (
-          <button onClick={ev => { ev.stopPropagation(); onToggle(email); }}
-            title={isCollapsed ? 'Expand team' : 'Collapse team'}
-            style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--mist)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, color: 'var(--muted)' }}>
-            <ChevronRight size={15} style={{ transform: isCollapsed ? 'none' : 'rotate(90deg)', transition: 'transform 0.12s' }} />
-          </button>
-        ) : (
-          <span style={{ width: 34, flexShrink: 0 }} />
-        )}
-        <Avatar e={e} size={38} />
+        <Avatar e={e} size={40} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {[e.jobTitle, e.department].filter(Boolean).join(' · ') || '—'}
+          <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || '—'}</div>
+          <div style={{ fontSize: 10, color: 'var(--muted)', opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {[e.department, entityName(e.company)].filter(Boolean).join(' · ')}
           </div>
         </div>
-        {entityName(e.company) && (
-          <span style={{ fontSize: 10.5, fontWeight: 700, background: 'var(--mist)', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 14, padding: '2px 9px', flexShrink: 0, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {entityName(e.company)}
-          </span>
-        )}
-        {kids > 0 && (
-          <span style={{ fontSize: 10.5, fontWeight: 800, background: 'hsla(var(--color-blue),0.1)', color: 'hsl(var(--color-blue))', borderRadius: 14, padding: '2px 9px', flexShrink: 0 }}>
-            {kids} report{kids !== 1 ? 's' : ''}
-          </span>
-        )}
-        <ChevronRight size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
       </div>
+      {kids > 0 && (
+        <button onClick={ev => { ev.stopPropagation(); onToggle(email); }}
+          title={isCollapsed ? 'Show team' : 'Hide team'}
+          style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)',
+            display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 11px', borderRadius: 20,
+            border: '1.5px solid var(--line)', background: isCollapsed ? 'var(--mist)' : 'var(--card)',
+            fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-blue))', cursor: 'pointer',
+            fontFamily: 'Inter,sans-serif', boxShadow: 'var(--shadow-sm)', whiteSpace: 'nowrap' }}>
+          {kids}
+          <ChevronRight size={11} style={{ transform: isCollapsed ? 'rotate(90deg)' : 'rotate(-90deg)', transition: 'transform 0.12s' }} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Recursive top-down layout with pure-div connectors: parent stub → sibling
+// rail (outer halves transparent at the ends) → child stub.
+function OrgTreeNode({ e, ctx }) {
+  const email = (e.workEmail || '').toLowerCase();
+  const kids = ctx.visChildren.get(email) || [];
+  const open = kids.length > 0 && !ctx.collapsedSet.has(email);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      <OrgNodeCard e={e} kids={kids.length} isCollapsed={ctx.collapsedSet.has(email)}
+        onToggle={ctx.toggle} onSelect={ctx.setSelected} dnd={ctx.dnd}
+        entityName={ctx.entityName} highlight={ctx.isHighlight(e)} />
+      {open && (
+        <>
+          <div style={{ width: 2, height: 18, background: 'var(--line)' }} />
+          <div style={{ display: 'flex', alignItems: 'flex-start' }}>
+            {kids.map((k, i) => (
+              <div key={k.id} style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 12px' }}>
+                {kids.length > 1 && (
+                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', height: 2 }}>
+                    <div style={{ flex: 1, background: i === 0 ? 'transparent' : 'var(--line)' }} />
+                    <div style={{ flex: 1, background: i === kids.length - 1 ? 'transparent' : 'var(--line)' }} />
+                  </div>
+                )}
+                <div style={{ width: 2, height: 18, background: 'var(--line)' }} />
+                <OrgTreeNode e={k} ctx={ctx} />
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1657,6 +1681,10 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
   const [orgCompany, setOrgCompany] = useState('');       // entity id filter
   const [orgDept, setOrgDept] = useState('');             // department filter
   const [collapsedSet, setCollapsedSet] = useState(new Set());
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 40, y: 24 });
+  const canvasRef = useRef(null);
+  const contentRef = useRef(null);
   const people = employees.filter(e => e.status !== 'offboarded');
   const emails = new Set(people.map(e => (e.workEmail || '').toLowerCase()).filter(Boolean));
   const byEmail = new Map(people.map(e => [(e.workEmail || '').toLowerCase(), e]));
@@ -1756,20 +1784,33 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
     return n;
   });
 
-  // Depth-first render of the vertical tree, honouring collapse state.
-  const renderTree = (e, depth) => {
-    const email = (e.workEmail || '').toLowerCase();
-    const kids = visChildren.get(email) || [];
-    const isCollapsed = collapsedSet.has(email);
-    return (
-      <div key={e.id}>
-        <OrgRow e={e} depth={depth} kids={kids.length} isCollapsed={isCollapsed}
-          onToggle={toggle} onSelect={setSelected} dnd={dnd} entityName={entityName}
-          highlight={!!q && fullName(e).toLowerCase().includes(q)} />
-        {!isCollapsed && kids.map(k => renderTree(k, depth + 1))}
-      </div>
-    );
+  const ctx = {
+    visChildren, collapsedSet, toggle, setSelected, dnd, entityName,
+    isHighlight: (e) => !!q && fullName(e).toLowerCase().includes(q),
   };
+
+  // ── Pan & zoom canvas — how enterprise charts stay responsive: the chart
+  // never overflows the page; you pan/zoom within a fixed viewport instead.
+  const fitToView = () => requestAnimationFrame(() => {
+    const c = canvasRef.current, k = contentRef.current;
+    if (!c || !k) return;
+    const kw = k.scrollWidth, kh = k.scrollHeight;
+    if (!kw || !kh) return;
+    const s = Math.max(0.3, Math.min(1, (c.clientWidth - 48) / kw, (c.clientHeight - 48) / kh));
+    setZoom(s);
+    setPan({ x: (c.clientWidth - kw * s) / 2, y: 24 });
+  });
+  useEffect(() => { fitToView(); }, [orgCompany, orgDept, employees.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const startPan = (ev) => {
+    if (ev.target.closest && ev.target.closest('[data-orgcard]')) return;   // card press, not a pan
+    const sx = ev.clientX - pan.x, sy = ev.clientY - pan.y;
+    const move = (m) => setPan({ x: m.clientX - sx, y: m.clientY - sy });
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  const zoomBy = (f) => setZoom(z => Math.max(0.3, Math.min(1.6, +(z * f).toFixed(3))));
 
   if (!people.length) return (
     <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
@@ -1778,7 +1819,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
     </div>
   );
   return (
-    <div style={{ maxWidth: 880 }}>
+    <div>
       {/* Toolbar: search + live company/department filters + expand controls */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         <div className="search-bar" style={{ width: 220 }}>
@@ -1814,30 +1855,50 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
         </div>
       )}
 
-      <p style={{ margin: '0 0 12px', fontSize: 11.5, color: 'var(--muted)' }}>
-        Tap anyone to view and edit their details · drag a row onto someone to change who they report to.
-      </p>
+      {/* The chart canvas — drag empty space to pan, controls to zoom/fit */}
+      <div ref={canvasRef} onPointerDown={startPan}
+        style={{ position: 'relative', height: 'max(480px, calc(100vh - 380px))', overflow: 'hidden',
+          borderRadius: 16, border: '1px solid var(--line)', cursor: 'grab', touchAction: 'none',
+          background: 'var(--card)',
+          backgroundImage: 'radial-gradient(circle, var(--line) 1px, transparent 1px)', backgroundSize: '26px 26px' }}>
+        {visRoots.length === 0 && visUnlinked.length === 0 ? (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 13 }}>
+            No one matches these filters.
+          </div>
+        ) : (
+          <div ref={contentRef} style={{ position: 'absolute', left: 0, top: 0,
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0',
+            display: 'flex', alignItems: 'flex-start', gap: 48, padding: 4, width: 'max-content' }}>
+            {visRoots.map(r => <OrgTreeNode key={r.id} e={r} ctx={ctx} />)}
+          </div>
+        )}
 
-      {visRoots.length > 0 && (
-        <div style={{ marginBottom: 22 }}>
-          {visRoots.map(r => renderTree(r, 0))}
+        {/* Zoom controls */}
+        <div style={{ position: 'absolute', right: 12, bottom: 12, display: 'flex', gap: 6, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 5, boxShadow: 'var(--shadow-md)' }}>
+          {[['−', () => zoomBy(1 / 1.25)], [`${Math.round(zoom * 100)}%`, fitToView], ['+', () => zoomBy(1.25)]].map(([label, fn], i) => (
+            <button key={i} onClick={fn} title={i === 1 ? 'Fit to view' : ''}
+              style={{ minWidth: 34, height: 30, borderRadius: 8, border: 'none', background: i === 1 ? 'var(--mist)' : 'transparent',
+                fontSize: i === 1 ? 11 : 16, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+              {label}
+            </button>
+          ))}
         </div>
-      )}
-      {visRoots.length === 0 && visUnlinked.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '36px 0', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 14 }}>
-          No one matches these filters.
-        </div>
-      )}
+        <span style={{ position: 'absolute', left: 14, bottom: 14, fontSize: 10.5, color: 'var(--muted)', pointerEvents: 'none' }}>
+          Drag the canvas to move around · tap a card for details · drag a card onto someone to re-assign
+        </span>
+      </div>
 
       {visUnlinked.length > 0 && (
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'hsl(var(--color-orange))', textTransform: 'uppercase', margin: '18px 0 8px' }}>
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'hsl(var(--color-orange))', textTransform: 'uppercase', marginBottom: 8 }}>
             No reporting line — tap to set who they report to
           </div>
-          {visUnlinked.map(e => (
-            <OrgRow key={e.id} e={e} depth={0} kids={0} isCollapsed={false}
-              onToggle={() => {}} onSelect={setSelected} dnd={dnd} entityName={entityName} highlight={false} />
-          ))}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            {visUnlinked.map(e => (
+              <OrgNodeCard key={e.id} e={e} kids={0} isCollapsed={false}
+                onToggle={() => {}} onSelect={setSelected} dnd={dnd} entityName={entityName} highlight={false} />
+            ))}
+          </div>
         </div>
       )}
 
