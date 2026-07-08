@@ -182,6 +182,8 @@ def schedule_interview(cid: str, body: ScheduleIn, user: dict = Depends(require_
     cand = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
     if not cand:
         raise HTTPException(404, "Candidate not found")
+    if cand.stage in ("hired", "rejected"):
+        raise HTTPException(400, f"{cand.first_name} is already {cand.stage} — no interviews to schedule")
     if not cand.email:
         raise HTTPException(400, "Candidate has no email — add one first")
     tpl = db.query(HrInterviewTemplate).filter(HrInterviewTemplate.id == body.template_id).first()

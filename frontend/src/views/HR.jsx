@@ -1277,7 +1277,7 @@ function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignatu
           </div>
 
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-            {onOpenInterviews && c.stage !== 'rejected' && (
+            {onOpenInterviews && !['rejected', 'hired'].includes(c.stage) && (
               <button className="primary-btn" onClick={() => onOpenInterviews(c)}
                 title="Teams invite, live questionnaire, AI answer fill and calibrated scoring"
                 style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
