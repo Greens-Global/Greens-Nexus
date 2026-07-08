@@ -1497,48 +1497,166 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   );
 }
 
-// ── Org chart (Phase 5) — top-down tree, drag a card onto a new manager ───────
-function OrgCard({ e, kids, dnd }) {
+// ── Org chart (Phase 5) — VERTICAL tree (BambooHR/Workday style) ──────────────
+// Grows down, not sideways: each person is a full-width touch-friendly row,
+// indented under their manager with elbow connectors. Tap a row → side panel
+// with details + editable reporting line (the touch path); drag a row onto
+// another (desktop) for quick re-assignment. Filters rebuild the tree.
+function OrgRow({ e, depth, kids, isCollapsed, onToggle, onSelect, dnd, entityName, highlight }) {
   const email = (e.workEmail || '').toLowerCase();
   const isTarget = dnd.overKey === email && dnd.draggingId && dnd.draggingId !== e.id;
+  const isDragging = dnd.draggingId === e.id;
   return (
-    <div className="org-card"
-      draggable
-      onDragStart={ev => { ev.dataTransfer.effectAllowed = 'move'; dnd.setDraggingId(e.id); }}
-      onDragEnd={() => { dnd.setDraggingId(null); dnd.setOverKey(null); }}
-      onDragOver={ev => { if (dnd.draggingId && dnd.draggingId !== e.id && email) { ev.preventDefault(); dnd.setOverKey(email); } }}
-      onDragLeave={() => { if (dnd.overKey === email) dnd.setOverKey(null); }}
-      onDrop={ev => { ev.preventDefault(); dnd.drop(email); }}
-      style={{
-        cursor: 'grab',
-        opacity: dnd.draggingId === e.id ? 0.45 : 1,
-        outline: isTarget ? '2px solid hsl(var(--color-green))' : 'none',
-        outlineOffset: 2,
-        background: isTarget ? 'hsla(var(--color-green),0.07)' : undefined,
-      }}>
-      <Avatar e={e} size={36} />
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontWeight: 700, fontSize: 13 }}>{fullName(e)}</div>
-        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{[e.jobTitle, e.department].filter(Boolean).join(' · ') || '—'}</div>
+    <div style={{ position: 'relative', marginLeft: depth * 30 }}>
+      {/* elbow connector to the parent rail */}
+      {depth > 0 && (
+        <span style={{ position: 'absolute', left: -18, top: 0, bottom: '50%', width: 16,
+          borderLeft: '2px solid var(--line)', borderBottom: '2px solid var(--line)', borderBottomLeftRadius: 8 }} />
+      )}
+      <div
+        draggable
+        onDragStart={ev => { ev.dataTransfer.effectAllowed = 'move'; dnd.setDraggingId(e.id); }}
+        onDragEnd={() => { dnd.setDraggingId(null); dnd.setOverKey(null); }}
+        onDragOver={ev => { if (dnd.draggingId && dnd.draggingId !== e.id && email) { ev.preventDefault(); dnd.setOverKey(email); } }}
+        onDragLeave={() => { if (dnd.overKey === email) dnd.setOverKey(null); }}
+        onDrop={ev => { ev.preventDefault(); dnd.drop(email); }}
+        onClick={() => onSelect(e)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px', marginBottom: 6,
+          background: isTarget ? 'hsla(var(--color-green),0.08)' : highlight ? 'hsla(var(--color-blue),0.06)' : 'var(--card)',
+          border: `1.5px solid ${isTarget ? 'hsl(var(--color-green))' : 'var(--line)'}`,
+          borderRadius: 12, boxShadow: 'var(--shadow-sm)', cursor: 'pointer',
+          opacity: isDragging ? 0.45 : 1, minHeight: 56, transition: 'border-color 0.1s, background 0.1s',
+        }}>
+        {kids > 0 ? (
+          <button onClick={ev => { ev.stopPropagation(); onToggle(email); }}
+            title={isCollapsed ? 'Expand team' : 'Collapse team'}
+            style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--mist)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, color: 'var(--muted)' }}>
+            <ChevronRight size={15} style={{ transform: isCollapsed ? 'none' : 'rotate(90deg)', transition: 'transform 0.12s' }} />
+          </button>
+        ) : (
+          <span style={{ width: 34, flexShrink: 0 }} />
+        )}
+        <Avatar e={e} size={38} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {[e.jobTitle, e.department].filter(Boolean).join(' · ') || '—'}
+          </div>
+        </div>
+        {entityName(e.company) && (
+          <span style={{ fontSize: 10.5, fontWeight: 700, background: 'var(--mist)', border: '1px solid var(--line)', color: 'var(--muted)', borderRadius: 14, padding: '2px 9px', flexShrink: 0, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {entityName(e.company)}
+          </span>
+        )}
+        {kids > 0 && (
+          <span style={{ fontSize: 10.5, fontWeight: 800, background: 'hsla(var(--color-blue),0.1)', color: 'hsl(var(--color-blue))', borderRadius: 14, padding: '2px 9px', flexShrink: 0 }}>
+            {kids} report{kids !== 1 ? 's' : ''}
+          </span>
+        )}
+        <ChevronRight size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
       </div>
-      {kids > 0 && <span style={{ fontSize: 10, fontWeight: 800, background: 'hsla(var(--color-blue),0.1)', color: 'hsl(var(--color-blue))', borderRadius: 20, padding: '1px 7px', flexShrink: 0 }}>{kids}</span>}
     </div>
   );
 }
 
-function OrgNode({ e, childrenMap, dnd }) {
-  const kids = childrenMap.get((e.workEmail || '').toLowerCase()) || [];
+// Right-hand detail drawer: view + edit reporting line, title, department.
+function OrgSidePanel({ e, people, entities, entityName, descendants, onClose, onSelect, onSaved, toastOk, toastErr }) {
+  const [f, setF] = useState({ manager_email: e.managerEmail || '', job_title: e.jobTitle || '', department: e.department || '', company: e.company || '' });
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setF({ manager_email: e.managerEmail || '', job_title: e.jobTitle || '', department: e.department || '', company: e.company || '' }); }, [e.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const myEmail = (e.workEmail || '').toLowerCase();
+  const blocked = descendants(myEmail);           // can't report to your own subtree
+  const managerOptions = people.filter(p => p.id !== e.id && p.workEmail && !blocked.has((p.workEmail || '').toLowerCase()));
+  const reports = people.filter(p => (p.managerEmail || '').toLowerCase() === myEmail && myEmail);
+  const dirty = f.manager_email !== (e.managerEmail || '') || f.job_title !== (e.jobTitle || '') || f.department !== (e.department || '') || f.company !== (e.company || '');
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const saved = await api.updateEmployee(e.id, f);
+      onSaved(saved);
+      toastOk(`${fullName(e)} updated.`);
+    } catch (err) { toastErr(err?.message || 'Could not save.'); }
+    finally { setBusy(false); }
+  };
+
+  const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '12px 0 4px', textTransform: 'uppercase', letterSpacing: '.05em' };
   return (
-    <li>
-      <OrgCard e={e} kids={kids.length} dnd={dnd} />
-      {kids.length > 0 && <ul>{kids.map(k => <OrgNode key={k.id} e={k} childrenMap={childrenMap} dnd={dnd} />)}</ul>}
-    </li>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1300, display: 'flex', justifyContent: 'flex-end', background: 'rgba(0,0,0,0.35)' }}
+      onClick={ev => ev.target === ev.currentTarget && onClose()}>
+      <div style={{ width: 'min(400px, 94vw)', height: '100%', background: 'var(--card)', boxShadow: 'var(--shadow-lg)', display: 'flex', flexDirection: 'column', animation: 'fadeIn 0.15s ease' }}>
+        <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 14 }}>
+          <Avatar e={e} size={52} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 16 }}>{fullName(e)}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {[e.jobTitle, e.department].filter(Boolean).join(' · ') || '—'}
+            </div>
+            {e.workEmail && <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{e.workEmail}</div>}
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 6 }}><X size={18} /></button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '6px 22px 18px' }}>
+          <label style={lbl}>Reports to</label>
+          <select className="form-input" style={{ width: '100%' }} value={f.manager_email}
+            onChange={ev => setF(x => ({ ...x, manager_email: ev.target.value }))}>
+            <option value="">— No manager (top of a tree) —</option>
+            {managerOptions.map(p => <option key={p.id} value={(p.workEmail || '').toLowerCase()}>{fullName(p)}{p.jobTitle ? ` — ${p.jobTitle}` : ''}</option>)}
+          </select>
+
+          <label style={lbl}>Job title</label>
+          <input className="form-input" style={{ width: '100%' }} value={f.job_title} onChange={ev => setF(x => ({ ...x, job_title: ev.target.value }))} />
+
+          <label style={lbl}>Department</label>
+          <input className="form-input" style={{ width: '100%' }} value={f.department} onChange={ev => setF(x => ({ ...x, department: ev.target.value }))} />
+
+          <label style={lbl}>Company</label>
+          <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={ev => setF(x => ({ ...x, company: ev.target.value }))}>
+            <option value="">—</option>
+            {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+          </select>
+
+          <button className="primary-btn" onClick={save} disabled={!dirty || busy}
+            style={{ marginTop: 16, width: '100%', justifyContent: 'center', display: 'inline-flex', alignItems: 'center', gap: 6, opacity: dirty ? 1 : 0.5 }}>
+            {busy ? <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : <CheckCircle size={14} />} Save changes
+          </button>
+
+          {reports.length > 0 && (
+            <>
+              <label style={lbl}>Direct reports ({reports.length})</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {reports.map(p => (
+                  <button key={p.id} onClick={() => onSelect(p)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
+                    <Avatar e={p} size={28} />
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{fullName(p)}</span>
+                      <span style={{ display: 'block', fontSize: 10.5, color: 'var(--muted)' }}>{p.jobTitle || p.department || ''}</span>
+                    </span>
+                    <ChevronRight size={13} style={{ color: 'var(--muted)' }} />
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
-function OrgChartTab({ employees, onUpdated, toastOk, toastErr }) {
+function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr }) {
   const [draggingId, setDraggingId] = useState(null);
   const [overKey, setOverKey] = useState(null); // target workEmail, or '__none__' for the clear zone
+  const [selected, setSelected] = useState(null);        // side-panel person
+  const [orgQ, setOrgQ] = useState('');                   // name/title search
+  const [orgCompany, setOrgCompany] = useState('');       // entity id filter
+  const [orgDept, setOrgDept] = useState('');             // department filter
+  const [collapsedSet, setCollapsedSet] = useState(new Set());
   const people = employees.filter(e => e.status !== 'offboarded');
   const emails = new Set(people.map(e => (e.workEmail || '').toLowerCase()).filter(Boolean));
   const byEmail = new Map(people.map(e => [(e.workEmail || '').toLowerCase(), e]));
@@ -1603,6 +1721,56 @@ function OrgChartTab({ employees, onUpdated, toastOk, toastErr }) {
   const unlinked = people.filter(e => !hasManager(e) && !(childrenMap.get((e.workEmail || '').toLowerCase()) || []).length);
   const linked = people.length - unlinked.length;
 
+  // ── Filters: company (live from the entities table), department, name search.
+  // Filtering rebuilds the tree from the filtered set — unmatched managers drop
+  // out and their matching reports surface as roots.
+  const departments = [...new Set(people.map(e => e.department).filter(Boolean))].sort();
+  const q = orgQ.trim().toLowerCase();
+  const visible = people.filter(e =>
+    (!orgCompany || e.company === orgCompany) &&
+    (!orgDept || e.department === orgDept) &&
+    (!q || fullName(e).toLowerCase().includes(q) || (e.jobTitle || '').toLowerCase().includes(q)));
+  const visEmails = new Set(visible.map(e => (e.workEmail || '').toLowerCase()).filter(Boolean));
+  const visChildren = new Map();
+  for (const e of visible) {
+    const m = (e.managerEmail || '').toLowerCase();
+    if (m && visEmails.has(m)) {
+      if (!visChildren.has(m)) visChildren.set(m, []);
+      visChildren.get(m).push(e);
+    }
+  }
+  for (const arr of visChildren.values()) {
+    arr.sort((a, b) => ((visChildren.get((b.workEmail || '').toLowerCase()) || []).length
+      - (visChildren.get((a.workEmail || '').toLowerCase()) || []).length)
+      || fullName(a).localeCompare(fullName(b)));
+  }
+  const visHasManager = e => (e.managerEmail || '') && visEmails.has((e.managerEmail || '').toLowerCase());
+  const visRoots = visible.filter(e => !visHasManager(e) && (visChildren.get((e.workEmail || '').toLowerCase()) || []).length > 0);
+  const visUnlinked = visible.filter(e => !visHasManager(e) && !(visChildren.get((e.workEmail || '').toLowerCase()) || []).length);
+  const entityName = id => (entities || []).find(en => en.id === id)?.name || '';
+  const filtered = !!(orgCompany || orgDept || q);
+
+  const toggle = (email) => setCollapsedSet(s => {
+    const n = new Set(s);
+    if (n.has(email)) n.delete(email); else n.add(email);
+    return n;
+  });
+
+  // Depth-first render of the vertical tree, honouring collapse state.
+  const renderTree = (e, depth) => {
+    const email = (e.workEmail || '').toLowerCase();
+    const kids = visChildren.get(email) || [];
+    const isCollapsed = collapsedSet.has(email);
+    return (
+      <div key={e.id}>
+        <OrgRow e={e} depth={depth} kids={kids.length} isCollapsed={isCollapsed}
+          onToggle={toggle} onSelect={setSelected} dnd={dnd} entityName={entityName}
+          highlight={!!q && fullName(e).toLowerCase().includes(q)} />
+        {!isCollapsed && kids.map(k => renderTree(k, depth + 1))}
+      </div>
+    );
+  };
+
   if (!people.length) return (
     <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
       <Network size={32} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
@@ -1610,43 +1778,74 @@ function OrgChartTab({ employees, onUpdated, toastOk, toastErr }) {
     </div>
   );
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
-          {people.length} people · {linked} in the reporting hierarchy
+    <div style={{ maxWidth: 880 }}>
+      {/* Toolbar: search + live company/department filters + expand controls */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+        <div className="search-bar" style={{ width: 220 }}>
+          <Search size={13} style={{ flexShrink: 0 }} />
+          <input placeholder="Find a person…" value={orgQ} onChange={ev => setOrgQ(ev.target.value)} />
+        </div>
+        <select className="form-input" value={orgCompany} onChange={ev => setOrgCompany(ev.target.value)}
+          style={{ fontSize: 12.5, fontWeight: 600, padding: '7px 26px 7px 10px', height: 'auto' }}>
+          <option value="">All companies</option>
+          {(entities || []).map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+        </select>
+        <select className="form-input" value={orgDept} onChange={ev => setOrgDept(ev.target.value)}
+          style={{ fontSize: 12.5, fontWeight: 600, padding: '7px 26px 7px 10px', height: 'auto' }}>
+          <option value="">All departments</option>
+          {departments.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <button className="secondary-btn" style={{ fontSize: 12 }} onClick={() => setCollapsedSet(new Set())}>Expand all</button>
+        <button className="secondary-btn" style={{ fontSize: 12 }}
+          onClick={() => setCollapsedSet(new Set([...visChildren.keys()]))}>Collapse all</button>
+        <span style={{ fontSize: 11.5, color: 'var(--muted)', marginLeft: 'auto' }}>
+          {visible.length}{filtered ? ` of ${people.length}` : ''} people · {linked} linked
         </span>
-        <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Drag a card onto someone to change who they report to.</span>
-        {/* Clear-zone appears only mid-drag — drop here to detach from a manager */}
-        {draggingId && (
-          <div
-            onDragOver={ev => { ev.preventDefault(); setOverKey('__none__'); }}
-            onDragLeave={() => { if (overKey === '__none__') setOverKey(null); }}
-            onDrop={ev => { ev.preventDefault(); drop('__none__'); }}
-            style={{ marginLeft: 'auto', border: `2px dashed ${overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--line)'}`, borderRadius: 10, padding: '7px 16px', fontSize: 12, fontWeight: 700, color: overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--muted)', background: overKey === '__none__' ? 'hsla(var(--color-red),0.06)' : 'transparent' }}>
-            Drop here to remove their reporting line
-          </div>
-        )}
       </div>
-      {roots.length > 0 && (
-        <div style={{ marginBottom: 22 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 4 }}>Reporting hierarchy</div>
-          <div className="org-tree-wrap">
-            <div className="org-tree">
-              <ul>{roots.map(r => <OrgNode key={r.id} e={r} childrenMap={childrenMap} dnd={dnd} />)}</ul>
-            </div>
-          </div>
+
+      {/* Clear-zone appears only mid-drag — drop here to detach from a manager */}
+      {draggingId && (
+        <div
+          onDragOver={ev => { ev.preventDefault(); setOverKey('__none__'); }}
+          onDragLeave={() => { if (overKey === '__none__') setOverKey(null); }}
+          onDrop={ev => { ev.preventDefault(); drop('__none__'); }}
+          style={{ marginBottom: 10, border: `2px dashed ${overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--line)'}`, borderRadius: 12, padding: '10px 16px', textAlign: 'center', fontSize: 12, fontWeight: 700, color: overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--muted)', background: overKey === '__none__' ? 'hsla(var(--color-red),0.06)' : 'transparent' }}>
+          Drop here to remove their reporting line
         </div>
       )}
-      {unlinked.length > 0 && (
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'hsl(var(--color-orange))', textTransform: 'uppercase', marginBottom: 8 }}>
-            No reporting line — set "Reports to" on their profile
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {/* Draggable too — drag Sagar onto his manager to link him in */}
-            {unlinked.map(e => <OrgCard key={e.id} e={e} kids={0} dnd={dnd} />)}
-          </div>
+
+      <p style={{ margin: '0 0 12px', fontSize: 11.5, color: 'var(--muted)' }}>
+        Tap anyone to view and edit their details · drag a row onto someone to change who they report to.
+      </p>
+
+      {visRoots.length > 0 && (
+        <div style={{ marginBottom: 22 }}>
+          {visRoots.map(r => renderTree(r, 0))}
         </div>
+      )}
+      {visRoots.length === 0 && visUnlinked.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '36px 0', color: 'var(--muted)', fontSize: 13, border: '1px dashed var(--line)', borderRadius: 14 }}>
+          No one matches these filters.
+        </div>
+      )}
+
+      {visUnlinked.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'hsl(var(--color-orange))', textTransform: 'uppercase', margin: '18px 0 8px' }}>
+            No reporting line — tap to set who they report to
+          </div>
+          {visUnlinked.map(e => (
+            <OrgRow key={e.id} e={e} depth={0} kids={0} isCollapsed={false}
+              onToggle={() => {}} onSelect={setSelected} dnd={dnd} entityName={entityName} highlight={false} />
+          ))}
+        </div>
+      )}
+
+      {selected && (
+        <OrgSidePanel e={selected} people={people} entities={entities || []} entityName={entityName}
+          descendants={descendants} onClose={() => setSelected(null)} onSelect={setSelected}
+          onSaved={saved => { onUpdated(saved); setSelected(saved); }}
+          toastOk={toastOk} toastErr={toastErr} />
       )}
     </div>
   );
@@ -2727,7 +2926,7 @@ export default function HR({ activeSub, onSubChange }) {
             onSubChange('hr-esign');
           }} />
       )}
-      {sub === 'hr-org' && <OrgChartTab employees={employees} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-org' && <OrgChartTab employees={employees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-time' && <TimeAdmin employees={employees} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-esign' && (
