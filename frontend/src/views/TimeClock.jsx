@@ -4,7 +4,7 @@ import {
   CheckCircle, Loader2, Plus, X, CalendarDays, Monitor, ChevronDown,
 } from 'lucide-react';
 import { api } from '../api';
-import DayTimeline from '../components/DayTimeline';
+import DayTimeline, { TimelineLegend } from '../components/DayTimeline';
 import BodModal from '../components/BodModal';
 import DayActivity from '../components/DayActivity';
 
@@ -198,6 +198,22 @@ export default function TimeClock() {
   const days = status?.days || {};
   const dayKeys = Object.keys(days).sort().reverse();
 
+  // Timesheet range filter — 7 days come with /status; longer ranges fetch on demand.
+  const [tsRange, setTsRange] = useState(7);
+  const [rangeDays, setRangeDays] = useState(null);
+  useEffect(() => {
+    if (tsRange === 7) { setRangeDays(null); return; }
+    const off = new Date().getTimezoneOffset() * 60000;
+    const end = new Date(Date.now() - off).toISOString().slice(0, 10);
+    const start = new Date(Date.now() - off - (tsRange - 1) * 86400000).toISOString().slice(0, 10);
+    api.timeMy(start, end).then(r => setRangeDays(r.days || {})).catch(() => setRangeDays({}));
+  }, [tsRange]);
+  const tsDays = tsRange === 7 ? days : (rangeDays || {});
+  const tsKeys = Object.keys(tsDays).sort().reverse();
+  const tsTotal = Object.values(tsDays).reduce((a, d) => a + d.workedMin, 0);
+  const tsBreak = Object.values(tsDays).reduce((a, d) => a + d.breakMin, 0);
+  const tsFlags = Object.values(tsDays).reduce((a, d) => a + d.flags.length, 0);
+
   const todayKey = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   const todayData = days[todayKey];
   const weekTotal = Object.values(days).reduce((a, d) => a + d.workedMin, 0);
@@ -363,9 +379,15 @@ export default function TimeClock() {
       {tab === 'timesheet' && (<>
       <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-start' }}>
       <div style={{ flex: '1.9 1 480px', minWidth: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 8px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '0 0 8px', flexWrap: 'wrap' }}>
         <CalendarDays size={15} style={{ color: 'var(--pine)' }} />
-        <span style={{ fontSize: 13.5, fontWeight: 800 }}>Last 7 days</span>
+        <select className="form-input" value={tsRange} onChange={e => setTsRange(+e.target.value)}
+          style={{ fontSize: 12.5, fontWeight: 700, padding: '5px 26px 5px 10px', height: 'auto' }}>
+          <option value={7}>Last 7 days</option>
+          <option value={14}>Last 14 days</option>
+          <option value={30}>Last 30 days</option>
+        </select>
+        <TimelineLegend />
         <div style={{ flex: 1 }} />
         <button className="secondary-btn" onClick={() => setMissedOpen(o => !o)}
           style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -393,13 +415,18 @@ export default function TimeClock() {
       )}
 
       <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
-        {dayKeys.length === 0 && (
-          <div style={{ padding: '22px 18px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
-            No punches yet — your week shows up here.
+        {tsRange !== 7 && rangeDays === null && (
+          <div style={{ padding: '22px 18px', textAlign: 'center' }}>
+            <Loader2 size={18} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
           </div>
         )}
-        {dayKeys.map(date => {
-          const d = days[date];
+        {tsKeys.length === 0 && !(tsRange !== 7 && rangeDays === null) && (
+          <div style={{ padding: '22px 18px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
+            No punches in this range — your days show up here.
+          </div>
+        )}
+        {tsKeys.map(date => {
+          const d = tsDays[date];
           const isOpen = !!openDays[date];
           return (
             <div key={date} style={{ borderBottom: '1px solid var(--line)' }}>
@@ -445,12 +472,14 @@ export default function TimeClock() {
       </div>
       <div style={{ flex: '1 1 300px', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 20px' }}>
-        <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Week summary</div>
+        <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>
+          {tsRange === 7 ? 'Week summary' : `Last ${tsRange} days`}
+        </div>
         <div style={{ display: 'grid', gap: 12 }}>
-          {[['Worked', fmtMin(weekTotal), 'var(--pine)'],
-            ['Breaks', `${weekBreak}m`, 'var(--ink)'],
-            ['Days active', String(dayKeys.length), 'var(--ink)'],
-            ['Items for review', String(weekFlags), weekFlags ? '#b45309' : 'var(--muted)']].map(([l, v, c]) => (
+          {[['Worked', fmtMin(tsTotal), 'var(--pine)'],
+            ['Breaks', `${tsBreak}m`, 'var(--ink)'],
+            ['Days active', String(tsKeys.length), 'var(--ink)'],
+            ['Items for review', String(tsFlags), tsFlags ? '#b45309' : 'var(--muted)']].map(([l, v, c]) => (
             <div key={l} style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{l}</span>
               <span style={{ fontSize: 16, fontWeight: 800, color: c }}>{v}</span>
