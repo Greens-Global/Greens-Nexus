@@ -50,10 +50,18 @@ export function TimelineLegend() {
   );
 }
 
-export default function DayTimeline({ punches, height = 24, ticks = true }) {
+export default function DayTimeline({ punches, height = 24, ticks = true, date = '' }) {
   const [tip, setTip] = useState(null);   // { x (0-100), text } — hover or pinned by click
   const [pinned, setPinned] = useState(false);
-  const segs = daySegments(punches);
+  // Open segments run to "now" ONLY on today. On a past day a dangling punch-in
+  // (missing punch-out) is capped at that day's end and labelled as such —
+  // otherwise Tuesday's forgotten punch-out reads as "running · 11h" on Wednesday.
+  const off = new Date().getTimezoneOffset() * 60000;
+  const todayKey = new Date(Date.now() - off).toISOString().slice(0, 10);
+  const isToday = !date || date === todayKey;
+  const cap = isToday ? Date.now() : new Date(date + 'T23:59:59').getTime();
+  const segs = daySegments(punches).map(s =>
+    s.open ? { ...s, b: Math.min(s.b, cap), dangling: !isToday } : s);
   if (!segs.length) return null;
 
   // Zoom to the actual punched window, padded to whole hours.
@@ -69,14 +77,18 @@ export default function DayTimeline({ punches, height = 24, ticks = true }) {
   const tickList = [];
   for (let t = min; t <= max; t += step * HOUR) tickList.push(t);
 
-  const segTip = (s) => `${s.type === 'work' ? 'Working' : 'Break'} · ${fmtT(s.a)} → ${s.open ? 'now' : fmtT(s.b)} · ${fmtDur(s.b - s.a)}${s.open ? ' (running)' : ''}`;
+  const segTip = (s) => s.dangling
+    ? `${s.type === 'work' ? 'Working' : 'Break'} · ${fmtT(s.a)} → ? · missing punch-out (not counted past ${fmtT(s.a)})`
+    : `${s.type === 'work' ? 'Working' : 'Break'} · ${fmtT(s.a)} → ${s.open ? 'now' : fmtT(s.b)} · ${fmtDur(s.b - s.a)}${s.open ? ' (running)' : ''}`;
   const hover = (s) => setTip({ x: Math.min(88, Math.max(6, (pct(s.a) + pct(s.b)) / 2)), text: segTip(s) });
 
   const segStyle = (s, isBreak) => ({
     position: 'absolute', left: `${pct(s.a)}%`, width: `${Math.max(0.7, pct(s.b) - pct(s.a))}%`,
     top: 3, bottom: 3, borderRadius: 6, cursor: 'pointer',
-    background: isBreak ? '#f59e0b' : 'var(--pine)', opacity: isBreak ? 1 : 0.92,
-    animation: s.open ? 'pulse 2s ease-in-out infinite' : 'none',
+    background: s.dangling ? 'repeating-linear-gradient(45deg, #b45309 0 6px, rgba(180,83,9,0.35) 6px 12px)'
+      : isBreak ? '#f59e0b' : 'var(--pine)',
+    opacity: isBreak || s.dangling ? 1 : 0.92,
+    animation: s.open && !s.dangling ? 'pulse 2s ease-in-out infinite' : 'none',
     transition: 'filter 0.1s',
   });
 
@@ -101,7 +113,7 @@ export default function DayTimeline({ punches, height = 24, ticks = true }) {
             onMouseEnter={() => { if (!pinned) hover(s); }}
             onClick={(e) => { e.stopPropagation(); hover(s); setPinned(p => !p); }} />
         ))}
-        {live && (
+        {live && isToday && (
           <span style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', fontSize: 9, fontWeight: 800, color: 'var(--pine)', letterSpacing: '.04em' }}>NOW</span>
         )}
       </div>

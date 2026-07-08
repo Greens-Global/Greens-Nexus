@@ -33,7 +33,7 @@ function AdminDayRow({ date, email, d }) {
       <button onClick={() => setOpen(o => !o)}
         style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
         <span style={{ fontSize: 12, fontWeight: 800, width: 92, flexShrink: 0, color: 'var(--ink)' }}>{new Date(date + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</span>
-        <DayTimeline punches={d.punches} height={18} />
+        <DayTimeline punches={d.punches} height={18} date={date} />
         {d.flags.length > 0 && <AlertTriangle size={12} style={{ color: '#b45309', flexShrink: 0 }} />}
         <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--pine)', width: 58, textAlign: 'right', flexShrink: 0 }}>{fmtMin(d.workedMin)}</span>
       </button>
@@ -300,7 +300,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                       <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{fmtMin(d.workedMin)}{d.breakMin ? ` · ${d.breakMin}m break` : ''}</span>
                       {d.flags.map(f => <span key={f} style={{ fontSize: 10, fontWeight: 800, color: '#b45309', textTransform: 'uppercase' }}>{f.replace(/_/g, ' ')}</span>)}
                     </div>
-                    <div style={{ margin: '5px 0 4px', maxWidth: 560 }}><DayTimeline punches={d.punches} height={18} /></div>
+                    <div style={{ margin: '5px 0 4px', maxWidth: 560 }}><DayTimeline punches={d.punches} height={18} date={date} /></div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 5 }}>
                       {d.punches.map(p => (
                         <span key={p.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, padding: '4px 10px', borderRadius: 10,

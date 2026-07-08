@@ -310,7 +310,7 @@ export default function TimeClock() {
         <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Today</div>
         {todayData ? (
           <>
-            <DayTimeline punches={todayData.punches} />
+            <DayTimeline punches={todayData.punches} date={todayKey} />
             <div style={{ display: 'flex', gap: 26, marginTop: 18, flexWrap: 'wrap' }}>
               {[['Worked today', fmtMin(todayData.workedMin), 'var(--pine)'],
                 ['Breaks', `${breakUsedMin} / 60m`, breakUsedMin > 60 ? 'hsl(var(--color-red))' : 'var(--ink)'],
@@ -435,7 +435,7 @@ export default function TimeClock() {
                 <span style={{ fontSize: 13, fontWeight: 800, width: 96, flexShrink: 0, color: 'var(--ink)' }}>
                   {new Date(date + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
                 </span>
-                <DayTimeline punches={d.punches} />
+                <DayTimeline punches={d.punches} date={date} />
                 {d.flags.length > 0 && <AlertTriangle size={13} style={{ color: '#b45309', flexShrink: 0 }} />}
                 <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--pine)', width: 66, textAlign: 'right', flexShrink: 0 }}>{fmtMin(d.workedMin)}</span>
               </button>
