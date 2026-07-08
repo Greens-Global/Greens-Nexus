@@ -347,7 +347,8 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
                        f"Candidate {('hired' if body.stage == 'hired' else ('rejected' if body.stage == 'rejected' else 'moved'))}: {cand_name}",
                        f"{cand_name} ({row.role_title or row.department or 'candidate'}) is now in {body.stage.replace('_', ' ')}."
                        + (f"\nNote: {body.stage_note.strip()}" if (body.stage_note or '').strip() else ''),
-                       ref_id=row.id, requested_by=user["email"])
+                       ref_id=row.id, requested_by=user["email"],
+                       action={"view": "hr", "sub": "hr-hiring"})
 
     # Interview scheduling: record + notify the candidate owner (the daily
     # reminder job pings again on the day itself).
