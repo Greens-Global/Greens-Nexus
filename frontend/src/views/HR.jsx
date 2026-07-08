@@ -2342,8 +2342,11 @@ function LeaveTab({ employees, toastOk, toastErr }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
         <PeopleFilter employees={employees} selected={selF} onChange={setSelF} />
         <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{pending} pending · {visible.length} shown</span>
-        <button className="primary-btn" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={() => setFormOpen(true)}>
-          <Plus size={14} /> New Leave
+        {/* Employees request their own leave from My HR — this is the approve/track
+            view. HR keeps a de-emphasised "log on behalf" for phone-ins and
+            staff without portal access. */}
+        <button className="secondary-btn" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }} onClick={() => setFormOpen(true)}>
+          <Plus size={13} /> Log on behalf
         </button>
       </div>
 
