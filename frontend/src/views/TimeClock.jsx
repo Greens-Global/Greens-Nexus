@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Clock, LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,
-  CheckCircle, Loader2, Plus, X, CalendarDays,
+  CheckCircle, Loader2, Plus, X, CalendarDays, Monitor, ChevronDown,
 } from 'lucide-react';
 import { api } from '../api';
 import DayTimeline from '../components/DayTimeline';
 import BodModal from '../components/BodModal';
+import DayActivity from '../components/DayActivity';
 
 const PUNCH_CHIP = {
   in:          { bg: 'hsla(var(--color-green),0.1)', fg: 'hsl(var(--color-green))' },
@@ -182,7 +183,7 @@ export default function TimeClock() {
   const weekFlags = Object.values(days).reduce((a, d) => a + d.flags.length, 0);
 
   return (
-    <div style={{ maxWidth: 1160, margin: '0 auto', padding: '26px 18px', fontFamily: 'Inter,sans-serif' }}>
+    <div style={{ maxWidth: 1440, margin: '0 auto', padding: '26px 22px', fontFamily: 'Inter,sans-serif' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
         <Clock size={20} style={{ color: 'var(--pine)' }} />
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>Time Clock</h1>
@@ -351,7 +352,8 @@ export default function TimeClock() {
                 <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--pine)', width: 66, textAlign: 'right', flexShrink: 0 }}>{fmtMin(d.workedMin)}</span>
               </button>
               {isOpen && (
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '0 18px 12px 126px' }}>
+                <div style={{ padding: '0 18px 14px 126px' }}>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
                   {d.punches.map(p => {
                     const c = PUNCH_CHIP[p.kind] || PUNCH_CHIP.in;
                     return (
@@ -371,6 +373,8 @@ export default function TimeClock() {
                   {d.flags.includes('missing_out') && (
                     <span style={{ fontSize: 11, fontWeight: 700, color: '#b45309', alignSelf: 'center' }}>· missing punch-out</span>
                   )}
+                </div>
+                <DayActivity date={date} />
                 </div>
               )}
             </div>

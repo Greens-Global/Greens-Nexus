@@ -525,6 +525,8 @@ export const api = {
   timeAgentDevices:  ()          => req('/timeclock/agent/devices'),
   timeAgentRevoke:   (id)        => req(`/timeclock/agent/devices/${id}`, { method: 'PATCH' }),
   timeActivity:      (email, start, end) => req(`/timeclock/activity?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
+  timeMyActivity:    (date)      => req(`/timeclock/my-activity?date=${date}`),
+  timeActivityDay:   (email, date) => req(`/timeclock/activity-day?email=${encodeURIComponent(email)}&date=${date}`),
   timeShifts:        ()          => req('/timeclock/shifts'),
   timeShiftCreate:   (data)      => req('/timeclock/shifts', { method: 'POST', body: JSON.stringify(data) }),
   timeShiftUpdate:   (id, data)  => req(`/timeclock/shifts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

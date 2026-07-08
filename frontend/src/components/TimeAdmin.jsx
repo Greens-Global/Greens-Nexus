@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import DayTimeline from './DayTimeline';
+import DayActivity from './DayActivity';
 import ShiftsPanel from './ShiftsPanel';
 import ShiftSchedule from './ShiftSchedule';
 import PayrollTimecard from './PayrollTimecard';
@@ -22,6 +23,33 @@ const KIND_LABEL = { in: 'In', out: 'Out', break_start: 'Break start', break_end
 const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
 const fmtMin = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
 const isoDate = (d) => d.toISOString().slice(0, 10);
+
+// One day inside the person drawer — click to reveal the working/idle
+// breakdown and the desktop agent's app/window log for that day.
+function AdminDayRow({ date, email, d }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
+      <button onClick={() => setOpen(o => !o)}
+        style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
+        <span style={{ fontSize: 12, fontWeight: 800, width: 92, flexShrink: 0, color: 'var(--ink)' }}>{new Date(date + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+        <DayTimeline punches={d.punches} height={18} />
+        {d.flags.length > 0 && <AlertTriangle size={12} style={{ color: '#b45309', flexShrink: 0 }} />}
+        <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--pine)', width: 58, textAlign: 'right', flexShrink: 0 }}>{fmtMin(d.workedMin)}</span>
+      </button>
+      {d.flags.length > 0 && (
+        <div style={{ fontSize: 10, fontWeight: 700, color: '#b45309', marginTop: 3, marginLeft: 102, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+          {d.flags.map(f => f.replace(/_/g, ' ')).join(' · ')}
+        </div>
+      )}
+      {open && (
+        <div style={{ marginTop: 8, marginLeft: 8 }}>
+          <DayActivity date={date} email={email} />
+        </div>
+      )}
+    </div>
+  );
+}
 const utcToInput = (iso) => {
   const d = new Date(iso + 'Z');
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
@@ -524,25 +552,12 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                     </div>
                   );
                 })()}
-                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>Days</div>
-                {Object.keys(p.days || {}).sort().map(date => {
-                  const d = p.days[date];
-                  return (
-                    <div key={date} style={{ padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span style={{ fontSize: 12, fontWeight: 800, width: 92, flexShrink: 0 }}>{new Date(date + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</span>
-                        <DayTimeline punches={d.punches} height={18} />
-                        {d.flags.length > 0 && <AlertTriangle size={12} style={{ color: '#b45309', flexShrink: 0 }} />}
-                        <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--pine)', width: 58, textAlign: 'right', flexShrink: 0 }}>{fmtMin(d.workedMin)}</span>
-                      </div>
-                      {d.flags.length > 0 && (
-                        <div style={{ fontSize: 10, fontWeight: 700, color: '#b45309', marginTop: 3, marginLeft: 102, textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                          {d.flags.map(f => f.replace(/_/g, ' ')).join(' · ')}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>
+                  Days <span style={{ fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>— click one for the working/idle + app breakdown</span>
+                </div>
+                {Object.keys(p.days || {}).sort().map(date => (
+                  <AdminDayRow key={date} date={date} email={p.email} d={p.days[date]} />
+                ))}
                 {Object.keys(p.days || {}).length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>No punches in this range.</div>}
 
                 {/* App usage — from the desktop agent's activity tracking */}

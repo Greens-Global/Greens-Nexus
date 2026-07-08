@@ -1165,6 +1165,60 @@ def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
     return {"ok": True, "rate": row.hourly_rate}
 
 
+def _activity_day_payload(db: Session, email: str, date: str) -> dict:
+    """One day, fully broken down: worked vs active vs idle plus the app/window
+    log the desktop agent recorded. Active = foreground app samples while not
+    idle; idle = punched-in time the agent saw no activity for."""
+    rows = (db.query(AgentActivity)
+            .filter(AgentActivity.employee_email == email, AgentActivity.local_date == date)
+            .order_by(AgentActivity.at).all())
+    apps: dict = {}
+    for r in rows:
+        a = apps.setdefault(r.app or "Unknown", {"seconds": 0, "titles": {}})
+        a["seconds"] += r.seconds or 0
+        t = (r.title or "").strip()
+        if t:
+            a["titles"][t] = a["titles"].get(t, 0) + (r.seconds or 0)
+    day = _day_summaries(_live_punches(db, email, date, date)).get(date, {})
+    worked_min = day.get("workedMin", 0)
+    active_min = int(round(sum(v["seconds"] for v in apps.values()) / 60))
+    idle_min = max(0, worked_min - active_min)
+    return {
+        "date": date, "workedMin": worked_min, "activeMin": min(active_min, worked_min) if worked_min else active_min,
+        "idleMin": idle_min,
+        "activePct": min(100, round(active_min * 100 / worked_min)) if worked_min else 0,
+        "hasAgentData": bool(rows),
+        "apps": sorted(
+            [{"app": k, "seconds": v["seconds"],
+              "titles": sorted([{"title": t, "seconds": s} for t, s in v["titles"].items()],
+                               key=lambda x: -x["seconds"])[:6]}
+             for k, v in apps.items()], key=lambda x: -x["seconds"])[:15],
+        "log": [{"at": r.at, "app": r.app or "Unknown", "title": r.title or "",
+                 "seconds": r.seconds or 0} for r in reversed(rows)][:400],
+    }
+
+
+@router.get("/my-activity")
+def my_activity_day(date: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The caller's own working/idle breakdown + app log for one day."""
+    if not date:
+        raise HTTPException(400, "date is required (YYYY-MM-DD)")
+    return _activity_day_payload(db, user["email"].lower(), date)
+
+
+@router.get("/activity-day")
+def activity_day(email: str = "", date: str = "", user: dict = Depends(require_team_read),
+                 db: Session = Depends(get_db)):
+    """Team-scoped version for managers/HR — same shape as /my-activity."""
+    email = email.strip().lower()
+    if not (email and date):
+        raise HTTPException(400, "email and date are required")
+    scope = _visible_emails(db, user)
+    if scope is not None and email not in scope:
+        raise HTTPException(403, "Outside your team")
+    return _activity_day_payload(db, email, date)
+
+
 @router.get("/activity")
 def read_activity(email: str = "", start: str = "", end: str = "",
                   user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
