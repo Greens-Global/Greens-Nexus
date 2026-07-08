@@ -251,17 +251,36 @@ def pull_transcript(iid: str, user: dict = Depends(require_hr_write), db: Sessio
     token = _graph_token()
     h = {"Authorization": f"Bearer {token}"}
     org = iv.organizer_email
-    # joinUrl → onlineMeeting id
-    r = httpx.get(f"{_GRAPH}/users/{org}/onlineMeetings",
-                  params={"$filter": f"JoinWebUrl eq '{iv.join_url}'"}, headers=h, timeout=30)
-    if r.status_code == 403:
-        raise HTTPException(502, "Graph denied reading the meeting — this needs "
-                                 "'OnlineMeetingTranscript.Read.All' + a Teams application access policy "
-                                 "for the organizer (New-CsApplicationAccessPolicy). Until then, turn on "
-                                 "transcription in Teams and paste the transcript here.")
-    meetings = r.json().get("value", []) if r.is_success else []
+
+    def _find(join_url: str):
+        rr = httpx.get(f"{_GRAPH}/users/{org}/onlineMeetings",
+                       params={"$filter": f"JoinWebUrl eq '{join_url}'"}, headers=h, timeout=30)
+        if rr.status_code == 403:
+            raise HTTPException(502, "Graph denied reading the meeting — this needs "
+                                     "'OnlineMeetings.Read.All' + 'OnlineMeetingTranscript.Read.All' AND a Teams "
+                                     "application access policy for the organizer (New-CsApplicationAccessPolicy / "
+                                     "Grant-CsApplicationAccessPolicy — takes ~30 min to apply). Until then, turn on "
+                                     "transcription in Teams and use Paste transcript.")
+        if not rr.is_success:
+            raise HTTPException(502, f"Meeting lookup failed ({rr.status_code}): {rr.text[:200]}")
+        return rr.json().get("value", [])
+
+    meetings = _find(iv.join_url)
+    if not meetings and iv.event_id:
+        # The joinUrl stored at scheduling time can drift from Graph's canonical
+        # one (encoding/context) — re-read it from the calendar event and retry.
+        ev = httpx.get(f"{_GRAPH}/users/{org}/events/{iv.event_id}",
+                       params={"$select": "onlineMeeting"}, headers=h, timeout=30)
+        if ev.is_success:
+            fresh = ((ev.json().get("onlineMeeting") or {}).get("joinUrl") or "").strip()
+            if fresh and fresh != iv.join_url:
+                iv.join_url = fresh
+                db.commit()
+                meetings = _find(fresh)
     if not meetings:
-        raise HTTPException(404, "Could not find the Teams meeting under the organizer's account")
+        raise HTTPException(404, "Could not find the Teams meeting under the organizer's account. "
+                                 "If you granted the permissions/access policy recently, wait up to 30 minutes "
+                                 "and retry — or use Paste transcript.")
     mid = meetings[0]["id"]
     r = httpx.get(f"{_GRAPH}/users/{org}/onlineMeetings/{mid}/transcripts", headers=h, timeout=30)
     if not r.is_success or not r.json().get("value"):
