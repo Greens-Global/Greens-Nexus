@@ -1955,32 +1955,30 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
   );
   return (
     <div>
-      {/* Toolbar: left = expand controls + count · right corner = search + filters */}
+      {/* Toolbar: expand controls · full-width search · filters + count (People-tab style) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-        <button className="secondary-btn" style={{ fontSize: 12 }}
+        <button className="secondary-btn" style={{ fontSize: 12, flex: '0 0 auto' }}
           onClick={() => { setCollapsedSet(new Set()); setTimeout(centerView, 60); }}>Expand all</button>
-        <button className="secondary-btn" style={{ fontSize: 12 }}
+        <button className="secondary-btn" style={{ fontSize: 12, flex: '0 0 auto' }}
           onClick={() => { setCollapsedSet(new Set([...visChildren.keys()])); setTimeout(centerView, 60); }}>Collapse all</button>
-        <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+        <div className="search-bar" style={{ flex: '1 1 240px', minWidth: 200 }}>
+          <Search size={13} style={{ flexShrink: 0 }} />
+          <input placeholder="Search people…" value={orgQ} onChange={ev => setOrgQ(ev.target.value)} />
+          {orgQ && <button onClick={() => setOrgQ('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={13} /></button>}
+        </div>
+        <select className="form-input" value={orgCompany} onChange={ev => setOrgCompany(ev.target.value)}
+          style={{ width: 150, flex: '0 0 auto', fontSize: 12.5, fontWeight: 600, padding: '7px 26px 7px 10px', height: 34 }}>
+          <option value="">All companies</option>
+          {(entities || []).map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+        </select>
+        <select className="form-input" value={orgDept} onChange={ev => setOrgDept(ev.target.value)}
+          style={{ width: 150, flex: '0 0 auto', fontSize: 12.5, fontWeight: 600, padding: '7px 26px 7px 10px', height: 34 }}>
+          <option value="">All departments</option>
+          {departments.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: '0 0 auto', whiteSpace: 'nowrap' }}>
           {visible.length}{filtered ? ` of ${people.length}` : ''} people · {linked} linked
         </span>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <div className="search-bar" style={{ width: 260 }}>
-            <Search size={13} style={{ flexShrink: 0 }} />
-            <input placeholder="Find a person…" value={orgQ} onChange={ev => setOrgQ(ev.target.value)} />
-            {orgQ && <button onClick={() => setOrgQ('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={13} /></button>}
-          </div>
-          <select className="form-input" value={orgCompany} onChange={ev => setOrgCompany(ev.target.value)}
-            style={{ width: 150, flex: '0 0 auto', fontSize: 12.5, fontWeight: 600, padding: '7px 26px 7px 10px', height: 34 }}>
-            <option value="">All companies</option>
-            {(entities || []).map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
-          </select>
-          <select className="form-input" value={orgDept} onChange={ev => setOrgDept(ev.target.value)}
-            style={{ width: 150, flex: '0 0 auto', fontSize: 12.5, fontWeight: 600, padding: '7px 26px 7px 10px', height: 34 }}>
-            <option value="">All departments</option>
-            {departments.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
-        </div>
       </div>
 
       {/* Division legend — click a chip to spotlight that division (dim the rest).
