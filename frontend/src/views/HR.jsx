@@ -1397,10 +1397,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
-          {open.length} in pipeline · {byStage('offer').length} offer{byStage('offer').length !== 1 ? 's' : ''} out · {byStage('hired').length} hired
-        </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setQOpen(true)}>Questionnaires</button>
           <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setLbOpen(true)}>Leaderboard</button>
@@ -1411,6 +1408,20 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
             <Plus size={14} /> Add Candidate
           </button>
         </div>
+      </div>
+
+      {/* Pipeline stats */}
+      <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 18 }}>
+        {[['card-blue', 'In pipeline', open.length, 'Applied → Offer'],
+          ['card-orange', 'Interviews booked', candidates.filter(c => c.interviewAt && !['hired', 'rejected'].includes(c.stage)).length, 'Teams invites out'],
+          ['card-purple', 'Offers out', byStage('offer').length, 'Awaiting decision'],
+          ['card-green', 'Hired', byStage('hired').length, 'Became employees']].map(([cls, label, value, sub]) => (
+          <div key={label} className={`kpi-card ${cls}`}>
+            <div className="kpi-label">{label}</div>
+            <div className="kpi-value">{value}</div>
+            <div className="kpi-delta">{sub}</div>
+          </div>
+        ))}
       </div>
 
       {candidates.length === 0 ? (
@@ -1438,18 +1449,27 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           })}
         </div>
       ) : (
-        /* Desktop: kanban columns */
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${showClosed ? 6 : 4}, 1fr)`, gap: 12, alignItems: 'start' }}>
-          {[...STAGES.slice(0, 4), ...(showClosed ? ['hired', 'rejected'] : [])].map(s => (
-            <div key={s} style={{ background: 'rgba(255,255,255,0.55)', border: '1px solid var(--line)', borderRadius: 14, padding: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 4px 10px' }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: `hsl(${STAGE_META[s].hue})` }} />
-                <b style={{ fontSize: 11, letterSpacing: '.05em', textTransform: 'uppercase' }}>{STAGE_META[s].label}</b>
-                <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 800, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 20, padding: '0 7px', color: 'var(--muted)' }}>{byStage(s).length}</span>
+        /* Desktop: kanban lanes — full height so the board reads as a board */
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${showClosed ? 6 : 4}, 1fr)`, gap: 12, alignItems: 'stretch' }}>
+          {[...STAGES.slice(0, 4), ...(showClosed ? ['hired', 'rejected'] : [])].map(s => {
+            const items = byStage(s);
+            return (
+              <div key={s} style={{ background: 'rgba(255,255,255,0.55)', border: '1px solid var(--line)', borderRadius: 14, padding: 10,
+                minHeight: 'max(420px, calc(100vh - 470px))', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 4px 10px' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: `hsl(${STAGE_META[s].hue})` }} />
+                  <b style={{ fontSize: 11, letterSpacing: '.05em', textTransform: 'uppercase' }}>{STAGE_META[s].label}</b>
+                  <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 800, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 20, padding: '0 7px', color: 'var(--muted)' }}>{items.length}</span>
+                </div>
+                {items.map(card)}
+                {items.length === 0 && (
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px dashed var(--line)', borderRadius: 10, margin: '2px 2px 4px', minHeight: 90 }}>
+                    <span style={{ fontSize: 11.5, color: 'var(--muted)', opacity: 0.8 }}>No one in {STAGE_META[s].label.toLowerCase()}</span>
+                  </div>
+                )}
               </div>
-              {byStage(s).map(card)}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
