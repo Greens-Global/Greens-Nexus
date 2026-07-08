@@ -1681,11 +1681,27 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
   const [orgCompany, setOrgCompany] = useState('');       // entity id filter
   const [orgDept, setOrgDept] = useState('');             // department filter
   const [collapsedSet, setCollapsedSet] = useState(new Set());
+  const [seeded, setSeeded] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 40, y: 24 });
   const canvasRef = useRef(null);
   const contentRef = useRef(null);
   const people = employees.filter(e => e.status !== 'offboarded');
+
+  // First render: show the top two levels at full size (roots + their direct
+  // reports); deeper teams start collapsed behind their pill. Keeps the chart
+  // readable instead of shrinking 40 people into ant-sized cards.
+  useEffect(() => {
+    if (seeded || !people.length) return;
+    const emailSet = new Set(people.map(p => (p.workEmail || '').toLowerCase()).filter(Boolean));
+    const isRoot = p => !((p.managerEmail || '') && emailSet.has((p.managerEmail || '').toLowerCase()));
+    const rootEmails = new Set(people.filter(isRoot).map(p => (p.workEmail || '').toLowerCase()));
+    const managers = new Set(people.filter(p =>
+      people.some(k => (k.managerEmail || '').toLowerCase() === (p.workEmail || '').toLowerCase() && p.workEmail))
+      .map(p => (p.workEmail || '').toLowerCase()));
+    setCollapsedSet(new Set([...managers].filter(m => !rootEmails.has(m))));
+    setSeeded(true);
+  }, [people, seeded]);
   const emails = new Set(people.map(e => (e.workEmail || '').toLowerCase()).filter(Boolean));
   const byEmail = new Map(people.map(e => [(e.workEmail || '').toLowerCase(), e]));
   const childrenMap = new Map();
@@ -1789,18 +1805,26 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
     isHighlight: (e) => !!q && fullName(e).toLowerCase().includes(q),
   };
 
-  // ── Pan & zoom canvas — how enterprise charts stay responsive: the chart
-  // never overflows the page; you pan/zoom within a fixed viewport instead.
+  // ── Pan & zoom canvas — the chart never overflows the page; you pan/zoom
+  // within a fixed viewport. Default = 100% zoom, centered; Fit is opt-in.
+  const centerView = () => requestAnimationFrame(() => {
+    const c = canvasRef.current, k = contentRef.current;
+    if (!c || !k) return;
+    const kw = k.scrollWidth;
+    setZoom(1);
+    setPan({ x: Math.max(24, (c.clientWidth - kw) / 2), y: 24 });
+  });
   const fitToView = () => requestAnimationFrame(() => {
     const c = canvasRef.current, k = contentRef.current;
     if (!c || !k) return;
+    // scrollWidth reports untransformed layout size — no zoom correction needed
     const kw = k.scrollWidth, kh = k.scrollHeight;
     if (!kw || !kh) return;
-    const s = Math.max(0.3, Math.min(1, (c.clientWidth - 48) / kw, (c.clientHeight - 48) / kh));
+    const s = Math.max(0.35, Math.min(1, (c.clientWidth - 48) / kw, (c.clientHeight - 48) / kh));
     setZoom(s);
-    setPan({ x: (c.clientWidth - kw * s) / 2, y: 24 });
+    setPan({ x: Math.max(24, (c.clientWidth - kw * s) / 2), y: 24 });
   });
-  useEffect(() => { fitToView(); }, [orgCompany, orgDept, employees.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (seeded) centerView(); }, [orgCompany, orgDept, seeded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const startPan = (ev) => {
     if (ev.target.closest && ev.target.closest('[data-orgcard]')) return;   // card press, not a pan
