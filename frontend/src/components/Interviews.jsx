@@ -346,13 +346,21 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
                   {i + 1}
                 </span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>{iv.candidateName || '—'}</div>
+                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>
+                    {iv.candidateName || '—'}
+                    {iv.candidateStage === 'hired' && (
+                      <span style={{ marginLeft: 7, fontSize: 10, fontWeight: 800, letterSpacing: '.04em', color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.12)', padding: '2px 8px', borderRadius: 10 }}>HIRED</span>
+                    )}
+                    {iv.candidateStage === 'offer' && (
+                      <span style={{ marginLeft: 7, fontSize: 10, fontWeight: 800, letterSpacing: '.04em', color: 'hsl(var(--color-purple))', background: 'hsla(var(--color-purple),0.12)', padding: '2px 8px', borderRadius: 10 }}>OFFER</span>
+                    )}
+                  </div>
                   <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{iv.templateName || 'No questionnaire'} · {iv.at ? new Date(iv.at).toLocaleDateString() : ''}</div>
                 </div>
                 <span style={{ fontSize: 17, fontWeight: 800, color: iv.totalScore >= 70 ? 'hsl(var(--color-green))' : iv.totalScore >= 45 ? 'hsl(var(--color-orange))' : 'hsl(var(--color-red))' }}>
                   {Math.round(iv.totalScore)}
                 </span>
-                {inviting !== iv.id ? (
+                {iv.candidateStage === 'hired' ? null : inviting !== iv.id ? (
                   <button className="secondary-btn" style={{ fontSize: 11.5, padding: '4px 11px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
                     onClick={() => { setInviting(iv.id); setFinalAt(''); }}>
                     <Send size={12} /> Final round

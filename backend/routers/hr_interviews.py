@@ -386,7 +386,12 @@ def leaderboard(template_id: str = "", user: dict = Depends(require_hr_read), db
     out = []
     for i in rows:
         cand = db.query(HrCandidate).filter(HrCandidate.id == i.candidate_id).first()
-        out.append(_ser_iv(i, cand))
+        # Rejected candidates are out of the running — no place on the board.
+        if not cand or cand.stage == "rejected":
+            continue
+        d = _ser_iv(i, cand)
+        d["candidateStage"] = cand.stage
+        out.append(d)
     return out
 
 
@@ -401,12 +406,12 @@ def recommend_hire(body: RecommendIn, user: dict = Depends(require_hr_read), db:
     q = db.query(HrInterview).filter(HrInterview.status == "scored")
     if body.template_id:
         q = q.filter(HrInterview.template_id == body.template_id)
-    ivs = q.order_by(HrInterview.total_score.desc()).limit(8).all()
-    if len(ivs) < 2:
-        raise HTTPException(400, "Need at least two calibrated candidates to compare")
+    ivs = q.order_by(HrInterview.total_score.desc()).limit(12).all()
     packs = []
     for iv in ivs:
         cand = db.query(HrCandidate).filter(HrCandidate.id == iv.candidate_id).first()
+        if not cand or cand.stage in ("rejected", "hired"):
+            continue   # only live contenders get compared
         packs.append({
             "name": f"{cand.first_name} {cand.last_name}".strip() if cand else iv.candidate_id,
             "total": round(iv.total_score or 0),
@@ -414,6 +419,9 @@ def recommend_hire(body: RecommendIn, user: dict = Depends(require_hr_read), db:
             "answers": [{"q": a["q"], "answer": (a.get("answer") or "")[:400], "score": a.get("score")}
                         for a in (iv.answers or []) if (a.get("answer") or "").strip()],
         })
+    if len(packs) < 2:
+        raise HTTPException(400, "Need at least two calibrated candidates still in the running to compare")
+    packs = packs[:8]
     role = ivs[0].template_name or "the role"
     text = _claude(
         f"You are the final hiring panel for \"{role}\". Below are the calibrated interviews. "
