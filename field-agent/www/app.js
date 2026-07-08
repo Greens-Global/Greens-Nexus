@@ -10,11 +10,16 @@
  * dead-zone stretch uploads on reconnect. The server rejects anything sent while
  * not clocked in, so tracking can never outlive a shift.
  */
-const Cap = window.Capacitor;
-const Preferences = Cap.Plugins.Preferences;
-const Device = Cap.Plugins.Device;
-const BackgroundGeolocation = Cap.registerPlugin('BackgroundGeolocation');
-const BarcodeScanner = Cap.registerPlugin('BarcodeScanner');
+const Cap = window.Capacitor || {};
+// Resolve EVERY plugin through registerPlugin so the native bridge binds them by
+// name. In a no-bundler www build, Cap.Plugins.* is NOT populated (the plugins'
+// JS wrappers never load), so Cap.Plugins.Preferences was undefined and threw at
+// boot — blanking the screen. registerPlugin works without the JS wrapper.
+const reg = (name) => (Cap.registerPlugin ? Cap.registerPlugin(name) : {});
+const Preferences = reg('Preferences');
+const Device = reg('Device');
+const BackgroundGeolocation = reg('BackgroundGeolocation');
+const BarcodeScanner = reg('BarcodeScanner');
 
 const $ = (id) => document.getElementById(id);
 const show = (id, on) => $(id).classList.toggle('hidden', !on);
@@ -29,10 +34,12 @@ const state = {
 
 // ── storage ──────────────────────────────────────────────────────────────
 async function load() {
-  state.apiBase = (await Preferences.get({ key: 'apiBase' })).value || '';
-  state.token   = (await Preferences.get({ key: 'token' })).value || '';
-  const buf     = (await Preferences.get({ key: 'buffer' })).value;
-  state.buffer  = buf ? JSON.parse(buf) : [];
+  try {
+    state.apiBase = (await Preferences.get({ key: 'apiBase' })).value || '';
+    state.token   = (await Preferences.get({ key: 'token' })).value || '';
+    const buf     = (await Preferences.get({ key: 'buffer' })).value;
+    state.buffer  = buf ? JSON.parse(buf) : [];
+  } catch (e) { console.warn('load: prefs unavailable', e); }
 }
 async function saveBuffer() {
   await Preferences.set({ key: 'buffer', value: JSON.stringify(state.buffer.slice(-2000)) });
@@ -229,4 +236,9 @@ $('revoke').onclick = async () => {
 };
 
 // ── boot ─────────────────────────────────────────────────────────────────
-(async () => { await load(); await saveBuffer(); route(); })();
+// route() must ALWAYS run so the setup screen shows even if a plugin call fails.
+(async () => {
+  try { await load(); } catch (e) { console.warn('boot: load failed', e); }
+  try { await saveBuffer(); } catch (e) { console.warn('boot: buffer failed', e); }
+  try { route(); } catch (e) { console.warn('boot: route failed', e); show('enroll', true); }
+})();
