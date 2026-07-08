@@ -72,7 +72,7 @@ export default function EnrolPhone({ employees = [], onClose, toastErr }) {
         {!pairing ? (
           <>
             <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 12px', lineHeight: 1.55 }}>
-              Generate a pairing QR for the Nexus Field app. Scanning it sets up the phone with no typing.
+              Generate a pairing QR for the Nexus Fields app. Scanning it sets up the phone with no typing.
             </p>
             <label style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)' }}>Worker email</label>
             <input className="form-input" list="enrol-emp" value={email} placeholder="worker@greensglobal.com"
@@ -97,7 +97,7 @@ export default function EnrolPhone({ employees = [], onClose, toastErr }) {
         ) : (
           <>
             <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 12px', lineHeight: 1.55 }}>
-              In the <strong>Nexus Field</strong> app tap <strong>Scan pairing QR</strong> and point it here.
+              In the <strong>Nexus Fields</strong> app tap <strong>Scan pairing QR</strong> and point it here.
               This code is shown once — generate a new one per phone.
             </p>
             <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0 14px' }}>

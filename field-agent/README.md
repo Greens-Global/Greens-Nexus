@@ -1,4 +1,4 @@
-# Nexus Field — background location tracker (Capacitor)
+# Nexus Fields — background location tracker (Capacitor)
 
 A small native app for on-site crews. It records the worker's location
 periodically **while they are clocked in** and stops when they clock out. It
@@ -60,7 +60,7 @@ Stock Android / Pixel / most Samsung keep the foreground service alive. But
 **Xiaomi/MIUI, Oppo, Vivo, Realme and some Samsung** kill it unless the user
 manually:
 
-1. Disables battery optimization for **Nexus Field**, and
+1. Disables battery optimization for **Nexus Fields**, and
 2. Enables **Autostart** for it.
 
 There is **no code fix** — it's a per-device setting. Ship the walkthrough from
@@ -97,7 +97,7 @@ the free 7-day route above is enough.
 1. In Nexus (admin): **HR → Time → Live map → “+ Enrol phone”** → pick the
    worker → a **pairing QR** appears (`api.timeAgentEnroll` mints a one-time
    token; the QR encodes `{ api, code }` — server URL + token together).
-2. Worker opens **Nexus Field → “Scan pairing QR”** and points at it — the app
+2. Worker opens **Nexus Fields → “Scan pairing QR”** and points at it — the app
    reads the server URL + code and pairs itself (`@capacitor-mlkit/barcode-scanning`).
    A **“Enter manually”** fallback remains for when a camera scan isn't possible.
 3. Worker consents → taps **Start shift**.

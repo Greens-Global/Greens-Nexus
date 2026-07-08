@@ -1,6 +1,6 @@
 {
   "appId": "com.greensglobal.nexus.field",
-  "appName": "Nexus Field",
+  "appName": "Nexus Fields",
   "webDir": "www",
   "server": { "androidScheme": "https" },
   "plugins": {

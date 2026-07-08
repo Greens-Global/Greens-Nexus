@@ -127,7 +127,7 @@ export default function LiveCrewMap({ toastErr, employees = [] }) {
             <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
           ) : list.length === 0 ? (
             <div style={{ color: 'var(--muted)', fontSize: 13, padding: '8px 2px' }}>
-              No one is clocked in with tracking right now. Crews appear here while they're on shift in the Nexus Field app.
+              No one is clocked in with tracking right now. Crews appear here while they're on shift in the Nexus Fields app.
             </div>
           ) : list.map(c => {
             const st = STATUS[c.geoStatus] || STATUS.no_location;

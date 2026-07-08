@@ -1,4 +1,4 @@
-/* Nexus Field — background location tracker.
+/* Nexus Fields — background location tracker.
  *
  * Talks to the SAME backend as the web portal, but authenticates with an
  * admin-minted device token (X-Agent-Token) instead of a Microsoft login —
@@ -142,7 +142,7 @@ async function flush() {
 async function startTracking(resumed) {
   if (state.watcherId) return;
   state.watcherId = await BackgroundGeolocation.addWatcher({
-    backgroundTitle: 'Nexus Field — on shift',
+    backgroundTitle: 'Nexus Fields — on shift',
     backgroundMessage: "Recording your location while you're clocked in. Ends when you clock out.",
     requestPermissions: true,
     stale: false,
