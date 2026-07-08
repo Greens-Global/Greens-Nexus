@@ -1510,7 +1510,7 @@ function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName
   const isTarget = dnd.overKey === email && dnd.draggingId && dnd.draggingId !== e.id;
   const isDragging = dnd.draggingId === e.id;
   return (
-    <div data-orgcard="1" style={{ position: 'relative', paddingBottom: kids > 0 ? 12 : 0 }}>
+    <div data-orgcard="1" data-email={email} style={{ position: 'relative', paddingBottom: kids > 0 ? 12 : 0 }}>
       <div
         draggable
         onDragStart={ev => { ev.dataTransfer.effectAllowed = 'move'; dnd.setDraggingId(e.id); }}
@@ -1770,10 +1770,11 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
   // out and their matching reports surface as roots.
   const departments = [...new Set(people.map(e => e.department).filter(Boolean))].sort();
   const q = orgQ.trim().toLowerCase();
+  // Company/department FILTER the tree; search FINDS within it (expand + center
+  // + highlight) — filtering by name would amputate the person's whole subtree.
   const visible = people.filter(e =>
     (!orgCompany || e.company === orgCompany) &&
-    (!orgDept || e.department === orgDept) &&
-    (!q || fullName(e).toLowerCase().includes(q) || (e.jobTitle || '').toLowerCase().includes(q)));
+    (!orgDept || e.department === orgDept));
   const visEmails = new Set(visible.map(e => (e.workEmail || '').toLowerCase()).filter(Boolean));
   const visChildren = new Map();
   for (const e of visible) {
@@ -1825,6 +1826,43 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
     setPan({ x: Math.max(24, (c.clientWidth - kw * s) / 2), y: 24 });
   });
   useEffect(() => { if (seeded) centerView(); }, [orgCompany, orgDept, seeded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Search = find & focus: expand every ancestor of the first match (plus the
+  // match's own team), then glide the canvas so their card sits centre-stage.
+  useEffect(() => {
+    if (!q || !seeded) return;
+    const match = visible.find(e => fullName(e).toLowerCase().includes(q) || (e.jobTitle || '').toLowerCase().includes(q));
+    if (!match) return;
+    const byEmailAll = new Map(visible.map(p => [(p.workEmail || '').toLowerCase(), p]));
+    const chain = [];
+    let cur = match, hops = 0;
+    while (cur && (cur.managerEmail || '') && hops < 20) {
+      const m = (cur.managerEmail || '').toLowerCase();
+      if (!byEmailAll.has(m)) break;
+      chain.push(m);
+      cur = byEmailAll.get(m);
+      hops++;
+    }
+    const me = (match.workEmail || '').toLowerCase();
+    setCollapsedSet(s => {
+      const n = new Set(s);
+      chain.forEach(a => n.delete(a));
+      if (me) n.delete(me);              // show their own team too
+      return n;
+    });
+    // Let the expansion render, then centre the card in the viewport.
+    const t = setTimeout(() => {
+      const c = canvasRef.current, k = contentRef.current;
+      const el = k && me ? k.querySelector(`[data-email="${me.replace(/"/g, '')}"]`) : null;
+      if (!c || !el) return;
+      const er = el.getBoundingClientRect(), cr = c.getBoundingClientRect();
+      setPan(p => ({
+        x: p.x + (cr.width / 2 - (er.left + er.width / 2 - cr.left)),
+        y: p.y + (cr.height / 3 - (er.top + er.height / 2 - cr.top)),
+      }));
+    }, 80);
+    return () => clearTimeout(t);
+  }, [q, seeded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const startPan = (ev) => {
     if (ev.target.closest && ev.target.closest('[data-orgcard]')) return;   // card press, not a pan
