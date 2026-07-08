@@ -387,21 +387,54 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None) -> list:
 def team_timesheet(start: str = "", end: str = "",
                    user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
     rows = _team_rows(db, start, end, only_emails=_visible_emails(db, user))
-    # Approve-then-export status for this exact period, per employee
+    # Legacy whole-range approvals (kept for old rows) …
     approvals = {a.employee_email: a for a in db.query(TimeApproval)
                  .filter(TimeApproval.period_start == start, TimeApproval.period_end == end,
                          TimeApproval.revoked == 0).all()}
+    # … plus per-DAY approvals (period_start == period_end). An approval goes
+    # STALE the moment any punch on that day is added or adjusted after it —
+    # a signed-off day must never silently change underneath the signature.
+    day_apps = (db.query(TimeApproval)
+                .filter(TimeApproval.revoked == 0,
+                        TimeApproval.period_start == TimeApproval.period_end,
+                        TimeApproval.period_start >= (start or "0"),
+                        TimeApproval.period_end <= (end or "9")).all())
+    last_change: dict = {}
+    pq = db.query(TimePunch).filter(TimePunch.voided == 0)
+    if start:
+        pq = pq.filter(TimePunch.local_date >= start)
+    if end:
+        pq = pq.filter(TimePunch.local_date <= end)
+    for p in pq.all():
+        k = (p.employee_email, p.local_date)
+        ch = max(p.created_at or "", p.adjusted_at or "")
+        if ch > last_change.get(k, ""):
+            last_change[k] = ch
     for r in rows:
+        m = {}
+        for a in day_apps:
+            if a.employee_email != r["email"]:
+                continue
+            m[a.period_start] = {
+                "id": a.id, "by": a.approved_by, "at": a.approved_at,
+                "workedMin": a.worked_min,
+                "stale": last_change.get((a.employee_email, a.period_start), "") > (a.approved_at or ""),
+            }
+        r["dayApprovals"] = m
         a = approvals.get(r["email"])
         r["approval"] = ({"id": a.id, "by": a.approved_by, "at": a.approved_at,
-                          "workedMin": a.worked_min} if a else None)
+                          "workedMin": a.worked_min,
+                          "stale": any(v > (a.approved_at or "")
+                                       for (em, _d), v in last_change.items() if em == r["email"])}
+                         if a else None)
     return {"rows": rows}
 
 
 class ApprovalIn(BaseModel):
     email: str
-    start: str
-    end: str
+    start: str = ""
+    end: str = ""
+    days: Optional[List[str]] = None     # per-day mode: approve these dates
     note: Optional[str] = ""
 
 
@@ -412,6 +445,38 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
     scope = _visible_emails(db, user)
     if scope is not None and email not in scope:
         raise HTTPException(403, "You can only approve your own team's timecards.")
+    now = _now_iso()
+
+    # ── Per-day mode: one approval row per date; re-approving a changed day
+    # replaces the stale row (the old one stays, revoked, for audit). ──
+    if body.days:
+        days = sorted({d for d in body.days if d})
+        out = {}
+        for day in days:
+            worked = _day_summaries(_live_punches(db, email, day, day)).get(day, {}).get("workedMin", 0)
+            old = (db.query(TimeApproval)
+                   .filter(TimeApproval.employee_email == email,
+                           TimeApproval.period_start == day, TimeApproval.period_end == day,
+                           TimeApproval.revoked == 0).first())
+            if old:
+                old.revoked = 1
+                old.revoked_by = user["email"]
+            row = TimeApproval(id=str(uuid.uuid4()), employee_email=email,
+                               period_start=day, period_end=day, worked_min=worked,
+                               approved_by=user["email"], approved_at=now,
+                               note=(body.note or "").strip()[:300])
+            db.add(row)
+            out[day] = {"id": row.id, "by": row.approved_by, "at": now,
+                        "workedMin": worked, "stale": False}
+        total = sum(v["workedMin"] for v in out.values())
+        label = days[0] if len(days) == 1 else f"{days[0]} → {days[-1]} ({len(days)} days)"
+        _hr_notify(db, email, "Timecard approved",
+                   f"Your hours for {label} ({total // 60}h {total % 60:02d}m) were approved for payroll.",
+                   action={"view": "timeclock", "sub": ""})
+        db.commit()
+        return {"days": out}
+
+    # ── Legacy whole-range mode ──
     existing = (db.query(TimeApproval)
                 .filter(TimeApproval.employee_email == email,
                         TimeApproval.period_start == body.start,
@@ -421,7 +486,6 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
         raise HTTPException(409, "Already approved for this period")
     worked = sum(d["workedMin"] for d in _day_summaries(
         _live_punches(db, email, body.start, body.end)).values())
-    now = _now_iso()
     row = TimeApproval(id=str(uuid.uuid4()), employee_email=email,
                        period_start=body.start, period_end=body.end,
                        worked_min=worked, approved_by=user["email"], approved_at=now,
@@ -544,6 +608,14 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
         approved = {a.employee_email for a in db.query(TimeApproval)
                     .filter(TimeApproval.period_start == start, TimeApproval.period_end == end,
                             TimeApproval.revoked == 0).all()}
+        # Per-day approvals: date column shows yes/no; the TOTAL row is "yes"
+        # only when the whole range is signed off (legacy range row OR every
+        # worked day individually approved).
+        day_ok = {(a.employee_email, a.period_start) for a in db.query(TimeApproval)
+                  .filter(TimeApproval.revoked == 0,
+                          TimeApproval.period_start == TimeApproval.period_end,
+                          TimeApproval.period_start >= (start or "0"),
+                          TimeApproval.period_end <= (end or "9")).all()}
         w.writerow(["Employee", "Email", "Date", "First In", "Last Out",
                     "Worked Hours", "Break Minutes", "Flags", "Approved"])
         for r in rows:
@@ -553,10 +625,12 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                             d["firstIn"][11:16] if d["firstIn"] else "",
                             d["lastOut"][11:16] if d["lastOut"] else "",
                             f"{d['workedMin'] / 60:.2f}", d["breakMin"],
-                            " ".join(d["flags"]), ""])
+                            " ".join(d["flags"]),
+                            "yes" if (r["email"], date) in day_ok else ""])
+            all_days_ok = bool(r["days"]) and all((r["email"], dt) in day_ok for dt in r["days"])
             w.writerow([r["name"], r["email"], "TOTAL", "", "",
                         f"{r['workedMin'] / 60:.2f}", r["breakMin"], "",
-                        "yes" if r["email"] in approved else "no"])
+                        "yes" if (r["email"] in approved or all_days_ok) else "no"])
     buf.seek(0)
     fname = f"timeclock-{mode}-{start or 'all'}-to-{end or 'now'}.csv"
     return StreamingResponse(iter([buf.getvalue()]),

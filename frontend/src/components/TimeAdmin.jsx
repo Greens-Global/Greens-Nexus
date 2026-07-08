@@ -26,7 +26,7 @@ const isoDate = (d) => d.toISOString().slice(0, 10);
 
 // One day inside the person drawer — click to reveal the working/idle
 // breakdown and the desktop agent's app/window log for that day.
-function AdminDayRow({ date, email, d }) {
+function AdminDayRow({ date, email, d, approval, onApprove }) {
   const [open, setOpen] = useState(false);
   return (
     <div style={{ padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
@@ -35,6 +35,24 @@ function AdminDayRow({ date, email, d }) {
         <span style={{ fontSize: 12, fontWeight: 800, width: 92, flexShrink: 0, color: 'var(--ink)' }}>{new Date(date + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</span>
         <DayTimeline punches={d.punches} height={18} date={date} />
         {d.flags.length > 0 && <AlertTriangle size={12} style={{ color: '#b45309', flexShrink: 0 }} />}
+        {onApprove && (
+          approval && !approval.stale ? (
+            <span title={`Approved by ${approval.by} · ${(approval.at || '').slice(0, 16).replace('T', ' ')}`}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9.5, fontWeight: 800, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.1)', padding: '2px 8px', borderRadius: 8, flexShrink: 0 }}>
+              <CheckCircle size={10} /> OK
+            </span>
+          ) : approval?.stale ? (
+            <span onClick={e => { e.stopPropagation(); onApprove(); }} role="button" title="Punches changed after sign-off — click to re-approve this day"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9.5, fontWeight: 800, color: '#b45309', background: 'rgba(180,83,9,0.1)', padding: '2px 8px', borderRadius: 8, flexShrink: 0, cursor: 'pointer' }}>
+              <AlertTriangle size={10} /> RE-APPROVE
+            </span>
+          ) : (
+            <span onClick={e => { e.stopPropagation(); onApprove(); }} role="button" title="Sign off this day"
+              style={{ fontSize: 9.5, fontWeight: 800, color: 'var(--pine)', border: '1px solid var(--pine)', padding: '2px 8px', borderRadius: 8, flexShrink: 0, cursor: 'pointer' }}>
+              APPROVE
+            </span>
+          )
+        )}
         <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--pine)', width: 58, textAlign: 'right', flexShrink: 0 }}>{fmtMin(d.workedMin)}</span>
       </button>
       {d.flags.length > 0 && (
@@ -95,18 +113,32 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     setAttMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   };
 
-  async function approveRow(email) {
-    try { await api.timeApprove({ email, start, end }); toastOk('Timecard approved — the employee gets a notification.'); load(); }
-    catch (e) { toastErr(e?.message || 'Could not approve.'); }
+  // Per-day approvals: a day is "approved" only while its punches are untouched —
+  // any add/adjust after sign-off marks it stale and it must be re-approved.
+  const isRowApproved = (r) => {
+    const dk = Object.keys(r.days || {});
+    const da = r.dayApprovals || {};
+    const legacyOk = r.approval && !r.approval.stale;
+    return legacyOk || (dk.length > 0 && dk.every(d => da[d] && !da[d].stale));
+  };
+  const rowStale = (r) => r.approval?.stale || Object.values(r.dayApprovals || {}).some(a => a.stale);
+
+  async function approveDays(email, daysArr, quiet = false) {
+    if (!daysArr.length) { toastErr('No worked days in this period to approve.'); return; }
+    try {
+      await api.timeApprove({ email, days: daysArr });
+      if (!quiet) toastOk(daysArr.length === 1 ? 'Day approved — the employee gets a notification.' : `Approved ${daysArr.length} days — the employee gets a notification.`);
+      load();
+    } catch (e) { toastErr(e?.message || 'Could not approve.'); }
   }
   const [approvingAll, setApprovingAll] = useState(false);
   async function approveAll() {
-    const targets = (rows || []).filter(r => !r.approval);
+    const targets = (rows || []).filter(r => !isRowApproved(r) && Object.keys(r.days || {}).length);
     if (!targets.length || approvingAll) return;
     setApprovingAll(true);
     let ok = 0;
     for (const r of targets) { // sequential — one bell per person, no request race
-      try { await api.timeApprove({ email: r.email, start, end }); ok++; }
+      try { await api.timeApprove({ email: r.email, days: Object.keys(r.days) }); ok++; }
       catch { /* keep going; the count tells the story */ }
     }
     toastOk(`Approved ${ok} of ${targets.length} timecard${targets.length === 1 ? '' : 's'}.`);
@@ -181,7 +213,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
   const totalMin = (rows || []).reduce((a, r) => a + r.workedMin, 0);
   const totalFlags = (rows || []).reduce((a, r) => a + r.flagCount, 0);
   const pendingCount = timeoff.filter(r => r.status === 'pending').length;
-  const approvedCount = (rows || []).filter(r => r.approval).length;
+  const approvedCount = (rows || []).filter(isRowApproved).length;
 
   return (
     <div style={{ fontFamily: 'Inter,sans-serif' }}>
@@ -229,12 +261,12 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         <input className="form-input" type="date" value={end} onChange={e => setRange([start, e.target.value])} style={{ fontSize: 12, width: 150 }} />
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--muted)' }}>Team total: <span style={{ color: 'var(--pine)' }}>{fmtMin(totalMin)}</span></span>
-        {(rows || []).some(r => !r.approval) && (
+        {(rows || []).some(r => !isRowApproved(r)) && (
           <button className="primary-btn" onClick={approveAll} disabled={approvingAll}
             title="Approve every unapproved timecard in this period"
             style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             {approvingAll ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={12} />}
-            Approve all ({(rows || []).filter(r => !r.approval).length})
+            Approve all ({(rows || []).filter(r => !isRowApproved(r)).length})
           </button>
         )}
         <button className="secondary-btn" onClick={() => exportCsv('summary')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -272,16 +304,24 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
               </span>
             )}
             {r.breakMin > 0 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{r.breakMin}m break</span>}
-            {r.approval ? (
-              <span title={`Approved by ${r.approval.by} · ${(r.approval.at || '').slice(0, 16).replace('T', ' ')}`}
+            {isRowApproved(r) ? (
+              <span title="Every worked day in this period is signed off and unchanged since"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 800, letterSpacing: '.04em', color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.1)', padding: '3px 9px', borderRadius: 10 }}>
                 <CheckCircle size={11} /> APPROVED
-                <button onClick={e => { e.stopPropagation(); revokeApproval(r.approval.id); }} title="Revoke approval"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'flex', padding: 0, marginLeft: 2 }}><X size={10} /></button>
+                {r.approval && (
+                  <button onClick={e => { e.stopPropagation(); revokeApproval(r.approval.id); }} title="Revoke approval"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', display: 'flex', padding: 0, marginLeft: 2 }}><X size={10} /></button>
+                )}
               </span>
+            ) : rowStale(r) ? (
+              <button className="primary-btn" onClick={e => { e.stopPropagation(); approveDays(r.email, Object.keys(r.days || {})); }}
+                title="Punches changed after sign-off — the approval is stale and needs redoing"
+                style={{ fontSize: 11, padding: '5px 14px', display: 'inline-flex', alignItems: 'center', gap: 5, background: '#b45309' }}>
+                <AlertTriangle size={11} /> Re-approve
+              </button>
             ) : (
-              <button className="primary-btn" onClick={e => { e.stopPropagation(); approveRow(r.email); }}
-                title="Sign off this timecard for the selected period"
+              <button className="primary-btn" onClick={e => { e.stopPropagation(); approveDays(r.email, Object.keys(r.days || {})); }}
+                title="Sign off every worked day in the selected period"
                 style={{ fontSize: 11, padding: '5px 14px', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                 <CheckCircle size={11} /> Approve
               </button>
@@ -516,9 +556,26 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                   <div style={{ fontSize: 15, fontWeight: 800 }}>{p.name}</div>
                   <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{p.email} · {start} → {end}</div>
                 </div>
-                {p.approval
-                  ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.1)', padding: '4px 11px', borderRadius: 10 }}><CheckCircle size={12} /> APPROVED</span>
-                  : <button className="primary-btn" onClick={() => { approveRow(p.email); setPerson(null); }} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><CheckCircle size={12} /> Approve period</button>}
+                {(() => {
+                  const dk = Object.keys(p.days || {});
+                  if (isRowApproved(p)) {
+                    return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.1)', padding: '4px 11px', borderRadius: 10 }}><CheckCircle size={12} /> APPROVED</span>;
+                  }
+                  if (rowStale(p)) {
+                    return (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 800, color: '#b45309', background: 'rgba(180,83,9,0.1)', padding: '4px 11px', borderRadius: 10 }}><AlertTriangle size={12} /> CHANGED SINCE APPROVAL</span>
+                        <button className="primary-btn" onClick={() => approveDays(p.email, dk)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, background: '#b45309' }}><CheckCircle size={12} /> Re-approve week</button>
+                      </span>
+                    );
+                  }
+                  const done = dk.filter(d => (p.dayApprovals || {})[d] && !(p.dayApprovals || {})[d].stale).length;
+                  return (
+                    <button className="primary-btn" onClick={() => approveDays(p.email, dk)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <CheckCircle size={12} /> Approve week{done > 0 ? ` (${dk.length - done} left)` : ''}
+                    </button>
+                  );
+                })()}
                 <button onClick={() => setPerson(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
               </div>
 
@@ -556,7 +613,9 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                   Days <span style={{ fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>— click one for the working/idle + app breakdown</span>
                 </div>
                 {Object.keys(p.days || {}).sort().map(date => (
-                  <AdminDayRow key={date} date={date} email={p.email} d={p.days[date]} />
+                  <AdminDayRow key={date} date={date} email={p.email} d={p.days[date]}
+                    approval={(p.dayApprovals || {})[date]}
+                    onApprove={() => approveDays(p.email, [date])} />
                 ))}
                 {Object.keys(p.days || {}).length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>No punches in this range.</div>}
 
