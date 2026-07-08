@@ -1187,6 +1187,43 @@ class DashboardView(Base):
     updated_at   = Column(String, default="")
 
 
+class HrInterviewTemplate(Base):
+    """Role questionnaire for AI-assisted interviews: the questions HR asks in
+    the Teams call; answers get auto-filled from the transcript and scored."""
+    __tablename__ = "hr_interview_templates"
+    id         = Column(String, primary_key=True)   # uuid
+    name       = Column(String, nullable=False)     # role, e.g. "Site Manager"
+    questions  = Column(JSON, default=list)         # [{id, q}]
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+    updated_at = Column(String, default="")
+
+
+class HrInterview(Base):
+    """One interview round for a candidate: Teams meeting + questionnaire +
+    AI-filled answers + calibrated score (feeds the role leaderboard)."""
+    __tablename__ = "hr_interviews"
+    id              = Column(String, primary_key=True)   # uuid
+    candidate_id    = Column(String, nullable=False, index=True)
+    template_id     = Column(String, default="")
+    template_name   = Column(String, default="")         # frozen at schedule time
+    status          = Column(String, default="scheduled") # scheduled|live|completed|scored
+    at              = Column(String, default="")          # ISO start
+    duration_min    = Column(Integer, default=45)
+    organizer_email = Column(String, default="")
+    event_id        = Column(String, default="")          # Graph calendar event
+    join_url        = Column(String, default="")          # Teams join link
+    answers         = Column(JSON, default=list)          # [{qid, q, answer, score, rationale}]
+    transcript      = Column(String, default="")          # pulled from Teams or pasted
+    total_score     = Column(Float, default=0.0)          # 0–100 after calibration
+    summary         = Column(String, default="")          # AI verdict paragraph
+    started_at      = Column(String, default="")
+    completed_at    = Column(String, default="")
+    created_by      = Column(String, default="")
+    created_at      = Column(String, default="")
+    updated_at      = Column(String, default="")
+
+
 class HrSelfRequest(Base):
     """Employee → HR ask raised from My HR (update a document, profile change,
     question). HR members are notified on create and resolve it in the HR

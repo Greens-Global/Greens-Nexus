@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { QuestionnairesModal, InterviewPanel, LeaderboardModal } from '../components/Interviews';
 import {
   Users, Plus, Search, X, Loader2, Mail, Phone, Briefcase, MapPin,
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
@@ -1173,7 +1174,7 @@ function CandidateFormModal({ onClose, onSaved, toastErr }) {
   );
 }
 
-function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignature, onUpdated, busy }) {
+function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignature, onUpdated, onOpenInterviews, busy }) {
   const [history, setHistory] = useState(null);
   const [note, setNote] = useState('');
   const [ivEdit, setIvEdit] = useState(false);
@@ -1275,13 +1276,22 @@ function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignatu
             </div>
           </div>
 
-          {c.email && onSendForSignature && c.stage !== 'rejected' && (
-            <button className="secondary-btn" onClick={() => { onSendForSignature(c); onClose(); }}
-              title="Send an offer letter or other document to this candidate via a secure e-sign link (no login needed)"
-              style={{ marginTop: 12, fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <FileText size={13} /> Send for signature
-            </button>
-          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+            {onOpenInterviews && c.stage !== 'rejected' && (
+              <button className="primary-btn" onClick={() => onOpenInterviews(c)}
+                title="Teams invite, live questionnaire, AI answer fill and calibrated scoring"
+                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <CalendarDays size={13} /> Interview room
+              </button>
+            )}
+            {c.email && onSendForSignature && c.stage !== 'rejected' && (
+              <button className="secondary-btn" onClick={() => { onSendForSignature(c); onClose(); }}
+                title="Send an offer letter or other document to this candidate via a secure e-sign link (no login needed)"
+                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <FileText size={13} /> Send for signature
+              </button>
+            )}
+          </div>
           {/* Stage history timeline */}
           <div style={{ marginTop: 18 }}>
             <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8 }}>
@@ -1332,6 +1342,9 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [detail, setDetail] = useState(null);
   const [busy, setBusy] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
+  const [qOpen, setQOpen] = useState(false);        // questionnaires manager
+  const [lbOpen, setLbOpen] = useState(false);      // interview leaderboard
+  const [ivFor, setIvFor] = useState(null);         // candidate for the interview room
 
   useEffect(() => { api.getCandidates().then(setCandidates).catch(() => setCandidates([])); }, []);
 
@@ -1388,7 +1401,9 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
           {open.length} in pipeline · {byStage('offer').length} offer{byStage('offer').length !== 1 ? 's' : ''} out · {byStage('hired').length} hired
         </span>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setQOpen(true)}>Questionnaires</button>
+          <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setLbOpen(true)}>Leaderboard</button>
           <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setShowClosed(s => !s)}>
             {showClosed ? 'Hide' : 'Show'} closed ({closed.length})
           </button>
@@ -1441,7 +1456,11 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
       {addOpen && <CandidateFormModal onClose={() => setAddOpen(false)} toastErr={toastErr}
         onSaved={c => { setCandidates(prev => [c, ...prev]); toastOk(`${candName(c)} added to the pipeline.`); }} />}
       {detail && <CandidateDetailModal candidate={detail} onClose={() => setDetail(null)} onStage={moveStage} onSendForSignature={onSendForSignature} busy={busy}
+        onOpenInterviews={cand => { setDetail(null); setIvFor(cand); }}
         onUpdated={u => { setCandidates(prev => prev.map(x => x.id === u.id ? u : x)); setDetail(u); }} />}
+      {qOpen && <QuestionnairesModal onClose={() => setQOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
+      {lbOpen && <LeaderboardModal onClose={() => setLbOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
+      {ivFor && <InterviewPanel candidate={ivFor} onClose={() => { setIvFor(null); api.getCandidates().then(setCandidates).catch(() => {}); }} toastOk={toastOk} toastErr={toastErr} />}
     </div>
   );
 }

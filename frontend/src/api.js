@@ -427,6 +427,20 @@ export const api = {
   candidateResumeUpload: (id, form) => req(`/hr/candidates/${id}/resume`, { method: 'POST', body: form }),
   candidateResumeUrl:  (id)       => req(`/hr/candidates/${id}/resume-url`),
 
+  // HR — AI-assisted interviews (Teams invite + questionnaire + scoring)
+  ivTemplates:       ()           => req('/hr/interview-templates'),
+  ivTemplateCreate:  (data)       => req('/hr/interview-templates', { method: 'POST', body: JSON.stringify(data) }),
+  ivTemplateUpdate:  (id, data)   => req(`/hr/interview-templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  ivTemplateDelete:  (id)         => req(`/hr/interview-templates/${id}`, { method: 'DELETE' }),
+  ivSchedule:        (cid, data)  => req(`/hr/candidates/${cid}/interviews`, { method: 'POST', body: JSON.stringify(data) }),
+  ivList:            (cid)        => req(`/hr/candidates/${cid}/interviews`),
+  ivPatch:           (iid, data)  => req(`/hr/interviews/${iid}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  ivPullTranscript:  (iid)        => req(`/hr/interviews/${iid}/pull-transcript`, { method: 'POST' }),
+  ivAutofill:        (iid)        => req(`/hr/interviews/${iid}/autofill`, { method: 'POST' }),
+  ivCalibrate:       (iid)        => req(`/hr/interviews/${iid}/calibrate`, { method: 'POST' }),
+  ivLeaderboard:     (tid)        => req(`/hr/interviews/leaderboard?template_id=${tid || ''}`),
+  ivFinalRound:      (iid, data)  => req(`/hr/interviews/${iid}/final-round`, { method: 'POST', body: JSON.stringify(data) }),
+
   // HR — documents (private bucket, signed URLs)
   getEmployeeDocs:   (empId)        => req(`/hr/employees/${empId}/documents`),
   uploadEmployeeDoc: (empId, form)  => req(`/hr/employees/${empId}/documents`, { method: 'POST', body: form }),
