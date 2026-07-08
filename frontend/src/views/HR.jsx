@@ -903,8 +903,12 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
   const [tab, setTab] = useState('overview');
   const [payReload, setPayReload] = useState(0);   // bump to refetch PayTab after an edit
   const sm = STATUS_META[e.status] || STATUS_META.active;
-  const manager = employees.find(m => m.workEmail && m.workEmail === e.managerEmail);
-  const reports = employees.filter(r => e.workEmail && r.managerEmail === e.workEmail);
+  // Case-insensitive email match — manager_email is stored lowercased server-side
+  // and the org chart matches the same way, so a reassignment there reflects here.
+  const meEmail = (e.workEmail || '').toLowerCase();
+  const mgrEmail = (e.managerEmail || '').toLowerCase();
+  const manager = mgrEmail ? employees.find(m => (m.workEmail || '').toLowerCase() === mgrEmail) : null;
+  const reports = meEmail ? employees.filter(r => (r.managerEmail || '').toLowerCase() === meEmail) : [];
   const row = (Icon, label, value) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
       <Icon size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
