@@ -273,9 +273,18 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
   const [inviting, setInviting] = useState(null);   // interview id with date picker open
   const [finalAt, setFinalAt] = useState('');
   const [busy, setBusy] = useState(false);
+  const [rec, setRec] = useState(null);             // AI hire recommendation
+  const [recBusy, setRecBusy] = useState(false);
 
   useEffect(() => { api.ivTemplates().then(setTpls).catch(() => {}); }, []);
-  useEffect(() => { setRows(null); api.ivLeaderboard(tid).then(setRows).catch(() => setRows([])); }, [tid]);
+  useEffect(() => { setRows(null); setRec(null); api.ivLeaderboard(tid).then(setRows).catch(() => setRows([])); }, [tid]);
+
+  const recommend = async () => {
+    setRecBusy(true);
+    try { setRec(await api.ivRecommend(tid)); }
+    catch (e) { toastErr?.(e?.message || 'Could not compare candidates'); }
+    finally { setRecBusy(false); }
+  };
 
   const invite = async (iv) => {
     if (!finalAt) return;
@@ -292,10 +301,41 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
     <Overlay onClose={onClose} wide>
       <Head title="Interview leaderboard" sub="Calibrated scores per role — invite the winner to the offer discussion" onClose={onClose} />
       <div style={{ overflowY: 'auto', padding: '14px 22px' }}>
-        <select className="form-input" style={{ fontSize: 12.5, marginBottom: 12 }} value={tid} onChange={e => setTid(e.target.value)}>
-          <option value="">All roles</option>
-          {tpls.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-        </select>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+          <select className="form-input" style={{ fontSize: 12.5 }} value={tid} onChange={e => setTid(e.target.value)}>
+            <option value="">All roles</option>
+            {tpls.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+          {(rows || []).length >= 2 && (
+            <button className="primary-btn" onClick={recommend} disabled={recBusy}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+              {recBusy ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />}
+              {recBusy ? 'Comparing…' : 'AI: whom should we hire?'}
+            </button>
+          )}
+        </div>
+
+        {rec && (
+          <div style={{ border: '1px solid hsla(var(--color-purple),0.3)', background: 'hsla(var(--color-purple),0.05)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 800, marginBottom: 4 }}>
+              <Sparkles size={13} style={{ verticalAlign: 'middle', marginRight: 6, color: 'hsl(var(--color-purple))' }} />
+              AI recommendation: <span style={{ color: 'hsl(var(--color-purple))' }}>{rec.pick || '—'}</span>
+              {rec.runnerUp && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}> · runner-up {rec.runnerUp}</span>}
+            </div>
+            <div style={{ fontSize: 12.5, color: 'var(--ink)', lineHeight: 1.55 }}>{rec.reasoning}</div>
+            {(rec.comparison || []).length > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8, marginTop: 10 }}>
+                {rec.comparison.map((c, i) => (
+                  <div key={i} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, padding: '8px 11px', fontSize: 11.5 }}>
+                    <div style={{ fontWeight: 800, marginBottom: 3 }}>{c.name}</div>
+                    {c.strengths && <div style={{ color: 'hsl(var(--color-green))' }}>+ {c.strengths}</div>}
+                    {c.concerns && <div style={{ color: 'hsl(var(--color-red))', marginTop: 2 }}>− {c.concerns}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {rows === null ? <Loader2 size={18} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
           : rows.length === 0 ? <div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0', textAlign: 'center' }}>No calibrated interviews yet — run "Calibrate score" after each interview.</div>
           : rows.map((iv, i) => (

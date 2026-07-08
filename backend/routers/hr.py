@@ -267,7 +267,18 @@ def _ser_candidate(c: HrCandidate) -> dict:
 @router.get("/candidates")
 def list_candidates(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     rows = db.query(HrCandidate).order_by(HrCandidate.created_at.desc()).all()
-    return [_ser_candidate(c) for c in rows]
+    # Best calibrated interview score per candidate (chip on the kanban card)
+    from models import HrInterview
+    best: dict = {}
+    for iv in db.query(HrInterview).filter(HrInterview.status == "scored").all():
+        if (iv.total_score or 0) >= best.get(iv.candidate_id, -1):
+            best[iv.candidate_id] = iv.total_score or 0
+    out = []
+    for c in rows:
+        d = _ser_candidate(c)
+        d["interviewScore"] = round(best[c.id]) if c.id in best else None
+        out.append(d)
+    return out
 
 
 @router.get("/candidates/{cid}/history")

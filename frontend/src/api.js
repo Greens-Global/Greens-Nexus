@@ -439,6 +439,7 @@ export const api = {
   ivAutofill:        (iid)        => req(`/hr/interviews/${iid}/autofill`, { method: 'POST' }),
   ivCalibrate:       (iid)        => req(`/hr/interviews/${iid}/calibrate`, { method: 'POST' }),
   ivLeaderboard:     (tid)        => req(`/hr/interviews/leaderboard?template_id=${tid || ''}`),
+  ivRecommend:       (tid)        => req('/hr/interviews/recommend', { method: 'POST', body: JSON.stringify({ template_id: tid || '' }) }),
   ivFinalRound:      (iid, data)  => req(`/hr/interviews/${iid}/final-round`, { method: 'POST', body: JSON.stringify(data) }),
 
   // HR — documents (private bucket, signed URLs)

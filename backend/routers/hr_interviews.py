@@ -372,6 +372,44 @@ def leaderboard(template_id: str = "", user: dict = Depends(require_hr_read), db
     return out
 
 
+class RecommendIn(BaseModel):
+    template_id: str = ""
+
+
+@router.post("/interviews/recommend")
+def recommend_hire(body: RecommendIn, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """AI head-to-head: compare the calibrated candidates for a role on the
+    SUBSTANCE of their answers (not just totals) and recommend whom to hire."""
+    q = db.query(HrInterview).filter(HrInterview.status == "scored")
+    if body.template_id:
+        q = q.filter(HrInterview.template_id == body.template_id)
+    ivs = q.order_by(HrInterview.total_score.desc()).limit(8).all()
+    if len(ivs) < 2:
+        raise HTTPException(400, "Need at least two calibrated candidates to compare")
+    packs = []
+    for iv in ivs:
+        cand = db.query(HrCandidate).filter(HrCandidate.id == iv.candidate_id).first()
+        packs.append({
+            "name": f"{cand.first_name} {cand.last_name}".strip() if cand else iv.candidate_id,
+            "total": round(iv.total_score or 0),
+            "verdict": iv.summary or "",
+            "answers": [{"q": a["q"], "answer": (a.get("answer") or "")[:400], "score": a.get("score")}
+                        for a in (iv.answers or []) if (a.get("answer") or "").strip()],
+        })
+    role = ivs[0].template_name or "the role"
+    text = _claude(
+        f"You are the final hiring panel for \"{role}\". Below are the calibrated interviews. "
+        "Compare candidates on SUBSTANCE — depth of understanding, credibility, specificity, risk — "
+        "not just the numeric totals (a 9 with shallow answers can lose to an 8 with real depth). "
+        "Recommend exactly one hire (or 'none' if nobody clears the bar), name a runner-up if close, "
+        "and be direct about each person's strengths and concerns.\n\n"
+        f"CANDIDATES (JSON): {json.dumps(packs)}\n\n"
+        "Reply with ONLY JSON: {\"pick\": \"name or none\", \"reasoning\": \"3-5 sentences on why, "
+        "referencing specific answers\", \"runnerUp\": \"name or ''\", "
+        "\"comparison\": [{\"name\", \"strengths\", \"concerns\"}]}", 3000)
+    return _json_block(text)
+
+
 class FinalRoundIn(BaseModel):
     at: str
     duration_min: int = 30
