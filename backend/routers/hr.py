@@ -1718,20 +1718,32 @@ def _graph_set_signin(token: str, m365_id: str, enabled: bool) -> None:
         raise RuntimeError(f"sign-in toggle failed: {resp.text[:200]}")
 
 
-def _graph_remove_all_licenses(token: str, m365_id: str) -> int:
-    resp = httpx.get(f"{_GRAPH}/users/{m365_id}/licenseDetails",
-                     headers={"Authorization": f"Bearer {token}"}, timeout=20)
+def _graph_remove_all_licenses(token: str, m365_id: str) -> str:
+    """Release the person's licenses back to the pool. Only DIRECTLY-assigned
+    licenses can be removed per-user; a license that arrives via group
+    membership (assignedByGroup) is refused by Graph's assignLicense and must
+    be removed by taking the person out of the licensing group. We remove what
+    we can and report the group-assigned ones clearly rather than erroring, so
+    the toast tells the admin exactly what's left to do."""
+    hdr = {"Authorization": f"Bearer {token}"}
+    resp = httpx.get(f"{_GRAPH}/users/{m365_id}?$select=licenseAssignmentStates",
+                     headers=hdr, timeout=20)
     if not resp.is_success:
         raise RuntimeError(f"license lookup failed: {resp.text[:200]}")
-    skus = [d.get("skuId") for d in resp.json().get("value", []) if d.get("skuId")]
-    if not skus:
-        return 0
-    up = httpx.post(f"{_GRAPH}/users/{m365_id}/assignLicense",
-                    headers={"Authorization": f"Bearer {token}"},
-                    json={"addLicenses": [], "removeLicenses": skus}, timeout=30)
-    if not up.is_success:
-        raise RuntimeError(f"license removal failed: {up.text[:200]}")
-    return len(skus)
+    states = resp.json().get("licenseAssignmentStates", []) or []
+    direct = sorted({s["skuId"] for s in states if s.get("skuId") and not s.get("assignedByGroup")})
+    group  = sorted({s["skuId"] for s in states if s.get("skuId") and s.get("assignedByGroup")})
+    removed = 0
+    if direct:
+        up = httpx.post(f"{_GRAPH}/users/{m365_id}/assignLicense", headers=hdr,
+                        json={"addLicenses": [], "removeLicenses": direct}, timeout=30)
+        if not up.is_success:
+            raise RuntimeError(f"license removal failed: {up.text[:200]}")
+        removed = len(direct)
+    if group:
+        return (f"{removed} released" if removed else "0 released") + \
+               f" · {len(group)} assigned via a group — remove them from the licensing group in M365"
+    return f"{removed} released" if removed else "none to release"
 
 
 @router.post("/employees/{eid}/status")
@@ -1788,7 +1800,7 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
                 _graph_set_signin(token, row.m365_id, False)
                 m365["signIn"] = "blocked"
             if off_block.get("freeUpLicense"):
-                m365["licenses"] = f"{_graph_remove_all_licenses(token, row.m365_id)} removed"
+                m365["licenses"] = _graph_remove_all_licenses(token, row.m365_id)
             if off_block.get("exportRequested"):
                 job = HrMailboxExport(id=str(uuid.uuid4()), employee_id=row.id, requested_by=user["email"],
                                       status="pending", created_at=now, updated_at=now)

@@ -2640,14 +2640,26 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
                 <input type="checkbox" checked={exportRequested} onChange={e => setExportRequested(e.target.checked)} style={{ width: 16, height: 16 }} />
                 Export their mailbox to a ZIP first
               </label>
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)' }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 6 }}>DO THESE IN M365 (Graph can’t apply mailbox permissions)</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  <a href={EXO_MAILBOXES} target="_blank" rel="noopener noreferrer" className="secondary-btn" style={{ fontSize: 11.5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px' }}>Mailbox access <ChevronRight size={12} /></a>
-                  {mailboxAction === 'remove' && <a href={M365_USERS} target="_blank" rel="noopener noreferrer" className="secondary-btn" style={{ fontSize: 11.5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px' }}>Licenses <ChevronRight size={12} /></a>}
-                  {exportRequested && <a href={PURVIEW_EXPORT} target="_blank" rel="noopener noreferrer" className="secondary-btn" style={{ fontSize: 11.5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px' }}>Export mailbox <ChevronRight size={12} /></a>}
+              {/* What Nexus automates on Apply vs. what genuinely needs the admin
+                  centre. 'Remove' = sign-in block + license release are automatic
+                  (Graph); only shared-mailbox conversion needs Exchange PowerShell. */}
+              {mailboxAction === 'remove' ? (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)' }}>
+                  <div style={{ display: 'flex', gap: 8, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                    <CheckCircle size={14} style={{ flexShrink: 0, marginTop: 1, color: 'hsl(var(--color-green))' }} />
+                    <span>On <strong>Apply</strong>, Nexus blocks sign-in and <strong>releases the license</strong> back to the pool automatically. Group-assigned licenses can’t be pulled per-user — if any are, the confirmation will name them so you can remove the person from that group.</span>
+                  </div>
+                  <a href={M365_USERS} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 8, fontSize: 11, color: 'hsl(var(--color-blue))', textDecoration: 'none' }}>Verify licenses in M365 <ChevronRight size={11} /></a>
                 </div>
-              </div>
+              ) : (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 6 }}>DO THIS IN M365 (Graph can’t convert shared mailboxes)</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    <a href={EXO_MAILBOXES} target="_blank" rel="noopener noreferrer" className="secondary-btn" style={{ fontSize: 11.5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px' }}>Mailbox access <ChevronRight size={12} /></a>
+                    {exportRequested && <a href={PURVIEW_EXPORT} target="_blank" rel="noopener noreferrer" className="secondary-btn" style={{ fontSize: 11.5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px' }}>Export mailbox <ChevronRight size={12} /></a>}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
