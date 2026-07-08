@@ -49,13 +49,13 @@ def _already_sent(db, ntype: str, ref_id: str, recipient: str) -> bool:
 
 
 def _notify(db, ntype: str, recipient: str, title: str, body: str, ref_id: str = "",
-            action: dict = None) -> bool:
+            action: dict = None, requested_by: str = "") -> bool:
     recipient = (recipient or "").strip().lower()
     if not recipient or _already_sent(db, ntype, ref_id, recipient):
         return False
     db.add(NexusNotification(
         id=str(uuid.uuid4()), type=ntype, recipient=recipient, title=title, body=body,
-        ref_id=ref_id, item_name="", requested_by="",
+        ref_id=ref_id, item_name="", requested_by=requested_by,
         action=json.dumps(action) if action else "", actioned=False, read_by="",
         created_at=_now_iso()))
     return True
@@ -127,7 +127,8 @@ def run_daily_scan() -> int:
                     t = c.interview_at
                 sent += _notify(db, "hr_interview", c.created_by, "Interview today",
                                 f"{cand} ({c.role_title or 'candidate'}) — interview at {t}.",
-                                ref_id=c.id, action={"view": "hr", "sub": "hr-hiring"})
+                                ref_id=c.id, action={"view": "hr", "sub": "hr-hiring"},
+                                requested_by=cand)
 
         # 6. Pending e-sign requests expiring within 3 days (sender)
         for req in db.query(HrSignRequest).filter(HrSignRequest.status == "pending",

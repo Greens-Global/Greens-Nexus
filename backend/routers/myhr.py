@@ -116,6 +116,31 @@ def my_documents(user: dict = Depends(get_current_user), db: Session = Depends(g
     return sorted(out, key=lambda x: x["completedAt"] or "", reverse=True)
 
 
+# ── Directory card (hover profiles) — safe subset, any signed-in user ────────
+
+@router.get("/person")
+def person_card(q: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Outlook-style contact card by name or email: name, title, department,
+    photo — never personal/comp data. Powers hover cards on notifications etc."""
+    q = (q or "").strip().lower()
+    if len(q) < 2:
+        raise HTTPException(400, "q too short")
+    match = None
+    for e in db.query(NexusEmployee).filter(NexusEmployee.status != "offboarded").all():
+        name = f"{e.first_name} {e.last_name}".strip().lower()
+        if q == (e.work_email or "").lower() or q == name:
+            match = e
+            break
+        if match is None and (q in name or q in (e.work_email or "").lower()):
+            match = e
+    if not match:
+        raise HTTPException(404, "No matching person")
+    return {"name": f"{match.first_name} {match.last_name}".strip(),
+            "jobTitle": match.job_title, "department": match.department,
+            "photoUrl": match.photo_url, "workEmail": match.work_email,
+            "location": match.location, "status": match.status}
+
+
 # ── My equipment — items assigned / checked out to me ────────────────────────
 
 @router.get("/assets")

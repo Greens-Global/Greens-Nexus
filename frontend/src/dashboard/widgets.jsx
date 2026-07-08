@@ -4,6 +4,7 @@ import {
   BarChart3, Layers, Zap, Users, ClipboardCheck, CalendarClock, ExternalLink, Boxes, X,
   ClipboardList, HandCoins, TrendingUp, Building2, FolderKanban, CalendarDays, Timer,
 } from 'lucide-react';
+import { api } from '../api';
 
 // Heavy panels (ported from the old Overview / Team Analytics screens) load
 // lazily so TimeAdmin & the approval flows stay out of the main bundle.
@@ -199,6 +200,45 @@ function QuickActionsWidget() {
   );
 }
 
+// Hover a person's name → Outlook-style contact card (safe directory fields).
+const _personCache = new Map();
+function PersonHover({ name }) {
+  const [card, setCard] = useState(undefined);   // undefined = untried, null = none
+  const [show, setShow] = useState(false);
+  const load = () => {
+    setShow(true);
+    if (card !== undefined) return;
+    if (_personCache.has(name)) { setCard(_personCache.get(name)); return; }
+    api.personCard(name)
+      .then(c => { _personCache.set(name, c); setCard(c); })
+      .catch(() => { _personCache.set(name, null); setCard(null); });
+  };
+  return (
+    <span style={{ position: 'relative', display: 'inline-block' }}
+      onMouseEnter={load} onMouseLeave={() => setShow(false)}>
+      <span style={{ fontWeight: 600, color: C('blue'), cursor: 'default', borderBottom: '1px dotted currentColor' }}>{name}</span>
+      {show && card && (
+        <span style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 6, zIndex: 60,
+          display: 'flex', gap: 10, alignItems: 'center', width: 250, padding: '10px 12px',
+          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, boxShadow: 'var(--shadow-lg)' }}>
+          {card.photoUrl
+            ? <img src={card.photoUrl} alt="" style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+            : <span style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--mist)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, color: 'var(--muted)', flexShrink: 0 }}>
+                {card.name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()}
+              </span>}
+          <span style={{ minWidth: 0 }}>
+            <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.name}</span>
+            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {[card.jobTitle, card.department].filter(Boolean).join(' · ') || '—'}
+            </span>
+            <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.workEmail}</span>
+          </span>
+        </span>
+      )}
+    </span>
+  );
+}
+
 function NotificationsWidget({ notifications, markRead, markAllRead, dismiss, clearAll }) {
   const list = (notifications || []).slice(0, 12);
   const unread = (notifications || []).filter(n => !n.read).length;
@@ -226,6 +266,15 @@ function NotificationsWidget({ notifications, markRead, markAllRead, dismiss, cl
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="task-title" style={{ fontWeight: n.read ? 500 : 600, color: n.read ? 'var(--muted)' : 'var(--ink)' }}>{n.title || 'Notification'}</div>
                   {n.body && <div className="task-dept" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.body}</div>}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 2 }} onClick={e => e.stopPropagation()}>
+                    {n.requestedBy && <PersonHover name={n.requestedBy} />}
+                    {act.view && (
+                      <button onClick={() => { if (!n.read && markRead) markRead(n.id); navigate(act.view, act.sub); }}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 700, color: C('blue'), fontFamily: 'Inter,sans-serif', padding: 0 }}>
+                        {act.label || 'Open'} <ArrowRight size={11} />
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {dismiss && (
                   <button onClick={(e) => { e.stopPropagation(); dismiss(n.id); }} title="Clear"

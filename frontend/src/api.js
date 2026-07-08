@@ -521,6 +521,7 @@ export const api = {
 
   // ── My HR (employee self-service — own record only) ──
   myHrProfile:     ()      => req('/myhr/profile'),
+  personCard:      (q)     => req(`/myhr/person?q=${encodeURIComponent(q)}`),
   myHrProfileSave: (body)  => req('/myhr/profile', { method: 'PUT', body: JSON.stringify(body) }),
   myHrDocs:        ()      => req('/myhr/documents'),
   myHrDocDownload: (rid)   => req(`/myhr/documents/${rid}/download`),
