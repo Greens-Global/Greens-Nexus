@@ -1242,3 +1242,62 @@ class HrSelfRequest(Base):
     resolved_by    = Column(String, default="")
     resolved_at    = Column(String, default="")
     created_at     = Column(String, default="")
+
+
+# ── Field-worker location tracking (native app, clocked-in only) ──────────────
+# Periodic location pings across a shift for on-site crews. A browser can't do
+# this (geolocation dies when the phone locks), so the client is a native
+# Capacitor app that reuses the silent-agent token model (agent_devices +
+# X-Agent-Token) for enrollment — no Microsoft login on the phone.
+
+class TrackConsent(Base):
+    """Standing, revocable consent to be location-tracked while clocked in.
+    /track/start refuses without a live (granted, not-revoked) row. BYOD +
+    location = the highest-scrutiny path, so consent is explicit and recorded."""
+    __tablename__ = "track_consent"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    granted        = Column(Integer, default=1)         # 1 = consented, 0 = revoked
+    granted_at     = Column(String, default="")
+    revoked_at     = Column(String, default="")
+    text_version   = Column(String, default="")         # which consent wording was shown
+    ip             = Column(String, default="")
+    user_agent     = Column(String, default="")
+    created_at     = Column(String, default="")
+
+
+class TrackSession(Base):
+    """One tracking run == one shift. Opened at clock-in (or first ping while
+    clocked in), closed at clock-out / idle / expiry. The session IS the shift:
+    no session => no tracking, enforced server-side."""
+    __tablename__ = "track_sessions"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    device_id      = Column(String, default="")         # agent_devices.id that enrolled the phone
+    consent_id     = Column(String, default="")         # track_consent row in force at start
+    started_at     = Column(String, default="")
+    ended_at       = Column(String, default="")
+    ended_reason   = Column(String, default="")         # clock_out | idle | manual | expired
+    created_at     = Column(String, default="")
+
+
+class TrackPing(Base):
+    """One periodic location sample (~every 5 min or 100 m, clocked-in only).
+    Tagged in/out of the nearest work-site geofence by the shared _geofence().
+    Raw rows auto-purge after the retention window; keep a daily summary."""
+    __tablename__ = "track_pings"
+    id             = Column(String, primary_key=True)   # uuid
+    session_id     = Column(String, index=True, default="")
+    employee_email = Column(String, nullable=False, index=True)
+    at             = Column(String, nullable=False)     # UTC ISO — device capture time (not receive time)
+    received_at    = Column(String, default="")         # UTC ISO — when the server stored it
+    local_date     = Column(String, default="", index=True)
+    lat            = Column(String, default="")
+    lng            = Column(String, default="")
+    accuracy_m     = Column(Integer, default=0)
+    geo_status     = Column(String, default="no_location")  # in_fence|out_of_fence|low_accuracy|no_location
+    work_site_id   = Column(String, default="")
+    work_site_name = Column(String, default="")
+    distance_m     = Column(Integer, default=0)
+    battery_pct    = Column(Integer, default=-1)        # -1 = unknown
+    source         = Column(String, default="mobile")

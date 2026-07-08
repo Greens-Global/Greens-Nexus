@@ -35,7 +35,8 @@ from database import get_db
 from auth import get_current_user, require_level_or_module, require_administrator
 from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, TimeBod,
                     AgentDevice, AgentActivity, Shift, ShiftGroup, ShiftGroupMember,
-                    ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee)
+                    ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee,
+                    TrackConsent, TrackSession, TrackPing)
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET
 from routers.esign import _client_meta
 
@@ -309,6 +310,7 @@ def punch(body: PunchIn, request: Request,
                     .filter(TimeBod.employee_email == email, TimeBod.kind == "eod",
                             TimeBod.local_date == row.local_date).first())
         prompt_eod = eod_done is None
+        close_track_session(db, email, "clock_out")  # tracking never outlives the shift
     db.commit()
     return {"punch": _serialize(row), "allowed": _allowed_kinds(body.kind),
             "firstInToday": first_in_today, "promptEod": prompt_eod}
@@ -839,6 +841,271 @@ def agent_activity(body: ActivityIn, dev: AgentDevice = Depends(get_agent_device
                              title=(s.title or "")[:200], seconds=int(s.seconds), active_pct=pct))
     db.commit()
     return {"ok": True}
+
+
+# ── Field-worker location tracking (native app, clocked-in only) ─────────────
+# Periodic location pings across a shift for on-site crews. The phone is a
+# native Capacitor app enrolled with the SAME X-Agent-Token model as the desktop
+# agent (get_agent_device) — no Microsoft login on the phone. Tracking runs ONLY
+# while clocked in AND only after a live consent row exists; both are enforced
+# here (server-side), not merely by the device choosing to stop.
+
+_TRACK_INTERVAL_SEC   = 300     # target ping cadence (~5 min)
+_TRACK_DISTANCE_M     = 100     # …or when moved this far, whichever comes first
+_TRACK_RETENTION_DAYS = 90      # raw pings purged after this window (daily job)
+_TRACK_IDLE_STOP_SEC  = 1800    # a session with no ping for this long is auto-closed (idle)
+_CONSENT_VERSION      = "2026-07-08"
+
+
+def _live_consent(db: Session, email: str) -> Optional[TrackConsent]:
+    return (db.query(TrackConsent)
+            .filter(TrackConsent.employee_email == email, TrackConsent.granted == 1)
+            .order_by(TrackConsent.granted_at.desc()).first())
+
+
+def _open_session(db: Session, email: str) -> Optional[TrackSession]:
+    return (db.query(TrackSession)
+            .filter(TrackSession.employee_email == email, TrackSession.ended_at == "")
+            .order_by(TrackSession.started_at.desc()).first())
+
+
+def _new_session(db: Session, dev: AgentDevice) -> TrackSession:
+    consent = _live_consent(db, dev.employee_email)
+    now = _now_iso()
+    sess = TrackSession(id=str(uuid.uuid4()), employee_email=dev.employee_email, device_id=dev.id,
+                        consent_id=consent.id if consent else "", started_at=now, created_at=now)
+    db.add(sess)
+    db.flush()
+    return sess
+
+
+def close_track_session(db: Session, email: str, reason: str):
+    """Close any open tracking session for an employee — called on clock-out so
+    the session (which IS the shift) never outlives the shift."""
+    sess = _open_session(db, email)
+    if sess:
+        sess.ended_at = _now_iso()
+        sess.ended_reason = reason
+
+
+class ConsentIn(BaseModel):
+    granted: bool = True
+
+
+@router.post("/track/consent")
+def track_consent(body: ConsentIn, request: Request,
+                  dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
+    """Record or revoke standing tracking consent for the enrolled device's
+    employee. Revoking also stops any running session immediately."""
+    email = dev.employee_email
+    ip, ua = _client_meta(request)
+    now = _now_iso()
+    if body.granted:
+        row = TrackConsent(id=str(uuid.uuid4()), employee_email=email, granted=1,
+                           granted_at=now, text_version=_CONSENT_VERSION,
+                           ip=ip, user_agent=ua, created_at=now)
+        db.add(row)
+        db.commit()
+        return {"consentId": row.id, "granted": True, "version": _CONSENT_VERSION}
+    live = _live_consent(db, email)
+    if live:
+        live.granted = 0
+        live.revoked_at = now
+    close_track_session(db, email, "manual")
+    db.commit()
+    return {"granted": False}
+
+
+@router.get("/track/config")
+def track_config(dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
+    """What the device needs on launch: cadence, whether consent is on file, and
+    whether the employee is clocked in right now (so the app knows to run)."""
+    email = dev.employee_email
+    return {
+        "intervalSec": _TRACK_INTERVAL_SEC, "distanceM": _TRACK_DISTANCE_M,
+        "consentVersion": _CONSENT_VERSION,
+        "hasConsent": _live_consent(db, email) is not None,
+        "clockedIn": _clocked_in(db, email), "email": email,
+    }
+
+
+@router.post("/track/start")
+def track_start(dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
+    email = dev.employee_email
+    if _live_consent(db, email) is None:
+        raise HTTPException(403, "Location tracking needs your consent first.")
+    if not _clocked_in(db, email):
+        raise HTTPException(409, "Not clocked in — tracking only runs during a shift.")
+    sess = _open_session(db, email) or _new_session(db, dev)
+    db.commit()
+    return {"sessionId": sess.id, "intervalSec": _TRACK_INTERVAL_SEC, "distanceM": _TRACK_DISTANCE_M}
+
+
+class PingItem(BaseModel):
+    lat: str
+    lng: str
+    accuracy_m: Optional[int] = 0
+    at: Optional[str] = ""          # device capture time (UTC ISO); server time if blank
+    battery_pct: Optional[int] = -1
+    tz_offset_min: Optional[int] = 0
+
+
+class PingBatch(BaseModel):
+    pings: List[PingItem] = []
+
+
+@router.post("/track/ping")
+def track_ping(body: PingBatch, dev: AgentDevice = Depends(get_agent_device),
+               db: Session = Depends(get_db)):
+    """Batched location samples — the device's offline buffer flushes here, so a
+    dead-zone stretch uploads on reconnect. Each ping keeps its DEVICE capture
+    time, not receive time. Rejected unless clocked in AND consented."""
+    email = dev.employee_email
+    if _live_consent(db, email) is None:
+        raise HTTPException(403, "No tracking consent on file.")
+    if not _clocked_in(db, email):
+        # Clocked out while the device still held buffered pings — close the
+        # session and drop them. Off-shift location is never stored.
+        close_track_session(db, email, "clock_out")
+        db.commit()
+        raise HTTPException(409, "Not clocked in — tracking stopped.")
+    sess = _open_session(db, email) or _new_session(db, dev)
+    stored = 0
+    for p in body.pings[:500]:
+        if not (p.lat or "").strip() or not (p.lng or "").strip():
+            continue
+        at = (p.at or "").strip()[:19] or _now_iso()
+        geo = _geofence(db, p.lat, p.lng, p.accuracy_m or 0)
+        db.add(TrackPing(
+            id=str(uuid.uuid4()), session_id=sess.id, employee_email=email,
+            at=at, received_at=_now_iso(), local_date=_local_date(at, p.tz_offset_min or 0),
+            lat=(p.lat or "").strip()[:24], lng=(p.lng or "").strip()[:24],
+            accuracy_m=max(0, int(p.accuracy_m or 0)),
+            battery_pct=int(p.battery_pct if p.battery_pct is not None else -1),
+            source="mobile", **geo))
+        stored += 1
+    db.commit()
+    return {"stored": stored, "sessionId": sess.id, "intervalSec": _TRACK_INTERVAL_SEC}
+
+
+@router.post("/track/stop")
+def track_stop(dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
+    close_track_session(db, dev.employee_email, "manual")
+    db.commit()
+    return {"ok": True}
+
+
+class TrackClockIn(BaseModel):
+    kind: str                        # in | out
+    lat: Optional[str] = ""
+    lng: Optional[str] = ""
+    accuracy_m: Optional[int] = 0
+    tz_offset_min: Optional[int] = 0
+
+
+@router.post("/track/clock")
+def track_clock(body: TrackClockIn, dev: AgentDevice = Depends(get_agent_device),
+                db: Session = Depends(get_db)):
+    """Clock in/out from the enrolled phone (token-authed, no Microsoft login —
+    same self-punch model as the desktop agent's auto-clock). Punching in also
+    opens a tracking session; punching out closes it. Feeds the SAME timesheets
+    and approvals as web punches (source='mobile', adjustable)."""
+    if body.kind not in ("in", "out"):
+        raise HTTPException(400, "kind must be 'in' or 'out'")
+    email = dev.employee_email
+    last = (db.query(TimePunch)
+            .filter(TimePunch.employee_email == email, TimePunch.voided == 0)
+            .order_by(TimePunch.at.desc()).first())
+    if body.kind not in _allowed_kinds(last.kind if last else None):
+        raise HTTPException(409, f"Can't clock '{body.kind}' right now.")
+    now = _now_iso()
+    geo = (_geofence(db, body.lat, body.lng, body.accuracy_m or 0)
+           if (body.lat or "").strip() else
+           {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0})
+    db.add(TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=now,
+                     local_date=_local_date(now, body.tz_offset_min or 0),
+                     tz_offset_min=body.tz_offset_min or 0,
+                     lat=(body.lat or "").strip()[:24], lng=(body.lng or "").strip()[:24],
+                     accuracy_m=max(0, int(body.accuracy_m or 0)),
+                     source="mobile", created_by=email, created_at=now, **geo))
+    if body.kind == "in":
+        if _live_consent(db, email) is not None:
+            _open_session(db, email) or _new_session(db, dev)  # start tracking on clock-in
+    else:
+        close_track_session(db, email, "clock_out")
+    db.commit()
+    return {"kind": body.kind, "clockedIn": body.kind == "in", "at": now,
+            "geoStatus": geo["geo_status"], "trackable": _live_consent(db, email) is not None}
+
+
+@router.get("/track/live")
+def track_live(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """Latest ping per currently-tracked team member — the live crew map. Scoped
+    to the viewer's team (whole company for HR/admins). Self-heals: a session
+    whose last ping is older than the idle window is closed and dropped, so a
+    phone that died (no clock-out) stops showing as live."""
+    scope = _visible_emails(db, user)
+    q = db.query(TrackSession).filter(TrackSession.ended_at == "")
+    if scope is not None:
+        q = q.filter(TrackSession.employee_email.in_(list(scope)))
+    names = {(e.work_email or "").lower(): f"{e.first_name} {e.last_name}".strip()
+             for e in db.query(NexusEmployee).all() if e.work_email}
+    now = datetime.now(timezone.utc)
+    crew = []
+    for s in q.all():
+        # Latest POSITION is the newest device-capture time; LIVENESS is the last
+        # time we heard from the device (received_at). They differ when a device
+        # flushes an offline buffer — old `at` values, fresh contact — so a worker
+        # back from a dead zone must not be judged idle on a stale capture time.
+        last = (db.query(TrackPing).filter(TrackPing.session_id == s.id)
+                .order_by(TrackPing.at.desc()).first())
+        contact = (db.query(TrackPing.received_at).filter(TrackPing.session_id == s.id)
+                   .order_by(TrackPing.received_at.desc()).first())
+        contact_t = _parse_iso(contact[0]) if contact and contact[0] else None
+        if last is None or contact_t is None or (now - contact_t).total_seconds() > _TRACK_IDLE_STOP_SEC:
+            s.ended_at = _now_iso()
+            s.ended_reason = "idle"
+            continue
+        crew.append({
+            "email": s.employee_email,
+            "name": names.get(s.employee_email) or s.employee_email.split("@")[0].replace(".", " ").title(),
+            "lat": last.lat, "lng": last.lng, "accuracyM": last.accuracy_m, "at": last.at,
+            "geoStatus": last.geo_status, "workSiteName": last.work_site_name or "",
+            "distanceM": last.distance_m or 0, "batteryPct": last.battery_pct,
+            "sessionStart": s.started_at,
+        })
+    db.commit()
+    return {"crew": crew}
+
+
+@router.get("/track/path")
+def track_path(email: str, date: str, user: dict = Depends(require_team_read),
+               db: Session = Depends(get_db)):
+    """Ordered breadcrumb for one employee on one local date — the map replay."""
+    em = email.strip().lower()
+    scope = _visible_emails(db, user)
+    if scope is not None and em not in scope:
+        raise HTTPException(403, "Outside your team")
+    pings = (db.query(TrackPing)
+             .filter(TrackPing.employee_email == em, TrackPing.local_date == date)
+             .order_by(TrackPing.at).all())
+    return {"email": em, "date": date, "points": [{
+        "at": p.at, "lat": p.lat, "lng": p.lng, "accuracyM": p.accuracy_m,
+        "geoStatus": p.geo_status, "workSiteName": p.work_site_name or "",
+        "distanceM": p.distance_m or 0, "batteryPct": p.battery_pct,
+    } for p in pings]}
+
+
+def purge_old_track_pings(db: Session, days: int = _TRACK_RETENTION_DAYS) -> int:
+    """Retention guardrail: delete raw pings older than the window, plus sessions
+    that ended before it. Called from the daily reminders job. Returns rows cut."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    n = (db.query(TrackPing).filter(TrackPing.local_date < cutoff)
+         .delete(synchronize_session=False))
+    db.query(TrackSession).filter(TrackSession.ended_at != "",
+                                  TrackSession.ended_at < cutoff).delete(synchronize_session=False)
+    db.commit()
+    return n
 
 
 # ── Shifts, groups, and bulk assignment ──────────────────────────────────────

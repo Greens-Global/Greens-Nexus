@@ -10,6 +10,7 @@ import DayActivity from './DayActivity';
 import ShiftsPanel from './ShiftsPanel';
 import ShiftSchedule from './ShiftSchedule';
 import PayrollTimecard from './PayrollTimecard';
+import LiveCrewMap from './LiveCrewMap';
 
 const TYPE_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
 
@@ -232,7 +233,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
 
       {/* Sub-tabs */}
       <div className="chip-row scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        {[['timecards', 'Timecards'], ['attendance', 'Attendance'], ['insights', 'Insights'],
+        {[['timecards', 'Timecards'], ['livemap', 'Live map'], ['attendance', 'Attendance'], ['insights', 'Insights'],
           ['shifts', 'Shifts'], ['payroll', 'Payroll'],
           ['timeoff', `Time off${pendingCount ? ` (${pendingCount})` : ''}`]].map(([key, label]) => (
           <button key={key} onClick={() => setView(key)}
@@ -502,6 +503,8 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
 
       {/* Payroll — per-employee, per-pay-period editable timecard */}
       {view === 'payroll' && <PayrollTimecard toastOk={toastOk} toastErr={toastErr} />}
+
+      {view === 'livemap' && <LiveCrewMap toastErr={toastErr} employees={employees} />}
 
       {/* Time-off register — requests table, pending rows carry the decisions */}
       {view === 'timeoff' && (
