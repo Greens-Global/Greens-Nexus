@@ -185,22 +185,45 @@ async function pairWith(apiBase, token) {
 }
 
 // One scan pairs the phone: the QR carries { api, code } — no typing.
+// Uses startScan() (device camera + the ML Kit model bundled in the APK) rather
+// than scan() (Google's code-scanner module, which needs Play Services and isn't
+// available on every phone).
+let _scanListener = null;
+async function stopScanning() {
+  document.body.classList.remove('scanning');
+  try { if (_scanListener) { await _scanListener.remove(); _scanListener = null; } } catch { /* gone */ }
+  try { await BarcodeScanner.stopScan(); } catch { /* not scanning */ }
+}
+async function onScanned(raw) {
+  await stopScanning();
+  if (!raw) return;
+  try {
+    const data = JSON.parse(raw);
+    if (!data.api || !data.code) throw new Error('missing fields');
+    await pairWith(data.api, data.code);
+  } catch {
+    alert('That isn’t a Nexus pairing QR. Use the one from HR → Time → Live map → Enrol phone.');
+  }
+}
 $('scanQr').onclick = async () => {
   try {
-    try {
-      const a = await BarcodeScanner.isGoogleBarcodeScannerModuleAvailable();
-      if (a && a.available === false) await BarcodeScanner.installGoogleBarcodeScannerModule();
-    } catch { /* older devices / already present */ }
-    const res = await BarcodeScanner.scan();
-    const raw = res && res.barcodes && res.barcodes[0] && res.barcodes[0].rawValue;
-    if (!raw) return;
-    const data = JSON.parse(raw);
-    if (!data.api || !data.code) throw new Error('Not a Nexus pairing QR');
-    await pairWith(data.api, data.code);
+    const perm = await BarcodeScanner.requestPermissions();
+    const cam = perm && perm.camera;
+    if (cam && cam !== 'granted' && cam !== 'limited') {
+      alert('Camera access is needed to scan the QR. Turn it on in Settings, or use “Enter manually”.');
+      return;
+    }
+    document.body.classList.add('scanning');
+    _scanListener = await BarcodeScanner.addListener('barcodeScanned', (ev) => {
+      onScanned(ev && ev.barcode && ev.barcode.rawValue);
+    });
+    await BarcodeScanner.startScan({ formats: ['QR_CODE'] });
   } catch (e) {
-    alert('Could not read that QR. Make sure it’s the Nexus pairing QR, or use “Enter manually”.');
+    await stopScanning();
+    alert('Scan couldn’t start: ' + (e && e.message ? e.message : e) + '\nUse “Enter manually” instead.');
   }
 };
+$('scanCancel').onclick = () => stopScanning();
 $('manualToggle').onclick = () => show('manual', $('manual').classList.contains('hidden'));
 $('saveEnroll').onclick = async () => {
   const apiBase = $('apiBase').value.trim(), token = $('token').value.trim();

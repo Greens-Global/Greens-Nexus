@@ -47,6 +47,7 @@ The `@capacitor-community/background-geolocation` plugin adds most of it on
 
 - `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `ACCESS_BACKGROUND_LOCATION`
 - `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_LOCATION` (Android 14+)
+- `CAMERA` (pairing-QR scan via `startScan()`)
 - The plugin's `BackgroundGeolocationService` declared with
   `foregroundServiceType="location"`.
 
