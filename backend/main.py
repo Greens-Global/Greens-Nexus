@@ -177,6 +177,8 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS compliance JSONB DEFAULT '{}'::jsonb",
         # HR Section B6: employee status-change audit trail (reason + effective date)
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS status_log JSONB DEFAULT '[]'::jsonb",
+        # Org chart Phase 5: functional-division head tag (inherits down the tree)
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS division VARCHAR DEFAULT ''",
         # HR mailbox export: progress total (table itself is created by create_all)
         "ALTER TABLE hr_mailbox_exports ADD COLUMN IF NOT EXISTS total INTEGER DEFAULT 0",
         # E-Sign multi-document packets: PDFs attached to a template, carried on the envelope

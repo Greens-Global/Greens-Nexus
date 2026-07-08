@@ -63,6 +63,7 @@ class EmployeeUpdate(BaseModel):
     status:          Optional[str] = None
     location:        Optional[str] = None
     company:         Optional[str] = None
+    division:        Optional[str] = None
     contractor:      Optional[dict] = None
     personal:        Optional[dict] = None
     compliance:      Optional[dict] = None
@@ -104,6 +105,7 @@ def _serialize(e: NexusEmployee) -> dict:
         "status":         e.status,
         "location":       e.location,
         "company":        e.company,
+        "division":       e.division or "",
         "contractor":     e.contractor or {},
         "personal":       e.personal or {},
         "compliance":     e.compliance or {},

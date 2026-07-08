@@ -483,6 +483,7 @@ class NexusEmployee(Base):
     created_by      = Column(String, default="")
     created_at      = Column(String, default="")
     updated_at      = Column(String, default="")
+    division        = Column(String, default="")               # functional division head-tag; org chart inherits down the tree (Phase 5)
 
 
 class HrCandidate(Base):
