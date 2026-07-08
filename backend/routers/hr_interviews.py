@@ -251,9 +251,15 @@ def pull_transcript(iid: str, user: dict = Depends(require_hr_write), db: Sessio
     token = _graph_token()
     h = {"Authorization": f"Bearer {token}"}
     org = iv.organizer_email
+    # /onlineMeetings rejects UPNs ("userId is not a GUID") — resolve the
+    # organizer's directory object id first.
+    u = httpx.get(f"{_GRAPH}/users/{org}", params={"$select": "id"}, headers=h, timeout=20)
+    if not u.is_success:
+        raise HTTPException(502, f"Could not resolve the organizer account: {u.text[:150]}")
+    oid = u.json().get("id", "")
 
     def _find(join_url: str):
-        rr = httpx.get(f"{_GRAPH}/users/{org}/onlineMeetings",
+        rr = httpx.get(f"{_GRAPH}/users/{oid}/onlineMeetings",
                        params={"$filter": f"JoinWebUrl eq '{join_url}'"}, headers=h, timeout=30)
         if rr.status_code == 403:
             raise HTTPException(502, "Graph denied reading the meeting — this needs "
@@ -282,12 +288,12 @@ def pull_transcript(iid: str, user: dict = Depends(require_hr_write), db: Sessio
                                  "If you granted the permissions/access policy recently, wait up to 30 minutes "
                                  "and retry — or use Paste transcript.")
     mid = meetings[0]["id"]
-    r = httpx.get(f"{_GRAPH}/users/{org}/onlineMeetings/{mid}/transcripts", headers=h, timeout=30)
+    r = httpx.get(f"{_GRAPH}/users/{oid}/onlineMeetings/{mid}/transcripts", headers=h, timeout=30)
     if not r.is_success or not r.json().get("value"):
         raise HTTPException(404, "No transcript yet — make sure transcription was started in the meeting "
                                  "and the call has ended (Teams takes a few minutes to publish it).")
     tid = r.json()["value"][-1]["id"]
-    r = httpx.get(f"{_GRAPH}/users/{org}/onlineMeetings/{mid}/transcripts/{tid}/content",
+    r = httpx.get(f"{_GRAPH}/users/{oid}/onlineMeetings/{mid}/transcripts/{tid}/content",
                   params={"$format": "text/vtt"}, headers=h, timeout=60)
     if not r.is_success:
         raise HTTPException(502, f"Could not download the transcript: {r.text[:200]}")
