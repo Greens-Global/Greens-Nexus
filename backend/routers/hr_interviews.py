@@ -34,15 +34,22 @@ from routers.hr import (require_hr_read, require_hr_write, _graph_token, _GRAPH,
 
 
 def _advance_to_interview(db: Session, cand: HrCandidate, by: str, note: str):
-    """Pipeline follows the interview lifecycle: scheduling/starting/scoring a
-    round pulls the candidate into the Interview stage automatically (with a
-    stage-history entry), instead of them sitting in Screening forever."""
-    if not cand or cand.stage not in ("applied", "screening"):
+    """Pipeline follows the interview lifecycle. Early-stage candidates get
+    pulled into Interview; and EVERY milestone (scheduled/started/completed/
+    scored) lands in the stage history — so the timeline reads the full story,
+    not just 'scheduled' forever."""
+    if not cand:
         return
-    db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id,
-                        from_stage=cand.stage, to_stage="interview",
-                        note=note, by_email=by, created_at=_now()))
-    cand.stage = "interview"
+    if cand.stage in ("applied", "screening"):
+        db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id,
+                            from_stage=cand.stage, to_stage="interview",
+                            note=note, by_email=by, created_at=_now()))
+        cand.stage = "interview"
+    else:
+        # Same-stage milestone entry (timeline note, no stage change).
+        db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id,
+                            from_stage=cand.stage, to_stage=cand.stage,
+                            note=note, by_email=by, created_at=_now()))
     cand.updated_at = _now()
 
 router = APIRouter(prefix="/hr", tags=["Interviews"])
@@ -212,7 +219,7 @@ def schedule_interview(cid: str, body: ScheduleIn, user: dict = Depends(require_
 
     cand.interview_at = body.at
     cand.updated_at = _now()
-    _advance_to_interview(db, cand, user["email"], "Interview scheduled (auto-moved)")
+    _advance_to_interview(db, cand, user["email"], "Interview scheduled — Teams invite sent")
     db.add(iv)
     db.commit()
     out = _ser_iv(iv, cand)
@@ -240,7 +247,7 @@ def update_interview(iid: str, body: InterviewPatch, user: dict = Depends(requir
     iv = db.query(HrInterview).filter(HrInterview.id == iid).first()
     if not iv:
         raise HTTPException(404, "Interview not found")
-    if body.status in ("live", "completed"):
+    if body.status in ("live", "completed") and body.status != iv.status:
         iv.status = body.status
         if body.status == "live" and not iv.started_at:
             iv.started_at = _now()
@@ -248,7 +255,7 @@ def update_interview(iid: str, body: InterviewPatch, user: dict = Depends(requir
             iv.completed_at = _now()
         cand = db.query(HrCandidate).filter(HrCandidate.id == iv.candidate_id).first()
         _advance_to_interview(db, cand, user["email"],
-                              "Interview started (auto-moved)" if body.status == "live" else "Interview completed (auto-moved)")
+                              "Interview started" if body.status == "live" else "Interview completed")
     if body.answers is not None:
         iv.answers = body.answers
     if body.transcript is not None:
@@ -372,7 +379,7 @@ def calibrate(iid: str, user: dict = Depends(require_hr_write), db: Session = De
     iv.summary = str(data.get("summary", ""))[:2000]
     iv.status = "scored"
     iv.updated_at = _now()
-    _advance_to_interview(db, cand, user["email"], "Interview calibrated (auto-moved)")
+    _advance_to_interview(db, cand, user["email"], f"Interview scored — {round(iv.total_score)}/100")
     db.commit()
     return _ser_iv(iv, cand)
 
