@@ -1709,9 +1709,60 @@ function LeaveFormModal({ employees, onClose, onSaved, toastErr }) {
   );
 }
 
+// Searchable multi-person filter: type to find people, pick several as chips.
+// Empty selection = everyone.
+function PeopleFilter({ employees, selected, onChange }) {
+  const [q, setQ] = useState('');
+  const [open, setOpen] = useState(false);
+  const selSet = new Set(selected);
+  const matches = q.trim()
+    ? employees.filter(e => !selSet.has(e.id) && fullName(e).toLowerCase().includes(q.trim().toLowerCase())).slice(0, 8)
+    : [];
+  const pick = (e) => { onChange([...selected, e.id]); setQ(''); };
+  return (
+    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
+      border: '1px solid var(--line)', borderRadius: 10, padding: '5px 10px', background: 'var(--card)', minWidth: 260, flex: '0 1 460px' }}>
+      <Search size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+      {selected.map(id => {
+        const e = employees.find(x => x.id === id);
+        return (
+          <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))', borderRadius: 8, padding: '2px 8px' }}>
+            {e ? fullName(e) : id}
+            <X size={11} style={{ cursor: 'pointer' }} onClick={() => onChange(selected.filter(x => x !== id))} />
+          </span>
+        );
+      })}
+      <input value={q} onChange={e => { setQ(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onKeyDown={e => {
+          if (e.key === 'Enter' && matches[0]) { e.preventDefault(); pick(matches[0]); }
+          if (e.key === 'Backspace' && !q && selected.length) onChange(selected.slice(0, -1));
+        }}
+        placeholder={selected.length ? 'Add another person…' : 'Filter by person — type a name…'}
+        style={{ flex: 1, minWidth: 140, border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)', padding: '3px 0' }} />
+      {selected.length > 0 && (
+        <button onClick={() => onChange([])} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, color: 'var(--muted)', fontFamily: 'Inter,sans-serif', flexShrink: 0 }}>Clear</button>
+      )}
+      {open && matches.length > 0 && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 60, overflow: 'hidden' }}>
+          {matches.map(e => (
+            <button key={e.id} onMouseDown={ev => { ev.preventDefault(); pick(e); }}
+              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)' }}
+              onMouseEnter={ev => ev.currentTarget.style.background = 'var(--mist)'}
+              onMouseLeave={ev => ev.currentTarget.style.background = 'none'}>
+              {fullName(e)} <span style={{ color: 'var(--muted)', fontSize: 11 }}>· {e.department || e.jobTitle || ''}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 // "Who's out this week" — Mon–Sun strip merging both leave sources: HR-recorded
 // leave (HrLeaveRequest) and self-service time off (Time Clock / My HR).
-function WhosOutWeek({ employees, hrLeave }) {
+function WhosOutWeek({ employees, hrLeave, selIds = [] }) {
   const [timeoff, setTimeoff] = useState([]);
   useEffect(() => { api.timeOffList('').then(setTimeoff).catch(() => {}); }, []);
   const byId = Object.fromEntries(employees.map(e => [e.id, e]));
@@ -1721,16 +1772,21 @@ function WhosOutWeek({ employees, hrLeave }) {
   const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(monday); d.setDate(monday.getDate() + i); return d; });
   const isoD = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
+  // Respect the people filter: empty selection = everyone.
+  const selSet = new Set(selIds);
+  const selEmails = new Set(selIds.map(id => (byId[id]?.workEmail || '').toLowerCase()).filter(Boolean));
   const entries = [
-    ...(hrLeave || []).filter(r => ['approved', 'pending'].includes(r.status)).map(r => ({
-      name: fullName(byId[r.employeeId] || { firstName: '?' }),
-      start: r.startDate || r.start_date || '', end: r.endDate || r.end_date || '',
-      status: r.status, type: r.leaveType || r.type || '',
-    })),
-    ...timeoff.filter(r => ['approved', 'pending'].includes(r.status)).map(r => ({
-      name: r.name || (r.email || '').split('@')[0].replace('.', ' '),
-      start: r.startDate || '', end: r.endDate || '', status: r.status, type: r.type || '',
-    })),
+    ...(hrLeave || []).filter(r => ['approved', 'pending'].includes(r.status))
+      .filter(r => !selSet.size || selSet.has(r.employeeId)).map(r => ({
+        name: fullName(byId[r.employeeId] || { firstName: '?' }),
+        start: r.startDate || r.start_date || '', end: r.endDate || r.end_date || '',
+        status: r.status, type: r.leaveType || r.type || '',
+      })),
+    ...timeoff.filter(r => ['approved', 'pending'].includes(r.status))
+      .filter(r => !selSet.size || selEmails.has((r.email || '').toLowerCase())).map(r => ({
+        name: r.name || (r.email || '').split('@')[0].replace('.', ' '),
+        start: r.startDate || '', end: r.endDate || '', status: r.status, type: r.type || '',
+      })),
   ].filter(e => e.start && e.end);
 
   const weekHasAnyone = days.some(d => entries.some(e => e.start <= isoD(d) && isoD(d) <= e.end));
@@ -1777,10 +1833,11 @@ function WhosOutWeek({ employees, hrLeave }) {
 function LeaveTab({ employees, toastOk, toastErr }) {
   const [leave, setLeave] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
-  const [empF, setEmpF] = useState('All');
+  const [selF, setSelF] = useState([]);          // people filter — empty = everyone
   const [balances, setBalances] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const year = new Date().getFullYear();
+  const empF = selF.length === 1 ? selF[0] : 'All';   // balances show for exactly one person
 
   useEffect(() => { api.getLeave().then(setLeave).catch(() => setLeave([])); }, []);
   useEffect(() => {
@@ -1803,23 +1860,20 @@ function LeaveTab({ employees, toastOk, toastErr }) {
 
   if (leave === null) return <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Loader2 size={26} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /></div>;
 
-  const visible = empF === 'All' ? leave : leave.filter(r => r.employeeId === empF);
-  const pending = leave.filter(r => r.status === 'pending').length;
+  const visible = selF.length === 0 ? leave : leave.filter(r => selF.includes(r.employeeId));
+  const pending = visible.filter(r => r.status === 'pending').length;
 
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-        <select className="form-input" value={empF} onChange={e => setEmpF(e.target.value)} style={{ padding: '6px 10px', fontSize: 13, height: 34 }}>
-          <option value="All">All employees</option>
-          {employees.map(e => <option key={e.id} value={e.id}>{fullName(e)}</option>)}
-        </select>
-        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{pending} pending · {leave.length} total</span>
+        <PeopleFilter employees={employees} selected={selF} onChange={setSelF} />
+        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{pending} pending · {visible.length} shown</span>
         <button className="primary-btn" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={() => setFormOpen(true)}>
           <Plus size={14} /> New Leave
         </button>
       </div>
 
-      <WhosOutWeek employees={employees} hrLeave={leave} />
+      <WhosOutWeek employees={employees} hrLeave={leave} selIds={selF} />
 
       {/* Balance cards when a person is picked — used computes from approvals */}
       {balances && (
