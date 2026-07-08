@@ -1757,21 +1757,26 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     did_change = body.status != row.status
     log = list(row.status_log or [])
     entry = None
+    # Normalise the offboarding block independently of the status change so the
+    # M365 actions can be (re-)run on someone already inactive/left — e.g. to
+    # free a license that didn't release the first time.
+    off = body.offboarding or {}
+    off_block = None
+    if off.get("mailboxAction") or off.get("delegateTo") or off.get("exportRequested") or off.get("freeUpLicense"):
+        off_block = {
+            "mailboxAction":   (off.get("mailboxAction") or "").strip(),
+            "delegateTo":      [e.strip().lower() for e in (off.get("delegateTo") or []) if e and e.strip()],
+            "exportRequested": bool(off.get("exportRequested")),
+            "freeUpLicense":   bool(off.get("freeUpLicense")),
+            "done":            False,   # flips true once an admin completes the M365 steps
+        }
     if did_change:
         entry = {
             "from": row.status, "to": body.status, "reason": (body.reason or "").strip(),
             "effectiveDate": (body.effectiveDate or "").strip(), "by": user["email"], "at": now,
         }
-        # Only keep a meaningful offboarding block (an action or a delegate set).
-        off = body.offboarding or {}
-        if off.get("mailboxAction") or off.get("delegateTo") or off.get("exportRequested") or off.get("freeUpLicense"):
-            entry["offboarding"] = {
-                "mailboxAction":   (off.get("mailboxAction") or "").strip(),
-                "delegateTo":      [e.strip().lower() for e in (off.get("delegateTo") or []) if e and e.strip()],
-                "exportRequested": bool(off.get("exportRequested")),
-                "freeUpLicense":   bool(off.get("freeUpLicense")),
-                "done":            False,   # flips true once an admin completes the M365 steps
-            }
+        if off_block:
+            entry["offboarding"] = off_block
         log.insert(0, entry)
     # Offboarding (-> Left) force-returns everything the person still holds in Item
     # Management. Items owns the transition; we stamp the counts on the log entry.
@@ -1791,8 +1796,10 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     # conversion are NOT here — Graph has no coverage (Exchange PowerShell only);
     # the UI surfaces those as guided admin-center steps.
     m365 = None
-    off_block = (entry or {}).get("offboarding")
-    if did_change and row.m365_id and off_block:
+    # Run the mailbox/license actions whenever an offboarding block is present
+    # and the person is inactive/left — not only on the transition — so an admin
+    # can re-open a Left employee and (re-)free their license.
+    if row.m365_id and off_block and body.status in ("inactive", "offboarded"):
         m365 = {}
         try:
             token = _graph_token()
@@ -1809,6 +1816,8 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
                 m365["export"] = job.id
         except Exception as e:
             m365["error"] = str(getattr(e, "detail", e))[:200]
+    elif not row.m365_id and off_block and body.status in ("inactive", "offboarded"):
+        m365 = {"error": "No linked M365 account — nothing to block or free."}
     elif did_change and row.m365_id and body.status in ("active", "onboarding"):
         # Coming back from inactive/left — restore sign-in (best-effort).
         try:

@@ -1770,8 +1770,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
     return seen;
   }
 
-  async function drop(targetEmail) {
-    const dragged = people.find(p => p.id === draggingId);
+  async function drop(targetEmail, dragged) {
     setDraggingId(null); setOverKey(null);
     if (!dragged) return;
     if (targetEmail === '__none__') {
@@ -1826,7 +1825,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
       const st = dragRef.current; dragRef.current = null;
       setDragGhost(null);
       if (st && st.dragging) {
-        if (st.target) drop(st.target); else { setDraggingId(null); setOverKey(null); }
+        if (st.target) drop(st.target, st.person); else { setDraggingId(null); setOverKey(null); }
       } else if (st) {
         setSelected(st.person);    // no meaningful movement → treat as a tap
       }
@@ -2536,6 +2535,10 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
   const showOff = isInactive || isLeft;
   const mailboxAction = isInactive ? 'delegate' : (isLeft ? leftChoice : '');
   const needsDelegate = mailboxAction === 'delegate' || mailboxAction === 'share';
+  // Allow Apply when the status changed OR — for someone already inactive/left —
+  // when there's a mailbox/license action to (re-)run (e.g. free a license that
+  // didn't release the first time).
+  const canApply = changed || (showOff && (mailboxAction !== '' || exportRequested));
   const colleagues = employees.filter(x => x.workEmail && x.id !== employee.id);
   // Default the trustee to the person's manager (reports-to) from the org chart.
   const manager = employees.find(x => (x.workEmail || '').toLowerCase() === (employee.managerEmail || '').toLowerCase());
@@ -2710,7 +2713,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
         </div>
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy || !changed} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || !changed) ? 0.6 : 1 }}>{busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Apply</button>
+          <button className="primary-btn" onClick={save} disabled={busy || !canApply} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || !canApply) ? 0.6 : 1 }}>{busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Apply</button>
         </div>
       </div>
     </div>
