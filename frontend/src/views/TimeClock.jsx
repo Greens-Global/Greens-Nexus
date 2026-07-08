@@ -29,6 +29,32 @@ const KIND_META = {
 };
 const KIND_LABEL = { in: 'In', out: 'Out', break_start: 'Break start', break_end: 'Break end' };
 
+// Last-7-calendar-days hours bars (fills from the timesheet data already loaded).
+function WeekBars({ days }) {
+  const series = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(Date.now() - new Date().getTimezoneOffset() * 60000 - i * 86400000);
+    const key = d.toISOString().slice(0, 10);
+    series.push({ key, label: d.toISOString().slice(0, 10) === key ? d : d, min: days?.[key]?.workedMin || 0, date: d });
+  }
+  const max = Math.max(60 * 8, ...series.map(s => s.min));
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, height: 110 }}>
+      {series.map(s => (
+        <div key={s.key} title={`${s.key} — ${Math.floor(s.min / 60)}h ${String(s.min % 60).padStart(2, '0')}m`}
+          style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: s.min ? 'var(--pine)' : 'transparent' }}>
+            {s.min ? `${(s.min / 60).toFixed(1)}h` : '·'}
+          </span>
+          <div style={{ width: '70%', maxWidth: 40, height: Math.max(s.min ? 5 : 2, (s.min / max) * 70),
+            background: s.min ? 'var(--pine)' : 'var(--mist)', borderRadius: '5px 5px 2px 2px', opacity: 0.9 }} />
+          <span style={{ fontSize: 9.5, color: 'var(--muted)' }}>{s.date.toLocaleDateString([], { weekday: 'short' })}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
 const fmtMin = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
 const fmtHMS = (sec) => `${Math.floor(sec / 3600)}:${String(Math.floor((sec % 3600) / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
@@ -296,6 +322,41 @@ export default function TimeClock() {
         Your location is captured only at the moment you punch, to confirm you're at a work site.
         If location is off or you're away from a site, the punch still counts — it's simply flagged for review.
       </p>
+
+      {/* Fill the fold: week chart, today's screen activity, upcoming time off */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 18 }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '18px 20px' }}>
+          <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 14 }}>This week</div>
+          <WeekBars days={days} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, fontSize: 12 }}>
+            <span style={{ color: 'var(--muted)', fontWeight: 600 }}>Total {fmtMin(weekTotal)}</span>
+            <span style={{ color: 'var(--muted)' }}>{dayKeys.length} day{dayKeys.length !== 1 ? 's' : ''} active · {weekBreak}m breaks</span>
+          </div>
+        </div>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '18px 20px' }}>
+          <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Today's screen activity</div>
+          <DayActivity date={todayKey} />
+        </div>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '18px 20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+            <span style={{ flex: 1, fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>Time off coming up</span>
+            <button className="secondary-btn" style={{ fontSize: 11.5, padding: '4px 11px' }} onClick={() => setTab('timeoff')}>Request</button>
+          </div>
+          {(() => {
+            const upcoming = (timeoff || []).filter(r => r.status !== 'rejected' && r.status !== 'cancelled' && (r.endDate || '') >= todayKey).slice(0, 4);
+            return upcoming.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>Nothing booked — your approved leave shows here.</div>
+            ) : upcoming.map(r => (
+              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--line)', fontSize: 12.5 }}>
+                <CalendarDays size={13} style={{ color: 'var(--pine)', flexShrink: 0 }} />
+                <span style={{ fontWeight: 700, textTransform: 'capitalize' }}>{r.type}</span>
+                <span style={{ color: 'var(--muted)', flex: 1 }}>{r.startDate} → {r.endDate}</span>
+                <span style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', color: r.status === 'approved' ? 'var(--pine)' : '#b45309' }}>{r.status}</span>
+              </div>
+            ));
+          })()}
+        </div>
+      </div>
       </>)}
 
       {/* Timesheet — day list + week summary side panel */}
@@ -382,7 +443,8 @@ export default function TimeClock() {
         })}
       </div>
       </div>
-      <div style={{ flex: '1 1 280px', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 20px' }}>
+      <div style={{ flex: '1 1 300px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 20px' }}>
         <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Week summary</div>
         <div style={{ display: 'grid', gap: 12 }}>
           {[['Worked', fmtMin(weekTotal), 'var(--pine)'],
@@ -398,6 +460,15 @@ export default function TimeClock() {
         <p style={{ margin: '14px 0 0', fontSize: 11, color: 'var(--muted)', lineHeight: 1.5 }}>
           Click a day to see every punch. ⓜ marks manual entries, ⚠ marks anything a manager should look at.
         </p>
+      </div>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 20px' }}>
+        <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 14 }}>Daily hours</div>
+        <WeekBars days={days} />
+      </div>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 20px' }}>
+        <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Today's screen activity</div>
+        <DayActivity date={todayKey} />
+      </div>
       </div>
       </div>
       </>)}
@@ -424,7 +495,8 @@ export default function TimeClock() {
           </button>
         </div>
       </div>
-      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 24 }}>
+      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+      <div style={{ flex: '1.7 1 440px', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 24 }}>
         {(timeoff || []).length === 0 && (
           <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
             No time-off requests yet.
@@ -442,6 +514,46 @@ export default function TimeClock() {
             </span>
           </div>
         ))}
+      </div>
+
+      {/* Year-at-a-glance side panel */}
+      <div style={{ flex: '1 1 280px', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 20px' }}>
+        <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>
+          {new Date().getFullYear()} at a glance
+        </div>
+        {(() => {
+          const yr = String(new Date().getFullYear());
+          const dayCount = (r) => {
+            const a = new Date(r.startDate), b = new Date(r.endDate);
+            return isNaN(a) || isNaN(b) ? 0 : Math.round((b - a) / 86400000) + 1;
+          };
+          const approved = (timeoff || []).filter(r => r.status === 'approved' && (r.startDate || '').startsWith(yr));
+          const byType = {};
+          approved.forEach(r => { byType[r.type] = (byType[r.type] || 0) + dayCount(r); });
+          const totalDays = Object.values(byType).reduce((a, b) => a + b, 0);
+          const pending = (timeoff || []).filter(r => r.status === 'pending').length;
+          return (
+            <>
+              <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--pine)' }}>{totalDays}<span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}> day{totalDays !== 1 ? 's' : ''} approved</span></div>
+              <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+                {Object.keys(byType).length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No approved leave this year yet.</div>}
+                {Object.entries(byType).map(([t, n]) => (
+                  <div key={t} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}>
+                    <span style={{ textTransform: 'capitalize', color: 'var(--muted)', fontWeight: 600 }}>{TIMEOFF_TYPES[t] || t}</span>
+                    <span style={{ fontWeight: 800 }}>{n}d</span>
+                  </div>
+                ))}
+              </div>
+              {pending > 0 && (
+                <div style={{ marginTop: 12, fontSize: 12, fontWeight: 700, color: '#b45309' }}>{pending} request{pending !== 1 ? 's' : ''} awaiting approval</div>
+              )}
+              <p style={{ margin: '14px 0 0', fontSize: 11, color: 'var(--muted)', lineHeight: 1.5 }}>
+                Requests go to your manager; you'll get a bell notification when they decide.
+              </p>
+            </>
+          );
+        })()}
+      </div>
       </div>
       </>)}
 
