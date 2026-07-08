@@ -543,6 +543,9 @@ export const api = {
   timeActivity:      (email, start, end) => req(`/timeclock/activity?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timeMyActivity:    (date)      => req(`/timeclock/my-activity?date=${date}`),
   timeActivityDay:   (email, date) => req(`/timeclock/activity-day?email=${encodeURIComponent(email)}&date=${date}`),
+  // Field-worker location tracking (manager/HR views; device pings use X-Agent-Token from the native app, not these)
+  trackLive:         ()            => req('/timeclock/track/live'),
+  trackPath:         (email, date) => req(`/timeclock/track/path?email=${encodeURIComponent(email)}&date=${date}`),
   timeShifts:        ()          => req('/timeclock/shifts'),
   timeShiftCreate:   (data)      => req('/timeclock/shifts', { method: 'POST', body: JSON.stringify(data) }),
   timeShiftUpdate:   (id, data)  => req(`/timeclock/shifts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

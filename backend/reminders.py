@@ -139,6 +139,13 @@ def run_daily_scan() -> int:
                                 f"\"{req.title}\" is still unsigned and expires in {d} day{'s' if d != 1 else ''}. Send a reminder or extend it.",
                                 ref_id=req.id, action={"view": "hr", "sub": "hr-esign"})
 
+        # 7. Field-tracking retention: purge raw location pings past the window
+        # (data-minimization guardrail — keep only recent breadcrumbs).
+        from routers.timeclock import purge_old_track_pings
+        cut = purge_old_track_pings(db)
+        if cut:
+            print(f"[reminders] purged {cut} expired location ping(s)")
+
         db.commit()
         print(f"[reminders] daily scan complete — {sent} notification(s)")
         return sent
