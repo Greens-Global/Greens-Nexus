@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
   BarChart3, Download, X, CheckCircle2, Flag, ArrowRightLeft, User, Calendar, MessageSquare,
-  Circle, Palette,
+  Circle, Palette, FileSpreadsheet, Filter, RotateCcw,
 } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { api } from '../api';
@@ -14,7 +14,9 @@ import {
   NX, FONT, card, chip, btn, input as inputStyle,
   STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER, colorForKey,
 } from './theme';
-import { Avatar, EmptyState, Modal } from './components';
+import { Avatar, EmptyState, Modal, usePeople } from './components';
+import { Donut, BarList, useConfirm, toast } from './shared';
+import TaskDetailDrawer from './TaskDetailDrawer';
 import { taskStats, topLevel } from './lib';
 
 // ── Small shared bits ─────────────────────────────────────────────────────────
@@ -109,7 +111,7 @@ const TRIGGER_TYPES = [
   { value: 'status_changed', label: 'When status changes to' },
   { value: 'priority_changed', label: 'When priority changes to' },
   { value: 'created', label: 'When a task is created' },
-  { value: 'completed_early', label: 'When completed before its due date' },
+  { value: 'completed_early', label: 'When completed 2+ days before due date' },
 ];
 const NO_TRIGGER_VALUE = ['created', 'completed_early'];
 const ACTION_TYPES = [
@@ -133,6 +135,7 @@ function describeAction(a = {}) {
 function RulesTab({ store }) {
   const { rules, createRule, updateRule, deleteRule } = store;
   const [editing, setEditing] = useState(null); // rule object or 'new'
+  const [confirm, confirmNode] = useConfirm();
 
   return (
     <div>
@@ -154,7 +157,7 @@ function RulesTab({ store }) {
           </div>
           <Toggle on={!!r.enabled} onChange={() => updateRule(r.id, { enabled: !r.enabled })} />
           <IconButton icon={Pencil} title="Edit rule" onClick={() => setEditing(r)} />
-          <IconButton icon={Trash2} title="Delete rule" danger onClick={() => { if (confirm(`Delete rule "${r.name}"?`)) deleteRule(r.id); }} />
+          <IconButton icon={Trash2} title="Delete rule" danger onClick={async () => { if (await confirm({ title: 'Delete rule', message: `Delete rule "${r.name}"?`, confirmLabel: 'Delete', danger: true })) deleteRule(r.id); }} />
         </RowCard>
       ))}
       {editing && (
@@ -168,6 +171,7 @@ function RulesTab({ store }) {
           }}
         />
       )}
+      {confirmNode}
     </div>
   );
 }
@@ -278,6 +282,7 @@ const FIELD_TYPES = [
 function FieldsTab({ store }) {
   const { customFields, createCustomField, deleteCustomField } = store;
   const [adding, setAdding] = useState(false);
+  const [confirm, confirmNode] = useConfirm();
 
   return (
     <div>
@@ -299,10 +304,11 @@ function FieldsTab({ store }) {
             )}
           </div>
           <span style={chip(NX.dim, NX.border2)}>{FIELD_TYPES.find((t) => t.value === f.type)?.label || f.type}</span>
-          <IconButton icon={Trash2} title="Delete field" danger onClick={() => { if (confirm(`Delete field "${f.name}"?`)) deleteCustomField(f.id); }} />
+          <IconButton icon={Trash2} title="Delete field" danger onClick={async () => { if (await confirm({ title: 'Delete field', message: `Delete field "${f.name}"?`, confirmLabel: 'Delete', danger: true })) deleteCustomField(f.id); }} />
         </RowCard>
       ))}
       {adding && <FieldModal onClose={() => setAdding(false)} onSave={async (d) => { await createCustomField(d); setAdding(false); }} />}
+      {confirmNode}
     </div>
   );
 }
@@ -356,6 +362,7 @@ function FieldModal({ onClose, onSave }) {
 function StatusesTab({ store }) {
   const { customStatuses, createCustomStatus, deleteCustomStatus } = store;
   const [adding, setAdding] = useState(false);
+  const [confirm, confirmNode] = useConfirm();
 
   return (
     <div>
@@ -370,10 +377,11 @@ function StatusesTab({ store }) {
         <RowCard key={s.id}>
           <span style={{ width: 14, height: 14, borderRadius: '50%', background: s.color || NX.dim, flexShrink: 0, marginLeft: 6 }} />
           <div style={{ flex: 1, fontSize: 13.5, fontWeight: 700 }}>{s.label}</div>
-          <IconButton icon={Trash2} title="Delete status" danger onClick={() => { if (confirm(`Delete status "${s.label}"?`)) deleteCustomStatus(s.id); }} />
+          <IconButton icon={Trash2} title="Delete status" danger onClick={async () => { if (await confirm({ title: 'Delete status', message: `Delete status "${s.label}"?`, confirmLabel: 'Delete', danger: true })) deleteCustomStatus(s.id); }} />
         </RowCard>
       ))}
       {adding && <StatusModal onClose={() => setAdding(false)} onSave={async (d) => { await createCustomStatus(d); setAdding(false); }} />}
+      {confirmNode}
     </div>
   );
 }
@@ -408,6 +416,7 @@ function StatusModal({ onClose, onSave }) {
 function TemplatesTab({ store }) {
   const { templates, createTemplate, deleteTemplate } = store;
   const [adding, setAdding] = useState(false);
+  const [confirm, confirmNode] = useConfirm();
 
   return (
     <div>
@@ -426,10 +435,11 @@ function TemplatesTab({ store }) {
             {t.description && <div style={{ fontSize: 12, color: NX.dim, marginTop: 1 }}>{t.description}</div>}
           </div>
           <span style={chip(NX.dim, NX.border2)}>{(t.subtaskTitles || []).length} subtasks</span>
-          <IconButton icon={Trash2} title="Delete template" danger onClick={() => { if (confirm(`Delete template "${t.name}"?`)) deleteTemplate(t.id); }} />
+          <IconButton icon={Trash2} title="Delete template" danger onClick={async () => { if (await confirm({ title: 'Delete template', message: `Delete template "${t.name}"?`, confirmLabel: 'Delete', danger: true })) deleteTemplate(t.id); }} />
         </RowCard>
       ))}
       {adding && <TemplateModal onClose={() => setAdding(false)} onSave={async (d) => { await createTemplate(d); setAdding(false); }} />}
+      {confirmNode}
     </div>
   );
 }
@@ -498,6 +508,7 @@ const INTAKE_FIELD_TYPES = ['text', 'textarea', 'number', 'date', 'select'];
 function IntakeTab({ store }) {
   const { intakeForms, projects, projectName, createIntakeForm, deleteIntakeForm } = store;
   const [adding, setAdding] = useState(false);
+  const [confirm, confirmNode] = useConfirm();
 
   return (
     <div>
@@ -518,10 +529,11 @@ function IntakeTab({ store }) {
               {f.targetProjectId ? ` → ${projectName(f.targetProjectId) || 'project'}` : ' · no target project'}
             </div>
           </div>
-          <IconButton icon={Trash2} title="Delete form" danger onClick={() => { if (confirm(`Delete form "${f.title}"?`)) deleteIntakeForm(f.id); }} />
+          <IconButton icon={Trash2} title="Delete form" danger onClick={async () => { if (await confirm({ title: 'Delete form', message: `Delete form "${f.title}"?`, confirmLabel: 'Delete', danger: true })) deleteIntakeForm(f.id); }} />
         </RowCard>
       ))}
       {adding && <IntakeModal projects={projects} onClose={() => setAdding(false)} onSave={async (d) => { await createIntakeForm(d); setAdding(false); }} />}
+      {confirmNode}
     </div>
   );
 }
@@ -580,8 +592,10 @@ const ACTIVITY_ICON = {
 };
 
 function ActivityTab({ store }) {
-  const { nameOf } = store;
+  const { nameOf, taskById } = store;
   const [rows, setRows] = useState(null); // null = loading
+  const [filter, setFilter] = useState('all');
+  const [openId, setOpenId] = useState(null);
   useEffect(() => {
     let alive = true;
     api.getGlobalTaskActivity()
@@ -592,19 +606,45 @@ function ActivityTab({ store }) {
 
   const sorted = useMemo(() => [...(rows || [])].sort((a, b) => String(b.at).localeCompare(String(a.at))), [rows]);
 
+  // One entry per task/project that has activity (for the entity filter).
+  const entities = useMemo(() => {
+    const seen = new Map();
+    for (const e of sorted) {
+      const key = e.entityId || e.id;
+      if (!seen.has(key)) {
+        seen.set(key, e.entityKind === 'project'
+          ? `Project: ${e.entityTitle || e.entityCode || key}`
+          : `${e.entityCode || '—'} ${e.entityTitle || ''}`.trim());
+      }
+    }
+    return [...seen.entries()];
+  }, [sorted]);
+
+  const filtered = filter === 'all' ? sorted : sorted.filter((e) => (e.entityId || e.id) === filter);
+
   return (
     <div>
-      <SectionHead title="Activity log" hint="A running history of everything that happened across tasks and projects." />
+      <SectionHead
+        title="Activity log"
+        hint="A running history of everything that happened across tasks and projects."
+        action={
+          <select value={filter} onChange={(e) => setFilter(e.target.value)} style={{ ...selectStyle, width: 220, maxWidth: '55vw' }}>
+            <option value="all">Everything</option>
+            {entities.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+        }
+      />
       {rows === null ? (
         <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13 }}>Loading activity…</div>
-      ) : sorted.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <EmptyState icon={ActivityIcon} title="No activity yet" hint="Actions across the workspace will show up here." />
       ) : (
         <div style={{ ...card, padding: 6 }}>
-          {sorted.map((e) => {
+          {filtered.map((e) => {
             const Icon = e.entityKind === 'project' ? FileText : (ACTIVITY_ICON[e.type] || Circle);
             const actor = e.actorId ? nameOf(e.actorId) : 'Someone';
             const when = e.at ? new Date(e.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+            const openable = e.entityKind === 'task' && e.entityId && !!taskById[e.entityId];
             return (
               <div key={e.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 11, padding: '9px 10px', borderRadius: 8 }}>
                 {e.actorId
@@ -613,7 +653,9 @@ function ActivityTab({ store }) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, color: NX.ink }}>
                     <span style={{ fontWeight: 700 }}>{actor}</span> {e.detail || humanize(e.type)}{' '}
-                    {e.entityCode && <span style={{ fontWeight: 700, color: NX.blue }}>{e.entityCode}</span>}
+                    {e.entityCode && (openable
+                      ? <button type="button" onClick={() => setOpenId(e.entityId)} style={{ background: 'none', border: 'none', padding: 0, margin: 0, font: 'inherit', fontWeight: 700, color: NX.blue, cursor: 'pointer' }}>{e.entityCode}</button>
+                      : <span style={{ fontWeight: 700, color: NX.ink }}>{e.entityCode}</span>)}
                   </div>
                   {e.entityTitle && <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.entityTitle}</div>}
                 </div>
@@ -623,18 +665,16 @@ function ActivityTab({ store }) {
           })}
         </div>
       )}
+      {openId && <TaskDetailDrawer taskId={openId} onClose={() => setOpenId(null)} />}
     </div>
   );
 }
 
 // ── 7. Reporting ──────────────────────────────────────────────────────────────
-function csvEscape(v) {
-  const s = String(v ?? '');
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-function downloadCSV(filename, headers, rows) {
-  const lines = [headers, ...rows].map((r) => r.map(csvEscape).join(','));
-  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+// Dependency-free exporters (ported from reporting/exporters.ts): CSV, Excel
+// (.xls via an HTML table Excel understands) and PDF (via the print dialog).
+function triggerDownload(filename, mime, content) {
+  const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -644,23 +684,93 @@ function downloadCSV(filename, headers, rows) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+function csvEscape(v) {
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function htmlEscape(v) {
+  return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function exportCSV(filename, headers, rows) {
+  const lines = [headers, ...rows].map((r) => r.map(csvEscape).join(','));
+  // Prepend a BOM so Excel reads UTF-8 accents correctly.
+  triggerDownload(filename.endsWith('.csv') ? filename : `${filename}.csv`, 'text/csv;charset=utf-8', '﻿' + lines.join('\r\n'));
+}
+/** Excel opens an HTML <table> served as application/vnd.ms-excel natively. */
+function exportExcel(filename, headers, rows) {
+  const thead = `<tr>${headers.map((h) => `<th style="background:#f1f5f9;text-align:left;border:1px solid #cbd5e1;padding:4px 8px">${htmlEscape(h)}</th>`).join('')}</tr>`;
+  const tbody = rows.map((r) => `<tr>${r.map((c) => `<td style="border:1px solid #e2e8f0;padding:4px 8px">${htmlEscape(c)}</td>`).join('')}</tr>`).join('');
+  const table = `<table border="1">${thead}${tbody}</table>`;
+  const doc = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body>${table}</body></html>`;
+  triggerDownload(filename.endsWith('.xls') ? filename : `${filename}.xls`, 'application/vnd.ms-excel', doc);
+}
+/** Opens a print-friendly window with the report and invokes the print dialog,
+ *  where the user can pick "Save as PDF". Returns false if pop-ups are blocked. */
+function exportPDF(title, subtitle, kpis, sections) {
+  const kpiHtml = kpis.map((k) => `<div class="kpi"><div class="kpi-label">${htmlEscape(k.label)}</div><div class="kpi-value">${htmlEscape(k.value)}</div></div>`).join('');
+  const sectionsHtml = sections.map((s) => `
+      <h2>${htmlEscape(s.title)}</h2>
+      <table>
+        <thead><tr>${s.headers.map((h) => `<th>${htmlEscape(h)}</th>`).join('')}</tr></thead>
+        <tbody>${s.rows.map((r) => `<tr>${r.map((c) => `<td>${htmlEscape(c)}</td>`).join('')}</tr>`).join('')}</tbody>
+      </table>`).join('');
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${htmlEscape(title)}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; color: #0f172a; margin: 32px; }
+    h1 { font-size: 22px; margin: 0 0 2px; }
+    .sub { color: #64748b; font-size: 12px; margin-bottom: 18px; }
+    .kpis { display: flex; gap: 12px; margin-bottom: 22px; }
+    .kpi { flex: 1; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; }
+    .kpi-label { font-size: 11px; color: #64748b; }
+    .kpi-value { font-size: 24px; font-weight: 700; margin-top: 6px; }
+    h2 { font-size: 14px; margin: 20px 0 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 8px; }
+    th, td { border: 1px solid #e2e8f0; padding: 5px 8px; text-align: left; }
+    th { background: #f1f5f9; }
+    @media print { body { margin: 12mm; } .kpi { break-inside: avoid; } table { break-inside: auto; } }
+  </style></head><body>
+    <h1>${htmlEscape(title)}</h1>
+    <div class="sub">${htmlEscape(subtitle)}</div>
+    <div class="kpis">${kpiHtml}</div>
+    ${sectionsHtml}
+    <script>window.onload = function(){ setTimeout(function(){ window.print(); }, 150); };<\/script>
+  </body></html>`;
+  const w = window.open('', '_blank');
+  if (!w) return false;
+  w.document.write(html);
+  w.document.close();
+  return true;
+}
+// YYYY-MM-DD → M/D/YYYY (no timezone shift).
+function fmtUS(iso) {
+  if (!iso) return '';
+  const p = String(iso).slice(0, 10).split('-');
+  return p.length === 3 ? `${Number(p[1])}/${Number(p[2])}/${p[0]}` : String(iso);
+}
 
-function BarRows({ data }) {
-  const max = Math.max(1, ...data.map((d) => d.value));
-  if (!data.some((d) => d.value > 0)) return <div style={{ fontSize: 13, color: NX.faint, padding: '6px 0' }}>No matching tasks.</div>;
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-      {data.filter((d) => d.value > 0).map((d) => (
-        <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ width: 120, fontSize: 12.5, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }}>{d.label}</span>
-          <span style={{ flex: 1, height: 10, borderRadius: 999, background: NX.border2, overflow: 'hidden' }}>
-            <span style={{ display: 'block', height: '100%', width: `${(d.value / max) * 100}%`, background: d.color || NX.blue, borderRadius: 999 }} />
-          </span>
-          <span style={{ width: 34, textAlign: 'right', fontSize: 12.5, fontWeight: 700, color: NX.ink, flexShrink: 0 }}>{d.value}</span>
-        </div>
-      ))}
-    </div>
-  );
+// The "Break down by" dimension for the dynamic reporting chart.
+function computeBreakdown(dim, list, ctx) {
+  if (dim === 'status') {
+    return STATUS_KEYS.map((s) => ({ label: STATUS_META[s].label, value: list.filter((t) => t.status === s).length, color: STATUS_META[s].color })).filter((d) => d.value > 0);
+  }
+  if (dim === 'priority') {
+    return PRIORITY_KEYS.map((p) => ({ label: PRIORITY_META[p].label, value: list.filter((t) => t.priority === p).length, color: PRIORITY_META[p].color })).filter((d) => d.value > 0);
+  }
+  if (dim === 'department') {
+    return (ctx.departments || []).map((d) => ({ label: d.name, value: list.filter((t) => t.departmentId === d.id).length, color: d.color || colorForKey(d.id) })).filter((d) => d.value > 0);
+  }
+  if (dim === 'project') {
+    return (ctx.projects || []).map((p) => ({ label: p.name, value: list.filter((t) => t.projectId === p.id).length, color: colorForKey(p.id) })).filter((d) => d.value > 0);
+  }
+  // assignee — palette bucket per person + an "Unassigned" bucket.
+  const palette = ['#2563eb', '#16a34a', '#f59e0b', '#7c3aed', '#dc2626', '#0891b2', '#db2777'];
+  const counts = new Map();
+  for (const t of list) { if (t.assigneeId) counts.set(t.assigneeId, (counts.get(t.assigneeId) || 0) + 1); }
+  const rows = [...counts.entries()].map(([email, value], i) => ({ label: ctx.nameOf(email), value, color: palette[i % palette.length] }));
+  const unassigned = list.filter((t) => !t.assigneeId).length;
+  if (unassigned) rows.push({ label: 'Unassigned', value: unassigned, color: '#94a3b8' });
+  return rows;
 }
 
 function ReportCard({ title, children }) {
@@ -673,27 +783,47 @@ function ReportCard({ title, children }) {
 }
 
 function ReportingTab({ store }) {
-  const { tasks, projects, nameOf, projectName } = store;
-  const list = useMemo(() => topLevel(tasks), [tasks]);
+  const { tasks, projects, departments, nameOf, projectName, deptName } = store;
+  const people = usePeople();
+  const allTasks = useMemo(() => topLevel(tasks), [tasks]);
+
+  // ── Dynamic filters ──────────────────────────────────────────────────────
+  const [dept, setDept] = useState('all');
+  const [project, setProject] = useState('all');
+  const [priority, setPriority] = useState('all');
+  const [status, setStatus] = useState('all');
+  const [assignee, setAssignee] = useState('all');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [breakdown, setBreakdown] = useState('department');
+
+  const list = useMemo(() => allTasks.filter((t) => {
+    if (dept !== 'all' && t.departmentId !== dept) return false;
+    if (project !== 'all' && t.projectId !== project) return false;
+    if (priority !== 'all' && t.priority !== priority) return false;
+    if (status !== 'all' && t.status !== status) return false;
+    if (assignee !== 'all' && (assignee === 'unassigned' ? !!t.assigneeId : t.assigneeId !== assignee)) return false;
+    if (from && (!t.dueOn || t.dueOn < from)) return false;
+    if (to && (!t.dueOn || t.dueOn > to)) return false;
+    return true;
+  }), [allTasks, dept, project, priority, status, assignee, from, to]);
+
   const stats = useMemo(() => taskStats(list), [list]);
 
   const byStatus = STATUS_KEYS.map((s) => ({ label: STATUS_META[s].label, value: list.filter((t) => t.status === s).length, color: STATUS_META[s].color }));
-  const byPriority = PRIORITY_KEYS.map((p) => ({ label: PRIORITY_META[p].label, value: list.filter((t) => t.priority === p).length, color: PRIORITY_META[p].color }));
-  const byProject = (projects || []).map((p) => ({ label: p.name, value: list.filter((t) => t.projectId === p.id).length, color: colorForKey(p.id) }));
+  const byPriority = PRIORITY_KEYS.map((p) => ({ label: PRIORITY_META[p].label, value: list.filter((t) => t.priority === p).length, color: PRIORITY_META[p].color })).filter((d) => d.value > 0);
+  const byDept = (departments || []).map((d) => ({ label: d.name, value: list.filter((t) => t.departmentId === d.id).length, color: d.color || colorForKey(d.id) })).filter((d) => d.value > 0);
 
-  const exportCsv = () => {
-    const headers = ['Code', 'Title', 'Status', 'Priority', 'Assignee', 'Project', 'Due'];
-    const rows = list.map((t) => [
-      t.code || '',
-      t.title || '',
-      STATUS_META[t.status]?.label || t.status || '',
-      PRIORITY_META[t.priority]?.label || t.priority || '',
-      t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned',
-      t.projectId ? (projectName(t.projectId) || '—') : '—',
-      t.dueOn || '',
-    ]);
-    downloadCSV(`task-report-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
-  };
+  const projectRollup = (projects || []).map((p) => {
+    const pt = list.filter((t) => t.projectId === p.id);
+    const done = pt.filter((t) => t.completed).length;
+    return { name: p.name, total: pt.length, done, pct: pt.length ? Math.round((done / pt.length) * 100) : 0 };
+  }).filter((p) => p.total > 0);
+
+  const breakdownData = useMemo(
+    () => computeBreakdown(breakdown, list, { departments, projects, nameOf }),
+    [breakdown, list, departments, projects, nameOf],
+  );
 
   const kpis = [
     { label: 'Completion rate', value: `${stats.pct}%`, color: NX.green },
@@ -702,13 +832,95 @@ function ReportingTab({ store }) {
     { label: 'Total tasks', value: stats.total, color: NX.primary },
   ];
 
+  const filtersActive = dept !== 'all' || project !== 'all' || priority !== 'all' || status !== 'all' || assignee !== 'all' || !!from || !!to;
+  const resetFilters = () => { setDept('all'); setProject('all'); setPriority('all'); setStatus('all'); setAssignee('all'); setFrom(''); setTo(''); };
+
+  // ── Export payloads (full 12-column task sheet) ──────────────────────────
+  const taskHeaders = ['Code', 'Title', 'Status', 'Priority', 'Department', 'Project', 'Assignee', 'Start', 'Due', 'Completed', 'Estimate (h)', 'Actual (h)'];
+  const taskRows = list.map((t) => [
+    t.code || '',
+    t.title || '',
+    STATUS_META[t.status]?.label ?? t.status ?? '',
+    PRIORITY_META[t.priority]?.label ?? t.priority ?? '',
+    t.departmentId ? (deptName(t.departmentId) || '—') : '—',
+    t.projectId ? (projectName(t.projectId) || '—') : '—',
+    t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned',
+    fmtUS(t.startOn),
+    fmtUS(t.dueOn),
+    t.completed ? 'Yes' : 'No',
+    t.estimateHours ?? '',
+    t.actualHours ?? '',
+  ]);
+  const stamp = new Date().toISOString().slice(0, 10);
+
+  const doCSV = () => { exportCSV(`report-tasks-${stamp}`, taskHeaders, taskRows); toast(`Exported ${taskRows.length} tasks to CSV`, 'success'); };
+  const doExcel = () => { exportExcel(`report-tasks-${stamp}`, taskHeaders, taskRows); toast(`Exported ${taskRows.length} tasks to Excel`, 'success'); };
+  const doPDF = () => {
+    const ok = exportPDF(
+      'Reporting',
+      `Generated ${fmtUS(stamp)}${filtersActive ? ' · filtered view' : ''} · ${list.length} tasks`,
+      kpis.map((k) => ({ label: k.label, value: k.value })),
+      [
+        { title: 'Tasks by status', headers: ['Status', 'Count'], rows: byStatus.map((d) => [d.label, d.value]) },
+        { title: 'Tasks by department', headers: ['Department', 'Count'], rows: byDept.map((d) => [d.label, d.value]) },
+        { title: 'Tasks by priority', headers: ['Priority', 'Count'], rows: byPriority.map((d) => [d.label, d.value]) },
+        { title: 'Project rollup', headers: ['Project', 'Done', 'Total', 'Progress'], rows: projectRollup.map((p) => [p.name, p.done, p.total, `${p.pct}%`]) },
+      ],
+    );
+    if (!ok) toast('Allow pop-ups to export PDF');
+  };
+
+  const filterSelect = { ...selectStyle, width: 'auto', minWidth: 0, padding: '6px 9px', fontSize: 13 };
+
   return (
     <div>
       <SectionHead
         title="Reporting"
         hint="Workspace-wide rollups across projects, teams and status."
-        action={<button style={btn('primary')} onClick={exportCsv}><Download size={15} />Export CSV</button>}
+        action={
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button style={btn('outline')} onClick={doCSV}><Download size={15} />CSV</button>
+            <button style={btn('outline')} onClick={doExcel}><FileSpreadsheet size={15} />Excel</button>
+            <button style={btn('outline')} onClick={doPDF}><FileText size={15} />PDF</button>
+          </div>
+        }
       />
+
+      {/* Dynamic filter bar */}
+      <div style={{ ...card, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: 12, marginBottom: 16 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: NX.faint }}><Filter size={13} />Filters</span>
+        <select value={dept} onChange={(e) => setDept(e.target.value)} style={filterSelect}>
+          <option value="all">All departments</option>
+          {(departments || []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
+        <select value={project} onChange={(e) => setProject(e.target.value)} style={filterSelect}>
+          <option value="all">All projects</option>
+          {(projects || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <select value={status} onChange={(e) => setStatus(e.target.value)} style={filterSelect}>
+          <option value="all">Any status</option>
+          {STATUS_KEYS.map((s) => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
+        </select>
+        <select value={priority} onChange={(e) => setPriority(e.target.value)} style={filterSelect}>
+          <option value="all">Any priority</option>
+          {PRIORITY_KEYS.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
+        </select>
+        <select value={assignee} onChange={(e) => setAssignee(e.target.value)} style={filterSelect}>
+          <option value="all">Anyone</option>
+          <option value="unassigned">Unassigned</option>
+          {people.map((u) => <option key={u.email} value={u.email}>{u.name}</option>)}
+        </select>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: NX.dim }}>
+          Due
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={filterSelect} />
+          <span>–</span>
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={filterSelect} />
+        </label>
+        {filtersActive && (
+          <button onClick={resetFilters} style={{ ...btn('ghost') }}><RotateCcw size={13} />Reset</button>
+        )}
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: NX.faint }}>{list.length} of {allTasks.length} tasks</span>
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
         {kpis.map((k) => (
@@ -720,9 +932,59 @@ function ReportingTab({ store }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
-        <ReportCard title="Tasks by status"><BarRows data={byStatus} /></ReportCard>
-        <ReportCard title="Tasks by priority"><BarRows data={byPriority} /></ReportCard>
-        <ReportCard title="Tasks by project"><BarRows data={byProject} /></ReportCard>
+        <ReportCard title="Tasks by status"><BarList rows={byStatus} /></ReportCard>
+        <ReportCard title="Completion">
+          <Donut
+            segments={[
+              { label: 'Completed', value: stats.completed, color: NX.green },
+              { label: 'Incomplete', value: Math.max(0, stats.total - stats.completed), color: NX.purple },
+            ]}
+            centerValue={`${stats.pct}%`}
+            centerLabel="done"
+          />
+        </ReportCard>
+        <ReportCard title={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            Break down by
+            <select value={breakdown} onChange={(e) => setBreakdown(e.target.value)} style={{ ...filterSelect, fontWeight: 400 }}>
+              <option value="department">Department</option>
+              <option value="project">Project</option>
+              <option value="status">Status</option>
+              <option value="priority">Priority</option>
+              <option value="assignee">Assignee</option>
+            </select>
+          </span>
+        }>
+          {breakdownData.length ? <BarList rows={breakdownData} /> : <div style={{ fontSize: 13, color: NX.faint, padding: '6px 0' }}>No matching tasks.</div>}
+        </ReportCard>
+        <ReportCard title="Tasks by priority">
+          {byPriority.length ? <BarList rows={byPriority} /> : <div style={{ fontSize: 13, color: NX.faint, padding: '6px 0' }}>No matching tasks.</div>}
+        </ReportCard>
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <ReportCard title="Project rollup">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 8, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, borderBottom: `1px solid ${NX.border}` }}>
+            <span style={{ flex: 1 }}>Project</span>
+            <span style={{ width: 50, textAlign: 'right' }}>Done</span>
+            <span style={{ width: 50, textAlign: 'right' }}>Total</span>
+            <span style={{ width: 150 }}>Progress</span>
+          </div>
+          {projectRollup.length === 0 && <div style={{ padding: '12px 0', fontSize: 13, color: NX.faint }}>No projects match these filters.</div>}
+          {projectRollup.map((p) => (
+            <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 0', fontSize: 13, borderBottom: `1px solid ${NX.border2}` }}>
+              <span style={{ flex: 1, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+              <span style={{ width: 50, textAlign: 'right', color: NX.dim }}>{p.done}</span>
+              <span style={{ width: 50, textAlign: 'right', color: NX.dim }}>{p.total}</span>
+              <span style={{ width: 150, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ flex: 1, height: 6, borderRadius: 999, background: NX.border2, overflow: 'hidden' }}>
+                  <span style={{ display: 'block', height: '100%', width: `${p.pct}%`, background: NX.green, borderRadius: 999 }} />
+                </span>
+                <span style={{ width: 34, textAlign: 'right', fontSize: 12, fontWeight: 700, color: NX.ink }}>{p.pct}%</span>
+              </span>
+            </div>
+          ))}
+        </ReportCard>
       </div>
     </div>
   );
