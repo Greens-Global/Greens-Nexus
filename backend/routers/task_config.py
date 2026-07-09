@@ -10,7 +10,8 @@ from typing import Optional, Any
 import models
 from database import get_db
 from auth import get_current_user
-from routers.task_util import now_iso, gen_id, fire_task_event
+from routers.task_util import now_iso, gen_id, fire_task_event, log_activity
+from routers.tasks import task_to_dict, new_task_row, normalize_patch, notify_followers, _next_code
 
 router = APIRouter(tags=["Tasks"], dependencies=[Depends(get_current_user)])
 
@@ -148,6 +149,55 @@ def delete_template(template_id: str, db: Session = Depends(get_db)):
     db.commit()
 
 
+class ApplyTemplateBody(BaseModel):
+    overrides: Optional[dict] = None
+
+
+@router.post("/task-templates/{template_id}/apply", status_code=201)
+def apply_template(template_id: str, body: ApplyTemplateBody,
+                   user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Create a task from a template's Partial<Task> patch (merged with any
+    caller overrides), then one child task per entry in subtaskTitles (source
+    createActions.applyTemplate)."""
+    tpl = db.query(models.TaskTemplate).filter(models.TaskTemplate.id == template_id).first()
+    if not tpl:
+        raise HTTPException(404, "Template not found")
+    patch = tpl.patch if isinstance(tpl.patch, dict) else {}
+    overrides = body.overrides or {}
+    fields = normalize_patch({**patch, **overrides})
+    # Template forces the task title to the template name unless the caller overrides it.
+    fields["title"] = overrides.get("title") or tpl.name
+    fields["parent_task_id"] = ""
+    # Creator + assignee follow by default.
+    followers = [user["email"]]
+    if fields.get("assignee_email"):
+        followers.append(fields["assignee_email"])
+    fields["follower_emails"] = followers
+
+    parent = new_task_row(db, user["email"], fields, _next_code(db))
+    sub_ids = []
+    acts = []
+    for i, st in enumerate(tpl.subtask_titles or []):
+        sub = new_task_row(db, user["email"], {
+            "title": st, "parent_task_id": parent.id,
+            "department_id": parent.department_id, "project_id": parent.project_id,
+            "follower_emails": list(followers),
+        }, f"{parent.code}.{i + 1}")
+        sub_ids.append(sub.id)
+        sub.activity_ids = [log_activity(db, type="created", actor_email=user["email"],
+                                         entity_id=sub.id, entity_code=sub.code,
+                                         entity_title=sub.title, detail="created this task")]
+    parent.subtask_ids = sub_ids
+    parent.activity_ids = [log_activity(db, type="created", actor_email=user["email"],
+                                        entity_id=parent.id, entity_code=parent.code,
+                                        entity_title=parent.title,
+                                        detail=f'created this task from template "{tpl.name}"')]
+    db.commit()
+    db.refresh(parent)
+    fire_task_event(parent.id, "created")
+    return task_to_dict(parent)
+
+
 # ── Intake forms ─────────────────────────────────────────────────────────────
 def intake_form_to_dict(f: models.TaskIntakeForm) -> dict:
     return {"id": f.id, "title": f.title, "fields": f.fields if isinstance(f.fields, list) else [],
@@ -180,6 +230,44 @@ def create_intake_form(body: IntakeFormBody, db: Session = Depends(get_db)):
 def delete_intake_form(form_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskIntakeForm).filter(models.TaskIntakeForm.id == form_id).delete()
     db.commit()
+
+
+class SubmitIntakeBody(BaseModel):
+    values: Optional[dict] = None
+
+
+@router.post("/task-intake-forms/{form_id}/submit", status_code=201)
+def submit_intake_form(form_id: str, body: SubmitIntakeBody,
+                       user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Create a task in the form's target project from submitted values (source
+    createActions.submitIntakeForm)."""
+    form = db.query(models.TaskIntakeForm).filter(models.TaskIntakeForm.id == form_id).first()
+    if not form:
+        raise HTTPException(404, "Intake form not found")
+    values = body.values or {}
+    title = (values.get("title") or values.get("summary") or "").strip()
+    if not title:
+        raise HTTPException(422, "A title or summary is required")
+    # Department is inherited from the target project (source: project.departmentId).
+    dept = ""
+    if form.target_project_id:
+        proj = db.query(models.TaskProject).filter(
+            models.TaskProject.id == form.target_project_id).first()
+        if proj:
+            dept = proj.department_id or ""
+    t = new_task_row(db, user["email"], {
+        "title": title, "priority": values.get("priority") or "medium",
+        "project_id": form.target_project_id or "", "department_id": dept,
+        "due_on": values.get("due") or values.get("dueOn") or "",
+        "tags": ["Intake"], "follower_emails": [user["email"]],
+    }, _next_code(db))
+    t.activity_ids = [log_activity(db, type="created", actor_email=user["email"], entity_id=t.id,
+                                   entity_code=t.code, entity_title=t.title,
+                                   detail="created this task from an intake form")]
+    db.commit()
+    db.refresh(t)
+    fire_task_event(t.id, "created")
+    return task_to_dict(t)
 
 
 # ── Custom fields ────────────────────────────────────────────────────────────

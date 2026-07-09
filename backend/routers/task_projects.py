@@ -9,7 +9,7 @@ from typing import Optional
 import models
 from database import get_db
 from auth import get_current_user
-from routers.task_util import now_iso, gen_id, task_notify, admin_emails
+from routers.task_util import now_iso, gen_id, task_notify, admin_emails, log_activity
 
 router = APIRouter(tags=["Tasks"], dependencies=[Depends(get_current_user)])
 
@@ -86,6 +86,10 @@ def create_project(body: ProjectBody, user: dict = Depends(get_current_user), db
         pf = db.query(models.TaskPortfolio).filter(models.TaskPortfolio.id == p.portfolio_id).first()
         if pf:
             pf.project_ids = list(pf.project_ids or []) + [p.id]
+    # Log a project-scoped "created" activity (source createProject).
+    aid = log_activity(db, entity_kind="project", type="created", actor_email=user["email"],
+                       entity_id=p.id, entity_code=p.name, detail="created this project")
+    p.activity_ids = [aid]
     db.commit()
     db.refresh(p)
     return project_to_dict(p)
@@ -222,6 +226,10 @@ def update_department(dept_id: str, body: DepartmentBody, db: Session = Depends(
 
 @router.delete("/task-departments/{dept_id}", status_code=204)
 def delete_department(dept_id: str, db: Session = Depends(get_db)):
+    # Never orphan projects — refuse while any project still points at this team
+    # (source deleteDepartment no-ops in that case; we surface a 400 instead).
+    if db.query(models.TaskProject).filter(models.TaskProject.department_id == dept_id).first():
+        raise HTTPException(400, "Reassign or remove this team's projects first")
     db.query(models.TaskDepartment).filter(models.TaskDepartment.id == dept_id).delete()
     db.commit()
 
