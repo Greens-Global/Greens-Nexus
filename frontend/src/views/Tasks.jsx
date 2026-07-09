@@ -13,6 +13,7 @@ import TeamsView from '../tasks/TeamsView';
 import TicketsView from '../tasks/TicketsView';
 import ManageView from '../tasks/ManageView';
 import { TaskToaster } from '../tasks/shared';
+import ReportBugButton from '../tasks/ReportBug';
 import { NX, FONT } from '../tasks/theme';
 
 const TABS = [
@@ -75,6 +76,7 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
           <SubView sub={sub} onNavigate={subNavigate} />
         </div>
         <TaskToaster />
+        <ReportBugButton />
       </div>
     </TasksProvider>
   );

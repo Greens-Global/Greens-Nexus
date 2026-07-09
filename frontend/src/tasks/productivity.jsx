@@ -1,12 +1,13 @@
-// Task Module — productivity bar: Filters, Sort, Saved views, Templates, Intake.
+// Task Module — productivity bar: Filters, Date, Sort, Saved views, Templates, Intake.
 // Ported from the export's productivity/* (FilterSortGroupBar, SavedViewsMenu,
 // TemplatePicker, IntakeFormModal) into one inline-styled component wired to the
-// TasksContext store. The export's store had applyTemplate/submitIntakeForm/
-// saveView helpers; here those are expressed directly via createTask/createSavedView.
-import { useEffect, useRef, useState } from 'react';
-import { SlidersHorizontal, ArrowUpDown, Bookmark, LayoutTemplate, Inbox, Plus, Trash2, X, ListChecks } from 'lucide-react';
+// TasksContext store. Uses the store's atomic applyTemplate/submitIntakeForm/
+// createSavedView helpers, and the shared useConfirm()/toast() for confirms + feedback.
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { SlidersHorizontal, ArrowUpDown, Bookmark, LayoutTemplate, Inbox, Plus, Trash2, ListChecks, CalendarRange, Lock } from 'lucide-react';
 import { useTasks } from './TasksContext';
-import { Modal, PersonSelect, usePeople } from './components';
+import { Modal, usePeople } from './components';
+import { useConfirm, toast } from './shared';
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
 
 const SORT_OPTIONS = [
@@ -16,7 +17,7 @@ const SORT_OPTIONS = [
 ];
 const toggle = (arr, v) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
 
-// Small popover anchored to its trigger.
+// Small popover anchored to its trigger. `label` may be a string or a node.
 function Popover({ label, icon: Icon, active, width = 240, children }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -40,18 +41,27 @@ function Popover({ label, icon: Icon, active, width = 240, children }) {
     </div>
   );
 }
-const capWord = (s = '') => s.replace(/^\w/, (c) => c.toUpperCase());
 const groupHead = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, marginBottom: 6 };
 const pill = (on, color, tint) => ({ borderRadius: 999, padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none', background: on ? color : tint, color: on ? '#fff' : color });
 
 export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProjectId, current, onApplyView, onOpenTask }) {
   const store = useTasks();
-  const { savedViews, createSavedView, deleteSavedView, templates, intakeForms, projects, projectName, createTask, myEmail } = store;
+  const { savedViews, createSavedView, deleteSavedView, templates, createTemplate, applyTemplate,
+    intakeForms, submitIntakeForm, projects, departments, projectName, tasks } = store;
   const people = usePeople();
+  const [confirm, confirmNode] = useConfirm();
+
+  const allTags = useMemo(() => {
+    const s = new Set();
+    for (const t of tasks || []) for (const tag of (t.tags || [])) s.add(tag);
+    return [...s].sort();
+  }, [tasks]);
 
   const activeFilterCount = filters.assigneeIds.length + filters.statuses.length + filters.priorities.length
+    + (filters.departmentIds?.length || 0) + (filters.tags?.length || 0)
     + (lockedProjectId ? 0 : filters.projectIds.length);
   const dateActive = (filters.due && filters.due !== 'any') || filters.dueFrom || filters.dueTo;
+  const rangeInvalid = filters.dueFrom && filters.dueTo && filters.dueFrom > filters.dueTo;
 
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [intakeOpen, setIntakeOpen] = useState(false);
@@ -86,9 +96,27 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
                 {people.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>No people</div>}
               </div>
             </div>
-            {!lockedProjectId && (
-              <div>
-                <div style={groupHead}>Project</div>
+            <div>
+              <div style={groupHead}>Department</div>
+              <div style={{ maxHeight: 120, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
+                {(departments || []).map((d) => (
+                  <label key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', fontSize: 13, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={(filters.departmentIds || []).includes(d.id)} onChange={() => setFilters({ ...filters, departmentIds: toggle(filters.departmentIds || [], d.id) })} />
+                    {d.name}
+                  </label>
+                ))}
+                {(departments || []).length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>No departments</div>}
+              </div>
+            </div>
+            <div>
+              <div style={groupHead}>Project</div>
+              {lockedProjectId ? (
+                <div title="Locked to the project you drilled into — open it from Projects to see other projects"
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, border: `1px solid ${NX.border}`, background: NX.hover, borderRadius: 8, padding: '7px 10px', fontSize: 12.5, color: NX.dim }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{projectName(lockedProjectId) || 'This project'}</span>
+                  <Lock size={13} style={{ flexShrink: 0 }} />
+                </div>
+              ) : (
                 <div style={{ maxHeight: 120, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
                   {projects.map((p) => (
                     <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', fontSize: 13, cursor: 'pointer' }}>
@@ -98,8 +126,29 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
                   ))}
                   {projects.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>No projects</div>}
                 </div>
+              )}
+            </div>
+            {allTags.length > 0 && (
+              <div>
+                <div style={groupHead}>Tags</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                  {allTags.map((tag) => { const on = (filters.tags || []).includes(tag); return <button key={tag} onClick={() => setFilters({ ...filters, tags: toggle(filters.tags || [], tag) })} style={pill(on, NX.blue, `${NX.blue}1a`)}>{tag}</button>; })}
+                </div>
               </div>
             )}
+            {activeFilterCount > 0 && (
+              <button onClick={() => setFilters({ ...filters, assigneeIds: [], statuses: [], priorities: [], departmentIds: [], projectIds: [], tags: [] })} style={{ ...btn('outline'), justifyContent: 'center' }}>Clear filters</button>
+            )}
+          </div>
+        )}
+      </Popover>
+
+      {/* Date */}
+      <Popover
+        label={<>Date{dateActive ? <span style={{ display: 'inline-block', marginLeft: 6, width: 6, height: 6, borderRadius: 999, background: NX.blue, verticalAlign: 'middle' }} /> : null}</>}
+        icon={CalendarRange} active={dateActive} width={260}>
+        {() => (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
               <div style={groupHead}>Due</div>
               <select value={filters.due || 'any'} onChange={(e) => setFilters({ ...filters, due: e.target.value })} style={{ ...inputStyle, cursor: 'pointer' }}>
@@ -109,13 +158,30 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
                 <option value="week">Due this week</option>
                 <option value="none">No due date</option>
               </select>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
-                <input type="date" value={filters.dueFrom || ''} onChange={(e) => setFilters({ ...filters, dueFrom: e.target.value || null })} style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }} />
-                <input type="date" value={filters.dueTo || ''} onChange={(e) => setFilters({ ...filters, dueTo: e.target.value || null })} style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }} />
-              </div>
             </div>
-            {(activeFilterCount > 0 || dateActive) && (
-              <button onClick={() => setFilters({ ...filters, assigneeIds: [], statuses: [], priorities: [], projectIds: [], due: 'any', dueFrom: null, dueTo: null })} style={{ ...btn('outline'), justifyContent: 'center' }}>Clear filters</button>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={groupHead}>Custom range</span>
+                {(filters.dueFrom || filters.dueTo) && (
+                  <button onClick={() => setFilters({ ...filters, dueFrom: null, dueTo: null })} style={{ ...btn('ghost'), padding: 0, fontSize: 11, color: NX.blue }}>Clear</button>
+                )}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <label style={{ display: 'block' }}>
+                  <span style={{ display: 'block', fontSize: 10, color: NX.faint, marginBottom: 3 }}>From</span>
+                  <input type="date" aria-label="Due from" value={filters.dueFrom || ''} onChange={(e) => setFilters({ ...filters, dueFrom: e.target.value || null })} style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }} />
+                </label>
+                <label style={{ display: 'block' }}>
+                  <span style={{ display: 'block', fontSize: 10, color: NX.faint, marginBottom: 3 }}>To</span>
+                  <input type="date" aria-label="Due to" value={filters.dueTo || ''} onChange={(e) => setFilters({ ...filters, dueTo: e.target.value || null })} style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }} />
+                </label>
+              </div>
+              {rangeInvalid && (
+                <p style={{ margin: '6px 0 0', fontSize: 11, color: NX.red }}>“From” is after “To”.</p>
+              )}
+            </div>
+            {dateActive && (
+              <button onClick={() => setFilters({ ...filters, due: 'any', dueFrom: null, dueTo: null })} style={{ ...btn('outline'), justifyContent: 'center' }}>Clear date filter</button>
             )}
           </div>
         )}
@@ -136,37 +202,41 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
 
       {/* Saved views */}
       <Popover label="Saved views" icon={Bookmark} width={260}>
-        {(close) => <SavedViews {...{ savedViews, createSavedView, deleteSavedView, current, filters, sort, onApplyView, close }} />}
+        {(close) => <SavedViews {...{ savedViews, createSavedView, deleteSavedView, current, filters, sort, onApplyView, confirm, close }} />}
       </Popover>
 
-      {templates.length > 0 && (
-        <button onClick={() => setTemplatesOpen(true)} style={btn('outline')}><LayoutTemplate size={15} />Templates</button>
-      )}
+      <button onClick={() => setTemplatesOpen(true)} style={btn('outline')}><LayoutTemplate size={15} />Templates</button>
       {intakeForms.length > 0 && (
         <button onClick={() => setIntakeOpen(true)} style={btn('outline')}><Inbox size={15} />Intake</button>
       )}
 
-      {templatesOpen && <TemplatesModal templates={templates} createTask={createTask} onOpenTask={onOpenTask} onClose={() => setTemplatesOpen(false)} />}
-      {intakeOpen && <IntakeModal forms={intakeForms} projectName={projectName} createTask={createTask} myEmail={myEmail} onOpenTask={onOpenTask} onClose={() => setIntakeOpen(false)} />}
+      {templatesOpen && <TemplatesModal templates={templates} applyTemplate={applyTemplate} createTemplate={createTemplate} onOpenTask={onOpenTask} onClose={() => setTemplatesOpen(false)} />}
+      {intakeOpen && <IntakeModal forms={intakeForms} projectName={projectName} submitIntakeForm={submitIntakeForm} onOpenTask={onOpenTask} onClose={() => setIntakeOpen(false)} />}
+      {confirmNode}
     </div>
   );
 }
 
-function SavedViews({ savedViews, createSavedView, deleteSavedView, current, filters, sort, onApplyView, close }) {
+function SavedViews({ savedViews, createSavedView, deleteSavedView, current, filters, sort, onApplyView, confirm, close }) {
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState('');
   const save = async () => {
     const n = name.trim(); if (!n) return;
     await createSavedView({ name: n, view: current.view, group: current.group, filters, sort }).catch(() => {});
+    toast(`Saved "${n}"`, 'success');
     setName(''); setNaming(false); close();
+  };
+  const remove = async (v) => {
+    const ok = await confirm({ title: `Delete "${v.name}"?`, message: 'This saved view will be removed.', danger: true, confirmLabel: 'Delete view' });
+    if (ok) { deleteSavedView(v.id).catch(() => {}); toast('View deleted'); }
   };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       {savedViews.length === 0 && <div style={{ fontSize: 12, color: NX.faint, padding: '4px 6px' }}>No saved views yet.</div>}
       {savedViews.map((v) => (
         <div key={v.id} style={{ display: 'flex', alignItems: 'center' }}>
-          <button onClick={() => { onApplyView(v); close(); }} style={{ ...btn('ghost'), justifyContent: 'flex-start', flex: 1 }}>{v.name}</button>
-          <button onClick={() => { if (confirm(`Delete view "${v.name}"?`)) deleteSavedView(v.id); }} title="Delete view" style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><Trash2 size={13} /></button>
+          <button onClick={() => { onApplyView(v); toast(`Applied "${v.name}"`, 'success'); close(); }} style={{ ...btn('ghost'), justifyContent: 'flex-start', flex: 1 }}>{v.name}</button>
+          <button onClick={() => remove(v)} title="Delete view" style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><Trash2 size={13} /></button>
         </div>
       ))}
       <div style={{ borderTop: `1px solid ${NX.border2}`, margin: '4px 0' }} />
@@ -179,18 +249,28 @@ function SavedViews({ savedViews, createSavedView, deleteSavedView, current, fil
   );
 }
 
-function TemplatesModal({ templates, createTask, onOpenTask, onClose }) {
+function TemplatesModal({ templates, applyTemplate, createTemplate, onOpenTask, onClose }) {
   const [busy, setBusy] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState('');
+  const [subs, setSubs] = useState('');
   const apply = async (tpl) => {
     if (busy) return; setBusy(true);
     try {
-      const patch = tpl.patch || {};
-      const parent = await createTask({ title: tpl.name, type: 'task', status: 'not_started', priority: patch.priority || 'medium', ...patch });
-      for (const st of (tpl.subtaskTitles || [])) {
-        await createTask({ title: st, parentTaskId: parent.id, status: 'not_started', priority: 'medium', type: 'task' }).catch(() => {});
-      }
-      onClose(); onOpenTask?.(parent.id);
-    } catch { /* store refetch surfaces errors */ } finally { setBusy(false); }
+      const created = await applyTemplate(tpl.id);   // atomic — one call creates parent + subtasks
+      toast(`Created "${tpl.name}" from template`, 'success');
+      onClose();
+      if (created?.id) onOpenTask?.(created.id);
+    } catch { toast('Could not apply template'); } finally { setBusy(false); }
+  };
+  const saveTemplate = async () => {
+    const n = name.trim(); if (!n || busy) return; setBusy(true);
+    try {
+      const subtaskTitles = subs.split('\n').map((s) => s.trim()).filter(Boolean);
+      await createTemplate({ name: n, subtaskTitles });
+      toast(`Template "${n}" created`, 'success');
+      setName(''); setSubs(''); setCreating(false);
+    } catch { toast('Could not create template'); } finally { setBusy(false); }
   };
   return (
     <Modal title="Task templates" onClose={onClose} width={560}>
@@ -211,11 +291,31 @@ function TemplatesModal({ templates, createTask, onOpenTask, onClose }) {
         ))}
         {templates.length === 0 && <div style={{ fontSize: 13, color: NX.faint }}>No templates defined yet.</div>}
       </div>
+      <div style={{ borderTop: `1px solid ${NX.border2}`, margin: '16px 0 0', paddingTop: 16 }}>
+        {creating ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5 }}>Template name</label>
+              <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. New hire onboarding" style={inputStyle} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5 }}>Subtasks (one per line)</label>
+              <textarea value={subs} onChange={(e) => setSubs(e.target.value)} rows={3} placeholder={'Prepare workstation\nCreate accounts\nSchedule intro call'} style={{ ...inputStyle, resize: 'vertical', fontFamily: FONT }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => { setCreating(false); setName(''); setSubs(''); }} style={btn('outline')}>Cancel</button>
+              <button onClick={saveTemplate} disabled={!name.trim() || busy} style={{ ...btn('primary'), opacity: !name.trim() || busy ? 0.6 : 1 }}>Create template</button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => setCreating(true)} style={{ ...btn('outline') }}><Plus size={15} />Create template</button>
+        )}
+      </div>
     </Modal>
   );
 }
 
-function IntakeModal({ forms, projectName, createTask, myEmail, onOpenTask, onClose }) {
+function IntakeModal({ forms, projectName, submitIntakeForm, onOpenTask, onClose }) {
   const form = forms[0];
   const [summary, setSummary] = useState('');
   const [priority, setPriority] = useState('medium');
@@ -225,9 +325,11 @@ function IntakeModal({ forms, projectName, createTask, myEmail, onOpenTask, onCl
   const submit = async () => {
     if (!summary.trim() || busy) return; setBusy(true);
     try {
-      const t = await createTask({ title: summary.trim(), priority, projectId: form.targetProjectId || '', dueOn: neededBy || '', status: 'not_started', type: 'task', assigneeId: '' });
-      onClose(); onOpenTask?.(t.id);
-    } catch { /* surfaced by refetch */ } finally { setBusy(false); }
+      const created = await submitIntakeForm(form.id, { summary: summary.trim(), priority, dueOn: neededBy || '' });
+      toast('Request submitted', 'success');
+      onClose();
+      if (created?.id) onOpenTask?.(created.id);
+    } catch { toast('Could not submit request'); } finally { setBusy(false); }
   };
   return (
     <Modal title={form.title || 'Submit a request'} onClose={onClose}

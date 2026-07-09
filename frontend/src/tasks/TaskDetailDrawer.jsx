@@ -9,15 +9,21 @@ import {
   ArrowLeft, ArrowRightToLine, CheckCircle2, Circle, ChevronDown, ChevronRight,
   ChevronLeft, Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, CalendarDays, Maximize2, Minimize2,
-  RotateCcw, ThumbsDown,
+  RotateCcw, ThumbsDown, Share2, Bell, Copy, Check, Lock, Building2, Ban,
+  Smile, Send, AtSign,
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
-import { Avatar, PersonSelect, usePeople } from './components';
+import {
+  NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER,
+  DEPENDENCY_TYPE_META, DEPENDENCY_TYPE_ORDER, ACCESS_LEVEL_META, ACCESS_LEVEL_ORDER,
+} from './theme';
+import { Avatar, PersonSelect, usePeople, Modal } from './components';
+import { CustomFieldEditor, useConfirm, toast, renderWithMentions, activeMention, EMOJIS } from './shared';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const lc = (s) => (s || '').toLowerCase();
 
 function fmtDate(iso) {
   if (!iso) return '—';
@@ -60,7 +66,7 @@ function Chip({ color, tint, children }) {
   );
 }
 // Lightweight popover anchored under its trigger; closes on outside click / Esc.
-function Pop({ trigger, children, width = 200 }) {
+function Pop({ trigger, children, width = 200, align = 'left' }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -75,35 +81,47 @@ function Pop({ trigger, children, width = 200 }) {
     <div ref={ref} style={{ position: 'relative', display: 'inline-flex' }}>
       {trigger(() => setOpen((o) => !o))}
       {open && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, width, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 60, padding: 4, maxHeight: 300, overflowY: 'auto' }}>
+        <div style={{ position: 'absolute', top: '100%', [align]: 0, marginTop: 4, width, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 60, padding: 4, maxHeight: 320, overflowY: 'auto' }}>
           {children(() => setOpen(false))}
         </div>
       )}
     </div>
   );
 }
-function MenuItem({ icon, onClick, danger, children }) {
+function MenuItem({ icon, onClick, danger, active, children }) {
   const [hover, setHover] = useState(false);
   return (
     <button onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} onClick={onClick} style={{
       display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '7px 9px',
       borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: FONT,
-      color: danger ? NX.red : NX.ink, background: hover ? NX.hover : 'transparent',
+      color: danger ? NX.red : NX.ink, background: hover || active ? NX.hover : 'transparent',
     }}>{icon}{children}</button>
   );
 }
 
-export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
+export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab }) {
   const store = useTasks();
-  const { taskById, tasks, projectName, deptName, nameOf, myEmail, customFields = [], updateTask, deleteTask, createTask, getComments, addComment } = store;
+  const {
+    taskById, tasks, projectName, deptName, nameOf, myEmail, customFields = [],
+    updateTask, deleteTask, createTask,
+    getComments, addComment, editComment, pinComment, deleteComment,
+    addAttachment, toggleComplete, toggleLike, toggleFollower,
+    setAccessLevel, setApproval, logTime, setCustomFieldValue,
+    addDependency, removeDependency, setDependencyType, addSubtask,
+  } = store;
   const people = usePeople();
+  const myLc = lc(myEmail);
+  const [confirm, confirmNode] = useConfirm();
 
   const [activeId, setActiveId] = useState(taskId);
-  useEffect(() => setActiveId(taskId), [taskId]);
-  const [tab, setTab] = useState('overview');
-  useEffect(() => setTab('overview'), [activeId]);
+  const [tab, setTab] = useState(initialTab || 'overview');
+  // External open (new taskId / initialTab) — sync both. Internal navigation
+  // (back-to-parent, open subtask) goes through openTask below and resets tab.
+  useEffect(() => { setActiveId(taskId); setTab(initialTab || 'overview'); }, [taskId, initialTab]);
+  const openTask = (id) => { setActiveId(id); setTab('overview'); };
 
   const task = taskById[activeId];
+  const [shareOpen, setShareOpen] = useState(false);
 
   // resizable width (persisted); default 60% of viewport, expand → full width.
   const maxW = typeof window !== 'undefined' ? window.innerWidth : 1200;
@@ -141,17 +159,11 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
     subtasks: subtasks.length,
     dependencies: blockedBy.length + blocking.length,
   };
-  const liked = (task.likedByIds || []).includes(myEmail);
+  const liked = (task.likedByIds || []).map(lc).includes(myLc);
 
-  const addDependency = (dep) => {
-    patch({ blockedByIds: [...(task.blockedByIds || []), dep.id], dependencyTypes: { ...(task.dependencyTypes || {}), [dep.id]: 'FS' } });
-    updateTask(dep.id, { blockingIds: [...(dep.blockingIds || []), activeId] });
-  };
-  const removeDependency = (depId) => {
-    const dt = { ...(task.dependencyTypes || {}) }; delete dt[depId];
-    patch({ blockedByIds: (task.blockedByIds || []).filter((x) => x !== depId), dependencyTypes: dt });
-    const dep = taskById[depId];
-    if (dep) updateTask(depId, { blockingIds: (dep.blockingIds || []).filter((x) => x !== activeId) });
+  const copyLink = () => {
+    navigator.clipboard?.writeText(`${window.location.origin}${window.location.pathname}?task=${task.id}`);
+    toast('Task link copied');
   };
 
   const TABS = [
@@ -168,27 +180,34 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
         {/* header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: `1px solid ${NX.border}`, flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button onClick={() => store.toggleComplete(task)} style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: task.completed ? NX.green : NX.dim }}>
+            <button onClick={() => toggleComplete(task)} style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: task.completed ? NX.green : NX.dim }}>
               {task.completed ? <CheckCircle2 size={15} style={{ color: NX.green }} /> : <Circle size={15} />}
               {task.completed ? 'Completed' : 'Mark complete'}
             </button>
             <span style={{ fontSize: 11, fontWeight: 700, color: NX.faint }}>{task.code}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <button onClick={() => patch({ likedByIds: liked ? task.likedByIds.filter((e) => e !== myEmail) : [...(task.likedByIds || []), myEmail] })} title={liked ? 'Unlike' : 'Like'} style={{ ...btn('ghost'), padding: 7, color: liked ? NX.blue : NX.faint }}>
+            <MembersMenu task={task} people={people} nameOf={nameOf} myEmail={myEmail} toggleFollower={toggleFollower} copyLink={copyLink} />
+            <button onClick={() => setShareOpen(true)} style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12 }}><Share2 size={14} /> Share</button>
+            <button onClick={() => toggleLike(task, myEmail)} title={liked ? 'Unlike' : 'Like'} style={{ ...btn('ghost'), padding: 7, color: liked ? NX.blue : NX.faint }}>
               <ThumbsUp size={16} fill={liked ? 'currentColor' : 'none'} />
             </button>
+            <button onClick={copyLink} title="Copy task link" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><Link2 size={16} /></button>
             <button onClick={toggleExpand} title={expanded ? 'Collapse' : 'Expand'} style={{ ...btn('ghost'), padding: 7, color: NX.faint }}>
               {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
             </button>
-            <Pop width={210} trigger={(t) => <button onClick={t} title="More actions" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><ChevronDown size={16} /></button>}>
+            <Pop width={210} align="right" trigger={(t) => <button onClick={t} title="More actions" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><ChevronDown size={16} /></button>}>
               {(close) => (
                 <>
                   {onEdit && <MenuItem icon={<Pencil size={14} />} onClick={() => { onEdit(activeId); close(); }}>Edit task</MenuItem>}
                   <MenuItem icon={<Diamond size={14} style={{ color: task.isMilestone ? NX.purple : undefined }} />} onClick={() => { patch({ isMilestone: !task.isMilestone }); close(); }}>
                     {task.isMilestone ? 'Unmark milestone' : 'Mark as milestone'}
                   </MenuItem>
-                  <MenuItem danger icon={<Trash2 size={14} />} onClick={() => { close(); if (window.confirm(`Delete "${task.title}" and its subtasks?`)) { deleteTask(activeId); onClose(); } }}>
+                  <MenuItem danger icon={<Trash2 size={14} />} onClick={async () => {
+                    close();
+                    const ok = await confirm({ title: 'Delete this task?', message: `“${task.title}” and its subtasks will be permanently deleted.`, danger: true, confirmLabel: 'Delete task' });
+                    if (ok) { deleteTask(activeId); onClose(); }
+                  }}>
                     Delete task
                   </MenuItem>
                 </>
@@ -202,7 +221,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
         <div style={{ padding: '14px 18px 0', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
             {task.parentTaskId && (
-              <button onClick={() => setActiveId(task.parentTaskId)} title="Back to main task" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><ArrowLeft size={18} /></button>
+              <button onClick={() => openTask(task.parentTaskId)} title="Back to main task" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><ArrowLeft size={18} /></button>
             )}
             <TitleInput key={activeId} value={task.title} completed={task.completed} onCommit={(v) => v.trim() && v !== task.title && patch({ title: v.trim() })} />
           </div>
@@ -228,19 +247,193 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
           {tab === 'overview' && (
             <OverviewTab
               task={task} patch={patch} people={people} projectName={projectName} deptName={deptName}
-              blockedBy={blockedBy} depCandidates={depCandidates} addDependency={addDependency} removeDependency={removeDependency}
+              blockedBy={blockedBy} depCandidates={depCandidates}
+              addDependency={addDependency} removeDependency={removeDependency} setDependencyType={setDependencyType}
+              subtasks={subtasks} addSubtask={addSubtask} toggleComplete={toggleComplete} onOpenSub={openTask}
+              addComment={addComment} addAttachment={addAttachment}
+              setApproval={setApproval} logTime={logTime}
             />
           )}
-          {tab === 'comments' && <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} />}
+          {tab === 'comments' && <CommentsTab task={task} nameOf={nameOf} myLc={myLc} people={people} getComments={getComments} addComment={addComment} editComment={editComment} pinComment={pinComment} deleteComment={deleteComment} />}
           {tab === 'activity' && <ActivityTab taskId={activeId} nameOf={nameOf} />}
           {tab === 'attachments' && <AttachmentsTab task={task} refresh={store.refresh} />}
-          {tab === 'subtasks' && <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={setActiveId} />}
+          {tab === 'subtasks' && <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={openTask} />}
           {tab === 'dependencies' && <DependenciesTab blockedBy={blockedBy} blocking={blocking} task={task} removeDependency={removeDependency} />}
-          {tab === 'properties' && <PropertiesTab task={task} nameOf={nameOf} projectName={projectName} deptName={deptName} customFields={customFields} patch={patch} />}
+          {tab === 'properties' && <PropertiesTab task={task} nameOf={nameOf} projectName={projectName} deptName={deptName} customFields={customFields} people={people} setCustomFieldValue={setCustomFieldValue} />}
         </div>
       </aside>
+      {shareOpen && (
+        <ShareTaskModal task={task} people={people} nameOf={nameOf} projectName={projectName} deptName={deptName}
+          myEmail={myEmail} toggleFollower={toggleFollower} setAccessLevel={setAccessLevel} onClose={() => setShareOpen(false)} />
+      )}
+      {confirmNode}
     </div>,
     document.body,
+  );
+}
+
+// ── Members menu (avatar stack + panel) ─────────────────────────────────────
+function MembersMenu({ task, people, nameOf, myEmail, toggleFollower, copyLink }) {
+  const followerIds = task.followerIds || [];
+  const followerSet = new Set(followerIds.map(lc));
+  const followers = followerIds.map((e) => ({ email: e, name: nameOf(e) || e }));
+  const candidates = people.filter((p) => !followerSet.has(p.email));
+  const isFollowing = followerSet.has(lc(myEmail));
+  return (
+    <Pop width={320} align="right" trigger={(t) => (
+      <button onClick={t} title="Members" style={{ display: 'inline-flex', alignItems: 'center', border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}>
+        <span style={{ display: 'inline-flex' }}>
+          {followers.slice(0, 3).map((f, i) => (
+            <span key={f.email} style={{ marginLeft: i ? -8 : 0, borderRadius: '50%', boxShadow: `0 0 0 2px ${NX.surface}` }}>
+              <Avatar email={f.email} name={f.name} size={26} />
+            </span>
+          ))}
+        </span>
+        <span style={{ marginLeft: 4, width: 24, height: 24, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', border: `1px dashed ${NX.border}`, color: NX.faint }}><Plus size={14} /></span>
+      </button>
+    )}>
+      {() => (
+        <div style={{ padding: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: NX.ink }}>Members</div>
+            <button onClick={() => toggleFollower(task, myEmail)} title="Get notifications about activity on this task." style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12 }}>
+              <Bell size={14} /> {isFollowing ? 'Following' : 'Join task'}
+            </button>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+            {followers.map((f) => (
+              <span key={f.email} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${NX.border}`, borderRadius: 999, padding: '3px 8px 3px 3px', fontSize: 12, color: NX.ink }}>
+                <Avatar email={f.email} name={f.name} size={20} />
+                {f.name}
+                <button onClick={() => toggleFollower(task, f.email)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={12} /></button>
+              </span>
+            ))}
+            <button onClick={copyLink} title="Copy task link" style={{ ...btn('ghost'), padding: 6, color: NX.faint }}><Copy size={14} /></button>
+          </div>
+          {candidates.length > 0 && (
+            <div style={{ marginTop: 11, borderTop: `1px solid ${NX.border}`, paddingTop: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, marginBottom: 4 }}>Add member</div>
+              <div className="scroll-tabs" style={{ maxHeight: 160, overflowY: 'auto' }}>
+                {candidates.map((u) => (
+                  <button key={u.email} onClick={() => toggleFollower(task, u.email)} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', border: 'none', background: 'transparent', cursor: 'pointer', borderRadius: 8, padding: '6px 8px', fontFamily: FONT, fontSize: 13, color: NX.ink }}>
+                    <Avatar email={u.email} name={u.name} size={22} /> {u.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </Pop>
+  );
+}
+
+// ── Share modal ─────────────────────────────────────────────────────────────
+function ShareTaskModal({ task, people, nameOf, projectName, deptName, myEmail, toggleFollower, setAccessLevel, onClose }) {
+  const [inviteQuery, setInviteQuery] = useState('');
+  const link = `${window.location.origin}${window.location.pathname}?task=${task.id}`;
+  const followerIds = task.followerIds || [];
+  const followerSet = new Set(followerIds.map(lc));
+  const copyLink = () => { navigator.clipboard?.writeText(link); toast('Task link copied'); };
+
+  const invite = () => {
+    const q = inviteQuery.trim().toLowerCase();
+    if (!q) return;
+    const match = people.find((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
+    if (!match) { toast('No matching member found'); return; }
+    if (!followerSet.has(match.email)) toggleFollower(task, match.email);
+    toast(`${match.name} invited`);
+    setInviteQuery('');
+  };
+
+  const accessEmails = [...new Set([task.assigneeId, ...followerIds].filter(Boolean).map(lc))];
+  const accessUsers = accessEmails.map((e) => ({ email: e, name: nameOf(e) || e }));
+  const dept = task.departmentId ? deptName(task.departmentId) : '';
+
+  return (
+    <Modal title={`Share ${task.title}`} width={480} onClose={onClose}
+      footer={<button onClick={copyLink} style={{ ...btn('outline') }}><Link2 size={14} /> Copy task link</button>}>
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 8 }}>Invite with email</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input value={inviteQuery} onChange={(e) => setInviteQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') invite(); }}
+            placeholder="Add members by name or email…" style={{ ...inputStyle, flex: 1, fontSize: 13 }} />
+          <button onClick={invite} disabled={!inviteQuery.trim()} style={{ ...btn('primary'), opacity: inviteQuery.trim() ? 1 : 0.4 }}>Invite</button>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 16, borderTop: `1px solid ${NX.border}`, paddingTop: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 8 }}>Access settings</div>
+        <AccessSettings task={task} setAccessLevel={setAccessLevel} />
+      </div>
+
+      <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 6 }}>Who has access</div>
+      <div className="scroll-tabs" style={{ maxHeight: 264, overflowY: 'auto' }}>
+        {task.projectId && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${NX.border}`, padding: '10px 0' }}>
+            <span style={{ width: 36, height: 36, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, background: NX.surface2, color: NX.faint }}><Building2 size={16} /></span>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>#{projectName(task.projectId)}{dept ? ` - ${dept}` : ''}</div>
+              <div style={{ fontSize: 12, color: NX.faint }}>Private</div>
+            </div>
+          </div>
+        )}
+        {accessUsers.map((u) => {
+          const isMember = followerSet.has(u.email);
+          const isAssignee = lc(task.assigneeId) === u.email;
+          return (
+            <div key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${NX.border}`, padding: '10px 0' }}>
+              <Avatar email={u.email} name={u.name} size={32} />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: NX.ink }}>
+                  {u.name}
+                  {isAssignee && <span style={{ flexShrink: 0, borderRadius: 5, background: NX.surface2, padding: '1px 6px', fontSize: 10, fontWeight: 700, color: NX.dim }}>Assignee</span>}
+                </div>
+                <div style={{ fontSize: 12, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email}</div>
+              </div>
+              {isMember ? (
+                <button onClick={() => toggleFollower(task, u.email)} title="Remove" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex' }}><X size={16} /></button>
+              ) : (
+                <button onClick={() => toggleFollower(task, u.email)} style={{ ...btn('outline'), padding: '5px 10px', fontSize: 12 }}>Join task</button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Modal>
+  );
+}
+
+function AccessSettings({ task, setAccessLevel }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+  const level = task.accessLevel || 'org';
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button onClick={() => setOpen((o) => !o)} style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', fontWeight: 500 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Lock size={14} style={{ color: NX.faint }} /> {ACCESS_LEVEL_META[level].label}</span>
+        <ChevronDown size={14} style={{ color: NX.faint }} />
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, zIndex: 70, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', overflow: 'hidden' }}>
+          {ACCESS_LEVEL_ORDER.map((lvl) => (
+            <button key={lvl} onClick={() => { setAccessLevel(task.id, lvl); setOpen(false); }} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, width: '100%', textAlign: 'left', padding: '9px 11px', border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT }}>
+              <span style={{ marginTop: 2, width: 14, flexShrink: 0, color: NX.ink }}>{lvl === level && <Check size={14} />}</span>
+              {lvl === 'org' ? <Building2 size={16} style={{ marginTop: 2, flexShrink: 0, color: NX.faint }} /> : <Lock size={16} style={{ marginTop: 2, flexShrink: 0, color: NX.faint }} />}
+              <span style={{ minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: 13, fontWeight: 500, color: NX.ink }}>{ACCESS_LEVEL_META[lvl].label}</span>
+                <span style={{ display: 'block', fontSize: 12, color: NX.faint }}>{ACCESS_LEVEL_META[lvl].description}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -259,8 +452,103 @@ function TitleInput({ value, completed, onCommit }) {
   );
 }
 
+// ── Comment composer (@mention autocomplete + emoji picker) ──────────────────
+function CommentComposer({ people, initialValue = '', onSubmit, onCancel, autoFocus, submitLabel = 'Comment', placeholder = 'Add a comment…' }) {
+  const ref = useRef(null);
+  const emojiWrapRef = useRef(null);
+  const emojiBtnRef = useRef(null);
+  const [value, setValue] = useState(initialValue);
+  const [mention, setMention] = useState(null); // { query, start, left, top }
+  const [emoji, setEmoji] = useState(null);      // { left, bottom }
+
+  useEffect(() => {
+    if (!emoji) return;
+    const onDoc = (e) => { if (emojiWrapRef.current && !emojiWrapRef.current.contains(e.target)) setEmoji(null); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [emoji]);
+
+  const suggestions = mention
+    ? people.filter((u) => u.name.toLowerCase().includes(mention.query.toLowerCase())).slice(0, 6)
+    : [];
+
+  const recompute = (el) => {
+    const found = activeMention(el.value, el.selectionStart ?? el.value.length);
+    if (!found) return setMention(null);
+    const r = el.getBoundingClientRect();
+    setMention({ ...found, left: r.left, top: r.bottom + 4 });
+  };
+  const insertMention = (u) => {
+    const el = ref.current;
+    if (!el || !mention) return;
+    const caret = el.selectionStart ?? value.length;
+    const before = value.slice(0, mention.start);
+    const next = `${before}@${u.name} ${value.slice(caret)}`;
+    setValue(next);
+    setMention(null);
+    requestAnimationFrame(() => { el.focus(); const pos = (before + '@' + u.name + ' ').length; el.setSelectionRange(pos, pos); });
+  };
+  const insertText = (text, keepMention = false) => {
+    const el = ref.current;
+    const caret = el?.selectionStart ?? value.length;
+    const next = value.slice(0, caret) + text + value.slice(caret);
+    setValue(next);
+    if (!keepMention) setEmoji(null);
+    requestAnimationFrame(() => { el?.focus(); const pos = caret + text.length; el?.setSelectionRange(pos, pos); if (keepMention && el) recompute(el); });
+  };
+  const openEmoji = () => { const r = emojiBtnRef.current?.getBoundingClientRect(); if (r) setEmoji({ left: r.left, bottom: window.innerHeight - r.top + 6 }); };
+  const submit = () => { if (!value.trim()) return; onSubmit(value.trim()); if (!onCancel) setValue(''); };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <div style={{ borderRadius: 12, border: `1px solid ${NX.border}`, background: NX.surface }}>
+        <textarea
+          ref={ref}
+          autoFocus={autoFocus}
+          value={value}
+          onChange={(e) => { setValue(e.target.value); recompute(e.target); }}
+          onKeyUp={(e) => recompute(e.currentTarget)}
+          onClick={(e) => recompute(e.currentTarget)}
+          onKeyDown={(e) => {
+            if (mention && suggestions.length && e.key === 'Enter') { e.preventDefault(); insertMention(suggestions[0]); return; }
+            if (mention && e.key === 'Escape') { setMention(null); return; }
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+          }}
+          placeholder={placeholder}
+          rows={2}
+          style={{ width: '100%', resize: 'none', border: 'none', outline: 'none', background: 'transparent', padding: '8px 11px', fontFamily: FONT, fontSize: 13, color: NX.ink, boxSizing: 'border-box' }}
+        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, borderTop: `1px solid ${NX.border}`, padding: '5px 8px' }}>
+          <button onClick={() => insertText('@', true)} title="Mention someone" style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><AtSign size={15} /></button>
+          <div ref={emojiWrapRef} style={{ position: 'relative', display: 'inline-flex' }}>
+            <button ref={emojiBtnRef} onClick={() => (emoji ? setEmoji(null) : openEmoji())} title="Emoji" style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><Smile size={15} /></button>
+            {emoji && (
+              <div style={{ position: 'fixed', left: emoji.left, bottom: emoji.bottom, zIndex: 6000, width: 256, display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 2, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 8, boxShadow: '0 12px 32px rgba(0,0,0,0.18)' }}>
+                {EMOJIS.map((e) => <button key={e} onClick={() => insertText(e)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', borderRadius: 6, padding: 4, fontSize: 16 }}>{e}</button>)}
+              </div>
+            )}
+          </div>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {onCancel && <button onClick={onCancel} style={{ ...btn('ghost'), padding: '5px 9px', fontSize: 12 }}>Cancel</button>}
+            <button onClick={submit} disabled={!value.trim()} style={{ ...btn('primary'), padding: '6px 10px', fontSize: 12, opacity: value.trim() ? 1 : 0.4 }}><Send size={12} /> {submitLabel}</button>
+          </div>
+        </div>
+      </div>
+      {mention && suggestions.length > 0 && (
+        <div style={{ position: 'fixed', left: mention.left, top: mention.top, zIndex: 6000, width: 224, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, boxShadow: '0 12px 32px rgba(0,0,0,0.18)', overflow: 'hidden' }}>
+          {suggestions.map((u) => (
+            <button key={u.email} onMouseDown={(e) => { e.preventDefault(); insertMention(u); }} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', padding: '7px 10px', border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT, fontSize: 13 }}>
+              <Avatar email={u.email} name={u.name} size={20} /><span style={{ color: NX.ink }}>{u.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Overview ────────────────────────────────────────────────────────────────
-function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, depCandidates, addDependency, removeDependency }) {
+function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, addSubtask, toggleComplete, onOpenSub, addComment, addAttachment, setApproval, logTime }) {
   const [recStep, setRecStep] = useState('root');
   const sm = STATUS_META[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
@@ -295,18 +583,21 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
         {dept && <Chip color={NX.dim} tint={NX.border2}>{dept}</Chip>}
       </Row>
 
-      <Row label="Blocked by">
+      <Row label="Dependencies">
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
           {blockedBy.map((b) => (
-            <span key={b.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${NX.border}`, borderRadius: 999, padding: '3px 10px', fontSize: 12, color: NX.ink }}>
-              <CheckCircle2 size={13} style={{ color: NX.faint }} />
-              {b.title}{b.dueOn ? ` · ${fmtDate(b.dueOn)}` : ''}
-              <button onClick={() => removeDependency(b.id)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={12} /></button>
-            </span>
+            <div key={b.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+              <DependencyTypeMenu task={task} blockedById={b.id} type={(task.dependencyTypes || {})[b.id] || 'FS'} setDependencyType={setDependencyType} />
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${NX.border}`, borderRadius: 999, padding: '3px 10px', fontSize: 12, color: NX.ink }}>
+                <CheckCircle2 size={13} style={{ color: NX.faint }} />
+                {b.title}{b.dueOn ? ` · ${fmtDate(b.dueOn)}` : ''}
+                <button onClick={() => removeDependency(task, b.id)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={12} /></button>
+              </span>
+            </div>
           ))}
-          <Pop width={260} trigger={(t) => <button onClick={t} style={{ ...btn('outline'), padding: '5px 11px', fontSize: 12 }}>Add dependency</button>}>
+          <Pop width={260} trigger={(t) => <button onClick={t} style={{ ...btn('outline'), padding: '5px 11px', fontSize: 12 }}>Add dependencies</button>}>
             {(close) => (depCandidates.length ? depCandidates.map((c) => (
-              <MenuItem key={c.id} onClick={() => { addDependency(c); close(); }}>{c.code} · {c.title}</MenuItem>
+              <MenuItem key={c.id} onClick={() => { addDependency(task, c.id); close(); }}>{c.code} · {c.title}</MenuItem>
             )) : <div style={{ padding: 9, fontSize: 12, color: NX.faint }}>No eligible tasks in this project</div>)}
           </Pop>
         </div>
@@ -338,16 +629,115 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
         <DescriptionInput value={task.description || ''} onCommit={(v) => v !== (task.description || '') && patch({ description: v })} />
       </Section>
 
+      {/* Subtasks */}
+      <OverviewSubtasks task={task} subtasks={subtasks} addSubtask={addSubtask} people={people} toggleComplete={toggleComplete} onOpenSub={onOpenSub} />
+
       {/* Time tracking */}
       <Section title="Time tracking">
-        <TimeTracking task={task} patch={patch} />
+        <TimeTracking task={task} logTime={logTime} />
       </Section>
 
       {/* Approval */}
       <Section title="Approval">
-        <Approval task={task} patch={patch} />
+        <Approval task={task} setApproval={setApproval} />
+      </Section>
+
+      {/* Add comment */}
+      <Section title="Add comment">
+        <CommentComposer people={people} onSubmit={(b) => addComment(task.id, b)} />
+      </Section>
+
+      {/* Attachments */}
+      <Section title="Attachments">
+        <AttachFileButton taskId={task.id} addAttachment={addAttachment} />
       </Section>
     </div>
+  );
+}
+
+// "FS ▾" trigger → pick the dependency relationship type.
+function DependencyTypeMenu({ task, blockedById, type, setDependencyType }) {
+  return (
+    <Pop width={220} trigger={(t) => (
+      <button onClick={t} style={{ ...btn('outline'), padding: '4px 9px', fontSize: 12, color: NX.amber }}>
+        <Ban size={13} /> Blocked by · {type} <ChevronDown size={12} />
+      </button>
+    )}>
+      {(close) => DEPENDENCY_TYPE_ORDER.map((dt) => (
+        <MenuItem key={dt} active={type === dt}
+          icon={type === dt ? <Check size={14} /> : <span style={{ display: 'inline-block', width: 14 }} />}
+          onClick={() => { setDependencyType(task, blockedById, dt); close(); }}>
+          {DEPENDENCY_TYPE_META[dt].label} · {dt}
+        </MenuItem>
+      ))}
+    </Pop>
+  );
+}
+
+function OverviewSubtasks({ task, subtasks, addSubtask, people, toggleComplete, onOpenSub }) {
+  const [title, setTitle] = useState('');
+  const [dueOn, setDueOn] = useState('');
+  const [assigneeId, setAssigneeId] = useState('');
+  const dateRef = useRef(null);
+  const done = subtasks.filter((s) => s.completed).length;
+
+  const add = async () => {
+    const t = title.trim(); if (!t) return;
+    await addSubtask(task, { title: t, dueOn, assigneeId }).catch(() => {});
+    setTitle(''); setDueOn(''); setAssigneeId('');
+  };
+
+  return (
+    <Section title={subtasks.length ? `Subtasks ${done}/${subtasks.length}` : 'Add subtask'}>
+      {subtasks.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 10 }}>
+          {subtasks.map((s) => (
+            <div key={s.id} onClick={() => onOpenSub(s.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 6px', borderRadius: 8, cursor: 'pointer' }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = NX.hover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
+              <button onClick={(e) => { e.stopPropagation(); toggleComplete(s); }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex', padding: 0 }}>
+                {s.completed ? <CheckCircle2 size={15} style={{ color: NX.green }} /> : <Circle size={15} />}
+              </button>
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, color: s.completed ? NX.faint : NX.ink, textDecoration: s.completed ? 'line-through' : 'none' }}>{s.title}</span>
+              {s.dueOn && <span style={{ fontSize: 11, color: NX.faint }}>{fmtDate(s.dueOn)}</span>}
+              {s.assigneeId && <Avatar email={s.assigneeId} size={18} />}
+              <ChevronRight size={14} style={{ color: NX.faint }} />
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px dashed ${NX.border}`, borderRadius: 8, padding: '6px 10px', position: 'relative' }}>
+        <Plus size={14} style={{ color: NX.faint, flexShrink: 0 }} />
+        <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} placeholder="Add subtask"
+          style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', fontFamily: FONT, fontSize: 13 }} />
+        {dueOn && <span style={{ fontSize: 11, color: NX.faint }}>{fmtDate(dueOn)}</span>}
+        <button onClick={() => (dateRef.current?.showPicker?.() ?? dateRef.current?.focus())} title="Due date" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><CalendarDays size={15} /></button>
+        <input ref={dateRef} type="date" value={dueOn} onChange={(e) => setDueOn(e.target.value)} style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }} tabIndex={-1} />
+        <div style={{ minWidth: 150 }}>
+          <PersonSelect value={assigneeId || null} people={people} onChange={(email) => setAssigneeId(email || '')} placeholder="Assignee" />
+        </div>
+        <button onClick={add} style={{ ...btn('primary'), padding: '6px 10px', fontSize: 12 }}>Add</button>
+      </div>
+    </Section>
+  );
+}
+
+const MAX_INLINE = 2 * 1024 * 1024;
+function AttachFileButton({ taskId, addAttachment, onDone }) {
+  const fileRef = useRef(null);
+  const onFile = (e) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f) return;
+    const size = `${Math.max(1, Math.round(f.size / 1024))} KB`;
+    const kind = f.type.startsWith('image/') ? 'image' : 'doc';
+    const send = (dataUrl) => addAttachment(taskId, { name: f.name, size, kind, url: dataUrl || '' }).then(() => onDone?.()).catch(() => {});
+    if (f.size <= MAX_INLINE) { const r = new FileReader(); r.onload = () => send(typeof r.result === 'string' ? r.result : undefined); r.onerror = () => send(undefined); r.readAsDataURL(f); }
+    else send(undefined);
+  };
+  return (
+    <>
+      <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={onFile} />
+      <button onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12 }}><Paperclip size={13} /> Attach file</button>
+    </>
   );
 }
 
@@ -360,9 +750,9 @@ function DescriptionInput({ value, onCommit }) {
   );
 }
 
-function TimeTracking({ task, patch }) {
+function TimeTracking({ task, logTime }) {
   const [hours, setHours] = useState('');
-  const log = () => { const h = Number(hours); if (h > 0) { patch({ actualHours: (task.actualHours || 0) + h }); setHours(''); } };
+  const log = () => { const h = Number(hours); if (h > 0) { logTime(task.id, h); setHours(''); toast(`Logged ${h}h`); } };
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 18, fontSize: 13 }}>
       <div><div style={{ color: NX.faint }}>Estimate</div><div style={{ fontWeight: 700, color: NX.ink }}>{task.estimateHours ?? 0}h</div></div>
@@ -376,56 +766,69 @@ function TimeTracking({ task, patch }) {
   );
 }
 
-function Approval({ task, patch }) {
+function Approval({ task, setApproval }) {
   const s = task.approvalStatus || 'none';
+  const set = (status, msg) => { setApproval(task.id, status); toast(msg); };
   if (s === 'none') {
-    return <button onClick={() => patch({ approvalStatus: 'pending' })} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12 }}><ShieldCheck size={13} /> Request approval</button>;
+    return <button onClick={() => set('pending', 'Approval requested')} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12 }}><ShieldCheck size={13} /> Request approval</button>;
   }
   const color = s === 'approved' ? NX.green : s === 'rejected' ? NX.red : NX.amber;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
       <Chip color={color} tint={NX.border2}>{s.replace('_', ' ')}</Chip>
       <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        <button onClick={() => patch({ approvalStatus: 'approved' })} style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.green }}><ThumbsUp size={13} /> Approve</button>
-        <button onClick={() => patch({ approvalStatus: 'changes_requested' })} style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.amber }}><RotateCcw size={13} /> Changes</button>
-        <button onClick={() => patch({ approvalStatus: 'rejected' })} style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.red }}><ThumbsDown size={13} /> Reject</button>
-        <button onClick={() => patch({ approvalStatus: 'none' })} title="Clear" style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.dim }}><X size={13} /></button>
+        <button onClick={() => set('approved', 'Approved')} style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.green }}><ThumbsUp size={13} /> Approve</button>
+        <button onClick={() => set('changes_requested', 'Changes requested')} style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.amber }}><RotateCcw size={13} /> Changes</button>
+        <button onClick={() => set('rejected', 'Rejected')} style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.red }}><ThumbsDown size={13} /> Reject</button>
+        <button onClick={() => set('none', 'Approval cleared')} title="Clear" style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.dim }}><X size={13} /></button>
       </div>
     </div>
   );
 }
 
 // ── Comments ────────────────────────────────────────────────────────────────
-function CommentsTab({ task, nameOf, myEmail, getComments, addComment }) {
+function CommentsTab({ task, nameOf, myLc, people, getComments, addComment, editComment, pinComment, deleteComment }) {
   const [comments, setComments] = useState(null);
-  const [body, setBody] = useState('');
+  const [confirm, confirmNode] = useConfirm();
   const reload = () => getComments(task.id).then(setComments).catch(() => setComments([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [task.id]);
+  const names = useMemo(() => people.map((p) => p.name), [people]);
 
-  const submit = async () => { const b = body.trim(); if (!b) return; setBody(''); await addComment(task.id, b).catch(() => {}); reload(); };
-  const pin = async (c) => { await api.editTaskComment(c.id, { pinned: !c.pinned }).catch(() => {}); reload(); };
-  const edit = async (c, text) => { await api.editTaskComment(c.id, { body: text }).catch(() => {}); reload(); };
-  const del = async (c) => { if (!window.confirm('Delete this comment?')) return; await api.deleteTaskComment(c.id).catch(() => {}); reload(); };
+  const submit = async (b) => { await addComment(task.id, b).catch(() => {}); reload(); };
+  const pin = async (c) => { await pinComment(c.id, !c.pinned).catch(() => {}); reload(); };
+  const edit = async (c, text) => { await editComment(c.id, text).catch(() => {}); reload(); };
+  const del = async (c) => {
+    const ok = await confirm({ title: 'Delete comment?', message: 'This comment will be permanently removed.', danger: true, confirmLabel: 'Delete' });
+    if (!ok) return;
+    await deleteComment(c.id, task.id).catch(() => {}); reload();
+  };
 
   const list = (comments || []).slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
 
   return (
     <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <textarea value={body} onChange={(e) => setBody(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }} rows={2} placeholder="Add a comment… (⌘/Ctrl+Enter)"
-          style={{ ...inputStyle, resize: 'vertical', fontSize: 13 }} />
-        <button onClick={submit} style={{ ...btn('primary'), alignSelf: 'flex-end' }}>Send</button>
-      </div>
+      <CommentComposer people={people} onSubmit={submit} />
       {comments === null ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 20 }}>Loading…</div>
         : list.length === 0 ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 24 }}>No comments yet.</div>
-          : list.map((c) => <CommentItem key={c.id} c={c} nameOf={nameOf} mine={c.authorId === myEmail} onPin={() => pin(c)} onEdit={(t) => edit(c, t)} onDelete={() => del(c)} />)}
+          : list.map((c) => <CommentItem key={c.id} c={c} nameOf={nameOf} names={names} people={people} mine={lc(c.authorId) === myLc} onPin={() => pin(c)} onEdit={(t) => edit(c, t)} onDelete={() => del(c)} />)}
+      {confirmNode}
     </div>
   );
 }
-function CommentItem({ c, nameOf, mine, onPin, onEdit, onDelete }) {
+function CommentItem({ c, nameOf, names, people, mine, onPin, onEdit, onDelete }) {
   const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(c.body);
   const [hover, setHover] = useState(false);
+  if (editing) {
+    return (
+      <div style={{ display: 'flex', gap: 10, padding: 8 }}>
+        <Avatar email={c.authorId} name={nameOf(c.authorId)} size={26} />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <CommentComposer people={people} initialValue={c.body} autoFocus submitLabel="Save"
+            onSubmit={(t) => { onEdit(t); setEditing(false); }} onCancel={() => setEditing(false)} />
+        </div>
+      </div>
+    );
+  }
   return (
     <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ display: 'flex', gap: 10, padding: 8, borderRadius: 10, background: c.pinned ? '#fdf6e7' : 'transparent' }}>
       <Avatar email={c.authorId} name={nameOf(c.authorId)} size={26} />
@@ -438,20 +841,12 @@ function CommentItem({ c, nameOf, mine, onPin, onEdit, onDelete }) {
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 2, opacity: hover ? 1 : 0, transition: 'opacity 0.12s' }}>
             <button onClick={onPin} title={c.pinned ? 'Unpin' : 'Pin'} style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Pin size={12} /></button>
             {mine && <>
-              <button onClick={() => { setText(c.body); setEditing(true); }} title="Edit" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Pencil size={12} /></button>
+              <button onClick={() => setEditing(true)} title="Edit" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Pencil size={12} /></button>
               <button onClick={onDelete} title="Delete" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Trash2 size={12} /></button>
             </>}
           </div>
         </div>
-        {editing ? (
-          <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
-            <textarea value={text} autoFocus onChange={(e) => setText(e.target.value)} rows={2} style={{ ...inputStyle, fontSize: 13, resize: 'vertical' }} />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <button onClick={() => { onEdit(text); setEditing(false); }} style={{ ...btn('primary'), padding: '5px 10px', fontSize: 12 }}>Save</button>
-              <button onClick={() => setEditing(false)} style={{ ...btn('outline'), padding: '5px 10px', fontSize: 12 }}>Cancel</button>
-            </div>
-          </div>
-        ) : <p style={{ margin: '2px 0 0', whiteSpace: 'pre-wrap', fontSize: 13, color: NX.dim }}>{c.body}</p>}
+        <p style={{ margin: '2px 0 0', whiteSpace: 'pre-wrap', fontSize: 13, color: NX.dim }}>{renderWithMentions(c.body, names)}</p>
       </div>
     </div>
   );
@@ -480,7 +875,6 @@ function ActivityTab({ taskId, nameOf }) {
 }
 
 // ── Attachments ─────────────────────────────────────────────────────────────
-const MAX_INLINE = 2 * 1024 * 1024;
 function AttachmentsTab({ task, refresh }) {
   const [rows, setRows] = useState(null);
   const fileRef = useRef(null);
@@ -554,12 +948,12 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
           </div>
         ))}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px dashed ${NX.border}`, borderRadius: 8, padding: '6px 10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px dashed ${NX.border}`, borderRadius: 8, padding: '6px 10px', position: 'relative' }}>
         <Plus size={14} style={{ color: NX.faint, flexShrink: 0 }} />
         <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} placeholder="Add subtask"
           style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', fontFamily: FONT, fontSize: 13 }} />
         {dueOn && <span style={{ fontSize: 11, color: NX.faint }}>{fmtDate(dueOn)}</span>}
-        <button onClick={() => dateRef.current?.showPicker?.() ?? dateRef.current?.focus()} title="Due date" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><CalendarDays size={15} /></button>
+        <button onClick={() => (dateRef.current?.showPicker?.() ?? dateRef.current?.focus())} title="Due date" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><CalendarDays size={15} /></button>
         <input ref={dateRef} type="date" value={dueOn} onChange={(e) => setDueOn(e.target.value)} style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }} tabIndex={-1} />
         <div style={{ minWidth: 150 }}>
           <PersonSelect value={assigneeId || null} people={people} onChange={(email) => setAssigneeId(email || '')} placeholder="Assignee" />
@@ -577,8 +971,8 @@ function DependenciesTab({ blockedBy, blocking, task, removeDependency }) {
     <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '7px 10px', fontSize: 12, marginBottom: 6 }}>
       <Link2 size={13} style={{ color }} />
       <span style={{ flex: 1, color: NX.ink }}>{b.code} · {b.title}</span>
-      {b.dependencyType && DEP_TYPES[b.dependencyType] && <span style={{ color: NX.faint }}>{b.dependencyType}</span>}
-      {canRemove && <button onClick={() => removeDependency(b.id)} style={{ ...btn('ghost'), padding: 2, color: NX.faint }}><X size={13} /></button>}
+      {b.dependencyType && DEP_TYPES[b.dependencyType] && <span style={{ color: NX.faint }}>{DEPENDENCY_TYPE_META[b.dependencyType]?.label || b.dependencyType}</span>}
+      {canRemove && <button onClick={() => removeDependency(task, b.id)} style={{ ...btn('ghost'), padding: 2, color: NX.faint }}><X size={13} /></button>}
     </div>
   );
   return (
@@ -596,7 +990,7 @@ function DependenciesTab({ blockedBy, blocking, task, removeDependency }) {
 }
 
 // ── Properties ──────────────────────────────────────────────────────────────
-function PropertiesTab({ task, nameOf, projectName, deptName, customFields, patch }) {
+function PropertiesTab({ task, nameOf, projectName, deptName, customFields, people, setCustomFieldValue }) {
   const sm = STATUS_META[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
   const rows = [
@@ -615,6 +1009,7 @@ function PropertiesTab({ task, nameOf, projectName, deptName, customFields, patc
     ['Recurrence', recurrenceLabel(task.recurrence)],
     ['Created', fmtDate(task.createdAt)],
     ['Modified', fmtDate(task.modifiedAt)],
+    ['Sync', task.syncedWithAsana ? <Chip color="#ffffff" tint="#111827">Synced</Chip> : <Chip color={NX.amber} tint="#fdefd7">Unsynced</Chip>],
   ];
   return (
     <div style={{ marginTop: 14 }}>
@@ -639,30 +1034,12 @@ function PropertiesTab({ task, nameOf, projectName, deptName, customFields, patc
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {customFields.map((f) => (
               <Row key={f.id} label={f.name}>
-                <CustomFieldInput field={f} value={(task.customFieldValues || {})[f.id]} onChange={(v) => patch({ customFieldValues: { ...(task.customFieldValues || {}), [f.id]: v } })} />
+                <CustomFieldEditor field={f} value={(task.customFieldValues || {})[f.id]} onChange={(v) => setCustomFieldValue(task, f.id, v)} people={people} createdAt={task.createdAt} modifiedAt={task.modifiedAt} />
               </Row>
             ))}
           </div>
         </div>
       )}
     </div>
-  );
-}
-
-function CustomFieldInput({ field, value, onChange }) {
-  const [v, setV] = useState(value ?? '');
-  useEffect(() => setV(value ?? ''), [value]);
-  if (field.type === 'select' && Array.isArray(field.options)) {
-    return (
-      <select value={v} onChange={(e) => { setV(e.target.value); onChange(e.target.value); }} style={{ ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 13 }}>
-        <option value="">—</option>
-        {field.options.map((o) => <option key={o} value={o}>{o}</option>)}
-      </select>
-    );
-  }
-  return (
-    <input type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'} value={v}
-      onChange={(e) => setV(e.target.value)} onBlur={() => onChange(v)}
-      style={{ ...inputStyle, width: 'auto', minWidth: 180, padding: '6px 9px', fontSize: 13 }} />
   );
 }

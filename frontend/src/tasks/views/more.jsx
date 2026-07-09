@@ -2,10 +2,10 @@
 // gallery), Workload (per-assignee load). Ported from the export's
 // NexusTimelineView / NexusFilesView / NexusWorkloadView to the Nexus idiom.
 import { useEffect, useMemo, useState } from 'react';
-import { Diamond, File, FileImage, FileText, Paperclip, Search, AlertTriangle, Download } from 'lucide-react';
-import { api } from '../../api';
-import { NX, FONT, btn, input as inputStyle, STATUS_META } from '../theme';
+import { Diamond, File, FileImage, FileText, Paperclip, Search, AlertTriangle, Download, Trash2 } from 'lucide-react';
+import { NX, FONT, btn, input as inputStyle, STATUS_META, initialsOf } from '../theme';
 import { Avatar, EmptyState } from '../components';
+import { useTasks } from '../TasksContext';
 
 const DAY = 86400000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -17,6 +17,7 @@ const fmtDate = (iso) => { if (!iso) return ''; const d = new Date(iso.length <=
 // ── Timeline (gantt) ─────────────────────────────────────────────────────────
 const DAY_W = 26, ROW_H = 44, LABEL_W = 230;
 export function TimelineView({ tasks, onOpen }) {
+  const { nameOf } = useTasks();
   const rows = useMemo(() => tasks.filter((t) => t.startOn || t.dueOn), [tasks]);
   const { start, totalDays } = useMemo(() => {
     const dates = rows.flatMap((t) => [t.startOn, t.dueOn].filter(Boolean));
@@ -40,6 +41,8 @@ export function TimelineView({ tasks, onOpen }) {
   for (let i = 0; i < totalDays; i += 7) { const d = fromISO(addDays(start, i)); weeks.push({ x: i * DAY_W, label: `${d.getDate()}`, month: d.getDate() <= 7 ? MONTHS[d.getMonth()] : '' }); }
   const todayX = dayOffset(toISO(new Date())) * DAY_W;
   const gridW = totalDays * DAY_W, gridH = Math.max(rows.length * ROW_H, 120);
+  const rowById = new Map(rows.map((t, i) => [t.id, i]));
+  const taskById = Object.fromEntries(rows.map((t) => [t.id, t]));
 
   return (
     <div className="nx-scroll" style={{ margin: 16, overflow: 'auto', border: `1px solid ${NX.border}`, borderRadius: 14, background: NX.surface, fontFamily: FONT }}>
@@ -67,6 +70,24 @@ export function TimelineView({ tasks, onOpen }) {
           <div style={{ position: 'relative', width: gridW, height: gridH }}>
             {rows.map((_, i) => <div key={i} style={{ position: 'absolute', left: 0, right: 0, borderBottom: `1px solid ${NX.border2}`, top: (i + 1) * ROW_H - 1 }} />)}
             {todayX >= 0 && todayX <= gridW && <div style={{ position: 'absolute', top: 0, height: '100%', width: 2, background: `${NX.blue}99`, left: todayX }} />}
+            {/* dependency arrows: elbow path + arrowhead from each blocker to the blocked task */}
+            <svg style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} width={gridW} height={gridH}>
+              {rows.flatMap((t) => (t.blockedByIds || []).map((bid) => {
+                if (!rowById.has(bid)) return null;
+                const from = taskById[bid];
+                const fg = barGeom(from), tg = barGeom(t);
+                const fr = rowById.get(bid), tr = rowById.get(t.id);
+                const x1 = fg.left + fg.width, y1 = fr * ROW_H + ROW_H / 2;
+                const x2 = tg.left, y2 = tr * ROW_H + ROW_H / 2;
+                const midX = Math.max(x1 + 12, x2 - 12);
+                return (
+                  <g key={`${bid}-${t.id}`}>
+                    <path d={`M ${x1} ${y1} H ${midX} V ${y2} H ${x2}`} fill="none" stroke="#94a3b8" strokeWidth={1.5} />
+                    <path d={`M ${x2} ${y2} l -6 -4 l 0 8 z`} fill="#94a3b8" />
+                  </g>
+                );
+              }))}
+            </svg>
             {rows.map((t, i) => {
               const g = barGeom(t);
               const meta = STATUS_META[t.status] || { label: t.status, color: NX.dim };
@@ -75,7 +96,8 @@ export function TimelineView({ tasks, onOpen }) {
               }
               return (
                 <button key={t.id} onClick={() => onOpen(t.id)} title={`${t.title} (${meta.label})`} style={{ position: 'absolute', left: g.left, width: g.width, top: i * ROW_H + 8, height: 28, display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: '0 8px', fontSize: 11, fontWeight: 600, color: '#fff', border: 'none', cursor: 'pointer', background: meta.color, overflow: 'hidden' }}>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.95 }}>{t.title}</span>
+                  {t.assigneeId && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 700 }}>{initialsOf(nameOf(t.assigneeId))}</span>}
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.9 }}>{t.title}</span>
                 </button>
               );
             })}
@@ -93,16 +115,24 @@ function iconFor(kind) {
   return <File size={18} style={{ color: NX.dim }} />;
 }
 export function FilesView({ tasks, onOpen }) {
+  const store = useTasks();
+  const { getAttachments, removeAttachment } = store;
   const [rows, setRows] = useState(null);
   const [query, setQuery] = useState('');
   useEffect(() => {
     let alive = true;
     const withAtt = tasks.filter((t) => (t.attachmentIds || []).length);
     if (!withAtt.length) { setRows([]); return; }
-    Promise.all(withAtt.map((t) => api.getTaskAttachments(t.id).then((as) => (as || []).map((a) => ({ a, t }))).catch(() => [])))
+    Promise.all(withAtt.map((t) => getAttachments(t.id).then((as) => (as || []).map((a) => ({ a, t }))).catch(() => [])))
       .then((all) => { if (alive) setRows(all.flat().sort((x, y) => String(y.a.addedAt || '').localeCompare(String(x.a.addedAt || '')))); });
     return () => { alive = false; };
-  }, [tasks]);
+  }, [tasks, getAttachments]);
+
+  const onDelete = async (a) => {
+    if (!window.confirm(`Remove "${a.name}" from this task?`)) return;
+    setRows((rs) => (rs || []).filter((r) => r.a.id !== a.id));   // optimistic
+    try { await removeAttachment(a.id); } catch { /* refetch happens via realtime; leave optimistic */ }
+  };
 
   const files = useMemo(() => {
     if (!rows) return [];
@@ -128,7 +158,10 @@ export function FilesView({ tasks, onOpen }) {
                 <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, padding: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                     {iconFor(a.kind)}
-                    {(a.dataUrl || a.url) && <a href={a.dataUrl || a.url} download={a.name} title="Download" style={{ color: NX.faint }}><Download size={14} /></a>}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {(a.dataUrl || a.url) && <a href={a.dataUrl || a.url} download={a.name} title="Download" style={{ color: NX.faint }}><Download size={14} /></a>}
+                      <button onClick={() => onDelete(a)} title="Remove" style={{ ...btn('ghost'), padding: 2, color: NX.faint }}><Trash2 size={14} /></button>
+                    </div>
                   </div>
                   <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600, color: NX.ink }} title={a.name}>{a.name}</div>
                   <div style={{ fontSize: 11, color: NX.faint }}>{a.size}{a.addedAt ? ` · ${fmtDate(a.addedAt)}` : ''}</div>
@@ -190,6 +223,17 @@ export function WorkloadView({ tasks, nameOf }) {
             </div>
           );
         })}
+      </div>
+
+      <div style={{ marginTop: 20, borderTop: `1px solid ${NX.border}`, paddingTop: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, marginBottom: 8 }}>Status legend</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14 }}>
+          {Object.values(STATUS_META).map((m) => (
+            <span key={m.label} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: NX.dim }}>
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: m.color }} /> {m.label}
+            </span>
+          ))}
+        </div>
       </div>
     </div>
   );
