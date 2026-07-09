@@ -9,6 +9,7 @@ import models
 from database import engine, DATABASE_URL, SessionLocal
 from routers import timeclock
 from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, inventory_requests, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews
+from routers import task_projects, task_config  # Task Module (Jul 2026)
 from audit import AuditMiddleware
 
 
@@ -66,6 +67,48 @@ def _run_migrations():
             "ALTER TABLE shifts ADD COLUMN code VARCHAR DEFAULT ''",
             "ALTER TABLE shift_groups ADD COLUMN teams_chat_id VARCHAR DEFAULT ''",
             "ALTER TABLE shift_groups ADD COLUMN teams_chat_name VARCHAR DEFAULT ''",
+            # Task Module: patch a pre-existing local `tasks` table to the rich schema
+            # (fresh SQLite DBs get the new shape straight from create_all).
+            "ALTER TABLE tasks DROP COLUMN assignee",
+            "ALTER TABLE tasks DROP COLUMN project",
+            "ALTER TABLE tasks DROP COLUMN due_date",
+            "ALTER TABLE tasks DROP COLUMN hours",
+            "ALTER TABLE tasks DROP COLUMN comment",
+            "ALTER TABLE tasks DROP COLUMN dept",
+            "ALTER TABLE tasks DROP COLUMN synced",
+            "ALTER TABLE tasks ADD COLUMN code VARCHAR DEFAULT ''",
+            "ALTER TABLE tasks ADD COLUMN description VARCHAR DEFAULT ''",
+            "ALTER TABLE tasks ADD COLUMN type VARCHAR DEFAULT 'task'",
+            "ALTER TABLE tasks ADD COLUMN assignee_email VARCHAR DEFAULT ''",
+            "ALTER TABLE tasks ADD COLUMN follower_emails JSON DEFAULT '[]'",
+            "ALTER TABLE tasks ADD COLUMN liked_by_emails JSON DEFAULT '[]'",
+            "ALTER TABLE tasks ADD COLUMN access_level VARCHAR DEFAULT 'org'",
+            "ALTER TABLE tasks ADD COLUMN project_id VARCHAR DEFAULT ''",
+            "ALTER TABLE tasks ADD COLUMN section_id VARCHAR DEFAULT ''",
+            "ALTER TABLE tasks ADD COLUMN department_id VARCHAR DEFAULT ''",
+            "ALTER TABLE tasks ADD COLUMN parent_task_id VARCHAR DEFAULT ''",
+            "ALTER TABLE tasks ADD COLUMN subtask_ids JSON DEFAULT '[]'",
+            "ALTER TABLE tasks ADD COLUMN blocked_by_ids JSON DEFAULT '[]'",
+            "ALTER TABLE tasks ADD COLUMN blocking_ids JSON DEFAULT '[]'",
+            "ALTER TABLE tasks ADD COLUMN dependency_types JSON DEFAULT '{}'",
+            "ALTER TABLE tasks ADD COLUMN tags JSON DEFAULT '[]'",
+            "ALTER TABLE tasks ADD COLUMN custom_field_values JSON DEFAULT '{}'",
+            "ALTER TABLE tasks ADD COLUMN start_on VARCHAR DEFAULT ''",
+            "ALTER TABLE tasks ADD COLUMN due_on VARCHAR DEFAULT ''",
+            "ALTER TABLE tasks ADD COLUMN estimate_hours FLOAT",
+            "ALTER TABLE tasks ADD COLUMN actual_hours FLOAT",
+            "ALTER TABLE tasks ADD COLUMN recurrence JSON",
+            "ALTER TABLE tasks ADD COLUMN is_milestone BOOLEAN DEFAULT 0",
+            "ALTER TABLE tasks ADD COLUMN approval_status VARCHAR DEFAULT 'none'",
+            "ALTER TABLE tasks ADD COLUMN completed BOOLEAN DEFAULT 0",
+            "ALTER TABLE tasks ADD COLUMN completed_at VARCHAR DEFAULT ''",
+            "ALTER TABLE tasks ADD COLUMN comment_ids JSON DEFAULT '[]'",
+            "ALTER TABLE tasks ADD COLUMN attachment_ids JSON DEFAULT '[]'",
+            "ALTER TABLE tasks ADD COLUMN activity_ids JSON DEFAULT '[]'",
+            "ALTER TABLE tasks ADD COLUMN created_at VARCHAR DEFAULT ''",
+            "ALTER TABLE tasks ADD COLUMN modified_at VARCHAR DEFAULT ''",
+            "ALTER TABLE tasks ADD COLUMN created_by VARCHAR DEFAULT ''",
+            "ALTER TABLE tasks ADD COLUMN synced_with_asana BOOLEAN DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -198,6 +241,53 @@ def _run_migrations():
         "ALTER TABLE hr_self_requests ADD COLUMN IF NOT EXISTS attachment_path TEXT DEFAULT ''",
         "ALTER TABLE hr_self_requests ADD COLUMN IF NOT EXISTS attachment_name TEXT DEFAULT ''",
         "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS interview_at TEXT DEFAULT ''",
+        # ── Task Module (Jul 2026): replace the flat demo `tasks` table with the
+        # rich runtime schema. create_all can't alter an existing table, so drop
+        # the obsolete NOT-NULL demo columns and add the new ones idempotently.
+        "ALTER TABLE tasks DROP COLUMN IF EXISTS assignee",
+        "ALTER TABLE tasks DROP COLUMN IF EXISTS project",
+        "ALTER TABLE tasks DROP COLUMN IF EXISTS due_date",
+        "ALTER TABLE tasks DROP COLUMN IF EXISTS hours",
+        "ALTER TABLE tasks DROP COLUMN IF EXISTS comment",
+        "ALTER TABLE tasks DROP COLUMN IF EXISTS dept",
+        "ALTER TABLE tasks DROP COLUMN IF EXISTS synced",
+        "ALTER TABLE tasks ALTER COLUMN status DROP NOT NULL",
+        "ALTER TABLE tasks ALTER COLUMN status SET DEFAULT 'not_started'",
+        "ALTER TABLE tasks ALTER COLUMN priority DROP NOT NULL",
+        "ALTER TABLE tasks ALTER COLUMN priority SET DEFAULT 'medium'",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS code TEXT DEFAULT ''",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'task'",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assignee_email TEXT DEFAULT ''",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS follower_emails JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS liked_by_emails JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS access_level TEXT DEFAULT 'org'",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS project_id TEXT DEFAULT ''",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS section_id TEXT DEFAULT ''",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS department_id TEXT DEFAULT ''",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS parent_task_id TEXT DEFAULT ''",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS subtask_ids JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS blocked_by_ids JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS blocking_ids JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS dependency_types JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tags JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS custom_field_values JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS start_on TEXT DEFAULT ''",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS due_on TEXT DEFAULT ''",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS estimate_hours DOUBLE PRECISION",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS actual_hours DOUBLE PRECISION",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recurrence JSONB",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS is_milestone BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS approval_status TEXT DEFAULT 'none'",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at TEXT DEFAULT ''",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS comment_ids JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS attachment_ids JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS activity_ids JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS created_at TEXT DEFAULT ''",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS modified_at TEXT DEFAULT ''",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT ''",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS synced_with_asana BOOLEAN DEFAULT FALSE",
     ]
     with engine.connect() as conn:
         for sql in migrations:
@@ -387,4 +477,6 @@ app.include_router(esign.router)
 app.include_router(timeclock.router)
 app.include_router(myhr.router)
 app.include_router(hr_interviews.router)
+app.include_router(task_projects.router)  # Task Module: projects/portfolios/departments
+app.include_router(task_config.router)    # Task Module: views/rules/templates/tickets/notifications/changelog
 

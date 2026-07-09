@@ -116,7 +116,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
   switch (activeView) {
     case "dashboard":          return <Dashboard onNavigate={onNavigate} />;
     case "manager-dashboard":  return <ManagerDashboard />;
-    case "tasks":              return <Tasks />;
+    case "tasks":              return <Tasks activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
     case "purchase":           return <Purchase activeSub={activeSub} />;
     case "sop":                return <SOP activeSub={activeSub} onSubChange={onSubChange} />;
     case "it":                 return <IT activeSub={activeSub} onSubChange={onSubChange} />;

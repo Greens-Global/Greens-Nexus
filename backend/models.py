@@ -1,20 +1,54 @@
-from sqlalchemy import Boolean, Column, Float, Integer, JSON, String
+from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, String
 from database import Base
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Task Module (ported from the standalone task-module export — Jul 2026)
+# The old flat demo `tasks` table (title/assignee/project/hours/dept/synced) was
+# replaced by the rich runtime schema below. All identity is email-keyed (joins
+# to nexus_employees), timestamps are ISO strings, arrays/maps are jsonb. Real
+# tables get RLS ON with no policies (backend uses the service role); only the
+# task_events ping table is anon-readable for Supabase realtime.
+# ─────────────────────────────────────────────────────────────────────────────
 class Task(Base):
     __tablename__ = "tasks"
-    id = Column(String, primary_key=True)
-    title = Column(String, nullable=False)
-    assignee = Column(String, nullable=False)
-    project = Column(String, nullable=False)
-    due_date = Column(String, nullable=False)
-    hours = Column(String, nullable=False)
-    comment = Column(String, default="")
-    priority = Column(String, nullable=False)
-    status = Column(String, nullable=False)
-    dept = Column(String, nullable=False)
-    synced = Column(Boolean, default=True)
+    id                = Column(String, primary_key=True)   # client/server id (e.g. uuid)
+    code              = Column(String, default="")         # human key, e.g. "TASK-001"
+    title             = Column(String, nullable=False)
+    description       = Column(String, default="")
+    type              = Column(String, default="task")     # task|subtask|milestone|approval|section
+    status            = Column(String, default="not_started")  # + custom board-column ids
+    priority          = Column(String, default="medium")   # low|medium|high|urgent
+    assignee_email    = Column(String, default="", index=True)
+    follower_emails   = Column(JSON, default=list)
+    liked_by_emails   = Column(JSON, default=list)
+    access_level      = Column(String, default="org")      # org|restricted
+    project_id        = Column(String, default="", index=True)
+    section_id        = Column(String, default="")
+    department_id     = Column(String, default="", index=True)
+    parent_task_id    = Column(String, default="", index=True)
+    subtask_ids       = Column(JSON, default=list)
+    blocked_by_ids    = Column(JSON, default=list)
+    blocking_ids      = Column(JSON, default=list)
+    dependency_types  = Column(JSON, default=dict)         # {blockerTaskId: "FS"|"FF"|"SS"|"SF"}
+    tags              = Column(JSON, default=list)
+    custom_field_values = Column(JSON, default=dict)       # {customFieldId: value}
+    start_on          = Column(String, default="")         # ISO yyyy-mm-dd
+    due_on            = Column(String, default="")         # ISO yyyy-mm-dd
+    estimate_hours    = Column(Float, nullable=True)
+    actual_hours      = Column(Float, nullable=True)
+    recurrence        = Column(JSON, nullable=True)        # {freq,interval,dayOfWeek?,dayOfMonth?}
+    is_milestone      = Column(Boolean, default=False)
+    approval_status   = Column(String, default="none")     # none|pending|approved|rejected|changes_requested
+    completed         = Column(Boolean, default=False)
+    completed_at      = Column(String, default="")
+    comment_ids       = Column(JSON, default=list)         # denormalised for the runtime shape
+    attachment_ids    = Column(JSON, default=list)
+    activity_ids      = Column(JSON, default=list)
+    created_at        = Column(String, default="")
+    modified_at       = Column(String, default="")
+    created_by        = Column(String, default="")         # email
+    synced_with_asana = Column(Boolean, default=False)
 
 
 class PurchaseRequest(Base):
@@ -1301,3 +1335,246 @@ class TrackPing(Base):
     distance_m     = Column(Integer, default=0)
     battery_pct    = Column(Integer, default=-1)        # -1 = unknown
     source         = Column(String, default="mobile")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Task Module — supporting tables (ported from task-module export, Jul 2026)
+# All email-keyed; ISO-string timestamps; jsonb for arrays/maps. See Task above.
+# ═════════════════════════════════════════════════════════════════════════════
+class TaskProject(Base):
+    """A body of work containing tasks (Asana "project")."""
+    __tablename__ = "task_projects"
+    id            = Column(String, primary_key=True)
+    name          = Column(String, nullable=False)
+    description   = Column(String, default="")
+    color         = Column(String, default="")
+    owner_email   = Column(String, default="", index=True)
+    portfolio_id  = Column(String, default="", index=True)
+    department_id = Column(String, default="", index=True)
+    status        = Column(String, default="not_started")
+    start_on      = Column(String, default="")
+    due_on        = Column(String, default="")
+    archived      = Column(Boolean, default=False)
+    member_emails = Column(JSON, default=list)
+    activity_ids  = Column(JSON, default=list)
+    created_at    = Column(String, default="")
+    modified_at   = Column(String, default="")
+    created_by    = Column(String, default="")
+
+
+class TaskPortfolio(Base):
+    """A curated, ordered collection of projects (Asana "portfolio")."""
+    __tablename__ = "task_portfolios"
+    id          = Column(String, primary_key=True)
+    name        = Column(String, nullable=False)
+    description = Column(String, default="")
+    color       = Column(String, default="")
+    owner_email = Column(String, default="", index=True)
+    project_ids = Column(JSON, default=list)              # ordered
+    archived    = Column(Boolean, default=False)
+    created_at  = Column(String, default="")
+    modified_at = Column(String, default="")
+    created_by  = Column(String, default="")
+
+
+class TaskDepartment(Base):
+    """A team/department; members can access all of its projects."""
+    __tablename__ = "task_departments"
+    id            = Column(String, primary_key=True)
+    name          = Column(String, nullable=False)
+    color         = Column(String, default="")
+    icon          = Column(String, default="")           # key from the department icon registry
+    member_emails = Column(JSON, default=list)
+    created_at    = Column(String, default="")
+
+
+class TaskSection(Base):
+    """An ordered section/group within a project's list & board views."""
+    __tablename__ = "task_sections"
+    id         = Column(String, primary_key=True)
+    project_id = Column(String, default="", index=True)
+    name       = Column(String, nullable=False)
+    position   = Column(Integer, default=0)
+    created_at = Column(String, default="")
+
+
+class TaskCustomStatus(Base):
+    """A user-defined board column / status beyond the four built-ins."""
+    __tablename__ = "task_custom_statuses"
+    id       = Column(String, primary_key=True)
+    label    = Column(String, nullable=False)
+    color    = Column(String, default="")
+    position = Column(Integer, default=0)
+
+
+class TaskComment(Base):
+    __tablename__ = "task_comments"
+    id           = Column(String, primary_key=True)
+    task_id      = Column(String, default="", index=True)
+    author_email = Column(String, default="")
+    body         = Column(String, default="")
+    created_at   = Column(String, default="")
+    edited_at    = Column(String, default="")
+    pinned       = Column(Boolean, default=False)
+
+
+class TaskAttachment(Base):
+    """File attached to a task. Bytes live in Supabase storage; `url` points there."""
+    __tablename__ = "task_attachments"
+    id         = Column(String, primary_key=True)
+    task_id    = Column(String, default="", index=True)
+    name       = Column(String, nullable=False)
+    size       = Column(String, default="")
+    kind       = Column(String, default="other")         # image|doc|other
+    url        = Column(String, default="")              # Supabase storage url (see _validate_photo_url)
+    added_at   = Column(String, default="")
+    added_by   = Column(String, default="")
+
+
+class TaskActivity(Base):
+    """One activity-feed event. Denormalised entity labels are captured at log
+    time so the global Activity Log renders even after the task/project is gone."""
+    __tablename__ = "task_activity"
+    id           = Column(String, primary_key=True)
+    entity_kind  = Column(String, default="task")        # task|project
+    entity_id    = Column(String, default="", index=True)
+    entity_code  = Column(String, default="")            # e.g. "TASK-003" or project name
+    entity_title = Column(String, default="")
+    type         = Column(String, default="")
+    actor_email  = Column(String, default="")
+    at           = Column(String, default="", index=True)
+    detail       = Column(String, default="")
+
+
+class TaskSavedView(Base):
+    __tablename__ = "task_saved_views"
+    id          = Column(String, primary_key=True)
+    owner_email = Column(String, default="", index=True)
+    name        = Column(String, nullable=False)
+    view        = Column(String, default="list")         # list|board|calendar|timeline
+    filters     = Column(JSON, default=dict)
+    sort        = Column(JSON, default=dict)
+    group       = Column(String, default="none")
+    created_at  = Column(String, default="")
+
+
+class TaskAutomationRule(Base):
+    __tablename__ = "task_automation_rules"
+    id         = Column(String, primary_key=True)
+    name       = Column(String, nullable=False)
+    trigger    = Column(JSON, default=dict)              # {type, value?}
+    actions    = Column(JSON, default=list)              # [{type, value}]
+    enabled    = Column(Boolean, default=True)
+    created_at = Column(String, default="")
+
+
+class TaskTemplate(Base):
+    __tablename__ = "task_templates"
+    id             = Column(String, primary_key=True)
+    name           = Column(String, nullable=False)
+    description    = Column(String, default="")
+    patch          = Column(JSON, default=dict)          # Partial<Task> applied on use
+    subtask_titles = Column(JSON, default=list)
+    created_at     = Column(String, default="")
+
+
+class TaskIntakeForm(Base):
+    __tablename__ = "task_intake_forms"
+    id                = Column(String, primary_key=True)
+    title             = Column(String, nullable=False)
+    fields            = Column(JSON, default=list)       # [{label,type,required}]
+    target_project_id = Column(String, default="")
+    created_at        = Column(String, default="")
+
+
+class TaskCustomField(Base):
+    __tablename__ = "task_custom_fields"
+    id          = Column(String, primary_key=True)
+    name        = Column(String, nullable=False)
+    description = Column(String, default="")
+    type        = Column(String, default="text")         # text|number|single_select|... (15 types)
+    options     = Column(JSON, default=list)             # [{id,label,color}]
+
+
+class TaskMemberRequest(Base):
+    """Request raised from the Teams page to add/remove a department member;
+    admins approve/reject from Manage → Departments."""
+    __tablename__ = "task_member_requests"
+    id            = Column(String, primary_key=True)
+    department_id = Column(String, default="", index=True)
+    user_email    = Column(String, default="")           # person to add/remove
+    kind          = Column(String, default="add")        # add|remove
+    requested_by  = Column(String, default="")           # email
+    status        = Column(String, default="pending")    # pending|approved|rejected
+    created_at    = Column(String, default="")
+    decided_at    = Column(String, default="")
+    decided_by    = Column(String, default="")
+
+
+class TaskNotification(Base):
+    """The task module's own in-app notification (its NotificationBell). `for_email`
+    is a specific address or the literal "admins" to fan out to every admin."""
+    __tablename__ = "task_notifications"
+    id            = Column(String, primary_key=True)
+    kind          = Column(String, default="")           # member_request|task_assigned|task_overdue|...
+    title         = Column(String, default="")
+    body          = Column(String, default="")
+    for_email     = Column(String, default="", index=True)
+    request_id    = Column(String, default="")
+    department_id = Column(String, default="")
+    task_id       = Column(String, default="")
+    read          = Column(Boolean, default=False)
+    created_at    = Column(String, default="", index=True)
+
+
+class TaskTicket(Base):
+    """A support/IT request; may be escalated into a Task (linked_task_id)."""
+    __tablename__ = "task_tickets"
+    id             = Column(String, primary_key=True)
+    code           = Column(String, default="")
+    subject        = Column(String, nullable=False)
+    description    = Column(String, default="")
+    status         = Column(String, default="new")       # new|open|in_progress|on_hold|resolved|closed|reopened
+    priority       = Column(String, default="medium")
+    requester_email= Column(String, default="", index=True)
+    assignee_email = Column(String, default="", index=True)
+    department_id  = Column(String, default="", index=True)
+    linked_task_id = Column(String, default="")
+    tags           = Column(JSON, default=list)
+    sla_due_on     = Column(String, default="")
+    resolved_at    = Column(String, default="")
+    created_at     = Column(String, default="")
+    modified_at    = Column(String, default="")
+
+
+class TaskChangelogEntry(Base):
+    """A changelog / "What's New" entry. Kept schema-loose (full object in
+    `payload`) — mirrors the property_records pattern — until the changelog UI
+    is ported and its shape stabilises."""
+    __tablename__ = "task_changelog_entries"
+    id         = Column(String, primary_key=True)
+    payload    = Column(JSON, default=dict)
+    created_at = Column(String, default="", index=True)
+    updated_at = Column(String, default="")
+
+
+class TaskChangelogComment(Base):
+    __tablename__ = "task_changelog_comments"
+    id           = Column(String, primary_key=True)
+    entry_id     = Column(String, default="", index=True)
+    author_email = Column(String, default="")
+    body         = Column(String, default="")
+    created_at   = Column(String, default="")
+
+
+class TaskEvent(Base):
+    """Realtime ping table. The only task_* table that is anon-readable (SELECT):
+    the frontend subscribes to it via the Supabase anon key to know when to
+    refetch — the real tables are never anon-exposed. Rows carry no sensitive
+    payload, just enough to scope a refetch (mirrors inventory_events)."""
+    __tablename__ = "task_events"
+    id             = Column(BigInteger, primary_key=True, autoincrement=True)
+    task_id        = Column(String, default="")
+    kind           = Column(String, default="")          # created|updated|deleted|comment|...
+    affected_email = Column(String, default="")
+    created_at     = Column(String, default="")          # set server-side (timestamptz in DB)

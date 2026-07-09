@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect, useMemo } from "react";
-import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, ChevronDown, LayoutDashboard, Maximize2, Minimize2, ZoomIn, ZoomOut, Camera, Clock } from "lucide-react";
+import { useState, useRef, useEffect, useMemo, lazy, Suspense } from "react";
+import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, ChevronDown, LayoutDashboard, Maximize2, Minimize2, ZoomIn, ZoomOut, Camera, Clock, Sparkles } from "lucide-react";
 import ScreenshotsAdmin from "./ScreenshotsAdmin";
+const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
 import PageHelp from "./PageHelp";
 import { useMsal }        from "@azure/msal-react";
@@ -18,6 +19,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
 
   const [open,         setOpen]         = useState(false);
   const [shotsOpen,    setShotsOpen]    = useState(false);   // Admin → Screenshots gallery
+  const [changelogOpen, setChangelogOpen] = useState(false); // Profile → What's new
   const [searchQuery,  setSearchQuery]  = useState('');
   const [searchOpen,   setSearchOpen]   = useState(false);
   const dropRef   = useRef(null);
@@ -242,6 +244,9 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
               <button className="hud-item">
                 <Settings size={14} /> Account Settings
               </button>
+              <button className="hud-item" onClick={() => { setOpen(false); setChangelogOpen(true); }}>
+                <Sparkles size={14} /> What's new
+              </button>
               {/* Dark mode + Help live here now (Neil: clear the top bar, esp. mobile) */}
               <button className="hud-item" onClick={onThemeToggle}>
                 {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />} {theme === "dark" ? "Light mode" : "Dark mode"}
@@ -282,6 +287,11 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
         </div>
       </div>
       {shotsOpen && <ScreenshotsAdmin onClose={() => setShotsOpen(false)} />}
+      {changelogOpen && (
+        <Suspense fallback={null}>
+          <Changelog onClose={() => setChangelogOpen(false)} />
+        </Suspense>
+      )}
     </header>
   );
 }
