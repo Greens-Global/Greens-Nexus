@@ -2,16 +2,18 @@
 // List and Board views + bulk action bar. Owns the shared view state, mirroring
 // the export's viewContext. Calendar/Timeline/Dashboard live in ./views/extras.
 import { useMemo, useState } from 'react';
-import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, Trash2, X } from 'lucide-react';
+import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, Trash2, X, FolderKanban } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { EMPTY_FILTER, matchesFilter, topLevel, sortTasks, groupTasks, taskStats } from './lib';
-import { NX, FONT, btn, input as inputStyle, STATUS_ORDER, STATUS_META } from './theme';
-import { Avatar, StatusChip, PriorityChip, EmptyState } from './components';
+import { NX, FONT, btn, input as inputStyle, STATUS_ORDER, STATUS_META, chip } from './theme';
+import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople } from './components';
 import CreateTaskModal from './CreateTaskModal';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import { CalendarView, DashboardView } from './views/extras';
 import { TimelineView, FilesView, WorkloadView } from './views/more';
 import { ProductivityBar } from './productivity';
+import RichListView from './views/richlist';
+import BoardView from './views/board';
 
 const VIEW_KINDS = [
   { key: 'list', label: 'List', icon: List },
@@ -26,7 +28,8 @@ const GROUPS = ['status', 'priority', 'assignee', 'project', 'none'];
 
 export default function TasksWorkspace({ lockedProjectId = null, mine = false, title = 'Tasks' }) {
   const store = useTasks();
-  const { tasks, nameOf, projectName, deptName, toggleComplete, bulkUpdate, deleteTask, myEmail } = store;
+  const { tasks, nameOf, projectName, deptName, projectById, deptById, toggleComplete, bulkUpdate, deleteTask, myEmail } = store;
+  const people = usePeople();
   const [view, setView] = useState('list');
   const [group, setGroup] = useState('status');
   const [search, setSearch] = useState('');
@@ -56,13 +59,28 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
 
   const toggleSel = (id) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const clearSel = () => setSelected(new Set());
+  const selectAll = () => setSelected((s) => {
+    const ids = visible.map((t) => t.id);
+    const all = ids.length > 0 && ids.every((id) => s.has(id));
+    return all ? new Set() : new Set(ids);
+  });
   const ctx = { nameOf, projectName, deptName };
+  const lockedProject = lockedProjectId ? projectById(lockedProjectId) : null;
+  const lockedDept = lockedProject?.departmentId ? deptById(lockedProject.departmentId) : null;
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
       {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: `1px solid ${NX.border}`, flexWrap: 'wrap', background: NX.surface }}>
-        <div style={{ fontSize: 17, fontWeight: 700 }}>{title}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 17, fontWeight: 700 }}>
+          {lockedProject ? (
+            <>
+              <FolderKanban size={17} style={{ color: lockedDept?.color || NX.purple }} />
+              {lockedProject.name}
+              {lockedDept && <span style={chip(lockedDept.color, `${lockedDept.color}1a`)}>{lockedDept.name}</span>}
+            </>
+          ) : title}
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2 }}>
           {VIEW_KINDS.map((v) => (
             <button key={v.key} onClick={() => setView(v.key)} title={v.label} style={{
@@ -94,12 +112,12 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
 
       {/* Body */}
       <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: view === 'board' ? NX.canvas : NX.surface }}>
-        {visible.length === 0 ? (
+        {view === 'list' ? (
+          <RichListView visible={visible} group={group} ctx={ctx} store={store} people={people} selected={selected} toggleSel={toggleSel} onOpen={setOpenId} onSelectAll={selectAll} />
+        ) : visible.length === 0 ? (
           <EmptyState icon={CheckCircle2} title="No tasks yet" hint="Create your first task to get going." />
-        ) : view === 'list' ? (
-          <ListBody groups={groupTasks(visible, group, ctx)} store={store} selected={selected} toggleSel={toggleSel} onOpen={setOpenId} />
         ) : view === 'board' ? (
-          <BoardBody visible={visible} group={group} ctx={ctx} store={store} onOpen={setOpenId} />
+          <BoardView visible={visible} group={group} ctx={ctx} store={store} onOpen={setOpenId} lockedProjectId={lockedProjectId} />
         ) : view === 'calendar' ? (
           <CalendarView tasks={visible} onOpen={setOpenId} />
         ) : view === 'timeline' ? (

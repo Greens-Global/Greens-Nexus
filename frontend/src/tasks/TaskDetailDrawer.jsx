@@ -9,7 +9,7 @@ import {
   ArrowLeft, ArrowRightToLine, CheckCircle2, Circle, ChevronDown, ChevronRight,
   ChevronLeft, Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, CalendarDays, Maximize2, Minimize2,
-  RotateCcw, ThumbsDown,
+  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check,
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
@@ -102,6 +102,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
   useEffect(() => setActiveId(taskId), [taskId]);
   const [tab, setTab] = useState('overview');
   useEffect(() => setTab('overview'), [activeId]);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const task = taskById[activeId];
 
@@ -175,13 +176,16 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
             <span style={{ fontSize: 11, fontWeight: 700, color: NX.faint }}>{task.code}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <MembersMenu task={task} people={people} nameOf={nameOf} patch={patch} />
+            <button onClick={() => setShareOpen(true)} style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.dim }}><Share2 size={14} /> Share</button>
             <button onClick={() => patch({ likedByIds: liked ? task.likedByIds.filter((e) => e !== myEmail) : [...(task.likedByIds || []), myEmail] })} title={liked ? 'Unlike' : 'Like'} style={{ ...btn('ghost'), padding: 7, color: liked ? NX.blue : NX.faint }}>
               <ThumbsUp size={16} fill={liked ? 'currentColor' : 'none'} />
             </button>
+            <button onClick={() => { navigator.clipboard?.writeText(`${window.location.origin}${window.location.pathname}?task=${task.id}`); }} title="Copy task link" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><Link2 size={16} /></button>
             <button onClick={toggleExpand} title={expanded ? 'Collapse' : 'Expand'} style={{ ...btn('ghost'), padding: 7, color: NX.faint }}>
               {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
             </button>
-            <Pop width={210} trigger={(t) => <button onClick={t} title="More actions" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><ChevronDown size={16} /></button>}>
+            <Pop width={210} trigger={(t) => <button onClick={t} title="More actions" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><MoreHorizontal size={16} /></button>}>
               {(close) => (
                 <>
                   {onEdit && <MenuItem icon={<Pencil size={14} />} onClick={() => { onEdit(activeId); close(); }}>Edit task</MenuItem>}
@@ -229,6 +233,8 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
             <OverviewTab
               task={task} patch={patch} people={people} projectName={projectName} deptName={deptName}
               blockedBy={blockedBy} depCandidates={depCandidates} addDependency={addDependency} removeDependency={removeDependency}
+              subtasks={subtasks} createTask={createTask} updateTask={updateTask} onOpenSub={setActiveId}
+              nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} refresh={store.refresh}
             />
           )}
           {tab === 'comments' && <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} />}
@@ -238,7 +244,87 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
           {tab === 'dependencies' && <DependenciesTab blockedBy={blockedBy} blocking={blocking} task={task} removeDependency={removeDependency} />}
           {tab === 'properties' && <PropertiesTab task={task} nameOf={nameOf} projectName={projectName} deptName={deptName} customFields={customFields} patch={patch} />}
         </div>
+        {shareOpen && <ShareModal task={task} people={people} nameOf={nameOf} patch={patch} onClose={() => setShareOpen(false)} />}
       </aside>
+    </div>,
+    document.body,
+  );
+}
+
+// ── Members (collaborators) menu ─────────────────────────────────────────────
+function MembersMenu({ task, people, nameOf, patch }) {
+  const followers = task.followerIds || [];
+  const toggle = (email) => patch({ followerIds: followers.includes(email) ? followers.filter((e) => e !== email) : [...followers, email] });
+  return (
+    <div style={{ display: 'flex', alignItems: 'center' }}>
+      {followers.slice(0, 3).map((em, i) => <span key={em} style={{ marginLeft: i ? -6 : 0 }}><Avatar email={em} name={nameOf(em)} size={24} /></span>)}
+      <Pop width={230} trigger={(t) => (
+        <button onClick={t} title="Collaborators" style={{ ...btn('ghost'), padding: 5, marginLeft: followers.length ? 2 : 0, color: NX.faint }}><UserPlus size={16} /></button>
+      )}>
+        {() => (
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Collaborators</div>
+            {people.map((u) => (
+              <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
+                <input type="checkbox" checked={followers.includes(u.email)} onChange={() => toggle(u.email)} />
+                <Avatar email={u.email} name={u.name} size={20} /> {u.name}
+              </label>
+            ))}
+            {people.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>No people</div>}
+          </div>
+        )}
+      </Pop>
+    </div>
+  );
+}
+
+// ── Share modal ──────────────────────────────────────────────────────────────
+function ShareModal({ task, people, nameOf, patch, onClose }) {
+  const level = task.accessLevel || 'org';
+  const followers = task.followerIds || [];
+  const [copied, setCopied] = useState(false);
+  const copy = () => { navigator.clipboard?.writeText(`${window.location.origin}${window.location.pathname}?task=${task.id}`); setCopied(true); setTimeout(() => setCopied(false), 1500); };
+  const OPTS = [
+    { key: 'org', icon: Globe, label: 'Greens Global', desc: 'Any organization member can find and access this task.' },
+    { key: 'restricted', icon: Lock, label: 'Members of this task and connected projects', desc: 'Only invited members and members of connected projects can access.' },
+  ];
+  return createPortal(
+    <div onMouseDown={(e) => e.target === e.currentTarget && onClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', zIndex: 5000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '9vh 16px', fontFamily: FONT }}>
+      <div style={{ background: NX.surface, borderRadius: 14, width: 520, maxWidth: '100%', boxShadow: '0 24px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 20px', borderBottom: `1px solid ${NX.border}` }}>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>Share “{task.title}”</div>
+          <button onClick={onClose} style={{ ...btn('ghost'), padding: 6 }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 8 }}>Who has access</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {OPTS.map((o) => (
+                <button key={o.key} onClick={() => patch({ accessLevel: o.key })} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, textAlign: 'left', padding: 12, borderRadius: 10, border: `1px solid ${level === o.key ? NX.blue : NX.border}`, background: level === o.key ? '#eff5ff' : NX.surface, cursor: 'pointer', fontFamily: FONT }}>
+                  <o.icon size={16} style={{ color: NX.dim, marginTop: 2 }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{o.label}</div>
+                    <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{o.desc}</div>
+                  </div>
+                  {level === o.key && <Check size={15} style={{ color: NX.blue }} />}
+                </button>
+              ))}
+            </div>
+          </div>
+          {followers.length > 0 && (
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 8 }}>Collaborators</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {followers.map((em) => <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${NX.border}`, borderRadius: 999, padding: '3px 10px 3px 3px', fontSize: 12 }}><Avatar email={em} name={nameOf(em)} size={20} /> {nameOf(em)}</span>)}
+              </div>
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 20px', borderTop: `1px solid ${NX.border}` }}>
+          <button onClick={copy} style={btn('outline')}><Link2 size={14} /> {copied ? 'Copied!' : 'Copy link'}</button>
+          <button onClick={onClose} style={btn('primary')}>Done</button>
+        </div>
+      </div>
     </div>,
     document.body,
   );
@@ -260,7 +346,7 @@ function TitleInput({ value, completed, onCommit }) {
 }
 
 // ── Overview ────────────────────────────────────────────────────────────────
-function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, depCandidates, addDependency, removeDependency }) {
+function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, depCandidates, addDependency, removeDependency, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh }) {
   const [recStep, setRecStep] = useState('root');
   const sm = STATUS_META[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
@@ -338,6 +424,11 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
         <DescriptionInput value={task.description || ''} onCommit={(v) => v !== (task.description || '') && patch({ description: v })} />
       </Section>
 
+      {/* Subtasks (inline) */}
+      <Section title={subtasks?.length ? `Subtasks ${subtasks.filter((s) => s.completed).length}/${subtasks.length}` : 'Subtasks'}>
+        <SubtasksTab task={task} subtasks={subtasks || []} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={onOpenSub} hideHeading />
+      </Section>
+
       {/* Time tracking */}
       <Section title="Time tracking">
         <TimeTracking task={task} patch={patch} />
@@ -347,6 +438,29 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
       <Section title="Approval">
         <Approval task={task} patch={patch} />
       </Section>
+
+      {/* Add comment */}
+      <Section title="Add comment">
+        <QuickComment task={task} addComment={addComment} />
+      </Section>
+
+      {/* Attachments */}
+      <Section title="Attachments">
+        <AttachmentsTab task={task} refresh={refresh} />
+      </Section>
+    </div>
+  );
+}
+
+// Compact comment composer for the Overview tab.
+function QuickComment({ task, addComment }) {
+  const [body, setBody] = useState('');
+  const submit = async () => { const b = body.trim(); if (!b) return; setBody(''); await addComment(task.id, b).catch(() => {}); };
+  return (
+    <div style={{ display: 'flex', gap: 8 }}>
+      <textarea value={body} onChange={(e) => setBody(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }} rows={2} placeholder="Add a comment… (⌘/Ctrl+Enter)"
+        style={{ ...inputStyle, resize: 'vertical', fontSize: 13 }} />
+      <button onClick={submit} disabled={!body.trim()} style={{ ...btn('primary'), alignSelf: 'flex-end', opacity: body.trim() ? 1 : 0.5 }}>Comment</button>
     </div>
   );
 }
@@ -524,7 +638,7 @@ function AttachmentsTab({ task, refresh }) {
 }
 
 // ── Subtasks ────────────────────────────────────────────────────────────────
-function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub }) {
+function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub, hideHeading }) {
   const [title, setTitle] = useState('');
   const [dueOn, setDueOn] = useState('');
   const [assigneeId, setAssigneeId] = useState('');
@@ -538,8 +652,8 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
   };
 
   return (
-    <div style={{ marginTop: 14 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 10 }}>{subtasks.length ? `Subtasks ${done}/${subtasks.length}` : 'Subtasks'}</div>
+    <div style={{ marginTop: hideHeading ? 0 : 14 }}>
+      {!hideHeading && <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 10 }}>{subtasks.length ? `Subtasks ${done}/${subtasks.length}` : 'Subtasks'}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 10 }}>
         {subtasks.map((s) => (
           <div key={s.id} onClick={() => onOpenSub(s.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 6px', borderRadius: 8, cursor: 'pointer' }}

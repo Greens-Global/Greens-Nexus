@@ -8,6 +8,7 @@ export const EMPTY_FILTER = {
 };
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
+const addDays = (iso, n) => { const d = new Date(iso); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 
 function dueMatches(task, due, dueFrom, dueTo) {
   if (dueFrom && (!task.dueOn || task.dueOn < dueFrom)) return false;
@@ -68,6 +69,23 @@ export function sortTasks(list, sort = { key: 'manual', dir: 'asc' }) {
 /** Group tasks by a GroupBy key. Returns [{ key, label, tasks }] ordered sensibly. */
 export function groupTasks(list, group, ctx = {}) {
   if (!group || group === 'none') return [{ key: 'all', label: '', tasks: list }];
+  // Date grouping → the export's four semantic buckets, always all shown.
+  if (group === 'date') {
+    const today = todayISO();
+    const weekEnd = addDays(today, 7);
+    const out = [
+      { key: 'recent', label: 'Recently assigned', tasks: [] },
+      { key: 'today', label: 'Do today', tasks: [] },
+      { key: 'week', label: 'Do next week', tasks: [] },
+      { key: 'later', label: 'Do later', tasks: [] },
+    ];
+    const by = Object.fromEntries(out.map((b) => [b.key, b]));
+    for (const t of list) {
+      const k = !t.dueOn ? 'recent' : t.dueOn <= today ? 'today' : t.dueOn <= weekEnd ? 'week' : 'later';
+      by[k].tasks.push(t);
+    }
+    return out;
+  }
   const buckets = new Map();
   const push = (k, label, t) => {
     if (!buckets.has(k)) buckets.set(k, { key: k, label, tasks: [] });
