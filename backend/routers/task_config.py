@@ -165,8 +165,9 @@ def apply_template(template_id: str, body: ApplyTemplateBody,
     patch = tpl.patch if isinstance(tpl.patch, dict) else {}
     overrides = body.overrides or {}
     fields = normalize_patch({**patch, **overrides})
-    # Template forces the task title to the template name unless the caller overrides it.
-    fields["title"] = overrides.get("title") or tpl.name
+    # Title comes from the caller override, else the template's patch title, else the
+    # template name (source applyTemplate spreads the patch, so a patch title wins).
+    fields["title"] = overrides.get("title") or fields.get("title") or tpl.name
     fields["parent_task_id"] = ""
     # Creator + assignee follow by default.
     followers = [user["email"]]

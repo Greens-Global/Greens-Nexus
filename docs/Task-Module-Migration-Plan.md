@@ -148,6 +148,57 @@ color maps → `theme.js`. **Drop** all Asana `sync`/`SyncMetadata`/`asanaGid` f
   complete → verify notification + activity), then `npm run build` before every commit.
 - Cross-check RLS with `get_advisors` on the dev Supabase project after each schema phase.
 
+## Parity completion pass (2026-07-09) — branch `feat/task-module-complete`
+
+A full audit (7 parallel passes) compared all 124 source files against the initial
+port and found ~100 MISSING + ~50 PARTIAL features. This pass closed the bulk of them.
+`npm run build` passes; backend `import main` passes; new endpoints smoke-tested live.
+
+**Backend engine (was: data model only, no engine):** recurrence spawn on completion,
+server-side automation-rule execution (task_created/status/priority/assignee/completed_early),
+activity→follower notification fan-out, default followers (creator+assignee), assignee
+auto-follow. Correctness fixes: task-code = max-suffix+1 (was COUNT+1, reused codes),
+reopen→in_progress, subtask codes PARENT.N + inherit, custom-status delete reassigns,
+delete-department guarded, access defaults to `restricted`. New endpoints: duplicate,
+log-time, bulk-delete, template apply, intake submit; project-create activity.
+
+**Frontend substrate:** `theme.js` (dependency-type/access-level/project-health/palette
+metadata), source-exact `lib.js` (sort/group/stats), and new `shared.jsx` (custom-field
+editors for all 15 types, Donut/BarList, useColumnWidths/ColResizer, styled confirm,
+toast, @mention render + emoji). Context gained ~25 actions.
+
+**Surfaces brought to fidelity:** task detail drawer (members/share/access/dep-type
+menu/mentions/emoji/rich custom-fields/overview subtasks+quick-actions/initialTab),
+List+Board (inline editors, resizable columns, custom-field columns, Add-Column,
+collapsible groups, select-all, drag-drop, custom-status columns, add/delete section,
+WIP limits, context menu, bulk Complete+Priority), Calendar (month/week/event-types/
+holidays), Dashboard (donut/dept+assignee bars/time card/custom-charts panel), Timeline
+(dependency arrows), Files (delete), CreateTaskModal (edit/subtasks/attachments/
+recurrence/estimate/labels/validation), Productivity (date popover/toasts), Projects
+(Overview + ProjectPopup), Teams (full Department Detail), Manage Reporting (filters/
+donut/breakdown/rollup/CSV+Excel+PDF), Home (customizable widgets), Changelog (tabs+
+review workflow+media), and Report-a-Bug (was entirely absent).
+
+**Known residual gaps (follow-ups, lower impact):**
+- Board **swimlanes** + column-collapse (2D lane grid) not ported — DnD + custom-status
+  columns were prioritized.
+- List grouping **by a custom status** funnels into "Not Started" (`lib.js groupTasks`
+  pre-seeds only the 4 built-in statuses); the Board handles custom statuses correctly.
+- **ProjectPopup** exposes Overview + a single Tasks tab (which carries the internal
+  List/Board/Calendar/Timeline/Dashboard/Files switcher) rather than 7 separate tabs —
+  would need an `initialView` prop on `TasksWorkspace`.
+- Project **health status + activity feed** persist to `localStorage` (no server column);
+  description + due date persist server-side.
+- Template **apply** uses the template *name* as the created task's title (patch title
+  not yet preferred) — minor.
+- **Access scoping** (non-admins limited to their departments) not enforced — Nexus has
+  no `isAdmin` in this context; all projects/teams shown (noted in code).
+- **Overdue sweep / due-approaching** scheduler not added (no cron in module) — the
+  `due_approaching` rule trigger is a documented TODO.
+- Per-user **workload capacity** hardcoded to 40 (no `capacityHoursPerWeek` field).
+- Recurrence date math matches source exactly (monthly = 30-day step, not calendar month).
+- **RLS**: new-table RLS on dev + prod still pending per the standard release checklist.
+
 ## Open items to resolve before Phase 1
 - **Existing `Task` table:** expand in place (keep the 8 demo rows) vs. drop & replace with the rich schema.
 - **Changelog overlap:** the export's changelog/docs feature vs. Nexus's existing KB/SOP — port fully, or
