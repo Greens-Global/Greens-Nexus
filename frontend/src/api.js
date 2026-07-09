@@ -179,6 +179,11 @@ export const api = {
   updateTask: (id, data) => req(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTask: (id) => req(`/tasks/${id}`, { method: "DELETE" }),
   bulkUpdateTasks: (ids, patch) => req("/tasks/bulk", { method: "POST", body: JSON.stringify({ ids, patch }) }),
+  bulkDeleteTasks: (ids) => req("/tasks/bulk-delete", { method: "POST", body: JSON.stringify({ ids }) }),
+  duplicateTask: (id) => req(`/tasks/${id}/duplicate`, { method: "POST" }),
+  logTaskTime: (id, hours) => req(`/tasks/${id}/log-time`, { method: "POST", body: JSON.stringify({ hours }) }),
+  applyTaskTemplate: (id, overrides) => req(`/task-templates/${id}/apply`, { method: "POST", body: JSON.stringify({ overrides: overrides || {} }) }),
+  submitTaskIntakeForm: (id, values) => req(`/task-intake-forms/${id}/submit`, { method: "POST", body: JSON.stringify({ values }) }),
   // Task comments / attachments / activity
   getTaskComments: (id) => req(`/tasks/${id}/comments`),
   addTaskComment: (id, data) => req(`/tasks/${id}/comments`, { method: "POST", body: JSON.stringify(data) }),

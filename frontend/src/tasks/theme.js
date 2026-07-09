@@ -35,12 +35,47 @@ export const STATUS_META = {
 export const STATUS_ORDER = ['not_started', 'recurring', 'in_progress', 'completed'];
 
 export const PRIORITY_META = {
+  none:   { label: 'None',   color: '#8b93a1', tint: '#f0f2f5' },
   low:    { label: 'Low',    color: '#5b6472', tint: '#eef0f3' },
   medium: { label: 'Medium', color: '#2563eb', tint: '#e0eafe' },
   high:   { label: 'High',   color: '#d97706', tint: '#fdefd7' },
   urgent: { label: 'Urgent', color: '#dc2626', tint: '#fde5e5' },
 };
-export const PRIORITY_ORDER = ['urgent', 'high', 'medium', 'low'];
+export const PRIORITY_ORDER = ['urgent', 'high', 'medium', 'low', 'none'];
+
+// Dependency types (verbatim from constants/taskMeta.ts).
+export const DEPENDENCY_TYPE_META = {
+  FS: { label: 'Finish to start' },
+  FF: { label: 'Finish to finish' },
+  SS: { label: 'Start to start' },
+  SF: { label: 'Start to finish' },
+};
+export const DEPENDENCY_TYPE_ORDER = ['FS', 'FF', 'SS', 'SF'];
+
+// Task access levels (verbatim from constants/taskMeta.ts).
+export const ACCESS_LEVEL_META = {
+  org: {
+    label: 'Greens Global',
+    description: 'Any organization member can find and access this task, unless restricted by an admin.',
+  },
+  restricted: {
+    label: 'Members of this task and connected projects',
+    description: 'Members invited to this task and members of connected projects can find and access this task.',
+  },
+};
+export const ACCESS_LEVEL_ORDER = ['org', 'restricted'];
+
+// Project health status (from projects/projectMeta.ts) — distinct from task workflow status.
+export const PROJECT_STATUS_META = {
+  on_track: { label: 'On track', color: '#16a34a' },
+  at_risk:  { label: 'At risk',  color: '#d97706' },
+  off_track:{ label: 'Off track', color: '#dc2626' },
+  complete: { label: 'Complete', color: '#2563eb' },
+};
+export const PROJECT_STATUS_ORDER = ['on_track', 'at_risk', 'off_track', 'complete'];
+
+// Option palette for custom-field select/status values (from AddColumnMenu.tsx).
+export const FIELD_PALETTE = ['#4573fa', '#8b6bf0', '#14a76c', '#e8a33d', '#e0844e', '#e8384f', '#29a8ab'];
 
 // Deterministic color for a department/avatar from a string key.
 const AVATAR_COLORS = ['#2563eb', '#7c3aed', '#0d9488', '#d97706', '#db2777', '#16a34a', '#dc2626', '#5b6472'];

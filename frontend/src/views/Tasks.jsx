@@ -12,6 +12,7 @@ import PortfoliosView from '../tasks/PortfoliosView';
 import TeamsView from '../tasks/TeamsView';
 import TicketsView from '../tasks/TicketsView';
 import ManageView from '../tasks/ManageView';
+import { TaskToaster } from '../tasks/shared';
 import { NX, FONT } from '../tasks/theme';
 
 const TABS = [
@@ -73,6 +74,7 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           <SubView sub={sub} onNavigate={subNavigate} />
         </div>
+        <TaskToaster />
       </div>
     </TasksProvider>
   );

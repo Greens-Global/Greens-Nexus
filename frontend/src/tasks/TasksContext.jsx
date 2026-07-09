@@ -152,6 +152,116 @@ export function TasksProvider({ children }) {
     refetchTasks().catch(() => {});
     return c;
   }, [refetchTasks]);
+  const editComment = useCallback(async (cid, body) => {
+    const c = await api.editTaskComment(cid, { body });
+    if (commentCache.current[c.taskId]) commentCache.current[c.taskId] = commentCache.current[c.taskId].map((x) => (x.id === cid ? c : x));
+    return c;
+  }, []);
+  const pinComment = useCallback(async (cid, pinned) => {
+    const c = await api.editTaskComment(cid, { pinned });
+    if (commentCache.current[c.taskId]) commentCache.current[c.taskId] = commentCache.current[c.taskId].map((x) => (x.id === cid ? c : x));
+    return c;
+  }, []);
+  const deleteComment = useCallback(async (cid, taskId) => {
+    await api.deleteTaskComment(cid);
+    if (taskId && commentCache.current[taskId]) commentCache.current[taskId] = commentCache.current[taskId].filter((x) => x.id !== cid);
+    refetchTasks().catch(() => {});
+  }, [refetchTasks]);
+
+  // Attachments
+  const getAttachments = useCallback((taskId) => api.getTaskAttachments(taskId).catch(() => []), []);
+  const addAttachment = useCallback(async (taskId, data) => {
+    const a = await api.addTaskAttachment(taskId, data);
+    refetchTasks().catch(() => {});
+    return a;
+  }, [refetchTasks]);
+  const removeAttachment = useCallback(async (aid) => {
+    await api.deleteTaskAttachment(aid);
+    refetchTasks().catch(() => {});
+  }, [refetchTasks]);
+  const getTaskActivity = useCallback((taskId) => api.getTaskActivity(taskId).catch(() => []), []);
+
+  // ── Task field helpers (all wrap updateTask; keep the export's action names) ─
+  const setPriority = useCallback((id, priority) => updateTask(id, { priority }), [updateTask]);
+  const setDue = useCallback((id, dueOn) => updateTask(id, { dueOn: dueOn || '' }), [updateTask]);
+  const setStart = useCallback((id, startOn) => updateTask(id, { startOn: startOn || '' }), [updateTask]);
+  const setAssignee = useCallback((id, assigneeId) => updateTask(id, { assigneeId: assigneeId || '' }), [updateTask]);
+  const setMilestone = useCallback((id, isMilestone) => updateTask(id, { isMilestone }), [updateTask]);
+  const setAccessLevel = useCallback((id, accessLevel) => updateTask(id, { accessLevel }), [updateTask]);
+  const setApproval = useCallback((id, approvalStatus) => updateTask(id, { approvalStatus }), [updateTask]);
+  const setCustomFieldValue = useCallback((task, fieldId, value) => {
+    const cfv = { ...(task.customFieldValues || {}), [fieldId]: value };
+    return updateTask(task.id, { customFieldValues: cfv });
+  }, [updateTask]);
+
+  // Followers / likes (toggle membership on the array, optimistic via updateTask)
+  const toggleFollower = useCallback((task, email) => {
+    const e = (email || '').toLowerCase();
+    const cur = (task.followerIds || []).map((x) => (x || '').toLowerCase());
+    const next = cur.includes(e) ? cur.filter((x) => x !== e) : [...cur, e];
+    return updateTask(task.id, { followerIds: next });
+  }, [updateTask]);
+  const toggleLike = useCallback((task, email) => {
+    const e = (email || '').toLowerCase();
+    const cur = (task.likedByIds || []).map((x) => (x || '').toLowerCase());
+    const next = cur.includes(e) ? cur.filter((x) => x !== e) : [...cur, e];
+    return updateTask(task.id, { likedByIds: next });
+  }, [updateTask]);
+
+  // Dependencies — maintain both sides (reciprocal), mirroring the export's createActions.
+  const addDependency = useCallback(async (task, otherId, type = 'FS') => {
+    const blocked = [...new Set([...(task.blockedByIds || []), otherId])];
+    const depTypes = { ...(task.dependencyTypes || {}), [otherId]: type };
+    await updateTask(task.id, { blockedByIds: blocked, dependencyTypes: depTypes });
+    const other = taskById[otherId];
+    if (other) await updateTask(otherId, { blockingIds: [...new Set([...(other.blockingIds || []), task.id])] });
+  }, [updateTask, taskById]);
+  const removeDependency = useCallback(async (task, otherId) => {
+    const depTypes = { ...(task.dependencyTypes || {}) }; delete depTypes[otherId];
+    await updateTask(task.id, { blockedByIds: (task.blockedByIds || []).filter((x) => x !== otherId), dependencyTypes: depTypes });
+    const other = taskById[otherId];
+    if (other) await updateTask(otherId, { blockingIds: (other.blockingIds || []).filter((x) => x !== task.id) });
+  }, [updateTask, taskById]);
+  const setDependencyType = useCallback((task, otherId, type) => {
+    return updateTask(task.id, { dependencyTypes: { ...(task.dependencyTypes || {}), [otherId]: type } });
+  }, [updateTask]);
+
+  // Subtasks — backend assigns PARENT.N code, inherits project/dept, adds default followers.
+  const addSubtask = useCallback(async (parent, data = {}) => {
+    const created = await createTask({
+      title: data.title || 'New subtask', parentTaskId: parent.id,
+      projectId: data.projectId ?? parent.projectId, departmentId: data.departmentId ?? parent.departmentId,
+      assigneeId: data.assigneeId || '', dueOn: data.dueOn || '',
+    });
+    refetchTasks().catch(() => {});
+    return created;
+  }, [createTask, refetchTasks]);
+
+  const duplicateTask = useCallback(async (id) => {
+    const created = await api.duplicateTask(id);
+    setTasks((prev) => [created, ...prev]);
+    return created;
+  }, []);
+  const logTime = useCallback(async (id, hours) => {
+    const saved = await api.logTaskTime(id, hours);
+    setTasks((prev) => prev.map((t) => (t.id === id ? saved : t)));
+    return saved;
+  }, []);
+  const bulkComplete = useCallback((ids) => bulkUpdate(ids, { completed: true }), [bulkUpdate]);
+  const bulkDelete = useCallback(async (ids) => {
+    setTasks((prev) => prev.filter((t) => !ids.includes(t.id)));   // optimistic
+    try { await api.bulkDeleteTasks(ids); } catch (e) { refetchTasks().catch(() => {}); throw e; }
+  }, [refetchTasks]);
+  const applyTemplate = useCallback(async (templateId, overrides) => {
+    const created = await api.applyTaskTemplate(templateId, overrides);
+    await refetchTasks();
+    return created;
+  }, [refetchTasks]);
+  const submitIntakeForm = useCallback(async (formId, values) => {
+    const created = await api.submitTaskIntakeForm(formId, values);
+    await refetchTasks();
+    return created;
+  }, [refetchTasks]);
 
   // ── Generic collection helpers ───────────────────────────────────────────
   const mk = (createFn, setFn) => async (data) => { const r = await createFn(toBody(data)); setFn((p) => [r, ...p]); return r; };
@@ -212,8 +322,12 @@ export function TasksProvider({ children }) {
     tasks, projects, portfolios, departments, tickets, savedViews, rules, templates,
     customFields, customStatuses, notifications, memberRequests, intakeForms, changelog,
     taskById, projectById, portfolioById, deptById, projectName, deptName,
-    getComments, addComment, commentCache: commentCache.current,
+    getComments, addComment, editComment, pinComment, deleteComment, commentCache: commentCache.current,
+    getAttachments, addAttachment, removeAttachment, getTaskActivity,
     createTask, updateTask, deleteTask, bulkUpdate, toggleComplete, setStatus,
+    setPriority, setDue, setStart, setAssignee, setMilestone, setAccessLevel, setApproval, setCustomFieldValue,
+    toggleFollower, toggleLike, addDependency, removeDependency, setDependencyType,
+    addSubtask, duplicateTask, logTime, bulkComplete, bulkDelete, applyTemplate, submitIntakeForm,
     markNotificationRead, markAllNotificationsRead, refresh: loadCore,
     ...actions,
   };
