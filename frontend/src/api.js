@@ -247,6 +247,7 @@ export const api = {
   deleteTaskChangelog: (id) => req(`/task-changelog/${id}`, { method: "DELETE" }),
   getTaskChangelogComments: (id) => req(`/task-changelog/${id}/comments`),
   addTaskChangelogComment: (id, data) => req(`/task-changelog/${id}/comments`, { method: "POST", body: JSON.stringify(data) }),
+  generateTaskChangelog: () => req("/task-changelog/generate", { method: "POST" }),
 
   // Purchase Requests
   getPurchaseRequests: () => req("/purchase-requests"),

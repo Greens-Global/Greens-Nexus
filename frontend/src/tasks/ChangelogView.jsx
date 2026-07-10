@@ -168,6 +168,19 @@ export default function Changelog({ onClose }) {
     setEditing(null);
   };
 
+  // Pull recent git commits → Claude drafts plain-English entries into the
+  // Pending review queue. Returns silently-handled; surfaces a toast either way.
+  const handleGenerate = async () => {
+    try {
+      const r = await api.generateTaskChangelog();
+      await reload();
+      if (r?.created) flash(`Drafted ${r.created} update${r.created === 1 ? '' : 's'} from recent commits — review below.`);
+      else flash(r?.message || 'No new commits to summarise.');
+    } catch (e) {
+      flash(e?.message?.includes('not configured') ? 'AI is not configured on the server.' : 'Could not generate from git.');
+    }
+  };
+
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape' && !adding && !editing) onClose?.(); };
     window.addEventListener('keydown', onKey);
@@ -228,7 +241,8 @@ export default function Changelog({ onClose }) {
         {tab === 'version-history' && <VersionHistoryTab entries={published} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin} onSetStatus={setStatus} onEdit={setEditing} />}
         {tab === 'manage' && (
           <ManageTab entries={sorted} nameOf={nameOf} myEmail={myEmail} onSetStatus={setStatus} onEdit={setEditing}
-            onAdd={() => setAdding(true)} onDelete={async (id) => { if (window.confirm('Delete this entry? This cannot be undone.')) await deleteEntry(id).catch(() => {}); }} />
+            onAdd={() => setAdding(true)} onGenerate={handleGenerate}
+            onDelete={async (id) => { if (window.confirm('Delete this entry? This cannot be undone.')) await deleteEntry(id).catch(() => {}); }} />
         )}
       </div>
 
@@ -668,21 +682,33 @@ function VersionHistoryTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onE
 // ═══════════════════════════════════════════════════════════════════════════
 // Manage tab (admin) — pending-review queue + all updates
 // ═══════════════════════════════════════════════════════════════════════════
-function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onDelete }) {
+function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGenerate, onDelete }) {
   const [reviewing, setReviewing] = useState(null);
+  const [generating, setGenerating] = useState(false);
   const withStatus = useMemo(() => entries.map((e) => ({ entry: e, status: statusOf(e) })), [entries]);
   const pending = withStatus.filter((x) => x.status === 'Pending Review');
   const rest = withStatus.filter((x) => x.status !== 'Pending Review');
+
+  const generate = async () => { setGenerating(true); try { await onGenerate?.(); } finally { setGenerating(false); } };
 
   return (
     <div style={{ padding: '20px 16px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: NX.ink }}>Manage</h1>
-        <button style={btn('primary')} onClick={onAdd}><Plus size={15} />Add new update</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {onGenerate && (
+            <button style={{ ...btn('outline'), opacity: generating ? 0.6 : 1 }} disabled={generating} onClick={generate}>
+              <GitBranch size={15} style={generating ? { animation: 'spin 0.9s linear infinite' } : undefined} />
+              {generating ? 'Generating…' : 'Generate from git'}
+            </button>
+          )}
+          <button style={btn('primary')} onClick={onAdd}><Plus size={15} />Add new update</button>
+        </div>
       </div>
       <p style={{ margin: '0 0 20px', fontSize: 13, color: NX.dim }}>
         Review updates that came in automatically from merged PRs (or submitted by teammates), edit them if needed, then
-        publish. Updates you add here from Manage publish immediately.
+        publish. Updates you add here from Manage publish immediately. <strong>Generate from git</strong> drafts plain-English
+        entries from recent commits into the review queue below.
       </p>
 
       <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
