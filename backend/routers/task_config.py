@@ -556,7 +556,7 @@ def _cluster_commits(commits: list[dict]) -> list[dict]:
                 headers={"x-api-key": _ANTHROPIC_API_KEY,
                          "anthropic-version": "2023-06-01",
                          "content-type": "application/json"},
-                json={"model": _AI_MODEL, "max_tokens": 2000,
+                json={"model": _AI_MODEL, "max_tokens": 6000,
                       "messages": [{"role": "user", "content": prompt}]},
             )
             r.raise_for_status()
@@ -587,7 +587,7 @@ def generate_changelog(user: dict = Depends(require_level(3)), db: Session = Dep
         return {"created": 0, "scanned": len(commits), "source": source,
                 "message": "No new commits to summarise since the last update."}
 
-    drafts = _cluster_commits(fresh[:60])
+    drafts = _cluster_commits(fresh[:40])
     created = []
     now = now_iso()
     for d in drafts:
