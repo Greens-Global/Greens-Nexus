@@ -10,6 +10,7 @@ import MobileMenu from "./components/MobileMenu";
 import TopHeader from "./components/TopHeader";
 import AdminPanel from "./components/AdminPanel";
 import NotificationToasts from "./components/NotificationToasts";
+import TimeclockWidget from "./components/TimeclockWidget";
 import GlobalSearch from "./components/GlobalSearch";
 import PullToRefresh from "./components/PullToRefresh";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
@@ -38,6 +39,9 @@ const ExternalLinks       = lazy(() => import("./views/ExternalLinks"));
 const ManagerDashboard    = lazy(() => import("./views/ManagerDashboard"));
 const Support             = lazy(() => import("./views/Support"));
 const Placeholder         = lazy(() => import("./views/Placeholder"));
+const PublicSign          = lazy(() => import("./views/PublicSign"));
+const TimeClock           = lazy(() => import("./views/TimeClock"));
+const MyHR                = lazy(() => import("./views/MyHR"));
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // Views that aren't registered MODULES (e.g. "purchase") fall back to a
@@ -50,8 +54,9 @@ const viewLabel = (view) => VIEW_LABELS[view]
 // Views absent from this map are accessible to everyone (dashboard, inventory, support).
 const VIEW_MIN_ROLES = {
   'manager-dashboard':  'supervisor',
-  'tasks':              'supervisor',
-  'sop':                'supervisor',
+  // tasks / sop / external-links are baseline (all employees): own tasks, the
+  // KB/LMS with assigned courses, and plain links. Admin actions inside each
+  // stay role-gated server-side.
   'it':                 'supervisor',
   'ops':                'supervisor',
   'operations':         'supervisor',
@@ -61,7 +66,6 @@ const VIEW_MIN_ROLES = {
   'investor-relations': 'supervisor',
   'hr':                 'supervisor',
   'marketing':          'supervisor',
-  'external-links':     'supervisor',
   'admin':              'administrator',
 };
 
@@ -112,7 +116,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
   switch (activeView) {
     case "dashboard":          return <Dashboard onNavigate={onNavigate} />;
     case "manager-dashboard":  return <ManagerDashboard />;
-    case "tasks":              return <Tasks />;
+    case "tasks":              return <Tasks activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
     case "purchase":           return <Purchase activeSub={activeSub} />;
     case "sop":                return <SOP activeSub={activeSub} onSubChange={onSubChange} />;
     case "it":                 return <IT activeSub={activeSub} onSubChange={onSubChange} />;
@@ -128,6 +132,8 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "admin":              return <Admin />;
     case "external-links":     return <ExternalLinks />;
     case "support":            return <Support />;
+    case "timeclock":          return <TimeClock />;
+    case "myhr":               return <MyHR />;
     default:                   return <Placeholder viewName={activeView} onBack={() => onNavigate("dashboard")} />;
   }
 }
@@ -162,6 +168,17 @@ const DEFAULT_SUBS = {
 const getDefaultSub = view => DEFAULT_SUBS[view] ?? null;
 
 export default function App() {
+  // Public e-sign page (/sign/{token}) renders OUTSIDE the MSAL gate — external
+  // signers have no login; the URL token is the credential. The pathname never
+  // changes within a page load, so this early return keeps hook order stable.
+  if (parsePath().view === 'sign') {
+    const token = window.location.pathname.split('/').filter(Boolean)[1] || '';
+    return (
+      <Suspense fallback={<div style={{ minHeight: '100dvh' }} />}>
+        <PublicSign token={token} />
+      </Suspense>
+    );
+  }
   const [activeView,       setActiveView]       = useState(() => parsePath().view);
   const [activeSub,        setActiveSub]        = useState(() => { const p = parsePath(); return p.sub ?? getDefaultSub(p.view); });
   const [theme,            setTheme]            = useState(() => localStorage.getItem("gg-theme") || "light");
@@ -274,6 +291,7 @@ export default function App() {
         <RequisitionProvider>
         <InventoryProvider>
         <NotificationToasts onNavigate={navigate} />
+        <TimeclockWidget />
         <GlobalSearch onNavigate={navigate} />
         <PullToRefresh />
         {backendDown && (

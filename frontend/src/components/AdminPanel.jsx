@@ -1,9 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Shield, Activity, Search, RefreshCw, ChevronDown, Users } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
+
+const FragmentRow = Fragment;   // expanded audit rows render as <tr> pairs
+import { X, Shield, Activity, Search, RefreshCw, ChevronDown, Users, Clock } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import { useNameResolver } from '../lib/useNameResolver';
 import Admin from '../views/Admin';
+import TimeTrackingAdmin from './TimeTrackingAdmin';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -23,16 +26,17 @@ function fmtTime(iso) {
 // Falls back silently to nothing for path/status-only entries (older rows,
 // or routes that don't carry a meaningful business payload).
 const _DETAIL_LABELS = {
-  status: 'status', item_name: 'item', quantity: 'qty', days: 'days',
+  item_name: 'item', quantity: 'qty', days: 'days',
   reason: 'reason', reject_reason: 'reject reason', condition_note: 'condition',
   resolved_by: 'by', allocated_by: 'by', name: 'name', category: 'category',
-  assigned_to: 'assigned to', dept: 'dept',
+  assigned_to: 'assigned to', dept: 'dept', serial_number: 'serial',
 };
+function parseDetails(raw) {
+  if (!raw) return {};
+  try { const p = JSON.parse(raw); return p && typeof p === 'object' ? p : {}; } catch { return {}; }
+}
 function summarizeDetails(raw) {
-  if (!raw) return '';
-  let parsed;
-  try { parsed = JSON.parse(raw); } catch { return ''; }
-  if (!parsed || typeof parsed !== 'object') return '';
+  const parsed = parseDetails(raw);
   const parts = [];
   for (const [key, label] of Object.entries(_DETAIL_LABELS)) {
     const v = parsed[key];
@@ -41,6 +45,60 @@ function summarizeDetails(raw) {
     parts.push(`${label}: ${typeof v === 'string' ? `"${display}"` : display}`);
   }
   return parts.join('  ·  ');
+}
+
+// Older rows were logged as raw HTTP ("PUT /myhr") before the describer knew
+// those modules — translate them (and the security events) into plain English.
+const _LEGACY_MAP = [
+  [/PUT myhr profile/,            'Updated their own profile (My HR)'],
+  [/POST myhr requests/,          'Sent a request to HR'],
+  [/POST timeclock punch/,        'Punched the time clock'],
+  [/POST timeclock screenshot/,   'Desktop agent saved a screenshot'],
+  [/POST timeclock bod/,          'Posted a start/end-of-day update'],
+  [/POST timeclock timeoff/,      'Requested time off'],
+  [/PATCH timeclock timeoff/,     'Decided a time-off request'],
+  [/POST timeclock approvals/,    'Approved a timesheet'],
+  [/(POST|PATCH) timeclock punches/, 'Adjusted a punch'],
+  [/(POST|PATCH) timeclock agent/, 'Monitoring device activity'],
+  [/(POST|PATCH|DELETE) timeclock shift/, 'Updated shifts'],
+  [/POST dashboards views/,       'Created a dashboard view'],
+  [/PUT dashboards views/,        'Updated a dashboard view'],
+  [/DELETE dashboards views/,     'Deleted a dashboard view'],
+  [/PUT property-assets workspace/, 'Saved the asset portfolio'],
+  [/POST property-assets/,        'Asset portfolio activity'],
+  [/POST esign templates/,        'Created an e-sign template'],
+  [/PUT esign templates/,         'Updated an e-sign template'],
+  [/POST esign requests/,         'Sent a document for signature'],
+  [/\w+ esign/,                   'E-sign activity'],
+  [/POST hr employees/,           'Added or updated an employee'],
+  [/PATCH hr employees/,          'Updated an employee profile'],
+  [/POST hr sync/,                'Synced people from M365'],
+  [/\w+ hr/,                      'HR admin activity'],
+  [/\w+ knowledge-base/,          'Knowledge base activity'],
+  [/POST help/,                   'Updated page help'],
+  [/\w+ groups/,                  'Updated access groups'],
+];
+function humanizeAction(r) {
+  const a = r.action || '';
+  if (a === 'Authentication failed')
+    return { title: 'Failed sign-in', hint: 'A request arrived without a valid login — usually an expired session.', danger: true };
+  if (a === 'Authorization denied')
+    return { title: 'Access denied', hint: "Tried to open something their role doesn't allow.", danger: true };
+  const m = a.match(/^(GET|POST|PUT|PATCH|DELETE)\s+\/?(.*)$/);
+  if (!m) return { title: a };   // already human (new describer or older friendly labels)
+  const key = `${m[1]} ${r.resource_type || m[2]} ${(r.resource_id || '').toLowerCase()}`;
+  for (const [re, title] of _LEGACY_MAP) if (re.test(key)) return { title };
+  const verb = { POST: 'Created', PUT: 'Updated', PATCH: 'Updated', DELETE: 'Deleted' }[m[1]] || m[1];
+  return { title: `${verb} ${(r.resource_type || m[2]).replace(/-/g, ' ')}` };
+}
+
+function StatusChip({ status }) {
+  if (!status) return null;
+  const ok = status >= 200 && status < 300;
+  const label = ok ? 'OK' : status === 401 ? 'Sign-in failed' : status === 403 ? 'Denied' : status >= 500 ? 'Server error' : `Error ${status}`;
+  const fg = ok ? 'hsl(var(--color-green))' : 'hsl(var(--color-red))';
+  const bg = ok ? 'hsla(var(--color-green),0.1)' : 'hsla(var(--color-red),0.1)';
+  return <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: 10.5, fontWeight: 700, background: bg, color: fg, whiteSpace: 'nowrap' }}>{label}</span>;
 }
 
 function actionColor(action) {
@@ -62,6 +120,14 @@ const ACTION_CATEGORIES = [
   { value: 'review',      label: 'Reviews' },
   { value: 'asset',       label: 'Assets' },
   { value: 'purchase',    label: 'Purchases' },
+  { value: 'punch',       label: 'Time clock' },
+  { value: 'time off',    label: 'Time off' },
+  { value: 'hr',          label: 'HR' },
+  { value: 'sign',        label: 'E-sign' },
+  { value: 'dashboard',   label: 'Dashboards' },
+  { value: 'group',       label: 'Access groups' },
+  { value: 'employee',    label: 'Employees' },
+  { value: 'auth',        label: 'Security (failed access)' },
 ];
 
 // ── Audit Logs tab ────────────────────────────────────────────────────────────
@@ -75,6 +141,7 @@ function AuditLogs() {
   const [emailQ,     setEmailQ]     = useState('');
   const [actionQ,    setActionQ]    = useState('');
   const [offset,     setOffset]     = useState(0);
+  const [openId,     setOpenId]     = useState(null);   // expanded row
   const debounceRef = useRef(null);
 
   const LIMIT = 50;
@@ -169,43 +236,74 @@ function AuditLogs() {
               <tr style={{ background: 'var(--mist)', position: 'sticky', top: 0, zIndex: 1 }}>
                 <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: 'var(--muted)', letterSpacing: '.04em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>When</th>
                 <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: 'var(--muted)', letterSpacing: '.04em', textTransform: 'uppercase' }}>Who</th>
-                <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: 'var(--muted)', letterSpacing: '.04em', textTransform: 'uppercase' }}>Action</th>
-                <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: 'var(--muted)', letterSpacing: '.04em', textTransform: 'uppercase' }}>Resource</th>
+                <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: 'var(--muted)', letterSpacing: '.04em', textTransform: 'uppercase' }}>What happened</th>
                 <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: 'var(--muted)', letterSpacing: '.04em', textTransform: 'uppercase' }}>Details</th>
-                <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: 'var(--muted)', letterSpacing: '.04em', textTransform: 'uppercase' }}>IP</th>
+                <th style={{ padding: '9px 14px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: 'var(--muted)', letterSpacing: '.04em', textTransform: 'uppercase' }}>Result</th>
+                <th style={{ width: 34 }} />
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
-                <tr key={r.id} style={{ borderBottom: '1px solid var(--line)', background: i % 2 === 1 ? 'hsla(0,0%,50%,.025)' : 'transparent' }}>
-                  <td data-th="When" style={{ padding: '10px 14px', color: 'var(--muted)', whiteSpace: 'nowrap', fontSize: 12 }}>
-                    {fmtTime(r.timestamp)}
-                  </td>
-                  <td style={{ padding: '10px 14px', maxWidth: 200 }}>
-                    <div title={r.user_email} style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {nameOf(r.user_email, r.user_name)}
-                    </div>
-                    {r.user_role && (
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{r.user_role}</div>
+              {rows.map((r, i) => {
+                const h = humanizeAction(r);
+                const d = parseDetails(r.details);
+                const isOpen = openId === r.id;
+                const biz = summarizeDetails(r.details);
+                return (
+                  <FragmentRow key={r.id}>
+                    <tr onClick={() => setOpenId(isOpen ? null : r.id)}
+                      style={{ borderBottom: isOpen ? 'none' : '1px solid var(--line)', background: isOpen ? 'hsla(var(--color-blue),0.04)' : i % 2 === 1 ? 'hsla(0,0%,50%,.025)' : 'transparent', cursor: 'pointer' }}>
+                      <td data-th="When" style={{ padding: '10px 14px', color: 'var(--muted)', whiteSpace: 'nowrap', fontSize: 12 }}>
+                        {fmtTime(r.timestamp)}
+                      </td>
+                      <td style={{ padding: '10px 14px', maxWidth: 200 }}>
+                        <div title={r.user_email} style={{ fontSize: 12.5, fontWeight: 500, color: r.user_email === 'anonymous' ? 'var(--muted)' : 'var(--ink)', fontStyle: r.user_email === 'anonymous' ? 'italic' : 'normal', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {r.user_email === 'anonymous' ? 'Not signed in' : nameOf(r.user_email, r.user_name)}
+                        </div>
+                        {r.user_role && (
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{r.user_role}</div>
+                        )}
+                      </td>
+                      <td data-th="What happened" style={{ padding: '10px 14px' }}>
+                        <span style={{ fontWeight: 600, color: h.danger ? 'hsl(var(--color-red))' : actionColor(h.title), fontSize: 12.5 }}>
+                          {h.title}
+                        </span>
+                        {h.hint && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, fontWeight: 400 }}>{h.hint}</div>}
+                      </td>
+                      <td data-th="Details" style={{ padding: '10px 14px', color: 'var(--muted)', fontSize: 11.5, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={biz}>
+                        {biz || '—'}
+                      </td>
+                      <td data-th="Result" style={{ padding: '10px 14px' }}>
+                        <StatusChip status={d.status || (h.danger ? 401 : 0)} />
+                      </td>
+                      <td style={{ padding: '10px 8px', color: 'var(--muted)' }}>
+                        <ChevronDown size={13} style={{ transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+                      </td>
+                    </tr>
+                    {isOpen && (
+                      <tr style={{ borderBottom: '1px solid var(--line)', background: 'hsla(var(--color-blue),0.04)' }}>
+                        <td colSpan={6} style={{ padding: '2px 14px 12px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '6px 20px', fontSize: 11.5 }}>
+                            {[
+                              ['Signed in as', r.user_email],
+                              ['Endpoint', d.path ? `${(r.action.match(/^(GET|POST|PUT|PATCH|DELETE)/) || [d.method || ''])[0]} ${d.path}`.trim() : (r.action.startsWith('GET') || r.action.match(/^(POST|PUT|PATCH|DELETE)/) ? r.action : '')],
+                              ['Record', r.resource_id || r.resource_type],
+                              ['Status code', d.status],
+                              ['IP address', r.ip_address],
+                              ['Exact time (UTC)', r.timestamp?.replace('T', ' ').slice(0, 19)],
+                              ...Object.entries(d).filter(([k]) => !['path', 'status', 'method'].includes(k)).map(([k, v]) => [k.replace(/_/g, ' '), String(v)]),
+                            ].filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => (
+                              <div key={k} style={{ display: 'flex', gap: 6, minWidth: 0 }}>
+                                <span style={{ color: 'var(--muted)', flexShrink: 0 }}>{k}:</span>
+                                <span style={{ color: 'var(--ink)', fontFamily: k === 'IP address' || k === 'Endpoint' ? 'monospace' : 'inherit', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
                     )}
-                  </td>
-                  <td data-th="Action" style={{ padding: '10px 14px' }}>
-                    <span style={{ fontWeight: 600, color: actionColor(r.action), fontSize: 12.5 }}>
-                      {r.action}
-                    </span>
-                  </td>
-                  <td data-th="Resource" style={{ padding: '10px 14px', color: 'var(--muted)', fontSize: 12, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {r.resource_id || r.resource_type || '—'}
-                  </td>
-                  <td data-th="Details" style={{ padding: '10px 14px', color: 'var(--muted)', fontSize: 11.5, maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                    title={summarizeDetails(r.details)}>
-                    {summarizeDetails(r.details) || '—'}
-                  </td>
-                  <td data-th="IP" style={{ padding: '10px 14px', color: 'var(--muted)', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
-                    {r.ip_address || '—'}
-                  </td>
-                </tr>
-              ))}
+                  </FragmentRow>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -263,6 +361,7 @@ export default function AdminPanel({ open, initialTab = 'access', onClose }) {
   const tabs = [
     { id: 'access', icon: <Users size={14} />,    label: 'Access Manager' },
     { id: 'audit',  icon: <Activity size={14} />, label: 'Audit Logs' },
+    { id: 'timetracking', icon: <Clock size={14} />, label: 'Time Tracking' },
   ];
 
   return (
@@ -340,6 +439,7 @@ export default function AdminPanel({ open, initialTab = 'access', onClose }) {
         <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
           {tab === 'access' && <Admin />}
           {tab === 'audit'  && <AuditLogs />}
+          {tab === 'timetracking' && <TimeTrackingAdmin />}
         </div>
       </div>
     </>

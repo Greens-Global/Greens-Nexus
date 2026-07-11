@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Nexus Fields</title>
+  <style>
+    :root { --bg:#0b1220; --card:#141c2e; --line:#26324a; --text:#e8edf7; --muted:#93a0bb;
+            --accent:#2563eb; --good:#16a34a; --warn:#d97706; --bad:#dc2626; }
+    * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+    body { margin:0; font-family:Inter,system-ui,-apple-system,sans-serif; background:var(--bg);
+           color:var(--text); padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom); }
+    h1 { font-size:20px; margin:20px 0 4px; }
+    .muted { color:var(--muted); font-size:13px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; margin:14px 0; }
+    label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
+    input { width:100%; padding:12px; border-radius:10px; border:1px solid var(--line);
+            background:#0e1626; color:var(--text); font-size:15px; }
+    button { width:100%; padding:14px; border:0; border-radius:12px; font-size:16px; font-weight:600;
+             color:#fff; background:var(--accent); margin-top:12px; }
+    button.ghost { background:transparent; border:1px solid var(--line); color:var(--text); }
+    button.stop { background:var(--bad); }
+    button:disabled { opacity:.5; }
+    .hidden { display:none; }
+    .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
+    .row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--line); }
+    .row:last-child { border-bottom:0; }
+    .big { font-size:28px; font-weight:700; margin:6px 0; }
+    .pill { font-size:12px; padding:3px 10px; border-radius:999px; background:#0e1626; border:1px solid var(--line); }
+    /* Camera scan overlay: while scanning, the webview goes transparent so the
+       native camera preview (behind it) shows through, and we render only a
+       viewfinder + cancel. */
+    #scanUI { position:fixed; inset:0; z-index:9999; display:none;
+              flex-direction:column; align-items:center; justify-content:center; gap:22px; }
+    body.scanning { background:transparent !important; }
+    body.scanning > *:not(#scanUI) { display:none !important; }
+    body.scanning #scanUI { display:flex; }
+    .scan-frame { width:240px; height:240px; border:3px solid #fff; border-radius:18px;
+                  box-shadow:0 0 0 9999px rgba(0,0,0,0.45); }
+    .scan-hint { color:#fff; font-weight:600; font-size:15px; text-shadow:0 1px 3px rgba(0,0,0,.6); }
+    .scan-cancel { width:auto; padding:12px 30px; background:#fff; color:#111; border-radius:12px; }
+  </style>
+</head>
+<body>
+  <h1>Nexus Fields</h1>
+  <div class="muted">Location tracking for on-site crews — active only while you're clocked in.</div>
+  <pre id="diag" style="font-size:9px;color:#4a5a78;white-space:pre-wrap;word-break:break-all;margin:6px 0 0;"></pre>
+
+  <!-- 1. Enrollment -->
+  <section id="enroll" class="card hidden">
+    <strong>Set up this phone</strong>
+    <p class="muted">Ask your manager to show you the pairing QR in Nexus, then scan it — that's the whole setup.</p>
+    <button id="scanQr">📷 Scan pairing QR</button>
+    <button id="manualToggle" class="ghost">Enter manually instead</button>
+    <div id="manual" class="hidden">
+      <label>Server URL</label>
+      <input id="apiBase" placeholder="https://dev-api.nexus... " />
+      <label>Pairing code</label>
+      <input id="token" placeholder="paste the code" autocomplete="off" />
+      <button id="saveEnroll">Pair this phone</button>
+    </div>
+  </section>
+
+  <!-- 2. Consent -->
+  <section id="consent" class="card hidden">
+    <strong>Your consent</strong>
+    <p class="muted" id="consentText">
+      While you are clocked in, Nexus records your location about every 5 minutes (or when you move ~100&nbsp;m)
+      so your team can see where the crew is. Tracking <b>stops the moment you clock out</b>. A notification stays
+      visible the whole time it's on. You can withdraw consent any time, which stops tracking immediately.
+    </p>
+    <button id="grant">I consent — continue</button>
+    <button id="declineEnroll" class="ghost">Not now</button>
+  </section>
+
+  <!-- 3. Main -->
+  <section id="main" class="card hidden">
+    <div class="row"><span class="muted">Signed in as</span><span id="whoami" class="pill">—</span></div>
+    <div class="row"><span class="muted">Status</span><span id="status"><span class="dot" style="background:#64748b"></span>off shift</span></div>
+    <div class="row"><span class="muted">Last ping</span><span id="lastPing" class="pill">—</span></div>
+    <div class="row"><span class="muted">Buffered (offline)</span><span id="buffered" class="pill">0</span></div>
+    <button id="startShift">Start shift &amp; tracking</button>
+    <button id="endShift" class="stop hidden">End shift</button>
+    <button id="revoke" class="ghost">Withdraw consent</button>
+  </section>
+
+  <!-- Camera scan overlay (shown only while scanning) -->
+  <div id="scanUI">
+    <div class="scan-frame"></div>
+    <p class="scan-hint">Point at the pairing QR</p>
+    <button id="scanCancel" class="scan-cancel">Cancel</button>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { QuestionnairesModal, InterviewPanel, LeaderboardModal } from '../components/Interviews';
 import {
   Users, Plus, Search, X, Loader2, Mail, Phone, Briefcase, MapPin,
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
@@ -8,6 +9,8 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
+import ESign from '../components/ESign';
+import TimeAdmin from '../components/TimeAdmin';
 
 // ── HR module — Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -649,6 +652,245 @@ function PhotoEditorModal({ employee: e, onClose, onSaved, toastOk, toastErr }) 
 }
 
 // ── Profile detail pane ───────────────────────────────────────────────────────
+// Whole-month tenure from a start date, e.g. "2y 3m". Null if unknown/future.
+function fmtTenure(startDate) {
+  if (!startDate) return null;
+  const d = new Date(startDate + 'T00:00:00'); if (isNaN(d)) return null;
+  const now = new Date();
+  let months = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
+  if (now.getDate() < d.getDate()) months -= 1;
+  if (months < 0) return null;
+  const y = Math.floor(months / 12), m = months % 12;
+  return y ? (m ? `${y}y ${m}m` : `${y}y`) : `${m}m`;
+}
+
+// The soonest date that matters for this person — right-to-work doc expiry or,
+// for contractors, contract end. Returns { label, date, days } or null.
+function nextExpiry(e) {
+  const cands = [
+    e.compliance?.expiryDate && { label: 'Doc expiry', date: e.compliance.expiryDate },
+    e.employmentType === 'contractor' && e.contractor?.contract_end && { label: 'Contract end', date: e.contractor.contract_end },
+  ].filter(Boolean).map(c => ({ ...c, days: daysUntil(c.date) })).filter(c => c.days !== null);
+  if (!cands.length) return null;
+  return cands.sort((a, b) => a.days - b.days)[0];
+}
+
+function StatCard({ label, value, sub, tone }) {
+  const color = tone === 'red' ? 'hsl(var(--color-red))' : tone === 'orange' ? 'hsl(var(--color-orange))' : 'var(--ink)';
+  return (
+    <div style={{ flex: '1 1 120px', minWidth: 110, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 12, padding: '11px 14px' }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 800, marginTop: 3, color, lineHeight: 1.1 }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</div>}
+    </div>
+  );
+}
+
+// Restricted read view of pay/benefits/bank; edit opens the full CompensationModal.
+// reloadToken bumps after the modal closes so saved changes show without a reload.
+function PayTab({ employee, reloadToken, onEdit }) {
+  const [data, setData] = useState(null);
+  const [stubs, setStubs] = useState([]);
+  const [stubPeriod, setStubPeriod] = useState('');
+  const [stubBusy, setStubBusy] = useState(false);
+  const stubFileRef = useRef(null);
+  useEffect(() => {
+    let live = true;
+    api.getCompensation(employee.id)
+      .then(r => { if (live) setData({ comp: r.compensation || {}, bank: r.bank || [] }); })
+      .catch(() => { if (live) setData({ comp: {}, bank: [] }); });
+    api.hrPaystubs(employee.id).then(r => { if (live) setStubs(r); }).catch(() => {});
+    return () => { live = false; };
+  }, [employee.id, reloadToken]);
+
+  const uploadStub = async (file) => {
+    if (!file) return;
+    setStubBusy(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('period', stubPeriod);
+      const created = await api.hrPaystubUpload(employee.id, form);
+      setStubs(s => [created, ...s]);
+      setStubPeriod('');
+    } catch { /* surfaced by list not changing */ }
+    finally { setStubBusy(false); if (stubFileRef.current) stubFileRef.current.value = ''; }
+  };
+  const openStub = async (id) => {
+    try { const { url } = await api.getDocUrl(id); window.open(url, '_blank', 'noopener'); } catch { /* noop */ }
+  };
+  const deleteStub = async (id) => {
+    if (!window.confirm('Delete this paystub?')) return;
+    try { await api.deleteEmployeeDoc(id); setStubs(s => s.filter(x => x.id !== id)); } catch { /* noop */ }
+  };
+
+  const money = (v, cur) => v ? `${cur === 'INR' ? '₹' : '$'}${Number(v).toLocaleString()}` : '—';
+  const label = (list, v) => (list.find(([x]) => x === v) || [])[1] || v || '';
+  const sectionLabel = txt => <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', margin: '16px 0 8px' }}>{txt}</div>;
+  const row2 = (k, lbl, value) => (
+    <div key={k} style={{ display: 'flex', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
+      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', width: 150, flexShrink: 0 }}>{lbl}</span>
+      <span style={{ fontSize: 13.5, color: value ? 'var(--ink)' : 'var(--muted)' }}>{value || '—'}</span>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, flex: 1 }}><Lock size={12} /> Restricted · compensation grant</span>
+        <button className="secondary-btn" onClick={onEdit} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Pencil size={13} /> Edit</button>
+      </div>
+      {!data ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0' }}>Loading…</div>
+      ) : (
+        <>
+          {sectionLabel('Base pay')}
+          {row2('base', 'Base', data.comp.base ? `${money(data.comp.base, data.comp.currency)} · ${label(PAY_BASIS, data.comp.payBasis)}` : '')}
+          {row2('freq', 'Frequency', label(PAY_FREQ, data.comp.frequency))}
+          {row2('eff', 'Effective', data.comp.effectiveDate)}
+          {sectionLabel('Benefits & deductions')}
+          {(data.comp.benefits || []).length === 0
+            ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None recorded.</div>
+            : data.comp.benefits.map((bn, i) => row2(`bn${i}`, label(BENEFIT_TYPES, bn.type), [bn.plan, bn.deduction && `${money(bn.deduction, data.comp.currency)}/paycheck`, bn.note].filter(Boolean).join(' · ')))}
+          {sectionLabel('Bank accounts')}
+          {data.bank.length === 0
+            ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None recorded.</div>
+            : data.bank.map((acc, i) => row2(`bk${i}`, acc.bankName || 'Account', [acc.holder, maskId(acc.number), acc.routingOrIfsc, label(BANK_TYPES, acc.type)].filter(Boolean).join(' · ')))}
+
+          {sectionLabel('Paystubs')}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+            <input className="form-input" placeholder='Pay period, e.g. "Jun 16 – Jun 30, 2026"' value={stubPeriod}
+              onChange={e => setStubPeriod(e.target.value)} style={{ flex: 1, minWidth: 200, fontSize: 12.5 }} />
+            <input ref={stubFileRef} type="file" accept="application/pdf" style={{ display: 'none' }}
+              onChange={e => uploadStub(e.target.files?.[0])} />
+            <button className="secondary-btn" disabled={stubBusy} onClick={() => stubFileRef.current?.click()}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+              {stubBusy ? 'Uploading…' : 'Upload PDF'}
+            </button>
+          </div>
+          {stubs.length === 0
+            ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>None uploaded. The employee sees these under My HR.</div>
+            : stubs.map(s => (
+              <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
+                <FileText size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                <button onClick={() => openStub(s.id)} style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontFamily: 'Inter,sans-serif', padding: 0 }}>
+                  {s.fileName}
+                </button>
+                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{s.createdAt?.slice(0, 10)}</span>
+                <button onClick={() => deleteStub(s.id)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+// "Ask HR" inbox — employee self-service requests raised from My HR. Open ones
+// surface at the top of the People tab; resolving notifies the employee and
+// shows your response on their My HR screen.
+function EmployeeRequestsPanel({ toastOk, toastErr }) {
+  const [reqs, setReqs] = useState([]);
+  const [resolving, setResolving] = useState(null);   // request id with the reply box open
+  const [response, setResponse] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [filedKind, setFiledKind] = useState('other');
+  const [filed, setFiled] = useState({});             // request id -> true once added to docs
+  useEffect(() => { api.hrSelfRequests().then(setReqs).catch(() => {}); }, []);
+  const open = reqs.filter(r => r.status === 'open');
+  if (open.length === 0) return null;
+  const TYPE_LABEL = { document: 'Document update', profile: 'Profile change', question: 'Question', other: 'Request' };
+  const resolve = async (id) => {
+    setBusy(true);
+    try {
+      await api.hrSelfRequestResolve(id, { response });
+      setReqs(rs => rs.map(r => r.id === id ? { ...r, status: 'resolved', response } : r));
+      setResolving(null); setResponse('');
+      toastOk?.('Resolved — the employee has been notified');
+    } catch (e) { toastErr?.(e?.message || 'Could not resolve'); }
+    finally { setBusy(false); }
+  };
+  const viewAttachment = async (id) => {
+    try { const { url } = await api.hrSelfRequestAttachmentUrl(id); window.open(url, '_blank', 'noopener'); }
+    catch (e) { toastErr?.(e?.message || 'Could not open attachment'); }
+  };
+  const fileAttachment = async (id) => {
+    try {
+      await api.hrSelfRequestAttachToEmployee(id, filedKind);
+      setFiled(p => ({ ...p, [id]: true }));
+      toastOk?.("Added to the employee's documents");
+    } catch (e) { toastErr?.(e?.message || 'Could not add to documents'); }
+  };
+  return (
+    <div style={{ border: '1px solid hsla(var(--color-blue),0.25)', borderRadius: 12, background: 'hsla(var(--color-blue),0.03)', padding: '14px 16px', marginBottom: 18 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-blue))', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 10 }}>
+        Employee requests — {open.length} open
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {open.map(r => (
+          <div key={r.id} style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', padding: '10px 12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{r.name}</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {TYPE_LABEL[r.type] || r.type} · {r.createdAt?.slice(0, 10)}</span>
+                <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 3 }}>{r.message}</div>
+                {r.attachmentName && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7, flexWrap: 'wrap' }}>
+                    <button onClick={() => viewAttachment(r.id)}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-blue))', fontSize: 12, fontWeight: 600, fontFamily: 'Inter,sans-serif', padding: 0 }}>
+                      <FileText size={12} /> {r.attachmentName}
+                    </button>
+                    {filed[r.id] ? (
+                      <span style={{ fontSize: 11.5, color: 'hsl(var(--color-green))', fontWeight: 600 }}>✓ Added to their documents</span>
+                    ) : (
+                      <>
+                        <select className="form-input" value={filedKind} onChange={e => setFiledKind(e.target.value)}
+                          style={{ fontSize: 11.5, padding: '3px 22px 3px 8px', height: 'auto' }}>
+                          <option value="id">ID</option>
+                          <option value="contract">Contract</option>
+                          <option value="certificate">Certificate</option>
+                          <option value="resume">Resume</option>
+                          <option value="other">Other</option>
+                        </select>
+                        <button className="secondary-btn" style={{ fontSize: 11.5, padding: '4px 10px' }}
+                          onClick={() => fileAttachment(r.id)}>
+                          Add to employee documents
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+              {resolving !== r.id && (
+                <button className="secondary-btn" style={{ fontSize: 12, padding: '5px 12px', flexShrink: 0 }}
+                  onClick={() => { setResolving(r.id); setResponse(''); }}>
+                  Resolve
+                </button>
+              )}
+            </div>
+            {resolving === r.id && (
+              <div style={{ marginTop: 8 }}>
+                <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontSize: '0.85rem' }}
+                  placeholder="Reply to the employee (they see this on My HR)…" value={response}
+                  onChange={e => setResponse(e.target.value)} autoFocus />
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
+                  <button className="secondary-btn" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => setResolving(null)} disabled={busy}>Cancel</button>
+                  <button className="primary-btn" style={{ fontSize: 12, padding: '5px 14px' }} onClick={() => resolve(r.id)} disabled={busy}>
+                    {busy ? 'Resolving…' : 'Mark resolved'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
 function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated }) {
   const [provisionOpen, setProvisionOpen] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
@@ -657,9 +899,16 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
   const [complianceOpen, setComplianceOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [welcomeBusy, setWelcomeBusy] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [tab, setTab] = useState('overview');
+  const [payReload, setPayReload] = useState(0);   // bump to refetch PayTab after an edit
   const sm = STATUS_META[e.status] || STATUS_META.active;
-  const manager = employees.find(m => m.workEmail && m.workEmail === e.managerEmail);
-  const reports = employees.filter(r => e.workEmail && r.managerEmail === e.workEmail);
+  // Case-insensitive email match — manager_email is stored lowercased server-side
+  // and the org chart matches the same way, so a reassignment there reflects here.
+  const meEmail = (e.workEmail || '').toLowerCase();
+  const mgrEmail = (e.managerEmail || '').toLowerCase();
+  const manager = mgrEmail ? employees.find(m => (m.workEmail || '').toLowerCase() === mgrEmail) : null;
+  const reports = meEmail ? employees.filter(r => (r.managerEmail || '').toLowerCase() === meEmail) : [];
   const row = (Icon, label, value) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
       <Icon size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
@@ -667,6 +916,14 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
       <span style={{ fontSize: 13.5, color: value ? 'var(--ink)' : 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value || '—'}</span>
     </div>
   );
+  const tabs = [
+    ['overview', 'Overview', Contact],
+    canSeeComp && ['pay', 'Pay & Benefits', Wallet],
+    ['compliance', 'Compliance', ShieldCheck],
+    ['assets', 'Assets', Briefcase],
+    ['documents', 'Documents', FileText],
+  ].filter(Boolean);
+  const expiry = nextExpiry(e);
   return (
     <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '22px 24px', boxShadow: 'var(--shadow-sm)' }}>
       {isMobile && (
@@ -696,20 +953,6 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
         <button className="secondary-btn" onClick={() => onEdit(e)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
           <Pencil size={13} /> Edit
         </button>
-        <button className="secondary-btn" onClick={() => setPersonalOpen(true)} title="Personal details & emergency contact"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-          <Contact size={13} /> Personal
-        </button>
-        <button className="secondary-btn" onClick={() => setComplianceOpen(true)} title="Right-to-work & compliance"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-          <ShieldCheck size={13} /> Right to Work
-        </button>
-        {canSeeComp && (
-          <button className="secondary-btn" onClick={() => setCompOpen(true)} title="Compensation, benefits & bank (restricted)"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-            <Wallet size={13} /> Pay & Benefits
-          </button>
-        )}
         {!e.m365Id ? (
           <button className="primary-btn" onClick={() => setProvisionOpen(true)}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, background: 'hsl(var(--color-green))' }}>
@@ -718,6 +961,19 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
         ) : (
           <>
             <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))' }}>M365 ✓</span>
+            <button className="secondary-btn" disabled={pushBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}
+              title="Push name, title, department, phone, office (and manager) from Nexus back to their Entra account"
+              onClick={async () => {
+                setPushBusy(true);
+                try {
+                  const r = await api.pushToEntra(e.id);
+                  const mgr = r.manager === true ? ' · manager' : '';
+                  toastOk(`Pushed ${r.written.length} fields${mgr} to M365.`);
+                } catch (err) { toastErr(err?.message || 'Could not push to M365.'); }
+                setPushBusy(false);
+              }}>
+              {pushBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Network size={13} />} Push to M365
+            </button>
             {e.personalEmail && (
               <button className="secondary-btn" disabled={welcomeBusy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}
                 title="Send the branded welcome email to their personal address again"
@@ -733,41 +989,109 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
           </>
         )}
       </div>
-      <div style={{ marginTop: 14 }}>
-        {row(Mail, 'Work email', e.workEmail)}
-        {row(Mail, 'Personal', e.personalEmail)}
-        {row(Phone, 'Phone', e.phone)}
-        {row(Briefcase, 'Department', [e.department, TYPE_LABEL[e.employmentType]].filter(Boolean).join(' · '))}
-        {companyName && row(Building2, 'Company', companyName)}
-        {row(CalendarOff, 'Start date', e.startDate)}
-        {row(MapPin, 'Location', e.location)}
-        {e.employmentType === 'contractor' && e.contractor?.billing_client && row(Briefcase, 'Billing client', e.contractor.billing_client)}
-        {e.employmentType === 'contractor' && e.contractor?.contract_end && row(CalendarOff, 'Contract end', e.contractor.contract_end)}
-        {e.employmentType === 'contractor' && e.contractor?.rate && row(FileText, 'Rate', [e.contractor.rate, e.contractor.currency, e.contractor.rate_type].filter(Boolean).join(' '))}
-        {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : e.managerEmail)}
-        {reports.length > 0 && row(Users, 'Direct reports', reports.map(fullName).join(', '))}
-        {e.personal?.dob && row(CalendarDays, 'Date of birth', e.personal.dob)}
-        {e.personal?.nationalId && row(Lock, 'National ID', maskId(e.personal.nationalId))}
-        {e.personal?.emergency?.name && row(Heart, 'Emergency contact', [e.personal.emergency.name, e.personal.emergency.relationship && `(${e.personal.emergency.relationship})`, e.personal.emergency.phone].filter(Boolean).join(' · '))}
-        {e.compliance?.workAuth && row(ShieldCheck, 'Work auth', (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            {WORK_AUTH.find(([v]) => v === e.compliance.workAuth)?.[1] || e.compliance.workAuth}
-            {(() => { const m = VERIFY_STATUS[e.compliance.status || 'unverified']; return <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: 10.5, fontWeight: 700, background: m.bg, color: m.fg }}>{m.label}</span>; })()}
-          </span>
-        ))}
-        {e.compliance?.expiryDate && (() => {
-          const d = daysUntil(e.compliance.expiryDate); const warn = d !== null && d <= 60;
-          return row(warn ? AlertTriangle : CalendarDays, 'Doc expiry', (
-            <span style={{ color: warn ? (d < 0 ? 'hsl(var(--color-red))' : 'hsl(var(--color-orange))') : 'inherit', fontWeight: warn ? 700 : 400 }}>
-              {e.compliance.expiryDate}{d !== null && (d < 0 ? ' · expired' : ` · in ${d}d`)}
-            </span>
-          ));
-        })()}
-        {e.notes && row(FileText, 'Notes', e.notes)}
+      {/* Stat cards — all derived from the loaded record, no extra fetch */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
+        <StatCard label="Tenure" value={fmtTenure(e.startDate) || '—'} sub={e.startDate ? `since ${e.startDate}` : 'no start date'} />
+        <StatCard label="Direct reports" value={reports.length} sub={manager ? `reports to ${fullName(manager)}` : 'no manager'} />
+        <StatCard label="Type" value={TYPE_LABEL[e.employmentType] || '—'} sub={e.department || '—'} />
+        {expiry
+          ? <StatCard label={expiry.label} value={expiry.days < 0 ? 'Expired' : `${expiry.days}d`} sub={expiry.date} tone={expiry.days < 0 ? 'red' : expiry.days <= 60 ? 'orange' : undefined} />
+          : <StatCard label="Compliance" value="Clear" sub="no upcoming expiry" />}
       </div>
-      <AssetsSection employee={e} />
-      <MailboxExportSection employee={e} toastOk={toastOk} toastErr={toastErr} />
-      <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
+
+      {/* Tab strip */}
+      <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginTop: 18, borderBottom: '1px solid var(--line)' }}>
+        {tabs.map(([id, tlabel, Icon]) => (
+          <button key={id} onClick={() => setTab(id)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', background: 'none', border: 'none', borderBottom: `2px solid ${tab === id ? 'var(--pine)' : 'transparent'}`, color: tab === id ? 'var(--ink)' : 'var(--muted)', cursor: 'pointer', whiteSpace: 'nowrap', marginBottom: -1 }}>
+            <Icon size={14} /> {tlabel}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        {tab === 'overview' && (
+          <>
+            <div>
+              {row(Mail, 'Work email', e.workEmail)}
+              {row(Mail, 'Personal', e.personalEmail)}
+              {row(Phone, 'Phone', e.phone)}
+              {row(Briefcase, 'Department', [e.department, TYPE_LABEL[e.employmentType]].filter(Boolean).join(' · '))}
+              {companyName && row(Building2, 'Company', companyName)}
+              {row(CalendarOff, 'Start date', e.startDate)}
+              {row(MapPin, 'Location', e.location)}
+              {e.employmentType === 'contractor' && e.contractor?.billing_client && row(Briefcase, 'Billing client', e.contractor.billing_client)}
+              {e.employmentType === 'contractor' && e.contractor?.contract_end && row(CalendarOff, 'Contract end', e.contractor.contract_end)}
+              {e.employmentType === 'contractor' && e.contractor?.rate && row(FileText, 'Rate', [e.contractor.rate, e.contractor.currency, e.contractor.rate_type].filter(Boolean).join(' '))}
+              {row(Network, 'Reports to', manager ? `${fullName(manager)} (${manager.employeeCode})` : e.managerEmail)}
+              {reports.length > 0 && row(Users, 'Direct reports', reports.map(fullName).join(', '))}
+              {e.notes && row(FileText, 'Notes', e.notes)}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '18px 0 2px' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', flex: 1 }}>
+                <Contact size={11} style={{ verticalAlign: 'middle', marginRight: 5 }} />Personal details
+              </span>
+              <button className="secondary-btn" onClick={() => setPersonalOpen(true)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px' }}>
+                <Pencil size={12} /> Edit
+              </button>
+            </div>
+            <div>
+              {row(CalendarDays, 'Date of birth', e.personal?.dob)}
+              {row(Lock, 'National ID', e.personal?.nationalId ? maskId(e.personal.nationalId) : '')}
+              {row(Heart, 'Emergency contact', e.personal?.emergency?.name ? [e.personal.emergency.name, e.personal.emergency.relationship && `(${e.personal.emergency.relationship})`, e.personal.emergency.phone].filter(Boolean).join(' · ') : '')}
+            </div>
+          </>
+        )}
+
+        {tab === 'pay' && canSeeComp && (
+          <PayTab employee={e} reloadToken={payReload} onEdit={() => setCompOpen(true)} />
+        )}
+
+        {tab === 'compliance' && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1 }}>Right-to-work &amp; compliance</span>
+              <button className="secondary-btn" onClick={() => setComplianceOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+                <Pencil size={13} /> Edit
+              </button>
+            </div>
+            <div>
+              {row(ShieldCheck, 'Work auth', e.compliance?.workAuth ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  {WORK_AUTH.find(([v]) => v === e.compliance.workAuth)?.[1] || e.compliance.workAuth}
+                  {(() => { const m = VERIFY_STATUS[e.compliance.status || 'unverified']; return <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: 10.5, fontWeight: 700, background: m.bg, color: m.fg }}>{m.label}</span>; })()}
+                </span>
+              ) : '')}
+              {row(FileText, 'Document', [DOC_TYPES.find(([v]) => v === e.compliance?.docType)?.[1], e.compliance?.docNumber].filter(Boolean).join(' · '))}
+              {row(CalendarDays, 'Issued', e.compliance?.issueDate)}
+              {e.compliance?.expiryDate ? (() => {
+                const d = daysUntil(e.compliance.expiryDate); const warn = d !== null && d <= 60;
+                return row(warn ? AlertTriangle : CalendarDays, 'Doc expiry', (
+                  <span style={{ color: warn ? (d < 0 ? 'hsl(var(--color-red))' : 'hsl(var(--color-orange))') : 'inherit', fontWeight: warn ? 700 : 400 }}>
+                    {e.compliance.expiryDate}{d !== null && (d < 0 ? ' · expired' : ` · in ${d}d`)}
+                  </span>
+                ));
+              })() : row(CalendarDays, 'Doc expiry', '')}
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', margin: '16px 0 8px' }}>Consents</div>
+            {CONSENTS.map(([k, clabel]) => (
+              <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', fontSize: 13 }}>
+                {e.compliance?.consents?.[k] ? <CheckCircle size={15} style={{ color: 'hsl(var(--color-green))' }} /> : <XCircle size={15} style={{ color: 'var(--muted)' }} />}
+                <span style={{ color: e.compliance?.consents?.[k] ? 'var(--ink)' : 'var(--muted)' }}>{clabel}</span>
+              </div>
+            ))}
+          </>
+        )}
+
+        {tab === 'assets' && <AssetsSection employee={e} />}
+
+        {tab === 'documents' && (
+          <>
+            <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
+            <MailboxExportSection employee={e} toastOk={toastOk} toastErr={toastErr} />
+          </>
+        )}
+      </div>
       {photoOpen && (
         <PhotoEditorModal employee={e} toastOk={toastOk} toastErr={toastErr}
           onClose={() => setPhotoOpen(false)} onSaved={onEmployeeUpdated} />
@@ -778,7 +1102,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
           onDone={updated => { onEmployeeUpdated(updated); toastOk(`${fullName(e)} provisioned.`); }} />
       )}
       {compOpen && (
-        <CompensationModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => setCompOpen(false)} />
+        <CompensationModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => { setCompOpen(false); setPayReload(n => n + 1); }} />
       )}
       {personalOpen && (
         <PersonalModal employee={e} toastOk={toastOk} toastErr={toastErr} onClose={() => setPersonalOpen(false)} onSaved={onEmployeeUpdated} />
@@ -854,14 +1178,40 @@ function CandidateFormModal({ onClose, onSaved, toastErr }) {
   );
 }
 
-function CandidateDetailModal({ candidate: c, onClose, onStage, busy }) {
+function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignature, onUpdated, onOpenInterviews, busy }) {
   const [history, setHistory] = useState(null);
   const [note, setNote] = useState('');
+  const [ivEdit, setIvEdit] = useState(false);
+  const [ivAt, setIvAt] = useState(c.interviewAt ? c.interviewAt.slice(0, 16) : '');
+  const [ivBusy, setIvBusy] = useState(false);
+  const [resumeBusy, setResumeBusy] = useState(false);
+  const resumeRef = useRef(null);
   useEffect(() => { api.getCandidateHistory(c.id).then(setHistory).catch(() => setHistory([])); }, [c.id]);
   const idx = STAGES.indexOf(c.stage);
   const next = idx >= 0 && idx < STAGES.length - 1 ? STAGES[idx + 1] : null;
   const terminal = c.stage === 'hired' || c.stage === 'rejected';
   const sm = STAGE_META[c.stage];
+
+  const saveInterview = async (value) => {
+    setIvBusy(true);
+    try { const u = await api.updateCandidate(c.id, { interview_at: value }); onUpdated?.(u); setIvEdit(false); }
+    catch { /* keep editor open */ }
+    finally { setIvBusy(false); }
+  };
+  const uploadResume = async (file) => {
+    if (!file) return;
+    setResumeBusy(true);
+    try { const u = await api.candidateResumeUpload(c.id, (() => { const f = new FormData(); f.append('file', file); return f; })()); onUpdated?.(u); }
+    catch { /* noop */ }
+    finally { setResumeBusy(false); if (resumeRef.current) resumeRef.current.value = ''; }
+  };
+  const viewResume = async () => {
+    try { const { url } = await api.candidateResumeUrl(c.id); window.open(url, '_blank', 'noopener'); } catch { /* noop */ }
+  };
+  const prettyIv = c.interviewAt ? (() => {
+    try { return new Date(c.interviewAt).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+    catch { return c.interviewAt; }
+  })() : '';
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
@@ -880,6 +1230,71 @@ function CandidateDetailModal({ candidate: c, onClose, onStage, busy }) {
             {c.phone && <span><Phone size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />{c.phone}</span>}
             {c.expectedStart && <span><CalendarDays size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Expected start {c.expectedStart}</span>}
             {c.notes && <span style={{ background: 'var(--mist)', borderRadius: 8, padding: '8px 12px', color: 'var(--ink)', marginTop: 4 }}>{c.notes}</span>}
+          </div>
+          {/* Interview + resume */}
+          <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <CalendarDays size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+              {!ivEdit ? (
+                <>
+                  <span style={{ fontSize: 12.5, color: c.interviewAt ? 'var(--ink)' : 'var(--muted)', fontWeight: c.interviewAt ? 600 : 400 }}>
+                    {c.interviewAt ? `Interview: ${prettyIv}` : 'No interview scheduled'}
+                  </span>
+                  {!terminal && (
+                    <button className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} onClick={() => { setIvAt(c.interviewAt ? c.interviewAt.slice(0, 16) : ''); setIvEdit(true); }}>
+                      {c.interviewAt ? 'Reschedule' : 'Schedule interview'}
+                    </button>
+                  )}
+                  {c.interviewAt && !terminal && (
+                    <button onClick={() => saveInterview('')} disabled={ivBusy}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, color: 'var(--muted)', fontFamily: 'Inter,sans-serif', padding: 0 }}>
+                      Clear
+                    </button>
+                  )}
+                </>
+              ) : (
+                <>
+                  <input type="datetime-local" className="form-input" value={ivAt} onChange={e => setIvAt(e.target.value)}
+                    style={{ fontSize: 12.5, padding: '5px 9px', height: 'auto' }} />
+                  <button className="primary-btn" style={{ fontSize: 11.5, padding: '5px 12px' }} disabled={!ivAt || ivBusy} onClick={() => saveInterview(ivAt)}>
+                    {ivBusy ? 'Saving…' : 'Save'}
+                  </button>
+                  <button className="secondary-btn" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={() => setIvEdit(false)}>Cancel</button>
+                </>
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <FileText size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+              {c.resumeUrl ? (
+                <button onClick={viewResume}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-blue))', fontFamily: 'Inter,sans-serif', padding: 0 }}>
+                  View resume
+                </button>
+              ) : (
+                <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>No resume on file</span>
+              )}
+              <input ref={resumeRef} type="file" accept=".pdf,.doc,.docx" style={{ display: 'none' }} onChange={e => uploadResume(e.target.files?.[0])} />
+              <button className="secondary-btn" style={{ fontSize: 11.5, padding: '3px 10px' }} disabled={resumeBusy} onClick={() => resumeRef.current?.click()}>
+                {resumeBusy ? 'Uploading…' : c.resumeUrl ? 'Replace' : 'Upload resume'}
+              </button>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+            {onOpenInterviews && !['rejected', 'hired'].includes(c.stage) && (
+              <button className="primary-btn" onClick={() => onOpenInterviews(c)}
+                title="Teams invite, live questionnaire, AI answer fill and calibrated scoring"
+                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <CalendarDays size={13} /> Interview room
+              </button>
+            )}
+            {c.email && onSendForSignature && c.stage !== 'rejected' && (
+              <button className="secondary-btn" onClick={() => { onSendForSignature(c); onClose(); }}
+                title="Send an offer letter or other document to this candidate via a secure e-sign link (no login needed)"
+                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <FileText size={13} /> Send for signature
+              </button>
+            )}
           </div>
           {/* Stage history timeline */}
           <div style={{ marginTop: 18 }}>
@@ -925,12 +1340,15 @@ function CandidateDetailModal({ candidate: c, onClose, onStage, busy }) {
   );
 }
 
-function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated }) {
+function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSignature }) {
   const [candidates, setCandidates] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
   const [detail, setDetail] = useState(null);
   const [busy, setBusy] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
+  const [qOpen, setQOpen] = useState(false);        // questionnaires manager
+  const [lbOpen, setLbOpen] = useState(false);      // interview leaderboard
+  const [ivFor, setIvFor] = useState(null);         // candidate for the interview room
 
   useEffect(() => { api.getCandidates().then(setCandidates).catch(() => setCandidates([])); }, []);
 
@@ -971,17 +1389,34 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated }) {
           </div>
           <span style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600, flexShrink: 0 }}>{daysSince(c.updatedAt)}d</span>
         </div>
+        {(c.interviewAt || c.interviewScore != null) && !['hired', 'rejected'].includes(c.stage) && (
+          <div style={{ marginTop: 7, display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+            {c.interviewAt && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: 'hsla(var(--color-purple),0.1)', color: 'hsl(var(--color-purple))' }}>
+                <CalendarDays size={10} />
+                {(() => { try { return new Date(c.interviewAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return c.interviewAt; } })()}
+              </span>
+            )}
+            {c.interviewScore != null && (
+              <span title="Calibrated interview score (0–100)"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 800, padding: '2px 8px', borderRadius: 12,
+                  background: c.interviewScore >= 70 ? 'hsla(var(--color-green),0.12)' : c.interviewScore >= 45 ? 'hsla(var(--color-orange),0.12)' : 'hsla(var(--color-red),0.12)',
+                  color: c.interviewScore >= 70 ? 'hsl(var(--color-green))' : c.interviewScore >= 45 ? 'hsl(var(--color-orange))' : 'hsl(var(--color-red))' }}>
+                🏆 {c.interviewScore}
+              </span>
+            )}
+          </div>
+        )}
       </button>
     );
   };
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
-          {open.length} in pipeline · {byStage('offer').length} offer{byStage('offer').length !== 1 ? 's' : ''} out · {byStage('hired').length} hired
-        </span>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setQOpen(true)}>Questionnaires</button>
+          <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setLbOpen(true)}>Leaderboard</button>
           <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setShowClosed(s => !s)}>
             {showClosed ? 'Hide' : 'Show'} closed ({closed.length})
           </button>
@@ -989,6 +1424,20 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated }) {
             <Plus size={14} /> Add Candidate
           </button>
         </div>
+      </div>
+
+      {/* Pipeline stats */}
+      <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 18 }}>
+        {[['card-blue', 'In pipeline', open.length, 'Applied → Offer'],
+          ['card-orange', 'Interviews booked', candidates.filter(c => c.interviewAt && !['hired', 'rejected'].includes(c.stage)).length, 'Teams invites out'],
+          ['card-purple', 'Offers out', byStage('offer').length, 'Awaiting decision'],
+          ['card-green', 'Hired', byStage('hired').length, 'Became employees']].map(([cls, label, value, sub]) => (
+          <div key={label} className={`kpi-card ${cls}`}>
+            <div className="kpi-label">{label}</div>
+            <div className="kpi-value">{value}</div>
+            <div className="kpi-delta">{sub}</div>
+          </div>
+        ))}
       </div>
 
       {candidates.length === 0 ? (
@@ -1016,71 +1465,291 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated }) {
           })}
         </div>
       ) : (
-        /* Desktop: kanban columns */
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${showClosed ? 6 : 4}, 1fr)`, gap: 12, alignItems: 'start' }}>
-          {[...STAGES.slice(0, 4), ...(showClosed ? ['hired', 'rejected'] : [])].map(s => (
-            <div key={s} style={{ background: 'rgba(255,255,255,0.55)', border: '1px solid var(--line)', borderRadius: 14, padding: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 4px 10px' }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: `hsl(${STAGE_META[s].hue})` }} />
-                <b style={{ fontSize: 11, letterSpacing: '.05em', textTransform: 'uppercase' }}>{STAGE_META[s].label}</b>
-                <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 800, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 20, padding: '0 7px', color: 'var(--muted)' }}>{byStage(s).length}</span>
+        /* Desktop: kanban lanes — full height so the board reads as a board */
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${showClosed ? 6 : 4}, 1fr)`, gap: 12, alignItems: 'stretch' }}>
+          {[...STAGES.slice(0, 4), ...(showClosed ? ['hired', 'rejected'] : [])].map(s => {
+            const items = byStage(s);
+            return (
+              <div key={s} style={{ background: 'rgba(255,255,255,0.55)', border: '1px solid var(--line)', borderRadius: 14, padding: 10,
+                minHeight: 'max(420px, calc(100vh - 470px))', display: 'flex', flexDirection: 'column' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 4px 10px' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: `hsl(${STAGE_META[s].hue})` }} />
+                  <b style={{ fontSize: 11, letterSpacing: '.05em', textTransform: 'uppercase' }}>{STAGE_META[s].label}</b>
+                  <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 800, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 20, padding: '0 7px', color: 'var(--muted)' }}>{items.length}</span>
+                </div>
+                {items.map(card)}
+                {items.length === 0 && (
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px dashed var(--line)', borderRadius: 10, margin: '2px 2px 4px', minHeight: 90 }}>
+                    <span style={{ fontSize: 11.5, color: 'var(--muted)', opacity: 0.8 }}>No one in {STAGE_META[s].label.toLowerCase()}</span>
+                  </div>
+                )}
               </div>
-              {byStage(s).map(card)}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {addOpen && <CandidateFormModal onClose={() => setAddOpen(false)} toastErr={toastErr}
         onSaved={c => { setCandidates(prev => [c, ...prev]); toastOk(`${candName(c)} added to the pipeline.`); }} />}
-      {detail && <CandidateDetailModal candidate={detail} onClose={() => setDetail(null)} onStage={moveStage} busy={busy} />}
+      {detail && <CandidateDetailModal candidate={detail} onClose={() => setDetail(null)} onStage={moveStage} onSendForSignature={onSendForSignature} busy={busy}
+        onOpenInterviews={cand => { setDetail(null); setIvFor(cand); }}
+        onUpdated={u => { setCandidates(prev => prev.map(x => x.id === u.id ? u : x)); setDetail(u); }} />}
+      {qOpen && <QuestionnairesModal onClose={() => setQOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
+      {lbOpen && <LeaderboardModal onClose={() => setLbOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
+      {ivFor && <InterviewPanel candidate={ivFor} onClose={() => { setIvFor(null); api.getCandidates().then(setCandidates).catch(() => {}); }} toastOk={toastOk} toastErr={toastErr} />}
     </div>
   );
 }
 
-// ── Org chart (Phase 5) — top-down tree, drag a card onto a new manager ───────
-function OrgCard({ e, kids, dnd }) {
+// ── Org chart (Phase 5) — top-down node chart on a pan/zoom canvas ────────────
+// Functional divisions colour the chart: a person's division is their own
+// head-tag if set, else inherited from the nearest tagged manager above them.
+// A fixed palette keeps each division's colour stable across renders.
+const DIVISION_PALETTE = [
+  '212 90% 52%',   // blue
+  '150 60% 40%',   // green
+  '270 68% 58%',   // purple
+  '26 88% 52%',    // orange
+  '338 74% 56%',   // pink
+  '188 72% 40%',   // teal
+  '45 88% 48%',    // amber
+  '0 72% 56%',     // red
+];
+const divColorFor = (name, names) => {
+  if (!name) return '';
+  const i = names.indexOf(name);
+  return DIVISION_PALETTE[(i < 0 ? 0 : i) % DIVISION_PALETTE.length];
+};
+
+// A single node card — minimal, fixed-width, avatar-forward, with a coloured
+// division accent bar down its left edge. The reports pill hangs off the bottom
+// edge and doubles as the collapse toggle. data-orgcard lets the canvas tell a
+// card press from a pan; data-email lets drop resolve the target across the
+// zoom transform.
+function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName, highlight, divName, divColor, isHead, dim }) {
   const email = (e.workEmail || '').toLowerCase();
   const isTarget = dnd.overKey === email && dnd.draggingId && dnd.draggingId !== e.id;
+  const isDragging = dnd.draggingId === e.id;
   return (
-    <div className="org-card"
-      draggable
-      onDragStart={ev => { ev.dataTransfer.effectAllowed = 'move'; dnd.setDraggingId(e.id); }}
-      onDragEnd={() => { dnd.setDraggingId(null); dnd.setOverKey(null); }}
-      onDragOver={ev => { if (dnd.draggingId && dnd.draggingId !== e.id && email) { ev.preventDefault(); dnd.setOverKey(email); } }}
-      onDragLeave={() => { if (dnd.overKey === email) dnd.setOverKey(null); }}
-      onDrop={ev => { ev.preventDefault(); dnd.drop(email); }}
-      style={{
-        cursor: 'grab',
-        opacity: dnd.draggingId === e.id ? 0.45 : 1,
-        outline: isTarget ? '2px solid hsl(var(--color-green))' : 'none',
-        outlineOffset: 2,
-        background: isTarget ? 'hsla(var(--color-green),0.07)' : undefined,
-      }}>
-      <Avatar e={e} size={36} />
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontWeight: 700, fontSize: 13 }}>{fullName(e)}</div>
-        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{[e.jobTitle, e.department].filter(Boolean).join(' · ') || '—'}</div>
+    <div data-orgcard="1" data-email={email} style={{ position: 'relative', paddingBottom: kids > 0 ? 12 : 0 }}>
+      <div
+        onPointerDown={ev => dnd.onCardPointerDown(ev, e)}
+        style={{
+          position: 'relative', width: 216, padding: '12px 14px 12px 18px', display: 'flex', alignItems: 'center', gap: 11,
+          background: isTarget ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
+          border: `1.5px solid ${isTarget ? 'hsl(var(--color-green))' : highlight ? 'hsl(var(--color-blue))' : 'var(--line)'}`,
+          borderRadius: 14, boxShadow: highlight ? '0 0 0 3px hsla(var(--color-blue),0.15)' : 'var(--shadow-sm)',
+          cursor: 'grab', opacity: dim ? 0.3 : isDragging ? 0.4 : 1, overflow: 'hidden',
+          touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none',
+          transition: 'border-color 0.1s, box-shadow 0.1s, opacity 0.12s',
+        }}>
+        {divColor && <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 5, background: `hsl(${divColor})` }} />}
+        <Avatar e={e} size={40} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || '—'}</div>
+          <div style={{ fontSize: 10, color: 'var(--muted)', opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {[e.department, entityName(e.company)].filter(Boolean).join(' · ')}
+          </div>
+          {isHead && divName && (
+            <span style={{ display: 'inline-block', marginTop: 3, fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: `hsl(${divColor})`, background: `hsla(${divColor},0.12)`, borderRadius: 6, padding: '1px 6px' }}>
+              {divName} lead
+            </span>
+          )}
+        </div>
       </div>
-      {kids > 0 && <span style={{ fontSize: 10, fontWeight: 800, background: 'hsla(var(--color-blue),0.1)', color: 'hsl(var(--color-blue))', borderRadius: 20, padding: '1px 7px', flexShrink: 0 }}>{kids}</span>}
+      {kids > 0 && (
+        <button onClick={ev => { ev.stopPropagation(); onToggle(email); }}
+          title={isCollapsed ? 'Show team' : 'Hide team'}
+          style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)',
+            display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 11px', borderRadius: 20,
+            border: '1.5px solid var(--line)', background: isCollapsed ? 'var(--mist)' : 'var(--card)',
+            fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-blue))', cursor: 'pointer',
+            fontFamily: 'Inter,sans-serif', boxShadow: 'var(--shadow-sm)', whiteSpace: 'nowrap' }}>
+          {kids}
+          <ChevronRight size={11} style={{ transform: isCollapsed ? 'rotate(90deg)' : 'rotate(-90deg)', transition: 'transform 0.12s' }} />
+        </button>
+      )}
     </div>
   );
 }
 
-function OrgNode({ e, childrenMap, dnd }) {
-  const kids = childrenMap.get((e.workEmail || '').toLowerCase()) || [];
+// Recursive top-down layout with pure-div connectors: parent stub → sibling
+// rail (outer halves transparent at the ends) → child stub.
+function OrgTreeNode({ e, ctx }) {
+  const email = (e.workEmail || '').toLowerCase();
+  const kids = ctx.visChildren.get(email) || [];
+  const open = kids.length > 0 && !ctx.collapsedSet.has(email);
+  const div = ctx.divisionOf(e);
   return (
-    <li>
-      <OrgCard e={e} kids={kids.length} dnd={dnd} />
-      {kids.length > 0 && <ul>{kids.map(k => <OrgNode key={k.id} e={k} childrenMap={childrenMap} dnd={dnd} />)}</ul>}
-    </li>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      <OrgNodeCard e={e} kids={kids.length} isCollapsed={ctx.collapsedSet.has(email)}
+        onToggle={ctx.toggle} onSelect={ctx.setSelected} dnd={ctx.dnd}
+        entityName={ctx.entityName} highlight={ctx.isHighlight(e)}
+        divName={div} divColor={ctx.divColor(div)} isHead={!!(e.division || '').trim()}
+        dim={ctx.activeDiv && div !== ctx.activeDiv} />
+      {open && (
+        <>
+          <div style={{ width: 2, height: 18, background: 'var(--line)' }} />
+          <div style={{ display: 'flex', alignItems: 'flex-start' }}>
+            {kids.map((k, i) => (
+              <div key={k.id} style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 12px' }}>
+                {kids.length > 1 && (
+                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, display: 'flex', height: 2 }}>
+                    <div style={{ flex: 1, background: i === 0 ? 'transparent' : 'var(--line)' }} />
+                    <div style={{ flex: 1, background: i === kids.length - 1 ? 'transparent' : 'var(--line)' }} />
+                  </div>
+                )}
+                <div style={{ width: 2, height: 18, background: 'var(--line)' }} />
+                <OrgTreeNode e={k} ctx={ctx} />
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
-function OrgChartTab({ employees, onUpdated, toastOk, toastErr }) {
+// Right-hand detail drawer: view + edit reporting line, title, department, and
+// the functional-division head tag.
+function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNames, inheritedDivision, onClose, onSelect, onSaved, toastOk, toastErr }) {
+  const init = () => ({ manager_email: e.managerEmail || '', job_title: e.jobTitle || '', department: e.department || '', company: e.company || '', division: e.division || '' });
+  const [f, setF] = useState(init);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setF(init()); }, [e.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const myEmail = (e.workEmail || '').toLowerCase();
+  const blocked = descendants(myEmail);           // can't report to your own subtree
+  const managerOptions = people.filter(p => p.id !== e.id && p.workEmail && !blocked.has((p.workEmail || '').toLowerCase()));
+  const reports = people.filter(p => (p.managerEmail || '').toLowerCase() === myEmail && myEmail);
+  const dirty = f.manager_email !== (e.managerEmail || '') || f.job_title !== (e.jobTitle || '') || f.department !== (e.department || '') || f.company !== (e.company || '') || f.division !== (e.division || '');
+  // Division inherited from a manager above (shown when this person isn't a lead themselves)
+  const inherited = (inheritedDivision || '').trim();
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const saved = await api.updateEmployee(e.id, f);
+      onSaved(saved);
+      toastOk(`${fullName(e)} updated.`);
+    } catch (err) { toastErr(err?.message || 'Could not save.'); }
+    finally { setBusy(false); }
+  };
+
+  const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '12px 0 4px', textTransform: 'uppercase', letterSpacing: '.05em' };
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1300, display: 'flex', justifyContent: 'flex-end', background: 'rgba(0,0,0,0.35)' }}
+      onClick={ev => ev.target === ev.currentTarget && onClose()}>
+      <div style={{ width: 'min(400px, 94vw)', height: '100%', background: 'var(--card)', boxShadow: 'var(--shadow-lg)', display: 'flex', flexDirection: 'column', animation: 'fadeIn 0.15s ease' }}>
+        <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 14 }}>
+          <Avatar e={e} size={52} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 16 }}>{fullName(e)}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {[e.jobTitle, e.department].filter(Boolean).join(' · ') || '—'}
+            </div>
+            {e.workEmail && <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{e.workEmail}</div>}
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 6 }}><X size={18} /></button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '6px 22px 18px' }}>
+          <label style={lbl}>Reports to</label>
+          <select className="form-input" style={{ width: '100%' }} value={f.manager_email}
+            onChange={ev => setF(x => ({ ...x, manager_email: ev.target.value }))}>
+            <option value="">— No manager (top of a tree) —</option>
+            {managerOptions.map(p => <option key={p.id} value={(p.workEmail || '').toLowerCase()}>{fullName(p)}{p.jobTitle ? ` — ${p.jobTitle}` : ''}</option>)}
+          </select>
+
+          <label style={lbl}>Job title</label>
+          <input className="form-input" style={{ width: '100%' }} value={f.job_title} onChange={ev => setF(x => ({ ...x, job_title: ev.target.value }))} />
+
+          <label style={lbl}>Department</label>
+          <input className="form-input" style={{ width: '100%' }} value={f.department} onChange={ev => setF(x => ({ ...x, department: ev.target.value }))} />
+
+          <label style={lbl}>Company</label>
+          <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={ev => setF(x => ({ ...x, company: ev.target.value }))}>
+            <option value="">—</option>
+            {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+          </select>
+
+          <label style={lbl}>Division lead of</label>
+          <input className="form-input" style={{ width: '100%' }} list="org-divisions"
+            placeholder="e.g. Operations — leave blank if not a division lead"
+            value={f.division} onChange={ev => setF(x => ({ ...x, division: ev.target.value }))} />
+          <datalist id="org-divisions">
+            {(divisionNames || []).map(d => <option key={d} value={d} />)}
+          </datalist>
+          <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4, lineHeight: 1.4 }}>
+            {f.division.trim()
+              ? `Everyone reporting under ${fullName(e)} is coloured as “${f.division.trim()}”, until another lead is tagged below them.`
+              : inherited
+                ? `Inherits “${inherited}” from their manager. Type a name here to make ${fullName(e)} their own division lead.`
+                : `Not in any division. Type a name to make ${fullName(e)} a division lead — their whole team inherits it.`}
+          </div>
+
+          <button className="primary-btn" onClick={save} disabled={!dirty || busy}
+            style={{ marginTop: 16, width: '100%', justifyContent: 'center', display: 'inline-flex', alignItems: 'center', gap: 6, opacity: dirty ? 1 : 0.5 }}>
+            {busy ? <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : <CheckCircle size={14} />} Save changes
+          </button>
+
+          {reports.length > 0 && (
+            <>
+              <label style={lbl}>Direct reports ({reports.length})</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {reports.map(p => (
+                  <button key={p.id} onClick={() => onSelect(p)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
+                    <Avatar e={p} size={28} />
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{fullName(p)}</span>
+                      <span style={{ display: 'block', fontSize: 10.5, color: 'var(--muted)' }}>{p.jobTitle || p.department || ''}</span>
+                    </span>
+                    <ChevronRight size={13} style={{ color: 'var(--muted)' }} />
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr }) {
   const [draggingId, setDraggingId] = useState(null);
   const [overKey, setOverKey] = useState(null); // target workEmail, or '__none__' for the clear zone
+  const [selected, setSelected] = useState(null);        // side-panel person
+  const [orgQ, setOrgQ] = useState('');                   // name/title search
+  const [orgCompany, setOrgCompany] = useState('');       // entity id filter
+  const [orgDept, setOrgDept] = useState('');             // department filter
+  const [collapsedSet, setCollapsedSet] = useState(new Set());
+  const [seeded, setSeeded] = useState(false);
+  const [activeDiv, setActiveDiv] = useState('');   // legend highlight filter
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 40, y: 24 });
+  const [dragGhost, setDragGhost] = useState(null);   // {name, x, y} while dragging a card
+  const canvasRef = useRef(null);
+  const contentRef = useRef(null);
+  const dragRef = useRef(null);
   const people = employees.filter(e => e.status !== 'offboarded');
+
+  // First render: show the top two levels at full size (roots + their direct
+  // reports); deeper teams start collapsed behind their pill. Keeps the chart
+  // readable instead of shrinking 40 people into ant-sized cards.
+  useEffect(() => {
+    if (seeded || !people.length) return;
+    const emailSet = new Set(people.map(p => (p.workEmail || '').toLowerCase()).filter(Boolean));
+    const isRoot = p => !((p.managerEmail || '') && emailSet.has((p.managerEmail || '').toLowerCase()));
+    const rootEmails = new Set(people.filter(isRoot).map(p => (p.workEmail || '').toLowerCase()));
+    const managers = new Set(people.filter(p =>
+      people.some(k => (k.managerEmail || '').toLowerCase() === (p.workEmail || '').toLowerCase() && p.workEmail))
+      .map(p => (p.workEmail || '').toLowerCase()));
+    setCollapsedSet(new Set([...managers].filter(m => !rootEmails.has(m))));
+    setSeeded(true);
+  }, [people, seeded]);
   const emails = new Set(people.map(e => (e.workEmail || '').toLowerCase()).filter(Boolean));
   const byEmail = new Map(people.map(e => [(e.workEmail || '').toLowerCase(), e]));
   const childrenMap = new Map();
@@ -1105,8 +1774,7 @@ function OrgChartTab({ employees, onUpdated, toastOk, toastErr }) {
     return seen;
   }
 
-  async function drop(targetEmail) {
-    const dragged = people.find(p => p.id === draggingId);
+  async function drop(targetEmail, dragged) {
     setDraggingId(null); setOverKey(null);
     if (!dragged) return;
     if (targetEmail === '__none__') {
@@ -1131,7 +1799,46 @@ function OrgChartTab({ employees, onUpdated, toastOk, toastErr }) {
     } catch (err) { toastErr(err?.message || 'Could not change the reporting line.'); }
   }
 
-  const dnd = { draggingId, setDraggingId, overKey, setOverKey, drop };
+  // Pointer-based drag (works with mouse AND touch — native HTML5 drag does
+  // neither on a touch display). A small threshold distinguishes a tap (opens
+  // the side panel) from a drag; while dragging we track the card under the
+  // pointer via elementFromPoint (robust through the zoom transform) and show a
+  // floating name ghost. Drop on a card = re-assign; on the detach zone = unlink.
+  const onCardPointerDown = (ev, person) => {
+    if (ev.button != null && ev.button > 0) return;   // primary button / touch only
+    const start = { x: ev.clientX, y: ev.clientY };
+    dragRef.current = { person, start, dragging: false, target: null };
+    const move = (m) => {
+      const st = dragRef.current; if (!st) return;
+      if (!st.dragging) {
+        if (Math.hypot(m.clientX - start.x, m.clientY - start.y) < 6) return;
+        st.dragging = true; setDraggingId(st.person.id);
+      }
+      const el = document.elementFromPoint(m.clientX, m.clientY);
+      const detach = el && el.closest ? el.closest('[data-detach]') : null;
+      const card = el && el.closest ? el.closest('[data-email]') : null;
+      const em = card && card.getAttribute('data-email');
+      st.target = detach ? '__none__'
+        : (em && em !== (st.person.workEmail || '').toLowerCase()) ? em : null;
+      setOverKey(st.target);
+      setDragGhost({ name: fullName(st.person), x: m.clientX, y: m.clientY });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      const st = dragRef.current; dragRef.current = null;
+      setDragGhost(null);
+      if (st && st.dragging) {
+        if (st.target) drop(st.target, st.person); else { setDraggingId(null); setOverKey(null); }
+      } else if (st) {
+        setSelected(st.person);    // no meaningful movement → treat as a tap
+      }
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  const dnd = { draggingId, setDraggingId, overKey, setOverKey, drop, onCardPointerDown };
   // Managers (people with reports) before leaves, then alphabetical — keeps
   // wide sibling rows readable
   const kidCount = e => (childrenMap.get((e.workEmail || '').toLowerCase()) || []).length;
@@ -1144,6 +1851,141 @@ function OrgChartTab({ employees, onUpdated, toastOk, toastErr }) {
   const unlinked = people.filter(e => !hasManager(e) && !(childrenMap.get((e.workEmail || '').toLowerCase()) || []).length);
   const linked = people.length - unlinked.length;
 
+  // ── Functional divisions: a person's division is their own head-tag, else
+  // inherited from the nearest tagged manager up the chain. Memoised per email.
+  const divisionNames = [...new Set(people.map(e => (e.division || '').trim()).filter(Boolean))].sort();
+  const divColor = name => divColorFor(name, divisionNames);
+  const _divCache = new Map();
+  const divisionOf = (person) => {
+    let cur = person, hops = 0;
+    while (cur && hops < 30) {
+      const em = (cur.workEmail || '').toLowerCase();
+      if (_divCache.has(em)) return _divCache.get(em);
+      const own = (cur.division || '').trim();
+      if (own) { if (em) _divCache.set(em, own); return own; }
+      const mgr = (cur.managerEmail || '').toLowerCase();
+      if (!mgr || !byEmail.has(mgr)) break;
+      cur = byEmail.get(mgr); hops++;
+    }
+    const em0 = (person.workEmail || '').toLowerCase();
+    if (em0) _divCache.set(em0, '');
+    return '';
+  };
+  const divisionCounts = {};
+  for (const p of people) { const d = divisionOf(p); if (d) divisionCounts[d] = (divisionCounts[d] || 0) + 1; }
+
+  // ── Filters: company (live from the entities table), department, name search.
+  // Filtering rebuilds the tree from the filtered set — unmatched managers drop
+  // out and their matching reports surface as roots.
+  const departments = [...new Set(people.map(e => e.department).filter(Boolean))].sort();
+  const q = orgQ.trim().toLowerCase();
+  // Company/department FILTER the tree; search FINDS within it (expand + center
+  // + highlight) — filtering by name would amputate the person's whole subtree.
+  const visible = people.filter(e =>
+    (!orgCompany || e.company === orgCompany) &&
+    (!orgDept || e.department === orgDept));
+  const visEmails = new Set(visible.map(e => (e.workEmail || '').toLowerCase()).filter(Boolean));
+  const visChildren = new Map();
+  for (const e of visible) {
+    const m = (e.managerEmail || '').toLowerCase();
+    if (m && visEmails.has(m)) {
+      if (!visChildren.has(m)) visChildren.set(m, []);
+      visChildren.get(m).push(e);
+    }
+  }
+  for (const arr of visChildren.values()) {
+    arr.sort((a, b) => ((visChildren.get((b.workEmail || '').toLowerCase()) || []).length
+      - (visChildren.get((a.workEmail || '').toLowerCase()) || []).length)
+      || fullName(a).localeCompare(fullName(b)));
+  }
+  const visHasManager = e => (e.managerEmail || '') && visEmails.has((e.managerEmail || '').toLowerCase());
+  const visRoots = visible.filter(e => !visHasManager(e) && (visChildren.get((e.workEmail || '').toLowerCase()) || []).length > 0);
+  const visUnlinked = visible.filter(e => !visHasManager(e) && !(visChildren.get((e.workEmail || '').toLowerCase()) || []).length);
+  const entityName = id => (entities || []).find(en => en.id === id)?.name || '';
+  const filtered = !!(orgCompany || orgDept || q);
+
+  const toggle = (email) => setCollapsedSet(s => {
+    const n = new Set(s);
+    if (n.has(email)) n.delete(email); else n.add(email);
+    return n;
+  });
+
+  const ctx = {
+    visChildren, collapsedSet, toggle, setSelected, dnd, entityName,
+    isHighlight: (e) => !!q && fullName(e).toLowerCase().includes(q),
+    divisionOf, divColor, activeDiv,
+  };
+
+  // ── Pan & zoom canvas — the chart never overflows the page; you pan/zoom
+  // within a fixed viewport. Default = 100% zoom, centered; Fit is opt-in.
+  const centerView = () => requestAnimationFrame(() => {
+    const c = canvasRef.current, k = contentRef.current;
+    if (!c || !k) return;
+    const kw = k.scrollWidth;
+    setZoom(1);
+    // Centre on the content midpoint — when the tree is wider than the canvas
+    // this puts the middle in view (edges pan-reachable) rather than left-pinning.
+    setPan({ x: (c.clientWidth - kw) / 2, y: 24 });
+  });
+  const fitToView = () => requestAnimationFrame(() => {
+    const c = canvasRef.current, k = contentRef.current;
+    if (!c || !k) return;
+    // scrollWidth reports untransformed layout size — no zoom correction needed
+    const kw = k.scrollWidth, kh = k.scrollHeight;
+    if (!kw || !kh) return;
+    const s = Math.max(0.35, Math.min(1, (c.clientWidth - 48) / kw, (c.clientHeight - 48) / kh));
+    setZoom(s);
+    setPan({ x: Math.max(24, (c.clientWidth - kw * s) / 2), y: 24 });
+  });
+  useEffect(() => { if (seeded) centerView(); }, [orgCompany, orgDept, seeded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Search = find & focus: expand every ancestor of the first match (plus the
+  // match's own team), then glide the canvas so their card sits centre-stage.
+  useEffect(() => {
+    if (!q || !seeded) return;
+    const match = visible.find(e => fullName(e).toLowerCase().includes(q) || (e.jobTitle || '').toLowerCase().includes(q));
+    if (!match) return;
+    const byEmailAll = new Map(visible.map(p => [(p.workEmail || '').toLowerCase(), p]));
+    const chain = [];
+    let cur = match, hops = 0;
+    while (cur && (cur.managerEmail || '') && hops < 20) {
+      const m = (cur.managerEmail || '').toLowerCase();
+      if (!byEmailAll.has(m)) break;
+      chain.push(m);
+      cur = byEmailAll.get(m);
+      hops++;
+    }
+    const me = (match.workEmail || '').toLowerCase();
+    setCollapsedSet(s => {
+      const n = new Set(s);
+      chain.forEach(a => n.delete(a));
+      if (me) n.delete(me);              // show their own team too
+      return n;
+    });
+    // Let the expansion render, then centre the card in the viewport.
+    const t = setTimeout(() => {
+      const c = canvasRef.current, k = contentRef.current;
+      const el = k && me ? k.querySelector(`[data-email="${me.replace(/"/g, '')}"]`) : null;
+      if (!c || !el) return;
+      const er = el.getBoundingClientRect(), cr = c.getBoundingClientRect();
+      setPan(p => ({
+        x: p.x + (cr.width / 2 - (er.left + er.width / 2 - cr.left)),
+        y: p.y + (cr.height / 3 - (er.top + er.height / 2 - cr.top)),
+      }));
+    }, 80);
+    return () => clearTimeout(t);
+  }, [q, seeded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const startPan = (ev) => {
+    if (ev.target.closest && ev.target.closest('[data-orgcard]')) return;   // card press, not a pan
+    const sx = ev.clientX - pan.x, sy = ev.clientY - pan.y;
+    const move = (m) => setPan({ x: m.clientX - sx, y: m.clientY - sy });
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  const zoomBy = (f) => setZoom(z => Math.max(0.3, Math.min(1.6, +(z * f).toFixed(3))));
+
   if (!people.length) return (
     <div style={{ textAlign: 'center', padding: '56px 20px', color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 14 }}>
       <Network size={32} style={{ opacity: .25, display: 'block', margin: '0 auto 10px' }} />
@@ -1152,42 +1994,136 @@ function OrgChartTab({ employees, onUpdated, toastOk, toastErr }) {
   );
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
-          {people.length} people · {linked} in the reporting hierarchy
+      {/* Toolbar: expand controls · full-width search · filters + count (People-tab style) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+        <button className="secondary-btn" style={{ fontSize: 12, flex: '0 0 auto' }}
+          onClick={() => { setCollapsedSet(new Set()); setTimeout(centerView, 60); }}>Expand all</button>
+        <button className="secondary-btn" style={{ fontSize: 12, flex: '0 0 auto' }}
+          onClick={() => { setCollapsedSet(new Set([...visChildren.keys()])); setTimeout(centerView, 60); }}>Collapse all</button>
+        <div className="search-bar" style={{ flex: '1 1 240px', minWidth: 200 }}>
+          <Search size={13} style={{ flexShrink: 0 }} />
+          <input placeholder="Search people…" value={orgQ} onChange={ev => setOrgQ(ev.target.value)} />
+          {orgQ && <button onClick={() => setOrgQ('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={13} /></button>}
+        </div>
+        <select className="form-input" value={orgCompany} onChange={ev => setOrgCompany(ev.target.value)}
+          style={{ width: 150, flex: '0 0 auto', fontSize: 12.5, fontWeight: 600, padding: '7px 26px 7px 10px', height: 34 }}>
+          <option value="">All companies</option>
+          {(entities || []).map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+        </select>
+        <select className="form-input" value={orgDept} onChange={ev => setOrgDept(ev.target.value)}
+          style={{ width: 150, flex: '0 0 auto', fontSize: 12.5, fontWeight: 600, padding: '7px 26px 7px 10px', height: 34 }}>
+          <option value="">All departments</option>
+          {departments.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: '0 0 auto', whiteSpace: 'nowrap' }}>
+          {visible.length}{filtered ? ` of ${people.length}` : ''} people · {linked} linked
         </span>
-        <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Drag a card onto someone to change who they report to.</span>
-        {/* Clear-zone appears only mid-drag — drop here to detach from a manager */}
-        {draggingId && (
-          <div
-            onDragOver={ev => { ev.preventDefault(); setOverKey('__none__'); }}
-            onDragLeave={() => { if (overKey === '__none__') setOverKey(null); }}
-            onDrop={ev => { ev.preventDefault(); drop('__none__'); }}
-            style={{ marginLeft: 'auto', border: `2px dashed ${overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--line)'}`, borderRadius: 10, padding: '7px 16px', fontSize: 12, fontWeight: 700, color: overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--muted)', background: overKey === '__none__' ? 'hsla(var(--color-red),0.06)' : 'transparent' }}>
-            Drop here to remove their reporting line
+      </div>
+
+      {/* Division legend — click a chip to spotlight that division (dim the rest).
+          Colours match each card's left accent bar. */}
+      {divisionNames.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)' }}>Divisions</span>
+          {divisionNames.map(d => {
+            const on = activeDiv === d, col = divColor(d);
+            return (
+              <button key={d} onClick={() => setActiveDiv(on ? '' : d)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 11px', borderRadius: 20,
+                  border: `1.5px solid ${on ? `hsl(${col})` : 'var(--line)'}`, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                  background: on ? `hsla(${col},0.12)` : 'var(--card)', fontSize: 11.5, fontWeight: 700,
+                  color: on ? `hsl(${col})` : 'var(--ink)', opacity: activeDiv && !on ? 0.55 : 1, transition: 'opacity 0.12s' }}>
+                <span style={{ width: 9, height: 9, borderRadius: '50%', background: `hsl(${col})` }} />
+                {d}
+                <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--muted)' }}>{divisionCounts[d] || 0}</span>
+              </button>
+            );
+          })}
+          {activeDiv && (
+            <button onClick={() => setActiveDiv('')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--muted)', fontFamily: 'Inter,sans-serif' }}>Clear spotlight</button>
+          )}
+          <span style={{ fontSize: 10.5, color: 'var(--muted)', marginLeft: 4 }}>· set a division on the "lead" in their side panel</span>
+        </div>
+      )}
+
+      {/* Detach zone appears only mid-drag — drag a card here to unlink it */}
+      {draggingId && (
+        <div data-detach="1"
+          style={{ marginBottom: 10, border: `2px dashed ${overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--line)'}`, borderRadius: 12, padding: '10px 16px', textAlign: 'center', fontSize: 12, fontWeight: 700, color: overKey === '__none__' ? 'hsl(var(--color-red))' : 'var(--muted)', background: overKey === '__none__' ? 'hsla(var(--color-red),0.06)' : 'transparent' }}>
+          Drag here to remove their reporting line
+        </div>
+      )}
+
+      {/* The chart canvas — drag empty space to pan, controls to zoom/fit.
+          Card drag is pointer-based (see onCardPointerDown), so it works with a
+          finger and resolves the drop target through the zoom transform. */}
+      <div ref={canvasRef} onPointerDown={startPan}
+        style={{ position: 'relative', height: 'max(480px, calc(100vh - 380px))', overflow: 'hidden',
+          borderRadius: 16, border: `1px solid ${draggingId ? 'hsl(var(--color-green))' : 'var(--line)'}`, cursor: 'grab', touchAction: 'none',
+          background: 'var(--card)',
+          backgroundImage: 'radial-gradient(circle, var(--line) 1px, transparent 1px)', backgroundSize: '26px 26px' }}>
+        {visRoots.length === 0 && visUnlinked.length === 0 ? (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 13 }}>
+            No one matches these filters.
+          </div>
+        ) : (
+          <div ref={contentRef} style={{ position: 'absolute', left: 0, top: 0,
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0',
+            display: 'flex', alignItems: 'flex-start', gap: 48, padding: 4, width: 'max-content' }}>
+            {visRoots.map(r => <OrgTreeNode key={r.id} e={r} ctx={ctx} />)}
           </div>
         )}
+
+        {/* Zoom controls */}
+        <div style={{ position: 'absolute', right: 12, bottom: 12, display: 'flex', gap: 6, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 5, boxShadow: 'var(--shadow-md)' }}>
+          {[['−', () => zoomBy(1 / 1.25)], [`${Math.round(zoom * 100)}%`, fitToView], ['+', () => zoomBy(1.25)]].map(([label, fn], i) => (
+            <button key={i} onClick={fn} title={i === 1 ? 'Fit to view' : ''}
+              style={{ minWidth: 34, height: 30, borderRadius: 8, border: 'none', background: i === 1 ? 'var(--mist)' : 'transparent',
+                fontSize: i === 1 ? 11 : 16, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <span style={{ position: 'absolute', left: 14, bottom: 14, fontSize: 10.5, color: 'var(--muted)', pointerEvents: 'none' }}>
+          Drag the canvas to move around · tap a card for details · drag a card onto someone to re-assign
+        </span>
       </div>
-      {roots.length > 0 && (
-        <div style={{ marginBottom: 22 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 4 }}>Reporting hierarchy</div>
-          <div className="org-tree-wrap">
-            <div className="org-tree">
-              <ul>{roots.map(r => <OrgNode key={r.id} e={r} childrenMap={childrenMap} dnd={dnd} />)}</ul>
-            </div>
+
+      {visUnlinked.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'hsl(var(--color-orange))', textTransform: 'uppercase', marginBottom: 8 }}>
+            No reporting line — drag onto the chart above, or tap to set who they report to
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            {visUnlinked.map(e => {
+              const d = divisionOf(e);
+              return (
+                <OrgNodeCard key={e.id} e={e} kids={0} isCollapsed={false}
+                  onToggle={() => {}} onSelect={setSelected} dnd={dnd} entityName={entityName} highlight={false}
+                  divName={d} divColor={divColor(d)} isHead={!!(e.division || '').trim()} dim={false} />
+              );
+            })}
           </div>
         </div>
       )}
-      {unlinked.length > 0 && (
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'hsl(var(--color-orange))', textTransform: 'uppercase', marginBottom: 8 }}>
-            No reporting line — set "Reports to" on their profile
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {/* Draggable too — drag Sagar onto his manager to link him in */}
-            {unlinked.map(e => <OrgCard key={e.id} e={e} kids={0} dnd={dnd} />)}
-          </div>
+
+      {/* Floating drag ghost — follows the pointer/finger while dragging a card */}
+      {dragGhost && (
+        <div style={{ position: 'fixed', left: dragGhost.x + 14, top: dragGhost.y + 8, zIndex: 2000, pointerEvents: 'none',
+          background: 'var(--ink)', color: 'var(--card)', fontSize: 12, fontWeight: 700, padding: '5px 11px', borderRadius: 8,
+          boxShadow: 'var(--shadow-lg)', whiteSpace: 'nowrap' }}>
+          {dragGhost.name}
+          <span style={{ opacity: 0.7, fontWeight: 500 }}>{overKey === '__none__' ? ' → unlink' : overKey ? ' → drop to re-assign' : ''}</span>
         </div>
+      )}
+
+      {selected && (
+        <OrgSidePanel e={selected} people={people} entities={entities || []} entityName={entityName}
+          descendants={descendants} divisionNames={divisionNames}
+          inheritedDivision={(selected.division || '').trim() ? '' : divisionOf(selected)}
+          onClose={() => setSelected(null)} onSelect={setSelected}
+          onSaved={saved => { onUpdated(saved); setSelected(saved); }}
+          toastOk={toastOk} toastErr={toastErr} />
       )}
     </div>
   );
@@ -1250,13 +2186,135 @@ function LeaveFormModal({ employees, onClose, onSaved, toastErr }) {
   );
 }
 
+// Searchable multi-person filter: type to find people, pick several as chips.
+// Empty selection = everyone.
+function PeopleFilter({ employees, selected, onChange }) {
+  const [q, setQ] = useState('');
+  const [open, setOpen] = useState(false);
+  const selSet = new Set(selected);
+  const matches = q.trim()
+    ? employees.filter(e => !selSet.has(e.id) && fullName(e).toLowerCase().includes(q.trim().toLowerCase())).slice(0, 8)
+    : [];
+  const pick = (e) => { onChange([...selected, e.id]); setQ(''); };
+  return (
+    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
+      border: '1px solid var(--line)', borderRadius: 10, padding: '5px 10px', background: 'var(--card)', minWidth: 260, flex: '0 1 460px' }}>
+      <Search size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+      {selected.map(id => {
+        const e = employees.find(x => x.id === id);
+        return (
+          <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))', borderRadius: 8, padding: '2px 8px' }}>
+            {e ? fullName(e) : id}
+            <X size={11} style={{ cursor: 'pointer' }} onClick={() => onChange(selected.filter(x => x !== id))} />
+          </span>
+        );
+      })}
+      <input value={q} onChange={e => { setQ(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onKeyDown={e => {
+          if (e.key === 'Enter' && matches[0]) { e.preventDefault(); pick(matches[0]); }
+          if (e.key === 'Backspace' && !q && selected.length) onChange(selected.slice(0, -1));
+        }}
+        placeholder={selected.length ? 'Add another person…' : 'Filter by person — type a name…'}
+        style={{ flex: 1, minWidth: 140, border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)', padding: '3px 0' }} />
+      {selected.length > 0 && (
+        <button onClick={() => onChange([])} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, color: 'var(--muted)', fontFamily: 'Inter,sans-serif', flexShrink: 0 }}>Clear</button>
+      )}
+      {open && matches.length > 0 && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 60, overflow: 'hidden' }}>
+          {matches.map(e => (
+            <button key={e.id} onMouseDown={ev => { ev.preventDefault(); pick(e); }}
+              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 12.5, fontFamily: 'Inter,sans-serif', color: 'var(--ink)' }}
+              onMouseEnter={ev => ev.currentTarget.style.background = 'var(--mist)'}
+              onMouseLeave={ev => ev.currentTarget.style.background = 'none'}>
+              {fullName(e)} <span style={{ color: 'var(--muted)', fontSize: 11 }}>· {e.department || e.jobTitle || ''}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// "Who's out this week" — Mon–Sun strip merging both leave sources: HR-recorded
+// leave (HrLeaveRequest) and self-service time off (Time Clock / My HR).
+function WhosOutWeek({ employees, hrLeave, selIds = [] }) {
+  const [timeoff, setTimeoff] = useState([]);
+  useEffect(() => { api.timeOffList('').then(setTimeoff).catch(() => {}); }, []);
+  const byId = Object.fromEntries(employees.map(e => [e.id, e]));
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const monday = new Date(today); monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+  const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(monday); d.setDate(monday.getDate() + i); return d; });
+  const isoD = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  // Respect the people filter: empty selection = everyone.
+  const selSet = new Set(selIds);
+  const selEmails = new Set(selIds.map(id => (byId[id]?.workEmail || '').toLowerCase()).filter(Boolean));
+  const entries = [
+    ...(hrLeave || []).filter(r => ['approved', 'pending'].includes(r.status))
+      .filter(r => !selSet.size || selSet.has(r.employeeId)).map(r => ({
+        name: fullName(byId[r.employeeId] || { firstName: '?' }),
+        start: r.startDate || r.start_date || '', end: r.endDate || r.end_date || '',
+        status: r.status, type: r.leaveType || r.type || '',
+      })),
+    ...timeoff.filter(r => ['approved', 'pending'].includes(r.status))
+      .filter(r => !selSet.size || selEmails.has((r.email || '').toLowerCase())).map(r => ({
+        name: r.name || (r.email || '').split('@')[0].replace('.', ' '),
+        start: r.startDate || '', end: r.endDate || '', status: r.status, type: r.type || '',
+      })),
+  ].filter(e => e.start && e.end);
+
+  const weekHasAnyone = days.some(d => entries.some(e => e.start <= isoD(d) && isoD(d) <= e.end));
+
+  return (
+    <div style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', padding: '12px 14px', marginBottom: 16, boxShadow: 'var(--shadow-sm)' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 10 }}>
+        Who's out this week
+      </div>
+      {!weekHasAnyone ? (
+        <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Everyone's in — no approved or pending leave this week.</div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8 }}>
+          {days.map(d => {
+            const key = isoD(d);
+            const isToday = key === isoD(today);
+            const out = entries.filter(e => e.start <= key && key <= e.end);
+            return (
+              <div key={key} style={{ borderRadius: 10, padding: '7px 8px', minHeight: 58, background: isToday ? 'hsla(var(--color-blue),0.06)' : 'var(--mist)', outline: isToday ? '1.5px solid hsla(var(--color-blue),0.4)' : 'none' }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: isToday ? 'hsl(var(--color-blue))' : 'var(--muted)', marginBottom: 5 }}>
+                  {d.toLocaleDateString('en-US', { weekday: 'short' })} {d.getDate()}
+                </div>
+                {out.length === 0 ? (
+                  <div style={{ fontSize: 10.5, color: 'var(--muted)', opacity: 0.6 }}>—</div>
+                ) : out.map((e, i) => (
+                  <div key={i} title={`${e.name} · ${e.type}${e.status === 'pending' ? ' (pending)' : ''}`}
+                    style={{ fontSize: 10.5, fontWeight: 600, padding: '2px 6px', borderRadius: 8, marginBottom: 3,
+                      background: e.status === 'approved' ? 'hsla(var(--color-green),0.12)' : 'hsla(var(--color-orange),0.12)',
+                      color: e.status === 'approved' ? 'hsl(var(--color-green))' : 'hsl(var(--color-orange))',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {e.name.split(' ')[0]}{e.status === 'pending' ? ' ?' : ''}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function LeaveTab({ employees, toastOk, toastErr }) {
   const [leave, setLeave] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
-  const [empF, setEmpF] = useState('All');
+  const [selF, setSelF] = useState([]);          // people filter — empty = everyone
   const [balances, setBalances] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const year = new Date().getFullYear();
+  const empF = selF.length === 1 ? selF[0] : 'All';   // balances show for exactly one person
 
   useEffect(() => { api.getLeave().then(setLeave).catch(() => setLeave([])); }, []);
   useEffect(() => {
@@ -1279,21 +2337,23 @@ function LeaveTab({ employees, toastOk, toastErr }) {
 
   if (leave === null) return <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Loader2 size={26} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /></div>;
 
-  const visible = empF === 'All' ? leave : leave.filter(r => r.employeeId === empF);
-  const pending = leave.filter(r => r.status === 'pending').length;
+  const visible = selF.length === 0 ? leave : leave.filter(r => selF.includes(r.employeeId));
+  const pending = visible.filter(r => r.status === 'pending').length;
 
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-        <select className="form-input" value={empF} onChange={e => setEmpF(e.target.value)} style={{ padding: '6px 10px', fontSize: 13, height: 34 }}>
-          <option value="All">All employees</option>
-          {employees.map(e => <option key={e.id} value={e.id}>{fullName(e)}</option>)}
-        </select>
-        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{pending} pending · {leave.length} total</span>
-        <button className="primary-btn" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={() => setFormOpen(true)}>
-          <Plus size={14} /> New Leave
+        <PeopleFilter employees={employees} selected={selF} onChange={setSelF} />
+        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{pending} pending · {visible.length} shown</span>
+        {/* Employees request their own leave from My HR — this is the approve/track
+            view. HR keeps a de-emphasised "log on behalf" for phone-ins and
+            staff without portal access. */}
+        <button className="secondary-btn" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }} onClick={() => setFormOpen(true)}>
+          <Plus size={13} /> Log on behalf
         </button>
       </div>
+
+      <WhosOutWeek employees={employees} hrLeave={leave} selIds={selF} />
 
       {/* Balance cards when a person is picked — used computes from approvals */}
       {balances && (
@@ -1479,6 +2539,10 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
   const showOff = isInactive || isLeft;
   const mailboxAction = isInactive ? 'delegate' : (isLeft ? leftChoice : '');
   const needsDelegate = mailboxAction === 'delegate' || mailboxAction === 'share';
+  // Allow Apply when the status changed OR — for someone already inactive/left —
+  // when there's a mailbox/license action to (re-)run (e.g. free a license that
+  // didn't release the first time).
+  const canApply = changed || (showOff && (mailboxAction !== '' || exportRequested));
   const colleagues = employees.filter(x => x.workEmail && x.id !== employee.id);
   // Default the trustee to the person's manager (reports-to) from the org chart.
   const manager = employees.find(x => (x.workEmail || '').toLowerCase() === (employee.managerEmail || '').toLowerCase());
@@ -1524,6 +2588,11 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
       if (m?.licenses) bits.push(`license ${m.licenses}`);
       if (m?.export) bits.push('mailbox export started');
       if (m?.error) bits.push(`M365 issue: ${m.error}`);
+      const it = saved.items;
+      if (it && (it.checkouts || it.assignments)) {
+        const parts = [it.checkouts && `${it.checkouts} checkout${it.checkouts === 1 ? '' : 's'}`, it.assignments && `${it.assignments} assignment${it.assignments === 1 ? '' : 's'}`].filter(Boolean);
+        bits.push(`${parts.join(' + ')} force-returned`);
+      }
       const auto = bits.length ? ` · ${bits.join(', ')}` : '';
       const manual = needsDelegate ? ' Run the PowerShell to finish mailbox access.' : '';
       toastOk(`Status set to ${STATUS_META[status]?.label || status}.${auto}${manual}`);
@@ -1601,20 +2670,36 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
                   {radio('remove', 'Remove email & free up the license', 'Block sign-in, strip the M365 license so it returns to the pool.')}
                   {radio('share', 'Convert to a shared mailbox', 'Keep the mailbox alive (no license) and grant colleagues access.')}
                   {mailboxAction === 'share' && delegatePicker}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)', fontSize: 12, color: 'var(--muted)' }}>
+                    <Briefcase size={13} style={{ flexShrink: 0, marginTop: 1, color: 'hsl(var(--color-orange))' }} />
+                    <span>All equipment {employee.firstName} still holds in Item Management will be <strong>force-returned</strong> automatically — checkouts closed and permanent assignments sent back to stock.</span>
+                  </div>
                 </>
               )}
               <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, fontSize: 13, cursor: 'pointer' }}>
                 <input type="checkbox" checked={exportRequested} onChange={e => setExportRequested(e.target.checked)} style={{ width: 16, height: 16 }} />
                 Export their mailbox to a ZIP first
               </label>
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)' }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 6 }}>DO THESE IN M365 (Graph can’t apply mailbox permissions)</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  <a href={EXO_MAILBOXES} target="_blank" rel="noopener noreferrer" className="secondary-btn" style={{ fontSize: 11.5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px' }}>Mailbox access <ChevronRight size={12} /></a>
-                  {mailboxAction === 'remove' && <a href={M365_USERS} target="_blank" rel="noopener noreferrer" className="secondary-btn" style={{ fontSize: 11.5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px' }}>Licenses <ChevronRight size={12} /></a>}
-                  {exportRequested && <a href={PURVIEW_EXPORT} target="_blank" rel="noopener noreferrer" className="secondary-btn" style={{ fontSize: 11.5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px' }}>Export mailbox <ChevronRight size={12} /></a>}
+              {/* What Nexus automates on Apply vs. what genuinely needs the admin
+                  centre. 'Remove' = sign-in block + license release are automatic
+                  (Graph); only shared-mailbox conversion needs Exchange PowerShell. */}
+              {mailboxAction === 'remove' ? (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)' }}>
+                  <div style={{ display: 'flex', gap: 8, fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                    <CheckCircle size={14} style={{ flexShrink: 0, marginTop: 1, color: 'hsl(var(--color-green))' }} />
+                    <span>On <strong>Apply</strong>, Nexus blocks sign-in and <strong>releases the license</strong> back to the pool automatically. Group-assigned licenses can’t be pulled per-user — if any are, the confirmation will name them so you can remove the person from that group.</span>
+                  </div>
+                  <a href={M365_USERS} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 8, fontSize: 11, color: 'hsl(var(--color-blue))', textDecoration: 'none' }}>Verify licenses in M365 <ChevronRight size={11} /></a>
                 </div>
-              </div>
+              ) : (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 6 }}>DO THIS IN M365 (Graph can’t convert shared mailboxes)</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    <a href={EXO_MAILBOXES} target="_blank" rel="noopener noreferrer" className="secondary-btn" style={{ fontSize: 11.5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px' }}>Mailbox access <ChevronRight size={12} /></a>
+                    {exportRequested && <a href={PURVIEW_EXPORT} target="_blank" rel="noopener noreferrer" className="secondary-btn" style={{ fontSize: 11.5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px' }}>Export mailbox <ChevronRight size={12} /></a>}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1632,7 +2717,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
         </div>
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy || !changed} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || !changed) ? 0.6 : 1 }}>{busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Apply</button>
+          <button className="primary-btn" onClick={save} disabled={busy || !canApply} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (busy || !canApply) ? 0.6 : 1 }}>{busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Apply</button>
         </div>
       </div>
     </div>
@@ -1642,7 +2727,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
 // ── Right-to-work & compliance (HR Section B — open to HR) ───────────────────
 const WORK_AUTH = [['citizen', 'Citizen'], ['permanent_resident', 'Permanent resident'], ['work_visa', 'Work visa'], ['permit', 'Work permit'], ['other', 'Other']];
 const DOC_TYPES = [['passport', 'Passport'], ['national_id', 'National ID'], ['visa', 'Visa'], ['work_permit', 'Work permit'], ['other', 'Other']];
-const VERIFY_STATUS = { unverified: { label: 'Unverified', fg: 'var(--muted)', bg: 'var(--hover)' }, verified: { label: 'Verified', fg: 'hsl(var(--color-green))', bg: 'hsla(var(--color-green),0.12)' }, rejected: { label: 'Rejected', fg: 'hsl(var(--color-red))', bg: 'hsla(var(--color-red),0.12)' } };
+const VERIFY_STATUS = { unverified: { label: 'Unverified', fg: 'var(--muted)', bg: 'var(--mist)' }, verified: { label: 'Verified', fg: 'hsl(var(--color-green))', bg: 'hsla(var(--color-green),0.12)' }, rejected: { label: 'Rejected', fg: 'hsl(var(--color-red))', bg: 'hsla(var(--color-red),0.12)' } };
 const CONSENTS = [['bgCheck', 'Background check consent'], ['dataProcessing', 'Data processing consent'], ['handbook', 'Handbook acknowledgment']];
 
 // Days until an ISO date (negative = past). '' → null.
@@ -1985,8 +3070,12 @@ function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr
 }
 
 export default function HR({ activeSub, onSubChange }) {
-  // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now
-  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave'].includes(activeSub) ? activeSub : 'hr-people';
+  // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now.
+  // 'hr-esign-*' deep-links (bell/toast clicks) land on the E-Sign tab — ESign
+  // reads the raw navSub to pick its own sub-tab (inbox vs sent requests).
+  const navSub = String(activeSub || '').startsWith('hr-esign') ? 'hr-esign' : activeSub;
+  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-esign'].includes(navSub) ? navSub : 'hr-people';
+  const [esignPrefill, setEsignPrefill] = useState(null);   // candidate → Send-for-signature handoff
   const isMobile = useIsMobile();
 
   const [employees, setEmployees] = useState([]);
@@ -2069,10 +3158,16 @@ export default function HR({ activeSub, onSubChange }) {
       const next = [...prev]; next[i] = saved; return next;
     });
     setSelectedId(saved.id);
+    // Profile edits auto-mirror to the linked Entra account (backend, best-effort)
+    // — tell the user whether M365 actually took the change.
+    if (saved.entra) {
+      if (saved.entra.synced) toastOk('Saved — profile synced to Microsoft 365.');
+      else toastErr(`Saved in Nexus, but the M365 sync failed: ${saved.entra.error || 'Graph error'}. Use "Push to M365" to retry.`);
+    }
   };
 
   const TABS = [
-    ['hr-people', 'People'], ['hr-hiring', 'Hiring'], ['hr-org', 'Org Chart'], ['hr-leave', 'Leave'],
+    ['hr-people', 'People'], ['hr-hiring', 'Hiring'], ['hr-org', 'Org Chart'], ['hr-leave', 'Leave'], ['hr-time', 'Time'], ['hr-esign', 'E-Sign'],
   ];
 
   return (
@@ -2119,18 +3214,39 @@ export default function HR({ activeSub, onSubChange }) {
 
       {sub === 'hr-hiring' && (
         <HiringTab isMobile={isMobile} toastOk={toastOk} toastErr={toastErr}
-          onEmployeeCreated={emp => setEmployees(prev => [...prev, emp].sort((a, b) => fullName(a).localeCompare(fullName(b))))} />
+          onEmployeeCreated={emp => setEmployees(prev => [...prev, emp].sort((a, b) => fullName(a).localeCompare(fullName(b))))}
+          onSendForSignature={c => {
+            setEsignPrefill({
+              candidateId: c.id, title: `Offer — ${candName(c)}`,
+              parties: [{ role_key: 'employee', name: candName(c), email: c.email, kind: 'external', ordinal: 2 }],
+            });
+            onSubChange('hr-esign');
+          }} />
       )}
-      {sub === 'hr-org' && <OrgChartTab employees={employees} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-org' && <OrgChartTab employees={employees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-time' && <TimeAdmin employees={employees} toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-esign' && (
+        <ESign employees={employees} entities={entities} prefill={esignPrefill} navSub={activeSub}
+          onPrefillConsumed={() => setEsignPrefill(null)} toastOk={toastOk} toastErr={toastErr} />
+      )}
 
       {sub === 'hr-people' && (<>
-        {/* KPI strip */}
+        <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />
+        {/* KPI strip — skeleton shimmer while loading, never a flash of zeros */}
         <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-          <div className="kpi-card card-blue"><div className="kpi-label">Total People</div><div className="kpi-value">{counts.total}</div></div>
-          <div className="kpi-card card-green"><div className="kpi-label">Active</div><div className="kpi-value">{counts.active}</div></div>
-          <div className="kpi-card card-orange"><div className="kpi-label">Onboarding</div><div className="kpi-value">{counts.onboarding}</div></div>
-          <div className="kpi-card card-purple"><div className="kpi-label">Departments</div><div className="kpi-value">{counts.depts}</div></div>
+          {[['card-blue', 'Total People', counts.total], ['card-green', 'Active', counts.active],
+            ['card-orange', 'Onboarding', counts.onboarding], ['card-purple', 'Departments', counts.depts]]
+            .map(([cls, label, value]) => (
+              <div key={label} className={`kpi-card ${cls}`}>
+                <div className="kpi-label">{label}</div>
+                <div className="kpi-value">
+                  {loading
+                    ? <span className="skel" style={{ width: 46, height: 20, margin: '7px 0' }} />
+                    : value}
+                </div>
+              </div>
+            ))}
         </div>
 
         {/* Filters — search fills the row, the two dropdowns stay compact on the right */}
@@ -2149,7 +3265,9 @@ export default function HR({ activeSub, onSubChange }) {
             {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
           </select>
           <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
-            {counts.total} total · {counts.active} active · {filtered.length} shown
+            {loading
+              ? <span className="skel" style={{ width: 150, height: 11, verticalAlign: 'middle' }} />
+              : `${counts.total} total · ${counts.active} active · ${filtered.length} shown`}
           </span>
         </div>
 

@@ -9,16 +9,21 @@ import {
   CreditCard, Building, Server, FileSpreadsheet, Landmark, BarChart3,
   Users, LogIn, PenTool, Files, Megaphone, Star, ExternalLink,
   Settings, ChevronLeft, ChevronRight,
-  HelpCircle, Store, Calendar, MessageSquare, Package,
+  HelpCircle, Store, Calendar, MessageSquare, Package, Clock, Contact,
 } from "lucide-react";
 
 // Exported: MobileMenu mirrors this exact order/grouping on phones
 export const NAV = [
   { view: "dashboard",         label: "Dashboard",          icon: LayoutDashboard },
+  { view: "timeclock",         label: "Time Clock",         icon: Clock },
+  { view: "myhr",              label: "My HR",              icon: Contact },
   { view: "manager-dashboard", label: "Manager Dashboard",  icon: UserCheck,    minRole: 'supervisor' },
   { divider: true },
-  { view: "tasks",             label: "Tasks",               icon: CheckSquare,  minRole: 'supervisor' },
-  { view: "sop", label: "Knowledge Base", icon: BookOpen, minRole: 'supervisor' },
+  // Tasks + Knowledge Base are baseline: employees work their own tasks and the
+  // KB is the LMS — assigned courses/SOPs must be reachable by everyone.
+  // Manage/author actions inside stay role-gated (KB admin ops are level 3+).
+  { view: "tasks",             label: "Tasks",               icon: CheckSquare },
+  { view: "sop", label: "Knowledge Base", icon: BookOpen },
   { divider: true },
   {
     view: "it", label: "IT", icon: Monitor, minRole: 'supervisor',
@@ -100,7 +105,7 @@ export const NAV = [
   },
   { divider: true },
   { view: "support",        label: "Support",        icon: HelpCircle },
-  { view: "external-links", label: "External Links", icon: ExternalLink, minRole: 'supervisor' },
+  { view: "external-links", label: "External Links", icon: ExternalLink },
 ];
 
 const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }, ref) {

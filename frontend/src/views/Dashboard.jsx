@@ -1,279 +1,45 @@
 import { useMsal } from '@azure/msal-react';
-import { MapPin, RefreshCw, AlertTriangle, X } from 'lucide-react';
-import { useRef, useEffect, useState } from 'react';
+import { AlertTriangle, X } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
+import CustomDashboard from '../dashboard/CustomDashboard';
 
-const FACILITIES = [
-  { id: "hv", name: "Harbor View Storage",  city: "Tacoma, WA",   occ: 94, units: 612, rented: 575, mrr: 88200,  climate: true  },
-  { id: "ds", name: "Downtown Self Storage", city: "Portland, OR", occ: 88, units: 480, rented: 422, mrr: 71400,  climate: true  },
-  { id: "rs", name: "Riverside Storage",     city: "Eugene, OR",   occ: 76, units: 350, rented: 266, mrr: 39800,  climate: false },
-  { id: "ll", name: "Lakeline Storage",      city: "Bend, OR",     occ: 91, units: 528, rented: 480, mrr: 66100,  climate: true  },
-  { id: "sm", name: "Summit Storage",        city: "Spokane, WA",  occ: 69, units: 290, rented: 200, mrr: 27500,  climate: false },
-];
-
-const TASKS = [
-  { title: "Approve Lakeline repaving change order", dept: "Construction",    due: "Today",    prio: "high" },
-  { title: "Q2 occupancy report — Asset Management",  dept: "Asset Management",due: "Today",    prio: "high" },
-  { title: "Reply to Downtown 4-star review",         dept: "Operations",      due: "Tomorrow", prio: "med"  },
-  { title: "Renew Evergreen Electrical COI",          dept: "Accounting",      due: "May 30",   prio: "high" },
-  { title: "Onboard new Summit site manager",         dept: "HR",              due: "Jun 2",    prio: "med"  },
-];
-
-const TREND = [
-  { m: "Dec", occ: 81 }, { m: "Jan", occ: 83 }, { m: "Feb", occ: 84 },
-  { m: "Mar", occ: 86 }, { m: "Apr", occ: 85 }, { m: "May", occ: 88 },
-];
-
-function OccupancyChart() {
-  const containerRef  = useRef(null);
-  const [w, setW]     = useState(500);
-  const [hovered, setHovered] = useState(null);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const ro = new ResizeObserver(([entry]) => {
-      const width = entry.contentRect.width;
-      if (width > 0) setW(Math.floor(width));
-    });
-    ro.observe(containerRef.current);
-    return () => ro.disconnect();
-  }, []);
-
-  const h = 168, padX = 38, padY = 20, min = 75, max = 95;
-  const xs   = i => padX + i * ((w - padX * 2) / (TREND.length - 1));
-  const ys   = v => padY + ((max - v) / (max - min)) * (h - padY * 2 - 18);
-  const pts  = TREND.map((d, i) => `${xs(i)},${ys(d.occ)}`).join(" ");
-  const area = `M ${xs(0)},${h - 18} ` +
-    TREND.map((d, i) => `L ${xs(i)},${ys(d.occ)}`).join(" ") +
-    ` L ${xs(TREND.length - 1)},${h - 18} Z`;
-
-  return (
-    <div ref={containerRef} style={{ width: "100%" }}>
-      <svg width={w} height={h} style={{ display: "block", overflow: "visible", color: "var(--ink)" }}>
-        <defs>
-          <linearGradient id="og" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%"   stopColor="currentColor" stopOpacity="0.13" />
-            <stop offset="100%" stopColor="currentColor" stopOpacity="0"    />
-          </linearGradient>
-        </defs>
-
-        {/* Area fill */}
-        <path d={area} fill="url(#og)" />
-
-        {/* Line */}
-        <polyline
-          className="chart-line"
-          points={pts}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-
-        {/* Hover guide line */}
-        {hovered !== null && (
-          <line
-            x1={xs(hovered)} y1={padY}
-            x2={xs(hovered)} y2={h - 18}
-            stroke="var(--muted)" strokeWidth="1"
-            strokeDasharray="3 3" opacity="0.55"
-          />
-        )}
-
-        {/* Dots + labels */}
-        {TREND.map((d, i) => (
-          <g key={d.m} className="chart-dot">
-            <circle
-              cx={xs(i)} cy={ys(d.occ)}
-              r={hovered === i ? 5.5 : 3.5}
-              fill="currentColor"
-              style={{ transition: "r 0.15s ease" }}
-            />
-            <text
-              x={xs(i)} y={h - 3}
-              fontSize="10.5" textAnchor="middle"
-              fontFamily="Inter, sans-serif"
-              fontWeight={hovered === i ? 600 : 400}
-              style={{ fill: hovered === i ? "var(--ink)" : "var(--muted)", transition: "fill 0.15s" }}
-            >{d.m}</text>
-          </g>
-        ))}
-
-        {/* Tooltip */}
-        {hovered !== null && (() => {
-          const tx = Math.min(Math.max(xs(hovered), 42), w - 42);
-          const ty = Math.max(ys(TREND[hovered].occ) - 52, 4);
-          return (
-            <g style={{ pointerEvents: "none" }}>
-              <rect x={tx - 30} y={ty} width={60} height={38} rx={9} fill="var(--ink)" />
-              <polygon points={`${tx - 5},${ty + 38} ${tx + 5},${ty + 38} ${tx},${ty + 44}`} fill="var(--ink)" />
-              <text x={tx} y={ty + 13} textAnchor="middle" fontSize="10"
-                fontFamily="Inter, sans-serif" fill="rgba(255,255,255,0.6)">{TREND[hovered].m}</text>
-              <text x={tx} y={ty + 30} textAnchor="middle" fontSize="14"
-                fontFamily="Inter, sans-serif" fontWeight="700" fill="white">{TREND[hovered].occ}%</text>
-            </g>
-          );
-        })()}
-
-        {/* Invisible hover zones */}
-        {TREND.map((d, i) => {
-          const zw = (w - padX * 2) / (TREND.length - 1);
-          return (
-            <rect key={`hz${i}`}
-              x={xs(i) - zw / 2} y={0} width={zw} height={h}
-              fill="transparent" style={{ cursor: "crosshair" }}
-              onMouseEnter={() => setHovered(i)}
-              onMouseLeave={() => setHovered(null)}
-            />
-          );
-        })}
-      </svg>
-    </div>
-  );
-}
-
-export default function Dashboard({ onNavigate }) {
+// The dashboard IS the customizable widget grid now. The old "Portfolio at a
+// glance" overview lives on as widgets: Occupancy trend, Facilities and Tasks
+// overview are in the Add-widget gallery (Portfolio section) — see
+// dashboard/panels.jsx.
+export default function Dashboard() {
   const { accounts } = useMsal();
   const { activeOverdueAlerts, dismissOverdueAlert } = useNotifications();
-  const fullName  = accounts[0]?.name ?? 'there';
-  const firstName = fullName.split(" ")[0];
-  const hour      = new Date().getHours();
-  const timeOfDay = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+  const fullName = accounts[0]?.name ?? 'there';
 
   // Overdue alerts relevant to this user
   const myOverdueAlerts = activeOverdueAlerts.filter(a =>
     a.employeeName?.toLowerCase() === fullName.toLowerCase()
   );
 
-  const totalMrr = FACILITIES.reduce((a, f) => a + f.mrr, 0);
-  const avgOcc   = Math.round(FACILITIES.reduce((a, f) => a + f.occ, 0) / FACILITIES.length);
-
   return (
     <div className="dashboard-view">
       {/* ── Persistent overdue alerts ── */}
       {myOverdueAlerts.map(alert => (
         <div key={alert.id} style={{
-          display:'flex', alignItems:'center', gap:12,
-          background:'hsla(var(--color-red),0.1)', border:'1px solid hsla(var(--color-red),0.3)',
-          borderRadius:10, padding:'11px 16px', marginBottom:0,
-          animation:'fadeIn 0.2s ease',
+          display: 'flex', alignItems: 'center', gap: 12,
+          background: 'hsla(var(--color-red),0.1)', border: '1px solid hsla(var(--color-red),0.3)',
+          borderRadius: 10, padding: '11px 16px', marginBottom: 14,
+          animation: 'fadeIn 0.2s ease',
         }}>
-          <AlertTriangle size={16} style={{ color:'hsl(var(--color-red))', flexShrink:0 }} />
-          <div style={{ flex:1, fontSize:13, color:'hsl(var(--color-red))' }}>
+          <AlertTriangle size={16} style={{ color: 'hsl(var(--color-red))', flexShrink: 0 }} />
+          <div style={{ flex: 1, fontSize: 13, color: 'hsl(var(--color-red))' }}>
             <strong>Overdue item:</strong> <strong>{alert.itemName}</strong> was due for return and has not been returned yet. Please return it as soon as possible.
           </div>
           <button onClick={() => dismissOverdueAlert(alert.id)}
-            style={{ background:'none', border:'none', cursor:'pointer', color:'hsl(var(--color-red))', padding:4, borderRadius:5, display:'flex', alignItems:'center' }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-red))', padding: 4, borderRadius: 5, display: 'flex', alignItems: 'center' }}
             title="Dismiss (acknowledge)">
             <X size={14} />
           </button>
         </div>
       ))}
-      {/* Greeting */}
-      <div className="greeting-section">
-        <div>
-          <p className="greeting-eyebrow">Good {timeOfDay}, {firstName}</p>
-          <h1 className="greeting-title">Portfolio at a glance</h1>
-        </div>
-        <button className="primary-btn">
-          <RefreshCw size={15} /> Sync facilities
-        </button>
-      </div>
 
-      {/* KPIs */}
-      <div className="kpi-grid">
-        <div className="kpi-card">
-          <div className="kpi-label">Avg. Occupancy</div>
-          <div className="kpi-value">{avgOcc}%</div>
-          <div className="kpi-delta up">↑ +3 pts MoM</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-label">Monthly Recurring Revenue</div>
-          <div className="kpi-value">${(totalMrr / 1000).toFixed(1)}k</div>
-          <div className="kpi-delta up">↑ +5.2%</div>
-        </div>
-        <div className="kpi-card" style={{ cursor: "pointer" }} onClick={() => onNavigate("tasks")}>
-          <div className="kpi-label">Open Tasks</div>
-          <div className="kpi-value">5</div>
-          <div className="kpi-delta">2 due today</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-label">Facilities</div>
-          <div className="kpi-value">{FACILITIES.length}</div>
-          <div className="kpi-delta">2 states</div>
-        </div>
-      </div>
-
-      {/* Chart + Tasks */}
-      <div className="dash-grid-2">
-        <div className="dash-card">
-          <div className="dash-card-head">
-            <div>
-              <div className="dash-card-title">Occupancy trend</div>
-              <div className="dash-card-sub">Portfolio average, last 6 months</div>
-            </div>
-          </div>
-          <OccupancyChart />
-        </div>
-
-        <div className="dash-card">
-          <div className="dash-card-head">
-            <div>
-              <div className="dash-card-title">Tasks</div>
-              <div className="dash-card-sub">Across all departments</div>
-            </div>
-            <button className="link-btn" onClick={() => onNavigate("tasks")}>
-              View all →
-            </button>
-          </div>
-          <div className="task-list">
-            {TASKS.map((t, i) => (
-              <div key={i} className="task-row">
-                <span className={`prio-dot prio-${t.prio}`} />
-                <div className="task-content">
-                  <div className="task-title">{t.title}</div>
-                  <div className="task-dept">{t.dept}</div>
-                </div>
-                <span className={`task-due${t.due === "Today" ? " today" : ""}`}>
-                  {t.due}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Facilities */}
-      <div className="dash-card">
-        <div className="dash-card-head">
-          <div>
-            <div className="dash-card-title">Facilities</div>
-            <div className="dash-card-sub">Live occupancy across the Greens Storage portfolio</div>
-          </div>
-        </div>
-        <div className="facilities-grid">
-          {FACILITIES.map(f => (
-            <div key={f.id} className="facility-card">
-              <div className="facility-head">
-                <div>
-                  <div className="facility-name">{f.name}</div>
-                  <div className="facility-city"><MapPin size={10} /> {f.city}</div>
-                </div>
-                {f.climate && <span className="facility-badge">Climate</span>}
-              </div>
-              <div className="occ-row">
-                <div className="occ-bar"><span style={{ width: `${f.occ}%` }} /></div>
-                <span className="occ-pct">{f.occ}%</span>
-              </div>
-              <div className="facility-foot">
-                <span>{f.rented}/{f.units} units</span>
-                <span className="mrr-tag">${(f.mrr / 1000).toFixed(1)}k MRR</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      <CustomDashboard target="dashboard" />
     </div>
   );
 }

@@ -1,0 +1,10 @@
+{
+  "appId": "com.greensglobal.nexus.field",
+  "appName": "Nexus Fields",
+  "webDir": "www",
+  "server": { "androidScheme": "https" },
+  "plugins": {
+    "BackgroundGeolocation": {},
+    "CapacitorHttp": { "enabled": true }
+  }
+}

@@ -10,6 +10,8 @@ const RoleCtx = createContext(null);
 // module-access checkboxes, so they can never drift out of sync.
 export const MODULES = [
   { id: 'dashboard',           label: 'Dashboard' },
+  { id: 'timeclock',           label: 'Time Clock' },
+  { id: 'myhr',                label: 'My HR' },
   { id: 'manager-dashboard',   label: 'Manager Dashboard' },
   { id: 'tasks',               label: 'Tasks' },
   { id: 'sop',                 label: 'Knowledge Base' },

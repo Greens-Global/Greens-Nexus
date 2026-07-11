@@ -23,7 +23,13 @@ function rowToNotif(r) {
     refId:       r.ref_id,
     itemName:    r.item_name,
     requestedBy: cleanName(r.requested_by),
-    action:      r.action,
+    // Stored as a JSON string server-side; every consumer (bell, toasts,
+    // dashboard widget) expects the parsed object — parse once here.
+    action: (() => {
+      if (!r.action) return null;
+      if (typeof r.action === 'object') return r.action;
+      try { return JSON.parse(r.action); } catch { return null; }
+    })(),
     actioned:    r.actioned,
     read:        r.read,
     timestamp:   r.created_at,

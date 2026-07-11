@@ -1,20 +1,54 @@
-from sqlalchemy import Boolean, Column, Float, Integer, JSON, String
+from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, JSON, String
 from database import Base
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Task Module (ported from the standalone task-module export — Jul 2026)
+# The old flat demo `tasks` table (title/assignee/project/hours/dept/synced) was
+# replaced by the rich runtime schema below. All identity is email-keyed (joins
+# to nexus_employees), timestamps are ISO strings, arrays/maps are jsonb. Real
+# tables get RLS ON with no policies (backend uses the service role); only the
+# task_events ping table is anon-readable for Supabase realtime.
+# ─────────────────────────────────────────────────────────────────────────────
 class Task(Base):
     __tablename__ = "tasks"
-    id = Column(String, primary_key=True)
-    title = Column(String, nullable=False)
-    assignee = Column(String, nullable=False)
-    project = Column(String, nullable=False)
-    due_date = Column(String, nullable=False)
-    hours = Column(String, nullable=False)
-    comment = Column(String, default="")
-    priority = Column(String, nullable=False)
-    status = Column(String, nullable=False)
-    dept = Column(String, nullable=False)
-    synced = Column(Boolean, default=True)
+    id                = Column(String, primary_key=True)   # client/server id (e.g. uuid)
+    code              = Column(String, default="")         # human key, e.g. "TASK-001"
+    title             = Column(String, nullable=False)
+    description       = Column(String, default="")
+    type              = Column(String, default="task")     # task|subtask|milestone|approval|section
+    status            = Column(String, default="not_started")  # + custom board-column ids
+    priority          = Column(String, default="medium")   # low|medium|high|urgent
+    assignee_email    = Column(String, default="", index=True)
+    follower_emails   = Column(JSON, default=list)
+    liked_by_emails   = Column(JSON, default=list)
+    access_level      = Column(String, default="org")      # org|restricted
+    project_id        = Column(String, default="", index=True)
+    section_id        = Column(String, default="")
+    department_id     = Column(String, default="", index=True)
+    parent_task_id    = Column(String, default="", index=True)
+    subtask_ids       = Column(JSON, default=list)
+    blocked_by_ids    = Column(JSON, default=list)
+    blocking_ids      = Column(JSON, default=list)
+    dependency_types  = Column(JSON, default=dict)         # {blockerTaskId: "FS"|"FF"|"SS"|"SF"}
+    tags              = Column(JSON, default=list)
+    custom_field_values = Column(JSON, default=dict)       # {customFieldId: value}
+    start_on          = Column(String, default="")         # ISO yyyy-mm-dd
+    due_on            = Column(String, default="")         # ISO yyyy-mm-dd
+    estimate_hours    = Column(Float, nullable=True)
+    actual_hours      = Column(Float, nullable=True)
+    recurrence        = Column(JSON, nullable=True)        # {freq,interval,dayOfWeek?,dayOfMonth?}
+    is_milestone      = Column(Boolean, default=False)
+    approval_status   = Column(String, default="none")     # none|pending|approved|rejected|changes_requested
+    completed         = Column(Boolean, default=False)
+    completed_at      = Column(String, default="")
+    comment_ids       = Column(JSON, default=list)         # denormalised for the runtime shape
+    attachment_ids    = Column(JSON, default=list)
+    activity_ids      = Column(JSON, default=list)
+    created_at        = Column(String, default="")
+    modified_at       = Column(String, default="")
+    created_by        = Column(String, default="")         # email
+    synced_with_asana = Column(Boolean, default=False)
 
 
 class PurchaseRequest(Base):
@@ -483,6 +517,7 @@ class NexusEmployee(Base):
     created_by      = Column(String, default="")
     created_at      = Column(String, default="")
     updated_at      = Column(String, default="")
+    division        = Column(String, default="")               # functional division head-tag; org chart inherits down the tree (Phase 5)
 
 
 class HrCandidate(Base):
@@ -498,8 +533,9 @@ class HrCandidate(Base):
     department     = Column(String, default="")
     stage          = Column(String, default="applied")        # applied|screening|interview|offer|hired|rejected
     expected_start = Column(String, default="")               # ISO date
+    interview_at   = Column(String, default="")               # ISO datetime of the next interview
     source         = Column(String, default="")               # referral, LinkedIn, ...
-    resume_url     = Column(String, default="")
+    resume_url     = Column(String, default="")               # hr-docs storage path (private; signed URL to view)
     notes          = Column(String, default="")
     employee_id    = Column(String, default="")               # set when hired
     created_by     = Column(String, default="")
@@ -863,3 +899,682 @@ class HrMailboxExport(Base):
     total         = Column(Integer, default=0)           # messages in the mailbox (0 = unknown)
     created_at    = Column(String, default="")
     updated_at    = Column(String, default="")
+
+
+# ── E-Sign (HR Section C) — native signatures with legal-grade audit trail ────
+# Templates are authored with {{merge}} tokens and [[fieldtype:role]] slots;
+# requests freeze a resolved snapshot at send time so later profile edits never
+# change what someone signed. Final PDFs live in the private hr-docs bucket with
+# a SHA-256 stored for tamper evidence. Tables created via create_all on startup.
+
+class HrSignTemplate(Base):
+    __tablename__ = "hr_sign_templates"
+    id          = Column(String, primary_key=True)   # uuid
+    name        = Column(String, nullable=False)
+    kind        = Column(String, default="custom")   # offer|nda|direct_deposit|handbook_ack|w9|contractor_agreement|sow|custom
+    entity_id   = Column(String, default="")         # HrEntity.id ('' = any company)
+    body        = Column(JSON, default=list)         # list of paragraph strings with {{merge}} + [[sign:role]] tokens
+    roles       = Column(JSON, default=list)         # [{key,label,order}] — signing order
+    attachments = Column(JSON, default=list)         # [{name, path, pages, fields:[{id,role,type,page,x,y,w,h}]}] — PDFs signed as one packet
+    status      = Column(String, default="active")   # active|archived
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
+    egnyte_folder = Column(String, default="")       # Egnyte path for a copy of the sealed PDF ('' = don't copy)
+
+
+class HrSignRequest(Base):
+    """An envelope: one document sent to N ordered parties for signature."""
+    __tablename__ = "hr_sign_requests"
+    id               = Column(String, primary_key=True)   # uuid
+    title            = Column(String, nullable=False)
+    source           = Column(String, default="template") # template|pdf
+    template_id      = Column(String, default="")
+    employee_id      = Column(String, default="")         # subject person (optional)
+    candidate_id     = Column(String, default="")
+    entity_id        = Column(String, default="")
+    body_snapshot    = Column(JSON, default=list)         # resolved template body, frozen at send
+    pdf_storage_path = Column(String, default="")         # hr-docs path of uploaded source PDF
+    fields           = Column(JSON, default=list)         # pdf source: [{id,role,type,page,x,y,w,h,required}] normalized coords
+    documents        = Column(JSON, default=list)         # extra PDFs in the packet: [{name, path, fields:[...]}] (from template attachments)
+    status           = Column(String, default="pending")  # pending|completed|declined|voided|expired
+    current_order    = Column(Integer, default=1)         # whose turn (matches HrSignParty.order)
+    message          = Column(String, default="")
+    expires_on       = Column(String, default="")         # ISO date ('' = never)
+    created_by       = Column(String, default="")
+    created_at       = Column(String, default="")
+    completed_at     = Column(String, default="")
+    final_pdf_path   = Column(String, default="")         # hr-docs path of sealed final PDF
+    final_sha256     = Column(String, default="")         # tamper-evidence hash of final bytes
+    routing          = Column(String, default="sequential")  # sequential (ordered) | parallel (everyone at once)
+    egnyte_folder    = Column(String, default="")         # frozen from the template at send; sealed PDF is copied here
+
+
+class HrSignParty(Base):
+    __tablename__ = "hr_sign_parties"
+    id                   = Column(String, primary_key=True)   # uuid
+    request_id           = Column(String, nullable=False)
+    role_key             = Column(String, default="")
+    name                 = Column(String, default="")
+    email                = Column(String, default="")
+    kind                 = Column(String, default="internal") # internal|external
+    ordinal              = Column(Integer, default=1)         # signing order (matches request.current_order)
+    status               = Column(String, default="waiting")  # waiting|notified|viewed|signed|declined
+    token                = Column(String, default="")         # secrets.token_urlsafe(32) — the public-link credential
+    token_expires_at     = Column(String, default="")
+    signature_kind       = Column(String, default="")         # drawn|typed
+    signature_data       = Column(String, default="")         # PNG data-URL (drawn) or the typed name
+    consent_at           = Column(String, default="")         # ESIGN/UETA e-business consent timestamp
+    consent_text_version = Column(String, default="")
+    ip                   = Column(String, default="")
+    user_agent           = Column(String, default="")
+    viewed_at            = Column(String, default="")
+    signed_at            = Column(String, default="")
+    decline_reason       = Column(String, default="")
+    field_values         = Column(JSON, default=dict)         # filled text/check/date/initials values
+    party_role           = Column(String, default="signer")   # signer | cc (receives the sealed copy, never signs)
+    access_code          = Column(String, default="")         # optional code an external signer must enter to open the link
+
+
+class HrSignEvent(Base):
+    """Immutable audit trail — one row per action on an envelope."""
+    __tablename__ = "hr_sign_events"
+    id          = Column(String, primary_key=True)   # uuid
+    request_id  = Column(String, nullable=False)
+    party_id    = Column(String, default="")
+    type        = Column(String, default="")         # created|sent|viewed|consented|signed|declined|reminded|voided|completed|downloaded
+    detail      = Column(String, default="")
+    ip          = Column(String, default="")
+    user_agent  = Column(String, default="")
+    at          = Column(String, default="")
+
+
+# ── Time tracking (SwipeClock replacement) ────────────────────────────────────
+# Punch-event model: every clock action is one immutable row; shifts/totals are
+# derived. Geofencing is a SOFT gate (research-verified SwipeClock behavior):
+# out-of-fence punches are recorded and flagged, never blocked. Corrections
+# never overwrite silently — original_at freezes the first value, voided rows
+# stay in the table (wage-and-hour record retention).
+
+class TimePunch(Base):
+    __tablename__ = "time_punches"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    kind           = Column(String, nullable=False)     # in|out|break_start|break_end
+    at             = Column(String, nullable=False)     # UTC ISO — effective time (adjustments edit this)
+    original_at    = Column(String, default="")         # frozen first value once adjusted
+    local_date     = Column(String, default="")         # YYYY-MM-DD in the puncher's timezone (grouping key)
+    tz_offset_min  = Column(Integer, default=0)         # JS getTimezoneOffset() at punch
+    lat            = Column(String, default="")
+    lng            = Column(String, default="")
+    accuracy_m     = Column(Integer, default=0)         # reported GPS accuracy radius (metres)
+    geo_status     = Column(String, default="no_location")  # in_fence|out_of_fence|no_location
+    work_site_id   = Column(String, default="")         # nearest HrWorkSite with a geofence
+    work_site_name = Column(String, default="")         # frozen at punch time
+    distance_m     = Column(Integer, default=0)         # raw distance to that site
+    source         = Column(String, default="web")      # web|self_manual (missed-punch fix)|manual (manager)
+    note           = Column(String, default="")
+    ip             = Column(String, default="")
+    user_agent     = Column(String, default="")
+    adjusted_by    = Column(String, default="")
+    adjusted_at    = Column(String, default="")
+    adjust_note    = Column(String, default="")
+    voided         = Column(Integer, default=0)         # 1 = excluded from totals, kept for audit
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+
+
+class TimeScreenshot(Base):
+    """Work-session screen captures (consent-based getDisplayMedia — the browser
+    shows a persistent sharing indicator the whole time; nothing is covert).
+    One row per captured frame, image in the private hr-docs bucket."""
+    __tablename__ = "time_screenshots"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    at             = Column(String, nullable=False)     # UTC ISO
+    local_date     = Column(String, default="")
+    storage_path   = Column(String, default="")         # hr-docs path
+    idle_sec       = Column(Integer, default=0)         # seconds since last input at capture
+    active_view    = Column(String, default="")         # Nexus view/path when captured
+    created_at     = Column(String, default="")
+
+
+class TimeApproval(Base):
+    """Approve-then-export: a manager's sign-off on one employee's timecard for
+    an exact period. Revocations keep the row (audit) and clear the status."""
+    __tablename__ = "time_approvals"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    period_start   = Column(String, default="")         # YYYY-MM-DD
+    period_end     = Column(String, default="")
+    worked_min     = Column(Integer, default=0)         # snapshot at approval
+    approved_by    = Column(String, default="")
+    approved_at    = Column(String, default="")
+    note           = Column(String, default="")
+    revoked        = Column(Integer, default=0)
+    revoked_by     = Column(String, default="")
+
+
+class TimeBod(Base):
+    """Beginning/End-of-day message: on the first punch-in (bod) or a punch-out
+    (eod) the employee posts to a Teams channel (sent client-side AS THE USER
+    via delegated Graph); this row is the recorded copy."""
+    __tablename__ = "time_bod"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    kind           = Column(String, default="bod")      # bod | eod
+    local_date     = Column(String, default="")
+    message        = Column(String, default="")
+    tasks          = Column(String, default="")
+    team_id        = Column(String, default="")
+    team_name      = Column(String, default="")
+    channel_id     = Column(String, default="")
+    channel_name   = Column(String, default="")
+    sent           = Column(Integer, default=0)         # 1 = landed in Teams
+    send_error     = Column(String, default="")
+    created_at     = Column(String, default="")
+
+
+class AgentDevice(Base):
+    """A desktop-agent enrollment. Silent (no-login) model: an admin mints a
+    token tied to an employee, the install command drops it on the machine, and
+    the agent authenticates with it (X-Agent-Token) — no Microsoft sign-in. Each
+    row is one enrolled computer, self-describing on first check-in."""
+    __tablename__ = "agent_devices"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    token_hash     = Column(String, index=True, default="")   # sha256 of the secret
+    label          = Column(String, default="")         # optional admin note
+    device_name    = Column(String, default="")         # hostname
+    device_user    = Column(String, default="")         # OS username
+    mac            = Column(String, default="")
+    platform       = Column(String, default="")
+    revoked        = Column(Integer, default=0)
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+    last_seen_at   = Column(String, default="")
+
+
+class Shift(Base):
+    """A reusable shift preset: a short code (e.g. GSV), start/end time, colour
+    and grace window. Placed onto an employee+date in the schedule grid, or
+    bulk-applied to a group's default weekdays."""
+    __tablename__ = "shifts"
+    id         = Column(String, primary_key=True)   # uuid
+    name       = Column(String, default="")
+    code       = Column(String, default="")         # short label shown in the grid
+    start_hhmm = Column(String, default="09:00")
+    end_hhmm   = Column(String, default="17:00")
+    days       = Column(String, default="1,2,3,4,5")  # ISO weekday nums (Mon=1)
+    grace_min  = Column(Integer, default=10)
+    color      = Column(String, default="#2563eb")
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+
+
+class ScheduledShift(Base):
+    """One shift placed on a specific employee for a specific calendar date —
+    the cells of the weekly schedule grid. Links a preset for code/colour but
+    keeps its own times/label so a placement can be tweaked without editing the
+    preset."""
+    __tablename__ = "scheduled_shifts"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, index=True, nullable=False)
+    work_date      = Column(String, index=True, nullable=False)  # YYYY-MM-DD
+    shift_id       = Column(String, default="")          # preset ref (optional)
+    start_hhmm     = Column(String, default="09:00")
+    end_hhmm       = Column(String, default="17:00")
+    label          = Column(String, default="")          # e.g. "All Properties"
+    note           = Column(String, default="")
+    published      = Column(Integer, default=1)
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+
+
+class ShiftGroup(Base):
+    """A reusable set of employees — used to bulk-assign shifts AND to bind the
+    Teams group chat that this group's BOD/EOD/Break messages route to."""
+    __tablename__ = "shift_groups"
+    id              = Column(String, primary_key=True)   # uuid
+    name            = Column(String, default="")
+    teams_chat_id   = Column(String, default="")         # bound Teams group chat
+    teams_chat_name = Column(String, default="")
+    created_by      = Column(String, default="")
+    created_at      = Column(String, default="")
+
+
+class ShiftGroupMember(Base):
+    __tablename__ = "shift_group_members"
+    id             = Column(String, primary_key=True)   # uuid
+    group_id       = Column(String, index=True, nullable=False)
+    employee_email = Column(String, index=True, nullable=False)
+
+
+class ShiftAssignment(Base):
+    """The shift an employee is currently on (one active shift per person)."""
+    __tablename__ = "shift_assignments"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, index=True, nullable=False)
+    shift_id       = Column(String, default="")
+    assigned_by    = Column(String, default="")
+    assigned_at    = Column(String, default="")
+
+
+class PayrollRate(Base):
+    """Manager-set hourly pay rate used by the payroll timecard. One current rate
+    per employee (history is not kept here — corrections just overwrite)."""
+    __tablename__ = "payroll_rates"
+    employee_email = Column(String, primary_key=True)
+    hourly_rate    = Column(Float, default=0)
+    updated_by     = Column(String, default="")
+    updated_at     = Column(String, default="")
+
+
+class AgentActivity(Base):
+    """App/window activity reported by a silent device: per reporting window,
+    seconds spent in each foreground app + an activity % (share of samples where
+    the machine wasn't idle). Powers the app-usage breakdown + activity score."""
+    __tablename__ = "agent_activity"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    local_date     = Column(String, default="", index=True)
+    at             = Column(String, default="")
+    app            = Column(String, default="")
+    title          = Column(String, default="")
+    seconds        = Column(Integer, default=0)
+    active_pct     = Column(Integer, default=0)
+
+
+class TimeOffRequest(Base):
+    """Leave inside the Time module: employee-submitted, manager/HR-decided."""
+    __tablename__ = "time_off_requests"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    type           = Column(String, default="vacation") # vacation|sick|personal|unpaid|other
+    start_date     = Column(String, default="")         # YYYY-MM-DD
+    end_date       = Column(String, default="")
+    note           = Column(String, default="")
+    status         = Column(String, default="pending")  # pending|approved|rejected|cancelled
+    approver       = Column(String, default="")
+    decided_at     = Column(String, default="")
+    decide_note    = Column(String, default="")
+    created_at     = Column(String, default="")
+
+
+class DashboardView(Base):
+    """A saved, customizable dashboard layout (drag-and-drop widget grid).
+    scope='personal' → belongs to one user (owner_email); scope='department' →
+    a manager-published template every member of that department inherits and
+    can fork into their own. `target` picks the screen it applies to
+    ('dashboard' or 'manager-dashboard'). `layout` is a JSON array of widget
+    placements: [{ i, type, x, y, w, h, config }]."""
+    __tablename__ = "dashboard_views"
+    id           = Column(String, primary_key=True)   # uuid
+    owner_email  = Column(String, index=True, default="")   # "" for department scope
+    target       = Column(String, default="dashboard", index=True)  # dashboard | manager-dashboard
+    name         = Column(String, default="My view")
+    scope        = Column(String, default="personal")       # personal | department
+    department   = Column(String, default="")               # set when scope=department
+    layout       = Column(JSON, default=list)               # [{i,type,x,y,w,h,config}]
+    is_default   = Column(Boolean, default=False)           # this user's default for the target
+    created_by   = Column(String, default="")
+    created_at   = Column(String, default="")
+    updated_at   = Column(String, default="")
+
+
+class HrInterviewTemplate(Base):
+    """Role questionnaire for AI-assisted interviews: the questions HR asks in
+    the Teams call; answers get auto-filled from the transcript and scored."""
+    __tablename__ = "hr_interview_templates"
+    id         = Column(String, primary_key=True)   # uuid
+    name       = Column(String, nullable=False)     # role, e.g. "Site Manager"
+    questions  = Column(JSON, default=list)         # [{id, q}]
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+    updated_at = Column(String, default="")
+
+
+class HrInterview(Base):
+    """One interview round for a candidate: Teams meeting + questionnaire +
+    AI-filled answers + calibrated score (feeds the role leaderboard)."""
+    __tablename__ = "hr_interviews"
+    id              = Column(String, primary_key=True)   # uuid
+    candidate_id    = Column(String, nullable=False, index=True)
+    template_id     = Column(String, default="")
+    template_name   = Column(String, default="")         # frozen at schedule time
+    status          = Column(String, default="scheduled") # scheduled|live|completed|scored
+    at              = Column(String, default="")          # ISO start
+    duration_min    = Column(Integer, default=45)
+    organizer_email = Column(String, default="")
+    event_id        = Column(String, default="")          # Graph calendar event
+    join_url        = Column(String, default="")          # Teams join link
+    answers         = Column(JSON, default=list)          # [{qid, q, answer, score, rationale}]
+    transcript      = Column(String, default="")          # pulled from Teams or pasted
+    total_score     = Column(Float, default=0.0)          # 0–100 after calibration
+    summary         = Column(String, default="")          # AI verdict paragraph
+    started_at      = Column(String, default="")
+    completed_at    = Column(String, default="")
+    created_by      = Column(String, default="")
+    created_at      = Column(String, default="")
+    updated_at      = Column(String, default="")
+
+
+class HrSelfRequest(Base):
+    """Employee → HR ask raised from My HR (update a document, profile change,
+    question). HR members are notified on create and resolve it in the HR
+    module; the employee tracks status + response on My HR."""
+    __tablename__ = "hr_self_requests"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    employee_name  = Column(String, default="")
+    type           = Column(String, default="document")  # document | profile | question | other
+    message        = Column(String, default="")
+    attachment_path = Column(String, default="")         # hr-docs object the employee attached
+    attachment_name = Column(String, default="")
+    status         = Column(String, default="open")      # open | resolved
+    response       = Column(String, default="")
+    resolved_by    = Column(String, default="")
+    resolved_at    = Column(String, default="")
+    created_at     = Column(String, default="")
+
+
+# ── Field-worker location tracking (native app, clocked-in only) ──────────────
+# Periodic location pings across a shift for on-site crews. A browser can't do
+# this (geolocation dies when the phone locks), so the client is a native
+# Capacitor app that reuses the silent-agent token model (agent_devices +
+# X-Agent-Token) for enrollment — no Microsoft login on the phone.
+
+class TrackConsent(Base):
+    """Standing, revocable consent to be location-tracked while clocked in.
+    /track/start refuses without a live (granted, not-revoked) row. BYOD +
+    location = the highest-scrutiny path, so consent is explicit and recorded."""
+    __tablename__ = "track_consent"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    granted        = Column(Integer, default=1)         # 1 = consented, 0 = revoked
+    granted_at     = Column(String, default="")
+    revoked_at     = Column(String, default="")
+    text_version   = Column(String, default="")         # which consent wording was shown
+    ip             = Column(String, default="")
+    user_agent     = Column(String, default="")
+    created_at     = Column(String, default="")
+
+
+class TrackSession(Base):
+    """One tracking run == one shift. Opened at clock-in (or first ping while
+    clocked in), closed at clock-out / idle / expiry. The session IS the shift:
+    no session => no tracking, enforced server-side."""
+    __tablename__ = "track_sessions"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    device_id      = Column(String, default="")         # agent_devices.id that enrolled the phone
+    consent_id     = Column(String, default="")         # track_consent row in force at start
+    started_at     = Column(String, default="")
+    ended_at       = Column(String, default="")
+    ended_reason   = Column(String, default="")         # clock_out | idle | manual | expired
+    created_at     = Column(String, default="")
+
+
+class TrackPing(Base):
+    """One periodic location sample (~every 5 min or 100 m, clocked-in only).
+    Tagged in/out of the nearest work-site geofence by the shared _geofence().
+    Raw rows auto-purge after the retention window; keep a daily summary."""
+    __tablename__ = "track_pings"
+    id             = Column(String, primary_key=True)   # uuid
+    session_id     = Column(String, index=True, default="")
+    employee_email = Column(String, nullable=False, index=True)
+    at             = Column(String, nullable=False)     # UTC ISO — device capture time (not receive time)
+    received_at    = Column(String, default="")         # UTC ISO — when the server stored it
+    local_date     = Column(String, default="", index=True)
+    lat            = Column(String, default="")
+    lng            = Column(String, default="")
+    accuracy_m     = Column(Integer, default=0)
+    geo_status     = Column(String, default="no_location")  # in_fence|out_of_fence|low_accuracy|no_location
+    work_site_id   = Column(String, default="")
+    work_site_name = Column(String, default="")
+    distance_m     = Column(Integer, default=0)
+    battery_pct    = Column(Integer, default=-1)        # -1 = unknown
+    source         = Column(String, default="mobile")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Task Module — supporting tables (ported from task-module export, Jul 2026)
+# All email-keyed; ISO-string timestamps; jsonb for arrays/maps. See Task above.
+# ═════════════════════════════════════════════════════════════════════════════
+class TaskProject(Base):
+    """A body of work containing tasks (Asana "project")."""
+    __tablename__ = "task_projects"
+    id            = Column(String, primary_key=True)
+    name          = Column(String, nullable=False)
+    description   = Column(String, default="")
+    color         = Column(String, default="")
+    owner_email   = Column(String, default="", index=True)
+    portfolio_id  = Column(String, default="", index=True)
+    department_id = Column(String, default="", index=True)
+    status        = Column(String, default="not_started")
+    start_on      = Column(String, default="")
+    due_on        = Column(String, default="")
+    archived      = Column(Boolean, default=False)
+    member_emails = Column(JSON, default=list)
+    activity_ids  = Column(JSON, default=list)
+    created_at    = Column(String, default="")
+    modified_at   = Column(String, default="")
+    created_by    = Column(String, default="")
+
+
+class TaskPortfolio(Base):
+    """A curated, ordered collection of projects (Asana "portfolio")."""
+    __tablename__ = "task_portfolios"
+    id          = Column(String, primary_key=True)
+    name        = Column(String, nullable=False)
+    description = Column(String, default="")
+    color       = Column(String, default="")
+    owner_email = Column(String, default="", index=True)
+    project_ids = Column(JSON, default=list)              # ordered
+    archived    = Column(Boolean, default=False)
+    created_at  = Column(String, default="")
+    modified_at = Column(String, default="")
+    created_by  = Column(String, default="")
+
+
+class TaskDepartment(Base):
+    """A team/department; members can access all of its projects."""
+    __tablename__ = "task_departments"
+    id            = Column(String, primary_key=True)
+    name          = Column(String, nullable=False)
+    color         = Column(String, default="")
+    icon          = Column(String, default="")           # key from the department icon registry
+    member_emails = Column(JSON, default=list)
+    created_at    = Column(String, default="")
+
+
+class TaskSection(Base):
+    """An ordered section/group within a project's list & board views."""
+    __tablename__ = "task_sections"
+    id         = Column(String, primary_key=True)
+    project_id = Column(String, default="", index=True)
+    name       = Column(String, nullable=False)
+    position   = Column(Integer, default=0)
+    created_at = Column(String, default="")
+
+
+class TaskCustomStatus(Base):
+    """A user-defined board column / status beyond the four built-ins."""
+    __tablename__ = "task_custom_statuses"
+    id       = Column(String, primary_key=True)
+    label    = Column(String, nullable=False)
+    color    = Column(String, default="")
+    position = Column(Integer, default=0)
+
+
+class TaskComment(Base):
+    __tablename__ = "task_comments"
+    id           = Column(String, primary_key=True)
+    task_id      = Column(String, default="", index=True)
+    author_email = Column(String, default="")
+    body         = Column(String, default="")
+    created_at   = Column(String, default="")
+    edited_at    = Column(String, default="")
+    pinned       = Column(Boolean, default=False)
+
+
+class TaskAttachment(Base):
+    """File attached to a task. Bytes live in Supabase storage; `url` points there."""
+    __tablename__ = "task_attachments"
+    id         = Column(String, primary_key=True)
+    task_id    = Column(String, default="", index=True)
+    name       = Column(String, nullable=False)
+    size       = Column(String, default="")
+    kind       = Column(String, default="other")         # image|doc|other
+    url        = Column(String, default="")              # Supabase storage url (see _validate_photo_url)
+    added_at   = Column(String, default="")
+    added_by   = Column(String, default="")
+
+
+class TaskActivity(Base):
+    """One activity-feed event. Denormalised entity labels are captured at log
+    time so the global Activity Log renders even after the task/project is gone."""
+    __tablename__ = "task_activity"
+    id           = Column(String, primary_key=True)
+    entity_kind  = Column(String, default="task")        # task|project
+    entity_id    = Column(String, default="", index=True)
+    entity_code  = Column(String, default="")            # e.g. "TASK-003" or project name
+    entity_title = Column(String, default="")
+    type         = Column(String, default="")
+    actor_email  = Column(String, default="")
+    at           = Column(String, default="", index=True)
+    detail       = Column(String, default="")
+
+
+class TaskSavedView(Base):
+    __tablename__ = "task_saved_views"
+    id          = Column(String, primary_key=True)
+    owner_email = Column(String, default="", index=True)
+    name        = Column(String, nullable=False)
+    view        = Column(String, default="list")         # list|board|calendar|timeline
+    filters     = Column(JSON, default=dict)
+    sort        = Column(JSON, default=dict)
+    group       = Column(String, default="none")
+    created_at  = Column(String, default="")
+
+
+class TaskAutomationRule(Base):
+    __tablename__ = "task_automation_rules"
+    id         = Column(String, primary_key=True)
+    name       = Column(String, nullable=False)
+    trigger    = Column(JSON, default=dict)              # {type, value?}
+    actions    = Column(JSON, default=list)              # [{type, value}]
+    enabled    = Column(Boolean, default=True)
+    created_at = Column(String, default="")
+
+
+class TaskTemplate(Base):
+    __tablename__ = "task_templates"
+    id             = Column(String, primary_key=True)
+    name           = Column(String, nullable=False)
+    description    = Column(String, default="")
+    patch          = Column(JSON, default=dict)          # Partial<Task> applied on use
+    subtask_titles = Column(JSON, default=list)
+    created_at     = Column(String, default="")
+
+
+class TaskIntakeForm(Base):
+    __tablename__ = "task_intake_forms"
+    id                = Column(String, primary_key=True)
+    title             = Column(String, nullable=False)
+    fields            = Column(JSON, default=list)       # [{label,type,required}]
+    target_project_id = Column(String, default="")
+    created_at        = Column(String, default="")
+
+
+class TaskCustomField(Base):
+    __tablename__ = "task_custom_fields"
+    id          = Column(String, primary_key=True)
+    name        = Column(String, nullable=False)
+    description = Column(String, default="")
+    type        = Column(String, default="text")         # text|number|single_select|... (15 types)
+    options     = Column(JSON, default=list)             # [{id,label,color}]
+
+
+class TaskMemberRequest(Base):
+    """Request raised from the Teams page to add/remove a department member;
+    admins approve/reject from Manage → Departments."""
+    __tablename__ = "task_member_requests"
+    id            = Column(String, primary_key=True)
+    department_id = Column(String, default="", index=True)
+    user_email    = Column(String, default="")           # person to add/remove
+    kind          = Column(String, default="add")        # add|remove
+    requested_by  = Column(String, default="")           # email
+    status        = Column(String, default="pending")    # pending|approved|rejected
+    created_at    = Column(String, default="")
+    decided_at    = Column(String, default="")
+    decided_by    = Column(String, default="")
+
+
+class TaskNotification(Base):
+    """The task module's own in-app notification (its NotificationBell). `for_email`
+    is a specific address or the literal "admins" to fan out to every admin."""
+    __tablename__ = "task_notifications"
+    id            = Column(String, primary_key=True)
+    kind          = Column(String, default="")           # member_request|task_assigned|task_overdue|...
+    title         = Column(String, default="")
+    body          = Column(String, default="")
+    for_email     = Column(String, default="", index=True)
+    request_id    = Column(String, default="")
+    department_id = Column(String, default="")
+    task_id       = Column(String, default="")
+    read          = Column(Boolean, default=False)
+    created_at    = Column(String, default="", index=True)
+
+
+class TaskTicket(Base):
+    """A support/IT request; may be escalated into a Task (linked_task_id)."""
+    __tablename__ = "task_tickets"
+    id             = Column(String, primary_key=True)
+    code           = Column(String, default="")
+    subject        = Column(String, nullable=False)
+    description    = Column(String, default="")
+    status         = Column(String, default="new")       # new|open|in_progress|on_hold|resolved|closed|reopened
+    priority       = Column(String, default="medium")
+    requester_email= Column(String, default="", index=True)
+    assignee_email = Column(String, default="", index=True)
+    department_id  = Column(String, default="", index=True)
+    linked_task_id = Column(String, default="")
+    tags           = Column(JSON, default=list)
+    sla_due_on     = Column(String, default="")
+    resolved_at    = Column(String, default="")
+    created_at     = Column(String, default="")
+    modified_at    = Column(String, default="")
+
+
+class TaskChangelogEntry(Base):
+    """A changelog / "What's New" entry. Kept schema-loose (full object in
+    `payload`) — mirrors the property_records pattern — until the changelog UI
+    is ported and its shape stabilises."""
+    __tablename__ = "task_changelog_entries"
+    id         = Column(String, primary_key=True)
+    payload    = Column(JSON, default=dict)
+    created_at = Column(String, default="", index=True)
+    updated_at = Column(String, default="")
+
+
+class TaskChangelogComment(Base):
+    __tablename__ = "task_changelog_comments"
+    id           = Column(String, primary_key=True)
+    entry_id     = Column(String, default="", index=True)
+    author_email = Column(String, default="")
+    body         = Column(String, default="")
+    created_at   = Column(String, default="")
+
+
+class TaskEvent(Base):
+    """Realtime ping table. The only task_* table that is anon-readable (SELECT):
+    the frontend subscribes to it via the Supabase anon key to know when to
+    refetch — the real tables are never anon-exposed. Rows carry no sensitive
+    payload, just enough to scope a refetch (mirrors inventory_events)."""
+    __tablename__ = "task_events"
+    id             = Column(BigInteger, primary_key=True, autoincrement=True)
+    task_id        = Column(String, default="")
+    kind           = Column(String, default="")          # created|updated|deleted|comment|...
+    affected_email = Column(String, default="")
+    created_at     = Column(String, default="")          # set server-side (timestamptz in DB)

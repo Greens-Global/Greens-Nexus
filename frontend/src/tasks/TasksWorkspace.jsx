@@ -1,0 +1,230 @@
+// Task Module — the Tasks workspace: toolbar (search / group / view-kind) + the
+// List and Board views + bulk action bar. Owns the shared view state, mirroring
+// the export's viewContext. Calendar/Timeline/Dashboard live in ./views/extras.
+import { useMemo, useState } from 'react';
+import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, Trash2, X, FolderKanban } from 'lucide-react';
+import { useTasks } from './TasksContext';
+import { EMPTY_FILTER, matchesFilter, topLevel, sortTasks, groupTasks, taskStats } from './lib';
+import { NX, FONT, btn, input as inputStyle, STATUS_ORDER, STATUS_META, chip } from './theme';
+import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople } from './components';
+import CreateTaskModal from './CreateTaskModal';
+import TaskDetailDrawer from './TaskDetailDrawer';
+import { CalendarView, DashboardView } from './views/extras';
+import { TimelineView, FilesView, WorkloadView } from './views/more';
+import { ProductivityBar } from './productivity';
+import RichListView from './views/richlist';
+import BoardView from './views/board';
+
+const VIEW_KINDS = [
+  { key: 'list', label: 'List', icon: List },
+  { key: 'board', label: 'Board', icon: Columns3 },
+  { key: 'calendar', label: 'Calendar', icon: CalIcon },
+  { key: 'timeline', label: 'Timeline', icon: GanttChart },
+  { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { key: 'workload', label: 'Workload', icon: Gauge },
+  { key: 'files', label: 'Files', icon: Paperclip },
+];
+const GROUPS = ['status', 'priority', 'assignee', 'project', 'none'];
+
+export default function TasksWorkspace({ lockedProjectId = null, mine = false, title = 'Tasks' }) {
+  const store = useTasks();
+  const { tasks, nameOf, projectName, deptName, projectById, deptById, toggleComplete, bulkUpdate, deleteTask, myEmail } = store;
+  const people = usePeople();
+  const [view, setView] = useState('list');
+  const [group, setGroup] = useState('status');
+  const [search, setSearch] = useState('');
+  const [filters, setFilters] = useState(EMPTY_FILTER);
+  const [sort, setSort] = useState({ key: 'manual', dir: 'asc' });
+  const [selected, setSelected] = useState(new Set());
+  const [openId, setOpenId] = useState(null);
+  const [creating, setCreating] = useState(false);
+
+  const filter = {
+    ...filters, search,
+    projectIds: lockedProjectId ? [lockedProjectId] : filters.projectIds,
+    assigneeIds: mine && myEmail ? [myEmail] : filters.assigneeIds,
+  };
+  const visible = useMemo(
+    () => sortTasks(topLevel(tasks).filter((t) => matchesFilter(t, filter)), sort),
+    [tasks, search, filters, sort, lockedProjectId, mine, myEmail],
+  );
+
+  const applyView = (v) => {
+    if (v.filters) setFilters({ ...EMPTY_FILTER, ...v.filters });
+    if (v.sort) setSort(v.sort);
+    if (v.group) setGroup(v.group);
+    if (v.view) setView(v.view);
+  };
+  const stats = useMemo(() => taskStats(visible), [visible]);
+
+  const toggleSel = (id) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const clearSel = () => setSelected(new Set());
+  const selectAll = () => setSelected((s) => {
+    const ids = visible.map((t) => t.id);
+    const all = ids.length > 0 && ids.every((id) => s.has(id));
+    return all ? new Set() : new Set(ids);
+  });
+  const ctx = { nameOf, projectName, deptName };
+  const lockedProject = lockedProjectId ? projectById(lockedProjectId) : null;
+  const lockedDept = lockedProject?.departmentId ? deptById(lockedProject.departmentId) : null;
+
+  return (
+    <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
+      {/* Toolbar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: `1px solid ${NX.border}`, flexWrap: 'wrap', background: NX.surface }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 17, fontWeight: 700 }}>
+          {lockedProject ? (
+            <>
+              <FolderKanban size={17} style={{ color: lockedDept?.color || NX.purple }} />
+              {lockedProject.name}
+              {lockedDept && <span style={chip(lockedDept.color, `${lockedDept.color}1a`)}>{lockedDept.name}</span>}
+            </>
+          ) : title}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2 }}>
+          {VIEW_KINDS.map((v) => (
+            <button key={v.key} onClick={() => setView(v.key)} title={v.label} style={{
+              ...btn('ghost'), padding: '6px 10px', borderRadius: 7,
+              background: view === v.key ? NX.surface : 'transparent', color: view === v.key ? NX.ink : NX.dim,
+              boxShadow: view === v.key ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+            }}><v.icon size={15} />{v.label}</button>
+          ))}
+        </div>
+        <div style={{ position: 'relative', minWidth: 200, flex: '1 1 200px', maxWidth: 340 }}>
+          <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tasks…" style={{ ...inputStyle, paddingLeft: 32 }} />
+        </div>
+        {(view === 'list' || view === 'board') && (
+          <select value={group} onChange={(e) => setGroup(e.target.value)} style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}>
+            {GROUPS.map((g) => <option key={g} value={g}>Group: {g === 'none' ? 'None' : g[0].toUpperCase() + g.slice(1)}</option>)}
+          </select>
+        )}
+        <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => setCreating(true)}><Plus size={15} />New task</button>
+      </div>
+
+      {/* Productivity bar */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 16px', borderBottom: `1px solid ${NX.border2}`, background: NX.surface }}>
+        <ProductivityBar
+          filters={filters} setFilters={setFilters} sort={sort} setSort={setSort}
+          lockedProjectId={lockedProjectId} current={{ view, group }} onApplyView={applyView} onOpenTask={setOpenId}
+        />
+      </div>
+
+      {/* Body */}
+      <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: view === 'board' ? NX.canvas : NX.surface }}>
+        {view === 'list' ? (
+          <RichListView visible={visible} group={group} ctx={ctx} store={store} people={people} selected={selected} toggleSel={toggleSel} onOpen={setOpenId} onSelectAll={selectAll} />
+        ) : visible.length === 0 ? (
+          <EmptyState icon={CheckCircle2} title="No tasks yet" hint="Create your first task to get going." />
+        ) : view === 'board' ? (
+          <BoardView visible={visible} group={group} ctx={ctx} store={store} onOpen={setOpenId} lockedProjectId={lockedProjectId} />
+        ) : view === 'calendar' ? (
+          <CalendarView tasks={visible} onOpen={setOpenId} />
+        ) : view === 'timeline' ? (
+          <TimelineView tasks={visible} onOpen={setOpenId} />
+        ) : view === 'files' ? (
+          <FilesView tasks={visible} onOpen={setOpenId} />
+        ) : view === 'workload' ? (
+          <WorkloadView tasks={visible} nameOf={nameOf} />
+        ) : (
+          <DashboardView tasks={visible} stats={stats} store={store} />
+        )}
+      </div>
+
+      {/* Bulk bar */}
+      {selected.size > 0 && (
+        <div style={{ position: 'absolute', left: '50%', bottom: 22, transform: 'translateX(-50%)', background: NX.primary, color: '#fff', borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 10px 30px rgba(0,0,0,0.28)', zIndex: 30 }}>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>{selected.size} selected</span>
+          <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { status: e.target.value }); clearSel(); } }} defaultValue="" style={{ ...inputStyle, width: 'auto', padding: '5px 8px', background: 'rgba(255,255,255,0.14)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)' }}>
+            <option value="" disabled>Set status…</option>
+            {STATUS_ORDER.map((s) => <option key={s} value={s} style={{ color: NX.ink }}>{STATUS_META[s].label}</option>)}
+          </select>
+          <button onClick={() => { if (confirm(`Delete ${selected.size} task(s)?`)) { [...selected].forEach(deleteTask); clearSel(); } }} style={{ ...btn('ghost'), color: '#fff' }}><Trash2 size={15} />Delete</button>
+          <button onClick={clearSel} style={{ ...btn('ghost'), color: '#fff', padding: 5 }}><X size={16} /></button>
+        </div>
+      )}
+
+      {creating && <CreateTaskModal defaults={{ projectId: lockedProjectId || '' }} onClose={() => setCreating(false)} />}
+      {openId && <TaskDetailDrawer taskId={openId} onClose={() => setOpenId(null)} />}
+    </div>
+  );
+}
+
+function TaskRow({ t, store, selected, toggleSel, onOpen }) {
+  const { nameOf, toggleComplete, projectName } = store;
+  const overdue = t.dueOn && t.dueOn < new Date().toISOString().slice(0, 10) && !t.completed;
+  return (
+    <div onClick={() => onOpen(t.id)} style={{
+      display: 'grid', gridTemplateColumns: '26px 26px 1fr auto auto auto', alignItems: 'center', gap: 10,
+      padding: '9px 16px', borderBottom: `1px solid ${NX.border2}`, cursor: 'pointer', background: selected.has(t.id) ? '#eef4ff' : NX.surface,
+    }}
+      onMouseEnter={(e) => { if (!selected.has(t.id)) e.currentTarget.style.background = NX.surface2; }}
+      onMouseLeave={(e) => { if (!selected.has(t.id)) e.currentTarget.style.background = NX.surface; }}>
+      <input type="checkbox" checked={selected.has(t.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleSel(t.id)} style={{ cursor: 'pointer' }} />
+      <button onClick={(e) => { e.stopPropagation(); toggleComplete(t); }} title="Toggle complete" style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>
+        {t.completed ? <CheckCircle2 size={19} /> : <Circle size={19} />}
+      </button>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 500, color: NX.ink, textDecoration: t.completed ? 'line-through' : 'none', opacity: t.completed ? 0.6 : 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</div>
+        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1 }}>{t.code}{t.projectId ? ` · ${projectName(t.projectId)}` : ''}</div>
+      </div>
+      {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={24} /> : <span style={{ width: 24 }} />}
+      <PriorityChip priority={t.priority} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 600 : 400, minWidth: 74, textAlign: 'right' }}>{t.dueOn || '—'}</span>
+        <StatusChip status={t.status} />
+      </div>
+    </div>
+  );
+}
+
+function ListBody({ groups, store, selected, toggleSel, onOpen }) {
+  return (
+    <div>
+      {groups.map((g) => (
+        <div key={g.key}>
+          {g.label && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px 6px', fontSize: 12.5, fontWeight: 700, color: NX.dim, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+              {g.label} <span style={{ color: NX.faint, fontWeight: 600 }}>{g.tasks.length}</span>
+            </div>
+          )}
+          {g.tasks.map((t) => <TaskRow key={t.id} t={t} store={store} selected={selected} toggleSel={toggleSel} onOpen={onOpen} />)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BoardBody({ visible, group, ctx, store, onOpen }) {
+  // Board always groups into columns; default to status when group is 'none'.
+  const cols = groupTasks(visible, group === 'none' ? 'status' : group, ctx);
+  const { nameOf, toggleComplete, projectName } = store;
+  return (
+    <div style={{ display: 'flex', gap: 14, padding: 16, alignItems: 'flex-start', minHeight: '100%' }}>
+      {cols.map((c) => (
+        <div key={c.key} style={{ width: 288, flexShrink: 0, background: NX.surface, borderRadius: 12, border: `1px solid ${NX.border}` }}>
+          <div style={{ padding: '11px 13px', borderBottom: `1px solid ${NX.border2}`, fontSize: 13, fontWeight: 700, display: 'flex', justifyContent: 'space-between' }}>
+            <span>{c.label || 'Tasks'}</span><span style={{ color: NX.faint }}>{c.tasks.length}</span>
+          </div>
+          <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 9, maxHeight: '68vh', overflowY: 'auto' }}>
+            {c.tasks.map((t) => (
+              <div key={t.id} onClick={() => onOpen(t.id)} style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, padding: 11, cursor: 'pointer', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                  <button onClick={(e) => { e.stopPropagation(); toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={17} /> : <Circle size={17} />}</button>
+                  <div style={{ fontSize: 13.5, fontWeight: 500, flex: 1, textDecoration: t.completed ? 'line-through' : 'none', opacity: t.completed ? 0.6 : 1 }}>{t.title}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 9, flexWrap: 'wrap' }}>
+                  <PriorityChip priority={t.priority} />
+                  {t.dueOn && <span style={{ fontSize: 11.5, color: NX.dim }}>{t.dueOn}</span>}
+                  {t.projectId && <span style={{ fontSize: 11.5, color: NX.faint }}>{projectName(t.projectId)}</span>}
+                  <div style={{ marginLeft: 'auto' }}>{t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={22} /> : null}</div>
+                </div>
+              </div>
+            ))}
+            {c.tasks.length === 0 && <div style={{ fontSize: 12, color: NX.faint, textAlign: 'center', padding: 14 }}>Empty</div>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}

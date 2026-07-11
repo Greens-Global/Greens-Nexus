@@ -6,14 +6,18 @@ export const msalConfig = {
     postLogoutRedirectUri: import.meta.env.VITE_REDIRECT_URI ?? "http://localhost:5173",
   },
   cache: {
-    cacheLocation: "sessionStorage",
+    // localStorage (not sessionStorage): the token cache is shared across tabs
+    // and survives browser restarts, so opening Nexus from a new link signs in
+    // silently instead of bouncing through Microsoft login every time.
+    cacheLocation: "localStorage",
     storeAuthStateInCookie: false,
   },
 };
 
 export const loginRequest = {
   scopes: ["User.Read"],
-  prompt: "select_account",
+  // No prompt override: with an active Entra session the redirect completes
+  // silently. Entra shows its account picker on its own when it's ambiguous.
 };
 
 // Scopes used to acquire the ID token sent to the Nexus backend

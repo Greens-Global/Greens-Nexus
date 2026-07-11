@@ -1,7 +1,9 @@
+import json
 import re
 import uuid
+import httpx
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
@@ -61,6 +63,7 @@ class EmployeeUpdate(BaseModel):
     status:          Optional[str] = None
     location:        Optional[str] = None
     company:         Optional[str] = None
+    division:        Optional[str] = None
     contractor:      Optional[dict] = None
     personal:        Optional[dict] = None
     compliance:      Optional[dict] = None
@@ -102,6 +105,7 @@ def _serialize(e: NexusEmployee) -> dict:
         "status":         e.status,
         "location":       e.location,
         "company":        e.company,
+        "division":       e.division or "",
         "contractor":     e.contractor or {},
         "personal":       e.personal or {},
         "compliance":     e.compliance or {},
@@ -176,7 +180,19 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
     row.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit()
     db.refresh(row)
-    return _serialize(row)
+    out = _serialize(row)
+    # Nexus is the source of truth for profile edits — mirror them onto the
+    # linked Entra account automatically (best-effort: a Graph hiccup must never
+    # fail the save; the response says whether Entra took the change).
+    if row.m365_id and (set(fields) & ENTRA_MAPPED_FIELDS):
+        try:
+            token = _graph_token()
+            written = _graph_writeback(token, row, db)
+            manager = _graph_set_manager(token, row) if "manager_email" in fields else None
+            out["entra"] = {"synced": True, "written": written, "manager": manager}
+        except Exception as e:
+            out["entra"] = {"synced": False, "error": str(e)[:200]}
+    return out
 
 
 @router.delete("/employees/{eid}")
@@ -196,15 +212,18 @@ from models import HrCandidate, HrStageEvent, HrLeaveRequest, HrLeaveBalance, Ne
 _STAGES = ("applied", "screening", "interview", "offer", "hired", "rejected")
 
 
-def _hr_notify(db: Session, recipient: str, title: str, body: str, ref_id: str = "", requested_by: str = "") -> None:
+def _hr_notify(db: Session, recipient: str, title: str, body: str, ref_id: str = "", requested_by: str = "",
+               action: Optional[dict] = None) -> None:
     """Server-side bell notification (items.py pattern). Empty recipient = noop —
-    HR events must always target a person, never broadcast to all managers."""
+    HR events must always target a person, never broadcast to all managers.
+    `action` = {"view": ..., "sub": ...} makes the bell/toast click navigate there."""
     if not (recipient or "").strip():
         return
     db.add(NexusNotification(
         id=str(uuid.uuid4()), type="custom_alert", recipient=recipient.strip().lower(),
         title=title, body=body, ref_id=ref_id, item_name="", requested_by=requested_by,
-        action="", actioned=False, read_by="", created_at=datetime.now(timezone.utc).isoformat(),
+        action=json.dumps(action) if action else "", actioned=False, read_by="",
+        created_at=datetime.now(timezone.utc).isoformat(),
     ))
 
 
@@ -232,6 +251,7 @@ class CandidateUpdate(BaseModel):
     notes:          Optional[str] = None
     stage:          Optional[str] = None
     stage_note:     Optional[str] = None
+    interview_at:   Optional[str] = None   # ISO datetime; '' clears
 
 
 def _ser_candidate(c: HrCandidate) -> dict:
@@ -240,6 +260,7 @@ def _ser_candidate(c: HrCandidate) -> dict:
         "email": c.email, "phone": c.phone, "roleTitle": c.role_title,
         "department": c.department, "stage": c.stage,
         "expectedStart": c.expected_start, "source": c.source,
+        "interviewAt": c.interview_at or "",
         "resumeUrl": c.resume_url, "notes": c.notes, "employeeId": c.employee_id,
         "createdAt": c.created_at, "updatedAt": c.updated_at,
     }
@@ -248,7 +269,18 @@ def _ser_candidate(c: HrCandidate) -> dict:
 @router.get("/candidates")
 def list_candidates(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     rows = db.query(HrCandidate).order_by(HrCandidate.created_at.desc()).all()
-    return [_ser_candidate(c) for c in rows]
+    # Best calibrated interview score per candidate (chip on the kanban card)
+    from models import HrInterview
+    best: dict = {}
+    for iv in db.query(HrInterview).filter(HrInterview.status == "scored").all():
+        if (iv.total_score or 0) >= best.get(iv.candidate_id, -1):
+            best[iv.candidate_id] = iv.total_score or 0
+    out = []
+    for c in rows:
+        d = _ser_candidate(c)
+        d["interviewScore"] = round(best[c.id]) if c.id in best else None
+        out.append(d)
+    return out
 
 
 @router.get("/candidates/{cid}/history")
@@ -317,7 +349,23 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
                        f"Candidate {('hired' if body.stage == 'hired' else ('rejected' if body.stage == 'rejected' else 'moved'))}: {cand_name}",
                        f"{cand_name} ({row.role_title or row.department or 'candidate'}) is now in {body.stage.replace('_', ' ')}."
                        + (f"\nNote: {body.stage_note.strip()}" if (body.stage_note or '').strip() else ''),
-                       ref_id=row.id, requested_by=user["email"])
+                       ref_id=row.id, requested_by=user["email"],
+                       action={"view": "hr", "sub": "hr-hiring"})
+
+    # Interview scheduling: record + notify the candidate owner (the daily
+    # reminder job pings again on the day itself).
+    if body.interview_at is not None and body.interview_at != (row.interview_at or ""):
+        row.interview_at = body.interview_at.strip()
+        if row.interview_at and row.created_by:
+            cand_name = f"{row.first_name} {row.last_name}".strip()
+            try:
+                pretty = datetime.fromisoformat(row.interview_at).strftime("%a, %b %d at %H:%M")
+            except ValueError:
+                pretty = row.interview_at
+            _hr_notify(db, row.created_by, f"Interview scheduled — {cand_name}",
+                       f"{cand_name} ({row.role_title or 'candidate'}) is booked for {pretty}.",
+                       ref_id=row.id, requested_by=user["email"],
+                       action={"view": "hr", "sub": "hr-hiring"})
 
     for key in ("first_name", "last_name", "email", "phone", "role_title",
                 "department", "expected_start", "source", "notes"):
@@ -340,6 +388,44 @@ def delete_candidate(cid: str, user: dict = Depends(require_hr_delete), db: Sess
     db.query(HrCandidate).filter(HrCandidate.id == cid).delete()
     db.commit()
     return {"ok": True}
+
+
+@router.post("/candidates/{cid}/resume")
+async def upload_resume(cid: str, file: UploadFile = File(...),
+                        user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Resume / any candidate doc — private hr-docs bucket, path on the record."""
+    row = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
+    if not row:
+        raise HTTPException(404, "Candidate not found")
+    data = await file.read()
+    if len(data) > _MAX_DOC_BYTES:
+        raise HTTPException(400, "File too large (max 15 MB)")
+    safe = re.sub(r"[^a-zA-Z0-9._-]", "_", file.filename or "resume.pdf")
+    path = f"candidates/{cid}/{uuid.uuid4()}-{safe}"
+    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
+                      headers={**_storage_headers(), "Content-Type": file.content_type or "application/octet-stream"},
+                      content=data, timeout=60)
+    if not resp.is_success:
+        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    row.resume_url = path
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit()
+    return _ser_candidate(row)
+
+
+@router.get("/candidates/{cid}/resume-url")
+def candidate_resume_url(cid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    row = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
+    if not row or not row.resume_url:
+        raise HTTPException(404, "No resume on file")
+    # Legacy rows may hold a full external URL rather than a storage path.
+    if row.resume_url.startswith("http"):
+        return {"url": row.resume_url, "expiresIn": 0}
+    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{row.resume_url}",
+                      headers=_storage_headers(), json={"expiresIn": 300}, timeout=15)
+    if not resp.is_success:
+        raise HTTPException(502, "Could not sign URL")
+    return {"url": f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}", "expiresIn": 300}
 
 
 # ── Leave tracker (Phase 6) ───────────────────────────────────────────────────
@@ -502,10 +588,20 @@ def _ser_doc(d: HrDocument) -> dict:
             "createdAt": d.created_at}
 
 
+def _has_comp(user: dict, db: Session) -> bool:
+    """Inline hr_comp check (paystubs are salary documents). Mirrors
+    require_hr_comp_read: Global Admin bypass OR an explicit hr_comp grant."""
+    from auth import _module_level, _LEVELS
+    return user["level"] >= _LEVELS["owner"] or _module_level(user["email"], "hr_comp", db) >= 1
+
+
 @router.get("/employees/{eid}/documents")
 def list_documents(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     rows = (db.query(HrDocument).filter(HrDocument.employee_id == eid)
             .order_by(HrDocument.created_at.desc()).all())
+    # Paystubs are comp-restricted — hidden from plain hr viewers/editors.
+    if not _has_comp(user, db):
+        rows = [d for d in rows if d.kind != "paystub"]
     return [_ser_doc(d) for d in rows]
 
 
@@ -545,6 +641,8 @@ def document_url(did: str, user: dict = Depends(require_hr_read), db: Session = 
     row = db.query(HrDocument).filter(HrDocument.id == did).first()
     if not row:
         raise HTTPException(404, "Document not found")
+    if row.kind == "paystub" and not _has_comp(user, db):
+        raise HTTPException(403, "Paystubs require the compensation grant")
     resp = httpx.post(
         f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{row.storage_path}",
         headers=_storage_headers(), json={"expiresIn": 300}, timeout=15,
@@ -559,9 +657,139 @@ def delete_document(did: str, user: dict = Depends(require_hr_write), db: Sessio
     row = db.query(HrDocument).filter(HrDocument.id == did).first()
     if not row:
         return {"ok": True}
+    if row.kind == "paystub" and not _has_comp(user, db):
+        raise HTTPException(403, "Paystubs require the compensation grant")
     httpx.request("DELETE", f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{row.storage_path}",
                   headers=_storage_headers(), timeout=30)
     db.delete(row)
+    db.commit()
+    return {"ok": True}
+
+
+# ── Paystubs — HrDocument rows with kind="paystub", hr_comp-gated ────────────
+# Employees see/download their own via /myhr/paystubs (routers/myhr.py).
+
+@router.get("/employees/{eid}/paystubs")
+def list_paystubs(eid: str, user: dict = Depends(require_hr_comp_read), db: Session = Depends(get_db)):
+    rows = (db.query(HrDocument)
+            .filter(HrDocument.employee_id == eid, HrDocument.kind == "paystub")
+            .order_by(HrDocument.created_at.desc()).all())
+    return [_ser_doc(d) for d in rows]
+
+
+@router.post("/employees/{eid}/paystubs")
+async def upload_paystub(eid: str, file: UploadFile = File(...), period: str = Form(""),
+                         user: dict = Depends(require_hr_comp_write), db: Session = Depends(get_db)):
+    """One paystub PDF per pay period; `period` becomes the display name
+    (e.g. "Jun 16 – Jun 30, 2026")."""
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    data = await file.read()
+    if len(data) > _MAX_DOC_BYTES:
+        raise HTTPException(400, "File too large (max 15 MB)")
+    safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", file.filename or "paystub.pdf")
+    path = f"paystubs/{eid}/{uuid.uuid4()}-{safe_name}"
+    resp = httpx.post(
+        f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
+        headers={**_storage_headers(), "Content-Type": file.content_type or "application/pdf"},
+        content=data, timeout=60,
+    )
+    if not resp.is_success:
+        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+    display = f"Paystub — {period.strip()}" if period.strip() else (file.filename or "Paystub")
+    row = HrDocument(id=str(uuid.uuid4()), employee_id=eid, kind="paystub",
+                     file_name=display[:200], storage_path=path,
+                     size_bytes=len(data), expires_on="",
+                     uploaded_by=user["email"], created_at=datetime.now(timezone.utc).isoformat())
+    db.add(row)
+    db.commit()
+    return _ser_doc(row)
+
+
+# ── Employee requests ("Ask HR" on My HR) — list + resolve ───────────────────
+from models import HrSelfRequest
+
+
+@router.get("/requests")
+def list_self_requests(status: str = "", user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    q = db.query(HrSelfRequest)
+    if status:
+        q = q.filter(HrSelfRequest.status == status)
+    rows = q.order_by(HrSelfRequest.created_at.desc()).limit(200).all()
+    return [{"id": r.id, "email": r.employee_email, "name": r.employee_name,
+             "type": r.type, "message": r.message, "status": r.status,
+             "attachmentName": r.attachment_name or "",
+             "response": r.response or "", "resolvedBy": r.resolved_by or "",
+             "resolvedAt": r.resolved_at or "", "createdAt": r.created_at} for r in rows]
+
+
+@router.get("/requests/{rid}/attachment-url")
+def self_request_attachment_url(rid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    r = db.query(HrSelfRequest).filter(HrSelfRequest.id == rid).first()
+    if not r or not r.attachment_path:
+        raise HTTPException(404, "No attachment")
+    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{r.attachment_path}",
+                      headers=_storage_headers(), json={"expiresIn": 300}, timeout=15)
+    if not resp.is_success:
+        raise HTTPException(502, "Could not sign URL")
+    return {"url": f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}", "expiresIn": 300}
+
+
+class AttachToEmployeeIn(BaseModel):
+    kind: str = "other"
+
+
+@router.post("/requests/{rid}/attach-to-employee")
+def attach_request_to_employee(rid: str, body: AttachToEmployeeIn,
+                               user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """One click: copy the employee's attached file into their official HR
+    document set (storage copy + HrDocument row) — nothing to re-upload."""
+    r = db.query(HrSelfRequest).filter(HrSelfRequest.id == rid).first()
+    if not r or not r.attachment_path:
+        raise HTTPException(404, "No attachment on this request")
+    emp = (db.query(NexusEmployee)
+           .filter(func.lower(NexusEmployee.work_email) == r.employee_email.lower()).first())
+    if not emp:
+        raise HTTPException(404, "No employee record for this request")
+    kind = body.kind if body.kind in _DOC_KINDS else "other"
+    fname = r.attachment_name or "document"
+    dest = f"{emp.id}/{uuid.uuid4()}-{re.sub(r'[^a-zA-Z0-9._-]', '_', fname)}"
+    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/copy",
+                      headers={**_storage_headers(), "Content-Type": "application/json"},
+                      json={"bucketId": _DOC_BUCKET, "sourceKey": r.attachment_path,
+                            "destinationKey": dest}, timeout=30)
+    if not resp.is_success:
+        raise HTTPException(502, f"Storage copy failed: {resp.text[:200]}")
+    row = HrDocument(id=str(uuid.uuid4()), employee_id=emp.id, kind=kind,
+                     file_name=fname, storage_path=dest, size_bytes=0, expires_on="",
+                     uploaded_by=user["email"], created_at=datetime.now(timezone.utc).isoformat())
+    db.add(row)
+    db.commit()
+    return _ser_doc(row)
+
+
+class ResolveRequestIn(BaseModel):
+    response: str = ""
+
+
+@router.patch("/requests/{rid}")
+def resolve_self_request(rid: str, body: ResolveRequestIn,
+                         user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    r = db.query(HrSelfRequest).filter(HrSelfRequest.id == rid).first()
+    if not r:
+        raise HTTPException(404, "Request not found")
+    r.status = "resolved"
+    r.response = (body.response or "").strip()[:2000]
+    r.resolved_by = user["email"]
+    r.resolved_at = datetime.now(timezone.utc).isoformat()
+    # Tell the employee (server-side notification; shows on their bell + My HR).
+    db.add(NexusNotification(
+        id=str(uuid.uuid4()), type="hr_request_resolved", recipient=r.employee_email,
+        title="HR resolved your request",
+        body=(r.response or "Your request to HR has been handled.")[:300],
+        ref_id=r.id, action="", actioned=False, read_by="",
+        created_at=datetime.now(timezone.utc).isoformat()))
     db.commit()
     return {"ok": True}
 
@@ -585,6 +813,77 @@ def _graph_token() -> str:
     )
     resp.raise_for_status()
     return resp.json()["access_token"]
+
+
+# Human labels Entra admins expect in the freeform employeeType attribute
+_EMPLOYEE_TYPE_LABEL = {"full_time": "Full-time", "part_time": "Part-time",
+                        "contractor": "Contractor", "intern": "Intern"}
+
+# Nexus employee fields whose edit means the linked Entra user is now stale
+ENTRA_MAPPED_FIELDS = {"first_name", "last_name", "job_title", "department", "phone",
+                       "location", "employee_code", "employment_type", "start_date",
+                       "company", "personal", "manager_email"}
+
+
+def _graph_writeback(token: str, emp, db: Optional[Session] = None) -> list:
+    """Push the editable profile attributes from Nexus back onto the linked Entra
+    user (the reverse of Sync-from-M365). Only sends fields that have a value, so
+    an empty Nexus field never wipes an existing Entra one. Returns the attribute
+    names written. Needs User.ReadWrite.All (already consented for provisioning)."""
+    first = (emp.first_name or "").strip()
+    last  = (emp.last_name or "").strip()
+    # Same rule as every other attribute below: only send names that have a
+    # value, so a blank Nexus first/last never WIPES the existing Entra name.
+    payload = {}
+    if first:
+        payload["givenName"] = first
+    if last:
+        payload["surname"] = last
+    if first or last:
+        payload["displayName"] = f"{first} {last}".strip()
+    company_name = ""
+    if db is not None and (emp.company or "").strip():
+        from models import HrEntity
+        ent = db.query(HrEntity).filter(HrEntity.id == emp.company).first()
+        company_name = (ent.name if ent else "") or ""
+    street = " ".join(str((emp.personal or {}).get("currentAddress", "")).split())[:1024]
+    for attr, value in (("jobTitle", emp.job_title), ("department", emp.department),
+                        ("mobilePhone", emp.phone), ("officeLocation", emp.location),
+                        ("employeeId", emp.employee_code),
+                        ("employeeType", _EMPLOYEE_TYPE_LABEL.get(emp.employment_type or "", "")),
+                        ("companyName", company_name),
+                        ("streetAddress", street)):
+        v = (value or "").strip()
+        if v:
+            payload[attr] = v
+    # Graph wants a full DateTimeOffset for hire date, not a bare ISO date
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", (emp.start_date or "").strip()):
+        payload["employeeHireDate"] = f"{emp.start_date.strip()}T00:00:00Z"
+    resp = httpx.patch(f"{_GRAPH}/users/{emp.m365_id}",
+                       headers={"Authorization": f"Bearer {token}"},
+                       json=payload, timeout=20)
+    if not resp.is_success:
+        raise RuntimeError(f"Entra write-back failed: {resp.text[:200]}")
+    return list(payload.keys())
+
+
+def _graph_set_manager(token: str, emp) -> Optional[bool]:
+    """Point the Entra manager edge at emp.manager_email. Best-effort: None = no
+    manager set on the profile, True/False = the $ref write's result."""
+    if not (emp.manager_email or "").strip():
+        return None
+    try:
+        mgr = httpx.get(f"{_GRAPH}/users/{emp.manager_email}",
+                        headers={"Authorization": f"Bearer {token}"}, timeout=20)
+        mid = mgr.json().get("id") if mgr.is_success else None
+        if not mid:
+            return False
+        ref = httpx.put(f"{_GRAPH}/users/{emp.m365_id}/manager/$ref",
+                        headers={"Authorization": f"Bearer {token}"},
+                        json={"@odata.id": f"{_GRAPH}/users/{mid}"}, timeout=20)
+        return ref.is_success
+    except Exception:
+        return False
 
 
 # Graph only returns internal SKU part numbers — map the ones in our tenant to
@@ -788,6 +1087,34 @@ def provision_runs(eid: str, user: dict = Depends(require_hr_read), db: Session 
                     "startedAt": r.started_at, "finishedAt": r.finished_at,
                     "steps": [{"step": s.step, "status": s.status, "detail": s.detail} for s in steps]})
     return out
+
+
+@router.post("/employees/{eid}/push-to-entra")
+def push_to_entra(eid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Push this person's name / title / department / phone / office (and manager,
+    best-effort) from Nexus back to their linked Entra account. The mirror of
+    Sync-from-M365, for when Nexus is the source of a profile change."""
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
+    if not emp:
+        raise HTTPException(404, "Employee not found")
+    if not emp.m365_id:
+        raise HTTPException(400, "This person has no linked M365 account to push to.")
+    # A Graph/token failure must surface as a clean error, not an unhandled 500 —
+    # a raw 500 bypasses CORSMiddleware and the browser only sees "Failed to fetch".
+    try:
+        token = _graph_token()
+        written = _graph_writeback(token, emp, db)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't update Entra: {str(e)[:200]}")
+    # Manager relationship is a separate Graph edge — best-effort, never blocks
+    # the attribute push.
+    try:
+        manager = _graph_set_manager(token, emp)
+    except Exception:
+        manager = None
+    return {"written": written, "manager": manager}
 
 
 # ── Profile photos — public-read avatars bucket, WRITES ONLY via this endpoint
@@ -1391,20 +1718,32 @@ def _graph_set_signin(token: str, m365_id: str, enabled: bool) -> None:
         raise RuntimeError(f"sign-in toggle failed: {resp.text[:200]}")
 
 
-def _graph_remove_all_licenses(token: str, m365_id: str) -> int:
-    resp = httpx.get(f"{_GRAPH}/users/{m365_id}/licenseDetails",
-                     headers={"Authorization": f"Bearer {token}"}, timeout=20)
+def _graph_remove_all_licenses(token: str, m365_id: str) -> str:
+    """Release the person's licenses back to the pool. Only DIRECTLY-assigned
+    licenses can be removed per-user; a license that arrives via group
+    membership (assignedByGroup) is refused by Graph's assignLicense and must
+    be removed by taking the person out of the licensing group. We remove what
+    we can and report the group-assigned ones clearly rather than erroring, so
+    the toast tells the admin exactly what's left to do."""
+    hdr = {"Authorization": f"Bearer {token}"}
+    resp = httpx.get(f"{_GRAPH}/users/{m365_id}?$select=licenseAssignmentStates",
+                     headers=hdr, timeout=20)
     if not resp.is_success:
         raise RuntimeError(f"license lookup failed: {resp.text[:200]}")
-    skus = [d.get("skuId") for d in resp.json().get("value", []) if d.get("skuId")]
-    if not skus:
-        return 0
-    up = httpx.post(f"{_GRAPH}/users/{m365_id}/assignLicense",
-                    headers={"Authorization": f"Bearer {token}"},
-                    json={"addLicenses": [], "removeLicenses": skus}, timeout=30)
-    if not up.is_success:
-        raise RuntimeError(f"license removal failed: {up.text[:200]}")
-    return len(skus)
+    states = resp.json().get("licenseAssignmentStates", []) or []
+    direct = sorted({s["skuId"] for s in states if s.get("skuId") and not s.get("assignedByGroup")})
+    group  = sorted({s["skuId"] for s in states if s.get("skuId") and s.get("assignedByGroup")})
+    removed = 0
+    if direct:
+        up = httpx.post(f"{_GRAPH}/users/{m365_id}/assignLicense", headers=hdr,
+                        json={"addLicenses": [], "removeLicenses": direct}, timeout=30)
+        if not up.is_success:
+            raise RuntimeError(f"license removal failed: {up.text[:200]}")
+        removed = len(direct)
+    if group:
+        return (f"{removed} released" if removed else "0 released") + \
+               f" · {len(group)} assigned via a group — remove them from the licensing group in M365"
+    return f"{removed} released" if removed else "none to release"
 
 
 @router.post("/employees/{eid}/status")
@@ -1418,22 +1757,35 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     did_change = body.status != row.status
     log = list(row.status_log or [])
     entry = None
+    # Normalise the offboarding block independently of the status change so the
+    # M365 actions can be (re-)run on someone already inactive/left — e.g. to
+    # free a license that didn't release the first time.
+    off = body.offboarding or {}
+    off_block = None
+    if off.get("mailboxAction") or off.get("delegateTo") or off.get("exportRequested") or off.get("freeUpLicense"):
+        off_block = {
+            "mailboxAction":   (off.get("mailboxAction") or "").strip(),
+            "delegateTo":      [e.strip().lower() for e in (off.get("delegateTo") or []) if e and e.strip()],
+            "exportRequested": bool(off.get("exportRequested")),
+            "freeUpLicense":   bool(off.get("freeUpLicense")),
+            "done":            False,   # flips true once an admin completes the M365 steps
+        }
     if did_change:
         entry = {
             "from": row.status, "to": body.status, "reason": (body.reason or "").strip(),
             "effectiveDate": (body.effectiveDate or "").strip(), "by": user["email"], "at": now,
         }
-        # Only keep a meaningful offboarding block (an action or a delegate set).
-        off = body.offboarding or {}
-        if off.get("mailboxAction") or off.get("delegateTo") or off.get("exportRequested") or off.get("freeUpLicense"):
-            entry["offboarding"] = {
-                "mailboxAction":   (off.get("mailboxAction") or "").strip(),
-                "delegateTo":      [e.strip().lower() for e in (off.get("delegateTo") or []) if e and e.strip()],
-                "exportRequested": bool(off.get("exportRequested")),
-                "freeUpLicense":   bool(off.get("freeUpLicense")),
-                "done":            False,   # flips true once an admin completes the M365 steps
-            }
+        if off_block:
+            entry["offboarding"] = off_block
         log.insert(0, entry)
+    # Offboarding (-> Left) force-returns everything the person still holds in Item
+    # Management. Items owns the transition; we stamp the counts on the log entry.
+    items_returned = None
+    if did_change and body.status == "offboarded" and row.work_email:
+        from routers.items import force_return_person
+        items_returned = force_return_person(db, row.work_email, user["email"])
+        if entry is not None and (items_returned["checkouts"] or items_returned["assignments"]):
+            entry["itemsReturned"] = items_returned
     row.status = body.status
     row.status_log = log
     row.updated_at = now
@@ -1444,8 +1796,10 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
     # conversion are NOT here — Graph has no coverage (Exchange PowerShell only);
     # the UI surfaces those as guided admin-center steps.
     m365 = None
-    off_block = (entry or {}).get("offboarding")
-    if did_change and row.m365_id and off_block:
+    # Run the mailbox/license actions whenever an offboarding block is present
+    # and the person is inactive/left — not only on the transition — so an admin
+    # can re-open a Left employee and (re-)free their license.
+    if row.m365_id and off_block and body.status in ("inactive", "offboarded"):
         m365 = {}
         try:
             token = _graph_token()
@@ -1453,7 +1807,7 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
                 _graph_set_signin(token, row.m365_id, False)
                 m365["signIn"] = "blocked"
             if off_block.get("freeUpLicense"):
-                m365["licenses"] = f"{_graph_remove_all_licenses(token, row.m365_id)} removed"
+                m365["licenses"] = _graph_remove_all_licenses(token, row.m365_id)
             if off_block.get("exportRequested"):
                 job = HrMailboxExport(id=str(uuid.uuid4()), employee_id=row.id, requested_by=user["email"],
                                       status="pending", created_at=now, updated_at=now)
@@ -1462,6 +1816,8 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
                 m365["export"] = job.id
         except Exception as e:
             m365["error"] = str(getattr(e, "detail", e))[:200]
+    elif not row.m365_id and off_block and body.status in ("inactive", "offboarded"):
+        m365 = {"error": "No linked M365 account — nothing to block or free."}
     elif did_change and row.m365_id and body.status in ("active", "onboarding"):
         # Coming back from inactive/left — restore sign-in (best-effort).
         try:
@@ -1470,7 +1826,7 @@ def change_status(eid: str, body: StatusChangeIn, user: dict = Depends(require_h
         except Exception:
             pass
 
-    return {**_serialize(row), "m365": m365}
+    return {**_serialize(row), "m365": m365, "items": items_returned}
 
 
 # ---------------------------------------------------------------------------

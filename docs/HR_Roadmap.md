@@ -9,7 +9,7 @@
 >
 > Sources: Neil's "Greens Global — People Platform" mockup (Jun 2026),
 > Busacta HR teardown, Rippling/BambooHR research, Nexus build sessions.
-> Status: ✅ built · 🟡 partial · ❌ not started   (last updated 2026-07-02 — Section A complete; Section B profile-depth features B1–B6 built, tab strip + M365 write-back remain)
+> Status: ✅ built · 🟡 partial · ❌ not started   (last updated 2026-07-07 — Sections A + B complete; C: offboarding + native e-sign done; **D: geofenced Time Clock + timesheets/approvals + shifts + BOD/EOD + desktop agent shipped Jul 6–7**; **E: self-service requests via My HR**; **H: employee portal shipped as "My HR"** (profile self-edit, docs, paystubs, timesheet, leave, equipment, Ask HR requests). Remaining: see ❌ rows.)
 
 ---
 
@@ -35,7 +35,7 @@
 
 | Status | Item | Source |
 |---|---|---|
-| 🟡 | Tabbed profile: Overview / Pay & Benefits / Time / Documents / Performance / Assets / Compliance — **autosave on blur**, stat cards. Depth shipped as profile modals + sections (Pay & Benefits, Personal, Right to Work, Assets, Change status); full tab strip + stat cards still to do | Busacta |
+| ✅ | Tabbed profile: **Overview / Pay & Benefits / Compliance / Assets / Documents tab strip + stat cards** (Tenure, Direct reports, Type, next expiry). Each tab shows its data inline; the proven Personal/Pay/Right-to-Work/Status modals stay as the editors, opened from within their tab. Time + Performance tabs land with Sections D/F | Busacta |
 | ✅ | **Assets tab reads live from Item Management** — HR-gated `/hr/employees/{id}/assets` reads items directly (no dup), deep-links into Item Management (B5) | Visesh |
 | ✅ | Compensation: base salary + auto history, pay basis, frequency, currency — **restricted** to owner + `hr_comp` grant (B1) | Neil/Busacta |
 | ✅ | Bank accounts (holder, bank, number, routing/IFSC, type) — restricted, same gate (B1) | Busacta |
@@ -43,7 +43,7 @@
 | ✅ | Right-to-work & compliance: work-auth, ID/visa doc + verification status + colour-coded expiry, consent checklist (scans reuse Documents). Bell reminders pending Section H daily job (B3) | Neil |
 | ✅ | Emergency contact, addresses, DOB, masked national ID (B2) | Rippling |
 | ✅ | Inline "Change status" flow (reason + effective date, audit trail) (B6) | Busacta |
-| 🟡 | Sync from M365 — phone/title/office backfill ✅; photo backfill ❌; **push profile changes back to Entra** ❌ | Visesh |
+| ✅ | Bidirectional M365 sync — Sync-from-M365 backfills phone/title/office **+ photos** (folded into the one Sync action); **Push-to-M365** writes name/title/department/phone/office (and manager, best-effort) from Nexus back to Entra via `POST /hr/employees/{id}/push-to-entra` | Visesh |
 
 ## C. Hiring, e-sign, onboarding & offboarding
 
@@ -52,10 +52,10 @@
 | ✅ | Pipeline: Applied → Screening → Interview → Offer → Hired, stage notes + timeline | built |
 | ❌ | Resume/doc upload on candidates | — |
 | ❌ | Interview scheduling (date/time per stage, bell reminder) | — |
-| ❌ | **Native e-sign** — draw/type signature, per-entity templates (Offer & Agreement, NDA, Direct Deposit, Handbook Ack, W-9/TIN, Contractor Agreement, SOW), awaiting-signature tracking, audit trail | Neil |
-| ❌ | **Self-enrolment links** — employee & contractor fill their own profile + sign before day 1 | Neil/Rippling |
+| ✅ | **Native e-sign** (`feat/hr-esign`) — authored templates ({{merge}} fields + sign/initials/date/text/check slots per role) AND upload-any-PDF with click-to-place fields; **full ordered multi-party** (internal in-app + external tokenized links, no login); draw/type signature pad; ESIGN/UETA consent + IP/UA/timestamp audit; sealed final PDF with **SHA-256 Certificate of Completion** + verify endpoint; inbox / sent-tracking / remind / void; completed docs auto-attach to the profile Documents tab; "Send for signature" on candidates. Follow-ups: RLS on 4 new tables post-deploy, `NEXUS_APP_URL` env on prod Azure, daily reminder job (Section H) | Neil |
+| 🟡 | **Self-enrolment links** — external e-sign links now cover the *sign before day 1* half; profile self-fill form still ❌ | Neil/Rippling |
 | ❌ | Onboarding checklist per hire: docs → sign → provision → **assign equipment via Item Management** → day-1 tasks, each with owner + due date | Rippling |
-| ❌ | **Offboarding engine** — disable Entra account, revoke sessions/licenses, **force-return all checkouts & assignments** (reuses Items force-return), mark Left | Rippling |
+| ✅ | **Offboarding engine** — status→Left blocks Entra sign-in, removes all licenses, ZIP-exports the mailbox, and **force-returns all checkouts & assignments** (`items.force_return_person`: handed-over checkouts→returned, pending→cancelled, live assignments→closed + item back to stock; counts stamped on the status_log entry). Mailbox delegation / shared-mailbox conversion stay guided Exchange-admin steps (Graph has no coverage) | Rippling |
 | ❌ | Asana provisioning (blocked: confirm tier) · "Ignite" step (blocked: identify product/API) | open |
 | ❌ | Rejected-candidate retention auto-purge (N months — ask Neil) | compliance |
 
@@ -63,11 +63,12 @@
 
 | Status | Item | Source |
 |---|---|---|
-| ❌ | **Time Clock** — clock in/out with geofence validation (inside/outside site radius), punch log | Neil |
-| ❌ | Timesheets — weekly view, manager approval/reversal, overtime rules | Neil |
+| ✅ | **Time Clock** — geofenced punch in/out (soft-gate + accuracy credit), punch log, missed-punch fix, manager adjustments (Jul 6) | Neil |
+| ✅ | Timesheets — day summaries, HR Time tab + Manager Dashboard Team Time, approvals, CSV export (Jul 6) | Neil |
+| ✅ | BOD/EOD/break Teams updates (dated headers, pending tasks, break duration) + **desktop monitoring agent** (silent multi-monitor capture) | Neil |
+| 🟡 | Shift scheduling — shifts + shift groups CRUD built; open-shift claiming + **shift swaps** still ❌ | Neil |
 | ❌ | **Client time tracking** — billable hours by client (contractor invoicing basis) | Neil |
-| ❌ | Shift scheduling — publish per site, open-shift claiming, **shift swaps** (offer/approve/decline) | Neil |
-| ❌ | Attendance & tardiness views + punch-system CSV import (largely derivable from Time Clock once it exists) | Busacta |
+| ❌ | Attendance & tardiness views (day-summary flags exist; no dedicated view) | Busacta |
 | ❌ | Holiday calendar + attendance policies (grace minutes, half-day rules) | Busacta |
 
 ## E. Time off *(upgrade v1)*
@@ -75,8 +76,8 @@
 | Status | Item | Source |
 |---|---|---|
 | ✅ | Requests, approve/reject, allocated-vs-used balances, manager + employee notifications | built |
+| ✅ | Employee self-service requests — Time Clock + **My HR "My leave"** (Jul 7) | Rippling |
 | ❌ | Accrual policies — per-month, annualized, tenure-based; per worker type | Neil |
-| ❌ | Employee self-service requests (from portal, not HR-recorded) | Rippling |
 | ❌ | Team leave calendar ("who's out this week") + on-leave-today on dashboard | Busacta |
 | ❌ | Multi-level approval (manager → HR) if wanted | open |
 
@@ -97,8 +98,8 @@
 
 | Status | Item | Source |
 |---|---|---|
-| 🟡 | Server-side notifications (leave + hiring wired). Add: doc/visa expiry, contract end, review due, upcoming start dates — needs one daily scheduled job | built/Neil |
-| ❌ | **Employee portal** — My Profile / My Time Off / My Timesheet / My Schedule / My Documents / My Performance / **My Assets (links to Item Management "My Items")**; HR gets View-as-employee | Neil |
+| 🟡 | Server-side notifications (leave + hiring + Ask HR wired). Add: doc/visa expiry, contract end, review due, upcoming start dates — needs one daily scheduled job | built/Neil |
+| ✅ | **Employee portal — shipped as "My HR"** (Jul 7): My Profile (self-edit contact/emergency), My Timesheet + hours graph w/ range filter, My Leave, My Documents (sealed e-sign), **My Paystubs** (HR uploads, hr_comp-gated), My Equipment (live Items read), **Ask HR** requests w/ attachments HR can file in one click. Still ❌: My Schedule, My Performance (needs F), View-as-employee | Neil |
 | ❌ | Approvals inbox — leave, timesheets, swaps, signatures in one queue | Neil |
 | ❌ | Reports — headcount by entity/dept/type, joiners/leavers, attrition, hours by client/site, leave utilization; CSV export | Rippling |
 | ❌ | Audit views (salary changes, document access) | compliance |

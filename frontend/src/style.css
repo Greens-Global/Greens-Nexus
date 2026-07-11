@@ -5,6 +5,7 @@
 @keyframes fadeIn  { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @keyframes spin    { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes pulse   { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+@keyframes pdfEditorIn { from { opacity: 0; transform: scale(0.965) translateY(10px); } to { opacity: 1; transform: none; } }
 
 :root {
   --paper:       #f4f5f7;
@@ -2185,4 +2186,71 @@ button, [role="button"], select { touch-action: manipulation; }
   display: inline-flex; align-items: center; gap: 10px; text-align: left;
   background: var(--card); border: 1px solid var(--line); border-radius: 12px;
   padding: 10px 14px; box-shadow: var(--shadow-sm); white-space: nowrap;
+}
+
+/* ── Skeleton shimmer — loading placeholder for stats/text (HR KPI strip) ──── */
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.skel {
+  display: inline-block;
+  border-radius: 7px;
+  background: linear-gradient(90deg, var(--line) 30%, var(--mist) 50%, var(--line) 70%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+/* ── E-Sign template editor — paper document (WYSIWYG block editing) ────────── */
+.tpl-block { position: relative; }
+.tpl-block .tpl-ctl { opacity: 0; transition: opacity 0.13s ease; }
+.tpl-block:hover .tpl-ctl,
+.tpl-block:focus-within .tpl-ctl { opacity: 1; }
+.tpl-para {
+  display: block;
+  width: calc(100% + 14px);
+  margin: 0 -7px 8px;
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+  font-family: Inter, sans-serif;
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: #111827;
+}
+.tpl-para:hover { border-color: var(--line); }
+.tpl-para:focus { border-color: #93c5fd; background: #fafcff; }
+.tpl-para::placeholder { color: #9ca3af; font-style: italic; }
+.tpl-inline {
+  border: none;
+  border-bottom: 1px dashed transparent;
+  background: transparent;
+  outline: none;
+  padding: 2px;
+  font-family: Inter, sans-serif;
+}
+.tpl-inline:hover { border-bottom-color: var(--line); }
+.tpl-inline:focus { border-bottom-color: #93c5fd; }
+.tpl-inline::placeholder { color: #9ca3af; font-style: italic; }
+.tpl-rich { min-height: 1.7em; white-space: pre-wrap; word-break: break-word; cursor: text; }
+.tpl-rich:empty::before { content: attr(data-ph); color: #9ca3af; font-style: italic; pointer-events: none; }
+.tpl-chip {
+  display: inline-block;
+  padding: 0 8px;
+  margin: 0 1px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.13);
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  color: #92400e;
+  font-family: Inter, sans-serif;
+  font-size: 0.8em;
+  font-weight: 700;
+  line-height: 1.55;
+  white-space: nowrap;
+  user-select: none;
+  cursor: default;
 }

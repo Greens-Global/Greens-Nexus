@@ -1,0 +1,1848 @@
+"""Time tracking — punch in/out with geofencing (SwipeClock replacement).
+
+Design decisions are research-backed (Jul 2026 deep-research pass):
+- SOFT gate: out-of-fence punches are recorded and flagged for review, never
+  blocked. Hard gates fight browser geolocation (desktops return coarse
+  Wi-Fi/IP fixes) — BuddyPunch only sustains blocking by requiring a native app.
+- Accuracy credit (verbatim SwipeClock behavior): a punch counts as in-fence
+  when distance − reported_accuracy ≤ site radius, so GPS drift doesn't create
+  false flags.
+- Intelligent clock: the API tells the client which punch kinds are currently
+  valid; the server enforces the same state machine.
+- Missed punches are detect-surface-correct: employees may backfill their own
+  gap (flagged source=self_manual), managers may add/adjust/void with a full
+  audit trail (original_at frozen, voided rows retained).
+- NO rounding (exact minutes are always wage-and-hour-safe) and NO automatic
+  break deduction — breaks exist only as explicit punches. Compliance items
+  (WA/OR break policy, retention windows) are open questions for counsel.
+"""
+import csv
+import hashlib
+import io
+import math
+import secrets
+import uuid
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional
+
+import httpx
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from database import get_db
+from auth import get_current_user, require_level_or_module, require_administrator
+from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, TimeBod,
+                    AgentDevice, AgentActivity, Shift, ShiftGroup, ShiftGroupMember,
+                    ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee,
+                    TrackConsent, TrackSession, TrackPing)
+from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET
+from routers.esign import _client_meta
+
+router = APIRouter(prefix="/timeclock", tags=["timeclock"])
+
+# Managers (level 3+) OR anyone granted the HR module can review the team.
+require_team_read = require_level_or_module(3, "hr", "viewer")
+require_team_write = require_level_or_module(3, "hr", "editor")
+
+
+def _visible_emails(db: Session, user: dict):
+    """Team-data scope. None = whole company (administrators, or anyone holding
+    an HR-module grant). A plain level-3/4 manager sees only their DIRECT
+    reports (manager_email == them) plus themself — the Manager Dashboard view."""
+    from auth import _module_level
+    if user.get("level", 0) >= 4 or _module_level(user["email"], "hr", db) >= 1:
+        return None
+    directs = {(e.work_email or "").lower() for e in db.query(NexusEmployee)
+               .filter(NexusEmployee.manager_email == user["email"]).all() if e.work_email}
+    directs.add(user["email"])
+    return directs
+
+KINDS = ("in", "out", "break_start", "break_end")
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _parse_iso(s: str) -> Optional[datetime]:
+    try:
+        return datetime.strptime(s[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _local_date(utc_iso: str, tz_offset_min: int) -> str:
+    """JS getTimezoneOffset(): UTC − local, so local = UTC − offset."""
+    dt = _parse_iso(utc_iso) or datetime.now(timezone.utc)
+    return (dt - timedelta(minutes=tz_offset_min)).strftime("%Y-%m-%d")
+
+
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def _geofence(db: Session, lat, lng, accuracy_m: int) -> dict:
+    """Nearest geofenced work site + soft-gate verdict with accuracy credit."""
+    try:
+        plat, plng = float(lat), float(lng)
+    except (TypeError, ValueError):
+        return {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
+    best = None
+    for s in db.query(HrWorkSite).all():
+        try:
+            slat, slng = float(s.latitude), float(s.longitude)
+        except (TypeError, ValueError):
+            continue  # site has no geofence coordinates
+        d = _haversine_m(plat, plng, slat, slng)
+        if best is None or d < best[0]:
+            best = (d, s)
+    if best is None:
+        # No geofenced sites configured at all — location recorded, nothing to judge
+        return {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
+    d, site = best
+    radius = max(25, int(site.radius_m or 150))
+    acc = max(0, int(accuracy_m or 0))
+    base = {"work_site_id": site.id, "work_site_name": site.name or "", "distance_m": int(round(d))}
+    # Desktops have no GPS: browsers triangulate from Wi-Fi/IP and can be
+    # kilometres off with a huge reported accuracy. Crediting that in full
+    # would let a coarse fix "pass" any fence, so the credit is capped at
+    # 150 m, and past ±500 m the fix can't be judged at all → low_accuracy
+    # (recorded, neutral — phones give GPS fixes and judge normally).
+    if acc > 500:
+        return {**base, "geo_status": "low_accuracy"}
+    effective = max(0.0, d - min(acc, 150))
+    return {**base, "geo_status": "in_fence" if effective <= radius else "out_of_fence"}
+
+
+def _allowed_kinds(last_kind: Optional[str]) -> list:
+    """The intelligent-clock state machine (shared with the client)."""
+    if last_kind in (None, "out"):
+        return ["in"]
+    if last_kind in ("in", "break_end"):
+        return ["out", "break_start"]
+    return ["break_end", "out"]  # on break — punching out implicitly ends it
+
+
+def _serialize(p: TimePunch) -> dict:
+    return {
+        "id": p.id, "email": p.employee_email, "kind": p.kind, "at": p.at,
+        "originalAt": p.original_at or "", "localDate": p.local_date,
+        "tzOffsetMin": p.tz_offset_min or 0,
+        "lat": p.lat or "", "lng": p.lng or "", "accuracyM": p.accuracy_m or 0,
+        "geoStatus": p.geo_status, "workSiteId": p.work_site_id or "",
+        "workSiteName": p.work_site_name or "", "distanceM": p.distance_m or 0,
+        "source": p.source, "note": p.note or "",
+        "adjustedBy": p.adjusted_by or "", "adjustedAt": p.adjusted_at or "",
+        "adjustNote": p.adjust_note or "", "voided": bool(p.voided),
+        "createdBy": p.created_by or "", "createdAt": p.created_at,
+    }
+
+
+def _live_punches(db: Session, email: str, start: str = "", end: str = ""):
+    q = db.query(TimePunch).filter(TimePunch.employee_email == email, TimePunch.voided == 0)
+    if start:
+        q = q.filter(TimePunch.local_date >= start)
+    if end:
+        q = q.filter(TimePunch.local_date <= end)
+    return q.order_by(TimePunch.at).all()
+
+
+def _day_summaries(punches: list) -> dict:
+    """local_date -> {workedMin, breakMin, firstIn, lastOut, flags, punches}.
+    Exact minutes, no rounding. Unclosed pairs are flagged, never guessed."""
+    days = {}
+    for p in punches:
+        days.setdefault(p.local_date, []).append(p)
+    out = {}
+    for date, plist in days.items():
+        worked = 0.0
+        brk = 0.0
+        flags = []
+        open_in = None
+        open_break = None
+        first_in = last_out = ""
+        for p in plist:  # already ordered by `at`
+            t = _parse_iso(p.at)
+            if t is None:
+                continue
+            if p.geo_status == "out_of_fence":
+                flags.append("out_of_fence")
+            if p.source in ("manual", "self_manual"):
+                flags.append("manual")
+            if p.adjusted_by:
+                flags.append("adjusted")
+            if p.kind == "in":
+                if open_in is not None:
+                    flags.append("double_in")
+                open_in = t
+                first_in = first_in or p.at
+            elif p.kind == "out":
+                if open_break is not None:  # punching out while on break ends it
+                    brk += (t - open_break).total_seconds() / 60
+                    open_break = None
+                if open_in is None:
+                    flags.append("out_without_in")
+                else:
+                    worked += (t - open_in).total_seconds() / 60
+                    open_in = None
+                last_out = p.at
+            elif p.kind == "break_start":
+                if open_break is None and open_in is not None:
+                    open_break = t
+            elif p.kind == "break_end":
+                if open_break is not None:
+                    brk += (t - open_break).total_seconds() / 60
+                    open_break = None
+        if open_in is not None:
+            flags.append("missing_out")
+        out[date] = {
+            "workedMin": int(round(max(0.0, worked - brk))),
+            "breakMin": int(round(brk)),
+            "firstIn": first_in, "lastOut": last_out,
+            "flags": sorted(set(flags)),
+            "punches": [_serialize(p) for p in plist],
+        }
+    return out
+
+
+# ── Employee endpoints ────────────────────────────────────────────────────────
+
+class PunchIn(BaseModel):
+    kind: str
+    lat: Optional[str] = ""
+    lng: Optional[str] = ""
+    accuracy_m: Optional[int] = 0
+    tz_offset_min: Optional[int] = 0
+    note: Optional[str] = ""
+
+
+@router.get("/status")
+def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    email = user["email"]
+    last = (db.query(TimePunch)
+            .filter(TimePunch.employee_email == email, TimePunch.voided == 0)
+            .order_by(TimePunch.at.desc()).first())
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    week_start = (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+    summaries = _day_summaries(_live_punches(db, email, start=week_start))
+    sites = [{"id": s.id, "name": s.name} for s in db.query(HrWorkSite).all()
+             if (s.latitude or "").strip() and (s.longitude or "").strip()]
+    # Beginning-of-day message is required before the first punch-in of the day:
+    # true only until either the BOD is posted or an in-punch already exists today.
+    local_today = _local_date(_now_iso(), tz_offset_min)
+    has_bod = (db.query(TimeBod)
+               .filter(TimeBod.employee_email == email, TimeBod.kind == "bod",
+                       TimeBod.local_date == local_today).first())
+    has_in = (db.query(TimePunch)
+              .filter(TimePunch.employee_email == email, TimePunch.kind == "in",
+                      TimePunch.local_date == local_today, TimePunch.voided == 0).first())
+    return {
+        "lastPunch": _serialize(last) if last else None,
+        "allowed": _allowed_kinds(last.kind if last else None),
+        "days": summaries,
+        "todayUtc": today,
+        "geofencedSites": sites,
+        "bodRequired": has_bod is None and has_in is None,
+    }
+
+
+@router.post("/punch")
+def punch(body: PunchIn, request: Request,
+          user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    if body.kind not in KINDS:
+        raise HTTPException(400, f"kind must be one of {KINDS}")
+    email = user["email"]
+    last = (db.query(TimePunch)
+            .filter(TimePunch.employee_email == email, TimePunch.voided == 0)
+            .order_by(TimePunch.at.desc()).first())
+    allowed = _allowed_kinds(last.kind if last else None)
+    if body.kind not in allowed:
+        raise HTTPException(409, f"Can't punch '{body.kind}' right now — allowed: {', '.join(allowed)}")
+    now = _now_iso()
+    # Double-tap guard: an identical punch within 60s is a duplicate, not intent
+    if last and last.kind == body.kind:
+        prev = _parse_iso(last.at)
+        if prev and (datetime.now(timezone.utc) - prev).total_seconds() < 60:
+            raise HTTPException(409, "Duplicate punch — you just did that.")
+    geo = _geofence(db, body.lat, body.lng, body.accuracy_m or 0)
+    if not (body.lat or "").strip():
+        geo = {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
+    ip, ua = _client_meta(request)
+    row = TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=now,
+                    local_date=_local_date(now, body.tz_offset_min or 0),
+                    tz_offset_min=body.tz_offset_min or 0,
+                    lat=(body.lat or "").strip()[:24], lng=(body.lng or "").strip()[:24],
+                    accuracy_m=max(0, int(body.accuracy_m or 0)),
+                    note=(body.note or "").strip()[:300],
+                    ip=ip, user_agent=ua, source="web",
+                    created_by=email, created_at=now, **geo)
+    db.add(row)
+    # Soft-gate escalation: flag lands with the employee's manager (bell only)
+    if geo["geo_status"] == "out_of_fence" and body.kind == "in":
+        emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+        if emp and emp.manager_email:
+            _hr_notify(db, emp.manager_email, "Out-of-fence punch",
+                       f"{emp.first_name} {emp.last_name} punched in {geo['distance_m']}m from "
+                       f"{geo['work_site_name'] or 'the nearest site'} — flagged for review.",
+                       ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+    # First punch-in → offer the Beginning-of-day message; punch-out → offer the
+    # End-of-day message (each skipped automatically once recorded that day).
+    first_in_today = False
+    prompt_eod = False
+    if body.kind == "in":
+        prior_in = (db.query(TimePunch)
+                    .filter(TimePunch.employee_email == email, TimePunch.kind == "in",
+                            TimePunch.local_date == row.local_date,
+                            TimePunch.id != row.id, TimePunch.voided == 0).first())
+        bod_done = (db.query(TimeBod)
+                    .filter(TimeBod.employee_email == email, TimeBod.kind == "bod",
+                            TimeBod.local_date == row.local_date).first())
+        first_in_today = prior_in is None and bod_done is None
+    elif body.kind == "out":
+        eod_done = (db.query(TimeBod)
+                    .filter(TimeBod.employee_email == email, TimeBod.kind == "eod",
+                            TimeBod.local_date == row.local_date).first())
+        prompt_eod = eod_done is None
+        close_track_session(db, email, "clock_out")  # tracking never outlives the shift
+    db.commit()
+    return {"punch": _serialize(row), "allowed": _allowed_kinds(body.kind),
+            "firstInToday": first_in_today, "promptEod": prompt_eod}
+
+
+class SelfPunchIn(BaseModel):
+    kind: str
+    at: str                      # UTC ISO — the missed moment
+    tz_offset_min: Optional[int] = 0
+    note: str                    # required: why the punch was missed
+
+
+@router.post("/punch/manual")
+def self_manual_punch(body: SelfPunchIn, user: dict = Depends(get_current_user),
+                      db: Session = Depends(get_db)):
+    """Detect-surface-correct: an employee backfills a punch they missed. Always
+    flagged (source=self_manual) so managers review it — never silent."""
+    if body.kind not in KINDS:
+        raise HTTPException(400, f"kind must be one of {KINDS}")
+    t = _parse_iso(body.at)
+    if t is None:
+        raise HTTPException(400, "at must be an ISO timestamp")
+    if t > datetime.now(timezone.utc):
+        raise HTTPException(400, "A missed punch can't be in the future.")
+    if t < datetime.now(timezone.utc) - timedelta(days=7):
+        raise HTTPException(400, "Older than 7 days — ask a manager to add it.")
+    if not (body.note or "").strip():
+        raise HTTPException(400, "Add a short note explaining the missed punch.")
+    now = _now_iso()
+    row = TimePunch(id=str(uuid.uuid4()), employee_email=user["email"], kind=body.kind,
+                    at=body.at[:19], local_date=_local_date(body.at, body.tz_offset_min or 0),
+                    tz_offset_min=body.tz_offset_min or 0, geo_status="no_location",
+                    note=body.note.strip()[:300], source="self_manual",
+                    created_by=user["email"], created_at=now)
+    db.add(row)
+    db.commit()
+    return _serialize(row)
+
+
+@router.get("/me")
+def my_timesheet(start: str = "", end: str = "",
+                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    return {"days": _day_summaries(_live_punches(db, user["email"], start, end))}
+
+
+# ── Manager / HR endpoints ────────────────────────────────────────────────────
+
+def _team_rows(db: Session, start: str, end: str, only_emails=None) -> list:
+    q = db.query(TimePunch).filter(TimePunch.voided == 0)
+    if only_emails is not None:
+        q = q.filter(TimePunch.employee_email.in_(only_emails))
+    if start:
+        q = q.filter(TimePunch.local_date >= start)
+    if end:
+        q = q.filter(TimePunch.local_date <= end)
+    by_emp = {}
+    for p in q.order_by(TimePunch.at).all():
+        by_emp.setdefault(p.employee_email, []).append(p)
+    names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
+             for e in db.query(NexusEmployee).all() if e.work_email}
+    rows = []
+    for email, plist in sorted(by_emp.items()):
+        days = _day_summaries(plist)
+        rows.append({
+            "email": email,
+            "name": names.get(email) or email.split("@")[0].replace(".", " ").title(),
+            "workedMin": sum(d["workedMin"] for d in days.values()),
+            "breakMin": sum(d["breakMin"] for d in days.values()),
+            "flagCount": sum(len(d["flags"]) for d in days.values()),
+            "days": days,
+        })
+    return rows
+
+
+@router.get("/team")
+def team_timesheet(start: str = "", end: str = "",
+                   user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    rows = _team_rows(db, start, end, only_emails=_visible_emails(db, user))
+    # Legacy whole-range approvals (kept for old rows) …
+    approvals = {a.employee_email: a for a in db.query(TimeApproval)
+                 .filter(TimeApproval.period_start == start, TimeApproval.period_end == end,
+                         TimeApproval.revoked == 0).all()}
+    # … plus per-DAY approvals (period_start == period_end). An approval goes
+    # STALE the moment any punch on that day is added or adjusted after it —
+    # a signed-off day must never silently change underneath the signature.
+    day_apps = (db.query(TimeApproval)
+                .filter(TimeApproval.revoked == 0,
+                        TimeApproval.period_start == TimeApproval.period_end,
+                        TimeApproval.period_start >= (start or "0"),
+                        TimeApproval.period_end <= (end or "9")).all())
+    last_change: dict = {}
+    pq = db.query(TimePunch).filter(TimePunch.voided == 0)
+    if start:
+        pq = pq.filter(TimePunch.local_date >= start)
+    if end:
+        pq = pq.filter(TimePunch.local_date <= end)
+    for p in pq.all():
+        k = (p.employee_email, p.local_date)
+        ch = max(p.created_at or "", p.adjusted_at or "")
+        if ch > last_change.get(k, ""):
+            last_change[k] = ch
+    for r in rows:
+        m = {}
+        for a in day_apps:
+            if a.employee_email != r["email"]:
+                continue
+            m[a.period_start] = {
+                "id": a.id, "by": a.approved_by, "at": a.approved_at,
+                "workedMin": a.worked_min,
+                "stale": last_change.get((a.employee_email, a.period_start), "") > (a.approved_at or ""),
+            }
+        r["dayApprovals"] = m
+        a = approvals.get(r["email"])
+        r["approval"] = ({"id": a.id, "by": a.approved_by, "at": a.approved_at,
+                          "workedMin": a.worked_min,
+                          "stale": any(v > (a.approved_at or "")
+                                       for (em, _d), v in last_change.items() if em == r["email"])}
+                         if a else None)
+    return {"rows": rows}
+
+
+class ApprovalIn(BaseModel):
+    email: str
+    start: str = ""
+    end: str = ""
+    days: Optional[List[str]] = None     # per-day mode: approve these dates
+    note: Optional[str] = ""
+
+
+@router.post("/approvals")
+def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
+                     db: Session = Depends(get_db)):
+    email = body.email.strip().lower()
+    scope = _visible_emails(db, user)
+    if scope is not None and email not in scope:
+        raise HTTPException(403, "You can only approve your own team's timecards.")
+    now = _now_iso()
+
+    # ── Per-day mode: one approval row per date; re-approving a changed day
+    # replaces the stale row (the old one stays, revoked, for audit). ──
+    if body.days:
+        days = sorted({d for d in body.days if d})
+        out = {}
+        for day in days:
+            worked = _day_summaries(_live_punches(db, email, day, day)).get(day, {}).get("workedMin", 0)
+            old = (db.query(TimeApproval)
+                   .filter(TimeApproval.employee_email == email,
+                           TimeApproval.period_start == day, TimeApproval.period_end == day,
+                           TimeApproval.revoked == 0).first())
+            if old:
+                old.revoked = 1
+                old.revoked_by = user["email"]
+            row = TimeApproval(id=str(uuid.uuid4()), employee_email=email,
+                               period_start=day, period_end=day, worked_min=worked,
+                               approved_by=user["email"], approved_at=now,
+                               note=(body.note or "").strip()[:300])
+            db.add(row)
+            out[day] = {"id": row.id, "by": row.approved_by, "at": now,
+                        "workedMin": worked, "stale": False}
+        total = sum(v["workedMin"] for v in out.values())
+        label = days[0] if len(days) == 1 else f"{days[0]} → {days[-1]} ({len(days)} days)"
+        _hr_notify(db, email, "Timecard approved",
+                   f"Your hours for {label} ({total // 60}h {total % 60:02d}m) were approved for payroll.",
+                   action={"view": "timeclock", "sub": ""})
+        db.commit()
+        return {"days": out}
+
+    # ── Legacy whole-range mode ──
+    existing = (db.query(TimeApproval)
+                .filter(TimeApproval.employee_email == email,
+                        TimeApproval.period_start == body.start,
+                        TimeApproval.period_end == body.end,
+                        TimeApproval.revoked == 0).first())
+    if existing:
+        raise HTTPException(409, "Already approved for this period")
+    worked = sum(d["workedMin"] for d in _day_summaries(
+        _live_punches(db, email, body.start, body.end)).values())
+    row = TimeApproval(id=str(uuid.uuid4()), employee_email=email,
+                       period_start=body.start, period_end=body.end,
+                       worked_min=worked, approved_by=user["email"], approved_at=now,
+                       note=(body.note or "").strip()[:300])
+    db.add(row)
+    _hr_notify(db, email, "Timecard approved",
+               f"Your hours for {body.start} → {body.end} ({worked // 60}h {worked % 60:02d}m) "
+               f"were approved for payroll.",
+               ref_id=row.id, action={"view": "timeclock", "sub": ""})
+    db.commit()
+    return {"id": row.id, "by": row.approved_by, "at": row.approved_at, "workedMin": worked}
+
+
+@router.patch("/approvals/{approval_id}")
+def revoke_approval(approval_id: str, user: dict = Depends(require_team_write),
+                    db: Session = Depends(get_db)):
+    row = db.query(TimeApproval).filter(TimeApproval.id == approval_id).first()
+    if not row:
+        raise HTTPException(404, "Approval not found")
+    row.revoked = 1
+    row.revoked_by = user["email"]
+    db.commit()
+    return {"ok": True}
+
+
+class PunchAdjust(BaseModel):
+    at: Optional[str] = None
+    note: Optional[str] = None
+    void: Optional[bool] = None
+    adjust_note: Optional[str] = ""
+
+
+@router.patch("/punches/{punch_id}")
+def adjust_punch(punch_id: str, body: PunchAdjust,
+                 user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    row = db.query(TimePunch).filter(TimePunch.id == punch_id).first()
+    if not row:
+        raise HTTPException(404, "Punch not found")
+    scope = _visible_emails(db, user)
+    if scope is not None and row.employee_email not in scope:
+        raise HTTPException(403, "You can only adjust your own team's punches.")
+    if body.at is not None:
+        t = _parse_iso(body.at)
+        if t is None:
+            raise HTTPException(400, "at must be an ISO timestamp")
+        if not row.original_at:            # freeze the original exactly once
+            row.original_at = row.at
+        row.at = body.at[:19]
+        row.local_date = _local_date(row.at, row.tz_offset_min or 0)
+    if body.note is not None:
+        row.note = body.note.strip()[:300]
+    if body.void is not None:
+        row.voided = 1 if body.void else 0
+    row.adjusted_by = user["email"]
+    row.adjusted_at = _now_iso()
+    if body.adjust_note:
+        row.adjust_note = body.adjust_note.strip()[:300]
+    db.commit()
+    return _serialize(row)
+
+
+class ManagerPunchIn(BaseModel):
+    employee_email: str
+    kind: str
+    at: str
+    tz_offset_min: Optional[int] = 0
+    note: Optional[str] = ""
+
+
+@router.post("/punches")
+def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_write),
+                      db: Session = Depends(get_db)):
+    if body.kind not in KINDS:
+        raise HTTPException(400, f"kind must be one of {KINDS}")
+    if _parse_iso(body.at) is None:
+        raise HTTPException(400, "at must be an ISO timestamp")
+    scope = _visible_emails(db, user)
+    if scope is not None and body.employee_email.strip().lower() not in scope:
+        raise HTTPException(403, "You can only add punches for your own team.")
+    now = _now_iso()
+    row = TimePunch(id=str(uuid.uuid4()), employee_email=body.employee_email.strip().lower(),
+                    kind=body.kind, at=body.at[:19],
+                    local_date=_local_date(body.at, body.tz_offset_min or 0),
+                    tz_offset_min=body.tz_offset_min or 0, geo_status="no_location",
+                    note=(body.note or "").strip()[:300], source="manual",
+                    created_by=user["email"], created_at=now)
+    db.add(row)
+    db.commit()
+    return _serialize(row)
+
+
+@router.get("/export.csv")
+def export_csv(start: str = "", end: str = "", mode: str = "summary",
+               user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """Payroll export file, SwipeClock-style: Summary Totals (one row per
+    employee-day) or All Punch Details. Exact times, no rounding."""
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    scope = _visible_emails(db, user)
+    rows = _team_rows(db, start, end, only_emails=scope)
+    if mode == "punches":
+        w.writerow(["Employee", "Email", "Local Date", "Kind", "Time (UTC)", "Original Time",
+                    "Geofence", "Site", "Distance (m)", "Accuracy (m)", "Source", "Note",
+                    "Adjusted By", "Voided"])
+        q = db.query(TimePunch)
+        if scope is not None:
+            q = q.filter(TimePunch.employee_email.in_(scope))
+        if start:
+            q = q.filter(TimePunch.local_date >= start)
+        if end:
+            q = q.filter(TimePunch.local_date <= end)
+        names = {r["email"]: r["name"] for r in rows}
+        for p in q.order_by(TimePunch.employee_email, TimePunch.at).all():
+            w.writerow([names.get(p.employee_email, p.employee_email), p.employee_email,
+                        p.local_date, p.kind, p.at, p.original_at or "",
+                        p.geo_status, p.work_site_name or "", p.distance_m or 0,
+                        p.accuracy_m or 0, p.source, p.note or "",
+                        p.adjusted_by or "", "yes" if p.voided else ""])
+    else:
+        approved = {a.employee_email for a in db.query(TimeApproval)
+                    .filter(TimeApproval.period_start == start, TimeApproval.period_end == end,
+                            TimeApproval.revoked == 0).all()}
+        # Per-day approvals: date column shows yes/no; the TOTAL row is "yes"
+        # only when the whole range is signed off (legacy range row OR every
+        # worked day individually approved).
+        day_ok = {(a.employee_email, a.period_start) for a in db.query(TimeApproval)
+                  .filter(TimeApproval.revoked == 0,
+                          TimeApproval.period_start == TimeApproval.period_end,
+                          TimeApproval.period_start >= (start or "0"),
+                          TimeApproval.period_end <= (end or "9")).all()}
+        w.writerow(["Employee", "Email", "Date", "First In", "Last Out",
+                    "Worked Hours", "Break Minutes", "Flags", "Approved"])
+        for r in rows:
+            for date in sorted(r["days"]):
+                d = r["days"][date]
+                w.writerow([r["name"], r["email"], date,
+                            d["firstIn"][11:16] if d["firstIn"] else "",
+                            d["lastOut"][11:16] if d["lastOut"] else "",
+                            f"{d['workedMin'] / 60:.2f}", d["breakMin"],
+                            " ".join(d["flags"]),
+                            "yes" if (r["email"], date) in day_ok else ""])
+            all_days_ok = bool(r["days"]) and all((r["email"], dt) in day_ok for dt in r["days"])
+            w.writerow([r["name"], r["email"], "TOTAL", "", "",
+                        f"{r['workedMin'] / 60:.2f}", r["breakMin"], "",
+                        "yes" if (r["email"] in approved or all_days_ok) else "no"])
+    buf.seek(0)
+    fname = f"timeclock-{mode}-{start or 'all'}-to-{end or 'now'}.csv"
+    return StreamingResponse(iter([buf.getvalue()]),
+                             media_type="text/csv",
+                             headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+
+# ── Work-session screenshots (consent-based screen capture) ──────────────────
+# The browser can only capture after the user explicitly picks their screen in
+# the OS dialog, and it shows a persistent "sharing" indicator — transparency
+# is enforced by the platform, which is also what monitoring law expects.
+
+def _clocked_in(db: Session, email: str) -> bool:
+    last = (db.query(TimePunch)
+            .filter(TimePunch.employee_email == email, TimePunch.voided == 0)
+            .order_by(TimePunch.at.desc()).first())
+    return bool(last and last.kind != "out")
+
+
+def _store_shot(db: Session, email: str, blob: bytes, idle_sec: int, active_view: str, tz_offset_min: int):
+    if not blob or len(blob) > 2_000_000:
+        raise HTTPException(400, "Screenshot missing or larger than 2 MB")
+    now = _now_iso()
+    path = f"timeclock/{email}/{_local_date(now, tz_offset_min)}/{now.replace(':', '-')}-{uuid.uuid4().hex[:6]}.jpg"
+    up = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
+                    headers={**_storage_headers(), "Content-Type": "image/jpeg"},
+                    content=blob, timeout=30)
+    if not up.is_success:
+        raise HTTPException(502, f"Storage upload failed: {up.text[:200]}")
+    row = TimeScreenshot(id=str(uuid.uuid4()), employee_email=email, at=now,
+                         local_date=_local_date(now, tz_offset_min), storage_path=path,
+                         idle_sec=max(0, int(idle_sec or 0)),
+                         active_view=(active_view or "")[:120], created_at=now)
+    db.add(row)
+    db.commit()
+    return row
+
+
+@router.post("/screenshot")
+def upload_screenshot(request: Request, file: UploadFile = File(...),
+                      idle_sec: int = Form(0), active_view: str = Form(""),
+                      tz_offset_min: int = Form(0),
+                      user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    email = user["email"]
+    if not _clocked_in(db, email):
+        raise HTTPException(409, "Not clocked in — capture stops with the shift.")
+    row = _store_shot(db, email, file.file.read(), idle_sec, active_view, tz_offset_min)
+    return {"ok": True, "id": row.id}
+
+
+# ── Silent agent enrollment (no-login, token-authenticated devices) ───────────
+# The "Silent App User" model: an admin mints a device token bound to an
+# employee; the install command drops it on the machine; the agent authenticates
+# with X-Agent-Token instead of a Microsoft login. The token is scoped to ONLY
+# the agent endpoints below — it grants no access to the rest of the API.
+
+def _hash_token(raw: str) -> str:
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def get_agent_device(request: Request, db: Session = Depends(get_db)) -> AgentDevice:
+    raw = request.headers.get("X-Agent-Token", "")
+    if not raw:
+        raise HTTPException(401, "Missing agent token")
+    dev = (db.query(AgentDevice)
+           .filter(AgentDevice.token_hash == _hash_token(raw), AgentDevice.revoked == 0)
+           .first())
+    if not dev:
+        raise HTTPException(401, "Invalid or revoked agent token")
+    return dev
+
+
+class EnrollIn(BaseModel):
+    email: str
+    label: Optional[str] = ""
+
+
+@router.post("/agent/enroll")
+def agent_enroll(body: EnrollIn, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """Mint a fresh device token for an employee. The raw token is returned ONCE
+    (only its hash is stored) — the portal bakes it into the install command."""
+    email = body.email.strip().lower()
+    if "@" not in email:
+        raise HTTPException(400, "A valid employee email is required")
+    raw = secrets.token_urlsafe(32)
+    now = _now_iso()
+    dev = AgentDevice(id=str(uuid.uuid4()), employee_email=email, token_hash=_hash_token(raw),
+                      label=(body.label or "").strip()[:120], created_by=user["email"], created_at=now)
+    db.add(dev)
+    db.commit()
+    return {"deviceId": dev.id, "token": raw, "email": email}
+
+
+@router.get("/agent/devices")
+def agent_devices(user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """Silent App Tracking: every enrolled computer, self-described on check-in."""
+    names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
+             for e in db.query(NexusEmployee).all() if e.work_email}
+    # Revoked devices vanish from the list (row kept for audit; token already dead).
+    rows = (db.query(AgentDevice).filter(AgentDevice.revoked == 0)
+            .order_by(AgentDevice.created_at.desc()).all())
+    return {"devices": [{
+        "id": d.id, "email": d.employee_email,
+        "name": names.get(d.employee_email) or d.employee_email.split("@")[0].replace(".", " ").title(),
+        "label": d.label or "", "deviceName": d.device_name or "", "deviceUser": d.device_user or "",
+        "mac": d.mac or "", "platform": d.platform or "", "revoked": bool(d.revoked),
+        "lastSeen": d.last_seen_at or "", "createdAt": d.created_at or "",
+    } for d in rows]}
+
+
+@router.patch("/agent/devices/{device_id}")
+def agent_revoke(device_id: str, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    dev = db.query(AgentDevice).filter(AgentDevice.id == device_id).first()
+    if not dev:
+        raise HTTPException(404, "Device not found")
+    dev.revoked = 1
+    db.commit()
+    return {"ok": True}
+
+
+class AgentCheckinIn(BaseModel):
+    active: bool = True
+    idle_sec: int = 0
+    device_name: Optional[str] = ""
+    device_user: Optional[str] = ""
+    mac: Optional[str] = ""
+    platform: Optional[str] = ""
+    tz_offset_min: Optional[int] = 0
+
+
+_AGENT_IDLE_OUT_SEC = 600   # 10 min idle → auto punch-out
+
+
+@router.post("/agent/checkin")
+def agent_checkin(body: AgentCheckinIn, dev: AgentDevice = Depends(get_agent_device),
+                  db: Session = Depends(get_db)):
+    """Heartbeat from a silent device. Records who/what the machine is, and
+    auto-manages the punch clock (active → in, idle → out) so hours flow into the
+    same timesheets/approvals as manual punches — every such punch is
+    source='agent' and adjustable. Returns whether the agent should capture now."""
+    email = dev.employee_email
+    now = _now_iso()
+    dev.last_seen_at = now
+    if body.device_name: dev.device_name = body.device_name[:120]
+    if body.device_user: dev.device_user = body.device_user[:120]
+    if body.mac:         dev.mac = body.mac[:40]
+    if body.platform:    dev.platform = body.platform[:20]
+
+    working = bool(body.active) and int(body.idle_sec or 0) < _AGENT_IDLE_OUT_SEC
+    last = (db.query(TimePunch)
+            .filter(TimePunch.employee_email == email, TimePunch.voided == 0)
+            .order_by(TimePunch.at.desc()).first())
+    clocked = bool(last and last.kind != "out")
+    if working and not clocked:
+        db.add(TimePunch(id=str(uuid.uuid4()), employee_email=email, kind="in", at=now[:19],
+                         local_date=_local_date(now, body.tz_offset_min or 0),
+                         tz_offset_min=body.tz_offset_min or 0, geo_status="no_location",
+                         source="agent", created_by="agent", created_at=now))
+        clocked = True
+    elif not working and clocked:
+        db.add(TimePunch(id=str(uuid.uuid4()), employee_email=email, kind="out", at=now[:19],
+                         local_date=_local_date(now, body.tz_offset_min or 0),
+                         tz_offset_min=body.tz_offset_min or 0, geo_status="no_location",
+                         source="agent", created_by="agent", created_at=now))
+        clocked = False
+    db.commit()
+    return {"capture": working, "email": email}
+
+
+@router.post("/agent/screenshot")
+def agent_screenshot(request: Request, file: UploadFile = File(...),
+                     idle_sec: int = Form(0), active_view: str = Form(""),
+                     tz_offset_min: int = Form(0),
+                     dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
+    """Frame from a silent device — identity comes from the token, so no login
+    and no web punch-clock gate (the agent gates on its own activity)."""
+    row = _store_shot(db, dev.employee_email, file.file.read(), idle_sec, active_view, tz_offset_min)
+    return {"ok": True, "id": row.id}
+
+
+class ActivitySeg(BaseModel):
+    app: Optional[str] = ""
+    title: Optional[str] = ""
+    seconds: int = 0
+
+
+class ActivityIn(BaseModel):
+    segments: List[ActivitySeg] = []
+    active_pct: int = 0
+    tz_offset_min: Optional[int] = 0
+
+
+@router.post("/agent/activity")
+def agent_activity(body: ActivityIn, dev: AgentDevice = Depends(get_agent_device),
+                   db: Session = Depends(get_db)):
+    """A reporting window of app usage from a silent device: seconds per
+    foreground app + the window's activity %."""
+    now = _now_iso()
+    ld = _local_date(now, body.tz_offset_min or 0)
+    pct = max(0, min(100, int(body.active_pct or 0)))
+    for s in body.segments[:200]:
+        if not s.seconds or s.seconds <= 0:
+            continue
+        db.add(AgentActivity(id=str(uuid.uuid4()), employee_email=dev.employee_email,
+                             local_date=ld, at=now, app=(s.app or "Unknown")[:120],
+                             title=(s.title or "")[:200], seconds=int(s.seconds), active_pct=pct))
+    db.commit()
+    return {"ok": True}
+
+
+# ── Field-worker location tracking (native app, clocked-in only) ─────────────
+# Periodic location pings across a shift for on-site crews. The phone is a
+# native Capacitor app enrolled with the SAME X-Agent-Token model as the desktop
+# agent (get_agent_device) — no Microsoft login on the phone. Tracking runs ONLY
+# while clocked in AND only after a live consent row exists; both are enforced
+# here (server-side), not merely by the device choosing to stop.
+
+_TRACK_INTERVAL_SEC   = 300     # target ping cadence (~5 min)
+_TRACK_DISTANCE_M     = 100     # …or when moved this far, whichever comes first
+_TRACK_RETENTION_DAYS = 90      # raw pings purged after this window (daily job)
+_TRACK_IDLE_STOP_SEC  = 1800    # a session with no ping for this long is auto-closed (idle)
+_CONSENT_VERSION      = "2026-07-08"
+
+
+def _live_consent(db: Session, email: str) -> Optional[TrackConsent]:
+    return (db.query(TrackConsent)
+            .filter(TrackConsent.employee_email == email, TrackConsent.granted == 1)
+            .order_by(TrackConsent.granted_at.desc()).first())
+
+
+def _open_session(db: Session, email: str) -> Optional[TrackSession]:
+    return (db.query(TrackSession)
+            .filter(TrackSession.employee_email == email, TrackSession.ended_at == "")
+            .order_by(TrackSession.started_at.desc()).first())
+
+
+def _new_session(db: Session, dev: AgentDevice) -> TrackSession:
+    consent = _live_consent(db, dev.employee_email)
+    now = _now_iso()
+    sess = TrackSession(id=str(uuid.uuid4()), employee_email=dev.employee_email, device_id=dev.id,
+                        consent_id=consent.id if consent else "", started_at=now, created_at=now)
+    db.add(sess)
+    db.flush()
+    return sess
+
+
+def close_track_session(db: Session, email: str, reason: str):
+    """Close any open tracking session for an employee — called on clock-out so
+    the session (which IS the shift) never outlives the shift."""
+    sess = _open_session(db, email)
+    if sess:
+        sess.ended_at = _now_iso()
+        sess.ended_reason = reason
+
+
+class ConsentIn(BaseModel):
+    granted: bool = True
+
+
+@router.post("/track/consent")
+def track_consent(body: ConsentIn, request: Request,
+                  dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
+    """Record or revoke standing tracking consent for the enrolled device's
+    employee. Revoking also stops any running session immediately."""
+    email = dev.employee_email
+    ip, ua = _client_meta(request)
+    now = _now_iso()
+    if body.granted:
+        row = TrackConsent(id=str(uuid.uuid4()), employee_email=email, granted=1,
+                           granted_at=now, text_version=_CONSENT_VERSION,
+                           ip=ip, user_agent=ua, created_at=now)
+        db.add(row)
+        db.commit()
+        return {"consentId": row.id, "granted": True, "version": _CONSENT_VERSION}
+    live = _live_consent(db, email)
+    if live:
+        live.granted = 0
+        live.revoked_at = now
+    close_track_session(db, email, "manual")
+    db.commit()
+    return {"granted": False}
+
+
+@router.get("/track/config")
+def track_config(dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
+    """What the device needs on launch: cadence, whether consent is on file, and
+    whether the employee is clocked in right now (so the app knows to run)."""
+    email = dev.employee_email
+    return {
+        "intervalSec": _TRACK_INTERVAL_SEC, "distanceM": _TRACK_DISTANCE_M,
+        "consentVersion": _CONSENT_VERSION,
+        "hasConsent": _live_consent(db, email) is not None,
+        "clockedIn": _clocked_in(db, email), "email": email,
+    }
+
+
+@router.post("/track/start")
+def track_start(dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
+    email = dev.employee_email
+    if _live_consent(db, email) is None:
+        raise HTTPException(403, "Location tracking needs your consent first.")
+    if not _clocked_in(db, email):
+        raise HTTPException(409, "Not clocked in — tracking only runs during a shift.")
+    sess = _open_session(db, email) or _new_session(db, dev)
+    db.commit()
+    return {"sessionId": sess.id, "intervalSec": _TRACK_INTERVAL_SEC, "distanceM": _TRACK_DISTANCE_M}
+
+
+class PingItem(BaseModel):
+    lat: str
+    lng: str
+    accuracy_m: Optional[int] = 0
+    at: Optional[str] = ""          # device capture time (UTC ISO); server time if blank
+    battery_pct: Optional[int] = -1
+    tz_offset_min: Optional[int] = 0
+
+
+class PingBatch(BaseModel):
+    pings: List[PingItem] = []
+
+
+@router.post("/track/ping")
+def track_ping(body: PingBatch, dev: AgentDevice = Depends(get_agent_device),
+               db: Session = Depends(get_db)):
+    """Batched location samples — the device's offline buffer flushes here, so a
+    dead-zone stretch uploads on reconnect. Each ping keeps its DEVICE capture
+    time, not receive time. Rejected unless clocked in AND consented."""
+    email = dev.employee_email
+    if _live_consent(db, email) is None:
+        raise HTTPException(403, "No tracking consent on file.")
+    if not _clocked_in(db, email):
+        # Clocked out while the device still held buffered pings — close the
+        # session and drop them. Off-shift location is never stored.
+        close_track_session(db, email, "clock_out")
+        db.commit()
+        raise HTTPException(409, "Not clocked in — tracking stopped.")
+    sess = _open_session(db, email) or _new_session(db, dev)
+    stored = 0
+    for p in body.pings[:500]:
+        if not (p.lat or "").strip() or not (p.lng or "").strip():
+            continue
+        at = (p.at or "").strip()[:19] or _now_iso()
+        geo = _geofence(db, p.lat, p.lng, p.accuracy_m or 0)
+        db.add(TrackPing(
+            id=str(uuid.uuid4()), session_id=sess.id, employee_email=email,
+            at=at, received_at=_now_iso(), local_date=_local_date(at, p.tz_offset_min or 0),
+            lat=(p.lat or "").strip()[:24], lng=(p.lng or "").strip()[:24],
+            accuracy_m=max(0, int(p.accuracy_m or 0)),
+            battery_pct=int(p.battery_pct if p.battery_pct is not None else -1),
+            source="mobile", **geo))
+        stored += 1
+    db.commit()
+    return {"stored": stored, "sessionId": sess.id, "intervalSec": _TRACK_INTERVAL_SEC}
+
+
+@router.post("/track/stop")
+def track_stop(dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
+    close_track_session(db, dev.employee_email, "manual")
+    db.commit()
+    return {"ok": True}
+
+
+class TrackClockIn(BaseModel):
+    kind: str                        # in | out
+    lat: Optional[str] = ""
+    lng: Optional[str] = ""
+    accuracy_m: Optional[int] = 0
+    tz_offset_min: Optional[int] = 0
+
+
+@router.post("/track/clock")
+def track_clock(body: TrackClockIn, dev: AgentDevice = Depends(get_agent_device),
+                db: Session = Depends(get_db)):
+    """Clock in/out from the enrolled phone (token-authed, no Microsoft login —
+    same self-punch model as the desktop agent's auto-clock). Punching in also
+    opens a tracking session; punching out closes it. Feeds the SAME timesheets
+    and approvals as web punches (source='mobile', adjustable)."""
+    if body.kind not in ("in", "out"):
+        raise HTTPException(400, "kind must be 'in' or 'out'")
+    email = dev.employee_email
+    last = (db.query(TimePunch)
+            .filter(TimePunch.employee_email == email, TimePunch.voided == 0)
+            .order_by(TimePunch.at.desc()).first())
+    if body.kind not in _allowed_kinds(last.kind if last else None):
+        raise HTTPException(409, f"Can't clock '{body.kind}' right now.")
+    now = _now_iso()
+    geo = (_geofence(db, body.lat, body.lng, body.accuracy_m or 0)
+           if (body.lat or "").strip() else
+           {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0})
+    db.add(TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=now,
+                     local_date=_local_date(now, body.tz_offset_min or 0),
+                     tz_offset_min=body.tz_offset_min or 0,
+                     lat=(body.lat or "").strip()[:24], lng=(body.lng or "").strip()[:24],
+                     accuracy_m=max(0, int(body.accuracy_m or 0)),
+                     source="mobile", created_by=email, created_at=now, **geo))
+    if body.kind == "in":
+        if _live_consent(db, email) is not None:
+            _open_session(db, email) or _new_session(db, dev)  # start tracking on clock-in
+    else:
+        close_track_session(db, email, "clock_out")
+    db.commit()
+    return {"kind": body.kind, "clockedIn": body.kind == "in", "at": now,
+            "geoStatus": geo["geo_status"], "trackable": _live_consent(db, email) is not None}
+
+
+@router.get("/track/live")
+def track_live(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """Latest ping per currently-tracked team member — the live crew map. Scoped
+    to the viewer's team (whole company for HR/admins). Self-heals: a session
+    whose last ping is older than the idle window is closed and dropped, so a
+    phone that died (no clock-out) stops showing as live."""
+    scope = _visible_emails(db, user)
+    q = db.query(TrackSession).filter(TrackSession.ended_at == "")
+    if scope is not None:
+        q = q.filter(TrackSession.employee_email.in_(list(scope)))
+    names = {(e.work_email or "").lower(): f"{e.first_name} {e.last_name}".strip()
+             for e in db.query(NexusEmployee).all() if e.work_email}
+    now = datetime.now(timezone.utc)
+    crew = []
+    for s in q.all():
+        # Latest POSITION is the newest device-capture time; LIVENESS is the last
+        # time we heard from the device (received_at). They differ when a device
+        # flushes an offline buffer — old `at` values, fresh contact — so a worker
+        # back from a dead zone must not be judged idle on a stale capture time.
+        last = (db.query(TrackPing).filter(TrackPing.session_id == s.id)
+                .order_by(TrackPing.at.desc()).first())
+        contact = (db.query(TrackPing.received_at).filter(TrackPing.session_id == s.id)
+                   .order_by(TrackPing.received_at.desc()).first())
+        contact_t = _parse_iso(contact[0]) if contact and contact[0] else None
+        if last is None or contact_t is None or (now - contact_t).total_seconds() > _TRACK_IDLE_STOP_SEC:
+            s.ended_at = _now_iso()
+            s.ended_reason = "idle"
+            continue
+        crew.append({
+            "email": s.employee_email,
+            "name": names.get(s.employee_email) or s.employee_email.split("@")[0].replace(".", " ").title(),
+            "lat": last.lat, "lng": last.lng, "accuracyM": last.accuracy_m, "at": last.at,
+            "geoStatus": last.geo_status, "workSiteName": last.work_site_name or "",
+            "distanceM": last.distance_m or 0, "batteryPct": last.battery_pct,
+            "sessionStart": s.started_at,
+        })
+    db.commit()
+    return {"crew": crew}
+
+
+@router.get("/track/path")
+def track_path(email: str, date: str, user: dict = Depends(require_team_read),
+               db: Session = Depends(get_db)):
+    """Ordered breadcrumb for one employee on one local date — the map replay."""
+    em = email.strip().lower()
+    scope = _visible_emails(db, user)
+    if scope is not None and em not in scope:
+        raise HTTPException(403, "Outside your team")
+    pings = (db.query(TrackPing)
+             .filter(TrackPing.employee_email == em, TrackPing.local_date == date)
+             .order_by(TrackPing.at).all())
+    return {"email": em, "date": date, "points": [{
+        "at": p.at, "lat": p.lat, "lng": p.lng, "accuracyM": p.accuracy_m,
+        "geoStatus": p.geo_status, "workSiteName": p.work_site_name or "",
+        "distanceM": p.distance_m or 0, "batteryPct": p.battery_pct,
+    } for p in pings]}
+
+
+def purge_old_track_pings(db: Session, days: int = _TRACK_RETENTION_DAYS) -> int:
+    """Retention guardrail: delete raw pings older than the window, plus sessions
+    that ended before it. Called from the daily reminders job. Returns rows cut."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    n = (db.query(TrackPing).filter(TrackPing.local_date < cutoff)
+         .delete(synchronize_session=False))
+    db.query(TrackSession).filter(TrackSession.ended_at != "",
+                                  TrackSession.ended_at < cutoff).delete(synchronize_session=False)
+    db.commit()
+    return n
+
+
+# ── Shifts, groups, and bulk assignment ──────────────────────────────────────
+
+class ShiftIn(BaseModel):
+    name: str
+    code: Optional[str] = ""
+    start_hhmm: str = "09:00"
+    end_hhmm: str = "17:00"
+    days: str = "1,2,3,4,5"
+    grace_min: int = 10
+    color: Optional[str] = "#2563eb"
+
+
+def _shift_dict(s: Shift) -> dict:
+    return {"id": s.id, "name": s.name, "code": s.code or "", "start": s.start_hhmm,
+            "end": s.end_hhmm, "days": s.days, "graceMin": s.grace_min, "color": s.color}
+
+
+@router.get("/shifts")
+def list_shifts(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    return {"shifts": [_shift_dict(s) for s in db.query(Shift).order_by(Shift.name).all()]}
+
+
+@router.post("/shifts")
+def create_shift(body: ShiftIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    if not body.name.strip():
+        raise HTTPException(400, "Name is required")
+    s = Shift(id=str(uuid.uuid4()), name=body.name.strip()[:80], code=(body.code or "").strip()[:12],
+              start_hhmm=body.start_hhmm[:5], end_hhmm=body.end_hhmm[:5],
+              days=body.days[:40], grace_min=max(0, int(body.grace_min or 0)),
+              color=(body.color or "#2563eb")[:9], created_by=user["email"], created_at=_now_iso())
+    db.add(s)
+    db.commit()
+    return _shift_dict(s)
+
+
+@router.patch("/shifts/{shift_id}")
+def update_shift(shift_id: str, body: ShiftIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    s = db.query(Shift).filter(Shift.id == shift_id).first()
+    if not s:
+        raise HTTPException(404, "Shift not found")
+    s.name = body.name.strip()[:80]
+    s.code = (body.code or "").strip()[:12]
+    s.start_hhmm = body.start_hhmm[:5]
+    s.end_hhmm = body.end_hhmm[:5]
+    s.days = body.days[:40]
+    s.grace_min = max(0, int(body.grace_min or 0))
+    s.color = (body.color or "#2563eb")[:9]
+    db.commit()
+    return _shift_dict(s)
+
+
+@router.delete("/shifts/{shift_id}")
+def delete_shift(shift_id: str, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    db.query(Shift).filter(Shift.id == shift_id).delete()
+    db.query(ShiftAssignment).filter(ShiftAssignment.shift_id == shift_id).delete()
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/shift-groups")
+def list_shift_groups(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    members = {}
+    for m in db.query(ShiftGroupMember).all():
+        members.setdefault(m.group_id, []).append(m.employee_email)
+    return {"groups": [{"id": g.id, "name": g.name, "members": members.get(g.id, []),
+                        "chatId": g.teams_chat_id or "", "chatName": g.teams_chat_name or ""}
+                       for g in db.query(ShiftGroup).order_by(ShiftGroup.name).all()]}
+
+
+class GroupIn(BaseModel):
+    name: str
+    members: List[str] = []
+    teams_chat_id: Optional[str] = None
+    teams_chat_name: Optional[str] = None
+
+
+@router.post("/shift-groups")
+def create_shift_group(body: GroupIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    if not body.name.strip():
+        raise HTTPException(400, "Name is required")
+    g = ShiftGroup(id=str(uuid.uuid4()), name=body.name.strip()[:80],
+                   teams_chat_id=(body.teams_chat_id or "")[:200],
+                   teams_chat_name=(body.teams_chat_name or "")[:200],
+                   created_by=user["email"], created_at=_now_iso())
+    db.add(g)
+    for em in dict.fromkeys(e.strip().lower() for e in body.members if e.strip()):
+        db.add(ShiftGroupMember(id=str(uuid.uuid4()), group_id=g.id, employee_email=em))
+    db.commit()
+    return {"id": g.id, "name": g.name, "members": list(dict.fromkeys(e.strip().lower() for e in body.members if e.strip()))}
+
+
+@router.patch("/shift-groups/{group_id}")
+def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    g = db.query(ShiftGroup).filter(ShiftGroup.id == group_id).first()
+    if not g:
+        raise HTTPException(404, "Group not found")
+    if body.name.strip():
+        g.name = body.name.strip()[:80]
+    if body.teams_chat_id is not None:
+        g.teams_chat_id = body.teams_chat_id[:200]
+        g.teams_chat_name = (body.teams_chat_name or "")[:200]
+    db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).delete()
+    for em in dict.fromkeys(e.strip().lower() for e in body.members if e.strip()):
+        db.add(ShiftGroupMember(id=str(uuid.uuid4()), group_id=group_id, employee_email=em))
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/my-chat")
+def my_group_chat(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The Teams group chat this employee's group is bound to — where their
+    BOD/EOD/Break messages should route. First group (with a binding) they belong
+    to wins. Empty chatId means no binding → the client falls back to a picker."""
+    email = user["email"].lower()
+    group_ids = [m.group_id for m in db.query(ShiftGroupMember)
+                 .filter(ShiftGroupMember.employee_email == email).all()]
+    if not group_ids:
+        return {"chatId": "", "chatName": "", "groupName": ""}
+    g = (db.query(ShiftGroup)
+         .filter(ShiftGroup.id.in_(group_ids), ShiftGroup.teams_chat_id != "")
+         .order_by(ShiftGroup.name).first())
+    if not g:
+        return {"chatId": "", "chatName": "", "groupName": ""}
+    return {"chatId": g.teams_chat_id, "chatName": g.teams_chat_name, "groupName": g.name}
+
+
+@router.delete("/shift-groups/{group_id}")
+def delete_shift_group(group_id: str, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    db.query(ShiftGroup).filter(ShiftGroup.id == group_id).delete()
+    db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).delete()
+    db.commit()
+    return {"ok": True}
+
+
+class AssignIn(BaseModel):
+    shift_id: str
+    emails: List[str] = []
+
+
+@router.post("/shift-assign")
+def assign_shift(body: AssignIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    """Bulk-assign a shift to a set of employees (typically a group's members).
+    An empty shift_id clears the assignment."""
+    now = _now_iso()
+    n = 0
+    for em in dict.fromkeys(e.strip().lower() for e in body.emails if e.strip()):
+        row = db.query(ShiftAssignment).filter(ShiftAssignment.employee_email == em).first()
+        if not row:
+            row = ShiftAssignment(id=str(uuid.uuid4()), employee_email=em)
+            db.add(row)
+        row.shift_id = body.shift_id or ""
+        row.assigned_by = user["email"]
+        row.assigned_at = now
+        n += 1
+    db.commit()
+    return {"ok": True, "assigned": n}
+
+
+@router.get("/shift-assignments")
+def shift_assignments(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    return {"assignments": {a.employee_email: a.shift_id
+                            for a in db.query(ShiftAssignment).all() if a.shift_id}}
+
+
+# ── Weekly schedule grid (Teams-Shifts style) ────────────────────────────────
+
+def _sched_dict(row: ScheduledShift, presets: dict) -> dict:
+    p = presets.get(row.shift_id)
+    return {"id": row.id, "email": row.employee_email, "date": row.work_date,
+            "shiftId": row.shift_id, "start": row.start_hhmm, "end": row.end_hhmm,
+            "label": row.label, "note": row.note, "published": bool(row.published),
+            "code": (p.code or p.name) if p else "", "color": p.color if p else "#64748b"}
+
+
+@router.get("/schedule")
+def read_schedule(start: str, end: str, user: dict = Depends(require_team_read),
+                  db: Session = Depends(get_db)):
+    """Everything the grid needs for a date range: visible employees (scoped),
+    shift presets, groups, the placed shifts, and time off to overlay."""
+    scope = _visible_emails(db, user)
+    names = {(e.work_email or "").lower(): f"{e.first_name} {e.last_name}".strip()
+             for e in db.query(NexusEmployee).all() if e.work_email}
+    if scope is None:
+        emails = list(names.keys())
+    else:
+        emails = sorted(scope)
+    employees = [{"email": em, "name": names.get(em, em)} for em in emails]
+
+    presets = {s.id: s for s in db.query(Shift).all()}
+    members = {}
+    for m in db.query(ShiftGroupMember).all():
+        members.setdefault(m.group_id, []).append(m.employee_email)
+    groups = [{"id": g.id, "name": g.name, "members": members.get(g.id, [])}
+              for g in db.query(ShiftGroup).order_by(ShiftGroup.name).all()]
+
+    q = (db.query(ScheduledShift)
+         .filter(ScheduledShift.work_date >= start, ScheduledShift.work_date <= end))
+    if scope is not None:
+        q = q.filter(ScheduledShift.employee_email.in_(list(scope)))
+    scheduled = [_sched_dict(r, presets) for r in q.all()]
+
+    tq = (db.query(TimeOffRequest)
+          .filter(TimeOffRequest.status.in_(["approved", "pending"]),
+                  TimeOffRequest.start_date <= end, TimeOffRequest.end_date >= start))
+    if scope is not None:
+        tq = tq.filter(TimeOffRequest.employee_email.in_(list(scope)))
+    timeoff = [{"email": t.employee_email, "startDate": t.start_date, "endDate": t.end_date,
+                "type": t.type, "status": t.status} for t in tq.all()]
+
+    return {"employees": employees, "shifts": [_shift_dict(s) for s in presets.values()],
+            "groups": groups, "scheduled": scheduled, "timeoff": timeoff}
+
+
+class ScheduledShiftIn(BaseModel):
+    employee_email: str
+    work_date: str
+    shift_id: Optional[str] = ""
+    start_hhmm: Optional[str] = ""
+    end_hhmm: Optional[str] = ""
+    label: Optional[str] = ""
+    note: Optional[str] = ""
+
+
+@router.post("/schedule")
+def create_scheduled(body: ScheduledShiftIn, user: dict = Depends(require_team_write),
+                     db: Session = Depends(get_db)):
+    em = body.employee_email.strip().lower()
+    scope = _visible_emails(db, user)
+    if scope is not None and em not in scope:
+        raise HTTPException(403, "Outside your team")
+    preset = db.query(Shift).filter(Shift.id == body.shift_id).first() if body.shift_id else None
+    row = ScheduledShift(
+        id=str(uuid.uuid4()), employee_email=em, work_date=body.work_date[:10],
+        shift_id=body.shift_id or "",
+        start_hhmm=(body.start_hhmm or (preset.start_hhmm if preset else "09:00"))[:5],
+        end_hhmm=(body.end_hhmm or (preset.end_hhmm if preset else "17:00"))[:5],
+        label=(body.label or "")[:80], note=(body.note or "")[:200],
+        created_by=user["email"], created_at=_now_iso())
+    db.add(row)
+    db.commit()
+    return _sched_dict(row, {preset.id: preset} if preset else {})
+
+
+@router.patch("/schedule/{sched_id}")
+def update_scheduled(sched_id: str, body: ScheduledShiftIn,
+                     user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    row = db.query(ScheduledShift).filter(ScheduledShift.id == sched_id).first()
+    if not row:
+        raise HTTPException(404, "Shift not found")
+    scope = _visible_emails(db, user)
+    if scope is not None and row.employee_email not in scope:
+        raise HTTPException(403, "Outside your team")
+    preset = db.query(Shift).filter(Shift.id == body.shift_id).first() if body.shift_id else None
+    row.shift_id = body.shift_id or ""
+    row.start_hhmm = (body.start_hhmm or (preset.start_hhmm if preset else row.start_hhmm))[:5]
+    row.end_hhmm = (body.end_hhmm or (preset.end_hhmm if preset else row.end_hhmm))[:5]
+    row.label = (body.label or "")[:80]
+    row.note = (body.note or "")[:200]
+    db.commit()
+    return _sched_dict(row, {preset.id: preset} if preset else {})
+
+
+@router.delete("/schedule/{sched_id}")
+def delete_scheduled(sched_id: str, user: dict = Depends(require_team_write),
+                     db: Session = Depends(get_db)):
+    row = db.query(ScheduledShift).filter(ScheduledShift.id == sched_id).first()
+    if row:
+        scope = _visible_emails(db, user)
+        if scope is not None and row.employee_email not in scope:
+            raise HTTPException(403, "Outside your team")
+        db.delete(row)
+        db.commit()
+    return {"ok": True}
+
+
+# ── Payroll timecard (manager-editable, per pay period) ───────────────────────
+
+_WEEK_OT_MIN = 40 * 60   # federal weekly overtime threshold; WA/OR follow weekly
+_OT_MULT = 1.5
+
+
+def _monday_str(date_str: str) -> str:
+    d = datetime.strptime(date_str, "%Y-%m-%d")
+    return (d - timedelta(days=d.weekday())).strftime("%Y-%m-%d")
+
+
+@router.get("/payroll")
+def payroll_timecard(email: str, start: str, end: str,
+                     user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """A SwipeClock-style timecard for one employee over a pay period: in/out
+    segments per day, weekly overtime split (>40h at 1.5x), and wage totals off
+    the manager-set hourly rate. Exact minutes, no rounding."""
+    em = email.strip().lower()
+    scope = _visible_emails(db, user)
+    if scope is not None and em not in scope:
+        raise HTTPException(403, "Outside your team")
+    punches = _live_punches(db, em, start, end)
+    byday = {}
+    for p in punches:
+        byday.setdefault(p.local_date, []).append(p)
+    rate_row = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
+    rate = float(rate_row.hourly_rate) if rate_row else 0.0
+
+    weekly_cum, days_out = {}, []
+    total_reg = total_ot = missing_punches = 0
+    edited_punches = sum(1 for p in punches if p.adjusted_by)
+
+    for date in sorted(byday.keys()):
+        segs = []
+        open_in = None
+        open_in_at = ""
+        open_in_id = ""
+        open_break = None
+        brk = 0.0
+        sflags = set()
+        for p in byday[date]:
+            t = _parse_iso(p.at)
+            if t is None:
+                continue
+            if p.kind == "in":
+                open_in, open_in_at, open_in_id, brk, sflags = t, p.at, p.id, 0.0, set()
+                if p.geo_status == "out_of_fence":
+                    sflags.add("out_of_fence")
+                if p.source in ("manual", "self_manual"):
+                    sflags.add("manual")
+                if p.adjusted_by:
+                    sflags.add("adjusted")
+            elif p.kind == "out":
+                if open_break is not None:
+                    brk += (t - open_break).total_seconds() / 60
+                    open_break = None
+                if open_in is not None:
+                    if p.adjusted_by:
+                        sflags.add("adjusted")
+                    mins = int(round((t - open_in).total_seconds() / 60 - brk))
+                    segs.append({"in": open_in_at, "out": p.at, "inId": open_in_id, "outId": p.id,
+                                 "workedMin": max(0, mins), "flags": sorted(sflags)})
+                    open_in = None
+            elif p.kind == "break_start":
+                if open_break is None and open_in is not None:
+                    open_break = t
+            elif p.kind == "break_end":
+                if open_break is not None:
+                    brk += (t - open_break).total_seconds() / 60
+                    open_break = None
+        if open_in is not None:
+            segs.append({"in": open_in_at, "out": "", "inId": open_in_id, "outId": "",
+                         "workedMin": 0, "flags": sorted(sflags | {"missing_out"})})
+            missing_punches += 1
+
+        mon = _monday_str(date)
+        day_reg = day_ot = 0
+        for seg in segs:
+            cum = weekly_cum.get(mon, 0)
+            reg = min(seg["workedMin"], max(0, _WEEK_OT_MIN - cum))
+            ot = seg["workedMin"] - reg
+            weekly_cum[mon] = cum + seg["workedMin"]
+            seg["regMin"], seg["otMin"] = reg, ot
+            seg["amount"] = round(reg / 60 * rate + ot / 60 * rate * _OT_MULT, 2)
+            day_reg += reg
+            day_ot += ot
+        total_reg += day_reg
+        total_ot += day_ot
+        days_out.append({"date": date, "weekStart": mon, "segments": segs,
+                         "workedMin": day_reg + day_ot, "regMin": day_reg, "otMin": day_ot})
+
+    reg_pay = round(total_reg / 60 * rate, 2)
+    ot_pay = round(total_ot / 60 * rate * _OT_MULT, 2)
+    return {"email": em, "start": start, "end": end, "rate": rate, "rateSet": rate_row is not None,
+            "days": days_out,
+            "totals": {"regMin": total_reg, "otMin": total_ot, "regPay": reg_pay, "otPay": ot_pay,
+                       "totalPay": round(reg_pay + ot_pay, 2),
+                       "missingPunches": missing_punches, "editedPunches": edited_punches}}
+
+
+class RateIn(BaseModel):
+    email: str
+    hourly_rate: float
+
+
+@router.put("/payroll/rate")
+def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
+                     db: Session = Depends(get_db)):
+    em = body.email.strip().lower()
+    scope = _visible_emails(db, user)
+    if scope is not None and em not in scope:
+        raise HTTPException(403, "Outside your team")
+    row = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
+    if not row:
+        row = PayrollRate(employee_email=em)
+        db.add(row)
+    row.hourly_rate = max(0.0, float(body.hourly_rate or 0))
+    row.updated_by = user["email"]
+    row.updated_at = _now_iso()
+    db.commit()
+    return {"ok": True, "rate": row.hourly_rate}
+
+
+def _activity_day_payload(db: Session, email: str, date: str) -> dict:
+    """One day, fully broken down: worked vs active vs idle plus the app/window
+    log the desktop agent recorded. Active = foreground app samples while not
+    idle; idle = punched-in time the agent saw no activity for."""
+    rows = (db.query(AgentActivity)
+            .filter(AgentActivity.employee_email == email, AgentActivity.local_date == date)
+            .order_by(AgentActivity.at).all())
+    apps: dict = {}
+    for r in rows:
+        a = apps.setdefault(r.app or "Unknown", {"seconds": 0, "titles": {}})
+        a["seconds"] += r.seconds or 0
+        t = (r.title or "").strip()
+        if t:
+            a["titles"][t] = a["titles"].get(t, 0) + (r.seconds or 0)
+    day = _day_summaries(_live_punches(db, email, date, date)).get(date, {})
+    worked_min = day.get("workedMin", 0)
+    active_min = int(round(sum(v["seconds"] for v in apps.values()) / 60))
+    idle_min = max(0, worked_min - active_min)
+    return {
+        "date": date, "workedMin": worked_min, "activeMin": min(active_min, worked_min) if worked_min else active_min,
+        "idleMin": idle_min,
+        "activePct": min(100, round(active_min * 100 / worked_min)) if worked_min else 0,
+        "hasAgentData": bool(rows),
+        "apps": sorted(
+            [{"app": k, "seconds": v["seconds"],
+              "titles": sorted([{"title": t, "seconds": s} for t, s in v["titles"].items()],
+                               key=lambda x: -x["seconds"])[:6]}
+             for k, v in apps.items()], key=lambda x: -x["seconds"])[:15],
+        "log": [{"at": r.at, "app": r.app or "Unknown", "title": r.title or "",
+                 "seconds": r.seconds or 0} for r in reversed(rows)][:400],
+    }
+
+
+@router.get("/my-activity")
+def my_activity_day(date: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The caller's own working/idle breakdown + app log for one day."""
+    if not date:
+        raise HTTPException(400, "date is required (YYYY-MM-DD)")
+    return _activity_day_payload(db, user["email"].lower(), date)
+
+
+@router.get("/activity-day")
+def activity_day(email: str = "", date: str = "", user: dict = Depends(require_team_read),
+                 db: Session = Depends(get_db)):
+    """Team-scoped version for managers/HR — same shape as /my-activity."""
+    email = email.strip().lower()
+    if not (email and date):
+        raise HTTPException(400, "email and date are required")
+    scope = _visible_emails(db, user)
+    if scope is not None and email not in scope:
+        raise HTTPException(403, "Outside your team")
+    return _activity_day_payload(db, email, date)
+
+
+@router.get("/activity")
+def read_activity(email: str = "", start: str = "", end: str = "",
+                  user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """App-usage breakdown + activity score for one employee over a date range.
+    Scoped like the rest of the team endpoints (managers see only their reports)."""
+    email = email.strip().lower()
+    scope = _visible_emails(db, user)
+    if scope is not None and email not in scope:
+        raise HTTPException(403, "Outside your team")
+    q = db.query(AgentActivity).filter(AgentActivity.employee_email == email)
+    if start:
+        q = q.filter(AgentActivity.local_date >= start)
+    if end:
+        q = q.filter(AgentActivity.local_date <= end)
+    rows = q.all()
+    apps: dict = {}
+    pcts = []
+    for r in rows:
+        apps[r.app or "Unknown"] = apps.get(r.app or "Unknown", 0) + (r.seconds or 0)
+        if r.active_pct:
+            pcts.append(r.active_pct)
+    top = sorted(apps.items(), key=lambda x: -x[1])[:12]
+    return {
+        "email": email,
+        "totalSeconds": sum(apps.values()),
+        "activePct": round(sum(pcts) / len(pcts)) if pcts else 0,
+        "apps": [{"app": a, "seconds": s} for a, s in top],
+    }
+
+
+def _signed_url(path: str) -> str:
+    try:
+        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{path}",
+                       headers=_storage_headers(), json={"expiresIn": 3600}, timeout=20)
+        if r.is_success:
+            return f"{_SUPABASE_URL}/storage/v1{r.json().get('signedURL', '')}"
+    except Exception:
+        pass
+    return ""
+
+
+# ── Desktop agent installers (private bucket, admin-only signed links) ────────
+# Signed builds live in the private 'agent-releases' bucket at a fixed path per
+# platform. Admins upload from the Time Tracking portal; the download link and
+# the silent-install command carry a 7-day signed URL so no login is needed on
+# the target machine and the installer is never world-readable.
+
+_AGENT_BUCKET = "agent-releases"
+_AGENT_KEYS = {
+    "win":   "win/GreensNexusAgent-Setup.exe",
+    "mac":   "mac/GreensNexusAgent.dmg",
+    "linux": "linux/GreensNexusAgent.AppImage",
+}
+_AGENT_LINK_TTL = 7 * 24 * 3600  # 7 days
+
+
+def _agent_signed_url(path: str, ttl: int = _AGENT_LINK_TTL) -> str:
+    try:
+        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_AGENT_BUCKET}/{path}",
+                       headers=_storage_headers(), json={"expiresIn": ttl}, timeout=20)
+        if r.is_success:
+            return f"{_SUPABASE_URL}/storage/v1{r.json().get('signedURL', '')}"
+    except Exception:
+        pass
+    return ""
+
+
+@router.get("/agent/download-url")
+def agent_download_url(platform: str = "win", user: dict = Depends(require_administrator)):
+    """A fresh 7-day signed URL for the platform's installer (empty + exists:false
+    if nothing's been uploaded yet)."""
+    key = _AGENT_KEYS.get(platform)
+    if not key:
+        raise HTTPException(400, "platform must be win, mac or linux")
+    url = _agent_signed_url(key)
+    return {"platform": platform, "exists": bool(url), "url": url, "ttlDays": _AGENT_LINK_TTL // 86400}
+
+
+@router.get("/agent/upload-url")
+def agent_upload_url(platform: str = "win", user: dict = Depends(require_administrator)):
+    """A one-time signed URL the browser PUTs the installer straight to (Supabase
+    Storage), so the big file never streams through this API — no request timeout,
+    no double hop. The client uploads with header x-upsert: true."""
+    key = _AGENT_KEYS.get(platform)
+    if not key:
+        raise HTTPException(400, "platform must be win, mac or linux")
+    try:
+        # x-upsert lets the resulting URL REPLACE an existing installer (without
+        # it Supabase 409s "Duplicate" once a build has been uploaded).
+        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/upload/sign/{_AGENT_BUCKET}/{key}",
+                       headers={**_storage_headers(), "x-upsert": "true"}, timeout=20)
+        if not r.is_success:
+            raise HTTPException(502, f"Could not create upload URL: {r.text[:200]}")
+        signed = r.json().get("url", "")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"Could not create upload URL: {str(e)[:200]}")
+    return {"platform": platform, "uploadUrl": f"{_SUPABASE_URL}/storage/v1{signed}", "key": key}
+
+
+@router.post("/agent/upload")
+def agent_upload(platform: str = Form("win"), file: UploadFile = File(...),
+                 user: dict = Depends(require_administrator)):
+    """Legacy: upload through the API (kept for small files / fallback). Prefer
+    /agent/upload-url for large installers."""
+    key = _AGENT_KEYS.get(platform)
+    if not key:
+        raise HTTPException(400, "platform must be win, mac or linux")
+    blob = file.file.read()
+    if not blob:
+        raise HTTPException(400, "Empty file")
+    if len(blob) > 400_000_000:
+        raise HTTPException(400, "Installer larger than 400 MB")
+    up = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_AGENT_BUCKET}/{key}",
+                    headers={**_storage_headers(), "Content-Type": "application/octet-stream", "x-upsert": "true"},
+                    content=blob, timeout=180)
+    if not up.is_success:
+        raise HTTPException(502, f"Upload failed: {up.text[:200]}")
+    return {"ok": True, "platform": platform, "sizeMb": round(len(blob) / 1_000_000, 1)}
+
+
+@router.get("/screenshots")
+def list_screenshots(date: str = "", email: str = "",
+                     user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """Admin gallery. Without an email: per-person counts for the day. With one:
+    the frames themselves, each with a fresh signed URL."""
+    day = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    q = db.query(TimeScreenshot).filter(TimeScreenshot.local_date == day)
+    if not email:
+        counts = {}
+        for s in q.all():
+            counts[s.employee_email] = counts.get(s.employee_email, 0) + 1
+        names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
+                 for e in db.query(NexusEmployee).all() if e.work_email}
+        return {"date": day, "people": [
+            {"email": em, "name": names.get(em) or em.split("@")[0].replace(".", " ").title(), "count": n}
+            for em, n in sorted(counts.items())]}
+    rows = q.filter(TimeScreenshot.employee_email == email.strip().lower()) \
+            .order_by(TimeScreenshot.at).all()
+    return {"date": day, "email": email, "shots": [
+        {"id": s.id, "at": s.at, "idleSec": s.idle_sec or 0, "activeView": s.active_view or "",
+         "url": _signed_url(s.storage_path)} for s in rows]}
+
+
+# ── Beginning-of-day message (recorded copy; Teams post happens client-side) ─
+
+class BodIn(BaseModel):
+    kind: Optional[str] = "bod"      # bod | eod
+    message: str
+    tasks: Optional[str] = ""
+    team_id: Optional[str] = ""
+    team_name: Optional[str] = ""
+    channel_id: Optional[str] = ""
+    channel_name: Optional[str] = ""
+    sent: Optional[bool] = False
+    send_error: Optional[str] = ""
+    tz_offset_min: Optional[int] = 0
+
+
+@router.post("/bod")
+def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    now = _now_iso()
+    row = TimeBod(id=str(uuid.uuid4()), employee_email=user["email"],
+                  kind=body.kind if body.kind in ("bod", "eod", "break") else "bod",
+                  local_date=_local_date(now, body.tz_offset_min or 0),
+                  message=(body.message or "").strip()[:1000],
+                  tasks=(body.tasks or "").strip()[:2000],
+                  team_id=(body.team_id or "")[:80], team_name=(body.team_name or "")[:120],
+                  channel_id=(body.channel_id or "")[:120], channel_name=(body.channel_name or "")[:120],
+                  sent=1 if body.sent else 0, send_error=(body.send_error or "")[:300],
+                  created_at=now)
+    db.add(row)
+    db.commit()
+    return {"ok": True, "id": row.id}
+
+
+@router.get("/bod/last")
+def last_bod(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The employee's previous BOD post — prefills the channel picker."""
+    row = (db.query(TimeBod).filter(TimeBod.employee_email == user["email"])
+           .order_by(TimeBod.created_at.desc()).first())
+    if not row:
+        return None
+    return {"teamId": row.team_id, "teamName": row.team_name,
+            "channelId": row.channel_id, "channelName": row.channel_name}
+
+
+# ── Time off (leave requests inside the Time module) ─────────────────────────
+
+TIMEOFF_TYPES = ("vacation", "sick", "personal", "unpaid", "other")
+
+
+def _ser_timeoff(r: TimeOffRequest, names: dict = None) -> dict:
+    return {"id": r.id, "email": r.employee_email,
+            "name": (names or {}).get(r.employee_email, ""),
+            "type": r.type, "startDate": r.start_date, "endDate": r.end_date,
+            "note": r.note or "", "status": r.status, "approver": r.approver or "",
+            "decidedAt": r.decided_at or "", "decideNote": r.decide_note or "",
+            "createdAt": r.created_at}
+
+
+class TimeOffIn(BaseModel):
+    type: str
+    start_date: str
+    end_date: str
+    note: Optional[str] = ""
+
+
+@router.post("/timeoff")
+def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    if body.type not in TIMEOFF_TYPES:
+        raise HTTPException(400, f"type must be one of {TIMEOFF_TYPES}")
+    try:
+        s = datetime.strptime(body.start_date, "%Y-%m-%d")
+        e = datetime.strptime(body.end_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "Dates must be YYYY-MM-DD")
+    if e < s:
+        raise HTTPException(400, "End date is before the start date")
+    now = _now_iso()
+    row = TimeOffRequest(id=str(uuid.uuid4()), employee_email=user["email"], type=body.type,
+                         start_date=body.start_date, end_date=body.end_date,
+                         note=(body.note or "").strip()[:400], created_at=now)
+    db.add(row)
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == user["email"]).first()
+    if emp and emp.manager_email:
+        _hr_notify(db, emp.manager_email, "Time-off request",
+                   f"{emp.first_name} {emp.last_name} requested {body.type} "
+                   f"{body.start_date} → {body.end_date}.",
+                   ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
+    db.commit()
+    return _ser_timeoff(row)
+
+
+@router.get("/timeoff/mine")
+def my_timeoff(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = (db.query(TimeOffRequest).filter(TimeOffRequest.employee_email == user["email"])
+            .order_by(TimeOffRequest.created_at.desc()).limit(50).all())
+    return [_ser_timeoff(r) for r in rows]
+
+
+@router.get("/timeoff")
+def list_timeoff(status: str = "", user: dict = Depends(require_team_read),
+                 db: Session = Depends(get_db)):
+    q = db.query(TimeOffRequest)
+    scope = _visible_emails(db, user)
+    if scope is not None:
+        q = q.filter(TimeOffRequest.employee_email.in_(scope))
+    if status:
+        q = q.filter(TimeOffRequest.status == status)
+    rows = q.order_by(TimeOffRequest.created_at.desc()).limit(300).all()
+    names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
+             for e in db.query(NexusEmployee).all() if e.work_email}
+    return [_ser_timeoff(r, names) for r in rows]
+
+
+class TimeOffDecision(BaseModel):
+    status: str                      # approved | rejected
+    note: Optional[str] = ""
+
+
+@router.patch("/timeoff/{req_id}")
+def decide_timeoff(req_id: str, body: TimeOffDecision,
+                   user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    if body.status not in ("approved", "rejected"):
+        raise HTTPException(400, "status must be approved or rejected")
+    row = db.query(TimeOffRequest).filter(TimeOffRequest.id == req_id).first()
+    if not row:
+        raise HTTPException(404, "Request not found")
+    scope = _visible_emails(db, user)
+    if scope is not None and row.employee_email not in scope:
+        raise HTTPException(403, "You can only decide your own team's requests.")
+    if row.status != "pending":
+        raise HTTPException(409, f"Already {row.status}")
+    row.status = body.status
+    row.approver = user["email"]
+    row.decided_at = _now_iso()
+    row.decide_note = (body.note or "").strip()[:400]
+    _hr_notify(db, row.employee_email, f"Time off {body.status}",
+               f"Your {row.type} request {row.start_date} → {row.end_date} was {body.status}."
+               + (f" Note: {row.decide_note}" if row.decide_note else ""),
+               ref_id=row.id, action={"view": "timeclock", "sub": ""})
+    db.commit()
+    return _ser_timeoff(row)
