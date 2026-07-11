@@ -277,6 +277,10 @@ function buildSections(asset, isProperty, editing) {
     const v = snapshotValues[normLabel(field.label)];
     return v !== undefined && v !== '' ? v : '';
   };
+  // A dev-only field/group is decluttered from the VIEW of a Stabilized property, but only when
+  // it's empty — a populated one must stay visible, otherwise a value the user saved (dev fields
+  // are still editable in edit mode) silently disappears from the view and looks unsaved.
+  const hasValue = (field) => String(resolveValue(field) ?? '').trim() !== '';
 
   if (asset.assembled && asset.parentId) {
     const PARCEL_INFO_FIELDS = [
@@ -298,11 +302,11 @@ function buildSections(asset, isProperty, editing) {
   }
 
   return PT
-    .filter((group) => (editing || !(stabilized && group.dev)) && classAllowed(group.cls))
+    .filter((group) => (editing || !(stabilized && group.dev) || group.fields.some(hasValue)) && classAllowed(group.cls))
     .map((group) => ({
       title: group.group,
       fields: group.fields
-        .filter((f) => (editing || !(stabilized && f.dev)) && classAllowed(f.cls) && f.key !== 'mapUrl')
+        .filter((f) => (editing || !(stabilized && f.dev) || hasValue(f)) && classAllowed(f.cls) && f.key !== 'mapUrl')
         .map((f) => ({ l: f.label, raw: resolveValue(f), t: f.type, contact: f.contact, key: f.key })),
     }));
 }
