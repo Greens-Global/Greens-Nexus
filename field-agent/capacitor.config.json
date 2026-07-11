@@ -4,6 +4,7 @@
   "webDir": "www",
   "server": { "androidScheme": "https" },
   "plugins": {
-    "BackgroundGeolocation": {}
+    "BackgroundGeolocation": {},
+    "CapacitorHttp": { "enabled": true }
   }
 }
