@@ -8,7 +8,7 @@ import {
   ShieldCheck, Shield, AlertTriangle, Clock,
 } from 'lucide-react';
 import { api } from '../api';
-import { useRole, MODULES } from '../contexts/RoleContext';
+import { useRole, MODULES, ROLES } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
 import RolesAccess, { LevelPill, TierBadge } from './RolesAccess';
 
@@ -57,8 +57,11 @@ function useIsMobile(bp = 900) {
 }
 
 // ── Add / Edit modal ──────────────────────────────────────────────────────────
-function EmployeeFormModal({ employee, employees, entities = [], onClose, onSaved, toastErr }) {
+function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false, onClose, onSaved, toastOk, toastErr }) {
   const editing = !!employee;
+  const [jobRoles, setJobRoles] = useState([]);
+  const [jobRoleId, setJobRoleId] = useState('');
+  useEffect(() => { if (isAdmin && !editing) api.getJobRoles().then(setJobRoles).catch(() => {}); }, [isAdmin, editing]);
   const [f, setF] = useState(() => ({
     first_name:      employee?.firstName || '',
     last_name:       employee?.lastName || '',
@@ -95,6 +98,17 @@ function EmployeeFormModal({ employee, employees, entities = [], onClose, onSave
     setBusy(true);
     try {
       const saved = editing ? await api.updateEmployee(employee.id, f) : await api.createEmployee(f);
+      // New hire + a chosen job role → set their access + tier now. Needs a work
+      // email; if not provisioned yet, prompt to set it later on the Access tab.
+      if (!editing && jobRoleId) {
+        const em = (saved?.workEmail || f.work_email || '').trim();
+        if (em) {
+          try { await api.assignJobRole(jobRoleId, em); toastOk?.(`${fullName(saved)} added — job role & access assigned.`); }
+          catch (err) { toastErr(err?.message || 'Employee added, but the job role could not be assigned — set it on their Access tab.'); }
+        } else {
+          toastOk?.('Employee added — assign their job role from the Access tab once a work email is set.');
+        }
+      }
       onSaved(saved);
       onClose();
     } catch (err) {
@@ -162,6 +176,16 @@ function EmployeeFormModal({ employee, employees, entities = [], onClose, onSave
               {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
             </select>
           </div>
+          {isAdmin && !editing && (
+            <div style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'color-mix(in srgb, var(--ink) 4%, transparent)' }}>
+              <label style={FL}>JOB ROLE &amp; ACCESS</label>
+              <select className="form-input" style={{ width: '100%' }} value={jobRoleId} onChange={e => setJobRoleId(e.target.value)}>
+                <option value="">— set later on the Access tab —</option>
+                {jobRoles.map(r => <option key={r.id} value={r.id}>{r.name} · {ROLES[r.tier]?.label || r.tier}</option>)}
+              </select>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>Sets their access &amp; seniority tier from a job role at onboarding. Needs a work email; otherwise assign it later on their card.</div>
+            </div>
+          )}
           {isContractor && (
             <div style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 12, padding: '14px 16px', background: 'hsla(var(--color-orange),0.05)' }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-orange))', letterSpacing: '.04em', marginBottom: 12 }}>CONTRACTOR ENGAGEMENT</div>
@@ -3453,9 +3477,9 @@ export default function HR({ activeSub, onSubChange }) {
       </>)}
 
       {formOpen && (
-        <EmployeeFormModal employee={editing} employees={employees} entities={entities}
+        <EmployeeFormModal employee={editing} employees={employees} entities={entities} isAdmin={isAdmin}
           onClose={() => { setFormOpen(false); setEditing(null); }}
-          onSaved={onSaved} toastErr={toastErr} />
+          onSaved={onSaved} toastOk={toastOk} toastErr={toastErr} />
       )}
       {entitiesOpen && (
         <EntitiesModal entities={entities} onClose={() => setEntitiesOpen(false)}
