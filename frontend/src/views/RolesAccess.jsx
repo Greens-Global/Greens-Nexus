@@ -5,6 +5,7 @@ import {
 import { api } from '../api';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
+import { capabilityText } from '../lib/moduleCapabilities';
 
 // ── Roles & Access — access is defined by Job Roles (a template = tier + module
 // bundle, driven by job description) plus additive Groups on top. This screen
@@ -15,7 +16,7 @@ const GRANTABLE = MODULES.filter(m => !['admin', 'roles-access', 'hr_comp'].incl
 const TIERS = Object.keys(ROLES);
 
 // ── shared bits (also reused by the People card Access section) ───────────────
-export function LevelPill({ level }) {
+export function LevelPill({ level, title }) {
   if (!level) return <span style={{ color: 'var(--muted)', opacity: 0.4 }}>—</span>;
   const label = MODULE_LEVELS[level]?.label || level;
   const base = { display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap' };
@@ -25,7 +26,7 @@ export function LevelPill({ level }) {
     full:   { ...base, background: 'var(--ink)', color: 'var(--card)' },
     owner:  { ...base, background: 'var(--ink)', color: 'var(--card)', boxShadow: 'inset 0 0 0 1.5px color-mix(in srgb, var(--card) 45%, transparent)' },
   };
-  return <span style={styles[level] || styles.viewer} title={MODULE_LEVELS[level]?.description || ''}>{label}</span>;
+  return <span style={styles[level] || styles.viewer} title={title || MODULE_LEVELS[level]?.description || ''}>{label}</span>;
 }
 
 export function TierBadge({ tier }) {
@@ -127,7 +128,7 @@ export default function RolesAccess({ embedded = false }) {
                             <div style={{ fontWeight: 700, fontSize: 13 }}>{r.name}</div>
                             <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 7 }}><TierBadge tier={r.tier} /><span style={{ fontSize: 11, color: 'var(--muted)' }}>{r.member_count} ppl</span></div>
                           </th>
-                          {GRANTABLE.map(m => <td key={m.id} style={tdCell}><LevelPill level={byId[m.id]} /></td>)}
+                          {GRANTABLE.map(m => <td key={m.id} style={tdCell}><LevelPill level={byId[m.id]} title={byId[m.id] ? `${m.label} · ${MODULE_LEVELS[byId[m.id]]?.label}\n${capabilityText(m.id, byId[m.id], m.label)}` : ''} /></td>)}
                         </tr>
                       );
                     })}
@@ -289,11 +290,14 @@ function RoleEditor({ role, onClose, onSaved, onErr }) {
             {GRANTABLE.map(m => {
               const on = bundle[m.id];
               return (
-                <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
-                  <button onClick={() => toggle(m.id)} style={{ width: 20, height: 20, borderRadius: 6, border: `1.5px solid ${on ? 'var(--ink)' : 'var(--line-strong,rgba(0,0,0,0.2))'}`, background: on ? 'var(--ink)' : 'transparent', color: 'var(--card)', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}>{on && <Check size={13} />}</button>
-                  <span style={{ flex: 1, fontSize: 13, fontWeight: on ? 600 : 500, color: on ? 'var(--ink)' : 'var(--muted)' }}>{m.label}</span>
+                <div key={m.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '9px 12px', borderBottom: '1px solid var(--line)' }}>
+                  <button onClick={() => toggle(m.id)} style={{ width: 20, height: 20, borderRadius: 6, border: `1.5px solid ${on ? 'var(--ink)' : 'var(--line-strong,rgba(0,0,0,0.2))'}`, background: on ? 'var(--ink)' : 'transparent', color: 'var(--card)', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0, marginTop: 1 }}>{on && <Check size={13} />}</button>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: on ? 600 : 500, color: on ? 'var(--ink)' : 'var(--muted)' }}>{m.label}</div>
+                    {on && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{capabilityText(m.id, bundle[m.id], m.label)}</div>}
+                  </div>
                   {on && (
-                    <select value={bundle[m.id]} onChange={e => setLvl(m.id, e.target.value)} style={{ ...input, padding: '5px 8px', fontSize: 12, width: 'auto' }}>
+                    <select value={bundle[m.id]} onChange={e => setLvl(m.id, e.target.value)} title={capabilityText(m.id, bundle[m.id], m.label)} style={{ ...input, padding: '5px 8px', fontSize: 12, width: 'auto', flexShrink: 0 }}>
                       {LEVEL_ORDER.map(l => <option key={l} value={l}>{MODULE_LEVELS[l].label}</option>)}
                     </select>
                   )}
@@ -340,11 +344,14 @@ function GroupEditor({ group, onClose, onSaved, onErr }) {
             {GRANTABLE.map(m => {
               const on = bundle[m.id];
               return (
-                <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
-                  <button onClick={() => toggle(m.id)} style={{ width: 20, height: 20, borderRadius: 6, border: `1.5px solid ${on ? 'var(--ink)' : 'var(--line-strong,rgba(0,0,0,0.2))'}`, background: on ? 'var(--ink)' : 'transparent', color: 'var(--card)', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}>{on && <Check size={13} />}</button>
-                  <span style={{ flex: 1, fontSize: 13, fontWeight: on ? 600 : 500, color: on ? 'var(--ink)' : 'var(--muted)' }}>{m.label}</span>
+                <div key={m.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '9px 12px', borderBottom: '1px solid var(--line)' }}>
+                  <button onClick={() => toggle(m.id)} style={{ width: 20, height: 20, borderRadius: 6, border: `1.5px solid ${on ? 'var(--ink)' : 'var(--line-strong,rgba(0,0,0,0.2))'}`, background: on ? 'var(--ink)' : 'transparent', color: 'var(--card)', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0, marginTop: 1 }}>{on && <Check size={13} />}</button>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: on ? 600 : 500, color: on ? 'var(--ink)' : 'var(--muted)' }}>{m.label}</div>
+                    {on && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{capabilityText(m.id, bundle[m.id], m.label)}</div>}
+                  </div>
                   {on && (
-                    <select value={bundle[m.id]} onChange={e => setLvl(m.id, e.target.value)} style={{ ...input, padding: '5px 8px', fontSize: 12, width: 'auto' }}>
+                    <select value={bundle[m.id]} onChange={e => setLvl(m.id, e.target.value)} title={capabilityText(m.id, bundle[m.id], m.label)} style={{ ...input, padding: '5px 8px', fontSize: 12, width: 'auto', flexShrink: 0 }}>
                       {LEVEL_ORDER.map(l => <option key={l} value={l}>{MODULE_LEVELS[l].label}</option>)}
                     </select>
                   )}

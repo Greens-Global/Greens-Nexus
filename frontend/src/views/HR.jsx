@@ -8,9 +8,10 @@ import {
   ShieldCheck, Shield, AlertTriangle, Clock,
 } from 'lucide-react';
 import { api } from '../api';
-import { useRole, MODULES, ROLES } from '../contexts/RoleContext';
+import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
 import RolesAccess, { LevelPill, TierBadge } from './RolesAccess';
+import { capabilityText } from '../lib/moduleCapabilities';
 
 // ── HR module — Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -993,9 +994,12 @@ function EmployeeAccess({ email, toastOk, toastErr }) {
           {(data.modules || []).map((m, i) => {
             const mod = MODULES.find(x => x.id === m.module);
             return (
-              <div key={m.module} style={{ display: 'grid', gridTemplateColumns: '1fr auto 1.3fr', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: i < data.modules.length - 1 ? '1px solid var(--line)' : 'none' }}>
-                <span style={{ fontWeight: 600, fontSize: 13 }}>{mod?.label || m.module}</span>
-                <LevelPill level={m.level} />
+              <div key={m.module} style={{ display: 'grid', gridTemplateColumns: '1fr auto 1.3fr', alignItems: 'start', gap: 10, padding: '10px 14px', borderBottom: i < data.modules.length - 1 ? '1px solid var(--line)' : 'none' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{mod?.label || m.module}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{capabilityText(m.module, m.level, mod?.label)}</div>
+                </div>
+                <LevelPill level={m.level} title={`${mod?.label || m.module} · ${MODULE_LEVELS[m.level]?.label || m.level}\n${capabilityText(m.module, m.level, mod?.label)}`} />
                 <span style={{ fontSize: 11.5, color: 'var(--muted)', textAlign: 'right' }}>{m.manual ? <>added via <b style={{ color: 'var(--ink)' }}>{m.source}</b></> : 'via job role'}</span>
               </div>
             );
