@@ -9,7 +9,6 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
-import ESign from '../components/ESign';
 import TimeAdmin from '../components/TimeAdmin';
 
 // ── HR module — Phase 1: employee master + People directory ──────────────────
@@ -3071,12 +3070,19 @@ function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr
 
 export default function HR({ activeSub, onSubChange }) {
   // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now.
-  // 'hr-esign-*' deep-links (bell/toast clicks) land on the E-Sign tab — ESign
-  // reads the raw navSub to pick its own sub-tab (inbox vs sent requests).
-  const navSub = String(activeSub || '').startsWith('hr-esign') ? 'hr-esign' : activeSub;
-  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-esign'].includes(navSub) ? navSub : 'hr-people';
-  const [esignPrefill, setEsignPrefill] = useState(null);   // candidate → Send-for-signature handoff
+  // E-Sign moved to its own top-level Documents module (Jul 2026); legacy
+  // 'hr-esign*' deep-links are redirected there by the effect below.
+  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time'].includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
+
+  // Old notifications/URLs still point at hr/hr-esign* — bounce them to Documents
+  // so those links don't dead-end on the People tab.
+  useEffect(() => {
+    if (String(activeSub || '').startsWith('hr-esign')) {
+      const dst = activeSub === 'hr-esign-requests' ? 'documents-esign-requests' : 'documents-esign';
+      window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: dst } }));
+    }
+  }, [activeSub]);
 
   const [employees, setEmployees] = useState([]);
   const [loading,   setLoading]   = useState(true);
@@ -3167,7 +3173,7 @@ export default function HR({ activeSub, onSubChange }) {
   };
 
   const TABS = [
-    ['hr-people', 'People'], ['hr-hiring', 'Hiring'], ['hr-org', 'Org Chart'], ['hr-leave', 'Leave'], ['hr-time', 'Time'], ['hr-esign', 'E-Sign'],
+    ['hr-people', 'People'], ['hr-hiring', 'Hiring'], ['hr-org', 'Org Chart'], ['hr-leave', 'Leave'], ['hr-time', 'Time'],
   ];
 
   return (
@@ -3216,20 +3222,18 @@ export default function HR({ activeSub, onSubChange }) {
         <HiringTab isMobile={isMobile} toastOk={toastOk} toastErr={toastErr}
           onEmployeeCreated={emp => setEmployees(prev => [...prev, emp].sort((a, b) => fullName(a).localeCompare(fullName(b))))}
           onSendForSignature={c => {
-            setEsignPrefill({
+            // E-Sign lives in the Documents module now — stash the offer and jump
+            // there; Documents picks up window.__esignPrefill on arrival.
+            window.__esignPrefill = {
               candidateId: c.id, title: `Offer — ${candName(c)}`,
               parties: [{ role_key: 'employee', name: candName(c), email: c.email, kind: 'external', ordinal: 2 }],
-            });
-            onSubChange('hr-esign');
+            };
+            window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign' } }));
           }} />
       )}
       {sub === 'hr-org' && <OrgChartTab employees={employees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-time' && <TimeAdmin employees={employees} toastOk={toastOk} toastErr={toastErr} />}
-      {sub === 'hr-esign' && (
-        <ESign employees={employees} entities={entities} prefill={esignPrefill} navSub={activeSub}
-          onPrefillConsumed={() => setEsignPrefill(null)} toastOk={toastOk} toastErr={toastErr} />
-      )}
 
       {sub === 'hr-people' && (<>
         <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />

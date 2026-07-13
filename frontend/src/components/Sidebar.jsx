@@ -97,6 +97,12 @@ export const NAV = [
     ],
   },
   {
+    view: "documents", label: "Documents", icon: FileText, minRole: 'supervisor',
+    sub: [
+      { subview: "documents-esign", label: "E-Sign", icon: PenTool },
+    ],
+  },
+  {
     view: "marketing", label: "Marketing", icon: Megaphone, minRole: 'supervisor',
     sub: [
       { subview: "marketing-ads",        label: "Google",          icon: Megaphone },
