@@ -248,6 +248,30 @@ def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_curre
     return {"assigned": email, "job_role": jr.name, "tier": tier}
 
 
+@router.post("/{jr_id}/unassign")
+def unassign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Remove a person from a job role. Since a job role is their single primary
+    role, this also resets their tier to employee (a lingering tier would keep
+    them over-privileged). Their additive groups are untouched."""
+    jr = db.query(NexusGroup).filter(NexusGroup.id == jr_id, NexusGroup.is_job_role == True).first()  # noqa: E712
+    if not jr:
+        raise HTTPException(status_code=404, detail="Job role not found")
+    email = body.email.lower().strip()
+    _guard_can_assign_tier(user, _clean_tier(jr.tier or "employee"))
+    if user["role"] != "owner" and ROLE_LEVEL.get(_get_role(email, db), 1) >= ROLE_LEVEL["administrator"]:
+        raise HTTPException(status_code=403, detail="Only a Global Admin can change another admin's access")
+
+    db.query(NexusGroupMember).filter(
+        NexusGroupMember.group_id == jr_id, NexusGroupMember.email == email).delete(synchronize_session=False)
+    row = db.query(NexusRole).filter(NexusRole.email == email).first()
+    if row:
+        row.role = "employee"
+        row.assigned_by = user["email"]
+    invalidate_role_cache(email)
+    db.commit()
+    return {"unassigned": email}
+
+
 @router.get("/effective/{email}")
 def effective_access(email: str, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
     """Resolve a person's effective access for the on-card Access tab: their tier,

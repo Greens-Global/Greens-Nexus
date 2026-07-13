@@ -354,6 +354,7 @@ export const api = {
   updateJobRole:     (id, body)          => req(`/jobroles/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteJobRole:     (id)                => req(`/jobroles/${id}`, { method: 'DELETE' }),
   assignJobRole:     (id, email)         => req(`/jobroles/${id}/assign`, { method: 'POST', body: JSON.stringify({ email }) }),
+  unassignJobRole:   (id, email)         => req(`/jobroles/${id}/unassign`, { method: 'POST', body: JSON.stringify({ email }) }),
   getEffectiveAccess:(email)             => req(`/jobroles/effective/${encodeURIComponent(email)}`),
 
   // Notifications (cross-device, stored in Supabase)

@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
+import { useNameResolver } from '../lib/useNameResolver';
 
 // ── Roles & Access — access is defined by Job Roles (a template = tier + module
 // bundle, driven by job description) plus additive Groups on top. This screen
@@ -20,9 +21,9 @@ export function LevelPill({ level }) {
   const base = { display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap' };
   const styles = {
     viewer: { ...base, background: 'transparent', color: 'var(--muted)', boxShadow: 'inset 0 0 0 1.5px var(--line-strong,var(--line))' },
-    editor: { ...base, background: 'hsla(var(--color-blue),0.14)', color: 'hsl(var(--color-blue))' },
-    full:   { ...base, background: 'hsl(var(--color-blue))', color: '#fff' },
-    owner:  { ...base, background: 'hsl(215,78%,30%)', color: '#fff', boxShadow: 'inset 0 0 0 1.5px hsl(215,85%,64%)' },
+    editor: { ...base, background: 'color-mix(in srgb, var(--ink) 12%, transparent)', color: 'var(--ink)' },
+    full:   { ...base, background: 'var(--ink)', color: 'var(--card)' },
+    owner:  { ...base, background: 'var(--ink)', color: 'var(--card)', boxShadow: 'inset 0 0 0 1.5px color-mix(in srgb, var(--card) 45%, transparent)' },
   };
   return <span style={styles[level] || styles.viewer} title={MODULE_LEVELS[level]?.description || ''}>{label}</span>;
 }
@@ -40,6 +41,7 @@ const TABS = [['matrix', 'Matrix', LayoutGrid], ['jobroles', 'Job roles', Shield
 
 export default function RolesAccess({ embedded = false }) {
   const { can } = useRole();
+  const nameOf = useNameResolver();   // email → real name, never a raw email
   const [sub, setSub] = useState('matrix');
   const [jobRoles, setJobRoles] = useState(null);
   const [groups, setGroups] = useState(null);
@@ -64,6 +66,11 @@ export default function RolesAccess({ embedded = false }) {
   async function onDelete(r) {
     try { await api.deleteJobRole(r.id); toastOk(`Deleted “${r.name}”.`); if (selId === r.id) setSelId(null); loadRoles(); }
     catch (e) { toastErr(e?.message || 'Could not delete — reassign its people first.'); }
+  }
+  async function removeMember(email) {
+    if (!selected) return;
+    try { await api.unassignJobRole(selected.id, email); toastOk(`Removed ${nameOf(email)} from “${selected.name}”.`); loadRoles(); }
+    catch (e) { toastErr(e?.message || 'Could not remove.'); }
   }
 
   return (
@@ -136,7 +143,7 @@ export default function RolesAccess({ embedded = false }) {
             <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6, alignSelf: 'start' }}>
               {jobRoles.length === 0 ? <Empty text="No job roles yet." /> : jobRoles.map(r => (
                 <button key={r.id} onClick={() => setSelId(r.id)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px', borderRadius: 10, border: 'none', width: '100%', textAlign: 'left', background: selId === r.id ? 'hsla(var(--color-blue),0.10)' : 'none', cursor: 'pointer' }}>
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px', borderRadius: 10, border: 'none', width: '100%', textAlign: 'left', background: selId === r.id ? 'color-mix(in srgb, var(--ink) 8%, transparent)' : 'none', cursor: 'pointer' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 700, fontSize: 13.5 }}>{r.name}</div>
                     <div style={{ marginTop: 3 }}><TierBadge tier={r.tier} /></div>
@@ -166,6 +173,21 @@ export default function RolesAccess({ embedded = false }) {
                       })}
                   </div>
                   <div style={sectLabel}>People with this role · {selected.member_count}</div>
+                  {(selected.members || []).length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                      {selected.members.map(em => (
+                        <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 6px 5px 12px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600 }}>
+                          {nameOf(em)}
+                          <button onClick={() => removeMember(em)} title="Remove from this role" aria-label={`Remove ${nameOf(em)}`}
+                            style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0 }}
+                            onMouseOver={e => { e.currentTarget.style.background = 'hsla(var(--color-red),0.14)'; e.currentTarget.style.color = 'hsl(var(--color-red))'; }}
+                            onMouseOut={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--muted)'; }}>
+                            <X size={13} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setAssignFor(selected)}>
                     <UserPlus size={14} /> Assign a person
                   </button>
@@ -254,7 +276,7 @@ function RoleEditor({ role, onClose, onSaved, onErr }) {
               const on = bundle[m.id];
               return (
                 <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
-                  <button onClick={() => toggle(m.id)} style={{ width: 20, height: 20, borderRadius: 6, border: `1.5px solid ${on ? 'hsl(var(--color-blue))' : 'var(--line-strong,rgba(0,0,0,0.2))'}`, background: on ? 'hsl(var(--color-blue))' : 'transparent', color: '#fff', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}>{on && <Check size={13} />}</button>
+                  <button onClick={() => toggle(m.id)} style={{ width: 20, height: 20, borderRadius: 6, border: `1.5px solid ${on ? 'var(--ink)' : 'var(--line-strong,rgba(0,0,0,0.2))'}`, background: on ? 'var(--ink)' : 'transparent', color: 'var(--card)', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}>{on && <Check size={13} />}</button>
                   <span style={{ flex: 1, fontSize: 13, fontWeight: on ? 600 : 500, color: on ? 'var(--ink)' : 'var(--muted)' }}>{m.label}</span>
                   {on && (
                     <select value={bundle[m.id]} onChange={e => setLvl(m.id, e.target.value)} style={{ ...input, padding: '5px 8px', fontSize: 12, width: 'auto' }}>
