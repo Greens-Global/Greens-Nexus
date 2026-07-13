@@ -19,10 +19,10 @@ function LevelPill({ level }) {
   const label = MODULE_LEVELS[level]?.label || level;
   const base = { display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap' };
   const styles = {
-    viewer: { ...base, background: 'transparent', color: 'var(--muted)', boxShadow: 'inset 0 0 0 1.5px var(--line)' },
-    editor: { ...base, background: 'hsla(var(--color-green),0.15)', color: 'hsl(var(--color-green))' },
-    full:   { ...base, background: 'hsl(var(--color-green))', color: '#fff' },
-    owner:  { ...base, background: 'hsl(142,64%,24%)', color: '#fff', boxShadow: 'inset 0 0 0 1.5px hsl(142,55%,52%)' },
+    viewer: { ...base, background: 'transparent', color: 'var(--muted)', boxShadow: 'inset 0 0 0 1.5px var(--line-strong,var(--line))' },
+    editor: { ...base, background: 'hsla(var(--color-blue),0.14)', color: 'hsl(var(--color-blue))' },
+    full:   { ...base, background: 'hsl(var(--color-blue))', color: '#fff' },
+    owner:  { ...base, background: 'hsl(215,78%,30%)', color: '#fff', boxShadow: 'inset 0 0 0 1.5px hsl(215,85%,64%)' },
   };
   return <span style={styles[level] || styles.viewer} title={MODULE_LEVELS[level]?.description || ''}>{label}</span>;
 }
@@ -38,7 +38,7 @@ function TierBadge({ tier }) {
 
 const TABS = [['matrix', 'Matrix', LayoutGrid], ['jobroles', 'Job roles', Shield], ['groups', 'Groups', UserPlus]];
 
-export default function RolesAccess() {
+export default function RolesAccess({ embedded = false }) {
   const { can } = useRole();
   const [sub, setSub] = useState('matrix');
   const [jobRoles, setJobRoles] = useState(null);
@@ -68,17 +68,14 @@ export default function RolesAccess() {
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      <div className="view-header" style={{ marginBottom: 18 }}>
-        <div className="view-title-group">
-          <h2>Roles &amp; Access</h2>
-          <p>Job roles drive who can do what — assign them on each person's card. This is where the roles behind it live.</p>
+      {!embedded && (
+        <div className="view-header" style={{ marginBottom: 18 }}>
+          <div className="view-title-group">
+            <h2>Roles &amp; Access</h2>
+            <p>Job roles drive who can do what — assign them on each person's card. This is where the roles behind it live.</p>
+          </div>
         </div>
-        {sub === 'jobroles' && (
-          <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditing(null)}>
-            <Plus size={15} /> New job role
-          </button>
-        )}
-      </div>
+      )}
 
       {/* underline tabs (native) */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--line)', paddingBottom: 1 }}>
@@ -133,10 +130,13 @@ export default function RolesAccess() {
       {sub === 'jobroles' && (
         !jobRoles ? <Spinner /> : (
           <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 18 }} className="ra-grid">
+            <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditing(null)}><Plus size={15} /> New job role</button>
+            </div>
             <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6, alignSelf: 'start' }}>
               {jobRoles.length === 0 ? <Empty text="No job roles yet." /> : jobRoles.map(r => (
                 <button key={r.id} onClick={() => setSelId(r.id)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px', borderRadius: 10, border: 'none', width: '100%', textAlign: 'left', background: selId === r.id ? 'hsla(var(--color-green),0.10)' : 'none', cursor: 'pointer' }}>
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px', borderRadius: 10, border: 'none', width: '100%', textAlign: 'left', background: selId === r.id ? 'hsla(var(--color-blue),0.10)' : 'none', cursor: 'pointer' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 700, fontSize: 13.5 }}>{r.name}</div>
                     <div style={{ marginTop: 3 }}><TierBadge tier={r.tier} /></div>
@@ -254,7 +254,7 @@ function RoleEditor({ role, onClose, onSaved, onErr }) {
               const on = bundle[m.id];
               return (
                 <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
-                  <button onClick={() => toggle(m.id)} style={{ width: 20, height: 20, borderRadius: 6, border: `1.5px solid ${on ? 'hsl(var(--color-green))' : 'var(--line-strong,rgba(0,0,0,0.2))'}`, background: on ? 'hsl(var(--color-green))' : 'transparent', color: '#fff', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}>{on && <Check size={13} />}</button>
+                  <button onClick={() => toggle(m.id)} style={{ width: 20, height: 20, borderRadius: 6, border: `1.5px solid ${on ? 'hsl(var(--color-blue))' : 'var(--line-strong,rgba(0,0,0,0.2))'}`, background: on ? 'hsl(var(--color-blue))' : 'transparent', color: '#fff', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}>{on && <Check size={13} />}</button>
                   <span style={{ flex: 1, fontSize: 13, fontWeight: on ? 600 : 500, color: on ? 'var(--ink)' : 'var(--muted)' }}>{m.label}</span>
                   {on && (
                     <select value={bundle[m.id]} onChange={e => setLvl(m.id, e.target.value)} style={{ ...input, padding: '5px 8px', fontSize: 12, width: 'auto' }}>

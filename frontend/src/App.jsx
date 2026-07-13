@@ -33,7 +33,6 @@ const Development         = lazy(() => import("./views/Development"));
 const PropertyAsset       = lazy(() => import("./views/PropertyAsset"));
 const HR                  = lazy(() => import("./views/HR"));
 const Documents           = lazy(() => import("./views/Documents"));
-const RolesAccess         = lazy(() => import("./views/RolesAccess"));
 const InvestorRelations   = lazy(() => import("./views/InvestorRelations"));
 const Marketing           = lazy(() => import("./views/Marketing"));
 const Admin               = lazy(() => import("./views/Admin"));
@@ -69,7 +68,6 @@ const VIEW_MIN_ROLES = {
   'hr':                 'supervisor',
   'documents':          'supervisor',
   'marketing':          'supervisor',
-  'roles-access':       'administrator',
   'admin':              'administrator',
 };
 
@@ -132,7 +130,6 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "investor-relations": return <InvestorRelations activeSub={activeSub} onSubChange={onSubChange} />;
     case "hr":                 return <HR activeSub={activeSub} onSubChange={onSubChange} />;
     case "documents":          return <Documents activeSub={activeSub} onSubChange={onSubChange} />;
-    case "roles-access":       return <RolesAccess />;
     case "marketing":          return <Marketing activeSub={activeSub} onSubChange={onSubChange} />;
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
     case "admin":              return <Admin />;

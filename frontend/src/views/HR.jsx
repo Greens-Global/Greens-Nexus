@@ -10,6 +10,7 @@ import {
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
+import RolesAccess from './RolesAccess';
 
 // ── HR module — Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -3072,7 +3073,7 @@ export default function HR({ activeSub, onSubChange }) {
   // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now.
   // E-Sign moved to its own top-level Documents module (Jul 2026); legacy
   // 'hr-esign*' deep-links are redirected there by the effect below.
-  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time'].includes(activeSub) ? activeSub : 'hr-people';
+  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-access'].includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
 
   // Old notifications/URLs still point at hr/hr-esign* — bounce them to Documents
@@ -3098,8 +3099,9 @@ export default function HR({ activeSub, onSubChange }) {
   const [sites,     setSites]     = useState([]);
   const [sitesOpen, setSitesOpen] = useState(false);
   const [toast,     setToast]     = useState(null);
-  const { canAccessModule } = useRole();
+  const { canAccessModule, can } = useRole();
   const canSeeComp = canAccessModule('hr_comp', 'owner', 'viewer');
+  const isAdmin = can('administrator');   // Roles & Access tab is admin-only
 
   const toastErr = msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
   const toastOk  = msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
@@ -3178,6 +3180,7 @@ export default function HR({ activeSub, onSubChange }) {
     { key: 'hr-org',    label: 'Org Chart', Icon: Network },
     { key: 'hr-leave',  label: 'Leave',     Icon: CalendarOff },
     { key: 'hr-time',   label: 'Time',      Icon: Clock },
+    ...(isAdmin ? [{ key: 'hr-access', label: 'Roles & Access', Icon: Shield }] : []),
   ];
 
   return (
@@ -3239,6 +3242,7 @@ export default function HR({ activeSub, onSubChange }) {
       {sub === 'hr-org' && <OrgChartTab employees={employees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-time' && <TimeAdmin employees={employees} toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-access' && isAdmin && <RolesAccess embedded />}
 
       {sub === 'hr-people' && (<>
         <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />
