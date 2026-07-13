@@ -5,7 +5,7 @@ import {
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
-  ShieldCheck, Shield, AlertTriangle,
+  ShieldCheck, Shield, AlertTriangle, Clock,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -3173,14 +3173,18 @@ export default function HR({ activeSub, onSubChange }) {
   };
 
   const TABS = [
-    ['hr-people', 'People'], ['hr-hiring', 'Hiring'], ['hr-org', 'Org Chart'], ['hr-leave', 'Leave'], ['hr-time', 'Time'],
+    { key: 'hr-people', label: 'People',    Icon: Users },
+    { key: 'hr-hiring', label: 'Hiring',    Icon: UserPlus },
+    { key: 'hr-org',    label: 'Org Chart', Icon: Network },
+    { key: 'hr-leave',  label: 'Leave',     Icon: CalendarOff },
+    { key: 'hr-time',   label: 'Time',      Icon: Clock },
   ];
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       <div className="view-header" style={{ marginBottom: 18 }}>
         <div className="view-title-group">
-          <h2>Human Resources</h2>
+          <h2>People</h2>
           <p>People, hiring, org structure and leave — one source of truth</p>
         </div>
         {sub === 'hr-people' && (
@@ -3209,11 +3213,12 @@ export default function HR({ activeSub, onSubChange }) {
       </div>
 
       {/* Tabs */}
-      <div className="chip-row scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
-        {TABS.map(([key, label]) => (
+      <div className="scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--line)', paddingBottom: 1 }}>
+        {TABS.map(({ key, label, Icon }) => (
           <button key={key} onClick={() => onSubChange ? onSubChange(key) : null}
-            style={{ padding: '7px 16px', borderRadius: 10, border: `1px solid ${sub === key ? 'var(--pine)' : 'var(--line)'}`, background: sub === key ? 'hsla(var(--color-green),0.08)' : 'var(--card)', color: sub === key ? 'hsl(var(--color-green))' : 'var(--muted)', fontWeight: sub === key ? 700 : 600, fontSize: 13, cursor: 'pointer', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap', flexShrink: 0 }}>
-            {label}
+            style={{ background: 'none', border: 'none', padding: '10px 18px', fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: 13.5, cursor: 'pointer', color: sub === key ? 'var(--ink)' : 'var(--muted)', position: 'relative', transition: 'color 0.15s', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', flexShrink: 0 }}>
+            <Icon size={17} /> {label}
+            {sub === key && <span style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: 'var(--ink)', borderRadius: '4px 4px 0 0' }} />}
           </button>
         ))}
       </div>

@@ -88,7 +88,7 @@ export const NAV = [
     ],
   },
   {
-    view: "hr", label: "HR", icon: Users, minRole: 'supervisor',
+    view: "hr", label: "People", icon: Users, minRole: 'supervisor',
     sub: [
       { subview: "hr-people", label: "People",    icon: Users },
       { subview: "hr-hiring", label: "Hiring",    icon: CheckSquare },
