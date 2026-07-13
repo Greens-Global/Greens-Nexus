@@ -110,6 +110,7 @@ export const NAV = [
     ],
   },
   { divider: true },
+  { view: "roles-access",   label: "Roles & Access", icon: Shield, minRole: 'administrator' },
   { view: "support",        label: "Support",        icon: HelpCircle },
   { view: "external-links", label: "External Links", icon: ExternalLink },
 ];

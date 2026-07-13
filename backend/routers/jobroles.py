@@ -36,6 +36,37 @@ def _ts() -> str:
     return datetime.utcnow().isoformat()
 
 
+# Starter job-role templates so the screen opens with a usable reference matrix
+# instead of a blank grid (mirrors groups._seed_if_empty). Module ids match
+# RoleContext MODULES; levels ∈ viewer/editor/full/owner.
+STARTER_ROLES = [
+    ("Crew Member", "employee", "Front-line site worker. Clocks in, works their own tasks, sees their own HR.",
+     "dashboard:viewer,tasks:editor,myhr:viewer,timeclock:editor,sop:viewer"),
+    ("Site Supervisor", "supervisor", "Runs day-to-day site operations, equipment and their crew.",
+     "dashboard:viewer,tasks:editor,myhr:viewer,timeclock:full,hr:viewer,inventory:editor,property-asset:viewer,documents:viewer,sop:editor,manager-dashboard:viewer"),
+    ("Project Manager", "manager", "Owns construction projects end to end, including budgets and vendors.",
+     "dashboard:viewer,tasks:full,manager-dashboard:viewer,hr:viewer,inventory:editor,property-asset:editor,ops:full,operations:editor,development:editor,documents:editor,timeclock:full,sop:editor,accounting:viewer"),
+    ("Accountant", "supervisor", "Manages transactions, invoices and vendors day to day.",
+     "dashboard:viewer,tasks:editor,accounting:full,investor-relations:viewer,documents:editor,myhr:viewer,sop:viewer"),
+    ("HR Manager", "manager", "Owns the people lifecycle, time & attendance, and payroll data.",
+     "dashboard:viewer,hr:full,myhr:viewer,timeclock:full,documents:full,manager-dashboard:viewer,tasks:editor,sop:editor"),
+    ("Marketing Lead", "supervisor", "Runs campaigns, ads and online reputation.",
+     "dashboard:viewer,marketing:full,tasks:editor,documents:viewer,sop:viewer"),
+]
+
+
+def _seed_if_empty(db: Session):
+    if db.query(NexusGroup).filter(NexusGroup.is_job_role == True).count() > 0:  # noqa: E712
+        return
+    now = _ts()
+    stamp = now[:10].replace("-", "")
+    for i, (name, tier, desc, mods) in enumerate(STARTER_ROLES):
+        db.add(NexusGroup(id=f"JR{stamp}seed{i:02d}", name=name, is_job_role=True,
+                          tier=tier, description=desc, allowed_modules=mods,
+                          created_by="system", created_at=now))
+    db.commit()
+
+
 def _member_emails(db: Session, group_id: str) -> list[str]:
     return [m.email for m in db.query(NexusGroupMember).filter(NexusGroupMember.group_id == group_id).all()]
 
@@ -91,6 +122,7 @@ def _guard_can_assign_tier(user: dict, tier: str):
 
 @router.get("")
 def list_job_roles(user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    _seed_if_empty(db)
     roles = db.query(NexusGroup).filter(NexusGroup.is_job_role == True).order_by(NexusGroup.name).all()  # noqa: E712
     return [_serialize(r, db) for r in roles]
 
