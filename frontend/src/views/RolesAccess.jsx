@@ -13,8 +13,8 @@ const LEVEL_ORDER = ['viewer', 'editor', 'full', 'owner'];
 const GRANTABLE = MODULES.filter(m => !['admin', 'roles-access', 'hr_comp'].includes(m.id));
 const TIERS = Object.keys(ROLES);
 
-// ── shared bits ──────────────────────────────────────────────────────────────
-function LevelPill({ level }) {
+// ── shared bits (also reused by the People card Access section) ───────────────
+export function LevelPill({ level }) {
   if (!level) return <span style={{ color: 'var(--muted)', opacity: 0.4 }}>—</span>;
   const label = MODULE_LEVELS[level]?.label || level;
   const base = { display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 999, fontSize: 11.5, fontWeight: 700, fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap' };
@@ -27,7 +27,7 @@ function LevelPill({ level }) {
   return <span style={styles[level] || styles.viewer} title={MODULE_LEVELS[level]?.description || ''}>{label}</span>;
 }
 
-function TierBadge({ tier }) {
+export function TierBadge({ tier }) {
   const r = ROLES[tier] || ROLES.employee;
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 9px', borderRadius: 20, fontSize: 10.5, fontWeight: 700, background: r.bg, color: r.color, whiteSpace: 'nowrap' }}>

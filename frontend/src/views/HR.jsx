@@ -8,9 +8,9 @@ import {
   ShieldCheck, Shield, AlertTriangle, Clock,
 } from 'lucide-react';
 import { api } from '../api';
-import { useRole } from '../contexts/RoleContext';
+import { useRole, MODULES } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
-import RolesAccess from './RolesAccess';
+import RolesAccess, { LevelPill, TierBadge } from './RolesAccess';
 
 // ── HR module — Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
@@ -891,7 +891,105 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
 }
 
 
-function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated }) {
+// ── Access section on a person's card (admin-only) — the "assign it on the
+// person's card" flow: pick their Job Role (sets tier + base access) + any extra
+// groups, and see the resolved effective access. Backed by /jobroles/effective.
+const _accBox = { border: '1px solid var(--line)', borderRadius: 12, padding: 14, background: 'var(--paper)' };
+const _accLabel = { fontSize: 10.5, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' };
+
+function AccessPicker({ title, items, onPick, onClose, renderItem }) {
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'grid', placeItems: 'center', zIndex: 1200, padding: 18 }}>
+      <div onClick={ev => ev.stopPropagation()} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', width: 'min(440px,100%)', maxHeight: '80vh', overflow: 'auto', padding: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{title}</h3>
+          <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+        </div>
+        {items.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: 14, textAlign: 'center' }}>Nothing to add.</div>
+          : items.map(it => (
+            <button key={it.id} onClick={() => onPick(it)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', width: '100%', textAlign: 'left', marginBottom: 7, cursor: 'pointer' }}>
+              {renderItem(it)}
+            </button>
+          ))}
+      </div>
+    </div>
+  );
+}
+
+function EmployeeAccess({ email, toastOk, toastErr }) {
+  const [data, setData] = useState(null);
+  const [roles, setRoles] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [pick, setPick] = useState(null);   // 'role' | 'group' | null
+  const load = () => api.getEffectiveAccess(email).then(setData).catch(() => setData({ tier: 'employee', job_role: null, extra_groups: [], modules: [] }));
+  useEffect(() => { if (email) { setData(null); load(); } }, [email]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { api.getJobRoles().then(setRoles).catch(() => {}); api.getGroups().then(gs => setGroups(gs.filter(g => !g.is_job_role))).catch(() => {}); }, []);
+
+  if (!email) return <div style={{ color: 'var(--muted)', fontSize: 13.5, padding: '20px 4px' }}>This person has no work email yet — provision their account first to manage access.</div>;
+  if (!data) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /></div>;
+
+  const assign = async jr => { try { await api.assignJobRole(jr.id, email); setPick(null); toastOk(`Job role set to “${jr.name}”.`); load(); } catch (err) { toastErr(err?.message || 'Could not set job role.'); } };
+  const addGroup = async g => { try { await api.addGroupMembers(g.id, [email]); setPick(null); toastOk(`Added “${g.name}”.`); load(); } catch (err) { toastErr(err?.message || 'Could not add group.'); } };
+  const removeGroup = async g => { try { await api.removeGroupMember(g.id, email); toastOk(`Removed “${g.name}”.`); load(); } catch (err) { toastErr(err?.message || 'Could not remove.'); } };
+  const held = new Set((data.extra_groups || []).map(g => g.id));
+
+  return (
+    <div>
+      <div className="acc-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div style={_accBox}>
+          <div style={_accLabel}>Job role</div>
+          {data.job_role ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 800, fontSize: 15 }}>{data.job_role.name}</span><TierBadge tier={data.job_role.tier} />
+            </div>
+          ) : <div style={{ color: 'var(--muted)', fontSize: 13 }}>No job role assigned yet.</div>}
+          {data.job_role?.description && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>{data.job_role.description}</div>}
+          <button className="secondary-btn" style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={() => setPick('role')}>
+            <Shield size={13} /> {data.job_role ? 'Change job role' : 'Set job role'}
+          </button>
+        </div>
+        <div style={_accBox}>
+          <div style={_accLabel}><span>Additional groups</span><span>{(data.extra_groups || []).length}</span></div>
+          {(data.extra_groups || []).length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>None — access comes from the job role.</div>
+            : (data.extra_groups || []).map(g => (
+              <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
+                <span style={{ fontWeight: 600, fontSize: 12.5, flex: 1 }}>{g.name}</span>
+                <button onClick={() => removeGroup(g)} title="Remove" style={{ border: 'none', background: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>×</button>
+              </div>
+            ))}
+          <button className="secondary-btn" style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={() => setPick('group')}>
+            <Plus size={13} /> Add group
+          </button>
+        </div>
+      </div>
+
+      <div style={{ ..._accLabel, margin: '22px 0 10px' }}>Effective access · {(data.modules || []).length} modules</div>
+      {(data.modules || []).length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>No module access yet — set a job role above.</div> : (
+        <div style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
+          {(data.modules || []).map((m, i) => {
+            const mod = MODULES.find(x => x.id === m.module);
+            return (
+              <div key={m.module} style={{ display: 'grid', gridTemplateColumns: '1fr auto 1.3fr', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: i < data.modules.length - 1 ? '1px solid var(--line)' : 'none' }}>
+                <span style={{ fontWeight: 600, fontSize: 13 }}>{mod?.label || m.module}</span>
+                <LevelPill level={m.level} />
+                <span style={{ fontSize: 11.5, color: 'var(--muted)', textAlign: 'right' }}>{m.manual ? <>added via <b style={{ color: 'var(--ink)' }}>{m.source}</b></> : 'via job role'}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Access = job-role bundle + any groups, taking the highest level per module.</div>
+
+      {pick === 'role' && <AccessPicker title="Choose a job role" items={roles} onClose={() => setPick(null)} onPick={assign}
+        renderItem={jr => (<><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, fontSize: 13 }}>{jr.name}</div><div style={{ marginTop: 3 }}><TierBadge tier={jr.tier} /></div></div><span style={{ fontSize: 11, color: 'var(--muted)' }}>{jr.member_count} ppl</span></>)} />}
+      {pick === 'group' && <AccessPicker title="Add a group" items={groups.filter(g => !held.has(g.id))} onClose={() => setPick(null)} onPick={addGroup}
+        renderItem={g => (<div style={{ flex: 1 }}><div style={{ fontWeight: 700, fontSize: 13 }}>{g.name}</div><div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>{(g.allowed_modules || []).map(mm => <span key={mm.id} style={{ fontSize: 11 }}><LevelPill level={mm.level} /></span>)}</div></div>)} />}
+      <style>{`@media (max-width:640px){.acc-grid{grid-template-columns:1fr !important}}`}</style>
+    </div>
+  );
+}
+
+function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated }) {
   const [provisionOpen, setProvisionOpen] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
   const [compOpen, setCompOpen] = useState(false);
@@ -922,6 +1020,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
     ['compliance', 'Compliance', ShieldCheck],
     ['assets', 'Assets', Briefcase],
     ['documents', 'Documents', FileText],
+    isAdmin && ['access', 'Access', Shield],
   ].filter(Boolean);
   const expiry = nextExpiry(e);
   return (
@@ -1084,6 +1183,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
         )}
 
         {tab === 'assets' && <AssetsSection employee={e} />}
+
+        {tab === 'access' && isAdmin && <EmployeeAccess email={meEmail} toastOk={toastOk} toastErr={toastErr} />}
 
         {tab === 'documents' && (
           <>
@@ -3335,7 +3436,7 @@ export default function HR({ activeSub, onSubChange }) {
               <div style={isMobile ? undefined : { position: 'sticky', top: 68, alignSelf: 'start', maxHeight: 'calc(100vh - 280px)', minHeight: 380, overflowY: 'auto' }}>
                 {selected ? (
                   <EmployeeDetail e={selected} employees={employees} isMobile={isMobile}
-                    companyName={entityName(selected.company)} canSeeComp={canSeeComp}
+                    companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
                     toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved}
                     onEdit={emp => { setEditing(emp); setFormOpen(true); }}
                     onBack={() => setSelectedId(null)} />
