@@ -46,6 +46,7 @@ export default function RolesAccess({ embedded = false }) {
   const [jobRoles, setJobRoles] = useState(null);
   const [groups, setGroups] = useState(null);
   const [editing, setEditing] = useState(undefined); // undefined=closed, null=new, obj=edit
+  const [editGroup, setEditGroup] = useState(undefined);
   const [assignFor, setAssignFor] = useState(null);
   const [selId, setSelId] = useState(null);
   const [toast, setToast] = useState(null);
@@ -71,6 +72,10 @@ export default function RolesAccess({ embedded = false }) {
     if (!selected) return;
     try { await api.unassignJobRole(selected.id, email); toastOk(`Removed ${nameOf(email)} from “${selected.name}”.`); loadRoles(); }
     catch (e) { toastErr(e?.message || 'Could not remove.'); }
+  }
+  async function onDeleteGroup(g) {
+    try { await api.deleteGroup(g.id); toastOk(`Deleted “${g.name}”.`); loadGroups(); }
+    catch (e) { toastErr(e?.message || 'Could not delete group.'); }
   }
 
   return (
@@ -204,26 +209,35 @@ export default function RolesAccess({ embedded = false }) {
       {/* ── GROUPS ── */}
       {sub === 'groups' && (
         !groups ? <Spinner /> : (
-          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6 }}>
-            {groups.length === 0 ? <Empty text="No additive groups yet." /> : groups.map(g => (
-              <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px', borderBottom: '1px solid var(--line)' }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13.5 }}>{g.name}</div>
-                  <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {(g.allowed_modules || []).map(m => <span key={m.id} style={{ fontSize: 11 }}><LevelPill level={m.level} /></span>)}
-                    {(g.allowed_modules || []).length === 0 && <span style={{ fontSize: 12, color: 'var(--muted)' }}>No modules</span>}
+          <>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+              <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditGroup(null)}><Plus size={15} /> New group</button>
+            </div>
+            <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6 }}>
+              {groups.length === 0 ? <Empty text="No additive groups yet. Create one to grant extra access on top of a job role." /> : groups.map(g => (
+                <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px', borderBottom: '1px solid var(--line)' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13.5 }}>{g.name}</div>
+                    <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {(g.allowed_modules || []).map(m => <span key={m.id} style={{ fontSize: 11 }}><LevelPill level={m.level} /></span>)}
+                      {(g.allowed_modules || []).length === 0 && <span style={{ fontSize: 12, color: 'var(--muted)' }}>No modules</span>}
+                    </div>
                   </div>
+                  <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{(g.members || []).length} members</span>
+                  <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => setEditGroup(g)} title="Edit group"><Pencil size={13} /></button>
+                  <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => onDeleteGroup(g)} title="Delete group"><Trash2 size={13} /></button>
                 </div>
-                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{(g.members || []).length} members</span>
-              </div>
-            ))}
-            <div style={{ padding: '12px', fontSize: 12, color: 'var(--muted)' }}>Groups are the additive layer — they only ever add access on top of a job role.</div>
-          </div>
+              ))}
+              <div style={{ padding: '12px', fontSize: 12, color: 'var(--muted)' }}>Groups are the additive layer — they only ever add access on top of a job role. Add people to a group from their card's Access tab.</div>
+            </div>
+          </>
         )
       )}
 
       {editing !== undefined && <RoleEditor role={editing} onClose={() => setEditing(undefined)}
         onSaved={r => { setEditing(undefined); toastOk(`Saved “${r.name}”.`); setSelId(r.id); loadRoles(); }} onErr={toastErr} />}
+      {editGroup !== undefined && <GroupEditor group={editGroup} onClose={() => setEditGroup(undefined)}
+        onSaved={g => { setEditGroup(undefined); toastOk(`Saved “${g.name}”.`); loadGroups(); }} onErr={toastErr} />}
       {assignFor && <AssignModal role={assignFor} onClose={() => setAssignFor(null)}
         onDone={n => { setAssignFor(null); toastOk(`Assigned ${n} to “${assignFor.name}”.`); loadRoles(); }} onErr={toastErr} />}
 
@@ -292,6 +306,57 @@ function RoleEditor({ role, onClose, onSaved, onErr }) {
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
         <button className="secondary-btn" onClick={onClose}>Cancel</button>
         <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />} Save job role</button>
+      </div>
+    </Modal>
+  );
+}
+
+// ── group editor (additive groups: name + module bundle, no tier) ─────────────
+function GroupEditor({ group, onClose, onSaved, onErr }) {
+  const [name, setName] = useState(group?.name || '');
+  const [bundle, setBundle] = useState(() => Object.fromEntries((group?.allowed_modules || []).map(g => [g.id, g.level])));
+  const [busy, setBusy] = useState(false);
+  const toggle = id => setBundle(b => { const n = { ...b }; if (n[id]) delete n[id]; else n[id] = 'viewer'; return n; });
+  const setLvl = (id, level) => setBundle(b => ({ ...b, [id]: level }));
+
+  async function save() {
+    if (!name.trim()) return onErr('Name is required.');
+    setBusy(true);
+    const body = { name: name.trim(), allowed_modules: Object.entries(bundle).map(([id, level]) => ({ id, level })) };
+    try {
+      const saved = group ? await api.updateGroup(group.id, body) : await api.createGroup(body);
+      onSaved(saved);
+    } catch (e) { onErr(e?.message || 'Could not save group.'); setBusy(false); }
+  }
+
+  return (
+    <Modal onClose={onClose} title={group ? 'Edit group' : 'New group'} wide>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <label style={fieldLabel}>Name
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Accounting — Viewer" style={input} /></label>
+        <div>
+          <div style={{ ...sectLabel, marginTop: 4 }}>Modules this group grants</div>
+          <div style={{ border: '1px solid var(--line)', borderRadius: 10, maxHeight: 300, overflow: 'auto' }}>
+            {GRANTABLE.map(m => {
+              const on = bundle[m.id];
+              return (
+                <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid var(--line)' }}>
+                  <button onClick={() => toggle(m.id)} style={{ width: 20, height: 20, borderRadius: 6, border: `1.5px solid ${on ? 'var(--ink)' : 'var(--line-strong,rgba(0,0,0,0.2))'}`, background: on ? 'var(--ink)' : 'transparent', color: 'var(--card)', cursor: 'pointer', display: 'grid', placeItems: 'center', flexShrink: 0 }}>{on && <Check size={13} />}</button>
+                  <span style={{ flex: 1, fontSize: 13, fontWeight: on ? 600 : 500, color: on ? 'var(--ink)' : 'var(--muted)' }}>{m.label}</span>
+                  {on && (
+                    <select value={bundle[m.id]} onChange={e => setLvl(m.id, e.target.value)} style={{ ...input, padding: '5px 8px', fontSize: 12, width: 'auto' }}>
+                      {LEVEL_ORDER.map(l => <option key={l} value={l}>{MODULE_LEVELS[l].label}</option>)}
+                    </select>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
+        <button className="secondary-btn" onClick={onClose}>Cancel</button>
+        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />} Save group</button>
       </div>
     </Modal>
   );

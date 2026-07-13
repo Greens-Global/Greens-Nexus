@@ -197,7 +197,7 @@ export default function App() {
   const activeSubRef  = useRef(activeSub);
   useEffect(() => { activeViewRef.current = activeView; activeSubRef.current = activeSub; }, [activeView, activeSub]);
   const [adminPanelOpen,   setAdminPanelOpen]   = useState(false);
-  const [adminPanelTab,    setAdminPanelTab]    = useState('access');
+  const [adminPanelTab,    setAdminPanelTab]    = useState('audit');
   const [backendDown,      setBackendDown]      = useState(false);
   const sidebarRef = useRef(null);
 

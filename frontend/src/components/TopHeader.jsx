@@ -259,9 +259,9 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
                   <div style={{ padding: '4px 12px 2px', fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase' }}>
                     Admin
                   </div>
-                  <button className="hud-item" onClick={() => { setOpen(false); onOpenAdmin?.('access'); }}
+                  <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'hr', sub: 'hr-access' } })); }}
                     style={{ color: 'hsl(var(--color-purple))' }}>
-                    <Shield size={14} /> Access Manager
+                    <Shield size={14} /> Roles &amp; Access
                   </button>
                   <button className="hud-item" onClick={() => { setOpen(false); onOpenAdmin?.('audit'); }}
                     style={{ color: 'hsl(var(--color-purple))' }}>
