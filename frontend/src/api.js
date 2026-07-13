@@ -348,6 +348,14 @@ export const api = {
   removeGroupMember: (id, email)         => req(`/groups/${id}/members/${encodeURIComponent(email)}`, { method: 'DELETE' }),
   assignGroupRole:   (id, role, by)      => req(`/groups/${id}/assign-role`, { method: 'POST', body: JSON.stringify({ role, assigned_by: by }) }),
 
+  // Job Roles (Roles & Access redesign) — a job role is a group template with a tier
+  getJobRoles:       ()                  => req('/jobroles'),
+  createJobRole:     (body)              => req('/jobroles', { method: 'POST', body: JSON.stringify(body) }),
+  updateJobRole:     (id, body)          => req(`/jobroles/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteJobRole:     (id)                => req(`/jobroles/${id}`, { method: 'DELETE' }),
+  assignJobRole:     (id, email)         => req(`/jobroles/${id}/assign`, { method: 'POST', body: JSON.stringify({ email }) }),
+  getEffectiveAccess:(email)             => req(`/jobroles/effective/${encodeURIComponent(email)}`),
+
   // Notifications (cross-device, stored in Supabase)
   pushNotification: (n)             => req('/notifications', { method: 'POST', body: JSON.stringify(n) }),
   getNotifications: ()               => req('/notifications'),

@@ -57,6 +57,10 @@ def _serialize(group: NexusGroup, db: Session) -> dict:
         "created_by": group.created_by,
         "created_at": group.created_at,
         "members": [m.email for m in members],
+        # Roles & Access redesign: job-role templates live in this same table.
+        "is_job_role": bool(getattr(group, "is_job_role", False)),
+        "tier": getattr(group, "tier", "") or "",
+        "description": getattr(group, "description", "") or "",
     }
 
 

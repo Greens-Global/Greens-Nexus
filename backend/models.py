@@ -448,6 +448,14 @@ class NexusGroup(Base):
     allowed_modules = Column(String, default="")   # comma-separated "moduleId:level" pairs, e.g. "it:viewer,inventory:full" — level ∈ viewer/editor/full/owner (see auth.MODULE_LEVELS)
     created_by      = Column(String, default="")
     created_at      = Column(String, default="")
+    # Roles & Access redesign (Jul 2026): a "Job Role" is an Access Group flagged
+    # is_job_role=1 that ALSO carries a seniority tier + plain-language description.
+    # A person's primary job role is the single job-role group they belong to;
+    # module access still flows through normal group membership (auth._module_level),
+    # so resolution is unchanged. Plain groups (is_job_role=0) are the additive layer.
+    is_job_role     = Column(Integer, default=0)
+    tier            = Column(String, default="")   # employee/supervisor/manager/administrator/owner — job roles only
+    description     = Column(String, default="")
 
 
 class NexusGroupMember(Base):

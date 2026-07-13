@@ -10,6 +10,7 @@ from database import engine, DATABASE_URL, SessionLocal
 from routers import timeclock
 from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, inventory_requests, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews
 from routers import task_projects, task_config  # Task Module (Jul 2026)
+from routers import jobroles  # Roles & Access redesign (Jul 2026)
 from audit import AuditMiddleware
 
 
@@ -109,6 +110,10 @@ def _run_migrations():
             "ALTER TABLE tasks ADD COLUMN modified_at VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN created_by VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN synced_with_asana BOOLEAN DEFAULT 0",
+            # Roles & Access redesign: job-role templates live on nexus_groups
+            "ALTER TABLE nexus_groups ADD COLUMN is_job_role BOOLEAN DEFAULT 0",
+            "ALTER TABLE nexus_groups ADD COLUMN tier VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN description VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -288,6 +293,10 @@ def _run_migrations():
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS modified_at TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS synced_with_asana BOOLEAN DEFAULT FALSE",
+        # Roles & Access redesign: job-role templates live on nexus_groups
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS is_job_role BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS tier VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS description VARCHAR DEFAULT ''",
     ]
     with engine.connect() as conn:
         for sql in migrations:
@@ -469,6 +478,7 @@ app.include_router(notifications.router)
 app.include_router(inventory_requests.router)
 app.include_router(audit.router)
 app.include_router(groups.router)
+app.include_router(jobroles.router)
 app.include_router(items_router.router)
 app.include_router(hr.router)
 app.include_router(knowledge_base.router)
