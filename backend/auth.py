@@ -215,3 +215,33 @@ def require_module_grant(module_id: str, min_module_level: str = "viewer", bypas
             return user
         raise HTTPException(status_code=403, detail="You don't have access to this screen")
     return _check
+
+
+def scoped_ids(email: str, module_id: str, db: Session):
+    """Row-level scope for `email` within `module_id`. Returns one of:
+      - None   → unrestricted (see everything the module grant allows)
+      - set()  → see NOTHING (fail-closed): an external user with no scope rows
+      - {ids}  → restricted to exactly these scope_ids
+
+    Any user WITH scope rows for the module is restricted to them. A user with
+    none is unrestricted UNLESS they are identity_type='external', who then see
+    nothing — least-privilege by default so a misconfigured external can never
+    see every row. Callers apply the returned set as a WHERE scope_id IN (...)
+    filter; a None result means apply no filter. Example:
+
+        allowed = scoped_ids(user["email"], "property-asset", db)
+        if allowed is not None:
+            q = q.filter(Property.id.in_(allowed))   # empty set → no rows
+    """
+    from sqlalchemy import func
+    from models import NexusAccessScope, NexusEmployee
+    rows = (db.query(NexusAccessScope)
+            .filter(NexusAccessScope.email == email.lower(),
+                    NexusAccessScope.module_id == module_id).all())
+    if rows:
+        return {r.scope_id for r in rows}
+    emp = (db.query(NexusEmployee)
+           .filter(func.lower(NexusEmployee.work_email) == email.lower()).first())
+    if emp and (emp.identity_type or "internal") == "external":
+        return set()   # fail-closed: external with no explicit scope sees nothing
+    return None

@@ -466,6 +466,24 @@ class NexusGroupMember(Base):
     added_at = Column(String, default="")
 
 
+class NexusAccessScope(Base):
+    """Row-level access scope — narrows WHICH records a person can see within a
+    module they already have (module:level) access to. Used mainly to sandbox
+    external users: a client scoped to one property sees only that property.
+    Semantics (see auth.scoped_ids): a person with ANY scope row for a module is
+    restricted to those scope_ids; a person with none is unrestricted UNLESS they
+    are identity_type='external', who then see nothing (fail-closed least
+    privilege). New table — create_all builds it, no migration line needed."""
+    __tablename__ = "nexus_access_scopes"
+    id         = Column(String, primary_key=True)   # uuid
+    email      = Column(String, nullable=False, index=True)   # the person the scope applies to
+    module_id  = Column(String, nullable=False)     # e.g. 'property-asset'
+    scope_type = Column(String, default="")         # 'property' | 'project' | 'entity'
+    scope_id   = Column(String, nullable=False)     # id of the property/project/entity allowed
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+
+
 class ApprovalHistory(Base):
     __tablename__ = "approval_history"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -526,6 +544,7 @@ class NexusEmployee(Base):
     created_at      = Column(String, default="")
     updated_at      = Column(String, default="")
     division        = Column(String, default="")               # functional division head-tag; org chart inherits down the tree (Phase 5)
+    identity_type   = Column(String, default="internal")        # internal (MS365 staff) | guest (Entra B2B partner) | external (non-MS365, HR-record only)
 
 
 class HrCandidate(Base):

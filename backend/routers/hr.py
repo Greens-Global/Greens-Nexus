@@ -27,6 +27,7 @@ router = APIRouter(prefix="/hr", tags=["hr"])
 
 _EMPLOYMENT_TYPES = ("full_time", "part_time", "contractor", "intern")
 _STATUSES         = ("onboarding", "active", "inactive", "offboarded")
+_IDENTITY_TYPES   = ("internal", "guest", "external")
 
 
 class EmployeeIn(BaseModel):
@@ -43,6 +44,7 @@ class EmployeeIn(BaseModel):
     status:          Optional[str] = "active"
     location:        Optional[str] = ""
     company:         Optional[str] = ""
+    identity_type:   Optional[str] = "internal"
     contractor:      Optional[dict] = None
     personal:        Optional[dict] = None
     compliance:      Optional[dict] = None
@@ -64,17 +66,20 @@ class EmployeeUpdate(BaseModel):
     location:        Optional[str] = None
     company:         Optional[str] = None
     division:        Optional[str] = None
+    identity_type:   Optional[str] = None
     contractor:      Optional[dict] = None
     personal:        Optional[dict] = None
     compliance:      Optional[dict] = None
     notes:           Optional[str] = None
 
 
-def _validate(employment_type: Optional[str], status: Optional[str]) -> None:
+def _validate(employment_type: Optional[str], status: Optional[str], identity_type: Optional[str] = None) -> None:
     if employment_type is not None and employment_type not in _EMPLOYMENT_TYPES:
         raise HTTPException(400, f"employment_type must be one of {_EMPLOYMENT_TYPES}")
     if status is not None and status not in _STATUSES:
         raise HTTPException(400, f"status must be one of {_STATUSES}")
+    if identity_type is not None and identity_type not in _IDENTITY_TYPES:
+        raise HTTPException(400, f"identity_type must be one of {_IDENTITY_TYPES}")
 
 
 def _next_code(db: Session) -> str:
@@ -106,6 +111,7 @@ def _serialize(e: NexusEmployee) -> dict:
         "location":       e.location,
         "company":        e.company,
         "division":       e.division or "",
+        "identityType":   e.identity_type or "internal",
         "contractor":     e.contractor or {},
         "personal":       e.personal or {},
         "compliance":     e.compliance or {},
@@ -128,7 +134,7 @@ def list_employees(user: dict = Depends(require_hr_read), db: Session = Depends(
 def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     if not body.first_name.strip():
         raise HTTPException(400, "first_name is required")
-    _validate(body.employment_type, body.status)
+    _validate(body.employment_type, body.status, body.identity_type)
     now = datetime.now(timezone.utc).isoformat()
     row = NexusEmployee(
         id=str(uuid.uuid4()),
@@ -146,6 +152,7 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         status=body.status or "active",
         location=(body.location or "").strip(),
         company=(body.company or "").strip(),
+        identity_type=body.identity_type or "internal",
         contractor=body.contractor or {},
         personal=body.personal or {},
         compliance=body.compliance or {},
@@ -165,7 +172,7 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
     row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not row:
         raise HTTPException(404, "Employee not found")
-    _validate(body.employment_type, body.status)
+    _validate(body.employment_type, body.status, body.identity_type)
     if body.first_name is not None and not body.first_name.strip():
         raise HTTPException(400, "first_name cannot be empty")
     fields = body.model_dump(exclude_unset=True)

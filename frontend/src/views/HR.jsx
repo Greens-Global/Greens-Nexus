@@ -76,6 +76,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
     status:          employee?.status || 'active',
     location:        employee?.location || '',
     company:         employee?.company || '',
+    identity_type:   employee?.identityType || 'internal',
     contractor:      employee?.contractor || {},
     notes:           employee?.notes || '',
   }));
@@ -193,6 +194,15 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
               <option value="">— not set —</option>
               {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
             </select>
+          </div>
+          <div>
+            <label style={FL}>ACCOUNT TYPE</label>
+            <select className="form-input" style={{ width: '100%' }} value={f.identity_type} onChange={e => set('identity_type', e.target.value)}>
+              <option value="internal">Internal (MS 365 staff)</option>
+              <option value="guest">Guest (Entra B2B partner)</option>
+              <option value="external">External (no MS 365 login)</option>
+            </select>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 5 }}>External/guest people can be sandboxed to specific companies on the Access tab.</div>
           </div>
           {isAdmin && !editing && (
             <div style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'color-mix(in srgb, var(--ink) 4%, transparent)' }}>
@@ -958,14 +968,19 @@ function AccessPicker({ title, items, onPick, onClose, renderItem }) {
   );
 }
 
-function EmployeeAccess({ email, toastOk, toastErr }) {
+function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr }) {
   const [data, setData] = useState(null);
   const [roles, setRoles] = useState([]);
   const [groups, setGroups] = useState([]);
   const [pick, setPick] = useState(null);   // 'role' | 'group' | null
+  const [scopes, setScopes] = useState([]);       // company sandbox for external/guest users
+  const [entities, setEntities] = useState([]);
+  const [addCo, setAddCo] = useState('');
   const load = () => api.getEffectiveAccess(email).then(setData).catch(() => setData({ tier: 'employee', job_role: null, extra_groups: [], modules: [] }));
-  useEffect(() => { if (email) { setData(null); load(); } }, [email]);   // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { api.getJobRoles().then(setRoles).catch(() => {}); api.getGroups().then(gs => setGroups(gs.filter(g => !g.is_job_role))).catch(() => {}); }, []);
+  const loadScopes = () => api.getAccessScopes(email).then(setScopes).catch(() => setScopes([]));
+  useEffect(() => { if (email) { setData(null); load(); loadScopes(); } }, [email]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { api.getJobRoles().then(setRoles).catch(() => {}); api.getGroups().then(gs => setGroups(gs.filter(g => !g.is_job_role))).catch(() => {}); api.getEntities().then(setEntities).catch(() => {}); }, []);
+  const isExternal = identityType === 'external' || identityType === 'guest';
 
   if (!email) return <div style={{ color: 'var(--muted)', fontSize: 13.5, padding: '20px 4px' }}>This person has no work email yet — provision their account first to manage access.</div>;
   if (!data) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /></div>;
@@ -974,6 +989,11 @@ function EmployeeAccess({ email, toastOk, toastErr }) {
   const addGroup = async g => { try { await api.addGroupMembers(g.id, [email]); setPick(null); toastOk(`Added “${g.name}”.`); load(); } catch (err) { toastErr(err?.message || 'Could not add group.'); } };
   const removeGroup = async g => { try { await api.removeGroupMember(g.id, email); toastOk(`Removed “${g.name}”.`); load(); } catch (err) { toastErr(err?.message || 'Could not remove.'); } };
   const held = new Set((data.extra_groups || []).map(g => g.id));
+  const entityName = id => entities.find(en => en.id === id)?.name || id;
+  const companyScopes = scopes.filter(s => s.scopeType === 'entity');
+  const scopedCoIds = new Set(companyScopes.map(s => s.scopeId));
+  const addScope = async () => { if (!addCo) return; try { setScopes(await api.addAccessScope(email, { module_id: 'company', scope_type: 'entity', scope_id: addCo })); setAddCo(''); toastOk(`Limited to ${entityName(addCo)}.`); } catch (err) { toastErr(err?.message || 'Could not add scope.'); } };
+  const removeScope = async s => { try { setScopes(await api.deleteAccessScope(email, s.id)); toastOk(`Removed ${entityName(s.scopeId)} limit.`); } catch (err) { toastErr(err?.message || 'Could not remove scope.'); } };
 
   return (
     <div>
@@ -1024,6 +1044,35 @@ function EmployeeAccess({ email, toastOk, toastErr }) {
         </div>
       )}
       <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Access = job-role bundle + any groups, taking the highest level per module.</div>
+
+      {isExternal && (
+        <div style={{ ..._accBox, marginTop: 22, background: 'hsla(var(--color-orange),0.05)', borderColor: 'hsla(var(--color-orange),0.25)' }}>
+          <div style={_accLabel}><span>Company access · external user</span><span>{companyScopes.length || 'all'}</span></div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', margin: '2px 0 12px' }}>
+            Limit this {identityType} user to specific companies. With none set, an <b>external</b> user sees nothing (fail-closed); a guest is unrestricted until you add a limit.
+          </div>
+          {companyScopes.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+              {companyScopes.map(s => (
+                <span key={s.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 6px 5px 12px', borderRadius: 20, background: 'var(--card)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600 }}>
+                  {entityName(s.scopeId)}
+                  <button onClick={() => removeScope(s)} title="Remove limit" aria-label={`Remove ${entityName(s.scopeId)}`}
+                    style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0 }}>
+                    <X size={13} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <select className="form-input" style={{ flex: 1 }} value={addCo} onChange={e => setAddCo(e.target.value)}>
+              <option value="">— add a company —</option>
+              {entities.filter(en => !scopedCoIds.has(en.id)).map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+            </select>
+            <button className="secondary-btn" onClick={addScope} disabled={!addCo} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: addCo ? 1 : 0.6 }}><Plus size={13} /> Limit</button>
+          </div>
+        </div>
+      )}
 
       {pick === 'role' && <AccessPicker title="Choose a job role" items={roles} onClose={() => setPick(null)} onPick={assign}
         renderItem={jr => (<><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, fontSize: 13 }}>{jr.name}</div><div style={{ marginTop: 3 }}><TierBadge tier={jr.tier} /></div></div><span style={{ fontSize: 11, color: 'var(--muted)' }}>{jr.member_count} ppl</span></>)} />}
@@ -1085,7 +1134,14 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           </span>
         </button>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 800, fontSize: 18 }}>{fullName(e)}</div>
+          <div style={{ fontWeight: 800, fontSize: 18, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {fullName(e)}
+            {e.identityType && e.identityType !== 'internal' && (
+              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 20, background: 'hsla(var(--color-orange),0.14)', color: 'hsl(var(--color-orange))' }}>
+                {e.identityType === 'guest' ? 'Guest' : 'External'}
+              </span>
+            )}
+          </div>
           <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>
             {[e.jobTitle, e.employeeCode].filter(Boolean).join(' · ')}
           </div>
@@ -1229,7 +1285,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
 
         {tab === 'assets' && <AssetsSection employee={e} />}
 
-        {tab === 'access' && isAdmin && <EmployeeAccess email={meEmail} toastOk={toastOk} toastErr={toastErr} />}
+        {tab === 'access' && isAdmin && <EmployeeAccess email={meEmail} identityType={e.identityType} toastOk={toastOk} toastErr={toastErr} />}
 
         {tab === 'documents' && (
           <>
