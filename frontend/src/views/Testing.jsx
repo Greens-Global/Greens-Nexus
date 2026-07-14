@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   FlaskConical, Plus, X, Loader2, Camera, CheckCircle, XCircle, MinusCircle,
   ChevronRight, Bug, ListChecks, ScrollText, Sparkles, UserPlus, Video, Square,
-  Paperclip, Send, Pencil, Archive, Check, CircleDot, Play, Bot, Mic,
+  Paperclip, Send, Pencil, Archive, Check, CircleDot, Play, Bot, Mic, Download, Upload,
 } from 'lucide-react';   // eslint-disable-line
 import { api } from '../api';
 import { supabase } from '../lib/supabase';
@@ -694,6 +694,8 @@ export default function Testing() {
   const [bugPrefill, setBugPrefill] = useState(null);
   const [newRunOpen, setNewRunOpen] = useState(false);
   const [newRunName, setNewRunName] = useState('');
+  const [ioBusy, setIoBusy] = useState('');   // 'export' | 'import' — Excel round-trip
+  const importRef = useRef(null);
   const [toast, setToast] = useState(null);
   const toastOk = m => { setToast({ m, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
   const toastErr = m => { setToast({ m, kind: 'error' }); setTimeout(() => setToast(null), 5500); };
@@ -720,6 +722,33 @@ export default function Testing() {
   }, [runId]);
   useEffect(() => { loadResults(); }, [loadResults]);
   useEffect(() => { if (tab === 'log') api.qaActivity().then(setActivity).catch(() => setActivity([])); }, [tab]);
+
+  // Excel round-trip: export mirrors the selected run's live state (statuses +
+  // embedded screenshots) and is itself the import template.
+  const doExport = async () => {
+    setIoBusy('export');
+    try {
+      const { blob, filename } = await api.qaExport(runId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+      toastOk('Exported — screenshots are embedded in the file.');
+    } catch (e) { toastErr(e?.message || 'Export failed.'); }
+    setIoBusy('');
+  };
+  const doImport = async (file) => {
+    if (!file) return;
+    setIoBusy('import');
+    try {
+      const r = await api.qaImport(file, runId);
+      api.qaCases().then(setCases).catch(() => {});
+      api.qaRuns().then(setRuns).catch(() => {});
+      setRunId(r.runId);
+      api.qaRunResults(r.runId).then(setResults).catch(() => {});
+      toastOk(`Imported into “${r.runName}” — ${r.casesCreated} new, ${r.casesUpdated} updated, ${r.resultsWritten} statuses.`);
+    } catch (e) { toastErr(e?.message || 'Import failed — export a fresh template and edit that.'); }
+    setIoBusy('');
+  };
 
   const resultsByCase = useMemo(() => Object.fromEntries(results.map(r => [r.caseId, r])), [results]);
   const activeCases = useMemo(() => (cases || []).filter(c => c.status === 'active'), [cases]);
@@ -777,6 +806,18 @@ export default function Testing() {
                 {runs.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
               </select>
               <button className="secondary-btn" onClick={() => setNewRunOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> New run</button>
+              <button className="secondary-btn" onClick={doExport} disabled={!!ioBusy} title="Download an Excel of every case + this run's status + screenshots — and the import template"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {ioBusy === 'export' ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={14} />} Export Excel
+              </button>
+              {canEdit && (
+                <button className="secondary-btn" onClick={() => importRef.current?.click()} disabled={!!ioBusy} title="Import an edited template — updates cases + statuses"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {ioBusy === 'import' ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={14} />} Import
+                </button>
+              )}
+              <input ref={importRef} type="file" accept=".xlsx" style={{ display: 'none' }}
+                onChange={e => { doImport(e.target.files[0]); e.target.value = ''; }} />
               <div style={{ flex: 1 }} />
               {canEdit && runId && <button className="primary-btn" onClick={() => setAssignOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}><UserPlus size={14} /> Assign cases</button>}
             </div>

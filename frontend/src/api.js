@@ -379,6 +379,8 @@ export const api = {
   qaAssign:         (body)        => req('/qa/assignments', { method: 'POST', body: JSON.stringify(body) }),
   qaSaveFlow:       (id, flow)    => req(`/qa/cases/${id}/flow`, { method: 'POST', body: JSON.stringify({ flow }) }),
   qaGenerateE2e:    (id)          => req(`/qa/cases/${id}/generate-e2e`, { method: 'POST', timeoutMs: 90_000 }),
+  qaExport:         (runId = '')  => reqBlob(`/qa/export${runId ? `?run_id=${runId}` : ''}`, { timeoutMs: 180_000 }),
+  qaImport:         (file, runId = '') => { const fd = new FormData(); fd.append('file', file); return req(`/qa/import${runId ? `?run_id=${runId}` : ''}`, { method: 'POST', body: fd, timeoutMs: 180_000 }); },
 
   // Notifications (cross-device, stored in Supabase)
   pushNotification: (n)             => req('/notifications', { method: 'POST', body: JSON.stringify(n) }),

@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, UploadFile, File, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -611,3 +612,370 @@ def create_assignment(body: AssignIn, user: dict = Depends(require_qa_write), db
             "emailSent": email_sent, "emailError": email_error,
             "teamsSummary": f"\U0001F9EA {title} — run “{run.name}”{due_txt}. "
                             f"Open Nexus → Testing → Run tests."}
+
+
+# ── Excel export / import ─────────────────────────────────────────────────────
+# One workbook that mirrors the live state AND doubles as the import template:
+#   • "Summary" sheet first (per-module pass/fail/blocked/not-run tallies),
+#   • one sheet per module (cases + status + notes + embedded screenshots),
+#   • "UX Bugs" sheet last (the tester bug reports).
+# The screenshots are downloaded and embedded as thumbnails so the file shows the
+# exact same evidence you see in Nexus; the machine-readable URLs live in an
+# "Evidence (links)" column so import can round-trip them without re-uploading.
+
+_CASE_HEADERS = ["Case ID", "Feature", "Title", "Priority", "Type", "Precondition",
+                 "Steps", "Expected", "Status", "Failed step", "Notes", "Evidence (links)"]
+_STATUS_TEXT = {"": "Not run", "pass": "Pass", "fail": "Fail", "blocked": "Blocked", "skipped": "Skipped"}
+_STATUS_CODE = {"not run": "", "": "", "pass": "pass", "passed": "pass", "fail": "fail", "failed": "fail",
+                "blocked": "blocked", "skipped": "skipped", "skip": "skipped"}
+_STATUS_FILL = {"pass": "D8F3DC", "fail": "FCD5CE", "blocked": "FFE8CC", "skipped": "E9ECEF", "": "FFFFFF"}
+_SKIP_SHEETS = {"Summary", "UX Bugs"}
+
+
+def _steps_text(steps: list) -> str:
+    return "\n".join(f"{i + 1}. {str(s).strip()}" for i, s in enumerate(steps or []) if str(s).strip())
+
+
+def _parse_steps(text) -> list:
+    out = []
+    for line in str(text or "").splitlines():
+        line = re.sub(r"^\s*\d+[.)]\s*", "", line.strip())
+        if line:
+            out.append(line)
+    return out
+
+
+def _evidence_text(res) -> str:
+    """Human + machine-readable list of the shot/recording URLs on a result."""
+    if not res:
+        return ""
+    lines = []
+    for i, st in enumerate(res.step_state or []):
+        shot = (st or {}).get("shot")
+        if shot:
+            lines.append(f"Step {i + 1}: {shot}")
+    ev = res.evidence or {}
+    if ev.get("shot"):
+        lines.append(f"Overall: {ev['shot']}")
+    if ev.get("recording"):
+        lines.append(f"Recording: {ev['recording']}")
+    return "\n".join(lines)
+
+
+def _parse_evidence(text, n_steps: int):
+    """Inverse of _evidence_text → (step_state, evidence) preserving the URLs."""
+    step_shots, ev = {}, {}
+    for line in str(text or "").splitlines():
+        m = re.match(r"\s*Step\s+(\d+)\s*:\s*(\S+)", line, re.I)
+        if m:
+            step_shots[int(m.group(1)) - 1] = m.group(2); continue
+        m = re.match(r"\s*Overall\s*:\s*(\S+)", line, re.I)
+        if m:
+            ev["shot"] = m.group(1); continue
+        m = re.match(r"\s*Recording\s*:\s*(\S+)", line, re.I)
+        if m:
+            ev["recording"] = m.group(1)
+    size = max([n_steps] + [k + 1 for k in step_shots])
+    step_state = [{"done": i in step_shots, "shot": step_shots.get(i, "")} for i in range(size)]
+    return step_state, ev
+
+
+def _image_urls(res) -> list:
+    if not res:
+        return []
+    urls = [st.get("shot") for st in (res.step_state or []) if (st or {}).get("shot")]
+    if (res.evidence or {}).get("shot"):
+        urls.append(res.evidence["shot"])
+    return urls
+
+
+class _ThumbCache:
+    """Downloads + resizes evidence images once, hands out fresh openpyxl Images."""
+    def __init__(self):
+        self._png = {}   # url -> png bytes or None
+
+    def _bytes(self, url: str):
+        if url in self._png:
+            return self._png[url]
+        data = None
+        try:
+            from io import BytesIO
+            from PIL import Image as PILImage
+            r = httpx.get(url, timeout=8, follow_redirects=True)
+            if r.is_success and r.headers.get("content-type", "").startswith("image"):
+                im = PILImage.open(BytesIO(r.content)).convert("RGB")
+                im.thumbnail((150, 110))
+                buf = BytesIO(); im.save(buf, format="PNG")
+                data = buf.getvalue()
+        except Exception:
+            data = None
+        self._png[url] = data
+        return data
+
+    def image(self, url: str):
+        data = self._bytes(url)
+        if not data:
+            return None
+        from io import BytesIO
+        from openpyxl.drawing.image import Image as XLImage
+        return XLImage(BytesIO(data))
+
+
+def _build_workbook(db: Session, run) -> bytes:
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    cases = (db.query(QaTestCase).filter(QaTestCase.status != "archived")
+             .order_by(QaTestCase.module, QaTestCase.feature, QaTestCase.title).all())
+    results = {}
+    if run:
+        for r in db.query(QaResult).filter(QaResult.run_id == run.id).all():
+            results[r.case_id] = r
+
+    by_module = {}
+    for c in cases:
+        by_module.setdefault(c.module, []).append(c)
+    ordered = [m for m in _MODULES if m in by_module] + [m for m in by_module if m not in _MODULES]
+
+    thumbs = _ThumbCache()
+    head_font = Font(bold=True, color="FFFFFF")
+    head_fill = PatternFill("solid", fgColor="1F2A44")
+    title_font = Font(bold=True, size=16, color="1F2A44")
+    thin = Side(style="thin", color="D0D5DD")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    wrap_top = Alignment(wrap_text=True, vertical="top")
+
+    wb = Workbook()
+
+    # ── Summary sheet ─────────────────────────────────────────────────────────
+    ws = wb.active
+    ws.title = "Summary"
+    ws["A1"] = "Nexus — Testing export"; ws["A1"].font = title_font
+    ws["A2"] = f"Run: {run.name if run else '(no run selected — statuses show Not run)'}"
+    ws["A3"] = f"Exported: {_now()[:19].replace('T', ' ')} UTC"
+    ws["A2"].font = ws["A3"].font = Font(color="475467")
+    sum_head = ["Module", "Total", "Pass", "Fail", "Blocked", "Skipped", "Not run", "% done"]
+    hrow = 5
+    for j, h in enumerate(sum_head, 1):
+        cell = ws.cell(hrow, j, h); cell.font = head_font; cell.fill = head_fill; cell.border = border
+    tot = {"total": 0, "pass": 0, "fail": 0, "blocked": 0, "skipped": 0, "notrun": 0}
+    rix = hrow + 1
+    for m in ordered:
+        cnt = {"pass": 0, "fail": 0, "blocked": 0, "skipped": 0, "notrun": 0}
+        for c in by_module[m]:
+            code = (results.get(c.id).result if results.get(c.id) else "") or ""
+            cnt["notrun" if code == "" else code] += 1
+        total = len(by_module[m])
+        done = total - cnt["notrun"]
+        vals = [m, total, cnt["pass"], cnt["fail"], cnt["blocked"], cnt["skipped"], cnt["notrun"],
+                f"{round(done / total * 100) if total else 0}%"]
+        for j, v in enumerate(vals, 1):
+            cell = ws.cell(rix, j, v); cell.border = border
+        tot["total"] += total
+        for k in ("pass", "fail", "blocked", "skipped", "notrun"):
+            tot[k] += cnt[k]
+        rix += 1
+    done_all = tot["total"] - tot["notrun"]
+    trow = [ "TOTAL", tot["total"], tot["pass"], tot["fail"], tot["blocked"], tot["skipped"], tot["notrun"],
+             f"{round(done_all / tot['total'] * 100) if tot['total'] else 0}%"]
+    for j, v in enumerate(trow, 1):
+        cell = ws.cell(rix, j, v); cell.font = Font(bold=True); cell.border = border
+    ws.column_dimensions["A"].width = 24
+    for col in "BCDEFGH":
+        ws.column_dimensions[col].width = 10
+    note_r = rix + 3
+    ws.cell(note_r, 1, "How to use this file").font = Font(bold=True, color="1F2A44")
+    for k, line in enumerate([
+        "• Each module has its own tab; UX bug reports are on the last tab.",
+        "• Edit Status (Pass / Fail / Blocked / Skipped / Not run), Notes and cases, then re-import.",
+        "• Keep the Case ID to update an existing case; clear it to create a new one.",
+        "• Screenshots are shown for reference; edit evidence via the Evidence (links) column.",
+    ], 1):
+        ws.cell(note_r + k, 1, line).font = Font(color="475467")
+
+    # ── one sheet per module ──────────────────────────────────────────────────
+    for m in ordered:
+        title = m[:31]
+        ws = wb.create_sheet(title=title)
+        max_shots = 0
+        for j, h in enumerate(_CASE_HEADERS, 1):
+            cell = ws.cell(1, j, h); cell.font = head_font; cell.fill = head_fill; cell.border = border
+        r = 2
+        for c in by_module[m]:
+            res = results.get(c.id)
+            code = (res.result if res else "") or ""
+            vals = [c.id, c.feature or "", c.title, c.priority or "Medium", c.case_type or "Functional",
+                    c.precondition or "", _steps_text(c.steps), c.expected or "",
+                    _STATUS_TEXT.get(code, "Not run"),
+                    (res.failed_step + 1) if (res and res.failed_step is not None and res.failed_step >= 0) else "",
+                    (res.notes if res else "") or "", _evidence_text(res)]
+            for j, v in enumerate(vals, 1):
+                cell = ws.cell(r, j, v); cell.border = border; cell.alignment = wrap_top
+            ws.cell(r, 9).fill = PatternFill("solid", fgColor=_STATUS_FILL.get(code, "FFFFFF"))
+            # embed screenshot thumbnails to the right, one per column
+            urls = _image_urls(res)
+            for si, url in enumerate(urls[:12]):
+                img = thumbs.image(url)
+                if img is None:
+                    continue
+                col = len(_CASE_HEADERS) + 1 + si
+                img.anchor = f"{get_column_letter(col)}{r}"
+                ws.add_image(img)
+                max_shots = max(max_shots, si + 1)
+            if urls:
+                ws.row_dimensions[r].height = 90
+            r += 1
+        widths = [14, 16, 34, 9, 12, 26, 44, 30, 11, 10, 30, 40]
+        for j, w in enumerate(widths, 1):
+            ws.column_dimensions[get_column_letter(j)].width = w
+        for si in range(max_shots):
+            ws.column_dimensions[get_column_letter(len(_CASE_HEADERS) + 1 + si)].width = 22
+        ws.freeze_panes = "A2"
+
+    # ── UX Bugs sheet (last) ──────────────────────────────────────────────────
+    ws = wb.create_sheet(title="UX Bugs")
+    bug_head = ["Bug ID", "Reported", "By", "Module", "Status", "Description",
+                "Recorded steps", "Recording", "Screenshots"]
+    for j, h in enumerate(bug_head, 1):
+        cell = ws.cell(1, j, h); cell.font = head_font; cell.fill = head_fill; cell.border = border
+    bugs = db.query(QaBugReport).order_by(QaBugReport.created_at.desc()).limit(500).all()
+    r = 2
+    for b in bugs:
+        vals = [b.id, (b.created_at or "")[:10], b.created_by or "", b.module_hint or "",
+                (b.status or "new").title(), b.description or "", len(b.steps_log or [])]
+        for j, v in enumerate(vals, 1):
+            cell = ws.cell(r, j, v); cell.border = border; cell.alignment = wrap_top
+        if b.recording_url:
+            cell = ws.cell(r, 8, "▶ recording"); cell.hyperlink = b.recording_url
+            cell.font = Font(color="1D4ED8", underline="single")
+        max_shots = 0
+        for si, url in enumerate((b.screenshots or [])[:8]):
+            img = thumbs.image(url)
+            if img is None:
+                continue
+            col = 9 + si
+            img.anchor = f"{get_column_letter(col)}{r}"
+            ws.add_image(img)
+            max_shots = max(max_shots, si + 1)
+        if b.screenshots:
+            ws.row_dimensions[r].height = 90
+        r += 1
+    for j, w in enumerate([14, 12, 22, 18, 12, 60, 12, 14], 1):
+        ws.column_dimensions[get_column_letter(j)].width = w
+    for si in range(8):
+        ws.column_dimensions[get_column_letter(9 + si)].width = 22
+    ws.freeze_panes = "A2"
+
+    out = BytesIO(); wb.save(out)
+    return out.getvalue()
+
+
+@router.get("/export")
+def export_xlsx(run_id: str = Query(default=""), user: dict = Depends(require_qa_read),
+                db: Session = Depends(get_db)):
+    _gate()
+    _seed_if_empty(db)
+    run = db.query(QaRun).filter(QaRun.id == run_id).first() if run_id else None
+    data = _build_workbook(db, run)
+    stamp = _now()[:10]
+    fname = f"Nexus-Testing-{(run.name if run else 'all').replace(' ', '-')}-{stamp}.xlsx"
+    fname = re.sub(r"[^A-Za-z0-9._-]", "", fname)
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@router.post("/import")
+async def import_xlsx(file: UploadFile = File(...), run_id: str = Query(default=""),
+                      user: dict = Depends(require_qa_write), db: Session = Depends(get_db)):
+    _gate()
+    from io import BytesIO
+    from openpyxl import load_workbook
+    raw = await file.read()
+    try:
+        wb = load_workbook(BytesIO(raw), read_only=True, data_only=True)
+    except Exception:
+        raise HTTPException(400, "Could not read that file — export a fresh template and edit it.")
+
+    # target run: the one passed (update in place) or a fresh "Imported" run
+    run = db.query(QaRun).filter(QaRun.id == run_id).first() if run_id else None
+    if not run:
+        run = QaRun(id=str(uuid.uuid4()), name=f"Imported — {_now()[:10]}", status="open",
+                    created_by=user["email"], created_at=_now())
+        db.add(run); db.flush()
+
+    now = _now()
+    created = updated = results = 0
+    for ws in wb.worksheets:
+        if ws.title in _SKIP_SHEETS:
+            continue
+        rows = ws.iter_rows(values_only=True)
+        try:
+            header = [str(h).strip() if h is not None else "" for h in next(rows)]
+        except StopIteration:
+            continue
+        idx = {h: i for i, h in enumerate(header)}
+        if "Title" not in idx:
+            continue   # not a case sheet
+        module = ws.title
+
+        def cell(row, name):
+            i = idx.get(name)
+            return row[i] if (i is not None and i < len(row)) else None
+
+        for row in rows:
+            title = (cell(row, "Title") or "").strip() if cell(row, "Title") else ""
+            if not title:
+                continue
+            cid = (str(cell(row, "Case ID")).strip() if cell(row, "Case ID") else "")
+            steps = _parse_steps(cell(row, "Steps"))
+            fields = dict(
+                module=module, feature=(cell(row, "Feature") or "") or "",
+                title=title, precondition=(cell(row, "Precondition") or "") or "",
+                steps=steps, expected=(cell(row, "Expected") or "") or "",
+                priority=(cell(row, "Priority") or "Medium") or "Medium",
+                case_type=(cell(row, "Type") or "Functional") or "Functional")
+            case = db.query(QaTestCase).filter(QaTestCase.id == cid).first() if cid else None
+            if case:
+                for k, v in fields.items():
+                    setattr(case, k, v)
+                case.updated_at = now
+                updated += 1
+            else:
+                case = QaTestCase(id=str(uuid.uuid4()), source="manual", status="active",
+                                  created_by=user["email"], created_at=now, updated_at=now, **fields)
+                db.add(case); db.flush()
+                created += 1
+
+            # status + evidence → a result in the target run
+            code = _STATUS_CODE.get(str(cell(row, "Status") or "").strip().lower(), None)
+            notes = (cell(row, "Notes") or "") or ""
+            ev_text = cell(row, "Evidence (links)") or ""
+            fs_raw = cell(row, "Failed step")
+            if code or notes or ev_text:
+                step_state, ev = _parse_evidence(ev_text, len(steps))
+                try:
+                    failed = int(fs_raw) - 1 if fs_raw not in (None, "") else -1
+                except (ValueError, TypeError):
+                    failed = -1
+                res = (db.query(QaResult)
+                       .filter(QaResult.run_id == run.id, QaResult.case_id == case.id).first())
+                if not res:
+                    res = QaResult(id=str(uuid.uuid4()), run_id=run.id, case_id=case.id)
+                    db.add(res)
+                res.result = code or ""
+                res.failed_step = failed
+                res.step_state = step_state
+                res.notes = notes
+                res.evidence = ev
+                res.source = "human"
+                res.tested_by = user["email"]
+                res.tested_at = now
+                results += 1
+
+    db.commit()
+    return {"runId": run.id, "runName": run.name,
+            "casesCreated": created, "casesUpdated": updated, "resultsWritten": results}
