@@ -878,6 +878,26 @@ class HrEntity(Base):
     updated_at         = Column(String, default="")
 
 
+class HrDepartment(Base):
+    """A department, scoped to one company (HrEntity). Departments are NOT a
+    Nexus-wide hardcoded list — each company owns its own editable set (an IT-dev
+    company has QA, a construction company has Estimating). Greens Global is seeded
+    from the legacy hardcoded list on first read; every other company starts empty.
+    Employees pick a department from their company's list. Deleting one leaves
+    existing employees' department strings untouched (like a removed item type).
+    `parent_id` is unused today but present so departments can become a hierarchy
+    later without a migration — the enterprise norm. New table — create_all builds
+    it, no migration line needed."""
+    __tablename__ = "hr_departments"
+    id         = Column(String, primary_key=True)   # uuid
+    company_id = Column(String, nullable=False)     # HrEntity.id this department belongs to
+    name       = Column(String, nullable=False)     # display value, e.g. "Estimating"
+    parent_id  = Column(String, default="")         # reserved: HrDepartment.id of the parent (hierarchy)
+    sort_order = Column(Integer, default=0)
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+
+
 class HrWorkSite(Base):
     """A physical work site (HR Section A) — used later for geofenced time-clock
     validation. lat/long + radius define the geofence."""

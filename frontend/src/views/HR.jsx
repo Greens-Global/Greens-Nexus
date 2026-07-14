@@ -17,7 +17,6 @@ import { capabilityText } from '../lib/moduleCapabilities';
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
 // Old hardcoded onboarding/disclosure screens were dummy data — removed.
 
-const DEPTS = ['Operations', 'Accounting', 'IT', 'Construction', 'Facilities', 'Marketing', 'Real Estate', 'Admin', 'HR'];
 const EMP_TYPES = [
   ['full_time', 'Full-Time'], ['part_time', 'Part-Time'], ['contractor', 'Contractor'], ['intern', 'Intern'],
 ];
@@ -70,7 +69,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
     personal_email:  employee?.personalEmail || '',
     phone:           employee?.phone || '',
     job_title:       employee?.jobTitle || '',
-    department:      employee?.department || 'Operations',
+    department:      employee?.department || '',
     employment_type: employee?.employmentType || 'full_time',
     start_date:      employee?.startDate || '',
     manager_email:   employee?.managerEmail || '',
@@ -81,8 +80,19 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
     notes:           employee?.notes || '',
   }));
   const [busy, setBusy] = useState(false);
+  // Department options come from the SELECTED company — no company, no department.
+  const [deptOptions, setDeptOptions] = useState([]);
+  const [deptLoading, setDeptLoading] = useState(false);
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
   const setC = (k, v) => setF(prev => ({ ...prev, contractor: { ...(prev.contractor || {}), [k]: v } }));
+  useEffect(() => {
+    if (!f.company) { setDeptOptions([]); return; }
+    setDeptLoading(true);
+    api.getCompanyDepartments(f.company)
+      .then(list => setDeptOptions(list.map(d => d.name)))
+      .catch(() => setDeptOptions([]))
+      .finally(() => setDeptLoading(false));
+  }, [f.company]);
   const isContractor = f.employment_type === 'contractor';
   const cInput = (label, key, props = {}) => (
     <div>
@@ -145,8 +155,15 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
           {input('JOB TITLE', 'job_title')}
           <div>
             <label style={FL}>DEPARTMENT</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.department} onChange={e => set('department', e.target.value)}>
-              {DEPTS.map(d => <option key={d}>{d}</option>)}
+            <select className="form-input" style={{ width: '100%' }} value={f.department} disabled={!f.company}
+              onChange={e => set('department', e.target.value)}>
+              {!f.company
+                ? <option value="">— pick a company first —</option>
+                : <>
+                    <option value="">{deptLoading ? 'Loading…' : '— select —'}</option>
+                    {f.department && !deptOptions.includes(f.department) && <option value={f.department}>{f.department} (current)</option>}
+                    {deptOptions.map(d => <option key={d}>{d}</option>)}
+                  </>}
             </select>
           </div>
           <div>
@@ -1260,7 +1277,7 @@ const candName = c => [c.firstName, c.lastName].filter(Boolean).join(' ');
 const daysSince = iso => Math.max(0, Math.floor((Date.now() - new Date(iso)) / 86400000));
 
 function CandidateFormModal({ onClose, onSaved, toastErr }) {
-  const [f, setF] = useState({ first_name: '', last_name: '', email: '', phone: '', role_title: '', department: 'Operations', expected_start: '', source: '', notes: '' });
+  const [f, setF] = useState({ first_name: '', last_name: '', email: '', phone: '', role_title: '', department: '', expected_start: '', source: '', notes: '' });
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
   async function save() {
@@ -1287,10 +1304,7 @@ function CandidateFormModal({ onClose, onSaved, toastErr }) {
           {input('EMAIL', 'email', { type: 'email' })}
           {input('PHONE', 'phone')}
           {input('ROLE APPLYING FOR', 'role_title')}
-          <div><label style={FL}>DEPARTMENT</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.department} onChange={e => set('department', e.target.value)}>
-              {DEPTS.map(d => <option key={d}>{d}</option>)}
-            </select></div>
+          {input('DEPARTMENT', 'department', { placeholder: 'target area — set for real on hire' })}
           {input('EXPECTED START', 'expected_start', { type: 'date' })}
           {input('SOURCE', 'source', { placeholder: 'Referral, LinkedIn…' })}
           <div style={{ gridColumn: '1 / -1' }}><label style={FL}>NOTES</label>
@@ -2542,6 +2556,59 @@ function LeaveTab({ employees, toastOk, toastErr }) {
 
 // ── Main view ─────────────────────────────────────────────────────────────────
 // ── Companies / legal entities manager (HR Section A) ────────────────────────
+// Manage one company's department list (Neil: departments live within a company,
+// custom per company — not a Nexus-wide hardcoded list).
+function CompanyDepartments({ entity, toastOk, toastErr }) {
+  const [depts, setDepts] = useState(null);
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const load = () => api.getCompanyDepartments(entity.id).then(setDepts).catch(() => setDepts([]));
+  useEffect(() => { setDepts(null); load(); }, [entity.id]);
+  async function add() {
+    const n = name.trim();
+    if (!n || busy) return; setBusy(true);
+    try { const list = await api.addCompanyDepartment(entity.id, n); setDepts(list); setName(''); }
+    catch (e) { toastErr(e?.message || 'Could not add department.'); }
+    setBusy(false);
+  }
+  async function remove(d) {
+    try { const list = await api.deleteCompanyDepartment(entity.id, d.id); setDepts(list); }
+    catch (e) { toastErr(e?.message || 'Could not remove department.'); }
+  }
+  return (
+    <div style={{ overflowY: 'auto', flex: 1, padding: '16px 22px' }}>
+      <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 14px' }}>
+        Departments for <strong>{entity.name}</strong>. These are the only choices when picking a department for someone in this company.
+      </p>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        <input className="form-input" style={{ flex: 1 }} placeholder="e.g. Estimating" value={name}
+          onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()} maxLength={40} />
+        <button className="primary-btn" onClick={add} disabled={!name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!name.trim() || busy) ? 0.6 : 1 }}>
+          <Plus size={14} /> Add
+        </button>
+      </div>
+      {depts === null ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>Loading…</div>
+        : depts.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>No departments yet — add the first one above.</div>
+        : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {depts.map(d => (
+              <span key={d.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 8px 6px 13px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 13, fontWeight: 600 }}>
+                {d.name}
+                <button onClick={() => remove(d)} title={`Remove ${d.name}`} aria-label={`Remove ${d.name}`}
+                  style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0 }}
+                  onMouseOver={e => { e.currentTarget.style.background = 'hsla(var(--color-red),0.14)'; e.currentTarget.style.color = 'hsl(var(--color-red))'; }}
+                  onMouseOut={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--muted)'; }}>
+                  <X size={13} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 16 }}>Removing a department leaves anyone already in it untouched — it just stops being pickable.</p>
+    </div>
+  );
+}
+
 function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
   const blank = { name: '', legal_name: '', country: '', tax_id: '', registered_address: '', signatory: '', notes: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
@@ -2550,6 +2617,8 @@ function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const startNew = () => { setF(blank); setMode('new'); };
   const startEdit = en => { setF({ name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '', registered_address: en.registeredAddress || '', signatory: en.signatory || '', notes: en.notes || '' }); setMode(en.id); };
+  const deptId = (typeof mode === 'string' && mode.startsWith('dept:')) ? mode.slice(5) : null;
+  const deptEntity = deptId ? entities.find(e => e.id === deptId) : null;
 
   async function save() {
     if (!f.name.trim() || busy) return; setBusy(true);
@@ -2587,11 +2656,20 @@ function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
           <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Building2 size={17} color="hsl(var(--color-blue))" />
           </div>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{mode ? (mode === 'new' ? 'Add Company' : 'Edit Company') : 'Companies & Entities'}</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{deptId ? `Departments · ${deptEntity?.name || ''}` : mode ? (mode === 'new' ? 'Add Company' : 'Edit Company') : 'Company setup'}</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
 
-        {mode ? (
+        {deptId ? (
+          <>
+            {deptEntity
+              ? <CompanyDepartments entity={deptEntity} toastOk={toastOk} toastErr={toastErr} />
+              : <div style={{ flex: 1, padding: 24, color: 'var(--muted)' }}>Company not found.</div>}
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
+              <button className="secondary-btn" onClick={() => setMode(null)}>Back</button>
+            </div>
+          </>
+        ) : mode ? (
           <>
             <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               <div style={{ gridColumn: '1 / -1' }}>{field('NAME *', 'name', { autoFocus: true, placeholder: 'e.g. Greens India' })}</div>
@@ -2631,6 +2709,7 @@ function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
                     <div style={{ fontSize: 13.5, fontWeight: 700 }}>{en.name} {en.country && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>· {en.country}</span>}</div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[en.legalName, en.taxId && `Tax ${en.taxId}`, en.signatory].filter(Boolean).join(' · ') || '—'}</div>
                   </div>
+                  <button className="secondary-btn" onClick={() => setMode('dept:' + en.id)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Building2 size={13} /> Departments</button>
                   <button className="secondary-btn" onClick={() => startEdit(en)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
                   <button onClick={() => remove(en)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
                 </div>
@@ -3219,6 +3298,7 @@ export default function HR({ activeSub, onSubChange }) {
   const [error,     setError]     = useState('');
   const [search,    setSearch]    = useState('');
   const [deptF,     setDeptF]     = useState('All');
+  const [companyF,  setCompanyF]  = useState('All');
   const [statusF,   setStatusF]   = useState('All');
   const [selectedId, setSelectedId] = useState(null);
   const [formOpen,  setFormOpen]  = useState(false);
@@ -3270,7 +3350,15 @@ export default function HR({ activeSub, onSubChange }) {
   useEffect(() => { loadEntities(); loadSites(); }, []);
   const entityName = id => entities.find(en => en.id === id)?.name || '';
 
+  // Department filter choices are the departments actually in use, scoped to the
+  // chosen company — no hardcoded list.
+  const deptChoices = useMemo(() => {
+    const src = companyF === 'All' ? employees : employees.filter(e => e.company === companyF);
+    return [...new Set(src.map(e => (e.department || '').trim()).filter(Boolean))].sort();
+  }, [employees, companyF]);
+
   const filtered = useMemo(() => employees.filter(e => {
+    if (companyF !== 'All' && e.company !== companyF) return false;
     if (deptF !== 'All' && e.department !== deptF) return false;
     if (statusF !== 'All' && e.status !== statusF) return false;
     if (search.trim()) {
@@ -3278,7 +3366,7 @@ export default function HR({ activeSub, onSubChange }) {
       return [fullName(e), e.workEmail, e.employeeCode, e.jobTitle, e.department].some(v => (v || '').toLowerCase().includes(q));
     }
     return true;
-  }), [employees, deptF, statusF, search]);
+  }), [employees, companyF, deptF, statusF, search]);
 
   const selected = employees.find(e => e.id === selectedId) || null;
   const counts = useMemo(() => ({
@@ -3327,9 +3415,9 @@ export default function HR({ activeSub, onSubChange }) {
               {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <History size={14} />} Sync from M365
             </button>
             <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-              title="Manage companies / legal entities"
+              title="Manage companies & their departments"
               onClick={() => setEntitiesOpen(true)}>
-              <Building2 size={14} /> Companies
+              <Building2 size={14} /> Company setup
             </button>
             <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
               title="Manage work sites (for geofenced clock-in)"
@@ -3398,9 +3486,13 @@ export default function HR({ activeSub, onSubChange }) {
             <input placeholder="Search people…" value={search} onChange={e => setSearch(e.target.value)} />
             {search && <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={13} /></button>}
           </div>
+          <select className="form-input" value={companyF} onChange={e => { setCompanyF(e.target.value); setDeptF('All'); }} style={{ flex: '0 0 auto', width: 150, padding: '6px 10px', fontSize: 13, height: 34 }}>
+            <option value="All">All companies</option>
+            {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+          </select>
           <select className="form-input" value={deptF} onChange={e => setDeptF(e.target.value)} style={{ flex: '0 0 auto', width: 150, padding: '6px 10px', fontSize: 13, height: 34 }}>
             <option value="All">All departments</option>
-            {DEPTS.map(d => <option key={d}>{d}</option>)}
+            {deptChoices.map(d => <option key={d}>{d}</option>)}
           </select>
           <select className="form-input" value={statusF} onChange={e => setStatusF(e.target.value)} style={{ flex: '0 0 auto', width: 140, padding: '6px 10px', fontSize: 13, height: 34 }}>
             <option value="All">All statuses</option>
