@@ -29,6 +29,19 @@ export function LevelPill({ level, title }) {
   return <span style={styles[level] || styles.viewer} title={title || MODULE_LEVELS[level]?.description || ''}>{label}</span>;
 }
 
+// A level pill that also names the module it's for — so a row of grants reads
+// "People · Viewer  Assets · Full" instead of a context-less "Viewer Full".
+export function ModuleLevelPill({ moduleId, level }) {
+  const mod = MODULES.find(m => m.id === moduleId);
+  const label = mod?.label || moduleId;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 5px 3px 11px', borderRadius: 999, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 11.5, fontWeight: 600, whiteSpace: 'nowrap' }}
+      title={capabilityText(moduleId, level, label)}>
+      {label}<LevelPill level={level} />
+    </span>
+  );
+}
+
 export function TierBadge({ tier }) {
   const r = ROLES[tier] || ROLES.employee;
   return (
@@ -50,6 +63,7 @@ export default function RolesAccess({ embedded = false }) {
   const [editGroup, setEditGroup] = useState(undefined);
   const [assignFor, setAssignFor] = useState(null);
   const [selId, setSelId] = useState(null);
+  const [openGroup, setOpenGroup] = useState(null); // group id whose member list is expanded
   const [toast, setToast] = useState(null);
 
   const toastOk = m => { setToast({ m, kind: 'ok' }); setTimeout(() => setToast(null), 3500); };
@@ -77,6 +91,10 @@ export default function RolesAccess({ embedded = false }) {
   async function onDeleteGroup(g) {
     try { await api.deleteGroup(g.id); toastOk(`Deleted “${g.name}”.`); loadGroups(); }
     catch (e) { toastErr(e?.message || 'Could not delete group.'); }
+  }
+  async function removeGroupMember(g, email) {
+    try { await api.removeGroupMember(g.id, email); toastOk(`Removed ${nameOf(email)} from “${g.name}”.`); loadGroups(); }
+    catch (e) { toastErr(e?.message || 'Could not remove.'); }
   }
 
   return (
@@ -215,20 +233,46 @@ export default function RolesAccess({ embedded = false }) {
               <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditGroup(null)}><Plus size={15} /> New group</button>
             </div>
             <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6 }}>
-              {groups.length === 0 ? <Empty text="No additive groups yet. Create one to grant extra access on top of a job role." /> : groups.map(g => (
-                <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px', borderBottom: '1px solid var(--line)' }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 13.5 }}>{g.name}</div>
-                    <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {(g.allowed_modules || []).map(m => <span key={m.id} style={{ fontSize: 11 }}><LevelPill level={m.level} /></span>)}
-                      {(g.allowed_modules || []).length === 0 && <span style={{ fontSize: 12, color: 'var(--muted)' }}>No modules</span>}
+              {groups.length === 0 ? <Empty text="No additive groups yet. Create one to grant extra access on top of a job role." /> : groups.map(g => {
+                const members = g.members || [];
+                const open = openGroup === g.id;
+                return (
+                  <div key={g.id} style={{ borderBottom: '1px solid var(--line)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{g.name}</div>
+                        <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {(g.allowed_modules || []).map(m => <ModuleLevelPill key={m.id} moduleId={m.id} level={m.level} />)}
+                          {(g.allowed_modules || []).length === 0 && <span style={{ fontSize: 12, color: 'var(--muted)' }}>No modules</span>}
+                        </div>
+                      </div>
+                      <button onClick={() => setOpenGroup(open ? null : g.id)} disabled={members.length === 0}
+                        title={members.length ? (open ? 'Hide members' : 'Show members') : 'No members yet'}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', padding: '4px 2px', cursor: members.length ? 'pointer' : 'default', fontSize: 11.5, fontWeight: 600, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        {members.length > 0 && <ChevronRight size={13} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }} />}
+                        {members.length} {members.length === 1 ? 'member' : 'members'}
+                      </button>
+                      <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => setEditGroup(g)} title="Edit group"><Pencil size={13} /></button>
+                      <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => onDeleteGroup(g)} title="Delete group"><Trash2 size={13} /></button>
                     </div>
+                    {open && members.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '0 12px 14px' }}>
+                        {members.map(em => (
+                          <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 6px 5px 12px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600 }}>
+                            {nameOf(em)}
+                            <button onClick={() => removeGroupMember(g, em)} title="Remove from this group" aria-label={`Remove ${nameOf(em)}`}
+                              style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0 }}
+                              onMouseOver={e => { e.currentTarget.style.background = 'hsla(var(--color-red),0.14)'; e.currentTarget.style.color = 'hsl(var(--color-red))'; }}
+                              onMouseOut={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--muted)'; }}>
+                              <X size={13} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{(g.members || []).length} members</span>
-                  <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => setEditGroup(g)} title="Edit group"><Pencil size={13} /></button>
-                  <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => onDeleteGroup(g)} title="Delete group"><Trash2 size={13} /></button>
-                </div>
-              ))}
+                );
+              })}
               <div style={{ padding: '12px', fontSize: 12, color: 'var(--muted)' }}>Groups are the additive layer — they only ever add access on top of a job role. Add people to a group from their card's Access tab.</div>
             </div>
           </>

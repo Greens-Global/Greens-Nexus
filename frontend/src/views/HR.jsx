@@ -10,7 +10,7 @@ import {
 import { api } from '../api';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
-import RolesAccess, { LevelPill, TierBadge } from './RolesAccess';
+import RolesAccess, { LevelPill, ModuleLevelPill, TierBadge } from './RolesAccess';
 import { capabilityText } from '../lib/moduleCapabilities';
 
 // ── HR module — Phase 1: employee master + People directory ──────────────────
@@ -1011,7 +1011,7 @@ function EmployeeAccess({ email, toastOk, toastErr }) {
       {pick === 'role' && <AccessPicker title="Choose a job role" items={roles} onClose={() => setPick(null)} onPick={assign}
         renderItem={jr => (<><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, fontSize: 13 }}>{jr.name}</div><div style={{ marginTop: 3 }}><TierBadge tier={jr.tier} /></div></div><span style={{ fontSize: 11, color: 'var(--muted)' }}>{jr.member_count} ppl</span></>)} />}
       {pick === 'group' && <AccessPicker title="Add a group" items={groups.filter(g => !held.has(g.id))} onClose={() => setPick(null)} onPick={addGroup}
-        renderItem={g => (<div style={{ flex: 1 }}><div style={{ fontWeight: 700, fontSize: 13 }}>{g.name}</div><div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>{(g.allowed_modules || []).map(mm => <span key={mm.id} style={{ fontSize: 11 }}><LevelPill level={mm.level} /></span>)}</div></div>)} />}
+        renderItem={g => (<div style={{ flex: 1 }}><div style={{ fontWeight: 700, fontSize: 13 }}>{g.name}</div><div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>{(g.allowed_modules || []).map(mm => <ModuleLevelPill key={mm.id} moduleId={mm.id} level={mm.level} />)}</div></div>)} />}
       <style>{`@media (max-width:640px){.acc-grid{grid-template-columns:1fr !important}}`}</style>
     </div>
   );
