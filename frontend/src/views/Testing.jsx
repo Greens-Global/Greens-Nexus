@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   FlaskConical, Plus, X, Loader2, Camera, CheckCircle, XCircle, MinusCircle,
   ChevronRight, Bug, ListChecks, ScrollText, Sparkles, UserPlus, Video, Square,
-  Paperclip, Send, Pencil, Archive, Check, CircleDot, Play, Bot, Mic, Download, Upload,
+  Paperclip, Send, Pencil, Archive, Check, CircleDot, Play, Bot, Mic, Download, Upload, Trash2,
 } from 'lucide-react';   // eslint-disable-line
 import { api } from '../api';
 import { supabase } from '../lib/supabase';
@@ -40,23 +40,46 @@ async function uploadEvidence(file, prefix = 'shot') {
 
 // Plays back a screen recording. MediaRecorder writes live webm with NO duration
 // in the container header, so a plain <video> reads duration=Infinity, shows
-// "0:00" and renders a black frame that won't seek or play. Force the browser to
-// compute the real duration by seeking to the far end once metadata loads, then
-// snap back to the start — this makes the timeline and first frame appear.
+// "0:00", and renders a black first frame that won't seek. We force the browser
+// to compute the real duration by seeking far past the end; once it settles we
+// nudge to a small offset so an actual (non-black) frame paints as the poster.
+// Done via a ref + effect (not a one-shot onLoadedMetadata prop) because the fix
+// needs several events and must re-arm whenever the src changes.
 function BugVideo({ src, style }) {
-  const fixed = useRef(false);
-  function onLoaded(e) {
-    const v = e.currentTarget;
-    if (v.duration !== Infinity || fixed.current) return;
-    fixed.current = true;
+  const ref = useRef(null);
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    let fixed = false;
     const settle = () => {
       v.removeEventListener('timeupdate', settle);
-      v.currentTime = 0;
+      // small offset, not 0 — the very first captured frame is often blank
+      v.currentTime = 0.1;
     };
-    v.addEventListener('timeupdate', settle);
-    v.currentTime = 1e101;   // seek past the end → browser fills in the duration
-  }
-  return <video src={src} controls playsInline preload="metadata" onLoadedMetadata={onLoaded} style={style} />;
+    const compute = () => {
+      if (fixed) return;
+      if (v.duration === Infinity || Number.isNaN(v.duration)) {
+        fixed = true;
+        v.addEventListener('timeupdate', settle);
+        try { v.currentTime = 1e101; } catch { /* clamped — timeupdate still fires */ }
+      } else if (v.duration > 0) {
+        fixed = true;
+        v.currentTime = 0.1;   // finite duration: just paint a real frame
+      }
+    };
+    v.addEventListener('loadedmetadata', compute);
+    v.addEventListener('durationchange', compute);
+    v.addEventListener('canplay', compute);
+    if (v.readyState >= 1) compute();   // metadata already there (cached)
+    return () => {
+      v.removeEventListener('loadedmetadata', compute);
+      v.removeEventListener('durationchange', compute);
+      v.removeEventListener('canplay', compute);
+      v.removeEventListener('timeupdate', settle);
+    };
+  }, [src]);
+  // preload="auto" so the seek-to-end actually has bytes to work with
+  return <video ref={ref} src={src} controls playsInline preload="auto" style={style} />;
 }
 
 function filesFromPaste(e) {
@@ -798,6 +821,21 @@ export default function Testing() {
     } catch (e) { toastErr(e?.message || 'Could not create the run.'); }
   }
 
+  async function deleteRun() {
+    const run = (runs || []).find(r => r.id === runId);
+    if (!run) return;
+    if (!window.confirm(`Delete the run “${run.name}”? This removes all its recorded pass/fail results and assignments. Test cases themselves are kept. This cannot be undone.`)) return;
+    try {
+      await api.qaDeleteRun(run.id);
+      const rest = (runs || []).filter(r => r.id !== run.id);
+      setRuns(rest);
+      const next = rest[0]?.id || '';
+      setRunId(next);
+      setResults(next ? await api.qaRunResults(next).catch(() => []) : []);
+      toastOk(`Run “${run.name}” deleted.`);
+    } catch (e) { toastErr(e?.message || 'Could not delete the run.'); }
+  }
+
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       <div className="view-header" style={{ marginBottom: 18 }}>
@@ -827,6 +865,12 @@ export default function Testing() {
                 {runs.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
               </select>
               <button className="secondary-btn" onClick={() => setNewRunOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> New run</button>
+              {canEdit && runId && (
+                <button className="secondary-btn" onClick={deleteRun} title="Delete this run and its recorded results — the test cases are kept"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--danger, #dc2626)' }}>
+                  <Trash2 size={14} /> Delete run
+                </button>
+              )}
               <button className="secondary-btn" onClick={doExport} disabled={!!ioBusy} title="Download an Excel of every case + this run's status + screenshots — and the import template"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 {ioBusy === 'export' ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={14} />} Export Excel

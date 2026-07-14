@@ -323,6 +323,19 @@ def create_run(body: RunIn, user: dict = Depends(require_qa_read), db: Session =
             "createdBy": row.created_by, "createdAt": row.created_at, "counts": {}}
 
 
+@router.delete("/runs/{run_id}", status_code=204)
+def delete_run(run_id: str, user: dict = Depends(require_qa_write), db: Session = Depends(get_db)):
+    _gate()
+    run = db.get(QaRun, run_id)
+    if not run:
+        raise HTTPException(404, "run not found")
+    # cascade: drop this run's per-case results and assignments, then the run itself
+    db.query(QaResult).filter(QaResult.run_id == run_id).delete(synchronize_session=False)
+    db.query(QaAssignment).filter(QaAssignment.run_id == run_id).delete(synchronize_session=False)
+    db.delete(run); db.commit()
+    return None
+
+
 @router.get("/runs/{run_id}/results")
 def run_results(run_id: str, user: dict = Depends(require_qa_read), db: Session = Depends(get_db)):
     _gate()

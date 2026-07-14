@@ -368,6 +368,7 @@ export const api = {
   qaUpdateCase:     (id, body)    => req(`/qa/cases/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   qaRuns:           ()            => req('/qa/runs'),
   qaCreateRun:      (name)        => req('/qa/runs', { method: 'POST', body: JSON.stringify({ name }) }),
+  qaDeleteRun:      (runId)       => req(`/qa/runs/${runId}`, { method: 'DELETE' }),
   qaRunResults:     (runId)       => req(`/qa/runs/${runId}/results`),
   qaUpsertResult:   (runId, body) => req(`/qa/runs/${runId}/results`, { method: 'POST', body: JSON.stringify(body) }),
   qaActivity:       ()            => req('/qa/activity'),
