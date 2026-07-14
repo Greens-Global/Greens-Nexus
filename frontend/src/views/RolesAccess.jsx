@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  Shield, Plus, X, Search, Loader2, Pencil, Trash2, UserPlus, Check, ChevronRight, LayoutGrid,
+  Shield, Plus, X, Search, Loader2, Pencil, Trash2, UserPlus, Check, ChevronRight, LayoutGrid, Copy,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
@@ -182,8 +182,12 @@ export default function RolesAccess({ embedded = false }) {
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                     <div style={{ flex: 1 }}><h3 style={{ fontSize: 18, fontWeight: 800 }}>{selected.name}</h3></div>
                     <TierBadge tier={selected.tier} />
-                    <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => setEditing(selected)}><Pencil size={13} /></button>
-                    <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => onDelete(selected)}><Trash2 size={13} /></button>
+                    <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => setEditing(selected)} title="Edit role"><Pencil size={13} /></button>
+                    <button className="secondary-btn" style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                      onClick={() => setEditing({ ...selected, id: undefined, member_count: 0, members: [],
+                        name: /\d+$/.test(selected.name) ? selected.name.replace(/(\d+)$/, m => String(+m + 1)) : `${selected.name} 2` })}
+                      title="Duplicate this role into a new one (e.g. for a promotion tier)"><Copy size={13} /> Duplicate</button>
+                    <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => onDelete(selected)} title="Delete role"><Trash2 size={13} /></button>
                   </div>
                   {selected.description && <p style={{ color: 'var(--muted)', fontSize: 13, margin: '8px 0 0', maxWidth: '60ch' }}>{selected.description}</p>}
                   <div style={sectLabel}>Module bundle · {(selected.allowed_modules || []).length} screens</div>
@@ -310,13 +314,14 @@ function RoleEditor({ role, onClose, onSaved, onErr }) {
     setBusy(true);
     const body = { name: name.trim(), tier, description: desc.trim(), allowed_modules: Object.entries(bundle).map(([id, level]) => ({ id, level })) };
     try {
-      const saved = role ? await api.updateJobRole(role.id, body) : await api.createJobRole(body);
+      // A seed object with no id (from Duplicate) creates a new role rather than editing the original.
+      const saved = role?.id ? await api.updateJobRole(role.id, body) : await api.createJobRole(body);
       onSaved(saved);
     } catch (e) { onErr(e?.message || 'Could not save job role.'); setBusy(false); }
   }
 
   return (
-    <Modal onClose={onClose} title={role ? 'Edit job role' : 'New job role'} wide>
+    <Modal onClose={onClose} title={role?.id ? 'Edit job role' : 'New job role'} wide>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <label style={fieldLabel}>Name
           <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Site Supervisor" style={input} /></label>
