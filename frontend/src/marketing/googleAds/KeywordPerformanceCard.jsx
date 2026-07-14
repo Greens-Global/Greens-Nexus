@@ -115,7 +115,7 @@ export default function KeywordPerformanceCard({ rows }) {
   const top5 = [...rows].sort((a, b) => b.clicks - a.clicks).slice(0, 5)
 
   return (
-    <div style={{ borderRadius: 12, border: '1px solid ' + C.gray200, background: C.white, padding: 16, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)', height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div className="mktg-card" style={{ borderRadius: 12, border: '1px solid ' + C.gray200, background: C.white, padding: 16, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)', height: '100%', display: 'flex', flexDirection: 'column' }}>
       <h3 style={{ fontSize: 13.5, fontWeight: 600, color: C.gray900, marginBottom: 12 }}>Keyword Performance (Top 5)</h3>
       <div style={{ flex: 1 }}>
         <KeywordTable rows={top5} />

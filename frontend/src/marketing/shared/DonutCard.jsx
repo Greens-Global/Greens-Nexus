@@ -6,6 +6,7 @@ export default function DonutCard({ title, data, centerValue, centerLabel }) {
 
   return (
     <div
+      className="mktg-card"
       style={{
         borderRadius: 12,
         border: '1px solid ' + C.gray200,
@@ -29,7 +30,8 @@ export default function DonutCard({ title, data, centerValue, centerLabel }) {
                 outerRadius={46}
                 paddingAngle={2}
                 stroke="none"
-                isAnimationActive={false}
+                isAnimationActive
+                animationDuration={650}
               >
                 {data.map((d) => (
                   <Cell key={d.name} fill={d.color} />

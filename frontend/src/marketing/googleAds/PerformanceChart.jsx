@@ -68,7 +68,7 @@ export default function PerformanceChart({ rows, prevRows }) {
   const labels = { day: 'Daily', week: 'Weekly', month: 'Monthly' }
 
   return (
-    <div style={{ borderRadius: 12, border: '1px solid ' + C.gray200, background: C.white, padding: 16, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)' }}>
+    <div className="mktg-card" style={{ borderRadius: 12, border: '1px solid ' + C.gray200, background: C.white, padding: 16, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, position: 'relative' }}>
         <h3 style={{ fontSize: 13.5, fontWeight: 600, color: C.gray900 }}>Performance Over Time</h3>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

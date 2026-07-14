@@ -62,9 +62,10 @@ export default function Marketing() {
     onClearAction: () => setAction(null),
   };
 
-  if (tab === 'reputation') return <ReputationPage {...sharedProps} />;
-  if (tab === 'listings') return <BusinessProfilePage {...sharedProps} />;
-  if (tab === 'insights') return (
+  let page;
+  if (tab === 'reputation') page = <ReputationPage {...sharedProps} />;
+  else if (tab === 'listings') page = <BusinessProfilePage {...sharedProps} />;
+  else if (tab === 'insights') page = (
     <InsightsPage
       {...sharedProps}
       leadGoalByProperty={leadGoalByProperty}
@@ -73,9 +74,9 @@ export default function Marketing() {
       yelpMonthlyBudgetByProperty={yelpMonthlyBudgetByProperty}
     />
   );
-  if (tab === 'seo') return <SeoPage onNavigate={sharedProps.onNavigate} alerts={alerts} insights={insights} onClearAlert={clearAlert} />;
-  if (tab === 'leads') return <LeadsPage onNavigate={sharedProps.onNavigate} alerts={alerts} insights={insights} onClearAlert={clearAlert} />;
-  return (
+  else if (tab === 'seo') page = <SeoPage onNavigate={sharedProps.onNavigate} alerts={alerts} insights={insights} onClearAlert={clearAlert} />;
+  else if (tab === 'leads') page = <LeadsPage onNavigate={sharedProps.onNavigate} alerts={alerts} insights={insights} onClearAlert={clearAlert} />;
+  else page = (
     <GoogleAdsPage
       {...sharedProps}
       monthlyBudgetByProperty={monthlyBudgetByProperty}
@@ -84,4 +85,59 @@ export default function Marketing() {
       onChangeYelpMonthlyBudget={changeYelpMonthlyBudget}
     />
   );
+
+  // The standalone app leaned on Tailwind's global reset (Preflight) to strip
+  // native <button> chrome; Nexus has no such reset, so every unstyled sort /
+  // "view all" button was rendering as a grey UA pill. This scoped stylesheet
+  // restores that reset for the module AND layers in the motion the design was
+  // always meant to have: pressable buttons, card hover-lift, a soft focus ring
+  // and a per-tab fade-in. Non-!important so components that set their own inline
+  // background/border (styled buttons, status pills) still win.
+  return (
+    <>
+      <style>{MKTG_STYLES}</style>
+      <div className="mktg-root" key={tab}>
+        {page}
+      </div>
+    </>
+  );
 }
+
+const MKTG_STYLES = `
+.mktg-root { animation: mktgFadeIn .28s ease both; }
+@keyframes mktgFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.mktg-root button {
+  background: transparent;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color .15s ease, color .15s ease, opacity .15s ease, box-shadow .15s ease, border-color .15s ease, transform .08s ease;
+}
+.mktg-root button:disabled { cursor: default; }
+.mktg-root button:active:not(:disabled) { transform: translateY(1px) scale(0.985); }
+
+.mktg-root input, .mktg-root select, .mktg-root textarea {
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.mktg-root input:focus, .mktg-root select:focus, .mktg-root textarea:focus {
+  border-color: #10b981 !important;
+  box-shadow: 0 0 0 3px rgba(16,185,129,0.14);
+  outline: none;
+}
+
+.mktg-root .mktg-card { transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; will-change: transform; }
+.mktg-root .mktg-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 20px -8px rgba(0,0,0,0.16), 0 4px 8px -4px rgba(0,0,0,0.08) !important;
+  border-color: #d1d5db !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mktg-root, .mktg-root *, .mktg-root .mktg-card { animation: none !important; transition: none !important; }
+}
+`;
