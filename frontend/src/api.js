@@ -404,6 +404,9 @@ export const api = {
   getItemAllocators:   ()             => cachedGet('/items/allocators'),
   getItemApprovers:    ()             => cachedGet('/items/approvers'),
   getRolesDirectory:   ()             => cachedGet('/roles/directory'),
+  // Curated Nexus People (nexus_employees), not the ~150-account M365 GAL — for
+  // assigning items to real Nexus people. Same {email,name} shape.
+  getPeopleDirectory:  ()             => cachedGet('/myhr/directory'),
   autoFillItemPhotos:  (item_ids, replace = false) => req('/items/auto-photos', { method: 'POST', body: JSON.stringify({ item_ids, replace }) }),
   // Permanent assignments
   getAssignments:         ()           => req('/items/assignments'),
