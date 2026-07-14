@@ -30,6 +30,7 @@ export const MODULES = [
   { id: 'inventory',           label: 'Item Management' },
   { id: 'admin',               label: 'Nexus Access Manager' },
   { id: 'support',             label: 'Support' },
+  { id: 'testing',             label: 'Testing' },
 ];
 
 // Per-module permission levels an Access Group can grant — mirrors a

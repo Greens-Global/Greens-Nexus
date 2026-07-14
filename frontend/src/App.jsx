@@ -43,6 +43,7 @@ const Placeholder         = lazy(() => import("./views/Placeholder"));
 const PublicSign          = lazy(() => import("./views/PublicSign"));
 const TimeClock           = lazy(() => import("./views/TimeClock"));
 const MyHR                = lazy(() => import("./views/MyHR"));
+const Testing             = lazy(() => import("./views/Testing"));
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // Views that aren't registered MODULES (e.g. "purchase") fall back to a
@@ -69,6 +70,7 @@ const VIEW_MIN_ROLES = {
   'documents':          'supervisor',
   'marketing':          'supervisor',
   'admin':              'administrator',
+  'testing':            'supervisor',   // dev-only module; grant-driven for testers below supervisor
 };
 
 // Waits for role to load so the UI never flashes with wrong access level
@@ -137,6 +139,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "support":            return <Support />;
     case "timeclock":          return <TimeClock />;
     case "myhr":               return <MyHR />;
+    case "testing":            return <Testing />;
     default:                   return <Placeholder viewName={activeView} onBack={() => onNavigate("dashboard")} />;
   }
 }

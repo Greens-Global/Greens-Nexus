@@ -361,6 +361,23 @@ export const api = {
   addAccessScope:    (email, body)       => req(`/access-scopes/${encodeURIComponent(email)}`, { method: 'POST', body: JSON.stringify(body) }),
   deleteAccessScope: (email, scopeId)    => req(`/access-scopes/${encodeURIComponent(email)}/${encodeURIComponent(scopeId)}`, { method: 'DELETE' }),
 
+  // Testing module (QA) — dev-only, endpoints 404 unless NEXUS_QA_MODULE is set
+  qaEnabled:        ()            => cachedGet('/qa/enabled', 300_000),
+  qaCases:          ()            => req('/qa/cases'),
+  qaCreateCase:     (body)        => req('/qa/cases', { method: 'POST', body: JSON.stringify(body) }),
+  qaUpdateCase:     (id, body)    => req(`/qa/cases/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  qaRuns:           ()            => req('/qa/runs'),
+  qaCreateRun:      (name)        => req('/qa/runs', { method: 'POST', body: JSON.stringify({ name }) }),
+  qaRunResults:     (runId)       => req(`/qa/runs/${runId}/results`),
+  qaUpsertResult:   (runId, body) => req(`/qa/runs/${runId}/results`, { method: 'POST', body: JSON.stringify(body) }),
+  qaActivity:       ()            => req('/qa/activity'),
+  qaBugs:           ()            => req('/qa/bug-reports'),
+  qaCreateBug:      (body)        => req('/qa/bug-reports', { method: 'POST', body: JSON.stringify(body) }),
+  qaUpdateBug:      (id, body)    => req(`/qa/bug-reports/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  qaConvertBug:     (id)          => req(`/qa/bug-reports/${id}/convert`, { method: 'POST', timeoutMs: 60_000 }),
+  qaAssignments:    (runId = '')  => req(`/qa/assignments${runId ? `?run_id=${runId}` : ''}`),
+  qaAssign:         (body)        => req('/qa/assignments', { method: 'POST', body: JSON.stringify(body) }),
+
   // Notifications (cross-device, stored in Supabase)
   pushNotification: (n)             => req('/notifications', { method: 'POST', body: JSON.stringify(n) }),
   getNotifications: ()               => req('/notifications'),
