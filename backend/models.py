@@ -1648,6 +1648,8 @@ class QaTestCase(Base):
     case_type    = Column(String, default="Functional")
     source       = Column(String, default="manual")   # seed | ai | manual
     status       = Column(String, default="active")   # active | draft | archived
+    flow         = Column(JSON, default=list)         # recorded replayable actions [{view, role, label, hints}]
+    e2e_spec     = Column(String, default="")         # AI-generated Playwright spec (run by CI)
     created_by   = Column(String, default="")
     created_at   = Column(String, default="")
     updated_at   = Column(String, default="")
@@ -1676,6 +1678,7 @@ class QaResult(Base):
     step_state = Column(JSON, default=list)
     notes      = Column(String, default="")
     evidence   = Column(JSON, default=dict)
+    source     = Column(String, default="human")      # human | automated (Playwright CI)
     tested_by  = Column(String, default="")
     tested_at  = Column(String, default="")
 

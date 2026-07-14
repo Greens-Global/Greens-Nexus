@@ -2,13 +2,14 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   FlaskConical, Plus, X, Loader2, Camera, CheckCircle, XCircle, MinusCircle,
   ChevronRight, Bug, ListChecks, ScrollText, Sparkles, UserPlus, Video, Square,
-  Paperclip, Send, Pencil, Archive, Check,
+  Paperclip, Send, Pencil, Archive, Check, CircleDot, Play, Bot,
 } from 'lucide-react';
 import { api } from '../api';
 import { supabase } from '../lib/supabase';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
-import { startRecording, stopRecording, isRecording, eventCount } from '../lib/stepRecorder';
+import { startRecording, stopRecording, isRecording, eventCount, startFlowRecording } from '../lib/stepRecorder';
+import { replayFlow } from '../lib/flowReplayer';
 import { graphToken, graphJSON, postChatMessage, GRAPH } from '../teamsGraph';
 import { msalInstance } from '../msalInstance';
 
@@ -203,6 +204,28 @@ function CaseRunner({ caseObj, runId, existing, onSaved, onFileBug, onClose, toa
           onChange={e => { const f = e.target.files?.[0]; if (f) attachTo(f, pendingStep.current); e.target.value = ''; }} />
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="secondary-btn" disabled={busy} title="Record yourself doing this test once — replay it next time"
+            onClick={() => {
+              onClose();
+              startFlowRecording(events => {
+                api.qaSaveFlow(caseObj.id, events)
+                  .then(() => { sessionStorage.setItem('qa-flow-saved', caseObj.title); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'testing' } })); })
+                  .catch(() => {});
+              });
+            }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 'auto' }}>
+            <CircleDot size={13} style={{ color: 'hsl(var(--color-red))' }} /> Record flow
+          </button>
+          {(caseObj.flow || []).length > 0 && (
+            <button className="secondary-btn" disabled={busy} title="Auto-replay the recorded flow (pauses where you must type or pick)"
+              onClick={() => {
+                onClose();
+                replayFlow(caseObj.flow, { onDone: () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'testing' } })) });
+              }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Play size={13} /> Replay flow ({caseObj.flow.length})
+            </button>
+          )}
           {uploading && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', color: 'var(--muted)' }} />}
           <button className="secondary-btn" disabled={busy} onClick={() => save('skipped')}>Skip</button>
           <button className="secondary-btn" disabled={busy} onClick={() => save('blocked')} style={{ color: 'hsl(var(--color-orange))' }}>Blocked</button>
@@ -386,6 +409,7 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
   const [busy, setBusy] = useState(false);
   const [bugs, setBugs] = useState(null);
   const [convertBusy, setConvertBusy] = useState('');
+  const [openLog, setOpenLog] = useState('');   // bug id whose recorded steps are expanded
   const [linked, setLinked] = useState(null);   // {case_id, run_id, failed_step} from a failing case
   const fileRef = useRef(null);
   const mediaRef = useRef(null);
@@ -449,9 +473,11 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
     try {
       const log = recording ? stopRecording() : stepsLog;
       if (recording) setRecording(false);
-      await api.qaCreateBug({ description: desc.trim(), module_hint: moduleHint, steps_log: log, recording_url: recordingUrl, screenshots: shots, ...(linked || {}) });
+      const created = await api.qaCreateBug({ description: desc.trim(), module_hint: moduleHint, steps_log: log, recording_url: recordingUrl, screenshots: shots, ...(linked || {}) });
       setDesc(''); setModuleHint(''); setStepsLog([]); setShots([]); setRecordingUrl(''); setLinked(null);
-      toastOk('Bug report sent — thank you!');
+      toastOk(created?.status === 'converted'
+        ? 'Bug report sent — the AI drafted a test case, review it in the Library.'
+        : 'Bug report sent — thank you!');
       load();
     } catch (e) { toastErr(e?.message || 'Could not send the report.'); }
     setBusy(false);
@@ -523,10 +549,25 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     {nameOf(b.createdBy)} · {(b.createdAt || '').slice(0, 10)}
                     {b.moduleHint && <span>· {b.moduleHint}</span>}
-                    {b.stepsLog.length > 0 && <span>· {b.stepsLog.length} recorded steps</span>}
+                    {b.stepsLog.length > 0 && (
+                      <button onClick={() => setOpenLog(openLog === b.id ? '' : b.id)}
+                        style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'hsl(var(--color-blue))', fontSize: 11.5, fontWeight: 600, padding: 0, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <ChevronRight size={11} style={{ transform: openLog === b.id ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }} />
+                        {b.stepsLog.length} recorded steps
+                      </button>
+                    )}
                     {b.recordingUrl && <a href={b.recordingUrl} target="_blank" rel="noreferrer">recording</a>}
                     {b.screenshots.map((u, i) => <Shot key={u + i} url={u} size={22} />)}
                   </div>
+                  {openLog === b.id && (
+                    <div style={{ marginTop: 8, background: 'var(--mist)', borderRadius: 8, padding: '8px 12px', fontSize: 12, fontFamily: 'ui-monospace,monospace', maxHeight: 220, overflowY: 'auto' }}>
+                      {b.stepsLog.map((s, i) => (
+                        <div key={i} style={{ padding: '2px 0', color: s.role === 'opened' ? 'hsl(var(--color-blue))' : 'var(--ink)' }}>
+                          {i + 1}. {s.role === 'opened' ? `opened ${s.label}` : <>{s.role} <b>“{s.label}”</b>{s.view ? <span style={{ color: 'var(--muted)' }}> on {s.view}</span> : null}</>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 20, whiteSpace: 'nowrap', background: b.status === 'converted' ? 'hsla(var(--color-green),0.12)' : b.status === 'dismissed' ? 'var(--mist)' : 'hsla(var(--color-orange),0.12)', color: b.status === 'converted' ? 'hsl(var(--color-green))' : b.status === 'dismissed' ? 'var(--muted)' : 'hsl(var(--color-orange))' }}>
                   {b.status === 'converted' ? 'Converted' : b.status === 'dismissed' ? 'Dismissed' : 'New'}
@@ -566,6 +607,7 @@ export default function Testing() {
   const [assignOpen, setAssignOpen] = useState(false);
   const [editor, setEditor] = useState(undefined);
   const [libFilter, setLibFilter] = useState({ module: 'All', source: 'All' });
+  const [genBusy, setGenBusy] = useState('');
   const [activity, setActivity] = useState(null);
   const [bugPrefill, setBugPrefill] = useState(null);
   const [newRunOpen, setNewRunOpen] = useState(false);
@@ -578,6 +620,12 @@ export default function Testing() {
   const myEmail = (msalInstance.getAllAccounts()[0]?.username || '').toLowerCase();
 
   useEffect(() => { api.qaEnabled().then(r => setEnabled(!!r?.enabled)).catch(() => setEnabled(false)); }, []);
+  // Returning from a flow recording (which navigates across modules) lands back
+  // here — confirm the save that happened while this view was unmounted.
+  useEffect(() => {
+    const t = sessionStorage.getItem('qa-flow-saved');
+    if (t) { sessionStorage.removeItem('qa-flow-saved'); toastOk(`Flow recorded and saved to “${t}” — use Replay flow next time.`); }
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!enabled) return;
     api.qaCases().then(setCases).catch(() => setCases([]));
@@ -725,9 +773,20 @@ export default function Testing() {
                     <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{c.module} · {c.feature} · {(c.steps || []).length} steps</div>
                   </div>
                   {c.status === 'draft' && <span style={{ fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-orange))', background: 'hsla(var(--color-orange),0.12)', padding: '2px 8px', borderRadius: 20 }}>AI DRAFT</span>}
+                  {(c.flow || []).length > 0 && <span title="Has a recorded flow — replayable" style={{ fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.10)', padding: '2px 8px', borderRadius: 20 }}>FLOW</span>}
+                  {c.e2eSpec && <span title="Has a Playwright test — runs automatically in CI" style={{ fontSize: 10.5, fontWeight: 800, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.10)', padding: '2px 8px', borderRadius: 20, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Bot size={10} /> E2E</span>}
                   {c.source === 'ai' && c.status !== 'draft' && <Sparkles size={13} style={{ color: 'var(--muted)' }} title="Converted from a bug report" />}
                   {canEdit && (
                     <>
+                      <button className="secondary-btn" title={c.e2eSpec ? 'Regenerate the Playwright test (AI)' : 'Generate a Playwright test (AI) — runs automatically in CI'}
+                        disabled={genBusy === c.id}
+                        onClick={() => { setGenBusy(c.id); api.qaGenerateE2e(c.id)
+                          .then(() => { toastOk('Playwright test generated — CI will run it on its next pass.'); api.qaCases().then(setCases); })
+                          .catch(e => toastErr(e?.message || 'Generation failed.'))
+                          .finally(() => setGenBusy('')); }}
+                        style={{ padding: '5px 9px' }}>
+                        {genBusy === c.id ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Bot size={12} />}
+                      </button>
                       <button className="secondary-btn" onClick={() => setEditor(c)} title={c.status === 'draft' ? 'Review draft' : 'Edit'} style={{ padding: '5px 9px' }}><Pencil size={12} /></button>
                       <button className="secondary-btn" onClick={() => api.qaUpdateCase(c.id, { status: 'archived' }).then(() => { toastOk('Archived.'); api.qaCases().then(setCases); })} title="Archive" style={{ padding: '5px 9px' }}><Archive size={12} /></button>
                     </>

@@ -73,6 +73,13 @@ const VIEW_MIN_ROLES = {
   'testing':            'supervisor',   // dev-only module; grant-driven for testers below supervisor
 };
 
+// E2E mode (Playwright CI only — VITE_E2E is never set on real builds): skip the
+// MSAL login gates entirely so headless tests can drive the app against a local
+// NEXUS_SKIP_AUTH backend. Everything else behaves normally.
+const _E2E = import.meta.env.VITE_E2E === 'true';
+const AuthedGate  = _E2E ? ({ children }) => children : AuthenticatedTemplate;
+const UnauthedGate = _E2E ? () => null : UnauthenticatedTemplate;
+
 // Waits for role to load so the UI never flashes with wrong access level
 function RoleGate({ children }) {
   const { loading } = useRole();
@@ -291,7 +298,7 @@ export default function App() {
 
   return (
     <>
-      <AuthenticatedTemplate>
+      <AuthedGate>
         <NotificationProvider>
         <RoleProvider>
         <RoleGate>
@@ -372,10 +379,10 @@ export default function App() {
         </RoleGate>
         </RoleProvider>
         </NotificationProvider>
-      </AuthenticatedTemplate>
-      <UnauthenticatedTemplate>
+      </AuthedGate>
+      <UnauthedGate>
         <LoginPage />
-      </UnauthenticatedTemplate>
+      </UnauthedGate>
     </>
   );
 }

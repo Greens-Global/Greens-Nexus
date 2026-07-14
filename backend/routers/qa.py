@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -79,7 +79,8 @@ def _case_dict(c: QaTestCase) -> dict:
     return {"id": c.id, "module": c.module, "feature": c.feature, "title": c.title,
             "precondition": c.precondition, "steps": c.steps or [], "expected": c.expected,
             "priority": c.priority, "type": c.case_type, "source": c.source,
-            "status": c.status, "createdBy": c.created_by, "createdAt": c.created_at}
+            "status": c.status, "flow": c.flow or [], "e2eSpec": c.e2e_spec or "",
+            "createdBy": c.created_by, "createdAt": c.created_at}
 
 
 @router.get("/cases")
@@ -129,6 +130,8 @@ class CaseUpdate(BaseModel):
     priority: Optional[str] = None
     type: Optional[str] = None
     status: Optional[str] = None   # approve a draft (→ active) or archive
+    flow: Optional[list] = None
+    e2e_spec: Optional[str] = None
 
 
 @router.patch("/cases/{case_id}")
@@ -146,6 +149,146 @@ def update_case(case_id: str, body: CaseUpdate, user: dict = Depends(require_qa_
     row.updated_at = _now()
     db.commit(); db.refresh(row)
     return _case_dict(row)
+
+
+# ── recorded flows (Level 1: record once, replay next time) ──────────────────
+
+class FlowIn(BaseModel):
+    flow: list
+
+
+@router.post("/cases/{case_id}/flow")
+def save_flow(case_id: str, body: FlowIn, user: dict = Depends(require_qa_read), db: Session = Depends(get_db)):
+    """Any tester can attach/replace the recorded flow on a case (viewer level —
+    recording is part of running tests, not curating the library)."""
+    _gate()
+    row = db.query(QaTestCase).filter(QaTestCase.id == case_id).first()
+    if not row:
+        raise HTTPException(404, "Case not found")
+    row.flow = [a for a in body.flow if isinstance(a, dict)][:400]
+    row.updated_at = _now()
+    db.commit()
+    return {"ok": True, "actions": len(row.flow)}
+
+
+# ── Level 2: AI-generated Playwright specs + CI integration ──────────────────
+# Specs are stored ON the case (no commit loop): CI syncs them via /qa/e2e-specs,
+# runs a self-contained local stack, and posts verdicts back via /qa/ci-results.
+# Both CI endpoints use a shared-secret header (no user session in CI); they 404
+# unless NEXUS_QA_CI_TOKEN is configured.
+
+_E2E_HELPERS = "openApp, go, clickByText, fillByLabel, selectByLabel, expectVisible"
+
+
+@router.post("/cases/{case_id}/generate-e2e")
+def generate_e2e(case_id: str, user: dict = Depends(require_qa_write), db: Session = Depends(get_db)):
+    """One Haiku call: case steps + recorded flow (durable selectors) → a
+    Playwright spec constrained to our tiny helper API (keeps generated code
+    reliable). Saved on the case; CI picks it up on its next run."""
+    _gate()
+    case = db.query(QaTestCase).filter(QaTestCase.id == case_id).first()
+    if not case:
+        raise HTTPException(404, "Case not found")
+    key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not key:
+        raise HTTPException(503, "AI generation not configured (ANTHROPIC_API_KEY)")
+
+    flow_lines = []
+    for a in (case.flow or [])[:80]:
+        h = a.get("hints", {})
+        flow_lines.append(f"- [{a.get('view','')}] {a.get('role','clicked')} \"{a.get('label','')}\""
+                          + (f" (placeholder: {h.get('placeholder')})" if h.get("placeholder") else ""))
+    prompt = (
+        "Write ONE Playwright test for an internal React app (Greens Nexus). Output ONLY JavaScript "
+        "(an ES module .spec.mjs), no markdown fences, no prose.\n\n"
+        "HARD RULES:\n"
+        "1. Start with exactly these two imports:\n"
+        "   import { test, expect } from '@playwright/test';\n"
+        f"   import {{ {_E2E_HELPERS} }} from '../helpers.mjs';\n"
+        f"2. The test title MUST be exactly: [{case.id}] {case.title}\n"
+        "3. Interact ONLY through the helpers — never page.locator/page.click directly:\n"
+        "   await openApp(page)                        // load the app, wait for the sidebar\n"
+        "   await go(page, 'testing'|'inventory'|...)  // open a module by its url slug\n"
+        "   await clickByText(page, 'Button label')    // click a button/link/tab by visible text\n"
+        "   await fillByLabel(page, 'Placeholder or aria-label', 'value')\n"
+        "   await selectByLabel(page, 'label', 'Option text')\n"
+        "   await expectVisible(page, 'text that proves the step worked')\n"
+        "4. Invent sensible test values for typed fields (names prefixed 'E2E ').\n"
+        "5. End by asserting the case's expected outcome with expectVisible.\n\n"
+        f"MODULE: {case.module}\nPRECONDITION: {case.precondition}\n"
+        f"MANUAL STEPS:\n" + "\n".join(f"{i+1}. {s}" for i, s in enumerate(case.steps or [])) + "\n"
+        f"EXPECTED: {case.expected}\n"
+        + (("RECORDED USER FLOW (real labels from a human run — prefer these):\n" + "\n".join(flow_lines) + "\n") if flow_lines else "")
+    )
+    try:
+        with httpx.Client(timeout=45) as client:
+            r = client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json={"model": _AI_MODEL, "max_tokens": 1600,
+                      "messages": [{"role": "user", "content": prompt}]},
+            )
+            r.raise_for_status()
+            data = r.json()
+        spec = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+        spec = re.sub(r"^```[a-z]*\n?|```$", "", spec.strip(), flags=re.M).strip()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"AI generation failed: {str(e)[:200]}")
+    if "import { test, expect }" not in spec or f"[{case.id}]" not in spec:
+        raise HTTPException(502, "AI returned an unusable spec — try again")
+    case.e2e_spec = spec[:20000]
+    case.updated_at = _now()
+    db.commit()
+    return _case_dict(case)
+
+
+def _ci_auth(token: Optional[str]):
+    expected = os.getenv("NEXUS_QA_CI_TOKEN", "")
+    if not _ENABLED or not expected or not token or token != expected:
+        raise HTTPException(404, "Not found")
+
+
+@router.get("/e2e-specs")
+def e2e_specs(x_qa_ci_token: Optional[str] = Header(default=None), db: Session = Depends(get_db)):
+    _ci_auth(x_qa_ci_token)
+    rows = (db.query(QaTestCase)
+            .filter(QaTestCase.status == "active", QaTestCase.e2e_spec != "").all())
+    return [{"id": c.id, "module": c.module, "title": c.title, "spec": c.e2e_spec} for c in rows]
+
+
+class CiResultsIn(BaseModel):
+    run_name: Optional[str] = ""
+    results: list   # [{case_id, result: pass|fail|skipped, notes}]
+
+
+@router.post("/ci-results")
+def ci_results(body: CiResultsIn, x_qa_ci_token: Optional[str] = Header(default=None), db: Session = Depends(get_db)):
+    _ci_auth(x_qa_ci_token)
+    name = (body.run_name or "").strip() or f"Automated — {_now()[:10]}"
+    run = db.query(QaRun).filter(QaRun.name == name).first()
+    if not run:
+        run = QaRun(id=str(uuid.uuid4()), name=name, status="open",
+                    created_by="playwright-ci", created_at=_now())
+        db.add(run); db.flush()
+    saved = 0
+    for item in body.results[:500]:
+        cid = str(item.get("case_id", ""))
+        verdict = item.get("result", "")
+        if not cid or verdict not in ("pass", "fail", "skipped", "blocked"):
+            continue
+        row = (db.query(QaResult)
+               .filter(QaResult.run_id == run.id, QaResult.case_id == cid).first())
+        if not row:
+            row = QaResult(id=str(uuid.uuid4()), run_id=run.id, case_id=cid)
+            db.add(row)
+        row.result = verdict
+        row.notes = str(item.get("notes", ""))[:2000]
+        row.source = "automated"
+        row.tested_by = "playwright-ci"
+        row.tested_at = _now()
+        saved += 1
+    db.commit()
+    return {"ok": True, "run": name, "saved": saved}
 
 
 # ── runs & results ────────────────────────────────────────────────────────────
@@ -185,6 +328,7 @@ def run_results(run_id: str, user: dict = Depends(require_qa_read), db: Session 
     rows = db.query(QaResult).filter(QaResult.run_id == run_id).all()
     return [{"caseId": r.case_id, "result": r.result, "failedStep": r.failed_step,
              "stepState": r.step_state or [], "notes": r.notes, "evidence": r.evidence or {},
+             "source": r.source or "human",
              "testedBy": r.tested_by, "testedAt": r.tested_at} for r in rows]
 
 
@@ -281,6 +425,11 @@ def create_bug(body: BugIn, user: dict = Depends(require_qa_read), db: Session =
                       screenshots=body.screenshots or [], status="new",
                       created_by=user["email"], created_at=_now())
     db.add(row); db.commit(); db.refresh(row)
+    # Auto-convert to a drafted test case right away (best-effort — the manual
+    # "Convert with AI" button stays as the retry path if this fails/isn't
+    # configured). Drafts still need an editor's approval to enter the library.
+    if os.getenv("ANTHROPIC_API_KEY", ""):
+        _ai_convert_bug(row, db, user["email"])
     return _bug_dict(row)
 
 
@@ -300,17 +449,13 @@ _MODULES = ["People", "My HR", "Item Management", "Asset Management",
             "Documents (E-Sign)", "Time Clock", "Dashboards", "Other"]
 
 
-@router.post("/bug-reports/{bug_id}/convert")
-def convert_bug(bug_id: str, user: dict = Depends(require_qa_write), db: Session = Depends(get_db)):
-    """One cheap Haiku call: bug description + recorded click log → a drafted
-    test case (status='draft') the reviewer edits/approves in the Library."""
-    _gate()
-    bug = db.query(QaBugReport).filter(QaBugReport.id == bug_id).first()
-    if not bug:
-        raise HTTPException(404, "Bug report not found")
+def _ai_convert_bug(bug: QaBugReport, db: Session, by: str):
+    """Core conversion: one Haiku call → drafted QaTestCase. Returns (case, err);
+    never raises — callers decide whether a failure is fatal (manual button) or
+    silent (auto-convert on submit)."""
     key = os.getenv("ANTHROPIC_API_KEY", "")
     if not key:
-        raise HTTPException(503, "AI conversion not configured (ANTHROPIC_API_KEY)")
+        return None, "AI conversion not configured (ANTHROPIC_API_KEY)"
 
     log_lines = []
     for ev in (bug.steps_log or [])[:60]:
@@ -343,9 +488,9 @@ def convert_bug(bug_id: str, user: dict = Depends(require_qa_write), db: Session
         m = re.search(r"\{.*\}", txt, re.S)
         draft = json.loads(m.group(0)) if m else None
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(502, f"AI conversion failed: {str(e)[:200]}")
+        return None, f"AI conversion failed: {str(e)[:200]}"
     if not draft or not draft.get("title") or not isinstance(draft.get("steps"), list):
-        raise HTTPException(502, "AI returned an unusable draft — try again")
+        return None, "AI returned an unusable draft — try again"
 
     now = _now()
     case = QaTestCase(
@@ -357,11 +502,24 @@ def convert_bug(bug_id: str, user: dict = Depends(require_qa_write), db: Session
         expected=str(draft.get("expected", ""))[:600],
         priority=draft.get("priority") if draft.get("priority") in ("High", "Medium", "Low") else "Medium",
         case_type="Bug check", source="ai", status="draft",
-        created_by=user["email"], created_at=now, updated_at=now)
+        created_by=by, created_at=now, updated_at=now)
     db.add(case)
     bug.status = "converted"
     bug.converted_case_id = case.id
     db.commit(); db.refresh(case)
+    return case, ""
+
+
+@router.post("/bug-reports/{bug_id}/convert")
+def convert_bug(bug_id: str, user: dict = Depends(require_qa_write), db: Session = Depends(get_db)):
+    """Manual conversion (fallback / retry): raises with a clear error."""
+    _gate()
+    bug = db.query(QaBugReport).filter(QaBugReport.id == bug_id).first()
+    if not bug:
+        raise HTTPException(404, "Bug report not found")
+    case, err = _ai_convert_bug(bug, db, user["email"])
+    if not case:
+        raise HTTPException(503 if "not configured" in err else 502, err)
     return _case_dict(case)
 
 
