@@ -1549,7 +1549,7 @@ def delete_entity(entity_id: str, user: dict = Depends(require_hr_delete), db: S
 # departments are read; every other company starts empty. Whatever departments
 # already exist as free-text on employee rows are backfilled non-destructively so
 # nothing breaks the day we switch the form to this dropdown.
-_DEFAULT_DEPTS = ["Operations", "Accounting", "IT", "Construction", "Facilities", "Marketing", "Real Estate", "Admin", "HR"]
+_DEFAULT_DEPTS = ["Operations", "Accounting", "IT", "Construction", "Facilities", "Marketing", "Real Estate", "Administration", "HR"]
 
 
 def _dept_key(s: str) -> str:
