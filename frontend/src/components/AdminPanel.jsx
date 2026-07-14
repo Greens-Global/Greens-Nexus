@@ -192,6 +192,7 @@ function AuditLogs() {
             value={emailQ}
             onChange={e => handleEmailChange(e.target.value)}
           />
+          {emailQ && <button className="search-clear" onClick={() => handleEmailChange('')} title="Clear filter" aria-label="Clear filter"><X size={13} /></button>}
         </div>
 
         <div style={{ position: 'relative' }}>

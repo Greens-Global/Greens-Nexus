@@ -295,6 +295,7 @@ function GroupModal({ group, allUsers, assignableRoles, ROLES, onClose, onSave, 
           <div className="search-bar" style={{ marginBottom: 8 }}>
             <Search size={14} style={{ flexShrink: 0 }} />
             <input placeholder="Search people by name or email to add…" value={memberSearch} onChange={e => setMemberSearch(e.target.value)} />
+            {memberSearch && <button className="search-clear" onClick={() => setMemberSearch('')} title="Clear search" aria-label="Clear search"><X size={13} /></button>}
           </div>
           {candidates.length > 0 && (
             <div style={{ border: '1px solid var(--line)', borderRadius: 10, marginBottom: 10, overflow: 'hidden' }}>
@@ -636,6 +637,7 @@ export default function Admin() {
             <div className="search-bar" style={{ width: 280 }}>
               <Search size={14} style={{ flexShrink: 0 }} />
               <input placeholder="Search by name, email or department…" value={search} onChange={e => setSearch(e.target.value)} />
+              {search && <button className="search-clear" onClick={() => setSearch('')} title="Clear search" aria-label="Clear search"><X size={13} /></button>}
             </div>
             {filter !== 'all' && (
               <button onClick={() => setFilter('all')}
