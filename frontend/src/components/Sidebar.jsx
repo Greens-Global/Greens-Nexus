@@ -105,11 +105,9 @@ export const NAV = [
     ],
   },
   {
+    // Marketing is a self-contained module with its own in-page tab bar
+    // (Ad Performance / Reputation / Insights / SEO / Business Profile / Leads).
     view: "marketing", label: "Marketing", icon: Megaphone, minRole: 'supervisor',
-    sub: [
-      { subview: "marketing-ads",        label: "Google",          icon: Megaphone },
-      { subview: "marketing-reputation", label: "Meta",            icon: Star },
-    ],
   },
   { divider: true },
   { view: "support",        label: "Support",        icon: HelpCircle },
