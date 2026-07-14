@@ -126,20 +126,17 @@ function _removePill() {
   _onFlowSave = null;
 }
 
-export function startFlowRecording(onSave) {
-  if (_recording) stopRecording();
-  _onFlowSave = onSave;
-  startRecording();
+function _showPill({ text, stopLabel, onStop }) {
   _pill = document.createElement('div');
   _pill.style.cssText = 'position:fixed;bottom:18px;right:18px;z-index:3000;display:flex;align-items:center;gap:10px;'
     + 'background:#0f172a;color:#fff;border-radius:12px;padding:10px 14px;font:600 12.5px Inter,sans-serif;'
     + 'box-shadow:0 8px 30px rgba(0,0,0,.35)';
   _pill.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:#ef4444;animation:pulse 1.2s infinite"></span>'
-    + '<span>Recording flow · <span data-count>0 actions</span></span>';
+    + `<span>${text} · <span data-count>0 actions</span></span>`;
   const stop = document.createElement('button');
-  stop.textContent = 'Stop & save';
+  stop.textContent = stopLabel;
   stop.style.cssText = 'border:none;border-radius:8px;background:#22c55e;color:#fff;font:700 12px Inter,sans-serif;padding:6px 12px;cursor:pointer';
-  stop.onclick = () => { const events = stopRecording(); _onFlowSave?.(events); _removePill(); };
+  stop.onclick = () => { const events = stopRecording(); onStop?.(events); _removePill(); };
   const cancel = document.createElement('button');
   cancel.textContent = 'Cancel';
   cancel.setAttribute('aria-label', 'Cancel recording');
@@ -147,4 +144,28 @@ export function startFlowRecording(onSave) {
   cancel.onclick = () => { stopRecording(); _removePill(); };
   _pill.append(stop, cancel);
   document.body.appendChild(_pill);
+}
+
+export function startFlowRecording(onSave) {
+  if (_recording) stopRecording();
+  _onFlowSave = onSave;
+  startRecording();
+  _showPill({ text: 'Recording flow', stopLabel: 'Stop & save', onStop: events => _onFlowSave?.(events) });
+}
+
+// Bug-steps recording with a floating card: the tester can roam the whole app
+// reproducing the bug; Stop drops them straight back onto Report a bug with the
+// recorded steps attached (handoff via sessionStorage — the Testing view is
+// unmounted while they roam, so React state can't carry it).
+export function startBugRecording() {
+  if (_recording) stopRecording();
+  startRecording();
+  _showPill({
+    text: 'Recording bug steps', stopLabel: 'Stop',
+    onStop: events => {
+      try { sessionStorage.setItem('qa-bug-steps', JSON.stringify(events)); } catch { /* full */ }
+      window.history.pushState(null, '', '/testing');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    },
+  });
 }

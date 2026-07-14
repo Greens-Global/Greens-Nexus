@@ -3,12 +3,12 @@ import {
   FlaskConical, Plus, X, Loader2, Camera, CheckCircle, XCircle, MinusCircle,
   ChevronRight, Bug, ListChecks, ScrollText, Sparkles, UserPlus, Video, Square,
   Paperclip, Send, Pencil, Archive, Check, CircleDot, Play, Bot,
-} from 'lucide-react';
+} from 'lucide-react';   // eslint-disable-line
 import { api } from '../api';
 import { supabase } from '../lib/supabase';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
-import { startRecording, stopRecording, isRecording, eventCount, startFlowRecording } from '../lib/stepRecorder';
+import { stopRecording, isRecording, startFlowRecording, startBugRecording } from '../lib/stepRecorder';
 import { replayFlow } from '../lib/flowReplayer';
 import { graphToken, graphJSON, postChatMessage, GRAPH } from '../teamsGraph';
 import { msalInstance } from '../msalInstance';
@@ -400,9 +400,16 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
   const nameOf = useNameResolver();
   const [desc, setDesc] = useState('');
   const [moduleHint, setModuleHint] = useState('');
-  const [recording, setRecording] = useState(isRecording());
-  const [recCount, setRecCount] = useState(0);
-  const [stepsLog, setStepsLog] = useState([]);
+  // Steps recorded via the floating card land here when the card's Stop button
+  // navigates back to this tab (sessionStorage handoff — this view was
+  // unmounted while the tester roamed the app reproducing the bug).
+  const [stepsLog, setStepsLog] = useState(() => {
+    try {
+      const raw = sessionStorage.getItem('qa-bug-steps');
+      if (raw) { sessionStorage.removeItem('qa-bug-steps'); return JSON.parse(raw); }
+    } catch { /* ignore */ }
+    return [];
+  });
   const [shots, setShots] = useState([]);
   const [recordingUrl, setRecordingUrl] = useState('');
   const [screenBusy, setScreenBusy] = useState(false);
@@ -426,15 +433,8 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
     }
   }, [prefill]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!recording) return;
-    const t = setInterval(() => setRecCount(eventCount()), 800);
-    return () => clearInterval(t);
-  }, [recording]);
-
-  const toggleRecording = () => {
-    if (recording) { setStepsLog(stopRecording()); setRecording(false); toastOk('Step recording stopped — the log is attached to this report.'); }
-    else { startRecording(); setRecording(true); setRecCount(0); }
-  };
+    if (stepsLog.length) toastOk(`${stepsLog.length} steps recorded — describe the bug and send the report.`);
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
 
   async function recordScreen() {
     if (!navigator.mediaDevices?.getDisplayMedia) return toastErr('Screen recording needs a desktop browser.');
@@ -471,8 +471,7 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
     if (!desc.trim() || busy) return;
     setBusy(true);
     try {
-      const log = recording ? stopRecording() : stepsLog;
-      if (recording) setRecording(false);
+      const log = isRecording() ? stopRecording() : stepsLog;
       const created = await api.qaCreateBug({ description: desc.trim(), module_hint: moduleHint, steps_log: log, recording_url: recordingUrl, screenshots: shots, ...(linked || {}) });
       setDesc(''); setModuleHint(''); setStepsLog([]); setShots([]); setRecordingUrl(''); setLinked(null);
       toastOk(created?.status === 'converted'
@@ -510,8 +509,10 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
               {QA_MODULES.map(m => <option key={m}>{m}</option>)}
             </select>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button className="secondary-btn" onClick={toggleRecording} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, color: recording ? 'hsl(var(--color-red))' : undefined }}>
-                {recording ? <><Square size={12} /> Stop ({recCount})</> : <><ListChecks size={13} /> Record steps</>}
+              <button className="secondary-btn" title="A recording card follows you around the app — reproduce the bug anywhere, hit Stop, and you land back here with the steps attached"
+                onClick={() => { startBugRecording(); toastOk('Recording — go reproduce the bug anywhere in Nexus, then hit Stop on the card.'); }}
+                style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <ListChecks size={13} /> Record steps
               </button>
               <button className="secondary-btn" onClick={recordScreen} disabled={screenBusy || !!recordingUrl} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 {screenBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Video size={13} />} {recordingUrl ? 'Recorded ✓' : 'Record screen'}
@@ -611,7 +612,9 @@ export default function Testing() {
   const { canAccessModule } = useRole();
   const nameOf = useNameResolver();
   const [enabled, setEnabled] = useState(null);
-  const [tab, setTab] = useState('run');
+  // Stopping a bug-steps recording navigates here — open straight onto Report a
+  // bug so the recorded steps (waiting in sessionStorage) are front and centre.
+  const [tab, setTab] = useState(() => (sessionStorage.getItem('qa-bug-steps') ? 'bugs' : 'run'));
   const [cases, setCases] = useState(null);
   const [runs, setRuns] = useState(null);
   const [runId, setRunId] = useState('');
