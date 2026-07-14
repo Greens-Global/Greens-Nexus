@@ -11,6 +11,7 @@ from routers import timeclock
 from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, inventory_requests, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import jobroles  # Roles & Access redesign (Jul 2026)
+from routers import access_scopes  # row-level scopes for external users (Jul 2026)
 from audit import AuditMiddleware
 
 
@@ -227,6 +228,8 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS status_log JSONB DEFAULT '[]'::jsonb",
         # Org chart Phase 5: functional-division head tag (inherits down the tree)
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS division VARCHAR DEFAULT ''",
+        # External users: identity type (internal MS365 / Entra B2B guest / non-MS365 external)
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS identity_type VARCHAR DEFAULT 'internal'",
         # HR mailbox export: progress total (table itself is created by create_all)
         "ALTER TABLE hr_mailbox_exports ADD COLUMN IF NOT EXISTS total INTEGER DEFAULT 0",
         # E-Sign multi-document packets: PDFs attached to a template, carried on the envelope
@@ -479,6 +482,7 @@ app.include_router(inventory_requests.router)
 app.include_router(audit.router)
 app.include_router(groups.router)
 app.include_router(jobroles.router)
+app.include_router(access_scopes.router)
 app.include_router(items_router.router)
 app.include_router(hr.router)
 app.include_router(knowledge_base.router)
