@@ -2,13 +2,13 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   FlaskConical, Plus, X, Loader2, Camera, CheckCircle, XCircle, MinusCircle,
   ChevronRight, Bug, ListChecks, ScrollText, Sparkles, UserPlus, Video, Square,
-  Paperclip, Send, Pencil, Archive, Check, CircleDot, Play, Bot,
+  Paperclip, Send, Pencil, Archive, Check, CircleDot, Play, Bot, Mic,
 } from 'lucide-react';   // eslint-disable-line
 import { api } from '../api';
 import { supabase } from '../lib/supabase';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
-import { stopRecording, isRecording, startFlowRecording, startBugRecording } from '../lib/stepRecorder';
+import { stopRecording, isRecording, startFlowRecording, startBugRecording, takeBugVideoBlob, takeTranscript } from '../lib/stepRecorder';
 import { replayFlow } from '../lib/flowReplayer';
 import { graphToken, graphJSON, postChatMessage, GRAPH } from '../teamsGraph';
 import { msalInstance } from '../msalInstance';
@@ -396,6 +396,19 @@ function CaseEditor({ caseObj, onClose, onSaved, toastErr }) {
 }
 
 // ── Report-a-bug form + list ──────────────────────────────────────────────────
+function RecOption({ Icon, title, sub, onClick }) {
+  return (
+    <button onClick={onClick} className="hover-row"
+      style={{ display: 'flex', alignItems: 'flex-start', gap: 9, width: '100%', textAlign: 'left', border: 'none', background: 'none', cursor: 'pointer', padding: '8px 9px', borderRadius: 8 }}>
+      <Icon size={15} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0, marginTop: 1 }} />
+      <span>
+        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>{title}</span>
+        <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{sub}</span>
+      </span>
+    </button>
+  );
+}
+
 function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenDraft }) {
   const nameOf = useNameResolver();
   const [desc, setDesc] = useState('');
@@ -412,14 +425,16 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
   });
   const [shots, setShots] = useState([]);
   const [recordingUrl, setRecordingUrl] = useState('');
+  const [narration, setNarration] = useState('');   // voice transcript, shown in its own box
   const [screenBusy, setScreenBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [bugs, setBugs] = useState(null);
   const [convertBusy, setConvertBusy] = useState('');
   const [openLog, setOpenLog] = useState('');   // bug id whose recorded steps are expanded
+  const [openVid, setOpenVid] = useState('');   // bug id whose recording is expanded
+  const [recMenu, setRecMenu] = useState(false);   // Record choice popover
   const [linked, setLinked] = useState(null);   // {case_id, run_id, failed_step} from a failing case
   const fileRef = useRef(null);
-  const mediaRef = useRef(null);
 
   const load = () => api.qaBugs().then(setBugs).catch(() => setBugs([]));
   useEffect(() => { load(); }, []);
@@ -432,32 +447,45 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
       onPrefillUsed?.();
     }
   }, [prefill]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // On landing back here after a recording, restore what the tester started with
+  // (description seed + module) and fold in the voice narration + video (handed
+  // over out-of-band because this view was unmounted while they roamed).
   useEffect(() => {
-    if (stepsLog.length) toastOk(`${stepsLog.length} steps recorded — describe the bug and send the report.`);
+    let seed = '', transcript = '', mod = '';
+    try {
+      seed = sessionStorage.getItem('qa-bug-desc') || ''; sessionStorage.removeItem('qa-bug-desc');
+      transcript = sessionStorage.getItem('qa-bug-transcript') || ''; sessionStorage.removeItem('qa-bug-transcript');
+      mod = sessionStorage.getItem('qa-bug-module') || ''; sessionStorage.removeItem('qa-bug-module');
+    } catch { /* ignore */ }
+    transcript = transcript || takeTranscript();
+    if (seed) setDesc(seed);
+    if (transcript) setNarration(transcript);   // its own box, not merged into the summary
+    if (mod) setModuleHint(mod);
+    const blob = takeBugVideoBlob();
+    if (blob) {
+      setScreenBusy(true);
+      uploadEvidence(new File([blob], 'bug-recording.webm', { type: 'video/webm' }), 'rec')
+        .then(u => { setRecordingUrl(u); toastOk(transcript ? 'Recording + narration attached — review and send.' : 'Screen recording attached.'); })
+        .catch(() => toastErr('Could not upload the recording.'))
+        .finally(() => setScreenBusy(false));
+    } else if (stepsLog.length || transcript) {
+      toastOk(`${stepsLog.length} steps recorded${transcript ? ' + narration transcribed' : ''} — review and send.`);
+    }
   }, []);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function recordScreen() {
-    if (!navigator.mediaDevices?.getDisplayMedia) return toastErr('Screen recording needs a desktop browser.');
+  // Kick off a recording: stash what's typed so far (the view unmounts while the
+  // tester roams), then start the floating card. Description is required first.
+  function beginRecording(mode) {
+    setRecMenu(false);
+    if (!desc.trim()) return toastErr('Describe the bug first, then record.');
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-      const rec = new MediaRecorder(stream, { mimeType: 'video/webm' });
-      const chunks = [];
-      rec.ondataavailable = e => e.data.size && chunks.push(e.data);
-      rec.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        setScreenBusy(true);
-        try {
-          const file = new File([new Blob(chunks, { type: 'video/webm' })], 'recording.webm', { type: 'video/webm' });
-          setRecordingUrl(await uploadEvidence(file, 'rec'));
-          toastOk('Screen recording attached.');
-        } catch (e) { toastErr(e?.message || 'Could not upload the recording.'); }
-        setScreenBusy(false);
-        mediaRef.current = null;
-      };
-      rec.start();
-      mediaRef.current = rec;
-      setTimeout(() => { if (mediaRef.current === rec && rec.state === 'recording') rec.stop(); }, 60_000);   // 60s cap
-    } catch { /* user cancelled the picker */ }
+      sessionStorage.setItem('qa-bug-desc', desc);
+      if (moduleHint) sessionStorage.setItem('qa-bug-module', moduleHint);
+    } catch { /* ignore */ }
+    startBugRecording({ video: mode !== 'steps', voice: mode === 'video-voice' });
+    toastOk(mode === 'steps'
+      ? 'Recording steps — reproduce the bug anywhere, then hit Stop on the card.'
+      : 'Recording — reproduce the bug, narrate what\'s wrong, then hit Stop on the card.');
   }
 
   async function addShots(files) {
@@ -472,8 +500,11 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
     setBusy(true);
     try {
       const log = isRecording() ? stopRecording() : stepsLog;
-      const created = await api.qaCreateBug({ description: desc.trim(), module_hint: moduleHint, steps_log: log, recording_url: recordingUrl, screenshots: shots, ...(linked || {}) });
-      setDesc(''); setModuleHint(''); setStepsLog([]); setShots([]); setRecordingUrl(''); setLinked(null);
+      // Keep the narration in the report so reviewers + the AI see it, but store
+      // it clearly labelled rather than muddling the tester's own summary.
+      const fullDesc = desc.trim() + (narration.trim() ? `\n\nNarration: ${narration.trim()}` : '');
+      const created = await api.qaCreateBug({ description: fullDesc, module_hint: moduleHint, steps_log: log, recording_url: recordingUrl, screenshots: shots, ...(linked || {}) });
+      setDesc(''); setModuleHint(''); setStepsLog([]); setShots([]); setRecordingUrl(''); setNarration(''); setLinked(null);
       toastOk(created?.status === 'converted'
         ? 'Bug report sent — the AI drafted a test case, review it in the Library.'
         : 'Bug report sent — thank you!');
@@ -509,23 +540,48 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
               {QA_MODULES.map(m => <option key={m}>{m}</option>)}
             </select>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <button className="secondary-btn" title="A recording card follows you around the app — reproduce the bug anywhere, hit Stop, and you land back here with the steps attached"
-                onClick={() => { startBugRecording(); toastOk('Recording — go reproduce the bug anywhere in Nexus, then hit Stop on the card.'); }}
-                style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <ListChecks size={13} /> Record steps
-              </button>
-              <button className="secondary-btn" onClick={recordScreen} disabled={screenBusy || !!recordingUrl} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {screenBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Video size={13} />} {recordingUrl ? 'Recorded ✓' : 'Record screen'}
-              </button>
+              <div style={{ position: 'relative' }}>
+                <button className="secondary-btn" title={desc.trim() ? 'Reproduce the bug anywhere — steps, screen and voice are captured together; one Stop attaches them all here' : 'Describe the bug first, then record'}
+                  onClick={() => setRecMenu(m => !m)} disabled={!desc.trim() || screenBusy}
+                  style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: desc.trim() ? 1 : 0.5 }}>
+                  {screenBusy ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <CircleDot size={13} />} Record
+                  <ChevronRight size={12} style={{ transform: recMenu ? 'rotate(90deg)' : 'rotate(90deg) rotate(180deg)', transition: 'transform .15s' }} />
+                </button>
+                {recMenu && <div onClick={() => setRecMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 15 }} />}
+                {recMenu && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 20, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.18)', padding: 6, width: 236 }}>
+                    <RecOption Icon={Video} title="Video + voice + steps" sub="Screen recording, narrate the bug aloud — it transcribes into its own box" onClick={() => beginRecording('video-voice')} />
+                    <RecOption Icon={Video} title="Video + steps" sub="Screen recording, no microphone" onClick={() => beginRecording('video')} />
+                    <RecOption Icon={ListChecks} title="Steps only" sub="Just log what you click, no recording" onClick={() => beginRecording('steps')} />
+                  </div>
+                )}
+              </div>
               <button className="secondary-btn" onClick={() => fileRef.current?.click()} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <Paperclip size={13} /> Screenshots
               </button>
             </div>
           </div>
         </div>
-        {(stepsLog.length > 0 || shots.length > 0) && (
+        {narration && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 10, padding: '9px 11px', marginBottom: 12 }}>
+            <Mic size={13} style={{ color: 'hsl(var(--color-blue))', flexShrink: 0, marginTop: 3 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.05em', textTransform: 'uppercase', marginBottom: 3 }}>Narration (from your voice)</div>
+              <textarea value={narration} onChange={e => setNarration(e.target.value)} rows={2}
+                style={{ ...inputStyle, fontSize: 12.5, padding: '6px 9px', background: 'var(--card)', resize: 'vertical' }} />
+            </div>
+            <button onClick={() => setNarration('')} title="Remove narration" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', marginTop: 2 }}><X size={13} /></button>
+          </div>
+        )}
+        {(stepsLog.length > 0 || shots.length > 0 || recordingUrl) && (
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12, fontSize: 12, color: 'var(--muted)' }}>
             {stepsLog.length > 0 && <span><ListChecks size={12} style={{ verticalAlign: -2 }} /> {stepsLog.length} recorded steps attached</span>}
+            {recordingUrl && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <video src={recordingUrl} controls style={{ width: 200, borderRadius: 8, border: '1px solid var(--line)', background: '#000' }} />
+                <button onClick={() => setRecordingUrl('')} title="Remove recording" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={13} /></button>
+              </span>
+            )}
             {shots.map((u, i) => <Shot key={u + i} url={u} onRemove={() => setShots(p => p.filter(x => x !== u))} />)}
           </div>
         )}
@@ -557,9 +613,17 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
                         {b.stepsLog.length} recorded steps
                       </button>
                     )}
-                    {b.recordingUrl && <a href={b.recordingUrl} target="_blank" rel="noreferrer">recording</a>}
+                    {b.recordingUrl && (
+                      <button onClick={() => setOpenVid(openVid === b.id ? '' : b.id)}
+                        style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'hsl(var(--color-blue))', fontSize: 11.5, fontWeight: 600, padding: 0, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                        <Play size={11} /> {openVid === b.id ? 'Hide recording' : 'Watch recording'}
+                      </button>
+                    )}
                     {b.screenshots.map((u, i) => <Shot key={u + i} url={u} size={22} />)}
                   </div>
+                  {openVid === b.id && b.recordingUrl && (
+                    <video src={b.recordingUrl} controls style={{ marginTop: 8, width: '100%', maxWidth: 480, borderRadius: 8, border: '1px solid var(--line)', background: '#000' }} />
+                  )}
                   {openLog === b.id && (
                     <div style={{ marginTop: 8, background: 'var(--mist)', borderRadius: 8, padding: '10px 14px', fontSize: 12.5, maxHeight: 240, overflowY: 'auto' }}>
                       {(() => {
