@@ -12,6 +12,7 @@ from routers import tasks, purchases, reviews, marketing, sop, assets, accountin
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import jobroles  # Roles & Access redesign (Jul 2026)
 from routers import access_scopes  # row-level scopes for external users (Jul 2026)
+from routers import qa  # Testing module — dev-only via NEXUS_QA_MODULE env (Jul 2026)
 from audit import AuditMiddleware
 
 
@@ -483,6 +484,7 @@ app.include_router(audit.router)
 app.include_router(groups.router)
 app.include_router(jobroles.router)
 app.include_router(access_scopes.router)
+app.include_router(qa.router)
 app.include_router(items_router.router)
 app.include_router(hr.router)
 app.include_router(knowledge_base.router)

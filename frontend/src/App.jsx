@@ -43,6 +43,7 @@ const Placeholder         = lazy(() => import("./views/Placeholder"));
 const PublicSign          = lazy(() => import("./views/PublicSign"));
 const TimeClock           = lazy(() => import("./views/TimeClock"));
 const MyHR                = lazy(() => import("./views/MyHR"));
+const Testing             = lazy(() => import("./views/Testing"));
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // Views that aren't registered MODULES (e.g. "purchase") fall back to a
@@ -69,7 +70,15 @@ const VIEW_MIN_ROLES = {
   'documents':          'supervisor',
   'marketing':          'supervisor',
   'admin':              'administrator',
+  'testing':            'supervisor',   // dev-only module; grant-driven for testers below supervisor
 };
+
+// E2E mode (Playwright CI only — VITE_E2E is never set on real builds): skip the
+// MSAL login gates entirely so headless tests can drive the app against a local
+// NEXUS_SKIP_AUTH backend. Everything else behaves normally.
+const _E2E = import.meta.env.VITE_E2E === 'true';
+const AuthedGate  = _E2E ? ({ children }) => children : AuthenticatedTemplate;
+const UnauthedGate = _E2E ? () => null : UnauthenticatedTemplate;
 
 // Waits for role to load so the UI never flashes with wrong access level
 function RoleGate({ children }) {
@@ -137,6 +146,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "support":            return <Support />;
     case "timeclock":          return <TimeClock />;
     case "myhr":               return <MyHR />;
+    case "testing":            return <Testing />;
     default:                   return <Placeholder viewName={activeView} onBack={() => onNavigate("dashboard")} />;
   }
 }
@@ -288,7 +298,7 @@ export default function App() {
 
   return (
     <>
-      <AuthenticatedTemplate>
+      <AuthedGate>
         <NotificationProvider>
         <RoleProvider>
         <RoleGate>
@@ -369,10 +379,10 @@ export default function App() {
         </RoleGate>
         </RoleProvider>
         </NotificationProvider>
-      </AuthenticatedTemplate>
-      <UnauthenticatedTemplate>
+      </AuthedGate>
+      <UnauthedGate>
         <LoginPage />
-      </UnauthenticatedTemplate>
+      </UnauthedGate>
     </>
   );
 }

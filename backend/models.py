@@ -1625,3 +1625,92 @@ class TaskEvent(Base):
     kind           = Column(String, default="")          # created|updated|deleted|comment|...
     affected_email = Column(String, default="")
     created_at     = Column(String, default="")          # set server-side (timestamptz in DB)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Testing module (QA) — dev-only in the UI (env-gated router), but the tables
+# exist everywhere create_all runs. Seeded from qa_seed.json (the Jul-2026 module
+# audit workbook) on first read — same seed-if-empty pattern as item_types.
+# ─────────────────────────────────────────────────────────────────────────────
+class QaTestCase(Base):
+    """One test case in the library. `steps` is a JSON list of plain-English
+    strings a layman can follow. source: seed (workbook) | ai (converted from a
+    bug report) | manual. AI drafts start status='draft' until approved."""
+    __tablename__ = "qa_test_cases"
+    id           = Column(String, primary_key=True)   # uuid
+    module       = Column(String, nullable=False)     # People / Item Management / ...
+    feature      = Column(String, default="")
+    title        = Column(String, nullable=False)
+    precondition = Column(String, default="")
+    steps        = Column(JSON, default=list)         # ["Click …", "Type …"]
+    expected     = Column(String, default="")
+    priority     = Column(String, default="Medium")   # High | Medium | Low
+    case_type    = Column(String, default="Functional")
+    source       = Column(String, default="manual")   # seed | ai | manual
+    status       = Column(String, default="active")   # active | draft | archived
+    flow         = Column(JSON, default=list)         # recorded replayable actions [{view, role, label, hints}]
+    e2e_spec     = Column(String, default="")         # AI-generated Playwright spec (run by CI)
+    created_by   = Column(String, default="")
+    created_at   = Column(String, default="")
+    updated_at   = Column(String, default="")
+
+
+class QaRun(Base):
+    """A named testing session ("Jul 15 regression")."""
+    __tablename__ = "qa_runs"
+    id         = Column(String, primary_key=True)
+    name       = Column(String, nullable=False)
+    status     = Column(String, default="open")       # open | closed
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+
+
+class QaResult(Base):
+    """One tester's verdict on one case within one run — upserted as they work.
+    step_state: [{done: bool, shot: url}] parallel to the case's steps (per-step
+    evidence). evidence: {shot: overall screenshot, recording: webm url}."""
+    __tablename__ = "qa_results"
+    id         = Column(String, primary_key=True)
+    run_id     = Column(String, nullable=False, index=True)
+    case_id    = Column(String, nullable=False, index=True)
+    result     = Column(String, default="")           # '' | pass | fail | blocked | skipped
+    failed_step = Column(Integer, default=-1)         # index of the step where it failed (-1 = n/a)
+    step_state = Column(JSON, default=list)
+    notes      = Column(String, default="")
+    evidence   = Column(JSON, default=dict)
+    source     = Column(String, default="human")      # human | automated (Playwright CI)
+    tested_by  = Column(String, default="")
+    tested_at  = Column(String, default="")
+
+
+class QaBugReport(Base):
+    """A free-text bug from a tester + optional recorded step log / recording /
+    screenshots. AI conversion drafts a QaTestCase (converted_case_id)."""
+    __tablename__ = "qa_bug_reports"
+    id                = Column(String, primary_key=True)
+    description       = Column(String, nullable=False)
+    module_hint       = Column(String, default="")
+    case_id           = Column(String, default="")     # set when filed from a failing case
+    run_id            = Column(String, default="")
+    failed_step       = Column(Integer, default=-1)
+    steps_log         = Column(JSON, default=list)     # recorded click log [{t, view, label, role}]
+    recording_url     = Column(String, default="")
+    screenshots       = Column(JSON, default=list)     # [url]
+    status            = Column(String, default="new")  # new | converted | dismissed
+    converted_case_id = Column(String, default="")
+    created_by        = Column(String, default="")
+    created_at        = Column(String, default="")
+
+
+class QaAssignment(Base):
+    """Cases assigned to one person in one run, with a due date. Creating one
+    fires email + bell (server) and a Teams DM (client, assigner's token)."""
+    __tablename__ = "qa_assignments"
+    id             = Column(String, primary_key=True)
+    run_id         = Column(String, nullable=False, index=True)
+    assignee_email = Column(String, nullable=False, index=True)
+    case_ids       = Column(JSON, default=list)
+    due_date       = Column(String, default="")        # ISO date
+    note           = Column(String, default="")
+    assigned_by    = Column(String, default="")
+    created_at     = Column(String, default="")
