@@ -118,6 +118,21 @@ def my_documents(user: dict = Depends(get_current_user), db: Session = Depends(g
 
 # ── Directory card (hover profiles) — safe subset, any signed-in user ────────
 
+@router.get("/directory")
+def people_directory(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The curated Nexus People list (nexus_employees) as a name+email picker —
+    NOT the ~150-account M365 GAL. Any signed-in user can call it (same shape as
+    /roles/directory), so modules like Item Management can assign to real Nexus
+    people. Only people with a work email are included (assignment/notification
+    needs a mailbox); offboarded staff are excluded."""
+    rows = (db.query(NexusEmployee)
+              .filter(NexusEmployee.status != "offboarded")
+              .filter(NexusEmployee.work_email != "")
+              .order_by(NexusEmployee.first_name, NexusEmployee.last_name).all())
+    return [{"email": e.work_email, "name": f"{e.first_name} {e.last_name}".strip() or e.work_email}
+            for e in rows]
+
+
 @router.get("/person")
 def person_card(q: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Outlook-style contact card by name or email: name, title, department,

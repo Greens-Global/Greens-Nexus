@@ -115,7 +115,7 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
   const [loc,  setLoc]  = useState(item.location || '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => { api.getRolesDirectory().then(setDirectory).catch(() => {}); }, []);
+  useEffect(() => { api.getPeopleDirectory().then(setDirectory).catch(() => {}); }, []);
   const chosen = directory.find(d => d.email === pick);
   // A person currently holds it ⇒ the person flow is a reassignment. Location is
   // independent of the holder (just where the item lives), so it's always a set.

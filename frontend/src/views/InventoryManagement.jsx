@@ -210,7 +210,7 @@ function PersonTypeahead({ valueName, onPick, placeholder = 'Type a name…' }) 
   const [text, setText] = useState(valueName || '');
   const [open, setOpen] = useState(false);
   const boxRef = useRef(null);
-  useEffect(() => { api.getRolesDirectory().then(d => setDir(Array.isArray(d) ? d : [])).catch(() => {}); }, []);
+  useEffect(() => { api.getPeopleDirectory().then(d => setDir(Array.isArray(d) ? d : [])).catch(() => {}); }, []);
   useEffect(() => { setText(valueName || ''); }, [valueName]);
   useEffect(() => {
     function onDoc(e) { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); }
