@@ -38,6 +38,27 @@ async function uploadEvidence(file, prefix = 'shot') {
   return supabase.storage.from('qa-evidence').getPublicUrl(data.path).data.publicUrl;
 }
 
+// Plays back a screen recording. MediaRecorder writes live webm with NO duration
+// in the container header, so a plain <video> reads duration=Infinity, shows
+// "0:00" and renders a black frame that won't seek or play. Force the browser to
+// compute the real duration by seeking to the far end once metadata loads, then
+// snap back to the start — this makes the timeline and first frame appear.
+function BugVideo({ src, style }) {
+  const fixed = useRef(false);
+  function onLoaded(e) {
+    const v = e.currentTarget;
+    if (v.duration !== Infinity || fixed.current) return;
+    fixed.current = true;
+    const settle = () => {
+      v.removeEventListener('timeupdate', settle);
+      v.currentTime = 0;
+    };
+    v.addEventListener('timeupdate', settle);
+    v.currentTime = 1e101;   // seek past the end → browser fills in the duration
+  }
+  return <video src={src} controls playsInline preload="metadata" onLoadedMetadata={onLoaded} style={style} />;
+}
+
 function filesFromPaste(e) {
   const out = [];
   for (const item of e.clipboardData?.items || []) {
@@ -578,7 +599,7 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
             {stepsLog.length > 0 && <span><ListChecks size={12} style={{ verticalAlign: -2 }} /> {stepsLog.length} recorded steps attached</span>}
             {recordingUrl && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <video src={recordingUrl} controls style={{ width: 200, borderRadius: 8, border: '1px solid var(--line)', background: '#000' }} />
+                <BugVideo src={recordingUrl} style={{ width: 200, borderRadius: 8, border: '1px solid var(--line)', background: '#000' }} />
                 <button onClick={() => setRecordingUrl('')} title="Remove recording" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={13} /></button>
               </span>
             )}
@@ -622,7 +643,7 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
                     {b.screenshots.map((u, i) => <Shot key={u + i} url={u} size={22} />)}
                   </div>
                   {openVid === b.id && b.recordingUrl && (
-                    <video src={b.recordingUrl} controls style={{ marginTop: 8, width: '100%', maxWidth: 480, borderRadius: 8, border: '1px solid var(--line)', background: '#000' }} />
+                    <BugVideo src={b.recordingUrl} style={{ marginTop: 8, width: '100%', maxWidth: 480, borderRadius: 8, border: '1px solid var(--line)', background: '#000' }} />
                   )}
                   {openLog === b.id && (
                     <div style={{ marginTop: 8, background: 'var(--mist)', borderRadius: 8, padding: '10px 14px', fontSize: 12.5, maxHeight: 240, overflowY: 'auto' }}>

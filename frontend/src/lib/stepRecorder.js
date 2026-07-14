@@ -25,6 +25,7 @@ let _bugVideoBlob = null;   // handed to Report-a-bug via takeBugVideoBlob()
 let _recog = null;          // SpeechRecognition
 let _speechOn = false;
 let _transcript = '';
+let _interim = '';          // latest not-yet-final phrase, committed on stop
 let _finishing = false;
 
 // Pretty names for the url slugs the app navigates between (App.jsx keeps the
@@ -169,32 +170,49 @@ export function takeTranscript() { const t = _transcript; _transcript = ''; retu
 
 // ── voice narration → live transcript (Web Speech API) ───────────────────────
 
+function _commit(t) {
+  t = (t || '').trim();
+  if (t) _transcript += (_transcript ? ' ' : '') + t;
+}
+
 function _startSpeech() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) return false;
+  if (!SR) { console.warn('[qa-recorder] SpeechRecognition unsupported in this browser'); return false; }
   try {
     _recog = new SR();
     _recog.continuous = true;
-    _recog.interimResults = false;
+    _recog.interimResults = true;   // capture partials so nothing is lost between pauses
     _recog.lang = 'en-US';
     _recog.onresult = e => {
+      let interim = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) {
-          const t = (e.results[i][0].transcript || '').trim();
-          if (t) _transcript += (_transcript ? ' ' : '') + t;
-        }
+        const t = (e.results[i][0].transcript || '').trim();
+        if (e.results[i].isFinal) _commit(t);
+        else interim = t;
       }
+      _interim = interim;   // held until finalised or committed at stop
+    };
+    // Surface failures instead of dying silently. 'no-speech'/'aborted'/'network'
+    // are transient — let onend restart. 'not-allowed'/'service-not-allowed' mean
+    // the mic/speech service is blocked: stop trying.
+    _recog.onerror = ev => {
+      console.warn('[qa-recorder] speech error:', ev.error);
+      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') _speechOn = false;
     };
     // Recognition auto-stops after a pause; restart it until we explicitly stop.
-    _recog.onend = () => { if (_speechOn) { try { _recog.start(); } catch { /* already starting */ } } };
+    _recog.onend = () => {
+      if (_interim) { _commit(_interim); _interim = ''; }   // don't drop a trailing phrase
+      if (_speechOn) { try { _recog.start(); } catch { /* already starting */ } }
+    };
     _recog.start();
     _speechOn = true;
     return true;
-  } catch { _recog = null; return false; }
+  } catch (err) { console.warn('[qa-recorder] speech start failed:', err); _recog = null; return false; }
 }
 
 function _stopSpeech() {
   _speechOn = false;
+  if (_interim) { _commit(_interim); _interim = ''; }
   try { _recog?.stop(); } catch { /* ignore */ }
   _recog = null;
 }
@@ -248,7 +266,7 @@ export function startFlowRecording(onSave) {
 export async function startBugRecording(opts = {}) {
   const { video = false, voice = false } = opts;
   if (_recording) stopRecording();
-  _bugVideoBlob = null; _transcript = ''; _chunks = []; _finishing = false;
+  _bugVideoBlob = null; _transcript = ''; _interim = ''; _chunks = []; _finishing = false;
 
   let haveVideo = false, haveVoice = false;
   if (video) {
