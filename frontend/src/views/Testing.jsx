@@ -560,12 +560,27 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
                     {b.screenshots.map((u, i) => <Shot key={u + i} url={u} size={22} />)}
                   </div>
                   {openLog === b.id && (
-                    <div style={{ marginTop: 8, background: 'var(--mist)', borderRadius: 8, padding: '8px 12px', fontSize: 12, fontFamily: 'ui-monospace,monospace', maxHeight: 220, overflowY: 'auto' }}>
-                      {b.stepsLog.map((s, i) => (
-                        <div key={i} style={{ padding: '2px 0', color: s.role === 'opened' ? 'hsl(var(--color-blue))' : 'var(--ink)' }}>
-                          {i + 1}. {s.role === 'opened' ? `opened ${s.label}` : <>{s.role} <b>“{s.label}”</b>{s.view ? <span style={{ color: 'var(--muted)' }}> on {s.view}</span> : null}</>}
-                        </div>
-                      ))}
+                    <div style={{ marginTop: 8, background: 'var(--mist)', borderRadius: 8, padding: '10px 14px', fontSize: 12.5, maxHeight: 240, overflowY: 'auto' }}>
+                      {(() => {
+                        let n = 0;
+                        const VERB = { clicked: 'Click', 'typed into': 'Type into', 'picked from': 'Choose from' };
+                        // Render-time echo dedupe so logs recorded before the
+                        // recorder fix also read cleanly.
+                        const log = b.stepsLog.filter((s, i, a) => {
+                          const p = a[i - 1];
+                          return !(p && p.role === s.role && p.label === s.label && (s.t || 0) - (p.t || 0) < 2000);
+                        });
+                        return log.map((s, i) => s.role === 'opened' ? (
+                          <div key={i} style={{ padding: '6px 0 3px', fontWeight: 800, fontSize: 11, letterSpacing: '.05em', textTransform: 'uppercase', color: 'hsl(var(--color-blue))' }}>
+                            On {s.label}
+                          </div>
+                        ) : (
+                          <div key={i} style={{ padding: '2px 0', color: 'var(--ink)' }}>
+                            <span style={{ color: 'var(--muted)', fontWeight: 700, marginRight: 6 }}>{++n}.</span>
+                            {VERB[s.role] || s.role} <b>“{s.label}”</b>
+                          </div>
+                        ));
+                      })()}
                     </div>
                   )}
                 </div>

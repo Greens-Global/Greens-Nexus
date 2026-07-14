@@ -77,7 +77,14 @@ async function _run() {
     const a = s.flow[s.i];
     _setStatus(`Step ${s.i + 1}/${s.flow.length}: ${a.role} “${a.label}”`);
     if (a.role === 'opened') {
-      window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: a.label } }));
+      if (a.path) {
+        // URL-based navigation (new recordings): pushState + popstate is exactly
+        // how the app handles back/forward, so the view switches without reload.
+        window.history.pushState(null, '', `/${a.path === 'dashboard' ? '' : a.path}`);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      } else {
+        window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: a.label } }));
+      }
       await _sleep(900);
       s.i += 1;
       continue;

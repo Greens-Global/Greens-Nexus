@@ -10,9 +10,28 @@
 
 let _events = [];
 let _recording = false;
-let _view = document.title || '';
+let _lastPath = '';
 let _pill = null;
 let _onFlowSave = null;
+
+// Pretty names for the url slugs the app navigates between (App.jsx keeps the
+// address bar in sync with the active view, so the URL is the reliable "which
+// screen am I on" signal — document.title never changes).
+const _SLUG_LABELS = {
+  '': 'Dashboard', dashboard: 'Dashboard', 'manager-dashboard': 'Manager Dashboard',
+  itemmanagement: 'Item Management', inventory: 'Item Management',
+  hr: 'People', myhr: 'My HR', timeclock: 'Time Clock', tasks: 'Tasks',
+  sop: 'Knowledge Base', documents: 'Documents', 'property-asset': 'Asset Management',
+  accounting: 'Accounting', 'investor-relations': 'Investor Relations',
+  marketing: 'Marketing', testing: 'Testing', purchase: 'Purchase', admin: 'Access Manager',
+  it: 'IT', ops: 'Construction', operations: 'Operations', development: 'Development',
+  'external-links': 'External Links', support: 'Support',
+};
+
+function _pathNow() { return window.location.pathname.split('/').filter(Boolean)[0] || 'dashboard'; }
+function _screenName(slug) {
+  return _SLUG_LABELS[slug] || slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
 
 function _hintsOf(el) {
   return {
@@ -31,41 +50,47 @@ function _labelOf(el) {
   return (h.aria || h.placeholder || h.title || h.text || h.name || el.id || h.tag || '').slice(0, 60);
 }
 
+function _trackScreen() {
+  // Auto-log screen changes by watching the URL (covers sidebar clicks, deep
+  // links, back/forward — everything), instead of relying on window events.
+  const path = _pathNow();
+  if (path !== _lastPath) {
+    _lastPath = path;
+    _events.push({ t: Date.now(), view: _screenName(path), role: 'opened', label: _screenName(path), path });
+  }
+}
+
 function _onClick(e) {
   if (!_recording) return;
   if (_pill && _pill.contains(e.target)) return;   // ignore clicks on the pill itself
   // Walk up to the nearest meaningful control so we log "button 'Save'", not "svg".
   const el = e.target.closest?.('button, a, [role="button"], [role="tab"], select, input, textarea, label, th, [onclick]') || e.target;
+  const tag = el.tagName?.toLowerCase() || 'element';
+  // focusin exists only to catch typing/selecting — for buttons/links it just
+  // echoes the click and doubled every entry.
+  if (e.type === 'focusin' && !['input', 'textarea', 'select'].includes(tag)) return;
   const label = _labelOf(el);
   if (!label) return;
-  const tag = el.tagName?.toLowerCase() || 'element';
   const role = tag === 'input' || tag === 'textarea' ? 'typed into' : tag === 'select' ? 'picked from' : 'clicked';
+  _trackScreen();
   const last = _events[_events.length - 1];
-  // Collapse repeat keystroke focus events on the same field.
-  if (last && last.role === role && last.label === label && role === 'typed into') return;
-  _events.push({ t: Date.now(), view: _view, role, label, hints: _hintsOf(el) });
+  // Collapse echoes: same action on the same control within 2s (double-fire of
+  // click+focus, double-clicks, repeated keystroke focus) records once.
+  if (last && last.role === role && last.label === label && Date.now() - last.t < 2000) { last.t = Date.now(); return; }
+  _events.push({ t: Date.now(), view: _screenName(_lastPath), role, label, hints: _hintsOf(el) });
   if (_events.length > 400) _events.shift();
   _updatePill();
 }
 
-function _onNavigate(e) {
-  const v = e?.detail?.view;
-  if (v) {
-    _view = v;
-    if (_recording) { _events.push({ t: Date.now(), view: v, role: 'opened', label: v }); _updatePill(); }
-  }
-}
-
 function _attach() {
+  _lastPath = _pathNow();
   document.addEventListener('click', _onClick, true);
   document.addEventListener('focusin', _onClick, true);
-  window.addEventListener('nexus:navigate', _onNavigate);
 }
 
 function _detach() {
   document.removeEventListener('click', _onClick, true);
   document.removeEventListener('focusin', _onClick, true);
-  window.removeEventListener('nexus:navigate', _onNavigate);
 }
 
 // ── bug-report mode (no pill; the Report-a-bug form owns the UI) ─────────────
@@ -73,8 +98,9 @@ function _detach() {
 export function startRecording() {
   _events = [];
   _recording = true;
-  _view = document.title || _view;
   _attach();
+  // Flows begin with where the user is, so replay can navigate there first.
+  _events.push({ t: Date.now(), view: _screenName(_lastPath), role: 'opened', label: _screenName(_lastPath), path: _lastPath });
 }
 
 export function stopRecording() {
