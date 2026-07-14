@@ -82,6 +82,15 @@ function BugVideo({ src, style }) {
   return <video ref={ref} src={src} controls playsInline preload="auto" style={style} />;
 }
 
+// Bug-report lifecycle: new → (converted to a case) / fixed → verified, or dismissed.
+const BUG_PILL = {
+  new:       { label: 'New',       bg: 'hsla(var(--color-orange),0.12)', color: 'hsl(var(--color-orange))' },
+  converted: { label: 'Converted', bg: 'hsla(var(--color-green),0.12)',  color: 'hsl(var(--color-green))' },
+  fixed:     { label: 'Fixed',     bg: 'hsla(var(--color-blue),0.12)',   color: 'hsl(var(--color-blue))' },
+  verified:  { label: 'Verified',  bg: 'hsla(var(--color-green),0.16)',  color: 'hsl(var(--color-green))' },
+  dismissed: { label: 'Dismissed', bg: 'var(--mist)',                    color: 'var(--muted)' },
+};
+
 function filesFromPaste(e) {
   const out = [];
   for (const item of e.clipboardData?.items || []) {
@@ -386,7 +395,7 @@ function AssignModal({ runId, cases, resultsByCase, onClose, onDone, toastOk, to
 }
 
 // ── Case editor (library + AI-draft review) ───────────────────────────────────
-function CaseEditor({ caseObj, onClose, onSaved, toastErr }) {
+function CaseEditor({ caseObj, onClose, onSaved, toastErr, runId, runName }) {
   const editing = !!caseObj?.id;
   const [f, setF] = useState(() => ({
     module: caseObj?.module || QA_MODULES[0], feature: caseObj?.feature || '',
@@ -405,7 +414,12 @@ function CaseEditor({ caseObj, onClose, onSaved, toastErr }) {
     const body = { module: f.module, feature: f.feature, title: f.title.trim(), precondition: f.precondition, steps, expected: f.expected, priority: f.priority, ...(approve ? { status: 'active' } : {}) };
     try {
       const saved = editing ? await api.qaUpdateCase(caseObj.id, body) : await api.qaCreateCase(body);
-      onSaved(saved);
+      // On approval, drop the new case straight into the current run/sprint as a
+      // pending item (empty result) so it's ready to pass/fail there. Best-effort.
+      if (approve && runId && saved?.id) {
+        try { await api.qaUpsertResult(runId, { case_id: saved.id, result: '' }); } catch { /* case is still active; just not pinned to the run */ }
+      }
+      onSaved(saved, approve);
     } catch (e) { toastErr(e?.message || 'Could not save.'); setBusy(false); }
   }
 
@@ -428,8 +442,9 @@ function CaseEditor({ caseObj, onClose, onSaved, toastErr }) {
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           {caseObj?.status === 'draft' && (
-            <button className="primary-btn" onClick={() => save(true)} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={14} />} Approve into library
+            <button className="primary-btn" onClick={() => save(true)} disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              title={runId ? `Approve and add to the run “${runName}”` : 'Approve into the library'}>
+              {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={14} />} {runId ? 'Approve & add to run' : 'Approve into library'}
             </button>
           )}
           <button className={caseObj?.status === 'draft' ? 'secondary-btn' : 'primary-btn'} onClick={() => save(false)} disabled={busy}>Save</button>
@@ -693,17 +708,35 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
                     </div>
                   )}
                 </div>
-                <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 20, whiteSpace: 'nowrap', background: b.status === 'converted' ? 'hsla(var(--color-green),0.12)' : b.status === 'dismissed' ? 'var(--mist)' : 'hsla(var(--color-orange),0.12)', color: b.status === 'converted' ? 'hsl(var(--color-green))' : b.status === 'dismissed' ? 'var(--muted)' : 'hsl(var(--color-orange))' }}>
-                  {b.status === 'converted' ? 'Converted' : b.status === 'dismissed' ? 'Dismissed' : 'New'}
-                </span>
-                {canEdit && b.status === 'new' && (
+                {(() => { const p = BUG_PILL[b.status] || BUG_PILL.new; return (
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 20, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4, background: p.bg, color: p.color }}>
+                    {b.status === 'verified' && <Check size={12} />}{p.label}
+                  </span>
+                ); })()}
+                {canEdit && (b.status === 'new' || b.status === 'converted') && (
                   <>
-                    <button className="secondary-btn" onClick={() => convert(b)} disabled={convertBusy === b.id} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
-                      {convertBusy === b.id ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Sparkles size={12} />} Convert with AI
-                    </button>
-                    <button onClick={() => api.qaUpdateBug(b.id, { status: 'dismissed' }).then(load)} title="Dismiss" aria-label="Dismiss report"
+                    {b.status === 'new' && (
+                      <button className="secondary-btn" onClick={() => convert(b)} disabled={convertBusy === b.id} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
+                        {convertBusy === b.id ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Sparkles size={12} />} Convert with AI
+                      </button>
+                    )}
+                    <button className="secondary-btn" onClick={() => api.qaUpdateBug(b.id, { status: 'fixed' }).then(load)} title="Mark this bug fixed — it stays until a tester verifies it"
+                      style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}><Check size={12} /> Mark fixed</button>
+                    <button onClick={() => api.qaUpdateBug(b.id, { status: 'dismissed' }).then(load)} title="Dismiss — not a bug / won't fix" aria-label="Dismiss report"
                       style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4 }}><X size={14} /></button>
                   </>
+                )}
+                {canEdit && b.status === 'fixed' && (
+                  <>
+                    <button className="primary-btn" onClick={() => api.qaUpdateBug(b.id, { status: 'verified' }).then(load)} title="Confirm the fix works — closes the bug"
+                      style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}><CheckCircle size={12} /> Verify</button>
+                    <button className="secondary-btn" onClick={() => api.qaUpdateBug(b.id, { status: 'new' }).then(load)} title="Reopen"
+                      style={{ fontSize: 12, whiteSpace: 'nowrap' }}>Reopen</button>
+                  </>
+                )}
+                {canEdit && (b.status === 'verified' || b.status === 'dismissed') && (
+                  <button className="secondary-btn" onClick={() => api.qaUpdateBug(b.id, { status: 'new' }).then(load)} title="Reopen"
+                    style={{ fontSize: 12, whiteSpace: 'nowrap' }}>Reopen</button>
                 )}
               </div>
             ))}
@@ -1016,7 +1049,13 @@ export default function Testing() {
       )}
       {editor !== undefined && (
         <CaseEditor caseObj={editor} onClose={() => setEditor(undefined)} toastErr={toastErr}
-          onSaved={() => { setEditor(undefined); toastOk('Test case saved.'); api.qaCases().then(setCases); }} />
+          runId={runId} runName={(runs || []).find(r => r.id === runId)?.name || ''}
+          onSaved={(saved, approved) => {
+            setEditor(undefined);
+            toastOk(approved && runId ? `Approved and added to “${(runs || []).find(r => r.id === runId)?.name || 'the run'}”.` : 'Test case saved.');
+            api.qaCases().then(setCases);
+            if (approved && runId) loadResults();
+          }} />
       )}
       {newRunOpen && (
         <Modal title="New test run" onClose={() => setNewRunOpen(false)}>

@@ -453,7 +453,7 @@ def update_bug(bug_id: str, body: dict, user: dict = Depends(require_qa_write), 
     row = db.query(QaBugReport).filter(QaBugReport.id == bug_id).first()
     if not row:
         raise HTTPException(404, "Bug report not found")
-    if body.get("status") in ("new", "converted", "dismissed"):
+    if body.get("status") in ("new", "converted", "dismissed", "fixed", "verified"):
         row.status = body["status"]
     db.commit()
     return _bug_dict(row)
