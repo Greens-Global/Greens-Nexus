@@ -288,7 +288,7 @@ export default function RolesAccess({ embedded = false }) {
       {editGroup !== undefined && <GroupEditor group={editGroup} onClose={() => setEditGroup(undefined)}
         onSaved={g => { setEditGroup(undefined); toastOk(`Saved “${g.name}”.`); loadGroups(); }} onErr={toastErr} />}
       {assignFor && <AssignModal role={assignFor} onClose={() => setAssignFor(null)}
-        onDone={n => { setAssignFor(null); toastOk(`Assigned ${n} to “${assignFor.name}”.`); loadRoles(); }} onErr={toastErr} />}
+        onAssigned={n => { toastOk(`Assigned ${n} to “${assignFor.name}”.`); loadRoles(); }} onErr={toastErr} />}
 
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: toast.kind === 'error' ? 'hsl(var(--color-red))' : 'hsl(var(--color-green))', color: '#fff', borderRadius: 10, padding: '10px 18px', fontSize: 13, fontWeight: 600, zIndex: 1300, boxShadow: 'var(--shadow-lg)', maxWidth: '90vw' }}>{toast.m}</div>
@@ -419,37 +419,52 @@ function GroupEditor({ group, onClose, onSaved, onErr }) {
 }
 
 // ── assign modal ─────────────────────────────────────────────────────────────
-function AssignModal({ role, onClose, onDone, onErr }) {
+function AssignModal({ role, onClose, onAssigned, onErr }) {
   const [dir, setDir] = useState(null);
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState('');
+  // Everyone already on this role, plus anyone added during this sitting — so the
+  // dialog stays open and you can add several people in a row without reopening.
+  const [added, setAdded] = useState(() => new Set((role.members || []).map(e => (e || '').toLowerCase())));
   useEffect(() => { api.getRolesDirectory().then(setDir).catch(() => setDir([])); }, []);
 
   const people = useMemo(() => (dir || []).map(p => ({ email: (p.email || p.workEmail || '').toLowerCase(), name: p.display_name || p.name || p.fullName || p.email || p.workEmail || '' })).filter(p => p.email), [dir]);
   const filtered = people.filter(p => !q.trim() || p.name.toLowerCase().includes(q.toLowerCase()) || p.email.includes(q.toLowerCase()));
+  const addedThisSitting = [...added].filter(e => !(role.members || []).map(m => (m || '').toLowerCase()).includes(e)).length;
 
   async function assign(p) {
+    if (added.has(p.email) || busy) return;
     setBusy(p.email);
-    try { await api.assignJobRole(role.id, p.email); onDone(p.name || p.email); }
-    catch (e) { onErr(e?.message || 'Could not assign.'); setBusy(''); }
+    try { await api.assignJobRole(role.id, p.email); setAdded(s => new Set(s).add(p.email)); onAssigned(p.name || p.email); }
+    catch (e) { onErr(e?.message || 'Could not assign.'); }
+    setBusy('');
   }
 
   return (
     <Modal onClose={onClose} title={`Assign to “${role.name}”`}>
-      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>Sets this as their primary job role and their {ROLES[role.tier]?.label} tier. Extra groups they hold are kept.</div>
+      <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>Sets this as their primary job role and their {ROLES[role.tier]?.label} tier. Extra groups they hold are kept. Pick as many people as you like — this stays open until you close it.</div>
       <div style={{ position: 'relative', marginBottom: 10 }}>
         <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
         <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search people…" style={{ ...input, paddingLeft: 34 }} />
       </div>
       <div style={{ maxHeight: 340, overflow: 'auto' }}>
         {!dir ? <Spinner /> : filtered.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: 16, textAlign: 'center' }}>No matches.</div>
-          : filtered.slice(0, 60).map(p => (
-            <button key={p.email} onClick={() => assign(p)} disabled={!!busy}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', width: '100%', textAlign: 'left', marginBottom: 7, cursor: 'pointer' }}>
-              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.email}</div></div>
-              {busy === p.email ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : <ChevronRight size={15} style={{ color: 'var(--muted)' }} />}
-            </button>
-          ))}
+          : filtered.slice(0, 60).map(p => {
+            const isAdded = added.has(p.email);
+            return (
+              <button key={p.email} onClick={() => assign(p)} disabled={!!busy || isAdded}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: isAdded ? 'hsla(var(--color-green),0.07)' : 'var(--card)', width: '100%', textAlign: 'left', marginBottom: 7, cursor: isAdded ? 'default' : 'pointer', opacity: (busy && !isAdded && busy !== p.email) ? 0.6 : 1 }}>
+                <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.email}</div></div>
+                {busy === p.email ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} />
+                  : isAdded ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'hsl(var(--color-green))' }}><Check size={14} /> Added</span>
+                  : <ChevronRight size={15} style={{ color: 'var(--muted)' }} />}
+              </button>
+            );
+          })}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14 }}>
+        <span style={{ fontSize: 12.5, color: 'var(--muted)', flex: 1 }}>{addedThisSitting > 0 ? `Added ${addedThisSitting} ${addedThisSitting === 1 ? 'person' : 'people'} this time.` : ''}</span>
+        <button className="primary-btn" onClick={onClose}>Done</button>
       </div>
     </Modal>
   );
