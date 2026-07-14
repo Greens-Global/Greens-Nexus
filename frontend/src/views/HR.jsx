@@ -84,6 +84,23 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
   // Department options come from the SELECTED company — no company, no department.
   const [deptOptions, setDeptOptions] = useState([]);
   const [deptLoading, setDeptLoading] = useState(false);
+  // Inline "add a department" so an empty company list never dead-ends the form.
+  const [addingDept, setAddingDept] = useState(false);
+  const [newDeptName, setNewDeptName] = useState('');
+  const [deptSaving, setDeptSaving] = useState(false);
+  async function saveNewDept() {
+    const name = newDeptName.trim();
+    if (!name || deptSaving) return;
+    setDeptSaving(true);
+    try {
+      const list = await api.addCompanyDepartment(f.company, name);
+      setDeptOptions(list.map(d => d.name));
+      set('department', name);
+      setAddingDept(false); setNewDeptName('');
+    } catch (err) {
+      toastErr(err?.message || 'Could not add the department.');
+    } finally { setDeptSaving(false); }
+  }
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
   const setC = (k, v) => setF(prev => ({ ...prev, contractor: { ...(prev.contractor || {}), [k]: v } }));
   useEffect(() => {
@@ -156,16 +173,34 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
           {input('JOB TITLE', 'job_title')}
           <div>
             <label style={FL}>DEPARTMENT</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.department} disabled={!f.company}
-              onChange={e => set('department', e.target.value)}>
-              {!f.company
-                ? <option value="">— pick a company first —</option>
-                : <>
-                    <option value="">{deptLoading ? 'Loading…' : '— select —'}</option>
-                    {f.department && !deptOptions.includes(f.department) && <option value={f.department}>{f.department} (current)</option>}
-                    {deptOptions.map(d => <option key={d}>{d}</option>)}
-                  </>}
-            </select>
+            {addingDept ? (
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input className="form-input" style={{ flex: 1, minWidth: 0 }} autoFocus placeholder="New department name"
+                  value={newDeptName} onChange={e => setNewDeptName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveNewDept(); if (e.key === 'Escape') { setAddingDept(false); setNewDeptName(''); } }} />
+                <button className="primary-btn" onClick={saveNewDept} disabled={!newDeptName.trim() || deptSaving}
+                  style={{ padding: '0 12px', opacity: (!newDeptName.trim() || deptSaving) ? 0.6 : 1 }}>
+                  {deptSaving ? '…' : 'Add'}
+                </button>
+              </div>
+            ) : (
+              <select className="form-input" style={{ width: '100%' }} value={f.department} disabled={!f.company}
+                onChange={e => set('department', e.target.value)}>
+                {!f.company
+                  ? <option value="">— pick a company first —</option>
+                  : <>
+                      <option value="">{deptLoading ? 'Loading…' : (deptOptions.length ? '— select —' : '— none yet —')}</option>
+                      {f.department && !deptOptions.includes(f.department) && <option value={f.department}>{f.department} (current)</option>}
+                      {deptOptions.map(d => <option key={d}>{d}</option>)}
+                    </>}
+              </select>
+            )}
+            {!!f.company && !deptLoading && !addingDept && (
+              <button onClick={() => setAddingDept(true)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 5, fontSize: 11.5, fontWeight: 600, color: 'hsl(var(--color-green))' }}>
+                + Add a department to this company
+              </button>
+            )}
           </div>
           <div>
             <label style={FL}>EMPLOYMENT TYPE</label>

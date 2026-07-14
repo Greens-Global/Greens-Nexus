@@ -1564,7 +1564,11 @@ def _dept_key(s: str) -> str:
 
 
 def _is_primary_greens(e: HrEntity) -> bool:
-    return _dept_key(e.name) in ("greens", "greens global")
+    # Tolerate legal suffixes/punctuation: "Greens Global, Inc." must still match
+    # (an exact-string check here once left the primary entity unseeded — the Add
+    # Employee department dropdown came up empty and blocked the whole form).
+    key = re.sub(r"[^a-z ]", "", _dept_key(e.name)).strip()
+    return key == "greens" or key.startswith("greens global")
 
 
 def _ensure_departments(db: Session, entity: HrEntity) -> None:
