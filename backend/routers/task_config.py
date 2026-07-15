@@ -240,7 +240,7 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
             "status": t.status or "new", "priority": t.priority or "medium",
             "requesterId": _nz(t.requester_email), "assigneeId": _nz(t.assignee_email),
             "departmentId": _nz(t.department_id), "linkedTaskId": _nz(t.linked_task_id),
-            "tags": t.tags or [], "slaDueOn": _nz(t.sla_due_on), "resolvedAt": _nz(t.resolved_at),
+            "tags": t.tags or [], "images": t.images or [], "slaDueOn": _nz(t.sla_due_on), "resolvedAt": _nz(t.resolved_at),
             "createdAt": t.created_at or "", "modifiedAt": t.modified_at or ""}
 
 
@@ -256,6 +256,7 @@ class TicketBody(BaseModel):
     department_id: Optional[str] = ""
     linked_task_id: Optional[str] = ""
     tags: Optional[list] = None
+    images: Optional[list] = None
     sla_due_on: Optional[str] = ""
 
 
@@ -268,6 +269,7 @@ class TicketUpdate(BaseModel):
     department_id: Optional[str] = None
     linked_task_id: Optional[str] = None
     tags: Optional[list] = None
+    images: Optional[list] = None
     sla_due_on: Optional[str] = None
     resolved_at: Optional[str] = None
 
@@ -289,8 +291,8 @@ def create_ticket(body: TicketBody, user: dict = Depends(get_current_user), db: 
         description=body.description or "", status=body.status or "new", priority=body.priority or "medium",
         requester_email=(body.requester_email or user["email"]).lower(),
         assignee_email=(body.assignee_email or "").lower(), department_id=body.department_id or "",
-        linked_task_id=body.linked_task_id or "", tags=body.tags or [], sla_due_on=body.sla_due_on or "",
-        resolved_at="", created_at=now, modified_at=now,
+        linked_task_id=body.linked_task_id or "", tags=body.tags or [], images=body.images or [],
+        sla_due_on=body.sla_due_on or "", resolved_at="", created_at=now, modified_at=now,
     )
     db.add(t)
     db.commit()

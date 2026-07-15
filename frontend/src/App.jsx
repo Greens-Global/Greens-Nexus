@@ -337,7 +337,7 @@ export default function App() {
               prevLabel={navHistory.length > 0 ? viewLabel(navHistory[navHistory.length - 1].view) : null}
               onOpenAdmin={tab => { setAdminPanelTab(tab); setAdminPanelOpen(true); }}
             />
-            <div className="viewport">
+            <div className={activeView === 'tasks' ? 'viewport viewport-flush' : 'viewport'}>
               <ViewErrorBoundary resetKey={`${activeView}/${activeSub}`}>
               <Suspense fallback={
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>

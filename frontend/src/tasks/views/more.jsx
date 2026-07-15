@@ -6,17 +6,26 @@ import { Diamond, File, FileImage, FileText, Paperclip, Search, AlertTriangle, D
 import { api } from '../../api';
 import { NX, FONT, btn, input as inputStyle, STATUS_META } from '../theme';
 import { Avatar, EmptyState } from '../components';
+import { fmtDate } from '../lib';
 
 const DAY = 86400000;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const toISO = (d) => d.toISOString().slice(0, 10);
 const fromISO = (s) => new Date(s + 'T00:00:00');
 const addDays = (iso, n) => { const d = fromISO(iso); d.setDate(d.getDate() + n); return toISO(d); };
-const fmtDate = (iso) => { if (!iso) return ''; const d = new Date(iso.length <= 10 ? iso + 'T00:00:00' : iso); return isNaN(d) ? iso : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };
+
+
+// Initials from a display name or email (e.g. "Sagar Shoundik" → "SS").
+const initialsOf = (label = '') => {
+  const s = String(label).trim();
+  if (!s) return '';
+  const parts = s.includes('@') ? s.split('@')[0].split(/[._-]/) : s.split(/\s+/);
+  return parts.filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
+};
 
 // ── Timeline (gantt) ─────────────────────────────────────────────────────────
 const DAY_W = 26, ROW_H = 44, LABEL_W = 230;
-export function TimelineView({ tasks, onOpen }) {
+export function TimelineView({ tasks, onOpen, nameOf }) {
   const rows = useMemo(() => tasks.filter((t) => t.startOn || t.dueOn), [tasks]);
   const { start, totalDays } = useMemo(() => {
     const dates = rows.flatMap((t) => [t.startOn, t.dueOn].filter(Boolean));
@@ -36,6 +45,7 @@ export function TimelineView({ tasks, onOpen }) {
     const s = t.startOn || t.dueOn, e = t.dueOn || t.startOn;
     return { left: dayOffset(s) * DAY_W, width: Math.max(DAY_W, (dayOffset(e) - dayOffset(s) + 1) * DAY_W) };
   };
+  const rowOf = new Map(rows.map((t, i) => [t.id, i]));
   const weeks = [];
   for (let i = 0; i < totalDays; i += 7) { const d = fromISO(addDays(start, i)); weeks.push({ x: i * DAY_W, label: `${d.getDate()}`, month: d.getDate() <= 7 ? MONTHS[d.getMonth()] : '' }); }
   const todayX = dayOffset(toISO(new Date())) * DAY_W;
@@ -67,14 +77,33 @@ export function TimelineView({ tasks, onOpen }) {
           <div style={{ position: 'relative', width: gridW, height: gridH }}>
             {rows.map((_, i) => <div key={i} style={{ position: 'absolute', left: 0, right: 0, borderBottom: `1px solid ${NX.border2}`, top: (i + 1) * ROW_H - 1 }} />)}
             {todayX >= 0 && todayX <= gridW && <div style={{ position: 'absolute', top: 0, height: '100%', width: 2, background: `${NX.blue}99`, left: todayX }} />}
+            {/* Dependency arrows: blocker → blocked (elbow connector with arrowhead). */}
+            <svg style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} width={gridW} height={gridH}>
+              {rows.flatMap((t) => (t.blockedByIds || []).map((bid) => {
+                if (!rowOf.has(bid)) return null;
+                const from = rows[rowOf.get(bid)];
+                const fg = barGeom(from), tg = barGeom(t);
+                const x1 = fg.left + fg.width, y1 = rowOf.get(bid) * ROW_H + ROW_H / 2;
+                const x2 = tg.left, y2 = rowOf.get(t.id) * ROW_H + ROW_H / 2;
+                const midX = Math.max(x1 + 12, x2 - 12);
+                return (
+                  <g key={`${bid}-${t.id}`}>
+                    <path d={`M ${x1} ${y1} H ${midX} V ${y2} H ${x2}`} fill="none" stroke="#94a3b8" strokeWidth={1.5} />
+                    <path d={`M ${x2} ${y2} l -6 -4 l 0 8 z`} fill="#94a3b8" />
+                  </g>
+                );
+              }))}
+            </svg>
             {rows.map((t, i) => {
               const g = barGeom(t);
               const meta = STATUS_META[t.status] || { label: t.status, color: NX.dim };
               if (t.isMilestone) {
-                return <button key={t.id} onClick={() => onOpen(t.id)} title={t.title} style={{ position: 'absolute', left: g.left, top: i * ROW_H + 10, height: 24, border: 'none', background: 'transparent', cursor: 'pointer' }}><Diamond size={18} fill={meta.color} style={{ color: meta.color }} /></button>;
+                return <button key={t.id} onClick={() => onOpen(t.id)} title={t.title} style={{ position: 'absolute', left: g.left, top: i * ROW_H + 10, height: 24, border: 'none', background: 'transparent', cursor: 'pointer', zIndex: 1 }}><Diamond size={18} fill={meta.color} style={{ color: meta.color }} /></button>;
               }
+              const ini = t.assigneeId ? initialsOf(nameOf ? nameOf(t.assigneeId) : t.assigneeId) : '';
               return (
-                <button key={t.id} onClick={() => onOpen(t.id)} title={`${t.title} (${meta.label})`} style={{ position: 'absolute', left: g.left, width: g.width, top: i * ROW_H + 8, height: 28, display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: '0 8px', fontSize: 11, fontWeight: 600, color: '#fff', border: 'none', cursor: 'pointer', background: meta.color, overflow: 'hidden' }}>
+                <button key={t.id} onClick={() => onOpen(t.id)} title={`${t.title} (${meta.label})`} style={{ position: 'absolute', left: g.left, width: g.width, top: i * ROW_H + 8, height: 28, display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: '0 8px', fontSize: 11, fontWeight: 600, color: '#fff', border: 'none', cursor: 'pointer', background: meta.color, overflow: 'hidden', zIndex: 1 }}>
+                  {ini && <span style={{ flexShrink: 0, fontWeight: 700, opacity: 0.9 }}>{ini}</span>}
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.95 }}>{t.title}</span>
                 </button>
               );

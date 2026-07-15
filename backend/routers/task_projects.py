@@ -258,7 +258,8 @@ def raise_member_request(body: MemberRequestBody, user: dict = Depends(get_curre
     task_notify(db, kind="member_request", for_email="admins",
                 title="Department member request",
                 body=f"{user['email']} requested to {m.kind} {m.user_email} for {dept_name}",
-                department_id=body.department_id, request_id=m.id)
+                department_id=body.department_id, request_id=m.id,
+                nexus_action={"view": "tasks", "sub": "teams", "label": "Review request"})
     db.commit()
     db.refresh(m)
     return member_request_to_dict(m)
@@ -289,7 +290,8 @@ def decide_member_request(request_id: str, body: DecideBody, user: dict = Depend
     task_notify(db, kind=("request_approved" if m.status == "approved" else "request_rejected"),
                 for_email=m.requested_by, title=f"Member request {m.status}",
                 body=f"Your request to {m.kind} {m.user_email} was {m.status}.",
-                department_id=m.department_id, request_id=m.id)
+                department_id=m.department_id, request_id=m.id,
+                nexus_action={"view": "tasks", "sub": "teams", "label": "View team"})
     db.commit()
     db.refresh(m)
     return member_request_to_dict(m)

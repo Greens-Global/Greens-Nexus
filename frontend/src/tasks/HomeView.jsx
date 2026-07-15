@@ -5,8 +5,9 @@
 import { useMemo, useRef, useState } from 'react';
 import { MoreHorizontal, ChevronDown, ChevronRight, CheckCircle2, Users, LayoutGrid, Plus, Circle, CalendarDays, FolderKanban, Bell, ArrowUp, ArrowDown, X, Building2 } from 'lucide-react';
 import { useTasks } from './TasksContext';
+import { fmtDate } from './lib';
 import { NX, FONT, btn, card } from './theme';
-import { Avatar } from './components';
+import { Avatar, useClickOutside, useIsMobile } from './components';
 import TaskDetailDrawer from './TaskDetailDrawer';
 
 const WIDGET_META = [
@@ -23,7 +24,7 @@ const RANGES = [{ key: 'day', label: 'My day', days: 0 }, { key: 'week', label: 
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const addDays = (iso, n) => { const d = new Date(iso); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
-const fmtUS = (iso) => { if (!iso) return ''; const d = new Date(iso + 'T00:00:00'); return isNaN(d) ? iso : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
+const fmtUS = (iso) => fmtDate(iso);
 const dueColor = (iso, done) => { if (!iso || done) return NX.faint; const t = todayISO(); return iso < t ? NX.red : iso === t ? NX.amber : NX.dim; };
 
 export default function HomeView({ onNavigate }) {
@@ -37,7 +38,10 @@ export default function HomeView({ onNavigate }) {
   const [newDue, setNewDue] = useState(null);
   const [openId, setOpenId] = useState(null);
   const [customizing, setCustomizing] = useState(false);
+  const isMobile = useIsMobile();
   const dateRef = useRef(null);
+  const rangeRef = useRef(null);
+  useClickOutside(rangeRef, () => setRangeOpen(false), rangeOpen);
   const [widgets, setWidgets] = useState(() => {
     try { const raw = JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null'); if (Array.isArray(raw) && raw.length) return raw.filter((k) => WIDGET_META.some((w) => w.key === k)); } catch { /* */ }
     return DEFAULT_LAYOUT;
@@ -71,14 +75,14 @@ export default function HomeView({ onNavigate }) {
   const renderWidget = (key) => {
     if (key === 'my_tasks') return widgetBox(
       <>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Avatar email={myEmail} name={nameOf(myEmail)} size={38} />
             <button onClick={() => onNavigate('mine')} style={{ ...btn('ghost'), padding: 0, fontSize: 16, fontWeight: 700, color: NX.ink }}>My tasks</button>
           </div>
           {moreBtn(() => onNavigate('mine'))}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, borderBottom: `1px solid ${NX.border}`, marginBottom: 10, fontSize: 13, fontWeight: 600 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, borderBottom: `1px solid ${NX.border}`, marginBottom: 10, fontSize: 13, fontWeight: 600, flexWrap: 'wrap' }}>
           {TABS.map((t) => (
             <button key={t} onClick={() => setTab(t)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', paddingBottom: 8, borderBottom: `2px solid ${tab === t ? NX.ink : 'transparent'}`, color: tab === t ? NX.ink : NX.dim, fontFamily: FONT, fontWeight: 600 }}>
               {t}{t === 'Overdue' && overdue.length > 0 ? ` (${overdue.length})` : ''}
@@ -192,27 +196,32 @@ export default function HomeView({ onNavigate }) {
   };
 
   return (
-    <div style={{ padding: 24, fontFamily: FONT, color: NX.ink }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'flex-end', gap: 12, marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ position: 'relative' }} onMouseLeave={() => setRangeOpen(false)}>
-            <button onClick={() => setRangeOpen((o) => !o)} style={{ ...btn('outline') }}>{rangeDef.label} <ChevronDown size={14} style={{ color: NX.faint }} /></button>
+    <div className="nx-page" style={{ padding: 24, fontFamily: FONT, color: NX.ink, height: '100%', overflow: 'auto' }}>
+      {/* Desktop: one row (range · stats · Customize). Mobile: the range button
+          takes the full first line so stats + Customize wrap onto a second line. */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'flex-end', gap: 12, marginBottom: isMobile ? 12 : 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: isMobile ? 'wrap' : 'nowrap', width: isMobile ? '100%' : 'auto', overflowX: 'visible' }}>
+          <div ref={rangeRef} style={{ position: 'relative', flexBasis: isMobile ? '100%' : 'auto' }}>
+            <button onClick={() => setRangeOpen((o) => !o)} style={{ ...btn('outline'), whiteSpace: 'nowrap' }}>{rangeDef.label} <ChevronDown size={14} style={{ color: NX.faint }} /></button>
             {rangeOpen && (
               <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, width: 150, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 40, padding: 4 }}>
                 {RANGES.map((r) => <button key={r.key} onClick={() => { setRange(r.key); setRangeOpen(false); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', color: range === r.key ? NX.blue : NX.ink }}>{r.label}</button>)}
               </div>
             )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, border: `1px solid ${NX.border}`, borderRadius: 8, padding: '8px 12px', fontSize: 13, color: NX.dim }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><CheckCircle2 size={14} style={{ color: NX.green }} /> {completed.length} tasks completed</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, flexShrink: 0, whiteSpace: 'nowrap', border: `1px solid ${NX.border}`, borderRadius: 8, padding: isMobile ? '6px 9px' : '8px 12px', fontSize: isMobile ? 12 : 13, color: NX.dim }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><CheckCircle2 size={14} style={{ color: NX.green }} /> {completed.length}{isMobile ? '' : ' tasks'} completed</span>
             <span style={{ width: 1, height: 16, background: NX.border }} />
             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Users size={14} /> {collaborators} collaborator{collaborators === 1 ? '' : 's'}</span>
           </div>
-          <button onClick={() => setCustomizing(true)} style={{ ...btn('primary') }}><LayoutGrid size={14} /> Customize</button>
+          <button onClick={() => setCustomizing(true)} title="Customize" style={{ ...btn('primary'), flexShrink: 0, padding: isMobile ? 7 : undefined }}><LayoutGrid size={14} />{!isMobile && ' Customize'}</button>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16, alignItems: 'start' }}>
+      {/* min(340px, 100%) so a column can never be wider than the viewport —
+          a bare 340px minimum overflows narrow phones and leaves the cards
+          floating short of the screen edge. */}
+      <div className="nx-card-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(340px, 100%), 1fr))', gap: 16, alignItems: 'start' }}>
         {widgets.map((key) => <div key={key} style={{ minWidth: 0 }}>{renderWidget(key)}</div>)}
       </div>
 

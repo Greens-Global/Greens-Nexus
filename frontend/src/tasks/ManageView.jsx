@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
   BarChart3, Download, X, CheckCircle2, Flag, ArrowRightLeft, User, Calendar, MessageSquare,
-  Circle, Palette,
+  Circle, Palette, Users,
 } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { api } from '../api';
@@ -15,7 +15,8 @@ import {
   STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER, colorForKey,
 } from './theme';
 import { Avatar, EmptyState, Modal } from './components';
-import { taskStats, topLevel } from './lib';
+import { taskStats, topLevel, fmtDateTime } from './lib';
+import { DeptModal, deptIcon } from './TeamsView';
 
 // ── Small shared bits ─────────────────────────────────────────────────────────
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
@@ -57,6 +58,7 @@ const SWATCHES = [NX.blue, NX.green, NX.amber, NX.red, NX.purple, NX.teal, NX.pi
 
 // ── Sub-tabs registry ─────────────────────────────────────────────────────────
 const SUBTABS = [
+  { key: 'departments', label: 'Departments', icon: Users },
   { key: 'rules', label: 'Automation rules', icon: Zap },
   { key: 'fields', label: 'Custom fields', icon: ListChecks },
   { key: 'statuses', label: 'Custom statuses', icon: Palette },
@@ -91,6 +93,7 @@ export default function ManageView() {
       {/* Body */}
       <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.surface2, padding: 20 }}>
         <div style={{ maxWidth: 940, margin: '0 auto' }}>
+          {tab === 'departments' && <DepartmentsTab store={store} />}
           {tab === 'rules' && <RulesTab store={store} />}
           {tab === 'fields' && <FieldsTab store={store} />}
           {tab === 'statuses' && <StatusesTab store={store} />}
@@ -100,6 +103,55 @@ export default function ManageView() {
           {tab === 'reporting' && <ReportingTab store={store} />}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── 0. Departments — creation lives here (Manage-only); Teams page browses/edits ──
+function DepartmentsTab({ store }) {
+  const { departments, tasks, nameOf, deleteDepartment } = store;
+  const [editing, setEditing] = useState(null); // {} for new, dept object to edit, null closed
+
+  const taskCountByDept = useMemo(() => {
+    const m = {};
+    for (const t of tasks) if (t.departmentId) m[t.departmentId] = (m[t.departmentId] || 0) + 1;
+    return m;
+  }, [tasks]);
+
+  return (
+    <div>
+      <SectionHead title="Departments" hint="Create and manage the departments teams are grouped into."
+        action={<button style={btn('primary')} onClick={() => setEditing({})}><Plus size={15} />New department</button>} />
+
+      {departments.length === 0 ? (
+        <EmptyState icon={Users} title="No departments yet" hint="Create a department to group members and their work." />
+      ) : (
+        departments.map((d) => {
+          const Icon = deptIcon(d.icon);
+          const color = d.color || NX.blue;
+          const members = d.memberIds || [];
+          return (
+            <RowCard key={d.id}>
+              <span style={{ ...iconBadge, background: `${color}1a`, color }}><Icon size={16} /></span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: NX.ink }}>{d.name}</div>
+                <div style={{ fontSize: 12, color: NX.faint, marginTop: 1 }}>
+                  {members.length} member{members.length === 1 ? '' : 's'} · {taskCountByDept[d.id] || 0} task{(taskCountByDept[d.id] || 0) === 1 ? '' : 's'}
+                </div>
+              </div>
+              <IconButton icon={Pencil} title="Edit department" onClick={() => setEditing(d)} />
+            </RowCard>
+          );
+        })
+      )}
+
+      {editing && (
+        <DeptModal
+          dept={editing.id ? editing : null}
+          onClose={() => setEditing(null)}
+          onDelete={editing.id ? () => { if (confirm(`Delete "${editing.name}"? This can't be undone.`)) { deleteDepartment(editing.id); setEditing(null); } } : null}
+        />
+      )}
     </div>
   );
 }
@@ -273,6 +325,7 @@ const FIELD_TYPES = [
   { value: 'number', label: 'Number' },
   { value: 'date', label: 'Date' },
   { value: 'select', label: 'Select' },
+  { value: 'checkbox', label: 'Checkbox' },
 ];
 
 function FieldsTab({ store }) {
@@ -604,7 +657,7 @@ function ActivityTab({ store }) {
           {sorted.map((e) => {
             const Icon = e.entityKind === 'project' ? FileText : (ACTIVITY_ICON[e.type] || Circle);
             const actor = e.actorId ? nameOf(e.actorId) : 'Someone';
-            const when = e.at ? new Date(e.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+            const when = fmtDateTime(e.at);
             return (
               <div key={e.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 11, padding: '9px 10px', borderRadius: 8 }}>
                 {e.actorId
@@ -719,7 +772,7 @@ function ReportingTab({ store }) {
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: 12 }}>
         <ReportCard title="Tasks by status"><BarRows data={byStatus} /></ReportCard>
         <ReportCard title="Tasks by priority"><BarRows data={byPriority} /></ReportCard>
         <ReportCard title="Tasks by project"><BarRows data={byProject} /></ReportCard>

@@ -6,7 +6,7 @@ import { useRef, useState } from 'react';
 import { Plus, X, Paperclip, ListChecks, CircleCheck, Save } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { Modal, PersonSelect, usePeople } from './components';
+import { Modal, PersonSelect, usePeople, DateField } from './components';
 import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORITY_ORDER } from './theme';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -16,7 +16,7 @@ const MAX_INLINE = 2 * 1024 * 1024;
 
 export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
   const store = useTasks();
-  const { createTask, updateTask, deleteTask, tasks, projects, departments, projectById } = store;
+  const { createTask, updateTask, deleteTask, tasks, projects, departments, projectById, myEmail } = store;
   const people = usePeople();
   const fileRef = useRef(null);
   const editing = taskId ? store.taskById[taskId] : null;
@@ -24,7 +24,9 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
 
   const [form, setForm] = useState(() => ({
     title: editing?.title ?? '', description: editing?.description ?? '',
-    assigneeId: editing?.assigneeId ?? defaults.assigneeId ?? null,
+    // New tasks default to the creator; editing keeps whatever the task has
+    // (an unassigned task must stay unassigned).
+    assigneeId: editing ? (editing.assigneeId ?? null) : (defaults.assigneeId ?? myEmail ?? null),
     priority: editing?.priority ?? 'medium', status: editing?.status ?? 'not_started',
     projectId: editing?.projectId ?? defaults.projectId ?? '', departmentId: editing?.departmentId ?? defaults.departmentId ?? '',
     dueOn: editing?.dueOn ?? '', estimate: editing?.estimateHours != null ? String(editing.estimateHours) : '',
@@ -130,7 +132,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
           </div>
           <div style={field}>
             <label style={label}>Due date</label>
-            <input type="date" value={form.dueOn} onChange={(e) => set('dueOn', e.target.value)} style={input} />
+            <DateField value={form.dueOn} onChange={(v) => set('dueOn', v || '')} placeholder="Pick a date" style={input} />
           </div>
           <div style={field}>
             <label style={label}>Estimated hours</label>

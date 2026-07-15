@@ -1541,6 +1541,7 @@ class TaskTicket(Base):
     department_id  = Column(String, default="", index=True)
     linked_task_id = Column(String, default="")
     tags           = Column(JSON, default=list)
+    images         = Column(JSON, default=list)   # screenshot data URLs / storage links
     sla_due_on     = Column(String, default="")
     resolved_at    = Column(String, default="")
     created_at     = Column(String, default="")

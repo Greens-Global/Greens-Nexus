@@ -113,3 +113,31 @@ export function taskStats(list) {
   const overdue = list.filter((t) => t.dueOn && t.dueOn < todayISO() && !t.completed).length;
   return { total, completed, inProgress, overdue, pct: total ? Math.round((completed / total) * 100) : 0 };
 }
+
+// ── Dates ────────────────────────────────────────────────────────────────────
+// One date format for the whole module: mm/dd/yyyy. The views previously each
+// rolled their own (`Jul 15`, `15 July 2026`, locale default…), so a task's due
+// date read differently depending on which screen you were looking at.
+// `en-US` is pinned explicitly — the browser locale must not decide this.
+const asDate = (v) => {
+  if (!v) return null;
+  const d = new Date(typeof v === 'string' && v.length <= 10 ? `${v}T00:00:00` : v);
+  return isNaN(d) ? null : d;
+};
+
+/** mm/dd/yyyy — e.g. 07/15/2026. Returns '' for empty, the raw value if unparseable. */
+export function fmtDate(v) {
+  const d = asDate(v);
+  if (!d) return v || '';
+  return d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+}
+
+/** mm/dd/yyyy, h:mm AM — for activity/comment timestamps. */
+export function fmtDateTime(v) {
+  const d = asDate(v);
+  if (!d) return v || '';
+  return d.toLocaleString('en-US', {
+    month: '2-digit', day: '2-digit', year: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  });
+}

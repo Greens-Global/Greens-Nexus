@@ -2,10 +2,13 @@
 
 Mirrors the conventions in routers/items.py: ISO-string timestamps, snake→camel
 serialisers, a fire-and-forget Supabase realtime ping (task_events, anon-readable
-so it carries no sensitive payload), and server-side notifications. The module has
-its OWN in-app bell backed by `task_notifications` (parity with the export), so
-notifications here write TaskNotification rows rather than NexusNotification.
+so it carries no sensitive payload), and server-side notifications. The module
+has its OWN in-app bell backed by `task_notifications` (parity with the export),
+and `task_notify` also mirrors each notification into the shared Nexus bell
+(`nexus_notifications`, the same table items.py writes to) so task/ticket
+events show up in the global bell in TopHeader, not just inside the module.
 """
+import json
 import os
 import threading
 import uuid
@@ -14,7 +17,7 @@ from datetime import datetime, timezone
 import httpx
 from sqlalchemy.orm import Session
 
-from models import TaskNotification, TaskActivity, NexusRole
+from models import TaskNotification, TaskActivity, NexusRole, NexusNotification
 
 _SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
@@ -58,10 +61,17 @@ def fire_task_event(task_id: str = "", kind: str = "") -> None:
 
 # ── Notifications (module's own bell → task_notifications) ───────────────────
 def task_notify(db: Session, *, kind: str, for_email: str, title: str, body: str = "",
-                task_id: str = "", department_id: str = "", request_id: str = "") -> None:
+                task_id: str = "", department_id: str = "", request_id: str = "",
+                nexus_action: dict | None = None) -> None:
     """Create one in-app notification. `for_email` is a specific address or the
     literal "admins" to fan out to every administrator (resolved client-side).
-    Server-side only — employees can't POST notifications directly."""
+    Server-side only — employees can't POST notifications directly.
+
+    Also mirrors into the shared Nexus bell (nexus_notifications) so the same
+    event surfaces in TopHeader's global bell, not just the module's own one.
+    `nexus_action`, if given, is `{"view": ..., "sub": ..., "label": ...}` —
+    NotificationBell's default click handler dispatches nexus:navigate to it.
+    """
     target = for_email if for_email == "admins" else (for_email or "").lower()
     if not target:
         return
@@ -70,6 +80,15 @@ def task_notify(db: Session, *, kind: str, for_email: str, title: str, body: str
         request_id=request_id, department_id=department_id, task_id=task_id,
         read=False, created_at=now_iso(),
     ))
+    recipients = admin_emails(db) if target == "admins" else [target]
+    action_json = json.dumps(nexus_action) if nexus_action else ""
+    now = now_iso()
+    for recipient in recipients:
+        db.add(NexusNotification(
+            id=gen_id(), type=f"task_{kind}", recipient=recipient, title=title, body=body,
+            ref_id=task_id or request_id, item_name="", requested_by="", action=action_json,
+            actioned=False, read_by="", created_at=now,
+        ))
 
 
 # ── Activity feed ────────────────────────────────────────────────────────────

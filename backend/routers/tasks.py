@@ -233,7 +233,8 @@ def create_task(body: TaskCreate, user: dict = Depends(get_current_user), db: Se
     if t.assignee_email and t.assignee_email != user["email"].lower():
         task_notify(db, kind="task_assigned", for_email=t.assignee_email,
                     title="You were assigned a task",
-                    body=f"{t.code} · {t.title}", task_id=tid)
+                    body=f"{t.code} · {t.title}", task_id=tid,
+                    nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     db.commit()
     db.refresh(t)
     fire_task_event(tid, "created")
@@ -285,7 +286,8 @@ def update_task(task_id: str, upd: TaskUpdate, user: dict = Depends(get_current_
         if new_assignee and new_assignee != user["email"].lower():
             task_notify(db, kind="task_assigned", for_email=new_assignee,
                         title="You were assigned a task",
-                        body=f"{t.code} · {t.title}", task_id=t.id)
+                        body=f"{t.code} · {t.title}", task_id=t.id,
+                        nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     if t.completed and not prev_completed:
         acts.append(log_activity(db, type="completed", actor_email=user["email"],
                                  entity_id=t.id, entity_code=t.code, entity_title=t.title,
@@ -393,7 +395,8 @@ def add_comment(task_id: str, body: CommentCreate, user: dict = Depends(get_curr
     for who in set([(t.assignee_email or "").lower(), *[(e or "").lower() for e in (t.follower_emails or [])]]):
         if who and who != author:
             task_notify(db, kind="task_activity", for_email=who,
-                        title="New comment on a task", body=f"{t.code} · {t.title}", task_id=task_id)
+                        title="New comment on a task", body=f"{t.code} · {t.title}", task_id=task_id,
+                        nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     db.commit()
     db.refresh(c)
     fire_task_event(task_id, "comment")
@@ -453,6 +456,10 @@ def add_attachment(task_id: str, body: AttachmentCreate, user: dict = Depends(ge
                               added_at=now_iso(), added_by=user["email"])
     db.add(a)
     t.attachment_ids = list(t.attachment_ids or []) + [aid]
+    act = log_activity(db, type="attached", actor_email=user["email"], entity_id=task_id,
+                       entity_code=t.code, entity_title=t.title,
+                       detail=f'attached "{a.name}"')
+    t.activity_ids = list(t.activity_ids or []) + [act]
     db.commit()
     db.refresh(a)
     fire_task_event(task_id, "attachment")
@@ -460,13 +467,18 @@ def add_attachment(task_id: str, body: AttachmentCreate, user: dict = Depends(ge
 
 
 @router.delete("/attachments/{attachment_id}", status_code=204)
-def delete_attachment(attachment_id: str, db: Session = Depends(get_db)):
+def delete_attachment(attachment_id: str, user: dict = Depends(get_current_user),
+                      db: Session = Depends(get_db)):
     a = db.query(models.TaskAttachment).filter(models.TaskAttachment.id == attachment_id).first()
     if not a:
         raise HTTPException(404, "Attachment not found")
     t = db.query(models.Task).filter(models.Task.id == a.task_id).first()
     if t:
         t.attachment_ids = [x for x in (t.attachment_ids or []) if x != attachment_id]
+        act = log_activity(db, type="attachment_removed", actor_email=user["email"], entity_id=t.id,
+                           entity_code=t.code, entity_title=t.title,
+                           detail=f'removed attachment "{a.name}"')
+        t.activity_ids = list(t.activity_ids or []) + [act]
     db.delete(a)
     db.commit()
     fire_task_event(a.task_id, "attachment")

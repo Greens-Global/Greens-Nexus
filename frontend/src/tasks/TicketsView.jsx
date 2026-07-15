@@ -5,29 +5,26 @@
 import { useMemo, useState } from 'react';
 import { Ticket, Plus, Search, Link2, Trash2, CheckCircle2, Clock } from 'lucide-react';
 import { useTasks } from './TasksContext';
+import { fmtDate as fmtDateRaw } from './lib';
+
+const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '—');
 import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from './theme';
-import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople } from './components';
+import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateField } from './components';
 
 // ── Ticket status metadata (sentence-case labels; NX colours) ────────────────
 const TICKET_STATUS_META = {
-  new:         { label: 'New',         color: NX.blue,   tint: '#e0eafe' },
-  open:        { label: 'Open',        color: NX.purple, tint: '#efe7fd' },
-  in_progress: { label: 'In progress', color: NX.amber,  tint: '#fdefd7' },
+  new:         { label: 'New',         color: NX.blue,   tint: 'rgba(37,99,235,0.15)' },
+  open:        { label: 'Open',        color: NX.purple, tint: 'rgba(124,58,237,0.15)' },
+  in_progress: { label: 'In progress', color: NX.amber,  tint: 'rgba(217,119,6,0.16)' },
   on_hold:     { label: 'On hold',     color: NX.dim,    tint: NX.border2 },
-  resolved:    { label: 'Resolved',    color: NX.green,  tint: '#e3f5ea' },
+  resolved:    { label: 'Resolved',    color: NX.green,  tint: 'rgba(22,163,74,0.15)' },
   closed:      { label: 'Closed',      color: NX.faint,  tint: NX.border2 },
-  reopened:    { label: 'Reopened',    color: NX.red,    tint: '#fde5e5' },
+  reopened:    { label: 'Reopened',    color: NX.red,    tint: 'rgba(220,38,38,0.15)' },
 };
 const TICKET_STATUS_ORDER = ['new', 'open', 'in_progress', 'on_hold', 'resolved', 'closed', 'reopened'];
 const CLOSED_STATES = ['resolved', 'closed'];
 
 const today = () => new Date().toISOString().slice(0, 10);
-function fmtDate(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso.length <= 10 ? iso + 'T00:00:00' : iso);
-  if (isNaN(d)) return iso;
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
 
 function TicketStatusChip({ status }) {
   const m = TICKET_STATUS_META[status] || { label: status, color: NX.dim, tint: NX.border2 };
@@ -81,11 +78,11 @@ export default function TicketsView() {
       </div>
 
       {/* Body */}
-      <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.surface }}>
+      <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, padding: 16 }}>
         {visible.length === 0 ? (
           <EmptyState icon={Ticket} title="No tickets" hint={tickets.length ? 'No tickets match your filters.' : 'Raise a ticket to get started.'} />
         ) : (
-          <div>
+          <div style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, overflow: 'hidden' }}>
             {visible.map((t) => (
               <TicketRow key={t.id} t={t} nameOf={nameOf} deptName={deptName} onOpen={() => setOpenId(t.id)} />
             ))}
@@ -140,7 +137,7 @@ function TicketRow({ t, nameOf, deptName, onOpen }) {
 }
 
 // ── Create ───────────────────────────────────────────────────────────────────
-function CreateTicketModal({ onClose }) {
+export function CreateTicketModal({ onClose }) {
   const { createTicket, departments, myEmail } = useTasks();
   const people = usePeople();
   const [form, setForm] = useState({
@@ -205,7 +202,7 @@ function CreateTicketModal({ onClose }) {
         </div>
         <div style={field}>
           <label style={label}>SLA due date</label>
-          <input type="date" value={form.slaDueOn} onChange={(e) => set('slaDueOn', e.target.value)} style={inputStyle} />
+          <DateField value={form.slaDueOn} onChange={(v) => set('slaDueOn', v || '')} placeholder="Pick a date" style={inputStyle} />
         </div>
         <div style={field}>
           <label style={label}>Tags</label>
@@ -246,6 +243,15 @@ function TicketDrawer({ ticketId, onClose }) {
       <div style={{ marginBottom: 6 }}>
         <div style={{ fontSize: 16, fontWeight: 700, color: NX.ink }}>{t.subject}</div>
         {t.description && <p style={{ margin: '6px 0 0', fontSize: 13, color: NX.dim, whiteSpace: 'pre-wrap' }}>{t.description}</p>}
+        {(t.images || []).length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+            {t.images.map((url, i) => (
+              <a key={i} href={url} target="_blank" rel="noreferrer" title="Open full size" style={{ display: 'block', width: 72, height: 72, borderRadius: 8, overflow: 'hidden', border: `1px solid ${NX.border}` }}>
+                <img src={url} alt={`Screenshot ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              </a>
+            ))}
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '12px 0 16px' }}>
@@ -286,8 +292,8 @@ function TicketDrawer({ ticketId, onClose }) {
         </div>
         <div style={field}>
           <label style={label}>SLA due date</label>
-          <input type="date" value={t.slaDueOn || ''} onChange={(e) => patch({ slaDueOn: e.target.value || '' })}
-            style={{ ...inputStyle, ...(overdue ? { color: NX.red, fontWeight: 700 } : {}) }} />
+          <DateField value={t.slaDueOn || ''} onChange={(v) => patch({ slaDueOn: v || '' })} color={overdue ? NX.red : undefined}
+            style={{ ...inputStyle, ...(overdue ? { fontWeight: 700 } : {}) }} />
         </div>
       </div>
 

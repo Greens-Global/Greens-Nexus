@@ -3,7 +3,7 @@
 // Properties). Ported from the export's features/task-detail/* (24 files) into a
 // single consolidated file matching this module's inline-style idiom, wired to
 // the real TasksContext store + api.js instead of the export's mocked Zustand store.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ArrowLeft, ArrowRightToLine, CheckCircle2, Circle, ChevronDown, ChevronRight,
@@ -13,18 +13,16 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
+import { fmtDate as fmtDateRaw, fmtDateTime } from './lib';
+
+// Drawer shows an em-dash for an unset date rather than an empty cell.
+const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '—');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
-import { Avatar, PersonSelect, usePeople } from './components';
+import { Avatar, PersonSelect, usePeople, useIsMobile, DateField } from './components';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-function fmtDate(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso.length <= 10 ? iso + 'T00:00:00' : iso);
-  if (isNaN(d)) return iso;
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
 function recurrenceLabel(r) {
   if (!r || !r.freq) return 'Does not repeat';
   if (r.freq === 'daily') return 'Every day';
@@ -60,9 +58,14 @@ function Chip({ color, tint, children }) {
   );
 }
 // Lightweight popover anchored under its trigger; closes on outside click / Esc.
+// Opens left-aligned, but flips to right-aligned when that would run past the
+// viewport's right edge — a trigger near the edge (the header's "more actions")
+// otherwise pushes the panel off-screen, which is unreachable on a phone.
 function Pop({ trigger, children, width = 200 }) {
   const [open, setOpen] = useState(false);
+  const [flip, setFlip] = useState(false);
   const ref = useRef(null);
+  const panelRef = useRef(null);
   useEffect(() => {
     if (!open) return;
     const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
@@ -71,11 +74,17 @@ function Pop({ trigger, children, width = 200 }) {
     document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
   }, [open]);
+  useLayoutEffect(() => {
+    if (!open) { setFlip(false); return; }
+    const el = panelRef.current;
+    if (!el) return;
+    setFlip(el.getBoundingClientRect().right > window.innerWidth - 8);
+  }, [open]);
   return (
     <div ref={ref} style={{ position: 'relative', display: 'inline-flex' }}>
       {trigger(() => setOpen((o) => !o))}
       {open && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, width, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 60, padding: 4, maxHeight: 300, overflowY: 'auto' }}>
+        <div ref={panelRef} style={{ position: 'absolute', top: '100%', left: flip ? 'auto' : 0, right: flip ? 0 : 'auto', marginTop: 4, width, maxWidth: 'calc(100vw - 16px)', background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 60, padding: 4, maxHeight: 300, overflowY: 'auto' }}>
           {children(() => setOpen(false))}
         </div>
       )}
@@ -124,6 +133,11 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
   const expanded = width >= maxW - 2;
   const toggleExpand = () => setWidth(expanded ? Math.round(maxW * 0.6) : maxW);
 
+  // On a phone the drawer is always full-bleed: there's no room for a 60%
+  // drawer, so the expand/collapse toggle and the drag-to-resize handle are
+  // both dropped and the saved width is ignored.
+  const isMobile = useIsMobile();
+
   // Derive relations from the live task list (robust against optimistic updates).
   const subtasks = useMemo(() => tasks.filter((t) => t.parentTaskId === activeId), [tasks, activeId]);
   const blockedBy = useMemo(() => (task?.blockedByIds || []).map((id) => taskById[id]).filter(Boolean), [task, taskById]);
@@ -159,32 +173,63 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
     ['overview', 'Overview'], ['comments', 'Comments'], ['activity', 'Activity'],
     ['attachments', 'Attachments'], ['subtasks', 'Subtasks'], ['dependencies', 'Dependencies'], ['properties', 'Properties'],
   ];
+  // Phones stack Overview (which already contains its own Attachments block)
+  // and then the Comments|All-activity block. Attachments is NOT repeated here,
+  // and Subtasks/Dependencies/Properties are left off the phone layout.
+  const MOBILE_SECTIONS = ['overview'];
+
+  const paneFor = (key) => {
+    switch (key) {
+      case 'overview': return (
+        <OverviewTab
+          task={task} patch={patch} people={people} projectName={projectName} deptName={deptName}
+          blockedBy={blockedBy} depCandidates={depCandidates} addDependency={addDependency} removeDependency={removeDependency}
+          subtasks={subtasks} createTask={createTask} updateTask={updateTask} onOpenSub={setActiveId}
+          nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} refresh={store.refresh}
+        />
+      );
+      case 'comments':     return <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} />;
+      case 'activity':     return <ActivityTab taskId={activeId} nameOf={nameOf} />;
+      case 'attachments':  return <AttachmentsTab task={task} refresh={store.refresh} />;
+      case 'subtasks':     return <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={setActiveId} />;
+      case 'dependencies': return <DependenciesTab blockedBy={blockedBy} blocking={blocking} task={task} removeDependency={removeDependency} />;
+      case 'properties':   return <PropertiesTab task={task} nameOf={nameOf} projectName={projectName} deptName={deptName} customFields={customFields} patch={patch} />;
+      default:             return null;
+    }
+  };
 
   return createPortal(
-    <div onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{ position: 'fixed', inset: 0, zIndex: 3500, fontFamily: FONT }}>
-      <aside style={{ position: 'absolute', right: 0, top: 0, height: '100%', width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
+    <div className="nx-tasks-portal" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{ position: 'fixed', inset: 0, zIndex: 3500, fontFamily: FONT }}>
+      <aside style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
         {/* drag handle */}
-        <div onMouseDown={() => { dragging.current = true; document.body.style.userSelect = 'none'; }} title="Drag to resize" style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: 6, cursor: 'ew-resize', zIndex: 5 }} />
+        {!isMobile && (
+          <div onMouseDown={() => { dragging.current = true; document.body.style.userSelect = 'none'; }} title="Drag to resize" style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: 6, cursor: 'ew-resize', zIndex: 5 }} />
+        )}
 
         {/* header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: `1px solid ${NX.border}`, flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button onClick={() => store.toggleComplete(task)} style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: task.completed ? NX.green : NX.dim }}>
+            {/* On a phone this collapses to its circle-check icon — the label is
+                the widest thing in the header and crowds out the actions. */}
+            <button onClick={() => store.toggleComplete(task)} title={task.completed ? 'Completed' : 'Mark complete'}
+              style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: task.completed ? NX.green : NX.dim }}>
               {task.completed ? <CheckCircle2 size={15} style={{ color: NX.green }} /> : <Circle size={15} />}
-              {task.completed ? 'Completed' : 'Mark complete'}
+              {!isMobile && (task.completed ? 'Completed' : 'Mark complete')}
             </button>
             <span style={{ fontSize: 11, fontWeight: 700, color: NX.faint }}>{task.code}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <MembersMenu task={task} people={people} nameOf={nameOf} patch={patch} />
-            <button onClick={() => setShareOpen(true)} style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.dim }}><Share2 size={14} /> Share</button>
+            <button onClick={() => setShareOpen(true)} title="Share" style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.dim }}><Share2 size={14} /> Share</button>
             <button onClick={() => patch({ likedByIds: liked ? task.likedByIds.filter((e) => e !== myEmail) : [...(task.likedByIds || []), myEmail] })} title={liked ? 'Unlike' : 'Like'} style={{ ...btn('ghost'), padding: 7, color: liked ? NX.blue : NX.faint }}>
               <ThumbsUp size={16} fill={liked ? 'currentColor' : 'none'} />
             </button>
             <button onClick={() => { navigator.clipboard?.writeText(`${window.location.origin}${window.location.pathname}?task=${task.id}`); }} title="Copy task link" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><Link2 size={16} /></button>
-            <button onClick={toggleExpand} title={expanded ? 'Collapse' : 'Expand'} style={{ ...btn('ghost'), padding: 7, color: NX.faint }}>
-              {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-            </button>
+            {!isMobile && (
+              <button onClick={toggleExpand} title={expanded ? 'Collapse' : 'Expand'} style={{ ...btn('ghost'), padding: 7, color: NX.faint }}>
+                {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              </button>
+            )}
             <Pop width={210} trigger={(t) => <button onClick={t} title="More actions" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><MoreHorizontal size={16} /></button>}>
               {(close) => (
                 <>
@@ -210,39 +255,51 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
             )}
             <TitleInput key={activeId} value={task.title} completed={task.completed} onCommit={(v) => v.trim() && v !== task.title && patch({ title: v.trim() })} />
           </div>
-          <div className="scroll-tabs" style={{ display: 'flex', gap: 2, borderBottom: `1px solid ${NX.border}`, overflowX: 'auto' }}>
-            {TABS.map(([key, label]) => {
-              const on = key === tab;
-              return (
-                <button key={key} onClick={() => setTab(key)} style={{
-                  display: 'flex', alignItems: 'center', gap: 6, padding: '9px 12px', whiteSpace: 'nowrap',
-                  border: 'none', borderBottom: `2px solid ${on ? NX.primary : 'transparent'}`, background: 'transparent',
-                  cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: FONT, color: on ? NX.ink : NX.dim,
-                }}>
-                  {label}
-                  {counts[key] > 0 && <span style={{ background: NX.hover, borderRadius: 999, padding: '1px 6px', fontSize: 11, color: NX.dim }}>{counts[key]}</span>}
-                </button>
-              );
-            })}
-          </div>
+          {/* Tabs are desktop-only. A phone has no room for seven of them, so
+              the body stacks every section instead (see below). */}
+          {!isMobile && (
+            <div className="scroll-tabs" style={{ display: 'flex', gap: 2, borderBottom: `1px solid ${NX.border}`, overflowX: 'auto' }}>
+              {TABS.map(([key, label]) => {
+                const on = key === tab;
+                return (
+                  <button key={key} onClick={() => setTab(key)} style={{
+                    display: 'flex', alignItems: 'center', gap: 6, padding: '9px 12px', whiteSpace: 'nowrap',
+                    border: 'none', borderBottom: `2px solid ${on ? NX.primary : 'transparent'}`, background: 'transparent',
+                    cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: FONT, color: on ? NX.ink : NX.dim,
+                  }}>
+                    {label}
+                    {counts[key] > 0 && <span style={{ background: NX.hover, borderRadius: 999, padding: '1px 6px', fontSize: 11, color: NX.dim }}>{counts[key]}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
-        {/* body */}
+        {/* body — one tab on desktop; on mobile the sections stack in a single
+            scroll: Overview, Attachments, then Comments/Activity as one block
+            with its own sub-tabs. Subtasks, Dependencies and Properties are
+            desktop-only. */}
         <div className="scroll-tabs" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '4px 18px 24px' }}>
-          {tab === 'overview' && (
-            <OverviewTab
-              task={task} patch={patch} people={people} projectName={projectName} deptName={deptName}
-              blockedBy={blockedBy} depCandidates={depCandidates} addDependency={addDependency} removeDependency={removeDependency}
-              subtasks={subtasks} createTask={createTask} updateTask={updateTask} onOpenSub={setActiveId}
-              nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} refresh={store.refresh}
-            />
-          )}
-          {tab === 'comments' && <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} />}
-          {tab === 'activity' && <ActivityTab taskId={activeId} nameOf={nameOf} />}
-          {tab === 'attachments' && <AttachmentsTab task={task} refresh={store.refresh} />}
-          {tab === 'subtasks' && <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={setActiveId} />}
-          {tab === 'dependencies' && <DependenciesTab blockedBy={blockedBy} blocking={blocking} task={task} removeDependency={removeDependency} />}
-          {tab === 'properties' && <PropertiesTab task={task} nameOf={nameOf} projectName={projectName} deptName={deptName} customFields={customFields} patch={patch} />}
+          {isMobile ? (
+            <>
+              {MOBILE_SECTIONS.map((key) => (
+                <section key={key} style={{ marginBottom: 18 }}>
+                  {key !== 'overview' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '16px 0 10px', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: NX.faint }}>
+                      {Object.fromEntries(TABS)[key]}
+                      {counts[key] > 0 && <span style={{ background: NX.hover, borderRadius: 999, padding: '1px 6px', fontSize: 11, color: NX.dim }}>{counts[key]}</span>}
+                    </div>
+                  )}
+                  {paneFor(key)}
+                </section>
+              ))}
+              <DiscussionPane
+                task={task} taskId={activeId} nameOf={nameOf} myEmail={myEmail}
+                getComments={getComments} addComment={addComment}
+              />
+            </>
+          ) : paneFor(tab)}
         </div>
         {shareOpen && <ShareModal task={task} people={people} nameOf={nameOf} patch={patch} onClose={() => setShareOpen(false)} />}
       </aside>
@@ -289,7 +346,7 @@ function ShareModal({ task, people, nameOf, patch, onClose }) {
     { key: 'restricted', icon: Lock, label: 'Members of this task and connected projects', desc: 'Only invited members and members of connected projects can access.' },
   ];
   return createPortal(
-    <div onMouseDown={(e) => e.target === e.currentTarget && onClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', zIndex: 5000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '9vh 16px', fontFamily: FONT }}>
+    <div className="nx-tasks-portal" onMouseDown={(e) => e.target === e.currentTarget && onClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', zIndex: 5000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '9vh 16px', fontFamily: FONT }}>
       <div style={{ background: NX.surface, borderRadius: 14, width: 520, maxWidth: '100%', boxShadow: '0 24px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 20px', borderBottom: `1px solid ${NX.border}` }}>
           <div style={{ fontSize: 16, fontWeight: 700 }}>Share “{task.title}”</div>
@@ -300,7 +357,7 @@ function ShareModal({ task, people, nameOf, patch, onClose }) {
             <div style={{ fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 8 }}>Who has access</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {OPTS.map((o) => (
-                <button key={o.key} onClick={() => patch({ accessLevel: o.key })} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, textAlign: 'left', padding: 12, borderRadius: 10, border: `1px solid ${level === o.key ? NX.blue : NX.border}`, background: level === o.key ? '#eff5ff' : NX.surface, cursor: 'pointer', fontFamily: FONT }}>
+                <button key={o.key} onClick={() => patch({ accessLevel: o.key })} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, textAlign: 'left', padding: 12, borderRadius: 10, border: `1px solid ${level === o.key ? NX.blue : NX.border}`, background: level === o.key ? 'rgba(37,99,235,0.10)' : NX.surface, cursor: 'pointer', fontFamily: FONT }}>
                   <o.icon size={16} style={{ color: NX.dim, marginTop: 2 }} />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{o.label}</div>
@@ -347,6 +404,7 @@ function TitleInput({ value, completed, onCommit }) {
 
 // ── Overview ────────────────────────────────────────────────────────────────
 function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, depCandidates, addDependency, removeDependency, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh }) {
+  const isMobile = useIsMobile();
   const [recStep, setRecStep] = useState('root');
   const sm = STATUS_META[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
@@ -373,7 +431,7 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
       </Row>
 
       <Row label="Due date">
-        <input type="date" value={task.dueOn || ''} onChange={(e) => patch({ dueOn: e.target.value || '' })} style={{ ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 12 }} />
+        <DateField value={task.dueOn || ''} onChange={(v) => patch({ dueOn: v || '' })} style={{ ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 12 }} />
       </Row>
 
       <Row label="Project">
@@ -439,10 +497,13 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
         <Approval task={task} patch={patch} />
       </Section>
 
-      {/* Add comment */}
-      <Section title="Add comment">
-        <QuickComment task={task} addComment={addComment} />
-      </Section>
+      {/* Add comment — dropped on mobile: the Comments/All-activity block at the
+          bottom of the stacked layout already has a composer. */}
+      {!isMobile && (
+        <Section title="Add comment">
+          <QuickComment task={task} addComment={addComment} />
+        </Section>
+      )}
 
       {/* Attachments */}
       <Section title="Attachments">
@@ -509,6 +570,34 @@ function Approval({ task, patch }) {
   );
 }
 
+// ── Comments + Activity, as one block (mobile) ───────────────────────────────
+// Mirrors the reference layout: a "Comments | All activity" switcher instead of
+// two separate stacked sections, since they're two views of the same thread.
+function DiscussionPane({ task, taskId, nameOf, myEmail, getComments, addComment }) {
+  const [view, setView] = useState('comments');
+  const tab = (key, label) => {
+    const on = view === key;
+    return (
+      <button onClick={() => setView(key)} style={{
+        border: 'none', background: 'transparent', cursor: 'pointer', padding: '9px 2px',
+        borderBottom: `2px solid ${on ? NX.ink : 'transparent'}`, fontFamily: FONT,
+        fontSize: 14, fontWeight: on ? 700 : 600, color: on ? NX.ink : NX.dim,
+      }}>{label}</button>
+    );
+  };
+  return (
+    <section style={{ borderTop: `1px solid ${NX.border}`, marginTop: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 18, borderBottom: `1px solid ${NX.border}`, marginBottom: 12 }}>
+        {tab('comments', 'Comments')}
+        {tab('activity', 'All activity')}
+      </div>
+      {view === 'comments'
+        ? <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} />
+        : <ActivityTab taskId={taskId} nameOf={nameOf} />}
+    </section>
+  );
+}
+
 // ── Comments ────────────────────────────────────────────────────────────────
 function CommentsTab({ task, nameOf, myEmail, getComments, addComment }) {
   const [comments, setComments] = useState(null);
@@ -541,12 +630,12 @@ function CommentItem({ c, nameOf, mine, onPin, onEdit, onDelete }) {
   const [text, setText] = useState(c.body);
   const [hover, setHover] = useState(false);
   return (
-    <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ display: 'flex', gap: 10, padding: 8, borderRadius: 10, background: c.pinned ? '#fdf6e7' : 'transparent' }}>
+    <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ display: 'flex', gap: 10, padding: 8, borderRadius: 10, background: c.pinned ? 'rgba(217,119,6,0.14)' : 'transparent' }}>
       <Avatar email={c.authorId} name={nameOf(c.authorId)} size={26} />
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{nameOf(c.authorId)}</span>
-          <span style={{ fontSize: 11, color: NX.faint }}>{c.createdAt ? new Date(c.createdAt).toLocaleString() : ''}</span>
+          <span style={{ fontSize: 11, color: NX.faint }}>{fmtDateTime(c.createdAt)}</span>
           {c.editedAt && <span style={{ fontSize: 11, fontStyle: 'italic', color: NX.faint }}>(edited)</span>}
           {c.pinned && <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: NX.amber }}>Pinned</span>}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 2, opacity: hover ? 1 : 0, transition: 'opacity 0.12s' }}>
@@ -585,7 +674,7 @@ function ActivityTab({ taskId, nameOf }) {
           <div>
             <span style={{ fontWeight: 600, color: NX.ink }}>{(nameOf(a.actorId) || '').split(' ')[0]}</span>{' '}
             <span style={{ color: NX.dim }}>{a.detail}</span>
-            <div style={{ fontSize: 11, color: NX.faint }}>{a.at ? new Date(a.at).toLocaleString() : ''}</div>
+            <div style={{ fontSize: 11, color: NX.faint }}>{fmtDateTime(a.at)}</div>
           </div>
         </div>
       ))}

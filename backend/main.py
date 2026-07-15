@@ -288,6 +288,7 @@ def _run_migrations():
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS modified_at TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS synced_with_asana BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb",
     ]
     with engine.connect() as conn:
         for sql in migrations:

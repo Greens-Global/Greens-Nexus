@@ -4,9 +4,9 @@
 // TasksContext store. The export's store had applyTemplate/submitIntakeForm/
 // saveView helpers; here those are expressed directly via createTask/createSavedView.
 import { useEffect, useRef, useState } from 'react';
-import { SlidersHorizontal, ArrowUpDown, Bookmark, LayoutTemplate, Inbox, Plus, Trash2, X, ListChecks } from 'lucide-react';
+import { SlidersHorizontal, ArrowUpDown, Bookmark, LayoutTemplate, Inbox, Plus, Trash2, X, ListChecks, CalendarRange, LayoutGrid } from 'lucide-react';
 import { useTasks } from './TasksContext';
-import { Modal, PersonSelect, usePeople } from './components';
+import { Modal, PersonSelect, usePeople, useIsMobile, DateField } from './components';
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
 
 const SORT_OPTIONS = [
@@ -20,6 +20,7 @@ const toggle = (arr, v) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...a
 function Popover({ label, icon: Icon, active, width = 240, children }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
+  const triggerRef = useRef(null);
   useEffect(() => {
     if (!open) return;
     const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
@@ -27,13 +28,26 @@ function Popover({ label, icon: Icon, active, width = 240, children }) {
     document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
   }, [open]);
+  const isMobile = useIsMobile();
+  // On mobile the trigger sits near the left edge, so a right-anchored dropdown
+  // would spill off-screen. Position it as a fixed panel below the trigger,
+  // clamped to stay within the viewport.
+  const menuStyle = { width, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 60, padding: 12, maxHeight: '70vh', overflowY: 'auto' };
+  if (isMobile && open && triggerRef.current) {
+    const r = triggerRef.current.getBoundingClientRect();
+    const w = Math.min(width, window.innerWidth - 16);
+    Object.assign(menuStyle, { position: 'fixed', top: r.bottom + 6, left: Math.max(8, Math.min(r.left, window.innerWidth - w - 8)), width: w });
+  } else {
+    Object.assign(menuStyle, { position: 'absolute', top: '100%', right: 0, marginTop: 6 });
+  }
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button onClick={() => setOpen((o) => !o)} style={{ ...btn('outline'), color: active ? NX.blue : NX.ink, borderColor: active || open ? NX.blue : NX.border }}>
-        <Icon size={15} />{label}
+      {/* Icon-only on phones — four labelled buttons don't fit one row. */}
+      <button ref={triggerRef} onClick={() => setOpen((o) => !o)} title={label} style={{ ...btn('outline'), padding: isMobile ? 7 : undefined, color: active ? NX.blue : NX.ink, borderColor: active || open ? NX.blue : NX.border }}>
+        <Icon size={15} />{!isMobile && label}
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, width, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 60, padding: 12, maxHeight: '70vh', overflowY: 'auto' }}>
+        <div style={menuStyle}>
           {children(() => setOpen(false))}
         </div>
       )}
@@ -44,10 +58,11 @@ const capWord = (s = '') => s.replace(/^\w/, (c) => c.toUpperCase());
 const groupHead = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, marginBottom: 6 };
 const pill = (on, color, tint) => ({ borderRadius: 999, padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none', background: on ? color : tint, color: on ? '#fff' : color });
 
-export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProjectId, current, onApplyView, onOpenTask }) {
+export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProjectId, current, onApplyView, onOpenTask, group, setGroup, groupOptions }) {
   const store = useTasks();
   const { savedViews, createSavedView, deleteSavedView, templates, intakeForms, projects, projectName, createTask, myEmail } = store;
   const people = usePeople();
+  const isMobile = useIsMobile();
 
   const activeFilterCount = filters.assigneeIds.length + filters.statuses.length + filters.priorities.length
     + (lockedProjectId ? 0 : filters.projectIds.length);
@@ -57,7 +72,7 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
   const [intakeOpen, setIntakeOpen] = useState(false);
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontFamily: FONT }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 8, flexWrap: isMobile ? 'nowrap' : 'wrap', fontFamily: FONT }}>
       {/* Filters */}
       <Popover label={activeFilterCount ? `Filters · ${activeFilterCount}` : 'Filters'} icon={SlidersHorizontal} active={activeFilterCount > 0} width={260}>
         {() => (
@@ -100,6 +115,17 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
                 </div>
               </div>
             )}
+            {activeFilterCount > 0 && (
+              <button onClick={() => setFilters({ ...filters, assigneeIds: [], statuses: [], priorities: [], projectIds: [] })} style={{ ...btn('outline'), justifyContent: 'center' }}>Clear filters</button>
+            )}
+          </div>
+        )}
+      </Popover>
+
+      {/* Date — separate from Filters, matching the export's dedicated Date button */}
+      <Popover label="Date" icon={CalendarRange} active={dateActive} width={240}>
+        {() => (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
               <div style={groupHead}>Due</div>
               <select value={filters.due || 'any'} onChange={(e) => setFilters({ ...filters, due: e.target.value })} style={{ ...inputStyle, cursor: 'pointer' }}>
@@ -109,13 +135,30 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
                 <option value="week">Due this week</option>
                 <option value="none">No due date</option>
               </select>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
-                <input type="date" value={filters.dueFrom || ''} onChange={(e) => setFilters({ ...filters, dueFrom: e.target.value || null })} style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }} />
-                <input type="date" value={filters.dueTo || ''} onChange={(e) => setFilters({ ...filters, dueTo: e.target.value || null })} style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }} />
-              </div>
             </div>
-            {(activeFilterCount > 0 || dateActive) && (
-              <button onClick={() => setFilters({ ...filters, assigneeIds: [], statuses: [], priorities: [], projectIds: [], due: 'any', dueFrom: null, dueTo: null })} style={{ ...btn('outline'), justifyContent: 'center' }}>Clear filters</button>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={groupHead}>Custom range</span>
+                {(filters.dueFrom || filters.dueTo) && (
+                  <button onClick={() => setFilters({ ...filters, dueFrom: null, dueTo: null })} style={{ ...btn('ghost'), padding: '2px 6px', fontSize: 11, color: NX.blue }}>Clear</button>
+                )}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <label style={{ display: 'block' }}>
+                  <span style={{ display: 'block', fontSize: 10, color: NX.faint, marginBottom: 3 }}>From</span>
+                  <DateField value={filters.dueFrom || ''} onChange={(v) => setFilters({ ...filters, dueFrom: v })} style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }} />
+                </label>
+                <label style={{ display: 'block' }}>
+                  <span style={{ display: 'block', fontSize: 10, color: NX.faint, marginBottom: 3 }}>To</span>
+                  <DateField value={filters.dueTo || ''} onChange={(v) => setFilters({ ...filters, dueTo: v })} style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }} />
+                </label>
+              </div>
+              {filters.dueFrom && filters.dueTo && filters.dueFrom > filters.dueTo && (
+                <p style={{ margin: '6px 0 0', fontSize: 11, color: NX.red }}>"From" is after "To".</p>
+              )}
+            </div>
+            {dateActive && (
+              <button onClick={() => setFilters({ ...filters, due: 'any', dueFrom: null, dueTo: null })} style={{ ...btn('outline'), justifyContent: 'center' }}>Clear date filter</button>
             )}
           </div>
         )}
@@ -134,16 +177,29 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
         )}
       </Popover>
 
+      {/* Group — optional; rendered between Sort and Saved views to match the export */}
+      {groupOptions && setGroup && (
+        <Popover label="Group" icon={LayoutGrid} width={190}>
+          {(close) => (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {groupOptions.map((o) => (
+                <button key={o.key} onClick={() => { setGroup(o.key); close(); }} style={{ ...btn('ghost'), justifyContent: 'flex-start', color: group === o.key ? NX.blue : NX.ink, background: group === o.key ? NX.hover : 'transparent' }}>{o.label}</button>
+              ))}
+            </div>
+          )}
+        </Popover>
+      )}
+
       {/* Saved views */}
       <Popover label="Saved views" icon={Bookmark} width={260}>
         {(close) => <SavedViews {...{ savedViews, createSavedView, deleteSavedView, current, filters, sort, onApplyView, close }} />}
       </Popover>
 
       {templates.length > 0 && (
-        <button onClick={() => setTemplatesOpen(true)} style={btn('outline')}><LayoutTemplate size={15} />Templates</button>
+        <button onClick={() => setTemplatesOpen(true)} title="Templates" style={{ ...btn('outline'), padding: isMobile ? 7 : undefined }}><LayoutTemplate size={15} />{!isMobile && 'Templates'}</button>
       )}
       {intakeForms.length > 0 && (
-        <button onClick={() => setIntakeOpen(true)} style={btn('outline')}><Inbox size={15} />Intake</button>
+        <button onClick={() => setIntakeOpen(true)} title="Intake" style={{ ...btn('outline'), padding: isMobile ? 7 : undefined }}><Inbox size={15} />{!isMobile && 'Intake'}</button>
       )}
 
       {templatesOpen && <TemplatesModal templates={templates} createTask={createTask} onOpenTask={onOpenTask} onClose={() => setTemplatesOpen(false)} />}
@@ -249,7 +305,7 @@ function IntakeModal({ forms, projectName, createTask, myEmail, onOpenTask, onCl
         </div>
         <div>
           <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5 }}>Needed by</label>
-          <input type="date" value={neededBy} onChange={(e) => setNeededBy(e.target.value)} style={inputStyle} />
+          <DateField value={neededBy} onChange={(v) => setNeededBy(v || '')} placeholder="Pick a date" style={inputStyle} />
         </div>
       </div>
     </Modal>
