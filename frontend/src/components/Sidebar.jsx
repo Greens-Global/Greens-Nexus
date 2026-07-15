@@ -1,7 +1,8 @@
-import { forwardRef } from "react";
+import { forwardRef, useState, useEffect } from "react";
 import GlobeLogo  from "./GlobeLogo";
 import { useMsal } from "@azure/msal-react";
 import { useRole, ROLES } from "../contexts/RoleContext";
+import { api } from "../api";
 import {
   LayoutDashboard, UserCheck, ShoppingCart, CheckSquare, BookOpen,
   Monitor, Wifi, Home, LayoutGrid, Shield, FileText,
@@ -10,6 +11,7 @@ import {
   Users, LogIn, PenTool, Files, Megaphone, Star, ExternalLink,
   Settings, ChevronLeft, ChevronRight,
   HelpCircle, Store, Calendar, MessageSquare, Package, Clock, Contact,
+  FlaskConical,
 } from "lucide-react";
 
 // Exported: MobileMenu mirrors this exact order/grouping on phones
@@ -88,7 +90,7 @@ export const NAV = [
     ],
   },
   {
-    view: "hr", label: "HR", icon: Users, minRole: 'supervisor',
+    view: "hr", label: "People", icon: Users, minRole: 'supervisor',
     sub: [
       { subview: "hr-people", label: "People",    icon: Users },
       { subview: "hr-hiring", label: "Hiring",    icon: CheckSquare },
@@ -97,20 +99,30 @@ export const NAV = [
     ],
   },
   {
-    view: "marketing", label: "Marketing", icon: Megaphone, minRole: 'supervisor',
+    view: "documents", label: "Documents", icon: FileText, minRole: 'supervisor',
     sub: [
-      { subview: "marketing-ads",        label: "Google",          icon: Megaphone },
-      { subview: "marketing-reputation", label: "Meta",            icon: Star },
+      { subview: "documents-esign", label: "E-Sign", icon: PenTool },
     ],
+  },
+  {
+    // Marketing is a self-contained module with its own in-page tab bar
+    // (Ad Performance / Reputation / Insights / SEO / Business Profile / Leads).
+    view: "marketing", label: "Marketing", icon: Megaphone, minRole: 'supervisor',
   },
   { divider: true },
   { view: "support",        label: "Support",        icon: HelpCircle },
   { view: "external-links", label: "External Links", icon: ExternalLink },
+  // Dev-only: the item renders only when the backend says the QA module is
+  // enabled (NEXUS_QA_MODULE env on dev; absent on prod).
+  { view: "testing",        label: "Testing",        icon: FlaskConical, minRole: 'supervisor', qaGated: true },
 ];
 
 const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }, ref) {
   const { accounts } = useMsal();
   const { myRole, can, myGrantedModules } = useRole();
+  // Dev-only Testing module: ask the backend once whether it's enabled here.
+  const [qaEnabled, setQaEnabled] = useState(false);
+  useEffect(() => { api.qaEnabled().then(r => setQaEnabled(!!r?.enabled)).catch(() => {}); }, []);
   const account     = accounts[0];
   const displayName = account?.name ?? account?.username ?? "User";
   const initials    = displayName.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase();
@@ -156,7 +168,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
                 only sees baseline screens (no minRole) plus modules an Access
                 Group grants them. IT Admin / Global Admin (administrator+) still
                 see everything so they can manage access. (Jun 17) */}
-            {NAV.filter(item => !item.minRole || can('administrator') || myGrantedModules.has(item.view)).map((item, i) => {
+            {NAV.filter(item => (!item.qaGated || qaEnabled) && (!item.minRole || can('administrator') || myGrantedModules.has(item.view))).map((item, i) => {
               if (item.divider) return <li key={i} className="nav-divider" />;
 
               // ── Collapsed: icon-only rail ──

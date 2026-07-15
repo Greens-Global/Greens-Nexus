@@ -5,18 +5,18 @@ import {
   ChevronLeft, Network, CalendarOff, UserPlus, Pencil, FileText,
   CheckCircle, XCircle, ChevronRight, History, CalendarDays, Camera,
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
-  ShieldCheck, Shield, AlertTriangle,
+  ShieldCheck, Shield, AlertTriangle, Clock,
 } from 'lucide-react';
 import { api } from '../api';
-import { useRole } from '../contexts/RoleContext';
-import ESign from '../components/ESign';
+import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
+import RolesAccess, { LevelPill, ModuleLevelPill, TierBadge } from './RolesAccess';
+import { capabilityText } from '../lib/moduleCapabilities';
 
 // ── HR module — Phase 1: employee master + People directory ──────────────────
 // Hiring pipeline, org chart and leave land in later phases (tabs are stubs).
 // Old hardcoded onboarding/disclosure screens were dummy data — removed.
 
-const DEPTS = ['Operations', 'Accounting', 'IT', 'Construction', 'Facilities', 'Marketing', 'Real Estate', 'Admin', 'HR'];
 const EMP_TYPES = [
   ['full_time', 'Full-Time'], ['part_time', 'Part-Time'], ['contractor', 'Contractor'], ['intern', 'Intern'],
 ];
@@ -57,8 +57,11 @@ function useIsMobile(bp = 900) {
 }
 
 // ── Add / Edit modal ──────────────────────────────────────────────────────────
-function EmployeeFormModal({ employee, employees, entities = [], onClose, onSaved, toastErr }) {
+function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false, onClose, onSaved, toastOk, toastErr }) {
   const editing = !!employee;
+  const [jobRoles, setJobRoles] = useState([]);
+  const [jobRoleId, setJobRoleId] = useState('');
+  useEffect(() => { if (isAdmin && !editing) api.getJobRoles().then(setJobRoles).catch(() => {}); }, [isAdmin, editing]);
   const [f, setF] = useState(() => ({
     first_name:      employee?.firstName || '',
     last_name:       employee?.lastName || '',
@@ -66,19 +69,48 @@ function EmployeeFormModal({ employee, employees, entities = [], onClose, onSave
     personal_email:  employee?.personalEmail || '',
     phone:           employee?.phone || '',
     job_title:       employee?.jobTitle || '',
-    department:      employee?.department || 'Operations',
+    department:      employee?.department || '',
     employment_type: employee?.employmentType || 'full_time',
     start_date:      employee?.startDate || '',
     manager_email:   employee?.managerEmail || '',
     status:          employee?.status || 'active',
     location:        employee?.location || '',
     company:         employee?.company || '',
+    identity_type:   employee?.identityType || 'internal',
     contractor:      employee?.contractor || {},
     notes:           employee?.notes || '',
   }));
   const [busy, setBusy] = useState(false);
+  // Department options come from the SELECTED company — no company, no department.
+  const [deptOptions, setDeptOptions] = useState([]);
+  const [deptLoading, setDeptLoading] = useState(false);
+  // Inline "add a department" so an empty company list never dead-ends the form.
+  const [addingDept, setAddingDept] = useState(false);
+  const [newDeptName, setNewDeptName] = useState('');
+  const [deptSaving, setDeptSaving] = useState(false);
+  async function saveNewDept() {
+    const name = newDeptName.trim();
+    if (!name || deptSaving) return;
+    setDeptSaving(true);
+    try {
+      const list = await api.addCompanyDepartment(f.company, name);
+      setDeptOptions(list.map(d => d.name));
+      set('department', name);
+      setAddingDept(false); setNewDeptName('');
+    } catch (err) {
+      toastErr(err?.message || 'Could not add the department.');
+    } finally { setDeptSaving(false); }
+  }
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
   const setC = (k, v) => setF(prev => ({ ...prev, contractor: { ...(prev.contractor || {}), [k]: v } }));
+  useEffect(() => {
+    if (!f.company) { setDeptOptions([]); return; }
+    setDeptLoading(true);
+    api.getCompanyDepartments(f.company)
+      .then(list => setDeptOptions(list.map(d => d.name)))
+      .catch(() => setDeptOptions([]))
+      .finally(() => setDeptLoading(false));
+  }, [f.company]);
   const isContractor = f.employment_type === 'contractor';
   const cInput = (label, key, props = {}) => (
     <div>
@@ -95,6 +127,17 @@ function EmployeeFormModal({ employee, employees, entities = [], onClose, onSave
     setBusy(true);
     try {
       const saved = editing ? await api.updateEmployee(employee.id, f) : await api.createEmployee(f);
+      // New hire + a chosen job role → set their access + tier now. Needs a work
+      // email; if not provisioned yet, prompt to set it later on the Access tab.
+      if (!editing && jobRoleId) {
+        const em = (saved?.workEmail || f.work_email || '').trim();
+        if (em) {
+          try { await api.assignJobRole(jobRoleId, em); toastOk?.(`${fullName(saved)} added — job role & access assigned.`); }
+          catch (err) { toastErr(err?.message || 'Employee added, but the job role could not be assigned — set it on their Access tab.'); }
+        } else {
+          toastOk?.('Employee added — assign their job role from the Access tab once a work email is set.');
+        }
+      }
       onSaved(saved);
       onClose();
     } catch (err) {
@@ -130,9 +173,34 @@ function EmployeeFormModal({ employee, employees, entities = [], onClose, onSave
           {input('JOB TITLE', 'job_title')}
           <div>
             <label style={FL}>DEPARTMENT</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.department} onChange={e => set('department', e.target.value)}>
-              {DEPTS.map(d => <option key={d}>{d}</option>)}
-            </select>
+            {addingDept ? (
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input className="form-input" style={{ flex: 1, minWidth: 0 }} autoFocus placeholder="New department name"
+                  value={newDeptName} onChange={e => setNewDeptName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveNewDept(); if (e.key === 'Escape') { setAddingDept(false); setNewDeptName(''); } }} />
+                <button className="primary-btn" onClick={saveNewDept} disabled={!newDeptName.trim() || deptSaving}
+                  style={{ padding: '0 12px', opacity: (!newDeptName.trim() || deptSaving) ? 0.6 : 1 }}>
+                  {deptSaving ? '…' : 'Add'}
+                </button>
+              </div>
+            ) : (
+              <select className="form-input" style={{ width: '100%' }} value={f.department} disabled={!f.company}
+                onChange={e => set('department', e.target.value)}>
+                {!f.company
+                  ? <option value="">— pick a company first —</option>
+                  : <>
+                      <option value="">{deptLoading ? 'Loading…' : (deptOptions.length ? '— select —' : '— none yet —')}</option>
+                      {f.department && !deptOptions.includes(f.department) && <option value={f.department}>{f.department} (current)</option>}
+                      {deptOptions.map(d => <option key={d}>{d}</option>)}
+                    </>}
+              </select>
+            )}
+            {!!f.company && !deptLoading && !addingDept && (
+              <button onClick={() => setAddingDept(true)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 5, fontSize: 11.5, fontWeight: 600, color: 'hsl(var(--color-green))' }}>
+                + Add a department to this company
+              </button>
+            )}
           </div>
           <div>
             <label style={FL}>EMPLOYMENT TYPE</label>
@@ -162,6 +230,25 @@ function EmployeeFormModal({ employee, employees, entities = [], onClose, onSave
               {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
             </select>
           </div>
+          <div>
+            <label style={FL}>ACCOUNT TYPE</label>
+            <select className="form-input" style={{ width: '100%' }} value={f.identity_type} onChange={e => set('identity_type', e.target.value)}>
+              <option value="internal">Internal (MS 365 staff)</option>
+              <option value="guest">Guest (Entra B2B partner)</option>
+              <option value="external">External (no MS 365 login)</option>
+            </select>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 5 }}>External/guest people can be sandboxed to specific companies on the Access tab.</div>
+          </div>
+          {isAdmin && !editing && (
+            <div style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'color-mix(in srgb, var(--ink) 4%, transparent)' }}>
+              <label style={FL}>JOB ROLE &amp; ACCESS</label>
+              <select className="form-input" style={{ width: '100%' }} value={jobRoleId} onChange={e => setJobRoleId(e.target.value)}>
+                <option value="">— set later on the Access tab —</option>
+                {jobRoles.map(r => <option key={r.id} value={r.id}>{r.name} · {ROLES[r.tier]?.label || r.tier}</option>)}
+              </select>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>Sets their access &amp; seniority tier from a job role at onboarding. Needs a work email; otherwise assign it later on their card.</div>
+            </div>
+          )}
           {isContractor && (
             <div style={{ gridColumn: '1 / -1', border: '1px solid var(--line)', borderRadius: 12, padding: '14px 16px', background: 'hsla(var(--color-orange),0.05)' }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--color-orange))', letterSpacing: '.04em', marginBottom: 12 }}>CONTRACTOR ENGAGEMENT</div>
@@ -891,7 +978,147 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
 }
 
 
-function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated }) {
+// ── Access section on a person's card (admin-only) — the "assign it on the
+// person's card" flow: pick their Job Role (sets tier + base access) + any extra
+// groups, and see the resolved effective access. Backed by /jobroles/effective.
+const _accBox = { border: '1px solid var(--line)', borderRadius: 12, padding: 14, background: 'var(--paper)' };
+const _accLabel = { fontSize: 10.5, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' };
+
+function AccessPicker({ title, items, onPick, onClose, renderItem }) {
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'grid', placeItems: 'center', zIndex: 1200, padding: 18 }}>
+      <div onClick={ev => ev.stopPropagation()} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', width: 'min(440px,100%)', maxHeight: '80vh', overflow: 'auto', padding: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{title}</h3>
+          <button onClick={onClose} style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
+        </div>
+        {items.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: 14, textAlign: 'center' }}>Nothing to add.</div>
+          : items.map(it => (
+            <button key={it.id} onClick={() => onPick(it)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', width: '100%', textAlign: 'left', marginBottom: 7, cursor: 'pointer' }}>
+              {renderItem(it)}
+            </button>
+          ))}
+      </div>
+    </div>
+  );
+}
+
+function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr }) {
+  const [data, setData] = useState(null);
+  const [roles, setRoles] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [pick, setPick] = useState(null);   // 'role' | 'group' | null
+  const [scopes, setScopes] = useState([]);       // company sandbox for external/guest users
+  const [entities, setEntities] = useState([]);
+  const [addCo, setAddCo] = useState('');
+  const load = () => api.getEffectiveAccess(email).then(setData).catch(() => setData({ tier: 'employee', job_role: null, extra_groups: [], modules: [] }));
+  const loadScopes = () => api.getAccessScopes(email).then(setScopes).catch(() => setScopes([]));
+  useEffect(() => { if (email) { setData(null); load(); loadScopes(); } }, [email]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { api.getJobRoles().then(setRoles).catch(() => {}); api.getGroups().then(gs => setGroups(gs.filter(g => !g.is_job_role))).catch(() => {}); api.getEntities().then(setEntities).catch(() => {}); }, []);
+  const isExternal = identityType === 'external' || identityType === 'guest';
+
+  if (!email) return <div style={{ color: 'var(--muted)', fontSize: 13.5, padding: '20px 4px' }}>This person has no work email yet — provision their account first to manage access.</div>;
+  if (!data) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /></div>;
+
+  const assign = async jr => { try { await api.assignJobRole(jr.id, email); setPick(null); toastOk(`Job role set to “${jr.name}”.`); load(); } catch (err) { toastErr(err?.message || 'Could not set job role.'); } };
+  const addGroup = async g => { try { await api.addGroupMembers(g.id, [email]); setPick(null); toastOk(`Added “${g.name}”.`); load(); } catch (err) { toastErr(err?.message || 'Could not add group.'); } };
+  const removeGroup = async g => { try { await api.removeGroupMember(g.id, email); toastOk(`Removed “${g.name}”.`); load(); } catch (err) { toastErr(err?.message || 'Could not remove.'); } };
+  const held = new Set((data.extra_groups || []).map(g => g.id));
+  const entityName = id => entities.find(en => en.id === id)?.name || id;
+  const companyScopes = scopes.filter(s => s.scopeType === 'entity');
+  const scopedCoIds = new Set(companyScopes.map(s => s.scopeId));
+  const addScope = async () => { if (!addCo) return; try { setScopes(await api.addAccessScope(email, { module_id: 'company', scope_type: 'entity', scope_id: addCo })); setAddCo(''); toastOk(`Limited to ${entityName(addCo)}.`); } catch (err) { toastErr(err?.message || 'Could not add scope.'); } };
+  const removeScope = async s => { try { setScopes(await api.deleteAccessScope(email, s.id)); toastOk(`Removed ${entityName(s.scopeId)} limit.`); } catch (err) { toastErr(err?.message || 'Could not remove scope.'); } };
+
+  return (
+    <div>
+      <div className="acc-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div style={_accBox}>
+          <div style={_accLabel}>Job role</div>
+          {data.job_role ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: 800, fontSize: 15 }}>{data.job_role.name}</span><TierBadge tier={data.job_role.tier} />
+            </div>
+          ) : <div style={{ color: 'var(--muted)', fontSize: 13 }}>No job role assigned yet.</div>}
+          {data.job_role?.description && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>{data.job_role.description}</div>}
+          <button className="secondary-btn" style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={() => setPick('role')}>
+            <Shield size={13} /> {data.job_role ? 'Change job role' : 'Set job role'}
+          </button>
+        </div>
+        <div style={_accBox}>
+          <div style={_accLabel}><span>Additional groups</span><span>{(data.extra_groups || []).length}</span></div>
+          {(data.extra_groups || []).length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>None — access comes from the job role.</div>
+            : (data.extra_groups || []).map(g => (
+              <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
+                <span style={{ fontWeight: 600, fontSize: 12.5, flex: 1 }}>{g.name}</span>
+                <button onClick={() => removeGroup(g)} title="Remove" style={{ border: 'none', background: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>×</button>
+              </div>
+            ))}
+          <button className="secondary-btn" style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={() => setPick('group')}>
+            <Plus size={13} /> Add group
+          </button>
+        </div>
+      </div>
+
+      <div style={{ ..._accLabel, margin: '22px 0 10px' }}>Effective access · {(data.modules || []).length} modules</div>
+      {(data.modules || []).length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>No module access yet — set a job role above.</div> : (
+        <div style={{ border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
+          {(data.modules || []).map((m, i) => {
+            const mod = MODULES.find(x => x.id === m.module);
+            return (
+              <div key={m.module} style={{ display: 'grid', gridTemplateColumns: '1fr auto 1.3fr', alignItems: 'start', gap: 10, padding: '10px 14px', borderBottom: i < data.modules.length - 1 ? '1px solid var(--line)' : 'none' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{mod?.label || m.module}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{capabilityText(m.module, m.level, mod?.label)}</div>
+                </div>
+                <LevelPill level={m.level} title={`${mod?.label || m.module} · ${MODULE_LEVELS[m.level]?.label || m.level}\n${capabilityText(m.module, m.level, mod?.label)}`} />
+                <span style={{ fontSize: 11.5, color: 'var(--muted)', textAlign: 'right' }}>{m.manual ? <>added via <b style={{ color: 'var(--ink)' }}>{m.source}</b></> : 'via job role'}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Access = job-role bundle + any groups, taking the highest level per module.</div>
+
+      {isExternal && (
+        <div style={{ ..._accBox, marginTop: 22, background: 'hsla(var(--color-orange),0.05)', borderColor: 'hsla(var(--color-orange),0.25)' }}>
+          <div style={_accLabel}><span>Company access · external user</span><span>{companyScopes.length || 'all'}</span></div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', margin: '2px 0 12px' }}>
+            Limit this {identityType} user to specific companies. With none set, an <b>external</b> user sees nothing (fail-closed); a guest is unrestricted until you add a limit.
+          </div>
+          {companyScopes.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+              {companyScopes.map(s => (
+                <span key={s.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 6px 5px 12px', borderRadius: 20, background: 'var(--card)', border: '1px solid var(--line)', fontSize: 12.5, fontWeight: 600 }}>
+                  {entityName(s.scopeId)}
+                  <button onClick={() => removeScope(s)} title="Remove limit" aria-label={`Remove ${entityName(s.scopeId)}`}
+                    style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0 }}>
+                    <X size={13} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <select className="form-input" style={{ flex: 1 }} value={addCo} onChange={e => setAddCo(e.target.value)}>
+              <option value="">— add a company —</option>
+              {entities.filter(en => !scopedCoIds.has(en.id)).map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+            </select>
+            <button className="secondary-btn" onClick={addScope} disabled={!addCo} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: addCo ? 1 : 0.6 }}><Plus size={13} /> Limit</button>
+          </div>
+        </div>
+      )}
+
+      {pick === 'role' && <AccessPicker title="Choose a job role" items={roles} onClose={() => setPick(null)} onPick={assign}
+        renderItem={jr => (<><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, fontSize: 13 }}>{jr.name}</div><div style={{ marginTop: 3 }}><TierBadge tier={jr.tier} /></div></div><span style={{ fontSize: 11, color: 'var(--muted)' }}>{jr.member_count} ppl</span></>)} />}
+      {pick === 'group' && <AccessPicker title="Add a group" items={groups.filter(g => !held.has(g.id))} onClose={() => setPick(null)} onPick={addGroup}
+        renderItem={g => (<div style={{ flex: 1 }}><div style={{ fontWeight: 700, fontSize: 13 }}>{g.name}</div><div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>{(g.allowed_modules || []).map(mm => <ModuleLevelPill key={mm.id} moduleId={mm.id} level={mm.level} />)}</div></div>)} />}
+      <style>{`@media (max-width:640px){.acc-grid{grid-template-columns:1fr !important}}`}</style>
+    </div>
+  );
+}
+
+function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated }) {
   const [provisionOpen, setProvisionOpen] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
   const [compOpen, setCompOpen] = useState(false);
@@ -922,6 +1149,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
     ['compliance', 'Compliance', ShieldCheck],
     ['assets', 'Assets', Briefcase],
     ['documents', 'Documents', FileText],
+    isAdmin && ['access', 'Access', Shield],
   ].filter(Boolean);
   const expiry = nextExpiry(e);
   return (
@@ -941,7 +1169,14 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
           </span>
         </button>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 800, fontSize: 18 }}>{fullName(e)}</div>
+          <div style={{ fontWeight: 800, fontSize: 18, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {fullName(e)}
+            {e.identityType && e.identityType !== 'internal' && (
+              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 20, background: 'hsla(var(--color-orange),0.14)', color: 'hsl(var(--color-orange))' }}>
+                {e.identityType === 'guest' ? 'Guest' : 'External'}
+              </span>
+            )}
+          </div>
           <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>
             {[e.jobTitle, e.employeeCode].filter(Boolean).join(' · ')}
           </div>
@@ -1085,6 +1320,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, on
 
         {tab === 'assets' && <AssetsSection employee={e} />}
 
+        {tab === 'access' && isAdmin && <EmployeeAccess email={meEmail} identityType={e.identityType} toastOk={toastOk} toastErr={toastErr} />}
+
         {tab === 'documents' && (
           <>
             <DocumentsSection employeeId={e.id} toastOk={toastOk} toastErr={toastErr} />
@@ -1131,7 +1368,7 @@ const candName = c => [c.firstName, c.lastName].filter(Boolean).join(' ');
 const daysSince = iso => Math.max(0, Math.floor((Date.now() - new Date(iso)) / 86400000));
 
 function CandidateFormModal({ onClose, onSaved, toastErr }) {
-  const [f, setF] = useState({ first_name: '', last_name: '', email: '', phone: '', role_title: '', department: 'Operations', expected_start: '', source: '', notes: '' });
+  const [f, setF] = useState({ first_name: '', last_name: '', email: '', phone: '', role_title: '', department: '', expected_start: '', source: '', notes: '' });
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
   async function save() {
@@ -1158,10 +1395,7 @@ function CandidateFormModal({ onClose, onSaved, toastErr }) {
           {input('EMAIL', 'email', { type: 'email' })}
           {input('PHONE', 'phone')}
           {input('ROLE APPLYING FOR', 'role_title')}
-          <div><label style={FL}>DEPARTMENT</label>
-            <select className="form-input" style={{ width: '100%' }} value={f.department} onChange={e => set('department', e.target.value)}>
-              {DEPTS.map(d => <option key={d}>{d}</option>)}
-            </select></div>
+          {input('DEPARTMENT', 'department', { placeholder: 'target area — set for real on hire' })}
           {input('EXPECTED START', 'expected_start', { type: 'date' })}
           {input('SOURCE', 'source', { placeholder: 'Referral, LinkedIn…' })}
           <div style={{ gridColumn: '1 / -1' }}><label style={FL}>NOTES</label>
@@ -2413,6 +2647,59 @@ function LeaveTab({ employees, toastOk, toastErr }) {
 
 // ── Main view ─────────────────────────────────────────────────────────────────
 // ── Companies / legal entities manager (HR Section A) ────────────────────────
+// Manage one company's department list (Neil: departments live within a company,
+// custom per company — not a Nexus-wide hardcoded list).
+function CompanyDepartments({ entity, toastOk, toastErr }) {
+  const [depts, setDepts] = useState(null);
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const load = () => api.getCompanyDepartments(entity.id).then(setDepts).catch(() => setDepts([]));
+  useEffect(() => { setDepts(null); load(); }, [entity.id]);
+  async function add() {
+    const n = name.trim();
+    if (!n || busy) return; setBusy(true);
+    try { const list = await api.addCompanyDepartment(entity.id, n); setDepts(list); setName(''); }
+    catch (e) { toastErr(e?.message || 'Could not add department.'); }
+    setBusy(false);
+  }
+  async function remove(d) {
+    try { const list = await api.deleteCompanyDepartment(entity.id, d.id); setDepts(list); }
+    catch (e) { toastErr(e?.message || 'Could not remove department.'); }
+  }
+  return (
+    <div style={{ overflowY: 'auto', flex: 1, padding: '16px 22px' }}>
+      <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 14px' }}>
+        Departments for <strong>{entity.name}</strong>. These are the only choices when picking a department for someone in this company.
+      </p>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        <input className="form-input" style={{ flex: 1 }} placeholder="e.g. Estimating" value={name}
+          onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()} maxLength={40} />
+        <button className="primary-btn" onClick={add} disabled={!name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!name.trim() || busy) ? 0.6 : 1 }}>
+          <Plus size={14} /> Add
+        </button>
+      </div>
+      {depts === null ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>Loading…</div>
+        : depts.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>No departments yet — add the first one above.</div>
+        : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {depts.map(d => (
+              <span key={d.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 8px 6px 13px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 13, fontWeight: 600 }}>
+                {d.name}
+                <button onClick={() => remove(d)} title={`Remove ${d.name}`} aria-label={`Remove ${d.name}`}
+                  style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0 }}
+                  onMouseOver={e => { e.currentTarget.style.background = 'hsla(var(--color-red),0.14)'; e.currentTarget.style.color = 'hsl(var(--color-red))'; }}
+                  onMouseOut={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--muted)'; }}>
+                  <X size={13} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 16 }}>Removing a department leaves anyone already in it untouched — it just stops being pickable.</p>
+    </div>
+  );
+}
+
 function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
   const blank = { name: '', legal_name: '', country: '', tax_id: '', registered_address: '', signatory: '', notes: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
@@ -2421,6 +2708,8 @@ function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const startNew = () => { setF(blank); setMode('new'); };
   const startEdit = en => { setF({ name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '', registered_address: en.registeredAddress || '', signatory: en.signatory || '', notes: en.notes || '' }); setMode(en.id); };
+  const deptId = (typeof mode === 'string' && mode.startsWith('dept:')) ? mode.slice(5) : null;
+  const deptEntity = deptId ? entities.find(e => e.id === deptId) : null;
 
   async function save() {
     if (!f.name.trim() || busy) return; setBusy(true);
@@ -2458,11 +2747,20 @@ function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
           <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Building2 size={17} color="hsl(var(--color-blue))" />
           </div>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{mode ? (mode === 'new' ? 'Add Company' : 'Edit Company') : 'Companies & Entities'}</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{deptId ? `Departments · ${deptEntity?.name || ''}` : mode ? (mode === 'new' ? 'Add Company' : 'Edit Company') : 'Company setup'}</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
 
-        {mode ? (
+        {deptId ? (
+          <>
+            {deptEntity
+              ? <CompanyDepartments entity={deptEntity} toastOk={toastOk} toastErr={toastErr} />
+              : <div style={{ flex: 1, padding: 24, color: 'var(--muted)' }}>Company not found.</div>}
+            <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
+              <button className="secondary-btn" onClick={() => setMode(null)}>Back</button>
+            </div>
+          </>
+        ) : mode ? (
           <>
             <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               <div style={{ gridColumn: '1 / -1' }}>{field('NAME *', 'name', { autoFocus: true, placeholder: 'e.g. Greens India' })}</div>
@@ -2502,6 +2800,7 @@ function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
                     <div style={{ fontSize: 13.5, fontWeight: 700 }}>{en.name} {en.country && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>· {en.country}</span>}</div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[en.legalName, en.taxId && `Tax ${en.taxId}`, en.signatory].filter(Boolean).join(' · ') || '—'}</div>
                   </div>
+                  <button className="secondary-btn" onClick={() => setMode('dept:' + en.id)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Building2 size={13} /> Departments</button>
                   <button className="secondary-btn" onClick={() => startEdit(en)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
                   <button onClick={() => remove(en)} title="Delete" style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex', padding: 7 }}><Trash2 size={13} /></button>
                 </div>
@@ -3071,18 +3370,26 @@ function WorkSitesModal({ sites, entities, onClose, onChanged, toastOk, toastErr
 
 export default function HR({ activeSub, onSubChange }) {
   // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now.
-  // 'hr-esign-*' deep-links (bell/toast clicks) land on the E-Sign tab — ESign
-  // reads the raw navSub to pick its own sub-tab (inbox vs sent requests).
-  const navSub = String(activeSub || '').startsWith('hr-esign') ? 'hr-esign' : activeSub;
-  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-esign'].includes(navSub) ? navSub : 'hr-people';
-  const [esignPrefill, setEsignPrefill] = useState(null);   // candidate → Send-for-signature handoff
+  // E-Sign moved to its own top-level Documents module (Jul 2026); legacy
+  // 'hr-esign*' deep-links are redirected there by the effect below.
+  const sub = ['hr-people', 'hr-hiring', 'hr-org', 'hr-leave', 'hr-time', 'hr-access'].includes(activeSub) ? activeSub : 'hr-people';
   const isMobile = useIsMobile();
+
+  // Old notifications/URLs still point at hr/hr-esign* — bounce them to Documents
+  // so those links don't dead-end on the People tab.
+  useEffect(() => {
+    if (String(activeSub || '').startsWith('hr-esign')) {
+      const dst = activeSub === 'hr-esign-requests' ? 'documents-esign-requests' : 'documents-esign';
+      window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: dst } }));
+    }
+  }, [activeSub]);
 
   const [employees, setEmployees] = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState('');
   const [search,    setSearch]    = useState('');
   const [deptF,     setDeptF]     = useState('All');
+  const [companyF,  setCompanyF]  = useState('All');
   const [statusF,   setStatusF]   = useState('All');
   const [selectedId, setSelectedId] = useState(null);
   const [formOpen,  setFormOpen]  = useState(false);
@@ -3092,8 +3399,9 @@ export default function HR({ activeSub, onSubChange }) {
   const [sites,     setSites]     = useState([]);
   const [sitesOpen, setSitesOpen] = useState(false);
   const [toast,     setToast]     = useState(null);
-  const { canAccessModule } = useRole();
+  const { canAccessModule, can } = useRole();
   const canSeeComp = canAccessModule('hr_comp', 'owner', 'viewer');
+  const isAdmin = can('administrator');   // Roles & Access tab is admin-only
 
   const toastErr = msg => { setToast({ msg, kind: 'error' }); setTimeout(() => setToast(null), 5000); };
   const toastOk  = msg => { setToast({ msg, kind: 'ok' }); setTimeout(() => setToast(null), 4000); };
@@ -3133,7 +3441,15 @@ export default function HR({ activeSub, onSubChange }) {
   useEffect(() => { loadEntities(); loadSites(); }, []);
   const entityName = id => entities.find(en => en.id === id)?.name || '';
 
+  // Department filter choices are the departments actually in use, scoped to the
+  // chosen company — no hardcoded list.
+  const deptChoices = useMemo(() => {
+    const src = companyF === 'All' ? employees : employees.filter(e => e.company === companyF);
+    return [...new Set(src.map(e => (e.department || '').trim()).filter(Boolean))].sort();
+  }, [employees, companyF]);
+
   const filtered = useMemo(() => employees.filter(e => {
+    if (companyF !== 'All' && e.company !== companyF) return false;
     if (deptF !== 'All' && e.department !== deptF) return false;
     if (statusF !== 'All' && e.status !== statusF) return false;
     if (search.trim()) {
@@ -3141,7 +3457,7 @@ export default function HR({ activeSub, onSubChange }) {
       return [fullName(e), e.workEmail, e.employeeCode, e.jobTitle, e.department].some(v => (v || '').toLowerCase().includes(q));
     }
     return true;
-  }), [employees, deptF, statusF, search]);
+  }), [employees, companyF, deptF, statusF, search]);
 
   const selected = employees.find(e => e.id === selectedId) || null;
   const counts = useMemo(() => ({
@@ -3167,14 +3483,19 @@ export default function HR({ activeSub, onSubChange }) {
   };
 
   const TABS = [
-    ['hr-people', 'People'], ['hr-hiring', 'Hiring'], ['hr-org', 'Org Chart'], ['hr-leave', 'Leave'], ['hr-time', 'Time'], ['hr-esign', 'E-Sign'],
+    { key: 'hr-people', label: 'People',    Icon: Users },
+    { key: 'hr-hiring', label: 'Hiring',    Icon: UserPlus },
+    { key: 'hr-org',    label: 'Org Chart', Icon: Network },
+    { key: 'hr-leave',  label: 'Leave',     Icon: CalendarOff },
+    { key: 'hr-time',   label: 'Time',      Icon: Clock },
+    ...(isAdmin ? [{ key: 'hr-access', label: 'Roles & Access', Icon: Shield }] : []),
   ];
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       <div className="view-header" style={{ marginBottom: 18 }}>
         <div className="view-title-group">
-          <h2>Human Resources</h2>
+          <h2>People</h2>
           <p>People, hiring, org structure and leave — one source of truth</p>
         </div>
         {sub === 'hr-people' && (
@@ -3185,9 +3506,9 @@ export default function HR({ activeSub, onSubChange }) {
               {syncBusy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <History size={14} />} Sync from M365
             </button>
             <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-              title="Manage companies / legal entities"
+              title="Manage companies & their departments"
               onClick={() => setEntitiesOpen(true)}>
-              <Building2 size={14} /> Companies
+              <Building2 size={14} /> Company setup
             </button>
             <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
               title="Manage work sites (for geofenced clock-in)"
@@ -3203,11 +3524,12 @@ export default function HR({ activeSub, onSubChange }) {
       </div>
 
       {/* Tabs */}
-      <div className="chip-row scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
-        {TABS.map(([key, label]) => (
+      <div className="scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--line)', paddingBottom: 1 }}>
+        {TABS.map(({ key, label, Icon }) => (
           <button key={key} onClick={() => onSubChange ? onSubChange(key) : null}
-            style={{ padding: '7px 16px', borderRadius: 10, border: `1px solid ${sub === key ? 'var(--pine)' : 'var(--line)'}`, background: sub === key ? 'hsla(var(--color-green),0.08)' : 'var(--card)', color: sub === key ? 'hsl(var(--color-green))' : 'var(--muted)', fontWeight: sub === key ? 700 : 600, fontSize: 13, cursor: 'pointer', fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap', flexShrink: 0 }}>
-            {label}
+            style={{ background: 'none', border: 'none', padding: '10px 18px', fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: 13.5, cursor: 'pointer', color: sub === key ? 'var(--ink)' : 'var(--muted)', position: 'relative', transition: 'color 0.15s', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', flexShrink: 0 }}>
+            <Icon size={17} /> {label}
+            {sub === key && <span style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: 'var(--ink)', borderRadius: '4px 4px 0 0' }} />}
           </button>
         ))}
       </div>
@@ -3216,20 +3538,19 @@ export default function HR({ activeSub, onSubChange }) {
         <HiringTab isMobile={isMobile} toastOk={toastOk} toastErr={toastErr}
           onEmployeeCreated={emp => setEmployees(prev => [...prev, emp].sort((a, b) => fullName(a).localeCompare(fullName(b))))}
           onSendForSignature={c => {
-            setEsignPrefill({
+            // E-Sign lives in the Documents module now — stash the offer and jump
+            // there; Documents picks up window.__esignPrefill on arrival.
+            window.__esignPrefill = {
               candidateId: c.id, title: `Offer — ${candName(c)}`,
               parties: [{ role_key: 'employee', name: candName(c), email: c.email, kind: 'external', ordinal: 2 }],
-            });
-            onSubChange('hr-esign');
+            };
+            window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign' } }));
           }} />
       )}
       {sub === 'hr-org' && <OrgChartTab employees={employees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-time' && <TimeAdmin employees={employees} toastOk={toastOk} toastErr={toastErr} />}
-      {sub === 'hr-esign' && (
-        <ESign employees={employees} entities={entities} prefill={esignPrefill} navSub={activeSub}
-          onPrefillConsumed={() => setEsignPrefill(null)} toastOk={toastOk} toastErr={toastErr} />
-      )}
+      {sub === 'hr-access' && isAdmin && <RolesAccess embedded />}
 
       {sub === 'hr-people' && (<>
         <EmployeeRequestsPanel toastOk={toastOk} toastErr={toastErr} />
@@ -3256,9 +3577,13 @@ export default function HR({ activeSub, onSubChange }) {
             <input placeholder="Search people…" value={search} onChange={e => setSearch(e.target.value)} />
             {search && <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={13} /></button>}
           </div>
+          <select className="form-input" value={companyF} onChange={e => { setCompanyF(e.target.value); setDeptF('All'); }} style={{ flex: '0 0 auto', width: 150, padding: '6px 10px', fontSize: 13, height: 34 }}>
+            <option value="All">All companies</option>
+            {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+          </select>
           <select className="form-input" value={deptF} onChange={e => setDeptF(e.target.value)} style={{ flex: '0 0 auto', width: 150, padding: '6px 10px', fontSize: 13, height: 34 }}>
             <option value="All">All departments</option>
-            {DEPTS.map(d => <option key={d}>{d}</option>)}
+            {deptChoices.map(d => <option key={d}>{d}</option>)}
           </select>
           <select className="form-input" value={statusF} onChange={e => setStatusF(e.target.value)} style={{ flex: '0 0 auto', width: 140, padding: '6px 10px', fontSize: 13, height: 34 }}>
             <option value="All">All statuses</option>
@@ -3322,7 +3647,7 @@ export default function HR({ activeSub, onSubChange }) {
               <div style={isMobile ? undefined : { position: 'sticky', top: 68, alignSelf: 'start', maxHeight: 'calc(100vh - 280px)', minHeight: 380, overflowY: 'auto' }}>
                 {selected ? (
                   <EmployeeDetail e={selected} employees={employees} isMobile={isMobile}
-                    companyName={entityName(selected.company)} canSeeComp={canSeeComp}
+                    companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
                     toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved}
                     onEdit={emp => { setEditing(emp); setFormOpen(true); }}
                     onBack={() => setSelectedId(null)} />
@@ -3339,9 +3664,9 @@ export default function HR({ activeSub, onSubChange }) {
       </>)}
 
       {formOpen && (
-        <EmployeeFormModal employee={editing} employees={employees} entities={entities}
+        <EmployeeFormModal employee={editing} employees={employees} entities={entities} isAdmin={isAdmin}
           onClose={() => { setFormOpen(false); setEditing(null); }}
-          onSaved={onSaved} toastErr={toastErr} />
+          onSaved={onSaved} toastOk={toastOk} toastErr={toastErr} />
       )}
       {entitiesOpen && (
         <EntitiesModal entities={entities} onClose={() => setEntitiesOpen(false)}

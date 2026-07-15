@@ -2012,9 +2012,10 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
   );
 }
 
-// ── Main E-Sign tab ───────────────────────────────────────────────────────────
-// Bell/toast deep-links: navSub 'hr-esign' → Inbox, 'hr-esign-requests' → Sent.
-const NAV_TAB = { 'hr-esign': 'inbox', 'hr-esign-requests': 'requests' };
+// ── Main E-Sign tab (lives in the Documents module) ──────────────────────────
+// Bell/toast deep-links: navSub 'documents-esign' → Inbox,
+// 'documents-esign-requests' → Sent.
+const NAV_TAB = { 'documents-esign': 'inbox', 'documents-esign-requests': 'requests' };
 
 export default function ESign({ employees = [], entities = [], prefill = null, navSub = '', onPrefillConsumed, toastOk, toastErr }) {
   const [sub, setSub] = useState(NAV_TAB[navSub] || 'inbox');
@@ -2049,7 +2050,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   useEffect(() => {
     const onNav = (e) => {
       const t = NAV_TAB[e.detail?.sub];
-      if (e.detail?.view === 'hr' && t) switchSub(t);
+      if (e.detail?.view === 'documents' && t) switchSub(t);
     };
     window.addEventListener('nexus:navigate', onNav);
     return () => window.removeEventListener('nexus:navigate', onNav);

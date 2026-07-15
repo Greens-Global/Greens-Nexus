@@ -1,62 +1,84 @@
 /* Nexus Fields — background location tracker.
  *
- * Talks to the SAME backend as the web portal, but authenticates with an
- * admin-minted device token (X-Agent-Token) instead of a Microsoft login —
- * see backend/routers/timeclock.py: get_agent_device + the /track/* endpoints.
- *
- * Tracking is DISTANCE-driven by the native plugin (fires on movement) and we
- * throttle-record a ping when >= TRACK_DISTANCE_M moved OR >= intervalSec passed
- * since the last recorded point. Pings buffer locally and flush in batches, so a
- * dead-zone stretch uploads on reconnect. The server rejects anything sent while
- * not clocked in, so tracking can never outlive a shift.
+ * Talks to the SAME backend as the web portal, authenticating with an
+ * admin-minted device token (X-Agent-Token) — see backend/routers/timeclock.py.
+ * Tracking runs only while clocked in; pings buffer offline and flush on
+ * reconnect. Plain no-bundler www: plugins are resolved lazily from the native
+ * Capacitor bridge (see plugin()).
  */
-const Cap = window.Capacitor || {};
-// Resolve EVERY plugin through registerPlugin so the native bridge binds them by
-// name. In a no-bundler www build, Cap.Plugins.* is NOT populated (the plugins'
-// JS wrappers never load), so Cap.Plugins.Preferences was undefined and threw at
-// boot — blanking the screen. registerPlugin works without the JS wrapper.
-const reg = (name) => (Cap.registerPlugin ? Cap.registerPlugin(name) : {});
-const Preferences = reg('Preferences');
-const Device = reg('Device');
-const BackgroundGeolocation = reg('BackgroundGeolocation');
-const BarcodeScanner = reg('BarcodeScanner');
-
 const $ = (id) => document.getElementById(id);
-const show = (id, on) => $(id).classList.toggle('hidden', !on);
+const show = (id, on) => { const el = $(id); if (el) el.classList.toggle('hidden', !on); };
+
+// Resolve a Capacitor plugin LAZILY and freshly on each call. In a no-bundler
+// build the native bridge may not be ready at module-eval time, and different
+// bridge versions expose either registerPlugin() or Plugins[name] — try both.
+function plugin(name) {
+  const C = window.Capacitor;
+  if (!C) return null;
+  if (typeof C.registerPlugin === 'function') return C.registerPlugin(name);
+  if (C.Plugins && C.Plugins[name]) return C.Plugins[name];
+  return null;
+}
+const P   = () => plugin('Preferences');
+const Dev = () => plugin('Device');
+const BG  = () => plugin('BackgroundGeolocation');
+const BS  = () => plugin('BarcodeScanner');
+
+function trackDbg(msg) { const el = $('diag'); if (el) el.textContent = capInfo() + '\n▶ ' + msg; }
+
+function capInfo() {
+  const C = window.Capacitor;
+  return 'cap=' + (typeof C) +
+    ' platform=' + (C && C.getPlatform ? C.getPlatform() : '?') +
+    ' registerPlugin=' + (C ? typeof C.registerPlugin : '-') +
+    ' Plugins=' + (C ? typeof C.Plugins : '-') +
+    ' keys=' + (C && C.Plugins ? Object.keys(C.Plugins).join('|') : '-');
+}
 
 const state = {
   apiBase: '', token: '', email: '',
   intervalSec: 300, distanceM: 100,
   watcherId: null, onShift: false,
   lastRecordedAt: 0, lastLat: null, lastLng: null,
-  buffer: [],            // pings not yet accepted by the server
+  buffer: [], _tick: null,
 };
 
 // ── storage ──────────────────────────────────────────────────────────────
 async function load() {
+  const pf = P();
+  if (!pf) return;
   try {
-    state.apiBase = (await Preferences.get({ key: 'apiBase' })).value || '';
-    state.token   = (await Preferences.get({ key: 'token' })).value || '';
-    const buf     = (await Preferences.get({ key: 'buffer' })).value;
+    state.apiBase = (await pf.get({ key: 'apiBase' })).value || '';
+    state.token   = (await pf.get({ key: 'token' })).value || '';
+    const buf     = (await pf.get({ key: 'buffer' })).value;
     state.buffer  = buf ? JSON.parse(buf) : [];
   } catch (e) { console.warn('load: prefs unavailable', e); }
 }
 async function saveBuffer() {
-  await Preferences.set({ key: 'buffer', value: JSON.stringify(state.buffer.slice(-2000)) });
-  $('buffered').textContent = String(state.buffer.length);
+  const pf = P();
+  if (pf) { try { await pf.set({ key: 'buffer', value: JSON.stringify(state.buffer.slice(-2000)) }); } catch { /* ignore */ } }
+  const el = $('buffered'); if (el) el.textContent = String(state.buffer.length);
+}
+async function savePair(apiBase, token) {
+  const pf = P();
+  if (!pf) return;
+  await pf.set({ key: 'apiBase', value: apiBase });
+  await pf.set({ key: 'token', value: token });
 }
 
 // ── backend ──────────────────────────────────────────────────────────────
 async function apiRaw(path, method = 'GET', body) {
-  const res = await fetch(state.apiBase.replace(/\/$/, '') + path, {
+  return fetch(state.apiBase.replace(/\/$/, '') + path, {
     method,
     headers: { 'Content-Type': 'application/json', 'X-Agent-Token': state.token },
     body: body ? JSON.stringify(body) : undefined,
   });
-  return res;
 }
 async function api(path, method, body) {
-  const res = await apiRaw(path, method, body);
+  const res = await Promise.race([
+    apiRaw(path, method, body),
+    new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error('request timed out'), { status: 0 })), 15000)),
+  ]);
   if (!res.ok) throw Object.assign(new Error('HTTP ' + res.status), { status: res.status });
   return res.json();
 }
@@ -66,15 +88,14 @@ async function route() {
   if (!state.apiBase || !state.token) { show('enroll', true); show('consent', false); show('main', false); return; }
   let cfg;
   try { cfg = await api('/timeclock/track/config'); }
-  catch (e) { alert('Could not reach the server / pairing code rejected. Check setup.'); show('enroll', true); return; }
+  catch { alert('Could not reach the server / pairing code rejected. Check setup.'); show('enroll', true); show('consent', false); show('main', false); return; }
   state.intervalSec = cfg.intervalSec || 300;
   state.distanceM   = cfg.distanceM || 100;
   state.email       = cfg.email || '';
-  $('whoami').textContent = state.email;
+  const who = $('whoami'); if (who) who.textContent = state.email;
   show('enroll', false);
   if (!cfg.hasConsent) { show('consent', true); show('main', false); return; }
   show('consent', false); show('main', true);
-  // resume tracking if the server still thinks we're on shift (e.g. app restarted)
   if (cfg.clockedIn && !state.onShift) startTracking(true);
   else setStatus(cfg.clockedIn);
 }
@@ -82,7 +103,8 @@ async function route() {
 function setStatus(on) {
   state.onShift = on;
   const dot = on ? '#16a34a' : '#64748b';
-  $('status').innerHTML = `<span class="dot" style="background:${dot}"></span>${on ? 'on shift — tracking' : 'off shift'}`;
+  const el = $('status');
+  if (el) el.innerHTML = `<span class="dot" style="background:${dot}"></span>${on ? 'on shift — tracking' : 'off shift'}`;
   show('startShift', !on); show('endShift', on);
 }
 
@@ -94,11 +116,12 @@ function metres(aLat, aLng, bLat, bLng) {
   return 2 * R * Math.asin(Math.sqrt(s));
 }
 async function batteryPct() {
-  try { const b = await Device.getBatteryInfo(); return Math.round((b.batteryLevel ?? -0.01) * 100); }
+  const d = Dev();
+  if (!d || !d.getBatteryInfo) return -1;
+  try { const b = await d.getBatteryInfo(); return Math.round((b.batteryLevel ?? -0.01) * 100); }
   catch { return -1; }
 }
 
-// A location arrived from the native watcher. Decide whether to record it.
 async function onLocation(loc) {
   if (!loc || !state.onShift) return;
   const now = Date.now();
@@ -127,72 +150,91 @@ async function flush() {
   try {
     const batch = state.buffer.slice(0, 200);
     await api('/timeclock/track/ping', 'POST', { pings: batch });
-    state.buffer.splice(0, batch.length);   // drop only what the server accepted
+    state.buffer.splice(0, batch.length);
     await saveBuffer();
-    $('lastPing').textContent = new Date().toLocaleTimeString();
+    const lp = $('lastPing'); if (lp) lp.textContent = new Date().toLocaleTimeString();
   } catch (e) {
-    if (e.status === 409) {                 // server says not clocked in — stop cleanly
-      await stopTracking(); setStatus(false);
-    }
-    // else: offline / transient — keep the buffer, retry on next location or tick
+    if (e.status === 409) { await stopTracking(); setStatus(false); }
   } finally { flushing = false; }
+}
+
+// One-shot fix — covers a stationary phone. enableHighAccuracy:false so it uses
+// the network (WiFi/cell) provider, which returns fast and works INDOORS instead
+// of waiting on a GPS lock that never comes at a desk. Prefers the native
+// Geolocation plugin (fused provider) and falls back to the WebView API.
+async function pollFix() {
+  const opts = { enableHighAccuracy: false, timeout: 20000, maximumAge: 600000 };
+  const geo = plugin('Geolocation');
+  if (geo && geo.getCurrentPosition) {
+    try {
+      if (geo.requestPermissions) { try { await geo.requestPermissions(); } catch (e) { /* */ } }
+      const pos = await geo.getCurrentPosition(opts);
+      onLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy, time: pos.timestamp });
+      return;
+    } catch (e) { trackDbg('geo plugin: ' + (e && e.message ? e.message : e)); }
+  }
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => onLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy, time: pos.timestamp }),
+      (err) => trackDbg('poll error: ' + (err && err.message ? err.message : err)),
+      opts
+    );
+  }
 }
 
 // ── tracking lifecycle ───────────────────────────────────────────────────
 async function startTracking(resumed) {
   if (state.watcherId) return;
-  state.watcherId = await BackgroundGeolocation.addWatcher({
-    backgroundTitle: 'Nexus Fields — on shift',
-    backgroundMessage: "Recording your location while you're clocked in. Ends when you clock out.",
-    requestPermissions: true,
-    stale: false,
-    distanceFilter: Math.min(25, state.distanceM),   // let the OS wake us; we throttle in onLocation
-  }, (location, error) => {
-    if (error) { console.warn('geo error', error); return; }
-    onLocation(location);
-  });
-  setStatus(true);
+  setStatus(true);   // clocked in — reflect it now, independent of the GPS watcher
+  const bg = BG();
+  if (bg && bg.addWatcher) {
+    trackDbg('starting watcher…');
+    try {
+      state.watcherId = await bg.addWatcher({
+        backgroundTitle: 'Nexus Fields — on shift',
+        backgroundMessage: "Recording your location while you're clocked in. Ends when you clock out.",
+        requestPermissions: true, stale: true,
+        distanceFilter: Math.min(25, state.distanceM),
+      }, (location, error) => {
+        if (error) {
+          trackDbg('geo error: ' + (error.code || '') + ' ' + (error.message || ''));
+          if (!state._geoAlerted && /NOT_AUTHORIZED|denied|permission/i.test((error.code || '') + (error.message || ''))) {
+            state._geoAlerted = true;
+            alert('Location permission is off.\nEnable it: Settings → Apps → Nexus Fields → Permissions → Location → “Allow all the time”, then tap Start shift again.');
+          }
+          return;
+        }
+        trackDbg('fix ' + (+location.latitude).toFixed(5) + ',' + (+location.longitude).toFixed(5) + ' ±' + Math.round(location.accuracy || 0) + 'm');
+        onLocation(location);
+      });
+      trackDbg('watcher active (' + state.watcherId + ')');
+    } catch (e) { trackDbg('watcher failed: ' + (e && e.message ? e.message : e)); }
+  } else {
+    alert('Location tracking is unavailable on this device.\n' + capInfo());
+  }
+  pollFix();   // grab an immediate foreground fix so the first ping lands fast
   if (!resumed) flush();
-  // Foreground fallback so a stationary phone still pings ~every interval while
-  // the app is open (backgrounded timers are throttled — this is best-effort).
   clearInterval(state._tick);
-  state._tick = setInterval(() => { if (state.onShift) flush(); }, state.intervalSec * 1000);
+  state._tick = setInterval(() => { if (state.onShift) { pollFix(); flush(); } }, state.intervalSec * 1000);
 }
 async function stopTracking() {
   clearInterval(state._tick);
-  if (state.watcherId) { await BackgroundGeolocation.removeWatcher({ id: state.watcherId }); state.watcherId = null; }
+  const bg = BG();
+  if (state.watcherId && bg) { try { await bg.removeWatcher({ id: state.watcherId }); } catch { /* gone */ } state.watcherId = null; }
 }
-
-async function currentFix() {
-  // best-effort one-shot fix to stamp the clock punch; ignore failure
-  return new Promise((resolve) => {
-    let done = false;
-    BackgroundGeolocation.addWatcher({ requestPermissions: true, stale: true, distanceFilter: 0 },
-      async (loc, err) => {
-        if (done) return; done = true;
-        resolve(err || !loc ? null : loc);
-      }).then((id) => setTimeout(() => BackgroundGeolocation.removeWatcher({ id }), 1500));
-  });
-}
-
-// ── actions ──────────────────────────────────────────────────────────────
+// ── pairing / QR scan ──────────────────────────────────────────────────────
 async function pairWith(apiBase, token) {
   state.apiBase = apiBase.trim().replace(/\/$/, '');
   state.token = token.trim();
-  await Preferences.set({ key: 'apiBase', value: state.apiBase });
-  await Preferences.set({ key: 'token', value: state.token });
+  await savePair(state.apiBase, state.token);
   route();
 }
 
-// One scan pairs the phone: the QR carries { api, code } — no typing.
-// Uses startScan() (device camera + the ML Kit model bundled in the APK) rather
-// than scan() (Google's code-scanner module, which needs Play Services and isn't
-// available on every phone).
 let _scanListener = null;
 async function stopScanning() {
   document.body.classList.remove('scanning');
   try { if (_scanListener) { await _scanListener.remove(); _scanListener = null; } } catch { /* gone */ }
-  try { await BarcodeScanner.stopScan(); } catch { /* not scanning */ }
+  const bs = BS(); if (bs && bs.stopScan) { try { await bs.stopScan(); } catch { /* not scanning */ } }
 }
 async function onScanned(raw) {
   await stopScanning();
@@ -205,19 +247,26 @@ async function onScanned(raw) {
     alert('That isn’t a Nexus pairing QR. Use the one from HR → Time → Live map → Enrol phone.');
   }
 }
+
+// Uses startScan() (device camera + the ML Kit model bundled in the APK) — not
+// scan(), which needs Google's code-scanner module (Play Services).
 $('scanQr').onclick = async () => {
+  const bs = BS();
+  if (!bs || !bs.startScan) { alert('Scanner unavailable on this device.\n' + capInfo() + '\nUse “Enter manually”.'); return; }
   try {
-    const perm = await BarcodeScanner.requestPermissions();
-    const cam = perm && perm.camera;
-    if (cam && cam !== 'granted' && cam !== 'limited') {
-      alert('Camera access is needed to scan the QR. Turn it on in Settings, or use “Enter manually”.');
-      return;
+    if (bs.requestPermissions) {
+      const perm = await bs.requestPermissions();
+      const cam = perm && perm.camera;
+      if (cam && cam !== 'granted' && cam !== 'limited') {
+        alert('Camera access is needed to scan the QR. Turn it on in Settings, or use “Enter manually”.');
+        return;
+      }
     }
     document.body.classList.add('scanning');
-    _scanListener = await BarcodeScanner.addListener('barcodeScanned', (ev) => {
+    _scanListener = await bs.addListener('barcodeScanned', (ev) => {
       onScanned(ev && ev.barcode && ev.barcode.rawValue);
     });
-    await BarcodeScanner.startScan({ formats: ['QR_CODE'] });
+    await bs.startScan({ formats: ['QR_CODE'] });
   } catch (e) {
     await stopScanning();
     alert('Scan couldn’t start: ' + (e && e.message ? e.message : e) + '\nUse “Enter manually” instead.');
@@ -230,37 +279,43 @@ $('saveEnroll').onclick = async () => {
   if (!apiBase || !token) return alert('Enter both the server URL and pairing code.');
   await pairWith(apiBase, token);
 };
+
+// ── actions ──────────────────────────────────────────────────────────────
 $('grant').onclick = async () => {
   try { await api('/timeclock/track/consent', 'POST', { granted: true }); route(); }
   catch { alert('Could not record consent — check connection.'); }
 };
-$('declineEnroll').onclick = () => show('consent', false) || show('main', false) || show('enroll', true);
+$('declineEnroll').onclick = () => { show('consent', false); show('main', false); show('enroll', true); };
 
 $('startShift').onclick = async () => {
-  const fix = await currentFix();
+  const btn = $('startShift');
+  btn.disabled = true; const label = btn.textContent; btn.textContent = 'Starting…';
   try {
-    const body = { kind: 'in', tz_offset_min: new Date().getTimezoneOffset() };
-    if (fix) Object.assign(body, { lat: String(fix.latitude), lng: String(fix.longitude), accuracy_m: Math.round(fix.accuracy || 0) });
-    await api('/timeclock/track/clock', 'POST', body);
-    startTracking(false);
-  } catch (e) { alert(e.status === 409 ? "Can't start a shift right now." : 'Could not clock in.'); }
+    // Clock in immediately — no GPS pre-fetch on the critical path. Location is
+    // supplied by the continuous tracker's first ping moments later.
+    await api('/timeclock/track/clock', 'POST', { kind: 'in', tz_offset_min: new Date().getTimezoneOffset() });
+    startTracking(false);   // not awaited — starts the location watcher in the background
+  } catch (e) {
+    alert(e.status === 409 ? "Can't start a shift right now — you may already be clocked in." : 'Could not clock in: ' + (e.message || e));
+  }
+  btn.disabled = false; btn.textContent = label;
 };
 $('endShift').onclick = async () => {
-  await flush();                                   // push whatever we still hold
+  await flush();
   try { await api('/timeclock/track/clock', 'POST', { kind: 'out', tz_offset_min: new Date().getTimezoneOffset() }); }
-  catch { /* even if this fails, stop locally; server auto-closes on idle */ }
+  catch { /* stop locally; server auto-closes on idle */ }
   await stopTracking(); setStatus(false);
 };
 $('revoke').onclick = async () => {
   if (!confirm('Withdraw consent and stop all tracking?')) return;
   await stopTracking();
-  try { await api('/timeclock/track/consent', 'POST', { granted: false }); } catch {}
+  try { await api('/timeclock/track/consent', 'POST', { granted: false }); } catch { /* */ }
   setStatus(false); route();
 };
 
 // ── boot ─────────────────────────────────────────────────────────────────
-// route() must ALWAYS run so the setup screen shows even if a plugin call fails.
 (async () => {
+  const dg = $('diag'); if (dg) dg.textContent = capInfo();
   try { await load(); } catch (e) { console.warn('boot: load failed', e); }
   try { await saveBuffer(); } catch (e) { console.warn('boot: buffer failed', e); }
   try { route(); } catch (e) { console.warn('boot: route failed', e); show('enroll', true); }

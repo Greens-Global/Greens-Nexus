@@ -1,0 +1,98 @@
+# Automated QA (Testing module, Level 2) — runs the AI-generated Playwright
+# specs nightly against a self-contained stack built from the dev branch, then
+# posts verdicts back into the dev Testing module (run "Automated — <date>").
+#
+# Secrets (optional — without them the committed smoke specs still run, results
+# just aren't uploaded):
+#   NEXUS_DEV_API_URL   e.g. https://<azure-dev-app>.azurewebsites.net
+#   NEXUS_QA_CI_TOKEN   must match the NEXUS_QA_CI_TOKEN env var on Azure dev
+name: QA e2e
+
+on:
+  schedule:
+    - cron: '30 2 * * *'   # nightly, 02:30 UTC
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXUS_DEV_API_URL: ${{ secrets.NEXUS_DEV_API_URL }}
+      NEXUS_QA_CI_TOKEN: ${{ secrets.NEXUS_QA_CI_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install backend
+        run: pip install -r backend/requirements.txt
+
+      - name: Build frontend (E2E mode — skips the MSAL gate)
+        working-directory: frontend
+        run: |
+          npm ci
+          VITE_E2E=true npm run build
+
+      - name: Start backend (fresh sqlite, auth skipped, QA module on)
+        working-directory: backend
+        env:
+          NEXUS_SKIP_AUTH: 'true'
+          NEXUS_DEV_EMAIL: ci@greensglobal.com
+          NEXUS_OWNER_EMAIL: ci@greensglobal.com
+          NEXUS_QA_MODULE: 'true'
+          DATABASE_URL: sqlite:///./e2e.db
+        run: |
+          nohup uvicorn main:app --port 8000 > uvicorn1.log 2>&1 &
+          sleep 8
+          # First /roles/me seeds the owner row but caches the pre-seed role for
+          # 120s — restart so the CI identity is owner from request one.
+          curl -sf http://localhost:8000/roles/me
+          kill %1 && sleep 2
+          nohup uvicorn main:app --port 8000 > uvicorn.log 2>&1 &
+          sleep 8
+          curl -sf http://localhost:8000/roles/me
+          curl -sf http://localhost:8000/qa/enabled
+
+      - name: Serve frontend
+        working-directory: frontend
+        run: |
+          nohup npx vite preview --port 5173 --strictPort > preview.log 2>&1 &
+          sleep 3
+          curl -sf http://localhost:5173 > /dev/null
+
+      - name: Install Playwright
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Sync AI-generated specs from the dev Testing module
+        working-directory: e2e
+        run: node sync.mjs
+
+      - name: Run tests
+        working-directory: e2e
+        run: npx playwright test
+
+      - name: Upload verdicts to the dev Testing module
+        if: always()
+        working-directory: e2e
+        run: node post-results.mjs
+
+      - name: Keep artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            e2e/test-results/
+            e2e/results.json
+          retention-days: 7

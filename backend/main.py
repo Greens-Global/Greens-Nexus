@@ -10,6 +10,9 @@ from database import engine, DATABASE_URL, SessionLocal
 from routers import timeclock
 from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, inventory_requests, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews
 from routers import task_projects, task_config  # Task Module (Jul 2026)
+from routers import jobroles  # Roles & Access redesign (Jul 2026)
+from routers import access_scopes  # row-level scopes for external users (Jul 2026)
+from routers import qa  # Testing module — dev-only via NEXUS_QA_MODULE env (Jul 2026)
 from audit import AuditMiddleware
 
 
@@ -109,6 +112,12 @@ def _run_migrations():
             "ALTER TABLE tasks ADD COLUMN modified_at VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN created_by VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN synced_with_asana BOOLEAN DEFAULT 0",
+            # Task Module: bug-report screenshots on tickets
+            "ALTER TABLE task_tickets ADD COLUMN images JSON DEFAULT '[]'",
+            # Roles & Access redesign: job-role templates live on nexus_groups
+            "ALTER TABLE nexus_groups ADD COLUMN is_job_role BOOLEAN DEFAULT 0",
+            "ALTER TABLE nexus_groups ADD COLUMN tier VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN description VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -222,6 +231,8 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS status_log JSONB DEFAULT '[]'::jsonb",
         # Org chart Phase 5: functional-division head tag (inherits down the tree)
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS division VARCHAR DEFAULT ''",
+        # External users: identity type (internal MS365 / Entra B2B guest / non-MS365 external)
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS identity_type VARCHAR DEFAULT 'internal'",
         # HR mailbox export: progress total (table itself is created by create_all)
         "ALTER TABLE hr_mailbox_exports ADD COLUMN IF NOT EXISTS total INTEGER DEFAULT 0",
         # E-Sign multi-document packets: PDFs attached to a template, carried on the envelope
@@ -289,6 +300,10 @@ def _run_migrations():
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS synced_with_asana BOOLEAN DEFAULT FALSE",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb",
+        # Roles & Access redesign: job-role templates live on nexus_groups
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS is_job_role BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS tier VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS description VARCHAR DEFAULT ''",
     ]
     with engine.connect() as conn:
         for sql in migrations:
@@ -470,6 +485,9 @@ app.include_router(notifications.router)
 app.include_router(inventory_requests.router)
 app.include_router(audit.router)
 app.include_router(groups.router)
+app.include_router(jobroles.router)
+app.include_router(access_scopes.router)
+app.include_router(qa.router)
 app.include_router(items_router.router)
 app.include_router(hr.router)
 app.include_router(knowledge_base.router)

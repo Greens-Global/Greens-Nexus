@@ -1,0 +1,13 @@
+{
+  "name": "nexus-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync": "node sync.mjs",
+    "test": "playwright test",
+    "report": "node post-results.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}

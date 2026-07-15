@@ -348,6 +348,41 @@ export const api = {
   removeGroupMember: (id, email)         => req(`/groups/${id}/members/${encodeURIComponent(email)}`, { method: 'DELETE' }),
   assignGroupRole:   (id, role, by)      => req(`/groups/${id}/assign-role`, { method: 'POST', body: JSON.stringify({ role, assigned_by: by }) }),
 
+  // Job Roles (Roles & Access redesign) — a job role is a group template with a tier
+  getJobRoles:       ()                  => req('/jobroles'),
+  createJobRole:     (body)              => req('/jobroles', { method: 'POST', body: JSON.stringify(body) }),
+  updateJobRole:     (id, body)          => req(`/jobroles/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteJobRole:     (id)                => req(`/jobroles/${id}`, { method: 'DELETE' }),
+  assignJobRole:     (id, email)         => req(`/jobroles/${id}/assign`, { method: 'POST', body: JSON.stringify({ email }) }),
+  unassignJobRole:   (id, email)         => req(`/jobroles/${id}/unassign`, { method: 'POST', body: JSON.stringify({ email }) }),
+  getEffectiveAccess:(email)             => req(`/jobroles/effective/${encodeURIComponent(email)}`),
+  // Row-level access scopes (sandbox external users to specific companies)
+  getAccessScopes:   (email)             => req(`/access-scopes/${encodeURIComponent(email)}`),
+  addAccessScope:    (email, body)       => req(`/access-scopes/${encodeURIComponent(email)}`, { method: 'POST', body: JSON.stringify(body) }),
+  deleteAccessScope: (email, scopeId)    => req(`/access-scopes/${encodeURIComponent(email)}/${encodeURIComponent(scopeId)}`, { method: 'DELETE' }),
+
+  // Testing module (QA) — dev-only, endpoints 404 unless NEXUS_QA_MODULE is set
+  qaEnabled:        ()            => cachedGet('/qa/enabled', 300_000),
+  qaCases:          ()            => req('/qa/cases'),
+  qaCreateCase:     (body)        => req('/qa/cases', { method: 'POST', body: JSON.stringify(body) }),
+  qaUpdateCase:     (id, body)    => req(`/qa/cases/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  qaRuns:           ()            => req('/qa/runs'),
+  qaCreateRun:      (name)        => req('/qa/runs', { method: 'POST', body: JSON.stringify({ name }) }),
+  qaDeleteRun:      (runId)       => req(`/qa/runs/${runId}`, { method: 'DELETE' }),
+  qaRunResults:     (runId)       => req(`/qa/runs/${runId}/results`),
+  qaUpsertResult:   (runId, body) => req(`/qa/runs/${runId}/results`, { method: 'POST', body: JSON.stringify(body) }),
+  qaActivity:       ()            => req('/qa/activity'),
+  qaBugs:           ()            => req('/qa/bug-reports'),
+  qaCreateBug:      (body)        => req('/qa/bug-reports', { method: 'POST', body: JSON.stringify(body) }),
+  qaUpdateBug:      (id, body)    => req(`/qa/bug-reports/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  qaConvertBug:     (id)          => req(`/qa/bug-reports/${id}/convert`, { method: 'POST', timeoutMs: 60_000 }),
+  qaAssignments:    (runId = '')  => req(`/qa/assignments${runId ? `?run_id=${runId}` : ''}`),
+  qaAssign:         (body)        => req('/qa/assignments', { method: 'POST', body: JSON.stringify(body) }),
+  qaSaveFlow:       (id, flow)    => req(`/qa/cases/${id}/flow`, { method: 'POST', body: JSON.stringify({ flow }) }),
+  qaGenerateE2e:    (id)          => req(`/qa/cases/${id}/generate-e2e`, { method: 'POST', timeoutMs: 90_000 }),
+  qaExport:         (runId = '')  => reqBlob(`/qa/export${runId ? `?run_id=${runId}` : ''}`, { timeoutMs: 180_000 }),
+  qaImport:         (file, runId = '') => { const fd = new FormData(); fd.append('file', file); return req(`/qa/import${runId ? `?run_id=${runId}` : ''}`, { method: 'POST', body: fd, timeoutMs: 180_000 }); },
+
   // Notifications (cross-device, stored in Supabase)
   pushNotification: (n)             => req('/notifications', { method: 'POST', body: JSON.stringify(n) }),
   getNotifications: ()               => req('/notifications'),
@@ -395,6 +430,9 @@ export const api = {
   getItemAllocators:   ()             => cachedGet('/items/allocators'),
   getItemApprovers:    ()             => cachedGet('/items/approvers'),
   getRolesDirectory:   ()             => cachedGet('/roles/directory'),
+  // Curated Nexus People (nexus_employees), not the ~150-account M365 GAL — for
+  // assigning items to real Nexus people. Same {email,name} shape.
+  getPeopleDirectory:  ()             => cachedGet('/myhr/directory'),
   autoFillItemPhotos:  (item_ids, replace = false) => req('/items/auto-photos', { method: 'POST', body: JSON.stringify({ item_ids, replace }) }),
   // Permanent assignments
   getAssignments:         ()           => req('/items/assignments'),
@@ -471,6 +509,10 @@ export const api = {
   createEntity:   (data)     => req('/hr/entities', { method: 'POST', body: JSON.stringify(data) }),
   updateEntity:   (id, data) => req(`/hr/entities/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteEntity:   (id)       => req(`/hr/entities/${id}`, { method: 'DELETE' }),
+  // per-company departments (managed list, not free text)
+  getCompanyDepartments:    (entityId)       => req(`/hr/entities/${entityId}/departments`),
+  addCompanyDepartment:     (entityId, name) => req(`/hr/entities/${entityId}/departments`, { method: 'POST', body: JSON.stringify({ name }) }),
+  deleteCompanyDepartment:  (entityId, deptId) => req(`/hr/entities/${entityId}/departments/${deptId}`, { method: 'DELETE' }),
   getWorkSites:   ()         => req('/hr/work-sites'),
   createWorkSite: (data)     => req('/hr/work-sites', { method: 'POST', body: JSON.stringify(data) }),
   updateWorkSite: (id, data) => req(`/hr/work-sites/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

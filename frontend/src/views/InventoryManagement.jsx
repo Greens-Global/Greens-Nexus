@@ -210,7 +210,7 @@ function PersonTypeahead({ valueName, onPick, placeholder = 'Type a name…' }) 
   const [text, setText] = useState(valueName || '');
   const [open, setOpen] = useState(false);
   const boxRef = useRef(null);
-  useEffect(() => { api.getRolesDirectory().then(d => setDir(Array.isArray(d) ? d : [])).catch(() => {}); }, []);
+  useEffect(() => { api.getPeopleDirectory().then(d => setDir(Array.isArray(d) ? d : [])).catch(() => {}); }, []);
   useEffect(() => { setText(valueName || ''); }, [valueName]);
   useEffect(() => {
     function onDoc(e) { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); }
@@ -1856,6 +1856,7 @@ const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onLo
         <div className="search-bar" style={{ flex:1, minWidth:180, maxWidth:300 }}>
           <Search size={14} style={{ flexShrink:0 }} />
           <input placeholder="Search by item, user, or action…" value={query} onChange={e => setQuery(e.target.value)} />
+          {query && <button className="search-clear" onClick={() => setQuery('')} title="Clear search" aria-label="Clear search"><X size={13} /></button>}
         </div>
         <div style={{ marginLeft:'auto', display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
           <label style={{ fontSize:10.5, fontWeight:700, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:5 }}>
@@ -2523,6 +2524,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
           <div className="search-bar" style={{ flex:1, minWidth:200, marginBottom:0 }}>
             <Search size={14} style={{ flexShrink:0 }} />
             <input placeholder="Search my items…" value={mySearch} onChange={e => setMySearch(e.target.value)} />
+            {mySearch && <button className="search-clear" onClick={() => setMySearch('')} title="Clear search" aria-label="Clear search"><X size={13} /></button>}
           </div>
           <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', marginLeft:'auto' }}>
           {panelTab === 'past' && [
@@ -3495,6 +3497,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
             <div className="search-bar" style={{ width:'100%' }}>
               <Search size={14} style={{ flexShrink:0 }} />
               <input placeholder="Search by name, make, or model…" value={search} onChange={e => setSearch(e.target.value)} autoFocus />
+              {search && <button className="search-clear" onClick={() => setSearch('')} title="Clear search" aria-label="Clear search"><X size={13} /></button>}
             </div>
             <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', justifyContent:'space-between' }}>
               <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
@@ -3764,6 +3767,7 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
         <div className="search-bar" style={{ flex:1, minWidth:200, marginBottom:0 }}>
           <Search size={14} style={{ flexShrink:0 }} />
           <input placeholder="Search items…" value={searchValue} onChange={e => onSearchChange(e.target.value)} />
+          {searchValue && <button className="search-clear" onClick={() => onSearchChange('')} title="Clear search" aria-label="Clear search"><X size={13} /></button>}
         </div>
         {filterControls && (
           <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>{filterControls}</div>
@@ -4904,6 +4908,7 @@ function SendAlertModal({ onClose, toast }) {
             <div className="search-bar" style={{ marginBottom:8 }}>
               <Users size={13} style={{ flexShrink:0 }} />
               <input placeholder="Search by name or email…" value={search} onChange={e => setSearch(e.target.value)} />
+              {search && <button className="search-clear" onClick={() => setSearch('')} title="Clear search" aria-label="Clear search"><X size={13} /></button>}
             </div>
             <div style={{ border:'1px solid var(--line)', borderRadius:10, maxHeight:180, overflowY:'auto' }}>
               {usersLoading ? (
@@ -5463,6 +5468,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
         <div className="search-bar" style={{ width:'100%', marginBottom:12 }}>
           <Search size={14} style={{ flexShrink:0 }} />
           <input placeholder="Search items…" value={searchValue} onChange={e => onSearchChange(e.target.value)} />
+          {searchValue && <button className="search-clear" onClick={() => onSearchChange('')} title="Clear search" aria-label="Clear search"><X size={13} /></button>}
         </div>
       )}
       {/* Filter + search bar — directly above the items, one consistent spot
@@ -5473,6 +5479,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
           <div className="search-bar" style={{ flex:1, minWidth:200, marginBottom:0 }}>
             <Search size={14} style={{ flexShrink:0 }} />
             <input placeholder="Search items…" value={searchValue} onChange={e => onSearchChange(e.target.value)} />
+            {searchValue && <button className="search-clear" onClick={() => onSearchChange('')} title="Clear search" aria-label="Clear search"><X size={13} /></button>}
           </div>
         )}
         <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center', marginLeft: isMobile ? 0 : 'auto' }}>
@@ -7238,6 +7245,7 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
         <div className="search-bar" style={{ flex:1, minWidth:220, maxWidth:420, marginBottom:0 }}>
           <Search size={14} style={{ flexShrink:0 }} />
           <input placeholder={view === 'person' ? 'Search by person or item…' : 'Search by location or item…'} value={search} onChange={e => setSearch(e.target.value)} autoFocus />
+          {search && <button className="search-clear" onClick={() => setSearch('')} title="Clear search" aria-label="Clear search"><X size={13} /></button>}
         </div>
         {/* By Person / By Location (Neil: search GSE → see everything there) */}
         <div style={{ display:'inline-flex', border:'1px solid var(--line)', borderRadius:9, overflow:'hidden', flexShrink:0 }}>

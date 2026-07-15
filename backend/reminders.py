@@ -137,7 +137,7 @@ def run_daily_scan() -> int:
             if d is not None and 0 <= d <= 3:
                 sent += _notify(db, "esign_expiring", req.created_by, "Signature request expiring",
                                 f"\"{req.title}\" is still unsigned and expires in {d} day{'s' if d != 1 else ''}. Send a reminder or extend it.",
-                                ref_id=req.id, action={"view": "hr", "sub": "hr-esign"})
+                                ref_id=req.id, action={"view": "documents", "sub": "documents-esign"})
 
         # 7. Field-tracking retention: purge raw location pings past the window
         # (data-minimization guardrail — keep only recent breadcrumbs).

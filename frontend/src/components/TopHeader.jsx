@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo, lazy, Suspense } from "react";
-import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, ChevronDown, LayoutDashboard, Maximize2, Minimize2, ZoomIn, ZoomOut, Camera, Clock, Sparkles } from "lucide-react";
+import { Menu, Moon, Sun, Search, LogOut, Settings, User, ArrowLeft, Shield, Activity, ChevronDown, LayoutDashboard, Maximize2, Minimize2, ZoomIn, ZoomOut, Camera, Clock, Sparkles, X } from "lucide-react";
 import ScreenshotsAdmin from "./ScreenshotsAdmin";
 const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
@@ -143,6 +143,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
               onFocus={() => setSearchOpen(true)}
               onKeyDown={handleSearchKey}
             />
+            {searchQuery && <button className="search-clear" onClick={() => { setSearchQuery(''); setSearchOpen(false); }} title="Clear search" aria-label="Clear search"><X size={13} /></button>}
           </div>
           {searchOpen && searchResults.length > 0 && (
             <div style={{
@@ -259,9 +260,9 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
                   <div style={{ padding: '4px 12px 2px', fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase' }}>
                     Admin
                   </div>
-                  <button className="hud-item" onClick={() => { setOpen(false); onOpenAdmin?.('access'); }}
+                  <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'hr', sub: 'hr-access' } })); }}
                     style={{ color: 'hsl(var(--color-purple))' }}>
-                    <Shield size={14} /> Access Manager
+                    <Shield size={14} /> Roles &amp; Access
                   </button>
                   <button className="hud-item" onClick={() => { setOpen(false); onOpenAdmin?.('audit'); }}
                     style={{ color: 'hsl(var(--color-purple))' }}>

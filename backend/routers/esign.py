@@ -278,7 +278,7 @@ def _send_sign_email(party: HrSignParty, req: HrSignRequest, sender_name: str) -
     if not (party.email and sender):
         return False, "no recipient email" if not party.email else "NEXUS_FROM_EMAIL not set"
     link = (f"{_APP_URL}/sign/{party.token}" if party.kind == "external"
-            else f"{_APP_URL}/hr/hr-esign")
+            else f"{_APP_URL}/documents/documents-esign")
     try:
         resp = httpx.post(f"https://graph.microsoft.com/v1.0/users/{sender}/sendMail",
                           headers={"Authorization": f"Bearer {_graph_token()}"}, json={
@@ -358,9 +358,9 @@ def _notify_party(db: Session, party: HrSignParty, req: HrSignRequest, sender_na
     an email hiccup must never lose the envelope; the event log records it)."""
     if party.kind == "internal":
         _hr_notify(db, party.email, f"Signature required: {req.title}",
-                   f"{sender_name} sent you \"{req.title}\" to sign. Open HR → E-Sign.",
+                   f"{sender_name} sent you \"{req.title}\" to sign. Open Documents → E-Sign.",
                    ref_id=req.id, requested_by=sender_name,
-                   action={"view": "hr", "sub": "hr-esign"})
+                   action={"view": "documents", "sub": "documents-esign"})
     ok, detail = _send_sign_email(party, req, sender_name)
     _log(db, req.id, "sent",
          f"notified {party.name} ({party.kind})" + ("" if ok else f" — email failed: {detail}"),
@@ -1147,7 +1147,7 @@ def _apply_decline(db: Session, req: HrSignRequest, party: HrSignParty, reason: 
     _hr_notify(db, req.created_by, f"Signature declined: {req.title}",
                f"{party.name} declined to sign. {party.decline_reason}".strip(),
                ref_id=req.id, requested_by=party.name,
-               action={"view": "hr", "sub": "hr-esign-requests"})
+               action={"view": "documents", "sub": "documents-esign-requests"})
     db.commit()
     return {"ok": True, "status": "declined"}
 
@@ -1512,7 +1512,7 @@ def _certificate_pdf(req: HrSignRequest, parties: List[HrSignParty],
             Paragraph(f"SHA-256 of the signed content pages:", small),
             Paragraph(f"<font face='Courier' size='8'>{content_sha}</font>", small),
             Paragraph("Any modification to the signed pages after completion changes this hash. "
-                      "Verify anytime under HR → E-Sign → Verify integrity.", tiny),
+                      "Verify anytime under Documents → E-Sign → Verify integrity.", tiny),
             Paragraph("Signers", h)]
 
     rows = [[PH("#"), PH("Signer"), PH("Consented"), PH("Viewed"), PH("Signed"), PH("IP address")]]
@@ -1667,8 +1667,8 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
     n_signers = sum(1 for p in parties if (p.party_role or "signer") == "signer")
     _hr_notify(db, req.created_by, f"Completed: {req.title}",
                f"All {n_signers} signer{'s' if n_signers != 1 else ''} have signed \"{req.title}\". "
-               f"The sealed document is in HR → E-Sign and in your email.", ref_id=req.id,
-               action={"view": "hr", "sub": "hr-esign-requests"})
+               f"The sealed document is in Documents → E-Sign and in your email.", ref_id=req.id,
+               action={"view": "documents", "sub": "documents-esign-requests"})
     emailed = set()
 
     def _mail_copy(name, email, link, label, party_id=""):
@@ -1681,15 +1681,15 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
              + ("" if ok else f" — email failed: {detail}"), party_id=party_id)
 
     sender_name = req.created_by.split("@")[0].replace(".", " ").title()
-    _mail_copy(sender_name, req.created_by, f"{_APP_URL}/hr/hr-esign", "Open in Nexus")
+    _mail_copy(sender_name, req.created_by, f"{_APP_URL}/documents/documents-esign", "Open in Nexus")
     for p in parties:
         if p.kind == "internal":
             if p.email != req.created_by:
                 _hr_notify(db, p.email, f"Fully signed: {req.title}",
-                           "Everyone has signed. The sealed copy is in HR → E-Sign and in your email.",
+                           "Everyone has signed. The sealed copy is in Documents → E-Sign and in your email.",
                            ref_id=req.id,
-                           action={"view": "hr", "sub": "hr-esign"})
-            _mail_copy(p.name, p.email, f"{_APP_URL}/hr/hr-esign", "Open in Nexus", party_id=p.id)
+                           action={"view": "documents", "sub": "documents-esign"})
+            _mail_copy(p.name, p.email, f"{_APP_URL}/documents/documents-esign", "Open in Nexus", party_id=p.id)
         else:
             # Externals have no Nexus login — their unique link also serves the
             # sealed copy (public download).

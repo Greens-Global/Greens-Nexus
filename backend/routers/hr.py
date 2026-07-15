@@ -27,6 +27,7 @@ router = APIRouter(prefix="/hr", tags=["hr"])
 
 _EMPLOYMENT_TYPES = ("full_time", "part_time", "contractor", "intern")
 _STATUSES         = ("onboarding", "active", "inactive", "offboarded")
+_IDENTITY_TYPES   = ("internal", "guest", "external")
 
 
 class EmployeeIn(BaseModel):
@@ -43,6 +44,7 @@ class EmployeeIn(BaseModel):
     status:          Optional[str] = "active"
     location:        Optional[str] = ""
     company:         Optional[str] = ""
+    identity_type:   Optional[str] = "internal"
     contractor:      Optional[dict] = None
     personal:        Optional[dict] = None
     compliance:      Optional[dict] = None
@@ -64,17 +66,20 @@ class EmployeeUpdate(BaseModel):
     location:        Optional[str] = None
     company:         Optional[str] = None
     division:        Optional[str] = None
+    identity_type:   Optional[str] = None
     contractor:      Optional[dict] = None
     personal:        Optional[dict] = None
     compliance:      Optional[dict] = None
     notes:           Optional[str] = None
 
 
-def _validate(employment_type: Optional[str], status: Optional[str]) -> None:
+def _validate(employment_type: Optional[str], status: Optional[str], identity_type: Optional[str] = None) -> None:
     if employment_type is not None and employment_type not in _EMPLOYMENT_TYPES:
         raise HTTPException(400, f"employment_type must be one of {_EMPLOYMENT_TYPES}")
     if status is not None and status not in _STATUSES:
         raise HTTPException(400, f"status must be one of {_STATUSES}")
+    if identity_type is not None and identity_type not in _IDENTITY_TYPES:
+        raise HTTPException(400, f"identity_type must be one of {_IDENTITY_TYPES}")
 
 
 def _next_code(db: Session) -> str:
@@ -106,6 +111,7 @@ def _serialize(e: NexusEmployee) -> dict:
         "location":       e.location,
         "company":        e.company,
         "division":       e.division or "",
+        "identityType":   e.identity_type or "internal",
         "contractor":     e.contractor or {},
         "personal":       e.personal or {},
         "compliance":     e.compliance or {},
@@ -128,7 +134,7 @@ def list_employees(user: dict = Depends(require_hr_read), db: Session = Depends(
 def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     if not body.first_name.strip():
         raise HTTPException(400, "first_name is required")
-    _validate(body.employment_type, body.status)
+    _validate(body.employment_type, body.status, body.identity_type)
     now = datetime.now(timezone.utc).isoformat()
     row = NexusEmployee(
         id=str(uuid.uuid4()),
@@ -146,6 +152,7 @@ def create_employee(body: EmployeeIn, user: dict = Depends(require_hr_write), db
         status=body.status or "active",
         location=(body.location or "").strip(),
         company=(body.company or "").strip(),
+        identity_type=body.identity_type or "internal",
         contractor=body.contractor or {},
         personal=body.personal or {},
         compliance=body.compliance or {},
@@ -165,7 +172,7 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
     row = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not row:
         raise HTTPException(404, "Employee not found")
-    _validate(body.employment_type, body.status)
+    _validate(body.employment_type, body.status, body.identity_type)
     if body.first_name is not None and not body.first_name.strip():
         raise HTTPException(400, "first_name cannot be empty")
     fields = body.model_dump(exclude_unset=True)
@@ -1463,7 +1470,7 @@ def resend_welcome(eid: str, user: dict = Depends(require_hr_write), db: Session
 # ---------------------------------------------------------------------------
 # HR Section A — Companies/Entities + Work Sites (structural foundation)
 # ---------------------------------------------------------------------------
-from models import HrEntity, HrWorkSite
+from models import HrEntity, HrWorkSite, HrDepartment
 
 
 class EntityIn(BaseModel):
@@ -1541,6 +1548,100 @@ def delete_entity(entity_id: str, user: dict = Depends(require_hr_delete), db: S
     if row:
         db.delete(row); db.commit()
     return {"ok": True}
+
+
+# ── Departments — scoped to a company, NOT a Nexus-wide hardcoded list ──────────
+# Companies are global (HrEntity); each one owns its own editable department set.
+# Greens Global is seeded from the legacy hardcoded list the first time its
+# departments are read; every other company starts empty. Whatever departments
+# already exist as free-text on employee rows are backfilled non-destructively so
+# nothing breaks the day we switch the form to this dropdown.
+_DEFAULT_DEPTS = ["Operations", "Accounting", "IT", "Construction", "Facilities", "Marketing", "Real Estate", "Administration", "HR"]
+
+
+def _dept_key(s: str) -> str:
+    return (s or "").strip().lower()
+
+
+def _is_primary_greens(e: HrEntity) -> bool:
+    # Tolerate legal suffixes/punctuation: "Greens Global, Inc." must still match
+    # (an exact-string check here once left the primary entity unseeded — the Add
+    # Employee department dropdown came up empty and blocked the whole form).
+    key = re.sub(r"[^a-z ]", "", _dept_key(e.name)).strip()
+    return key == "greens" or key.startswith("greens global")
+
+
+def _ensure_departments(db: Session, entity: HrEntity) -> None:
+    """Seed + backfill this company's department list, idempotently."""
+    existing = db.query(HrDepartment).filter(HrDepartment.company_id == entity.id).all()
+    have = {_dept_key(d.name) for d in existing}
+    now = datetime.now(timezone.utc).isoformat()
+    nxt = max([d.sort_order for d in existing], default=-1) + 1
+    to_add = []
+    # 1) seed the standard list onto the primary Greens entity if it has none yet
+    if not existing and _is_primary_greens(entity):
+        to_add = list(_DEFAULT_DEPTS)
+    # 2) backfill any department strings already sitting on this company's employees
+    used = db.query(NexusEmployee.department).filter(NexusEmployee.company == entity.id).distinct().all()
+    for (name,) in used:
+        name = (name or "").strip()
+        if name and _dept_key(name) not in have and name not in to_add:
+            to_add.append(name)
+    for name in to_add:
+        if _dept_key(name) in have:
+            continue
+        db.add(HrDepartment(id=str(uuid.uuid4()), company_id=entity.id, name=name, sort_order=nxt, created_by="system", created_at=now))
+        have.add(_dept_key(name)); nxt += 1
+    if to_add:
+        db.commit()
+
+
+def _serialize_dept(d: HrDepartment) -> dict:
+    return {"id": d.id, "name": d.name, "sortOrder": d.sort_order}
+
+
+@router.get("/entities/{entity_id}/departments")
+def list_departments(entity_id: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    entity = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
+    if not entity:
+        raise HTTPException(404, "Company not found")
+    _ensure_departments(db, entity)
+    rows = db.query(HrDepartment).filter(HrDepartment.company_id == entity_id).order_by(HrDepartment.sort_order, HrDepartment.name).all()
+    return [_serialize_dept(d) for d in rows]
+
+
+class DepartmentIn(BaseModel):
+    name: str
+
+
+@router.post("/entities/{entity_id}/departments", status_code=201)
+def add_department(entity_id: str, body: DepartmentIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    entity = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
+    if not entity:
+        raise HTTPException(404, "Company not found")
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(400, "Department name cannot be empty")
+    if len(name) > 40:
+        raise HTTPException(400, "Department name is too long (40 characters max)")
+    _ensure_departments(db, entity)
+    rows = db.query(HrDepartment).filter(HrDepartment.company_id == entity_id).all()
+    if any(_dept_key(r.name) == _dept_key(name) for r in rows):
+        return [_serialize_dept(d) for d in sorted(rows, key=lambda d: (d.sort_order, d.name))]
+    nxt = max([r.sort_order for r in rows], default=-1) + 1
+    db.add(HrDepartment(id=str(uuid.uuid4()), company_id=entity_id, name=name, sort_order=nxt, created_by=user["email"], created_at=datetime.now(timezone.utc).isoformat()))
+    db.commit()
+    rows = db.query(HrDepartment).filter(HrDepartment.company_id == entity_id).order_by(HrDepartment.sort_order, HrDepartment.name).all()
+    return [_serialize_dept(d) for d in rows]
+
+
+@router.delete("/entities/{entity_id}/departments/{dept_id}")
+def delete_department(entity_id: str, dept_id: str, user: dict = Depends(require_hr_delete), db: Session = Depends(get_db)):
+    row = db.query(HrDepartment).filter(HrDepartment.id == dept_id, HrDepartment.company_id == entity_id).first()
+    if row:
+        db.delete(row); db.commit()
+    rows = db.query(HrDepartment).filter(HrDepartment.company_id == entity_id).order_by(HrDepartment.sort_order, HrDepartment.name).all()
+    return [_serialize_dept(d) for d in rows]
 
 
 class WorkSiteIn(BaseModel):

@@ -448,6 +448,14 @@ class NexusGroup(Base):
     allowed_modules = Column(String, default="")   # comma-separated "moduleId:level" pairs, e.g. "it:viewer,inventory:full" — level ∈ viewer/editor/full/owner (see auth.MODULE_LEVELS)
     created_by      = Column(String, default="")
     created_at      = Column(String, default="")
+    # Roles & Access redesign (Jul 2026): a "Job Role" is an Access Group flagged
+    # is_job_role=1 that ALSO carries a seniority tier + plain-language description.
+    # A person's primary job role is the single job-role group they belong to;
+    # module access still flows through normal group membership (auth._module_level),
+    # so resolution is unchanged. Plain groups (is_job_role=0) are the additive layer.
+    is_job_role     = Column(Integer, default=0)
+    tier            = Column(String, default="")   # employee/supervisor/manager/administrator/owner — job roles only
+    description     = Column(String, default="")
 
 
 class NexusGroupMember(Base):
@@ -456,6 +464,24 @@ class NexusGroupMember(Base):
     email    = Column(String, primary_key=True)
     added_by = Column(String, default="")
     added_at = Column(String, default="")
+
+
+class NexusAccessScope(Base):
+    """Row-level access scope — narrows WHICH records a person can see within a
+    module they already have (module:level) access to. Used mainly to sandbox
+    external users: a client scoped to one property sees only that property.
+    Semantics (see auth.scoped_ids): a person with ANY scope row for a module is
+    restricted to those scope_ids; a person with none is unrestricted UNLESS they
+    are identity_type='external', who then see nothing (fail-closed least
+    privilege). New table — create_all builds it, no migration line needed."""
+    __tablename__ = "nexus_access_scopes"
+    id         = Column(String, primary_key=True)   # uuid
+    email      = Column(String, nullable=False, index=True)   # the person the scope applies to
+    module_id  = Column(String, nullable=False)     # e.g. 'property-asset'
+    scope_type = Column(String, default="")         # 'property' | 'project' | 'entity'
+    scope_id   = Column(String, nullable=False)     # id of the property/project/entity allowed
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
 
 
 class ApprovalHistory(Base):
@@ -518,6 +544,7 @@ class NexusEmployee(Base):
     created_at      = Column(String, default="")
     updated_at      = Column(String, default="")
     division        = Column(String, default="")               # functional division head-tag; org chart inherits down the tree (Phase 5)
+    identity_type   = Column(String, default="internal")        # internal (MS365 staff) | guest (Entra B2B partner) | external (non-MS365, HR-record only)
 
 
 class HrCandidate(Base):
@@ -868,6 +895,26 @@ class HrEntity(Base):
     created_by         = Column(String, default="")
     created_at         = Column(String, default="")
     updated_at         = Column(String, default="")
+
+
+class HrDepartment(Base):
+    """A department, scoped to one company (HrEntity). Departments are NOT a
+    Nexus-wide hardcoded list — each company owns its own editable set (an IT-dev
+    company has QA, a construction company has Estimating). Greens Global is seeded
+    from the legacy hardcoded list on first read; every other company starts empty.
+    Employees pick a department from their company's list. Deleting one leaves
+    existing employees' department strings untouched (like a removed item type).
+    `parent_id` is unused today but present so departments can become a hierarchy
+    later without a migration — the enterprise norm. New table — create_all builds
+    it, no migration line needed."""
+    __tablename__ = "hr_departments"
+    id         = Column(String, primary_key=True)   # uuid
+    company_id = Column(String, nullable=False)     # HrEntity.id this department belongs to
+    name       = Column(String, nullable=False)     # display value, e.g. "Estimating"
+    parent_id  = Column(String, default="")         # reserved: HrDepartment.id of the parent (hierarchy)
+    sort_order = Column(Integer, default=0)
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
 
 
 class HrWorkSite(Base):
@@ -1579,3 +1626,92 @@ class TaskEvent(Base):
     kind           = Column(String, default="")          # created|updated|deleted|comment|...
     affected_email = Column(String, default="")
     created_at     = Column(String, default="")          # set server-side (timestamptz in DB)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Testing module (QA) — dev-only in the UI (env-gated router), but the tables
+# exist everywhere create_all runs. Seeded from qa_seed.json (the Jul-2026 module
+# audit workbook) on first read — same seed-if-empty pattern as item_types.
+# ─────────────────────────────────────────────────────────────────────────────
+class QaTestCase(Base):
+    """One test case in the library. `steps` is a JSON list of plain-English
+    strings a layman can follow. source: seed (workbook) | ai (converted from a
+    bug report) | manual. AI drafts start status='draft' until approved."""
+    __tablename__ = "qa_test_cases"
+    id           = Column(String, primary_key=True)   # uuid
+    module       = Column(String, nullable=False)     # People / Item Management / ...
+    feature      = Column(String, default="")
+    title        = Column(String, nullable=False)
+    precondition = Column(String, default="")
+    steps        = Column(JSON, default=list)         # ["Click …", "Type …"]
+    expected     = Column(String, default="")
+    priority     = Column(String, default="Medium")   # High | Medium | Low
+    case_type    = Column(String, default="Functional")
+    source       = Column(String, default="manual")   # seed | ai | manual
+    status       = Column(String, default="active")   # active | draft | archived
+    flow         = Column(JSON, default=list)         # recorded replayable actions [{view, role, label, hints}]
+    e2e_spec     = Column(String, default="")         # AI-generated Playwright spec (run by CI)
+    created_by   = Column(String, default="")
+    created_at   = Column(String, default="")
+    updated_at   = Column(String, default="")
+
+
+class QaRun(Base):
+    """A named testing session ("Jul 15 regression")."""
+    __tablename__ = "qa_runs"
+    id         = Column(String, primary_key=True)
+    name       = Column(String, nullable=False)
+    status     = Column(String, default="open")       # open | closed
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+
+
+class QaResult(Base):
+    """One tester's verdict on one case within one run — upserted as they work.
+    step_state: [{done: bool, shot: url}] parallel to the case's steps (per-step
+    evidence). evidence: {shot: overall screenshot, recording: webm url}."""
+    __tablename__ = "qa_results"
+    id         = Column(String, primary_key=True)
+    run_id     = Column(String, nullable=False, index=True)
+    case_id    = Column(String, nullable=False, index=True)
+    result     = Column(String, default="")           # '' | pass | fail | blocked | skipped
+    failed_step = Column(Integer, default=-1)         # index of the step where it failed (-1 = n/a)
+    step_state = Column(JSON, default=list)
+    notes      = Column(String, default="")
+    evidence   = Column(JSON, default=dict)
+    source     = Column(String, default="human")      # human | automated (Playwright CI)
+    tested_by  = Column(String, default="")
+    tested_at  = Column(String, default="")
+
+
+class QaBugReport(Base):
+    """A free-text bug from a tester + optional recorded step log / recording /
+    screenshots. AI conversion drafts a QaTestCase (converted_case_id)."""
+    __tablename__ = "qa_bug_reports"
+    id                = Column(String, primary_key=True)
+    description       = Column(String, nullable=False)
+    module_hint       = Column(String, default="")
+    case_id           = Column(String, default="")     # set when filed from a failing case
+    run_id            = Column(String, default="")
+    failed_step       = Column(Integer, default=-1)
+    steps_log         = Column(JSON, default=list)     # recorded click log [{t, view, label, role}]
+    recording_url     = Column(String, default="")
+    screenshots       = Column(JSON, default=list)     # [url]
+    status            = Column(String, default="new")  # new | converted | dismissed
+    converted_case_id = Column(String, default="")
+    created_by        = Column(String, default="")
+    created_at        = Column(String, default="")
+
+
+class QaAssignment(Base):
+    """Cases assigned to one person in one run, with a due date. Creating one
+    fires email + bell (server) and a Teams DM (client, assigner's token)."""
+    __tablename__ = "qa_assignments"
+    id             = Column(String, primary_key=True)
+    run_id         = Column(String, nullable=False, index=True)
+    assignee_email = Column(String, nullable=False, index=True)
+    case_ids       = Column(JSON, default=list)
+    due_date       = Column(String, default="")        # ISO date
+    note           = Column(String, default="")
+    assigned_by    = Column(String, default="")
+    created_at     = Column(String, default="")

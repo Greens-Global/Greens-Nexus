@@ -22,13 +22,15 @@ export const MODULES = [
   { id: 'property-asset',      label: 'Asset Management' },
   { id: 'accounting',          label: 'Accounting' },
   { id: 'investor-relations',  label: 'Investor Relations' },
-  { id: 'hr',                  label: 'HR' },
-  { id: 'hr_comp',             label: 'HR — Compensation (salary/bank)' },
+  { id: 'hr',                  label: 'People' },
+  { id: 'hr_comp',             label: 'People — Compensation (salary/bank)' },
+  { id: 'documents',           label: 'Documents' },
   { id: 'marketing',           label: 'Marketing' },
   { id: 'external-links',      label: 'External Links' },
   { id: 'inventory',           label: 'Item Management' },
   { id: 'admin',               label: 'Nexus Access Manager' },
   { id: 'support',             label: 'Support' },
+  { id: 'testing',             label: 'Testing' },
 ];
 
 // Per-module permission levels an Access Group can grant — mirrors a

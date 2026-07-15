@@ -192,6 +192,7 @@ function AuditLogs() {
             value={emailQ}
             onChange={e => handleEmailChange(e.target.value)}
           />
+          {emailQ && <button className="search-clear" onClick={() => handleEmailChange('')} title="Clear filter" aria-label="Clear filter"><X size={13} /></button>}
         </div>
 
         <div style={{ position: 'relative' }}>
@@ -335,7 +336,7 @@ function AuditLogs() {
 
 // ── AdminPanel ────────────────────────────────────────────────────────────────
 
-export default function AdminPanel({ open, initialTab = 'access', onClose }) {
+export default function AdminPanel({ open, initialTab = 'audit', onClose }) {
   const { can } = useRole();
   const [tab, setTab] = useState(initialTab);
   const panelRef = useRef(null);
@@ -358,8 +359,9 @@ export default function AdminPanel({ open, initialTab = 'access', onClose }) {
 
   if (!can('administrator')) return null;
 
+  // Access Manager retired (Jul 2026) — roles/job-roles/groups moved to
+  // People → Roles & Access, and per-person access is set on the employee card.
   const tabs = [
-    { id: 'access', icon: <Users size={14} />,    label: 'Access Manager' },
     { id: 'audit',  icon: <Activity size={14} />, label: 'Audit Logs' },
     { id: 'timetracking', icon: <Clock size={14} />, label: 'Time Tracking' },
   ];
@@ -437,7 +439,14 @@ export default function AdminPanel({ open, initialTab = 'access', onClose }) {
 
         {/* Tab content */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
-          {tab === 'access' && <Admin />}
+          {tab === 'access' && (
+            <div style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--muted)' }}>
+              <Shield size={30} style={{ opacity: 0.4, marginBottom: 12 }} />
+              <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--ink)', marginBottom: 6 }}>Access management moved</div>
+              <p style={{ fontSize: 13.5, maxWidth: 380, margin: '0 auto 18px', lineHeight: 1.5 }}>Roles, job roles and groups now live in <b>People → Roles &amp; Access</b>, and each person's access is set on their card.</p>
+              <button className="primary-btn" onClick={() => { onClose(); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'hr', sub: 'hr-access' } })); }}>Go to Roles &amp; Access</button>
+            </div>
+          )}
           {tab === 'audit'  && <AuditLogs />}
           {tab === 'timetracking' && <TimeTrackingAdmin />}
         </div>
