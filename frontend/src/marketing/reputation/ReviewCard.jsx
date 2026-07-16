@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Sparkles, RefreshCw, Pencil, Check, CheckCircle2 } from 'lucide-react'
 import PlatformBadge from './PlatformBadge'
 import StarRating from '../shared/StarRating'
+import { formatLocalDateUS } from '../shared/utils'
 import { C } from '../theme'
 
 const sentimentStyles = {
@@ -18,7 +19,8 @@ const statusStyles = {
 
 function formatDate(iso) {
   const d = new Date(iso)
-  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  return `${formatLocalDateUS(d)}, ${time}`
 }
 
 export default function ReviewCard({ review, onApprove, onRegenerate }) {

@@ -13,7 +13,7 @@ import MetricDetailModal from './MetricDetailModal'
 import { filterRange, sumTotals, propertyBreakdownInRange } from './aggregate'
 import { geoRows, initialCampaigns, keywordRows, dailyMetrics } from './data'
 import { yelpGeoRows, yelpInitialCampaigns, yelpKeywordRows, yelpDailyMetrics } from './yelpData'
-import { downloadCSV, formatCurrency, formatDateLabel, formatNumber, formatPercent, getPreviousPeriod } from './utils'
+import { downloadCSV, formatCurrency, formatDateLabel, formatNumber, formatPercent, getPreviousPeriod, thisMonth } from './utils'
 import { ALL_PROPERTIES, FACILITIES } from '../shared/facilities'
 import PropertyComparisonModal from '../shared/PropertyComparisonModal'
 
@@ -138,6 +138,18 @@ export default function GoogleAdsPage({
   const totals = useMemo(() => sumTotals(rows), [rows])
   const prevTotals = useMemo(() => sumTotals(prevRows), [prevRows])
 
+  // Monthly budget usage is always measured against the current calendar
+  // month to date, independent of whatever range the user has selected —
+  // same convention as the account-wide budget alert in shared/alerts.
+  const monthlyBudget =
+    property === ALL_PROPERTIES
+      ? Object.values(activeBudgetByProperty).reduce((a, b) => a + b, 0)
+      : activeBudgetByProperty[property] ?? 0
+  const monthSpend = useMemo(
+    () => sumTotals(scaleRows(filterRange(activeDailyMetrics, thisMonth()), facilityShare)).spend,
+    [activeDailyMetrics, facilityShare],
+  )
+
   const statusCounts = useMemo(() => {
     const counts = { Active: 0, Paused: 0, Completed: 0 }
     for (const c of scopedCampaigns) counts[c.status] = (counts[c.status] ?? 0) + 1
@@ -205,6 +217,8 @@ export default function GoogleAdsPage({
         alerts={alerts}
         insights={insights}
         onClearAlert={onClearAlert}
+        monthlyBudget={monthlyBudget}
+        monthSpend={monthSpend}
       />
 
       <KpiCards

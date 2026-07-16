@@ -28,6 +28,7 @@ import {
   ANCHOR_DATE,
   downloadCSV,
   formatCurrency,
+  formatDateFromDate,
   formatNumber,
   formatPercent,
   formatRangeLabel,
@@ -48,7 +49,7 @@ const COMPARISON_COLUMNS = [
 ]
 
 function shortLabel(iso) {
-  return parseISO(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+  return formatDateFromDate(parseISO(iso))
 }
 
 export default function InsightsPage({

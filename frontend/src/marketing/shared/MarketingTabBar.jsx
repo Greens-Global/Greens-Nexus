@@ -8,7 +8,7 @@ export default function MarketingTabBar({ active, onNavigate, alerts, insights, 
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
       <MarketingTabs active={active} onChange={onNavigate} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-        <AiAnalystButton insights={insights} onNavigate={onNavigate} />
+        {active !== 'insights' && <AiAnalystButton insights={insights} onNavigate={onNavigate} />}
         <ManageButton onNavigate={onNavigate} />
         <AlertsBell alerts={alerts} onNavigate={onNavigate} onClearAlert={onClearAlert} />
       </div>

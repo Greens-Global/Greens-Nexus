@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { ResponsiveContainer, ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts'
-import { parseISO } from '../shared/utils'
+import { formatDateFromDate, formatYearMonthFromDate, parseISO } from '../shared/utils'
 import { C } from '../theme'
 
 function bucketRows(rows, granularity) {
   if (granularity === 'day') {
     return rows.map((r) => ({
-      label: parseISO(r.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }),
+      label: formatDateFromDate(parseISO(r.date)),
       mapsViews: r.mapsViews,
       searchViews: r.searchViews,
     }))
@@ -23,10 +23,10 @@ function bucketRows(rows, granularity) {
       const monday = new Date(d)
       monday.setUTCDate(d.getUTCDate() - ((day + 6) % 7))
       key = monday.toISOString().slice(0, 10)
-      label = monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+      label = formatDateFromDate(monday)
     } else {
       key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`
-      label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' })
+      label = formatYearMonthFromDate(d)
     }
     const existing = buckets.get(key)
     if (existing) {

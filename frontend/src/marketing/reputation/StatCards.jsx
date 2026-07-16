@@ -5,6 +5,7 @@ import { C } from '../theme'
 
 function StatCard({ def, onClick }) {
   const Icon = def.icon
+  const isRating = def.stars !== undefined
   return (
     <button
       onClick={onClick}
@@ -29,9 +30,16 @@ function StatCard({ def, onClick }) {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div style={{ width: 28, height: 28, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', color: def.color.color, background: def.color.background }}>
-          <Icon size={14} />
-        </div>
+        {isRating ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+            <span style={{ fontSize: 20, fontWeight: 600, color: C.gray900, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{def.value}</span>
+            <StarRating value={def.stars} size={13} />
+          </div>
+        ) : (
+          <div style={{ width: 28, height: 28, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', color: def.color.color, background: def.color.background }}>
+            <Icon size={14} />
+          </div>
+        )}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, fontWeight: 600, color: def.isGood ? C.emerald600 : C.red500 }}>
             {def.deltaLabel.startsWith('-') ? <ArrowDown size={11} /> : <ArrowUp size={11} />}
@@ -41,10 +49,9 @@ function StatCard({ def, onClick }) {
         </div>
       </div>
       <div style={{ fontSize: 12, color: C.gray500, marginBottom: 4, lineHeight: 1.25 }}>{def.label}</div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ fontSize: 20, fontWeight: 600, color: C.gray900, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{def.value}</span>
-        {def.stars !== undefined && <StarRating value={def.stars} size={11} />}
-      </div>
+      {!isRating && (
+        <div style={{ fontSize: 20, fontWeight: 600, color: C.gray900, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{def.value}</div>
+      )}
     </button>
   )
 }

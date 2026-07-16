@@ -10,13 +10,13 @@ import {
   Tooltip,
   Legend,
 } from 'recharts'
-import { parseISO } from './utils'
+import { formatDateFromDate, formatYearMonthFromDate, parseISO } from './utils'
 import { C } from '../theme'
 
 function bucketRows(rows, granularity) {
   if (granularity === 'day') {
     return rows.map((r) => ({
-      label: parseISO(r.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }),
+      label: formatDateFromDate(parseISO(r.date)),
       clicks: r.clicks,
       conversions: r.conversions,
     }))
@@ -32,10 +32,10 @@ function bucketRows(rows, granularity) {
       const monday = new Date(d)
       monday.setUTCDate(d.getUTCDate() - ((day + 6) % 7))
       key = monday.toISOString().slice(0, 10)
-      label = monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+      label = formatDateFromDate(monday)
     } else {
       key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`
-      label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' })
+      label = formatYearMonthFromDate(d)
     }
     const existing = buckets.get(key)
     if (existing) {

@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { AlertTriangle, AlertCircle, Info, ChevronRight, Sparkles } from 'lucide-react'
+import InsightAnalysisModal from './InsightAnalysisModal'
 import { C, alpha } from '../theme'
 
 const SEVERITY_STYLE = {
@@ -18,6 +20,7 @@ export default function InsightCard({ insight, onNavigate, onViewMetric, hero })
   const style = SEVERITY_STYLE[insight.severity]
   const Icon = style.icon
   const clickable = (!!insight.tab && !!onNavigate) || (!!insight.metricKey && !!onViewMetric)
+  const [showDetails, setShowDetails] = useState(false)
 
   function handleView() {
     if (insight.metricKey && onViewMetric) onViewMetric(insight.metricKey)
@@ -68,42 +71,19 @@ export default function InsightCard({ insight, onNavigate, onViewMetric, hero })
           )}
         </div>
 
-        <p style={{ fontSize: 12.5, color: C.gray700, lineHeight: 1.375, marginBottom: 6 }}>{insight.whatHappened}</p>
+        <p style={{ fontSize: 12.5, color: C.gray700, lineHeight: 1.375, marginBottom: 8 }}>{insight.summary}</p>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8 }}>
-          <p style={{ fontSize: 12, color: C.gray500, lineHeight: 1.375 }}>
-            <span style={{ fontWeight: 500, color: C.gray600 }}>Why: </span>
-            {insight.why}
-          </p>
-          <p style={{ fontSize: 12, color: C.gray500, lineHeight: 1.375 }}>
-            <span style={{ fontWeight: 500, color: C.gray600 }}>Impact: </span>
-            {insight.impact}
-          </p>
-        </div>
-
-        <div style={{ marginBottom: 8 }}>
-          <p style={{ fontSize: 11, fontWeight: 600, color: C.gray500, textTransform: 'uppercase', letterSpacing: '0.025em', marginBottom: 4 }}>Recommended actions</p>
-          <ul style={{ display: 'flex', flexDirection: 'column', gap: 2, listStyle: 'none', margin: 0, padding: 0 }}>
-            {insight.actions.map((action, i) => (
-              <li key={i} style={{ fontSize: 12, color: C.gray700, lineHeight: 1.375, display: 'flex', gap: 6 }}>
-                <span style={{ color: C.gray300 }}>•</span>
-                {action}
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        {insight.metrics.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {insight.metrics.map((m) => (
-              <span key={m.label} style={{ padding: '4px 8px', borderRadius: 6, background: C.gray50, border: '1px solid ' + C.gray100, fontSize: 11, color: C.gray600 }}>
-                <span style={{ color: C.gray400 }}>{m.label}: </span>
-                <span style={{ fontWeight: 500, color: C.gray700 }}>{m.value}</span>
-              </span>
-            ))}
-          </div>
-        )}
+        <button
+          onClick={() => setShowDetails(true)}
+          style={{ fontSize: 12, fontWeight: 500, color: C.purple600, background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = C.purple700)}
+          onMouseLeave={(e) => (e.currentTarget.style.color = C.purple600)}
+        >
+          Read More
+        </button>
       </div>
+
+      {showDetails && <InsightAnalysisModal insight={insight} onClose={() => setShowDetails(false)} />}
     </div>
   )
 }

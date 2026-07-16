@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import Modal from '../shared/Modal'
 import PlatformBadge from './PlatformBadge'
 import StarRating from '../shared/StarRating'
+import { formatLocalDateUS } from '../shared/utils'
 import { C } from '../theme'
 
 function ReviewListTable({ reviews }) {
@@ -23,7 +24,7 @@ function ReviewListTable({ reviews }) {
             </div>
           </div>
           <div style={{ fontSize: 11.5, color: C.gray400, flexShrink: 0, textAlign: 'right' }}>
-            {new Date(r.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            {formatLocalDateUS(new Date(r.date))}
             <div style={{ color: C.gray300 }}>{r.status}</div>
           </div>
         </div>

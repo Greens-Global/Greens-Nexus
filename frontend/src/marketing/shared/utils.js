@@ -28,9 +28,33 @@ export function clampToDataRange(iso) {
   return iso
 }
 
+function pad2(n) {
+  return String(n).padStart(2, '0')
+}
+
+// U.S.-formatted numeric date, YYYY/MM/DD — the one date format used
+// everywhere across the Marketing module (filters, charts, tables, reviews,
+// reports, and exports) so a date reads the same no matter where it shows up.
+export function formatDateFromDate(d) {
+  return `${d.getUTCFullYear()}/${pad2(d.getUTCMonth() + 1)}/${pad2(d.getUTCDate())}`
+}
+
+// Same YYYY/MM/DD format, for Date objects carrying a real local time
+// (e.g. a review's post timestamp) rather than a UTC-normalized calendar date.
+export function formatLocalDateUS(d) {
+  return `${d.getFullYear()}/${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}`
+}
+
+export function formatYearMonthFromDate(d) {
+  return `${d.getUTCFullYear()}/${pad2(d.getUTCMonth() + 1)}`
+}
+
+export function formatDateUS(iso) {
+  return formatDateFromDate(parseISO(iso))
+}
+
 export function formatDateLabel(iso) {
-  const d = parseISO(iso)
-  return d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric', timeZone: 'UTC' })
+  return formatDateUS(iso)
 }
 
 export function formatRangeLabel(range) {
@@ -38,8 +62,7 @@ export function formatRangeLabel(range) {
 }
 
 export function formatDateShort(iso) {
-  const d = parseISO(iso)
-  return d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', timeZone: 'UTC' })
+  return formatDateUS(iso)
 }
 
 export function formatMonthLabel(iso) {
