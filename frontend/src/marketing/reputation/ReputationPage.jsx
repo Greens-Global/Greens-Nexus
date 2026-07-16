@@ -21,6 +21,7 @@ import { ALL_PROPERTIES } from '../shared/facilities'
 import PropertyComparisonModal from '../shared/PropertyComparisonModal'
 import {
   downloadCSV,
+  formatDateLabel,
   formatMonthLabel,
   formatRangeLabel,
   monthRange,
@@ -132,7 +133,7 @@ export default function ReputationPage({ range, onRangeChange, property, onPrope
       ...sourceSummary.map((s) => [s.platform, s.reviews, s.avgRating.toFixed(1), s.trend.toFixed(1)]),
       [],
       ['Customer', 'Platform', 'Rating', 'Facility', 'Date', 'Sentiment', 'Status'],
-      ...reviewsInRange.map((r) => [r.customer, r.platform, r.rating, r.facility, r.date.slice(0, 10), r.sentiment, r.status]),
+      ...reviewsInRange.map((r) => [r.customer, r.platform, r.rating, r.facility, formatDateLabel(r.date.slice(0, 10)), r.sentiment, r.status]),
     ]
     downloadCSV(`reputation-report_${range.start}_${range.end}.csv`, rows)
   }

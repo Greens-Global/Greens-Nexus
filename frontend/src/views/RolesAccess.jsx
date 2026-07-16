@@ -426,7 +426,7 @@ function AssignModal({ role, onClose, onAssigned, onErr }) {
   // Everyone already on this role, plus anyone added during this sitting — so the
   // dialog stays open and you can add several people in a row without reopening.
   const [added, setAdded] = useState(() => new Set((role.members || []).map(e => (e || '').toLowerCase())));
-  useEffect(() => { api.getRolesDirectory().then(setDir).catch(() => setDir([])); }, []);
+  useEffect(() => { api.getPeopleDirectory().then(setDir).catch(() => setDir([])); }, []);
 
   const people = useMemo(() => (dir || []).map(p => ({ email: (p.email || p.workEmail || '').toLowerCase(), name: p.display_name || p.name || p.fullName || p.email || p.workEmail || '' })).filter(p => p.email), [dir]);
   const filtered = people.filter(p => !q.trim() || p.name.toLowerCase().includes(q.toLowerCase()) || p.email.includes(q.toLowerCase()));

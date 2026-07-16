@@ -12,6 +12,7 @@ import {
   Settings, ChevronLeft, ChevronRight,
   HelpCircle, Store, Calendar, MessageSquare, Package, Clock, Contact,
   FlaskConical,
+  KeyRound,
 } from "lucide-react";
 
 // Exported: MobileMenu mirrors this exact order/grouping on phones
@@ -109,6 +110,7 @@ export const NAV = [
     // (Ad Performance / Reputation / Insights / SEO / Business Profile / Leads).
     view: "marketing", label: "Marketing", icon: Megaphone, minRole: 'supervisor',
   },
+  { view: "credvault", label: "Credential Vault", icon: KeyRound, minRole: 'supervisor' },
   { divider: true },
   { view: "support",        label: "Support",        icon: HelpCircle },
   { view: "external-links", label: "External Links", icon: ExternalLink },

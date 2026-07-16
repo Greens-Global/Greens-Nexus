@@ -1,5 +1,5 @@
 import { topicFrequency } from '../reputation/aiReplyEngine'
-import { pctChange, formatCurrency, formatNumber } from '../shared/utils'
+import { ANCHOR_DATE, pctChange, formatCurrency, formatNumber } from '../shared/utils'
 
 // Materiality gate for percent-based deltas — small wobbles don't produce a
 // card, only genuinely notable shifts do.
@@ -647,8 +647,21 @@ const RULES = [
 
 const SEVERITY_ORDER = { High: 0, Medium: 1, Low: 2 }
 
+// Two or three sentences: what changed, why it matters, and the single
+// highest-priority action. A real insight API should return this string
+// directly rather than the UI reassembling it from separate fields.
+function buildSummary(draft) {
+  const action = draft.actions[0]
+  if (!action) return `${draft.whatHappened} ${draft.impact}`.trim()
+  const actionText = action.charAt(0).toLowerCase() + action.slice(1)
+  const actionSentence = `Recommended: ${actionText}${actionText.endsWith('.') ? '' : '.'}`
+  return `${draft.whatHappened} ${draft.impact} ${actionSentence}`
+}
+
 export function generateInsights(input) {
+  const generatedAt = `${ANCHOR_DATE}T00:00:00Z`
   return RULES.map((rule) => rule(input))
-    .filter((insight) => insight !== null)
+    .filter((draft) => draft !== null)
     .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
+    .map((draft) => ({ ...draft, summary: buildSummary(draft), generatedAt }))
 }

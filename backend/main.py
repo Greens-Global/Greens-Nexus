@@ -13,6 +13,7 @@ from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import jobroles  # Roles & Access redesign (Jul 2026)
 from routers import access_scopes  # row-level scopes for external users (Jul 2026)
 from routers import qa  # Testing module — dev-only via NEXUS_QA_MODULE env (Jul 2026)
+from routers import credvault  # Credential Vault (Jul 2026)
 from audit import AuditMiddleware
 
 
@@ -129,6 +130,10 @@ def _run_migrations():
             "ALTER TABLE nexus_groups ADD COLUMN is_job_role BOOLEAN DEFAULT 0",
             "ALTER TABLE nexus_groups ADD COLUMN tier VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_groups ADD COLUMN description VARCHAR DEFAULT ''",
+            # Company email domains — drive M365 import + auto company tagging
+            "ALTER TABLE hr_entities ADD COLUMN domains VARCHAR DEFAULT ''",
+            # Company manager (operational head; escalation target)
+            "ALTER TABLE hr_entities ADD COLUMN manager_email VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -326,6 +331,10 @@ def _run_migrations():
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS is_job_role BOOLEAN DEFAULT FALSE",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS tier VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS description VARCHAR DEFAULT ''",
+        # Company email domains — drive M365 import + auto company tagging
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS domains VARCHAR DEFAULT ''",
+        # Company manager (operational head; escalation target)
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS manager_email VARCHAR DEFAULT ''",
     ]
     with engine.connect() as conn:
         for sql in migrations:
@@ -520,4 +529,5 @@ app.include_router(myhr.router)
 app.include_router(hr_interviews.router)
 app.include_router(task_projects.router)  # Task Module: projects/portfolios/departments
 app.include_router(task_config.router)    # Task Module: views/rules/templates/tickets/notifications/changelog
+app.include_router(credvault.router)      # Credential Vault: encrypted company/personal secrets ("credvault" grant)
 

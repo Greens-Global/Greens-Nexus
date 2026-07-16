@@ -2701,13 +2701,29 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
 }
 
 function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
-  const blank = { name: '', legal_name: '', country: '', tax_id: '', registered_address: '', signatory: '', notes: '' };
+  const blank = { name: '', legal_name: '', country: '', tax_id: '', registered_address: '', signatory: '', notes: '', domains: '', manager_email: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [f, setF] = useState(blank);
   const [busy, setBusy] = useState(false);
+  // People directory for the manager pickers + the group manager (one person
+  // above all companies; stored server-side as a singleton setting).
+  const [people, setPeople] = useState([]);
+  const [groupMgr, setGroupMgr] = useState('');
+  const [groupMgrBusy, setGroupMgrBusy] = useState(false);
+  useEffect(() => {
+    api.getPeopleDirectory().then(rows => setPeople(Array.isArray(rows) ? rows : [])).catch(() => {});
+    api.getGroupManager().then(r => setGroupMgr(r?.email || '')).catch(() => {});
+  }, []);
+  const personName = email => people.find(p => (p.email || '').toLowerCase() === (email || '').toLowerCase())?.name || '';
+  async function saveGroupMgr(email) {
+    setGroupMgr(email); setGroupMgrBusy(true);
+    try { await api.setGroupManager(email); toastOk(email ? 'Group manager set.' : 'Group manager cleared.'); }
+    catch (e) { toastErr(e?.message || 'Could not save group manager.'); }
+    setGroupMgrBusy(false);
+  }
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const startNew = () => { setF(blank); setMode('new'); };
-  const startEdit = en => { setF({ name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '', registered_address: en.registeredAddress || '', signatory: en.signatory || '', notes: en.notes || '' }); setMode(en.id); };
+  const startEdit = en => { setF({ name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '', registered_address: en.registeredAddress || '', signatory: en.signatory || '', notes: en.notes || '', domains: en.domains || '', manager_email: en.managerEmail || '' }); setMode(en.id); };
   const deptId = (typeof mode === 'string' && mode.startsWith('dept:')) ? mode.slice(5) : null;
   const deptEntity = deptId ? entities.find(e => e.id === deptId) : null;
 
@@ -2773,7 +2789,20 @@ function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
               </div>
               {field('TAX ID (EIN / GSTIN)', 'tax_id')}
               {field('AUTHORIZED SIGNATORY', 'signatory', { placeholder: 'name, title' })}
+              <div>
+                <label style={FL}>COMPANY MANAGER</label>
+                <select className="form-input" style={{ width: '100%' }} value={f.manager_email} onChange={e => set('manager_email', e.target.value)}>
+                  <option value="">— not set —</option>
+                  {people.map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
+                </select>
+              </div>
               <div style={{ gridColumn: '1 / -1' }}>{field('REGISTERED ADDRESS', 'registered_address')}</div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                {field('EMAIL DOMAINS', 'domains', { placeholder: 'e.g. aaravconstruction.com — comma-separated' })}
+                <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '6px 0 0' }}>
+                  Sync from M365 imports accounts on these domains and tags them to this company automatically (never overwrites a company already set on a profile).
+                </p>
+              </div>
               <div style={{ gridColumn: '1 / -1' }}>
                 <label style={FL}>NOTES</label>
                 <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} value={f.notes} onChange={e => set('notes', e.target.value)} />
@@ -2789,6 +2818,16 @@ function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
         ) : (
           <>
             <div style={{ overflowY: 'auto', flex: 1, padding: '14px 18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '4px 10px 13px', borderBottom: '1px solid var(--line)', marginBottom: 4 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>Group manager</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Oversees every company — the escalation step above each company's manager.</div>
+                </div>
+                <select className="form-input" disabled={groupMgrBusy} value={groupMgr} onChange={e => saveGroupMgr(e.target.value)} style={{ width: 220, fontSize: 12.5, flexShrink: 0 }}>
+                  <option value="">— not set —</option>
+                  {people.map(p => <option key={p.email} value={p.email}>{p.name}</option>)}
+                </select>
+              </div>
               {entities.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '28px 16px', color: 'var(--muted)' }}>
                   <p style={{ fontSize: 13, marginBottom: 14 }}>No companies yet. Add your legal entities so every worker can be tied to one.</p>
@@ -2798,7 +2837,7 @@ function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
                 <div key={en.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 10px', borderBottom: '1px solid var(--line)' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 700 }}>{en.name} {en.country && <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>· {en.country}</span>}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[en.legalName, en.taxId && `Tax ${en.taxId}`, en.signatory].filter(Boolean).join(' · ') || '—'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[en.legalName, en.taxId && `Tax ${en.taxId}`, en.signatory, en.managerEmail && personName(en.managerEmail) && `Manager ${personName(en.managerEmail)}`, en.domains && en.domains.split(',').map(d => '@' + d.trim()).join(' ')].filter(Boolean).join(' · ') || '—'}</div>
                   </div>
                   <button className="secondary-btn" onClick={() => setMode('dept:' + en.id)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Building2 size={13} /> Departments</button>
                   <button className="secondary-btn" onClick={() => startEdit(en)} style={{ padding: '5px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Pencil size={13} /> Edit</button>
@@ -3670,7 +3709,7 @@ export default function HR({ activeSub, onSubChange }) {
       )}
       {entitiesOpen && (
         <EntitiesModal entities={entities} onClose={() => setEntitiesOpen(false)}
-          onChanged={loadEntities} toastOk={toastOk} toastErr={toastErr} />
+          onChanged={() => { load(); return loadEntities(); }} toastOk={toastOk} toastErr={toastErr} />
       )}
       {sitesOpen && (
         <WorkSitesModal sites={sites} entities={entities} onClose={() => setSitesOpen(false)}

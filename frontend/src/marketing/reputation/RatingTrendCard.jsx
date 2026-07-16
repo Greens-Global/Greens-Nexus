@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { formatYearMonthFromDate } from '../shared/utils'
 import { C } from '../theme'
 
 export default function RatingTrendCard({ reviews }) {
@@ -20,7 +21,7 @@ export default function RatingTrendCard({ reviews }) {
       .map(([key, { sum, count }]) => {
         const [y, m] = key.split('-').map(Number)
         return {
-          label: new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' }),
+          label: formatYearMonthFromDate(new Date(Date.UTC(y, m - 1, 1))),
           rating: Math.round((sum / count) * 100) / 100,
           count,
         }

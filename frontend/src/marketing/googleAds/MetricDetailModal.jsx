@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import Modal from '../shared/Modal'
-import { parseISO } from './utils'
+import { formatDateFromDate, parseISO } from './utils'
 import { C } from '../theme'
 
 function dailyValue(r, key) {
@@ -46,7 +46,7 @@ export default function MetricDetailModal({ metricKey, label, rows, campaigns, f
   const chartData = useMemo(
     () =>
       rows.map((r) => ({
-        label: parseISO(r.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }),
+        label: formatDateFromDate(parseISO(r.date)),
         value: dailyValue(r, metricKey),
       })),
     [rows, metricKey],

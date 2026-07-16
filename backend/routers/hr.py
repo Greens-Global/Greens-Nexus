@@ -1163,7 +1163,8 @@ async def upload_photo(eid: str, file: UploadFile = File(...),
 # The M365 directory import is scoped to the company's own domains only. Guests
 # (#EXT# accounts) and every other vanity/partner domain (e.g. Z#Incentives)
 # stay out of HR entirely. (Neil, Jun 27)
-_COMPANY_DOMAINS = ("greensglobal.com", "greensstorage.com")
+# aaravconstruction.com added Jul 16 (Visesh) — their staff are part of Nexus.
+_COMPANY_DOMAINS = ("greensglobal.com", "greensstorage.com", "aaravconstruction.com")
 
 
 def _primary_addr(g: dict) -> str:
@@ -1171,11 +1172,48 @@ def _primary_addr(g: dict) -> str:
     return (g.get("mail") or g.get("userPrincipalName") or "").strip().lower()
 
 
-def _in_company_domain(addr: str) -> bool:
+def _in_company_domain(addr: str, extra=()) -> bool:
     addr = (addr or "").strip().lower()
     if not addr or "#ext#" in addr:        # guests carry #EXT# in the UPN
         return False
-    return any(addr.endswith("@" + d) for d in _COMPANY_DOMAINS)
+    return any(addr.endswith("@" + d) for d in (*_COMPANY_DOMAINS, *extra))
+
+
+def _norm_domains(s: str) -> str:
+    """Normalize a comma-separated domain list: lowercase, no @, no blanks/dupes."""
+    out = []
+    for part in (s or "").replace(";", ",").split(","):
+        d = part.strip().lstrip("@").lower()
+        if d and d not in out:
+            out.append(d)
+    return ",".join(out)
+
+
+def _entity_domain_map(db: Session) -> dict:
+    """email domain → HrEntity.id, from the domain tags in Company setup."""
+    m = {}
+    for ent in db.query(HrEntity).all():
+        for d in (ent.domains or "").split(","):
+            d = d.strip()
+            if d:
+                m[d] = ent.id
+    return m
+
+
+def _assign_company_by_domain(db: Session, ent: "HrEntity") -> int:  # imported lower down
+    """Tag company-less employees whose work-email domain matches this entity's
+    domain tags. Never overwrites a company already set on a profile."""
+    doms = {d for d in (ent.domains or "").split(",") if d}
+    if not doms:
+        return 0
+    n = 0
+    rows = db.query(NexusEmployee).filter(
+        (NexusEmployee.company == "") | (NexusEmployee.company.is_(None))).all()
+    for e in rows:
+        if (e.work_email or "").lower().split("@")[-1] in doms:
+            e.company = ent.id
+            n += 1
+    return n
 
 
 def _split_name(g: dict) -> tuple:
@@ -1241,15 +1279,18 @@ def _graph_directory(token: str) -> list:
 
 @router.post("/employees/sync-m365")
 def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    """Pull the M365 directory into HR. Only the company's own domains
-    (greensglobal.com, greensstorage.com) come in — guests and partner domains
-    are skipped, and so are non-people: departed staff (#Inactive convention)
-    and shared/site/room mailboxes. People not in HR yet are created; existing
+    """Pull the M365 directory into HR. Only the company's own domains come in —
+    _COMPANY_DOMAINS plus every domain tagged on a company in Company setup —
+    guests and other partner domains are skipped, and so are non-people: departed
+    staff (#Inactive convention) and shared/site/room mailboxes. People not in HR
+    yet are created (tagged to the company owning their email domain); existing
     profiles are linked by Entra id / work email and have empty fields backfilled
     (never overwrites values already set in Nexus). Accounts deleted in Entra get
     their M365 link dropped; non-people that were imported earlier are removed."""
     token = _graph_token()
-    company = [g for g in _graph_directory(token) if _in_company_domain(_primary_addr(g))]
+    domain_map = _entity_domain_map(db)    # Company-setup domain tags
+    extra_domains = tuple(domain_map)
+    company = [g for g in _graph_directory(token) if _in_company_domain(_primary_addr(g), extra_domains)]
     # Every company account we saw (people or not) — used to detect truly-deleted
     # accounts. Real importable people are that set minus the non-people.
     seen_ids     = {(g.get("id") or "").lower() for g in company if g.get("id")}
@@ -1281,6 +1322,8 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
                                   ("location", "officeLocation"), ("department", "department")):
                 if not getattr(emp, local) and (g.get(remote) or "").strip():
                     setattr(emp, local, g[remote].strip()); changed = True
+            if not emp.company and domain_map.get(addr.split("@")[-1]):
+                emp.company = domain_map[addr.split("@")[-1]]; changed = True
             if changed:
                 emp.updated_at = now; updated += 1
         else:
@@ -1294,6 +1337,7 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
                 department=(g.get("department") or "").strip(),
                 phone=(g.get("mobilePhone") or "").strip(),
                 location=(g.get("officeLocation") or "").strip(),
+                company=domain_map.get(addr.split("@")[-1], ""),
                 status="active" if g.get("accountEnabled", True) else "inactive",
                 m365_id=g.get("id") or "",
                 created_by=user["email"], created_at=now, updated_at=now,
@@ -1318,7 +1362,7 @@ def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_
         name = f"{e.first_name} {e.last_name}".strip()
         if e.m365_id.lower() in nonperson_ids or _emp_is_non_person(e):
             db.delete(e); removed.append(name); continue
-        if e.m365_id.lower() not in seen_ids and _in_company_domain(e.work_email):
+        if e.m365_id.lower() not in seen_ids and _in_company_domain(e.work_email, extra_domains):
             e.m365_id = ""; e.updated_at = now
             unlinked.append(name)
 
@@ -1470,7 +1514,7 @@ def resend_welcome(eid: str, user: dict = Depends(require_hr_write), db: Session
 # ---------------------------------------------------------------------------
 # HR Section A — Companies/Entities + Work Sites (structural foundation)
 # ---------------------------------------------------------------------------
-from models import HrEntity, HrWorkSite, HrDepartment
+from models import HrEntity, HrWorkSite, HrDepartment, NexusSetting
 
 
 class EntityIn(BaseModel):
@@ -1482,6 +1526,8 @@ class EntityIn(BaseModel):
     signatory:          Optional[str] = ""
     logo_url:           Optional[str] = ""
     notes:              Optional[str] = ""
+    domains:            Optional[str] = ""   # comma-separated email domains
+    manager_email:      Optional[str] = ""   # company manager (a Nexus person)
 
 
 class EntityUpdate(BaseModel):
@@ -1493,13 +1539,17 @@ class EntityUpdate(BaseModel):
     signatory:          Optional[str] = None
     logo_url:           Optional[str] = None
     notes:              Optional[str] = None
+    domains:            Optional[str] = None
+    manager_email:      Optional[str] = None
 
 
 def _serialize_entity(e: HrEntity) -> dict:
     return {
         "id": e.id, "name": e.name, "legalName": e.legal_name, "country": e.country,
         "taxId": e.tax_id, "registeredAddress": e.registered_address, "signatory": e.signatory,
-        "logoUrl": e.logo_url, "notes": e.notes, "createdAt": e.created_at, "updatedAt": e.updated_at,
+        "logoUrl": e.logo_url, "notes": e.notes, "domains": e.domains or "",
+        "managerEmail": e.manager_email or "",
+        "createdAt": e.created_at, "updatedAt": e.updated_at,
     }
 
 
@@ -1519,9 +1569,13 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
         country=(body.country or "").strip(), tax_id=(body.tax_id or "").strip(),
         registered_address=(body.registered_address or "").strip(), signatory=(body.signatory or "").strip(),
         logo_url=(body.logo_url or "").strip(), notes=body.notes or "",
+        domains=_norm_domains(body.domains or ""),
+        manager_email=(body.manager_email or "").strip().lower(),
         created_by=user["email"], created_at=now, updated_at=now,
     )
-    db.add(row); db.commit(); db.refresh(row)
+    db.add(row)
+    _assign_company_by_domain(db, row)
+    db.commit(); db.refresh(row)
     return _serialize_entity(row)
 
 
@@ -1535,9 +1589,14 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
     for key, value in body.model_dump(exclude_unset=True).items():
         if value is None:
             continue
+        if key == "domains":
+            value = _norm_domains(value)
+        elif key == "manager_email":
+            value = value.strip().lower()
         setattr(row, {"legal_name": "legal_name", "tax_id": "tax_id", "registered_address": "registered_address"}.get(key, key),
                 value.strip() if isinstance(value, str) and key != "notes" else value)
     row.updated_at = datetime.now(timezone.utc).isoformat()
+    _assign_company_by_domain(db, row)
     db.commit(); db.refresh(row)
     return _serialize_entity(row)
 
@@ -1548,6 +1607,35 @@ def delete_entity(entity_id: str, user: dict = Depends(require_hr_delete), db: S
     if row:
         db.delete(row); db.commit()
     return {"ok": True}
+
+
+# ── Group manager — one person overseeing ALL companies (the escalation step
+# above each company's manager). A singleton, stored in nexus_settings.
+
+_GROUP_MANAGER_KEY = "hr.group_manager_email"
+
+
+class GroupManagerIn(BaseModel):
+    email: Optional[str] = ""
+
+
+@router.get("/group-manager")
+def get_group_manager(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    row = db.query(NexusSetting).filter(NexusSetting.key == _GROUP_MANAGER_KEY).first()
+    return {"email": (row.value if row else "") or ""}
+
+
+@router.put("/group-manager")
+def set_group_manager(body: GroupManagerIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    row = db.query(NexusSetting).filter(NexusSetting.key == _GROUP_MANAGER_KEY).first()
+    if not row:
+        row = NexusSetting(key=_GROUP_MANAGER_KEY)
+        db.add(row)
+    row.value = (body.email or "").strip().lower()
+    row.updated_by = user["email"]
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit()
+    return {"email": row.value}
 
 
 # ── Departments — scoped to a company, NOT a Nexus-wide hardcoded list ──────────

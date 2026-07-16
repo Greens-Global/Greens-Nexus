@@ -10,10 +10,29 @@ const presets = [
   { label: 'Last Month', get: () => lastMonth() },
 ]
 
+// The filter always displays and accepts dates as YYYY/MM/DD — native
+// `<input type="date">` renders in whatever format the browser/OS locale
+// dictates, which can't be forced to a specific format, so custom range
+// entry uses a plain text field instead.
+function toDisplay(iso) {
+  return iso.replaceAll('-', '/')
+}
+
+function toISO(display) {
+  const m = /^(\d{4})\/(\d{2})\/(\d{2})$/.exec(display.trim())
+  if (!m) return null
+  const [, y, mo, d] = m
+  const iso = `${y}-${mo}-${d}`
+  const date = new Date(`${iso}T00:00:00Z`)
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== iso) return null
+  return iso
+}
+
 export default function DateRangePicker({ range, onChange }) {
   const [open, setOpen] = useState(false)
-  const [customStart, setCustomStart] = useState(range.start)
-  const [customEnd, setCustomEnd] = useState(range.end)
+  const [startText, setStartText] = useState(toDisplay(range.start))
+  const [endText, setEndText] = useState(toDisplay(range.end))
+  const [error, setError] = useState('')
   const ref = useRef(null)
 
   useEffect(() => {
@@ -25,9 +44,29 @@ export default function DateRangePicker({ range, onChange }) {
   }, [])
 
   useEffect(() => {
-    setCustomStart(range.start)
-    setCustomEnd(range.end)
+    setStartText(toDisplay(range.start))
+    setEndText(toDisplay(range.end))
+    setError('')
   }, [range])
+
+  function applyCustomRange() {
+    const start = toISO(startText)
+    const end = toISO(endText)
+    if (!start || !end) {
+      setError('Enter dates as YYYY/MM/DD.')
+      return
+    }
+    if (start > end) {
+      setError('Start date must be before end date.')
+      return
+    }
+    if (start < DATA_START || end > DATA_END) {
+      setError(`Dates must be between ${toDisplay(DATA_START)} and ${toDisplay(DATA_END)}.`)
+      return
+    }
+    onChange({ start, end })
+    setOpen(false)
+  }
 
   return (
     <div style={{ position: 'relative', fontFamily: FONT }} ref={ref}>
@@ -105,15 +144,16 @@ export default function DateRangePicker({ range, onChange }) {
                 marginBottom: 8,
               }}
             >
-              Custom Range
+              Custom Range (YYYY/MM/DD)
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
               <input
-                type="date"
-                value={customStart}
-                min={DATA_START}
-                max={customEnd}
-                onChange={(e) => setCustomStart(e.target.value)}
+                type="text"
+                inputMode="numeric"
+                placeholder="YYYY/MM/DD"
+                maxLength={10}
+                value={startText}
+                onChange={(e) => setStartText(e.target.value)}
                 style={{
                   flex: 1,
                   minWidth: 0,
@@ -127,11 +167,12 @@ export default function DateRangePicker({ range, onChange }) {
               />
               <span style={{ color: C.gray300, fontSize: 12 }}>-</span>
               <input
-                type="date"
-                value={customEnd}
-                min={customStart}
-                max={DATA_END}
-                onChange={(e) => setCustomEnd(e.target.value)}
+                type="text"
+                inputMode="numeric"
+                placeholder="YYYY/MM/DD"
+                maxLength={10}
+                value={endText}
+                onChange={(e) => setEndText(e.target.value)}
                 style={{
                   flex: 1,
                   minWidth: 0,
@@ -144,11 +185,9 @@ export default function DateRangePicker({ range, onChange }) {
                 }}
               />
             </div>
+            {error && <div style={{ fontSize: 11, color: C.red500, marginBottom: 8 }}>{error}</div>}
             <button
-              onClick={() => {
-                onChange({ start: customStart, end: customEnd })
-                setOpen(false)
-              }}
+              onClick={applyCustomRange}
               onMouseEnter={(e) => (e.currentTarget.style.background = C.gray800)}
               onMouseLeave={(e) => (e.currentTarget.style.background = C.gray900)}
               style={{
