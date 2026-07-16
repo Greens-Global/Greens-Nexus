@@ -27,7 +27,7 @@ export default function BusinessProfileHeader({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 576 }}>
           <ScopeBadge label={property === ALL_PROPERTIES ? 'All Properties' : property} />
           <p style={{ fontSize: 13, color: C.gray500 }}>
-            Track profile views, clicks, and calls, and manage posts, photos, and Q&A on your Google and Yelp listings.
+            Track profile views, clicks, and calls, and manage posts, photos, and Q&A on your Google listings.
           </p>
         </div>
 

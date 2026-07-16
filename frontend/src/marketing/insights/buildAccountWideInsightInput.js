@@ -1,7 +1,6 @@
 import { dailyRowsForProperty, filterByRange, sumLeadTotals, propertyBreakdownInRange } from './aggregate'
 import { filterRange as gaFilterRange, sumTotals as gaSumTotals } from '../googleAds/aggregate'
 import { dailyMetrics, initialCampaigns } from '../googleAds/data'
-import { yelpDailyMetrics, yelpInitialCampaigns } from '../googleAds/yelpData'
 import { allReviews } from '../reputation/data'
 import { asOf, computeLifetimeStats, computeSentimentBreakdown, computeSourceSummary, hoursSince, filterByRange as repFilterByRange } from '../reputation/aggregate'
 import { initialQuestions, initialPhotos } from '../reputation/gbpContentData'
@@ -31,16 +30,12 @@ export function buildAccountWideInsightInput(params) {
 
   const gaRows = gaFilterRange(dailyMetrics, range)
   const gaPrevRows = gaFilterRange(dailyMetrics, previousRange)
-  const yelpRows = gaFilterRange(yelpDailyMetrics, range)
-  const yelpPrevRows = gaFilterRange(yelpDailyMetrics, previousRange)
 
   const gaSpend = gaSumTotals(gaRows).spend
   const gaPrevSpend = gaSumTotals(gaPrevRows).spend
-  const yelpSpend = gaSumTotals(yelpRows).spend
-  const yelpPrevSpend = gaSumTotals(yelpPrevRows).spend
 
-  const costPerLead = totals.leads > 0 ? (gaSpend + yelpSpend) / totals.leads : 0
-  const prevCostPerLead = prevTotals.leads > 0 ? (gaPrevSpend + yelpPrevSpend) / prevTotals.leads : 0
+  const costPerLead = totals.leads > 0 ? gaSpend / totals.leads : 0
+  const prevCostPerLead = prevTotals.leads > 0 ? gaPrevSpend / prevTotals.leads : 0
 
   const reviewsAsOfEnd = asOf(allReviews, range.end)
   const reviewsAsOfPrevEnd = asOf(allReviews, previousRange.end)
@@ -65,7 +60,6 @@ export function buildAccountWideInsightInput(params) {
   const leadStats = computeLeadStats(initialLeads)
 
   const totalMonthlyBudget = Object.values(params.monthlyBudgetByProperty).reduce((a, b) => a + b, 0)
-  const totalYelpMonthlyBudget = Object.values(params.yelpMonthlyBudgetByProperty).reduce((a, b) => a + b, 0)
   const totalLeadGoal = Object.values(params.leadGoalByProperty).reduce((a, b) => a + b, 0)
 
   const seoOpportunityCandidate = (() => {
@@ -86,10 +80,7 @@ export function buildAccountWideInsightInput(params) {
 
   const platformRatings = computeSourceSummary(reviewsAsOfEnd, reviewsAsOfEnd).map((s) => ({ platform: s.platform, rating: s.avgRating, reviews: s.reviews }))
 
-  const campaigns = [
-    ...initialCampaigns.map((c) => ({ name: c.name, facility: c.facility, platform: 'Google Ads', spend: c.spend, conversions: c.conversions, status: c.status })),
-    ...yelpInitialCampaigns.map((c) => ({ name: c.name, facility: c.facility, platform: 'Yelp Ads', spend: c.spend, conversions: c.conversions, status: c.status })),
-  ]
+  const campaigns = initialCampaigns.map((c) => ({ name: c.name, facility: c.facility, platform: 'Google Ads', spend: c.spend, conversions: c.conversions, status: c.status }))
 
   return {
     sessions: { current: totals.sessions, previous: prevTotals.sessions },
@@ -98,7 +89,6 @@ export function buildAccountWideInsightInput(params) {
     leadToMoveInRate: { current: totals.leadToMoveInRate, previous: prevTotals.leadToMoveInRate },
     costPerLead: { current: costPerLead, previous: prevCostPerLead },
     gaSpend: { current: gaSpend, previous: gaPrevSpend },
-    yelpSpend: { current: yelpSpend, previous: yelpPrevSpend },
     reviewRating: { current: reviewRating, previous: prevReviewRating },
     sentimentPositivePct: { current: positivePctCurrent, previous: positivePctPrev },
     nps: { current: totals.npsAvg, previous: prevTotals.npsAvg },
@@ -116,13 +106,8 @@ export function buildAccountWideInsightInput(params) {
       stalePhotoProperties: stalePhotoProperties(initialPhotos),
     },
     leadsPipeline: { total: leadStats.total, unassigned: leadStats.unassigned },
-    adPlatforms: {
-      google: { costPerConv: gaSumTotals(gaRows).costPerConv },
-      yelp: { costPerConv: gaSumTotals(yelpRows).costPerConv },
-    },
     budgetPacing: {
       google: { budget: totalMonthlyBudget, spendMonthToDate: gaSpend },
-      yelp: { budget: totalYelpMonthlyBudget, spendMonthToDate: yelpSpend },
       monthCoverage,
     },
     goalPacing: { goal: totalLeadGoal, leadsMonthToDate: totals.leads, monthCoverage },

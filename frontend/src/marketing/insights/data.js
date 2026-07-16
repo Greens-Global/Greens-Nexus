@@ -86,11 +86,8 @@ const baseDaily = [
 ]
 
 // Channel mix — matches GA4's default channel grouping for this account.
-// Yelp Ads carves its share out of what was previously attributed to Google
-// Ads, since both are paid channels competing for the same searchers.
 const CHANNEL_SHARES = [
-  { name: 'Google Ads', share: 140 / 356 },
-  { name: 'Yelp Ads', share: 29 / 356 },
+  { name: 'Google Ads', share: 169 / 356 },
   { name: 'Direct', share: 98 / 356 },
   { name: 'Organic Search', share: 54 / 356 },
   { name: 'Referral', share: 21 / 356 },

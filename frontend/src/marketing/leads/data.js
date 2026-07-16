@@ -18,14 +18,12 @@ export const STAFF = ['Pranshu P.', 'Maria G.', 'James K.', 'Devon R.']
 export const UNASSIGNED = 'Unassigned'
 
 export const ALL_SOURCES = 'All Sources'
-export const SOURCES = ['Google Ads', 'Yelp Ads', 'Direct', 'Organic Search', 'Referral', 'Social Media', 'Google Business Profile']
+export const SOURCES = ['Google Ads', 'Direct', 'Organic Search', 'Referral', 'Social Media', 'Google Business Profile']
 // Google Business Profile leads come from someone taking an identifying
 // action on the listing (a call or a website click-through) — see
 // reputation/profileAggregate.ts for the anonymous view/impression side of
-// that same funnel, which never includes identity. Yelp Ads carves its share
-// out of what was previously attributed to Google Ads, same as the Insights
-// channel mix.
-const SOURCE_WEIGHTS = [0.35, 0.07, 0.24, 0.14, 0.05, 0.03, 0.12]
+// that same funnel, which never includes identity.
+const SOURCE_WEIGHTS = [0.42, 0.24, 0.14, 0.05, 0.03, 0.12]
 
 const STAGES = ['New', 'Contacted', 'Toured', 'Move-In', 'Lost']
 const STAGE_WEIGHTS = [0.26, 0.22, 0.14, 0.22, 0.16]

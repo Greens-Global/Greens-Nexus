@@ -42,7 +42,7 @@ export function computeSentimentBreakdown(reviewsAsOf) {
   }
 }
 
-const ALL_PLATFORMS = ['Google', 'Yelp', 'Facebook', 'Storage Facility Finder', 'Other']
+const ALL_PLATFORMS = ['Google', 'Facebook', 'Storage Facility Finder', 'Other']
 
 export function computeSourceSummary(currentAsOf, previousAsOf) {
   return ALL_PLATFORMS.map((platform) => {

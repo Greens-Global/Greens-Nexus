@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Search, ChevronLeft } from 'lucide-react'
 import Modal from './Modal'
-import { GOOGLE_CHANNELS, YELP_CHANNELS } from './NewCampaignModal'
+import { GOOGLE_CHANNELS } from './NewCampaignModal'
 import { FACILITIES } from '../shared/facilities'
 import { formatNumber } from './utils'
 import { C } from '../theme'
@@ -11,8 +11,8 @@ const STATUSES = ['Active', 'Paused', 'Completed']
 const labelStyle = { display: 'block', fontSize: 12.5, fontWeight: 500, color: C.gray600, marginBottom: 6 }
 const fieldStyle = { width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13, outline: 'none' }
 
-export default function EditCampaignModal({ platform, campaigns, initialCampaignId, onClose, onSave }) {
-  const channels = platform === 'google' ? GOOGLE_CHANNELS : YELP_CHANNELS
+export default function EditCampaignModal({ campaigns, initialCampaignId, onClose, onSave }) {
+  const channels = GOOGLE_CHANNELS
   const [selectedId, setSelectedId] = useState(initialCampaignId ?? null)
   const [query, setQuery] = useState('')
 

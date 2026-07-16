@@ -3,7 +3,6 @@ import { STAGE_ORDER } from './aggregate'
 
 const SOURCE_COLOR = {
   'Google Ads': '#3b82f6',
-  'Yelp Ads': '#ef4444',
   Direct: '#6b7280',
   'Organic Search': '#10b981',
   Referral: '#f59e0b',

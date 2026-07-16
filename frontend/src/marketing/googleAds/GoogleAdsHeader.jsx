@@ -7,19 +7,12 @@ import { ALL_PROPERTIES } from '../shared/facilities'
 import { formatCurrency } from './utils'
 import { C } from '../theme'
 
-const PLATFORMS = [
-  { key: 'google', label: 'Google Ads' },
-  { key: 'yelp', label: 'Yelp Ads' },
-]
-
 export default function GoogleAdsHeader({
   range,
   onRangeChange,
   property,
   properties,
   onPropertyChange,
-  platform,
-  onPlatformChange,
   onDownload,
   onCompare,
   onNavigate,
@@ -29,8 +22,6 @@ export default function GoogleAdsHeader({
   monthlyBudget = 0,
   monthSpend = 0,
 }) {
-  const platformLabel = platform === 'google' ? 'Google Ads' : 'Yelp Ads'
-
   const pct = monthlyBudget > 0 ? (monthSpend / monthlyBudget) * 100 : 0
   const isOver = monthlyBudget > 0 && pct >= 100
   const isWarning = monthlyBudget > 0 && pct >= 90 && pct < 100
@@ -48,30 +39,7 @@ export default function GoogleAdsHeader({
 
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginTop: 16, gap: 16, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 576 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 8, border: '1px solid ' + C.gray200, padding: 4, width: 'fit-content' }}>
-            {PLATFORMS.map((p) => {
-              const active = platform === p.key
-              return (
-                <button
-                  key={p.key}
-                  onClick={() => onPlatformChange(p.key)}
-                  style={{
-                    padding: '4px 12px',
-                    borderRadius: 6,
-                    fontSize: 12.5,
-                    fontWeight: 500,
-                    transition: 'all .15s',
-                    background: active ? C.gray900 : 'transparent',
-                    color: active ? C.white : C.gray500,
-                  }}
-                  onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = C.gray50 }}
-                  onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent' }}
-                >
-                  {p.label}
-                </button>
-              )
-            })}
-          </div>
+          <h2 style={{ fontSize: 16, fontWeight: 600, color: C.gray900 }}>Google Ads</h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <ScopeBadge label={property === ALL_PROPERTIES ? 'All Properties' : property} />
             <span
@@ -96,7 +64,7 @@ export default function GoogleAdsHeader({
             {isOver && <style>{'@keyframes mktgBudgetPulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }'}</style>}
           </div>
           <p style={{ fontSize: 13, color: C.gray500 }}>
-            Track, optimize, and analyze your {platformLabel} performance across all storage facilities.
+            Track, optimize, and analyze your Google Ads performance across all storage facilities.
           </p>
           {(isOver || isWarning) && (
             <p style={{ fontSize: 12.5, fontWeight: 500, color: isOver ? C.red600 : C.amber600 }}>

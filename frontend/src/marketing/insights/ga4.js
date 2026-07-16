@@ -6,7 +6,7 @@
 
 // GA4's default channel grouping — matches the real dimension values Google
 // Analytics buckets traffic into (sessionDefaultChannelGrouping).
-export const CHANNELS = ['Google Ads', 'Yelp Ads', 'Direct', 'Organic Search', 'Referral', 'Social Media']
+export const CHANNELS = ['Google Ads', 'Direct', 'Organic Search', 'Referral', 'Social Media']
 
 function ga4Date(iso) {
   // GA4 report rows use an unpunctuated YYYYMMDD string for the `date` dimension.
