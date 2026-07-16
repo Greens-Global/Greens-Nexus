@@ -4,7 +4,7 @@
 import { useRef, useState } from 'react';
 import { Bug, ImagePlus, X } from 'lucide-react';
 import { useTasks } from './TasksContext';
-import { Modal } from './components';
+import { Modal, useIsMobile } from './components';
 import { NX, FONT, input as inputStyle, btn, PRIORITY_ORDER } from './theme';
 
 // Screenshots ride along in the ticket's `images` list as data URLs. Keep them
@@ -115,15 +115,16 @@ function ReportBugModal({ onClose }) {
   );
 }
 
-export default function ReportBugButton() {
+export default function ReportBugButton({ bottom = 14 }) {
   const [open, setOpen] = useState(false);
+  const isMobile = useIsMobile();
   return (
     <>
-      <button onClick={() => setOpen(true)} title="Report a bug" style={{
-        position: 'fixed', bottom: 14, right: 14, zIndex: 2000, display: 'flex', alignItems: 'center', gap: 6,
+      <button onClick={() => setOpen(true)} title="Report a bug" aria-label="Report a bug" style={{
+        position: 'fixed', bottom, right: 14, zIndex: 2000, display: 'flex', alignItems: 'center', gap: isMobile ? 0 : 6,
         borderRadius: 999, border: `1px solid ${NX.border}`, background: NX.surface, color: NX.dim, cursor: 'pointer',
-        padding: '7px 13px', fontSize: 12, fontWeight: 600, fontFamily: FONT, boxShadow: '0 6px 20px rgba(0,0,0,0.14)',
-      }}><Bug size={14} /> Report a Bug</button>
+        padding: isMobile ? 9 : '7px 13px', fontSize: 12, fontWeight: 600, fontFamily: FONT, boxShadow: '0 6px 20px rgba(0,0,0,0.14)',
+      }}><Bug size={isMobile ? 16 : 14} />{!isMobile && ' Report a Bug'}</button>
       {open && <ReportBugModal onClose={() => setOpen(false)} />}
     </>
   );

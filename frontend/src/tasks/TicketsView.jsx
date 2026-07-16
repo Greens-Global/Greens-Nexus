@@ -74,13 +74,13 @@ export default function TicketsView() {
           <option value="all">All priorities</option>
           {PRIORITY_ORDER.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
         </select>
-        <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => setCreating(true)}><Plus size={15} />New ticket</button>
+        <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => setCreating(true)}><Plus size={15} />New Ticket</button>
       </div>
 
       {/* Body */}
       <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, padding: 16 }}>
         {visible.length === 0 ? (
-          <EmptyState icon={Ticket} title="No tickets" hint={tickets.length ? 'No tickets match your filters.' : 'Raise a ticket to get started.'} />
+          <EmptyState icon={Ticket} title="No Tickets" hint={tickets.length ? 'No tickets match your filters.' : 'Raise a ticket to get started.'} />
         ) : (
           <div style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, overflow: 'hidden' }}>
             {visible.map((t) => (
@@ -163,10 +163,10 @@ export function CreateTicketModal({ onClose }) {
 
   const sel = { ...inputStyle, appearance: 'auto', cursor: 'pointer' };
   return (
-    <Modal title="New ticket" onClose={onClose} footer={
+    <Modal title="New Ticket" onClose={onClose} footer={
       <>
         <button style={btn('outline')} onClick={onClose}>Cancel</button>
-        <button style={{ ...btn('primary'), opacity: busy ? 0.6 : 1 }} onClick={submit} disabled={busy}>{busy ? 'Creating…' : 'Create ticket'}</button>
+        <button style={{ ...btn('primary'), opacity: busy ? 0.6 : 1 }} onClick={submit} disabled={busy}>{busy ? 'Creating…' : 'Create Ticket'}</button>
       </>
     }>
       <div style={field}>
@@ -184,7 +184,7 @@ export function CreateTicketModal({ onClose }) {
           <PersonSelect value={form.requesterId} onChange={(v) => set('requesterId', v)} people={people} placeholder="Select requester" />
         </div>
         <div style={field}>
-          <label style={label}>Assign to</label>
+          <label style={label}>Assign To</label>
           <PersonSelect value={form.assigneeId} onChange={(v) => set('assigneeId', v)} people={people} />
         </div>
         <div style={field}>
@@ -194,14 +194,14 @@ export function CreateTicketModal({ onClose }) {
           </select>
         </div>
         <div style={field}>
-          <label style={label}>Department</label>
+          <label style={label}>Team</label>
           <select value={form.departmentId} onChange={(e) => set('departmentId', e.target.value)} style={sel}>
-            <option value="">No department</option>
+            <option value="">No team</option>
             {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         </div>
         <div style={field}>
-          <label style={label}>SLA due date</label>
+          <label style={label}>SLA Due Date</label>
           <DateField value={form.slaDueOn} onChange={(v) => set('slaDueOn', v || '')} placeholder="Pick a date" style={inputStyle} />
         </div>
         <div style={field}>
@@ -235,7 +235,7 @@ function TicketDrawer({ ticketId, onClose }) {
       <>
         <button style={{ ...btn('outline'), color: NX.red, borderColor: NX.border, marginRight: 'auto' }} onClick={remove}><Trash2 size={14} /> Delete</button>
         {!CLOSED_STATES.includes(t.status)
-          ? <button style={{ ...btn('outline'), color: NX.green }} onClick={() => patch({ status: 'resolved' })}><CheckCircle2 size={14} /> Mark resolved</button>
+          ? <button style={{ ...btn('outline'), color: NX.green }} onClick={() => patch({ status: 'resolved' })}><CheckCircle2 size={14} /> Mark Resolved</button>
           : <button style={btn('outline')} onClick={() => patch({ status: 'reopened' })}>Reopen</button>}
         <button style={btn('primary')} onClick={onClose}>Done</button>
       </>
@@ -280,25 +280,25 @@ function TicketDrawer({ ticketId, onClose }) {
           </div>
         </div>
         <div style={field}>
-          <label style={label}>Assign to</label>
+          <label style={label}>Assign To</label>
           <PersonSelect value={t.assigneeId || null} people={people} onChange={(v) => patch({ assigneeId: v || '' })} />
         </div>
         <div style={field}>
-          <label style={label}>Department</label>
+          <label style={label}>Team</label>
           <select value={t.departmentId || ''} onChange={(e) => patch({ departmentId: e.target.value })} style={sel}>
-            <option value="">No department</option>
+            <option value="">No team</option>
             {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         </div>
         <div style={field}>
-          <label style={label}>SLA due date</label>
+          <label style={label}>SLA Due Date</label>
           <DateField value={t.slaDueOn || ''} onChange={(v) => patch({ slaDueOn: v || '' })} color={overdue ? NX.red : undefined}
             style={{ ...inputStyle, ...(overdue ? { fontWeight: 700 } : {}) }} />
         </div>
       </div>
 
       <div style={field}>
-        <label style={label}>Linked task</label>
+        <label style={label}>Linked Task</label>
         <select value={t.linkedTaskId || ''} onChange={(e) => patch({ linkedTaskId: e.target.value })} style={{ ...sel, width: '100%' }}>
           <option value="">Not linked</option>
           {tasks.map((task) => <option key={task.id} value={task.id}>{task.code ? `${task.code} · ` : ''}{task.title}</option>)}

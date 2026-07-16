@@ -9,6 +9,8 @@ import { NX, FONT, btn, input as inputStyle } from './theme';
 import { Modal } from './components';
 import CreateTaskModal from './CreateTaskModal';
 import { CreateTicketModal } from './TicketsView';
+import { ProjectCreateModal } from './ProjectsView';
+import { PortfolioCreateModal } from './PortfoliosView';
 
 const ITEMS = [
   { key: 'task', label: 'Task', icon: ListChecks },
@@ -20,8 +22,8 @@ const ITEMS = [
 // `fab` renders the mobile floating action button instead of the "+ Create"
 // dropdown. Either way, tapping it opens the same Task / Ticket / Project /
 // Portfolio quick-create menu — the FAB just anchors it above the button.
-export default function CreateMenu({ onNavigate, fab = false }) {
-  const { departments, createProject, createPortfolio, createDepartment } = useTasks();
+export default function CreateMenu({ onNavigate, fab = false, taskDefaults = {} }) {
+  const { createDepartment } = useTasks();
   const [open, setOpen] = useState(false);
   const [show, setShow] = useState(null); // 'task' | 'ticket' | 'project' | 'portfolio' | 'department' | null
   const ref = useRef(null);
@@ -36,31 +38,6 @@ export default function CreateMenu({ onNavigate, fab = false }) {
   const label = { fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5, display: 'block' };
   const field = { marginBottom: 14 };
 
-  const [projectName, setProjectName] = useState('');
-  const [departmentId, setDepartmentId] = useState('');
-  const [projectBusy, setProjectBusy] = useState(false);
-  const submitProject = async () => {
-    if (!projectName.trim() || projectBusy) return;
-    setProjectBusy(true);
-    try {
-      await createProject({ name: projectName.trim(), departmentId: departmentId || (departments[0]?.id ?? '') });
-      setProjectName(''); setShow(null);
-      onNavigate && onNavigate('projects');
-    } catch (e) { alert(`Could not create project: ${e.message || e}`); } finally { setProjectBusy(false); }
-  };
-
-  const [portfolioName, setPortfolioName] = useState('');
-  const [pfBusy, setPfBusy] = useState(false);
-  const submitPortfolio = async () => {
-    if (!portfolioName.trim() || pfBusy) return;
-    setPfBusy(true);
-    try {
-      await createPortfolio({ name: portfolioName.trim() });
-      setPortfolioName(''); setShow(null);
-      onNavigate && onNavigate('portfolios');
-    } catch (e) { alert(`Could not create portfolio: ${e.message || e}`); } finally { setPfBusy(false); }
-  };
-
   const [deptName, setDeptName] = useState('');
   const [deptBusy, setDeptBusy] = useState(false);
   const submitDept = async () => {
@@ -70,7 +47,7 @@ export default function CreateMenu({ onNavigate, fab = false }) {
       await createDepartment({ name: deptName.trim(), color: NX.blue, memberIds: [] });
       setDeptName(''); setShow(null);
       onNavigate && onNavigate('teams');
-    } catch (e) { alert(`Could not create department: ${e.message || e}`); } finally { setDeptBusy(false); }
+    } catch (e) { alert(`Could not create team: ${e.message || e}`); } finally { setDeptBusy(false); }
   };
 
   return (
@@ -112,54 +89,21 @@ export default function CreateMenu({ onNavigate, fab = false }) {
         </div>
       )}
 
-      {show === 'task' && <CreateTaskModal onClose={() => setShow(null)} />}
+      {show === 'task' && <CreateTaskModal defaults={taskDefaults} onClose={() => setShow(null)} />}
       {show === 'ticket' && <CreateTicketModal onClose={() => setShow(null)} />}
 
       {show === 'project' && (
-        <Modal title="New project" onClose={() => setShow(null)} footer={
-          <>
-            <button style={btn('outline')} onClick={() => setShow(null)}>Cancel</button>
-            <button style={{ ...btn('primary'), opacity: projectBusy ? 0.6 : 1 }} onClick={submitProject} disabled={projectBusy || !projectName.trim()}>
-              {projectBusy ? 'Creating…' : 'Create'}
-            </button>
-          </>
-        }>
-          <div style={field}>
-            <label style={label}>Name</label>
-            <input autoFocus value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="Project name" style={inputStyle}
-              onKeyDown={(e) => e.key === 'Enter' && submitProject()} />
-          </div>
-          <div style={field}>
-            <label style={label}>Department</label>
-            <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} style={{ ...inputStyle, appearance: 'auto', cursor: 'pointer' }}>
-              <option value="">No department</option>
-              {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
-          </div>
-        </Modal>
+        <ProjectCreateModal onClose={() => setShow(null)} onCreated={() => onNavigate && onNavigate('projects')} />
       )}
 
       {show === 'portfolio' && (
-        <Modal title="New portfolio" onClose={() => setShow(null)} footer={
-          <>
-            <button style={btn('outline')} onClick={() => setShow(null)}>Cancel</button>
-            <button style={{ ...btn('primary'), opacity: pfBusy ? 0.6 : 1 }} onClick={submitPortfolio} disabled={pfBusy || !portfolioName.trim()}>
-              {pfBusy ? 'Creating…' : 'Create'}
-            </button>
-          </>
-        }>
-          <div style={field}>
-            <label style={label}>Name</label>
-            <input autoFocus value={portfolioName} onChange={(e) => setPortfolioName(e.target.value)} placeholder="Portfolio name" style={inputStyle}
-              onKeyDown={(e) => e.key === 'Enter' && submitPortfolio()} />
-          </div>
-        </Modal>
+        <PortfolioCreateModal onClose={() => setShow(null)} onCreated={() => onNavigate && onNavigate('portfolios')} />
       )}
 
       {/* Reached from the floating + on the Teams page (the Create dropdown
           doesn't list departments — those are otherwise a Manage-only action). */}
       {show === 'department' && (
-        <Modal title="New department" onClose={() => setShow(null)} footer={
+        <Modal title="Create a Team" onClose={() => setShow(null)} footer={
           <>
             <button style={btn('outline')} onClick={() => setShow(null)}>Cancel</button>
             <button style={{ ...btn('primary'), opacity: deptBusy ? 0.6 : 1 }} onClick={submitDept} disabled={deptBusy || !deptName.trim()}>
@@ -169,7 +113,7 @@ export default function CreateMenu({ onNavigate, fab = false }) {
         }>
           <div style={field}>
             <label style={label}>Name</label>
-            <input autoFocus value={deptName} onChange={(e) => setDeptName(e.target.value)} placeholder="Department name" style={inputStyle}
+            <input autoFocus value={deptName} onChange={(e) => setDeptName(e.target.value)} placeholder="Team name" style={inputStyle}
               onKeyDown={(e) => e.key === 'Enter' && submitDept()} />
           </div>
         </Modal>

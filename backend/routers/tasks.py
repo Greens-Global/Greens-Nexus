@@ -37,6 +37,7 @@ def task_to_dict(t: models.Task) -> dict:
         "status":           t.status or "not_started",
         "priority":         t.priority or "medium",
         "assigneeId":       _nz(t.assignee_email),
+        "ownerId":          _nz(t.owner_email),
         "followerIds":      t.follower_emails or [],
         "likedByIds":       t.liked_by_emails or [],
         "accessLevel":      t.access_level or "org",
@@ -112,6 +113,7 @@ class TaskCreate(BaseModel):
     status:           Optional[str] = "not_started"
     priority:         Optional[str] = "medium"
     assignee_email:   Optional[str] = ""
+    owner_email:      Optional[str] = ""
     follower_emails:  Optional[list] = None
     liked_by_emails:  Optional[list] = None
     access_level:     Optional[str] = "org"
@@ -142,6 +144,7 @@ class TaskUpdate(BaseModel):
     status:           Optional[str] = None
     priority:         Optional[str] = None
     assignee_email:   Optional[str] = None
+    owner_email:      Optional[str] = None
     follower_emails:  Optional[list] = None
     liked_by_emails:  Optional[list] = None
     access_level:     Optional[str] = None
@@ -195,6 +198,7 @@ def create_task(body: TaskCreate, user: dict = Depends(get_current_user), db: Se
         status=body.status or "not_started",
         priority=body.priority or "medium",
         assignee_email=(body.assignee_email or "").lower(),
+        owner_email=(body.owner_email or "").lower(),
         follower_emails=body.follower_emails or [],
         liked_by_emails=body.liked_by_emails or [],
         access_level=body.access_level or "org",
@@ -253,7 +257,7 @@ def update_task(task_id: str, upd: TaskUpdate, user: dict = Depends(get_current_
     for field, val in data.items():
         if field == "completed":
             continue  # handled below
-        if field == "assignee_email":
+        if field in ("assignee_email", "owner_email"):
             val = (val or "").lower()
         setattr(t, field, val)
 

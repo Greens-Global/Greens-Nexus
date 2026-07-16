@@ -9,7 +9,7 @@ import {
   CheckCircle2, Circle, MessageSquare, Paperclip, Diamond, ChevronDown, Check, Minus, ListTree, Plus, Trash2, Folder,
   Hash, List, Calendar, CheckSquare, ListOrdered, CircleDot, BarChart3, TrendingUp, Star, CalendarPlus, CalendarClock, Timer, ArrowLeft,
 } from 'lucide-react';
-import { groupTasks, matchesFilter, sortTasks, topLevel } from '../lib';
+import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults } from '../lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey } from '../theme';
 import { Avatar, useClickOutside, DateField } from '../components';
 
@@ -19,12 +19,12 @@ const BASE_COLS = [
   { key: 'task', label: 'Task', width: 280, grow: true },
   { key: 'assignee', label: 'Assignee', width: 140 },
   { key: 'project', label: 'Project', width: 132 },
-  { key: 'due', label: 'Due date', width: 112 },
+  { key: 'due', label: 'Due Date', width: 112 },
   { key: 'estimate', label: 'Estimate', width: 86 },
   { key: 'actual', label: 'Actual', width: 86 },
   { key: 'priority', label: 'Priority', width: 96, center: true },
   { key: 'status', label: 'Status', width: 116, center: true },
-  { key: 'department', label: 'Department', width: 126, center: true },
+  { key: 'department', label: 'Team', width: 126, center: true },
 ];
 
 // Type picker for "+ Column" — matches the export's AddColumnMenu grid exactly
@@ -35,7 +35,7 @@ const BASE_COLS = [
 const TYPE_GROUPS = [
   { label: 'Recommended', types: [
     { key: 'text', label: 'Text/number', icon: Hash, storage: 'text' },
-    { key: 'select', label: 'Dropdown list', icon: List, storage: 'select' },
+    { key: 'select', label: 'Dropdown List', icon: List, storage: 'select' },
     { key: 'date', label: 'Date', icon: Calendar, storage: 'date' },
     { key: 'checkbox', label: 'Checkbox', icon: CheckSquare, storage: 'checkbox' },
   ] },
@@ -44,7 +44,7 @@ const TYPE_GROUPS = [
     { key: 'autonumber', label: 'Auto-number', icon: ListOrdered, storage: 'number' },
   ] },
   { label: 'Planning/Status', types: [
-    { key: 'select2', label: 'Dropdown list', icon: List, storage: 'select' },
+    { key: 'select2', label: 'Dropdown List', icon: List, storage: 'select' },
     { key: 'checkbox2', label: 'Checkbox', icon: CheckSquare, storage: 'checkbox' },
     { key: 'status', label: 'Status', icon: CircleDot, storage: 'select' },
     { key: 'progress', label: 'Progress', icon: BarChart3, storage: 'number' },
@@ -53,8 +53,8 @@ const TYPE_GROUPS = [
   ] },
   { label: 'Date', types: [
     { key: 'date2', label: 'Date', icon: Calendar, storage: 'date' },
-    { key: 'created_date', label: 'Created date', icon: CalendarPlus, storage: 'date' },
-    { key: 'modified_date', label: 'Modified date', icon: CalendarClock, storage: 'date' },
+    { key: 'created_date', label: 'Created Date', icon: CalendarPlus, storage: 'date' },
+    { key: 'modified_date', label: 'Modified Date', icon: CalendarClock, storage: 'date' },
     { key: 'duration', label: 'Duration', icon: Timer, storage: 'number' },
   ] },
 ];
@@ -177,9 +177,9 @@ function ActionIcons({ t, store, onOpen }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 1, color: NX.faint }}>
       <button title="Comments" onClick={(e) => { e.stopPropagation(); onOpen(t.id); }} style={{ ...btn('ghost'), padding: 5 }}><MessageSquare size={13} /></button>
-      <button title="Attach file" onClick={(e) => { e.stopPropagation(); fileRef.current?.click(); }} style={{ ...btn('ghost'), padding: 5 }}><Paperclip size={13} /></button>
+      <button title="Attach File" onClick={(e) => { e.stopPropagation(); fileRef.current?.click(); }} style={{ ...btn('ghost'), padding: 5 }}><Paperclip size={13} /></button>
       <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={() => { /* attach wired in detail drawer */ }} />
-      <button title="Toggle milestone" onClick={(e) => { e.stopPropagation(); store.updateTask(t.id, { isMilestone: !t.isMilestone }); }} style={{ ...btn('ghost'), padding: 5, color: t.isMilestone ? NX.purple : NX.faint }}><Diamond size={13} /></button>
+      <button title="Toggle Milestone" onClick={(e) => { e.stopPropagation(); store.updateTask(t.id, { isMilestone: !t.isMilestone }); }} style={{ ...btn('ghost'), padding: 5, color: t.isMilestone ? NX.purple : NX.faint }}><Diamond size={13} /></button>
       <button title="Complete" onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} style={{ ...btn('ghost'), padding: 5, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={13} /> : <Circle size={13} />}</button>
     </div>
   );
@@ -221,7 +221,7 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
         </div>
         {/* due */}
         <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
-          <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} color={dueColor(t.dueOn, t.completed)} title="Due date" style={{ fontSize: 12, width: '100%' }} />
+          <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} color={dueColor(t.dueOn, t.completed)} title="Due Date" style={{ fontSize: 12, width: '100%' }} />
         </div>
         {/* estimate */}
         <div className="rl-cell" style={{ ...editCell, display: 'flex', alignItems: 'center', gap: 3 }} onClick={(e) => e.stopPropagation()}>
@@ -251,7 +251,7 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
             label={dept ? dept.name : '—'} color={dept ? dept.color : NX.faint} tint={dept ? `${dept.color}1a` : 'transparent'}
             icon={dept ? <span style={{ width: 8, height: 8, borderRadius: '50%', background: dept.color, flexShrink: 0 }} /> : null}
             currentKey={t.departmentId || ''}
-            options={[{ key: '', label: 'No department', color: NX.faint }, ...store.departments.map((d) => ({ key: d.id, label: d.name, color: d.color }))]}
+            options={[{ key: '', label: 'No team', color: NX.faint }, ...store.departments.map((d) => ({ key: d.id, label: d.name, color: d.color }))]}
             onSelect={(k) => store.updateTask(t.id, { departmentId: k || null })} />
         </div>
         {/* custom fields */}
@@ -364,12 +364,12 @@ function AddFieldMenu({ createCustomField }) {
                       </div>
                     ))}
                   </div>
-                  <button onClick={() => setOptions((arr) => [...arr, ''])} style={{ ...btn('ghost'), fontSize: 11.5, padding: '4px 6px', marginTop: 4 }}><Plus size={11} />Add value</button>
+                  <button onClick={() => setOptions((arr) => [...arr, ''])} style={{ ...btn('ghost'), fontSize: 11.5, padding: '4px 6px', marginTop: 4 }}><Plus size={11} />Add Value</button>
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 2 }}>
                 <button onClick={close} style={{ ...btn('ghost'), fontSize: 12.5, padding: '5px 10px' }}>Cancel</button>
-                <button onClick={create} disabled={!name.trim()} style={{ ...btn('primary'), fontSize: 12.5, padding: '5px 12px', opacity: name.trim() ? 1 : 0.5 }}>Add column</button>
+                <button onClick={create} disabled={!name.trim()} style={{ ...btn('primary'), fontSize: 12.5, padding: '5px 12px', opacity: name.trim() ? 1 : 0.5 }}>Add Column</button>
               </div>
             </div>
           )}
@@ -411,8 +411,33 @@ function FieldCell({ field, value, onChange }) {
     style={{ width: '100%', border: 'none', background: 'transparent', fontSize: 12.5, color: NX.dim, outline: 'none', fontFamily: FONT }} />;
 }
 
-export default function RichListView({ visible, group, ctx, store, people, selected, toggleSel, onOpen, onSelectAll }) {
+// Inline "+ Add task" under each group section — the created task inherits the
+// section's group context (status / priority / project / due-date bucket) plus
+// the workspace's locked project, matching Asana's add-from-a-section flow.
+function AddTaskInline({ store, defaults, lockedProjectId }) {
+  const [title, setTitle] = useState('');
+  const add = () => {
+    const t = title.trim(); if (!t) return;
+    store.createTask({
+      title: t, type: 'task',
+      status: defaults.status || 'not_started', priority: defaults.priority || 'medium',
+      projectId: defaults.projectId || lockedProjectId || '', departmentId: defaults.departmentId || '',
+      dueOn: defaults.dueOn || '', assigneeId: defaults.assigneeId || '',
+    }).catch(() => {});
+    setTitle('');
+  };
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 16px 6px 40px', borderBottom: `1px solid ${NX.border2}`, color: NX.faint }}>
+      <Plus size={13} style={{ flexShrink: 0 }} />
+      <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add(); if (e.key === 'Escape') setTitle(''); }}
+        placeholder="Add task…" style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, fontFamily: FONT, color: NX.ink, width: '100%' }} />
+    </div>
+  );
+}
+
+export default function RichListView({ visible, group, ctx, store, people, selected, toggleSel, onOpen, onSelectAll, lockedProjectId = '' }) {
   const [collapsed, setCollapsed] = useState(new Set());
+  const effGroup = group === 'none' ? 'status' : group;
   const cols = BASE_COLS;
   const customFields = store.customFields || [];
   const [widths, setWidths] = useState(() => Object.fromEntries(BASE_COLS.map((c) => [c.key, c.width])));
@@ -432,7 +457,7 @@ export default function RichListView({ visible, group, ctx, store, people, selec
     '110px',
   ].join(' ');
 
-  const groups = useMemo(() => groupTasks(visible, group === 'none' ? 'status' : group, ctx).filter((g) => g.tasks.length > 0), [visible, group, ctx]);
+  const groups = useMemo(() => groupTasks(visible, effGroup, ctx).filter((g) => g.tasks.length > 0), [visible, effGroup, ctx]);
   const visibleIds = groups.flatMap((g) => g.tasks.map((t) => t.id));
   const allSel = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
   const someSel = !allSel && visibleIds.some((id) => selected.has(id));
@@ -442,8 +467,8 @@ export default function RichListView({ visible, group, ctx, store, people, selec
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, border: `1px dashed ${NX.border}`, borderRadius: 16, background: NX.surface, padding: '56px 0', margin: 16, textAlign: 'center' }}>
         <Folder size={26} style={{ color: NX.faint }} />
-        <div style={{ fontSize: 14, fontWeight: 600, color: NX.ink }}>No tasks yet</div>
-        <div style={{ fontSize: 13, color: NX.dim }}>Create your first task with the “New task” button.</div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: NX.ink }}>No Tasks Yet</div>
+        <div style={{ fontSize: 13, color: NX.dim }}>Create your first task with the “New Task” button.</div>
       </div>
     );
   }
@@ -485,6 +510,7 @@ export default function RichListView({ visible, group, ctx, store, people, selec
               {!isCol && g.tasks.map((t) => (
                 <TaskRow key={t.id} t={t} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onOpen={onOpen} />
               ))}
+              {!isCol && <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={groupAddDefaults(effGroup, g.key)} />}
             </div>
           );
         })}

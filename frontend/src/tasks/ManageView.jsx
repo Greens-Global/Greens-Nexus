@@ -58,13 +58,13 @@ const SWATCHES = [NX.blue, NX.green, NX.amber, NX.red, NX.purple, NX.teal, NX.pi
 
 // ── Sub-tabs registry ─────────────────────────────────────────────────────────
 const SUBTABS = [
-  { key: 'departments', label: 'Departments', icon: Users },
-  { key: 'rules', label: 'Automation rules', icon: Zap },
-  { key: 'fields', label: 'Custom fields', icon: ListChecks },
-  { key: 'statuses', label: 'Custom statuses', icon: Palette },
+  { key: 'departments', label: 'Teams', icon: Users },
+  { key: 'rules', label: 'Automation Rules', icon: Zap },
+  { key: 'fields', label: 'Custom Fields', icon: ListChecks },
+  { key: 'statuses', label: 'Custom Statuses', icon: Palette },
   { key: 'templates', label: 'Templates', icon: FileText },
-  { key: 'intake', label: 'Intake forms', icon: Inbox },
-  { key: 'activity', label: 'Activity log', icon: ActivityIcon },
+  { key: 'intake', label: 'Intake Forms', icon: Inbox },
+  { key: 'activity', label: 'Activity Log', icon: ActivityIcon },
   { key: 'reporting', label: 'Reporting', icon: BarChart3 },
 ];
 
@@ -120,11 +120,11 @@ function DepartmentsTab({ store }) {
 
   return (
     <div>
-      <SectionHead title="Departments" hint="Create and manage the departments teams are grouped into."
-        action={<button style={btn('primary')} onClick={() => setEditing({})}><Plus size={15} />New department</button>} />
+      <SectionHead title="Teams" hint="Create and manage the teams members are grouped into."
+        action={<button style={btn('primary')} onClick={() => setEditing({})}><Plus size={15} />New Team</button>} />
 
       {departments.length === 0 ? (
-        <EmptyState icon={Users} title="No departments yet" hint="Create a department to group members and their work." />
+        <EmptyState icon={Users} title="No Teams Yet" hint="Create a team to group members and their work." />
       ) : (
         departments.map((d) => {
           const Icon = deptIcon(d.icon);
@@ -139,7 +139,7 @@ function DepartmentsTab({ store }) {
                   {members.length} member{members.length === 1 ? '' : 's'} · {taskCountByDept[d.id] || 0} task{(taskCountByDept[d.id] || 0) === 1 ? '' : 's'}
                 </div>
               </div>
-              <IconButton icon={Pencil} title="Edit department" onClick={() => setEditing(d)} />
+              <IconButton icon={Pencil} title="Edit Team" onClick={() => setEditing(d)} />
             </RowCard>
           );
         })
@@ -189,12 +189,12 @@ function RulesTab({ store }) {
   return (
     <div>
       <SectionHead
-        title="Automation rules"
+        title="Automation Rules"
         hint="Trigger → action rules that run automatically across tasks."
-        action={<button style={btn('primary')} onClick={() => setEditing('new')}><Plus size={15} />Add rule</button>}
+        action={<button style={btn('primary')} onClick={() => setEditing('new')}><Plus size={15} />Add Rule</button>}
       />
       {rules.length === 0 ? (
-        <EmptyState icon={Zap} title="No rules yet" hint="Add a rule to automate status, priority and tagging." />
+        <EmptyState icon={Zap} title="No Rules Yet" hint="Add a rule to automate status, priority and tagging." />
       ) : rules.map((r) => (
         <RowCard key={r.id}>
           <span style={{ ...iconBadge, color: NX.amber }}><Zap size={16} /></span>
@@ -205,8 +205,8 @@ function RulesTab({ store }) {
             </div>
           </div>
           <Toggle on={!!r.enabled} onChange={() => updateRule(r.id, { enabled: !r.enabled })} />
-          <IconButton icon={Pencil} title="Edit rule" onClick={() => setEditing(r)} />
-          <IconButton icon={Trash2} title="Delete rule" danger onClick={() => { if (confirm(`Delete rule "${r.name}"?`)) deleteRule(r.id); }} />
+          <IconButton icon={Pencil} title="Edit Rule" onClick={() => setEditing(r)} />
+          <IconButton icon={Trash2} title="Delete Rule" danger onClick={() => { if (confirm(`Delete rule "${r.name}"?`)) deleteRule(r.id); }} />
         </RowCard>
       ))}
       {editing && (
@@ -259,7 +259,7 @@ function RuleModal({ rule, onClose, onSave }) {
   };
 
   return (
-    <Modal title={rule ? 'Edit rule' : 'New rule'} onClose={onClose} footer={
+    <Modal title={rule ? 'Edit Rule' : 'New Rule'} onClose={onClose} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
         <button style={btn('primary')} onClick={save}>{rule ? 'Save rule' : 'Add rule'}</button>
@@ -310,11 +310,11 @@ function RuleModal({ rule, onClose, onSave }) {
                 <input value={a.value} onChange={(e) => setAction(i, { value: e.target.value })} placeholder="Tag" style={{ ...inputStyle, flex: 1 }} />
               )
             )}
-            <IconButton icon={X} title="Remove action" onClick={() => removeAction(i)} />
+            <IconButton icon={X} title="Remove Action" onClick={() => removeAction(i)} />
           </div>
         ))}
       </div>
-      <button style={{ ...btn('outline'), marginTop: 8 }} onClick={addAction}><Plus size={14} />Add action</button>
+      <button style={{ ...btn('outline'), marginTop: 8 }} onClick={addAction}><Plus size={14} />Add Action</button>
     </Modal>
   );
 }
@@ -335,12 +335,12 @@ function FieldsTab({ store }) {
   return (
     <div>
       <SectionHead
-        title="Custom fields"
+        title="Custom Fields"
         hint="Extra fields you can attach to tasks (text, number, date or a select list)."
-        action={<button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New custom field</button>}
+        action={<button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New Custom Field</button>}
       />
       {customFields.length === 0 ? (
-        <EmptyState icon={ListChecks} title="No custom fields" hint="Add a field to capture extra data on tasks." />
+        <EmptyState icon={ListChecks} title="No Custom Fields" hint="Add a field to capture extra data on tasks." />
       ) : customFields.map((f) => (
         <RowCard key={f.id}>
           <span style={{ ...iconBadge, color: NX.blue }}><ListChecks size={16} /></span>
@@ -352,7 +352,7 @@ function FieldsTab({ store }) {
             )}
           </div>
           <span style={chip(NX.dim, NX.border2)}>{FIELD_TYPES.find((t) => t.value === f.type)?.label || f.type}</span>
-          <IconButton icon={Trash2} title="Delete field" danger onClick={() => { if (confirm(`Delete field "${f.name}"?`)) deleteCustomField(f.id); }} />
+          <IconButton icon={Trash2} title="Delete Field" danger onClick={() => { if (confirm(`Delete field "${f.name}"?`)) deleteCustomField(f.id); }} />
         </RowCard>
       ))}
       {adding && <FieldModal onClose={() => setAdding(false)} onSave={async (d) => { await createCustomField(d); setAdding(false); }} />}
@@ -374,10 +374,10 @@ function FieldModal({ onClose, onSave }) {
   };
 
   return (
-    <Modal title="New custom field" onClose={onClose} footer={
+    <Modal title="New Custom Field" onClose={onClose} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
-        <button style={btn('primary')} onClick={save}>Add field</button>
+        <button style={btn('primary')} onClick={save}>Add Field</button>
       </>
     }>
       <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Story points" style={inputStyle} /></Field>
@@ -394,11 +394,11 @@ function FieldModal({ onClose, onSave }) {
             {options.map((o, i) => (
               <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <input value={o} onChange={(e) => setOpt(i, e.target.value)} placeholder={`Option ${i + 1}`} style={{ ...inputStyle, flex: 1 }} />
-                <IconButton icon={X} title="Remove option" onClick={() => setOptions((prev) => prev.filter((_, idx) => idx !== i))} />
+                <IconButton icon={X} title="Remove Option" onClick={() => setOptions((prev) => prev.filter((_, idx) => idx !== i))} />
               </div>
             ))}
           </div>
-          <button style={{ ...btn('outline'), marginTop: 8 }} onClick={() => setOptions((prev) => [...prev, ''])}><Plus size={14} />Add option</button>
+          <button style={{ ...btn('outline'), marginTop: 8 }} onClick={() => setOptions((prev) => [...prev, ''])}><Plus size={14} />Add Option</button>
         </div>
       )}
     </Modal>
@@ -413,17 +413,17 @@ function StatusesTab({ store }) {
   return (
     <div>
       <SectionHead
-        title="Custom statuses"
+        title="Custom Statuses"
         hint="Additional workflow statuses beyond the four built-in ones."
-        action={<button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New status</button>}
+        action={<button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New Status</button>}
       />
       {customStatuses.length === 0 ? (
-        <EmptyState icon={Palette} title="No custom statuses" hint="Add a status to model your own workflow stages." />
+        <EmptyState icon={Palette} title="No Custom Statuses" hint="Add a status to model your own workflow stages." />
       ) : customStatuses.map((s) => (
         <RowCard key={s.id}>
           <span style={{ width: 14, height: 14, borderRadius: '50%', background: s.color || NX.dim, flexShrink: 0, marginLeft: 6 }} />
           <div style={{ flex: 1, fontSize: 13.5, fontWeight: 700 }}>{s.label}</div>
-          <IconButton icon={Trash2} title="Delete status" danger onClick={() => { if (confirm(`Delete status "${s.label}"?`)) deleteCustomStatus(s.id); }} />
+          <IconButton icon={Trash2} title="Delete Status" danger onClick={() => { if (confirm(`Delete status "${s.label}"?`)) deleteCustomStatus(s.id); }} />
         </RowCard>
       ))}
       {adding && <StatusModal onClose={() => setAdding(false)} onSave={async (d) => { await createCustomStatus(d); setAdding(false); }} />}
@@ -437,10 +437,10 @@ function StatusModal({ onClose, onSave }) {
   const save = () => { if (label.trim()) onSave({ label: label.trim(), color }); };
 
   return (
-    <Modal title="New status" width={440} onClose={onClose} footer={
+    <Modal title="New Status" width={440} onClose={onClose} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
-        <button style={btn('primary')} onClick={save}>Add status</button>
+        <button style={btn('primary')} onClick={save}>Add Status</button>
       </>
     }>
       <Field label="Label"><input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Blocked" style={inputStyle} /></Field>
@@ -467,10 +467,10 @@ function TemplatesTab({ store }) {
       <SectionHead
         title="Templates"
         hint="Reusable task blueprints — default fields plus a pre-built subtask list."
-        action={<button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New template</button>}
+        action={<button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New Template</button>}
       />
       {templates.length === 0 ? (
-        <EmptyState icon={FileText} title="No templates" hint="Create a template to spin up recurring work fast." />
+        <EmptyState icon={FileText} title="No Templates" hint="Create a template to spin up recurring work fast." />
       ) : templates.map((t) => (
         <RowCard key={t.id}>
           <span style={{ ...iconBadge, color: NX.purple }}><FileText size={16} /></span>
@@ -479,7 +479,7 @@ function TemplatesTab({ store }) {
             {t.description && <div style={{ fontSize: 12, color: NX.dim, marginTop: 1 }}>{t.description}</div>}
           </div>
           <span style={chip(NX.dim, NX.border2)}>{(t.subtaskTitles || []).length} subtasks</span>
-          <IconButton icon={Trash2} title="Delete template" danger onClick={() => { if (confirm(`Delete template "${t.name}"?`)) deleteTemplate(t.id); }} />
+          <IconButton icon={Trash2} title="Delete Template" danger onClick={() => { if (confirm(`Delete template "${t.name}"?`)) deleteTemplate(t.id); }} />
         </RowCard>
       ))}
       {adding && <TemplateModal onClose={() => setAdding(false)} onSave={async (d) => { await createTemplate(d); setAdding(false); }} />}
@@ -509,10 +509,10 @@ function TemplateModal({ onClose, onSave }) {
   };
 
   return (
-    <Modal title="New template" onClose={onClose} footer={
+    <Modal title="New Template" onClose={onClose} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
-        <button style={btn('primary')} onClick={save}>Add template</button>
+        <button style={btn('primary')} onClick={save}>Add Template</button>
       </>
     }>
       <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. New hire onboarding" style={inputStyle} /></Field>
@@ -536,11 +536,11 @@ function TemplateModal({ onClose, onSave }) {
         {subtasks.map((s, i) => (
           <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <input value={s} onChange={(e) => setSub(i, e.target.value)} placeholder={`Subtask ${i + 1}`} style={{ ...inputStyle, flex: 1 }} />
-            <IconButton icon={X} title="Remove subtask" onClick={() => setSubtasks((prev) => prev.filter((_, idx) => idx !== i))} />
+            <IconButton icon={X} title="Remove Subtask" onClick={() => setSubtasks((prev) => prev.filter((_, idx) => idx !== i))} />
           </div>
         ))}
       </div>
-      <button style={{ ...btn('outline'), marginTop: 8 }} onClick={() => setSubtasks((prev) => [...prev, ''])}><Plus size={14} />Add subtask</button>
+      <button style={{ ...btn('outline'), marginTop: 8 }} onClick={() => setSubtasks((prev) => [...prev, ''])}><Plus size={14} />Add Subtask</button>
     </Modal>
   );
 }
@@ -555,12 +555,12 @@ function IntakeTab({ store }) {
   return (
     <div>
       <SectionHead
-        title="Intake forms"
+        title="Intake Forms"
         hint="Public request forms that funnel new work into a target project."
-        action={<button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New form</button>}
+        action={<button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New Form</button>}
       />
       {intakeForms.length === 0 ? (
-        <EmptyState icon={Inbox} title="No intake forms" hint="Create a form to collect structured requests." />
+        <EmptyState icon={Inbox} title="No Intake Forms" hint="Create a form to collect structured requests." />
       ) : intakeForms.map((f) => (
         <RowCard key={f.id}>
           <span style={{ ...iconBadge, color: NX.teal }}><Inbox size={16} /></span>
@@ -571,7 +571,7 @@ function IntakeTab({ store }) {
               {f.targetProjectId ? ` → ${projectName(f.targetProjectId) || 'project'}` : ' · no target project'}
             </div>
           </div>
-          <IconButton icon={Trash2} title="Delete form" danger onClick={() => { if (confirm(`Delete form "${f.title}"?`)) deleteIntakeForm(f.id); }} />
+          <IconButton icon={Trash2} title="Delete Form" danger onClick={() => { if (confirm(`Delete form "${f.title}"?`)) deleteIntakeForm(f.id); }} />
         </RowCard>
       ))}
       {adding && <IntakeModal projects={projects} onClose={() => setAdding(false)} onSave={async (d) => { await createIntakeForm(d); setAdding(false); }} />}
@@ -595,10 +595,10 @@ function IntakeModal({ projects, onClose, onSave }) {
   };
 
   return (
-    <Modal title="New intake form" onClose={onClose} footer={
+    <Modal title="New Intake Form" onClose={onClose} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
-        <button style={btn('primary')} onClick={save}>Add form</button>
+        <button style={btn('primary')} onClick={save}>Add Form</button>
       </>
     }>
       <Field label="Title"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. IT support request" style={inputStyle} /></Field>
@@ -616,11 +616,11 @@ function IntakeModal({ projects, onClose, onSave }) {
             <select value={f.type} onChange={(e) => setField(i, { type: e.target.value })} style={{ ...selectStyle, width: 130 }}>
               {INTAKE_FIELD_TYPES.map((t) => <option key={t} value={t}>{t[0].toUpperCase() + t.slice(1)}</option>)}
             </select>
-            <IconButton icon={X} title="Remove field" onClick={() => setFields((prev) => prev.filter((_, idx) => idx !== i))} />
+            <IconButton icon={X} title="Remove Field" onClick={() => setFields((prev) => prev.filter((_, idx) => idx !== i))} />
           </div>
         ))}
       </div>
-      <button style={{ ...btn('outline'), marginTop: 8 }} onClick={() => setFields((prev) => [...prev, { label: '', type: 'text' }])}><Plus size={14} />Add field</button>
+      <button style={{ ...btn('outline'), marginTop: 8 }} onClick={() => setFields((prev) => [...prev, { label: '', type: 'text' }])}><Plus size={14} />Add Field</button>
     </Modal>
   );
 }
@@ -647,11 +647,11 @@ function ActivityTab({ store }) {
 
   return (
     <div>
-      <SectionHead title="Activity log" hint="A running history of everything that happened across tasks and projects." />
+      <SectionHead title="Activity Log" hint="A running history of everything that happened across tasks and projects." />
       {rows === null ? (
         <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13 }}>Loading activity…</div>
       ) : sorted.length === 0 ? (
-        <EmptyState icon={ActivityIcon} title="No activity yet" hint="Actions across the workspace will show up here." />
+        <EmptyState icon={ActivityIcon} title="No Activity Yet" hint="Actions across the workspace will show up here." />
       ) : (
         <div style={{ ...card, padding: 6 }}>
           {sorted.map((e) => {

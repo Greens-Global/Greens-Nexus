@@ -15,7 +15,7 @@ const Ctx = createContext(null);
 const CAMEL_TO_SNAKE = {
   assigneeId: 'assignee_email', followerIds: 'follower_emails', likedByIds: 'liked_by_emails',
   accessLevel: 'access_level', projectId: 'project_id', sectionId: 'section_id',
-  departmentId: 'department_id', parentTaskId: 'parent_task_id', subtaskIds: 'subtask_ids',
+  departmentId: 'department_id', departmentIds: 'department_ids', parentTaskId: 'parent_task_id', subtaskIds: 'subtask_ids',
   blockedByIds: 'blocked_by_ids', blockingIds: 'blocking_ids', dependencyTypes: 'dependency_types',
   customFieldValues: 'custom_field_values', startOn: 'start_on', dueOn: 'due_on',
   estimateHours: 'estimate_hours', actualHours: 'actual_hours', isMilestone: 'is_milestone',

@@ -2,7 +2,7 @@
 intake forms, custom fields, tickets, the module's own notification bell, and the
 changelog/"What's New" feature. Single router, absolute paths, email-keyed.
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from pydantic import BaseModel
@@ -322,6 +322,31 @@ def update_ticket(ticket_id: str, body: TicketUpdate, db: Session = Depends(get_
 def delete_ticket(ticket_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id).delete()
     db.commit()
+
+
+# ── OCR (mobile "scan text" — quick-add ABC scanner) ─────────────────────────
+# Extracts text from an uploaded photo via Tesseract. The engine (pytesseract +
+# the `tesseract` binary) must be present on the host; if it isn't we return 501
+# so the client can degrade gracefully instead of 500-ing.
+@router.post("/task-ocr")
+async def task_ocr(image: UploadFile = File(...)):
+    raw = await image.read()
+    if not raw:
+        raise HTTPException(400, "Empty image")
+    try:
+        import io
+        from PIL import Image
+        import pytesseract
+    except Exception:
+        raise HTTPException(501, "OCR engine is not installed on the server")
+    try:
+        img = Image.open(io.BytesIO(raw))
+        text = pytesseract.image_to_string(img)
+    except pytesseract.TesseractNotFoundError:
+        raise HTTPException(501, "Tesseract binary is not available on the server")
+    except Exception as exc:
+        raise HTTPException(500, f"Could not read the image: {exc}")
+    return {"text": (text or "").strip()}
 
 
 # ── Notifications (module's own bell) ────────────────────────────────────────

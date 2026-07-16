@@ -212,7 +212,7 @@ export default function Changelog({ onClose }) {
           <div style={{ fontSize: 20, fontWeight: 700 }}>Documentation &amp; Changelog</div>
           <div style={{ fontSize: 13, color: NX.dim }}>Track all updates, releases and changes across Nexus.</div>
         </div>
-        <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => setAdding(true)}><Plus size={15} />Add new update</button>
+        <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => setAdding(true)}><Plus size={15} />Add New Update</button>
         <button onClick={onClose} title="Close" aria-label="Close" style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><X size={18} /></button>
       </div>
 
@@ -703,7 +703,7 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
               {generating ? 'Generating…' : 'Generate from git'}
             </button>
           )}
-          <button style={btn('primary')} onClick={onAdd}><Plus size={15} />Add new update</button>
+          <button style={btn('primary')} onClick={onAdd}><Plus size={15} />Add New Update</button>
         </div>
       </div>
       <p style={{ margin: '0 0 20px', fontSize: 13, color: NX.dim }}>
@@ -713,7 +713,7 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
       </p>
 
       <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: NX.ink }}>Pending review</h2>
+        <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: NX.ink }}>Pending Review</h2>
         {pending.length > 0 && <Badge label={String(pending.length)} color="#d97706" tint="#fdefd7" />}
       </div>
 
@@ -744,7 +744,7 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
         </div>
       )}
 
-      <h2 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 700, color: NX.ink }}>All updates</h2>
+      <h2 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 700, color: NX.ink }}>All Updates</h2>
       <div style={{ ...card, overflow: 'hidden' }}>
         {rest.map(({ entry, status }) => {
           const meta = typeMeta(entry.type);

@@ -20,6 +20,7 @@ class Task(Base):
     status            = Column(String, default="not_started")  # + custom board-column ids
     priority          = Column(String, default="medium")   # low|medium|high|urgent
     assignee_email    = Column(String, default="", index=True)
+    owner_email       = Column(String, default="", index=True)
     follower_emails   = Column(JSON, default=list)
     liked_by_emails   = Column(JSON, default=list)
     access_level      = Column(String, default="org")      # org|restricted
@@ -1397,7 +1398,8 @@ class TaskProject(Base):
     color         = Column(String, default="")
     owner_email   = Column(String, default="", index=True)
     portfolio_id  = Column(String, default="", index=True)
-    department_id = Column(String, default="", index=True)
+    department_id = Column(String, default="", index=True)   # primary team (first of department_ids)
+    department_ids = Column(JSON, default=list)               # all teams the project belongs to
     status        = Column(String, default="not_started")
     start_on      = Column(String, default="")
     due_on        = Column(String, default="")

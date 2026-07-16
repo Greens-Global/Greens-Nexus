@@ -4,20 +4,22 @@
 // TasksContext store. The export's store had applyTemplate/submitIntakeForm/
 // saveView helpers; here those are expressed directly via createTask/createSavedView.
 import { useEffect, useRef, useState } from 'react';
-import { SlidersHorizontal, ArrowUpDown, Bookmark, LayoutTemplate, Inbox, Plus, Trash2, X, ListChecks, CalendarRange, LayoutGrid } from 'lucide-react';
+import { SlidersHorizontal, ArrowUpDown, Bookmark, LayoutTemplate, Inbox, Plus, Trash2, X, ListChecks, CalendarRange, LayoutGrid, ChevronRight, Search } from 'lucide-react';
+import { BottomSheet } from './MobileTaskBar';
 import { useTasks } from './TasksContext';
 import { Modal, PersonSelect, usePeople, useIsMobile, DateField } from './components';
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
 
 const SORT_OPTIONS = [
-  { key: 'manual', label: 'Manual' }, { key: 'dueOn', label: 'Due date' },
+  { key: 'manual', label: 'Manual' }, { key: 'dueOn', label: 'Due Date' },
   { key: 'priority', label: 'Priority' }, { key: 'title', label: 'Title' },
   { key: 'status', label: 'Status' }, { key: 'assignee', label: 'Assignee' },
 ];
 const toggle = (arr, v) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
 
-// Small popover anchored to its trigger.
-function Popover({ label, icon: Icon, active, width = 240, children }) {
+// Small popover anchored to its trigger. `sheet` = rendered inside the mobile
+// filter bottom-sheet (full-width labelled trigger, menu flips up near the edge).
+function Popover({ label, icon: Icon, active, width = 240, children, sheet = false }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const triggerRef = useRef(null);
@@ -29,22 +31,27 @@ function Popover({ label, icon: Icon, active, width = 240, children }) {
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
   }, [open]);
   const isMobile = useIsMobile();
-  // On mobile the trigger sits near the left edge, so a right-anchored dropdown
-  // would spill off-screen. Position it as a fixed panel below the trigger,
-  // clamped to stay within the viewport.
-  const menuStyle = { width, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 60, padding: 12, maxHeight: '70vh', overflowY: 'auto' };
+  const showLabel = !isMobile || sheet;
+  // On mobile the trigger sits near the left edge (or inside a bottom sheet), so a
+  // right-anchored dropdown would spill off-screen. Position it as a fixed panel,
+  // clamped to the viewport and flipped above the trigger when space below is tight.
+  const menuStyle = { width, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 4100, padding: 12, maxHeight: '70vh', overflowY: 'auto' };
   if (isMobile && open && triggerRef.current) {
     const r = triggerRef.current.getBoundingClientRect();
     const w = Math.min(width, window.innerWidth - 16);
-    Object.assign(menuStyle, { position: 'fixed', top: r.bottom + 6, left: Math.max(8, Math.min(r.left, window.innerWidth - w - 8)), width: w });
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
+    const flipUp = window.innerHeight - r.bottom < 300;
+    Object.assign(menuStyle, flipUp
+      ? { position: 'fixed', bottom: window.innerHeight - r.top + 6, left, width: w }
+      : { position: 'fixed', top: r.bottom + 6, left, width: w });
   } else {
     Object.assign(menuStyle, { position: 'absolute', top: '100%', right: 0, marginTop: 6 });
   }
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      {/* Icon-only on phones — four labelled buttons don't fit one row. */}
-      <button ref={triggerRef} onClick={() => setOpen((o) => !o)} title={label} style={{ ...btn('outline'), padding: isMobile ? 7 : undefined, color: active ? NX.blue : NX.ink, borderColor: active || open ? NX.blue : NX.border }}>
-        <Icon size={15} />{!isMobile && label}
+    <div ref={ref} style={{ position: sheet ? 'static' : 'relative' }}>
+      {/* Icon-only on phones — four labelled buttons don't fit one row (except in the sheet). */}
+      <button ref={triggerRef} onClick={() => setOpen((o) => !o)} title={label} style={{ ...btn('outline'), padding: isMobile && !sheet ? 7 : undefined, width: sheet ? '100%' : undefined, justifyContent: sheet ? 'flex-start' : undefined, color: active ? NX.blue : NX.ink, borderColor: active || open ? NX.blue : NX.border }}>
+        <Icon size={15} />{showLabel && label}
       </button>
       {open && (
         <div style={menuStyle}>
@@ -58,7 +65,121 @@ const capWord = (s = '') => s.replace(/^\w/, (c) => c.toUpperCase());
 const groupHead = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, marginBottom: 6 };
 const pill = (on, color, tint) => ({ borderRadius: 999, padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none', background: on ? color : tint, color: on ? '#fff' : color });
 
-export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProjectId, current, onApplyView, onOpenTask, group, setGroup, groupOptions }) {
+// ── Category bodies — shared by the desktop popovers and the mobile drill-in sheet ──
+function FiltersBody({ filters, setFilters, people, projects, lockedProjectId }) {
+  const activeFilterCount = filters.assigneeIds.length + filters.statuses.length + filters.priorities.length + (lockedProjectId ? 0 : filters.projectIds.length);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div>
+        <div style={groupHead}>Status</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+          {STATUS_ORDER.map((s) => { const on = filters.statuses.includes(s); const m = STATUS_META[s]; return <button key={s} onClick={() => setFilters({ ...filters, statuses: toggle(filters.statuses, s) })} style={pill(on, m.color, m.tint)}>{m.label}</button>; })}
+        </div>
+      </div>
+      <div>
+        <div style={groupHead}>Priority</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+          {PRIORITY_ORDER.map((p) => { const on = filters.priorities.includes(p); const m = PRIORITY_META[p]; return <button key={p} onClick={() => setFilters({ ...filters, priorities: toggle(filters.priorities, p) })} style={pill(on, m.color, m.tint)}>{m.label}</button>; })}
+        </div>
+      </div>
+      <div>
+        <div style={groupHead}>Assignee</div>
+        <div style={{ maxHeight: 200, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
+          {people.map((u) => (
+            <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 9px', fontSize: 13, cursor: 'pointer' }}>
+              <input type="checkbox" checked={filters.assigneeIds.includes(u.email)} onChange={() => setFilters({ ...filters, assigneeIds: toggle(filters.assigneeIds, u.email) })} />
+              {u.name}
+            </label>
+          ))}
+          {people.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>No people</div>}
+        </div>
+      </div>
+      {!lockedProjectId && (
+        <div>
+          <div style={groupHead}>Project</div>
+          <div style={{ maxHeight: 160, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
+            {projects.map((p) => (
+              <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 9px', fontSize: 13, cursor: 'pointer' }}>
+                <input type="checkbox" checked={filters.projectIds.includes(p.id)} onChange={() => setFilters({ ...filters, projectIds: toggle(filters.projectIds, p.id) })} />
+                {p.name}
+              </label>
+            ))}
+            {projects.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>No projects</div>}
+          </div>
+        </div>
+      )}
+      {activeFilterCount > 0 && (
+        <button onClick={() => setFilters({ ...filters, assigneeIds: [], statuses: [], priorities: [], projectIds: [] })} style={{ ...btn('outline'), justifyContent: 'center' }}>Clear Filters</button>
+      )}
+    </div>
+  );
+}
+
+function DateBody({ filters, setFilters }) {
+  const dateActive = (filters.due && filters.due !== 'any') || filters.dueFrom || filters.dueTo;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div>
+        <div style={groupHead}>Due</div>
+        <select value={filters.due || 'any'} onChange={(e) => setFilters({ ...filters, due: e.target.value })} style={{ ...inputStyle, cursor: 'pointer' }}>
+          <option value="any">Any time</option>
+          <option value="overdue">Overdue</option>
+          <option value="today">Due today</option>
+          <option value="week">Due this week</option>
+          <option value="none">No due date</option>
+        </select>
+      </div>
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+          <span style={groupHead}>Custom Range</span>
+          {(filters.dueFrom || filters.dueTo) && (
+            <button onClick={() => setFilters({ ...filters, dueFrom: null, dueTo: null })} style={{ ...btn('ghost'), padding: '2px 6px', fontSize: 11, color: NX.blue }}>Clear</button>
+          )}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <label style={{ display: 'block' }}>
+            <span style={{ display: 'block', fontSize: 10, color: NX.faint, marginBottom: 3 }}>From</span>
+            <DateField value={filters.dueFrom || ''} onChange={(v) => setFilters({ ...filters, dueFrom: v })} style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }} />
+          </label>
+          <label style={{ display: 'block' }}>
+            <span style={{ display: 'block', fontSize: 10, color: NX.faint, marginBottom: 3 }}>To</span>
+            <DateField value={filters.dueTo || ''} onChange={(v) => setFilters({ ...filters, dueTo: v })} style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }} />
+          </label>
+        </div>
+        {filters.dueFrom && filters.dueTo && filters.dueFrom > filters.dueTo && (
+          <p style={{ margin: '6px 0 0', fontSize: 11, color: NX.red }}>"From" is after "To".</p>
+        )}
+      </div>
+      {dateActive && (
+        <button onClick={() => setFilters({ ...filters, due: 'any', dueFrom: null, dueTo: null })} style={{ ...btn('outline'), justifyContent: 'center' }}>Clear Date Filter</button>
+      )}
+    </div>
+  );
+}
+
+function SortBody({ sort, setSort, close }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {SORT_OPTIONS.map((o) => (
+        <button key={o.key} onClick={() => { setSort({ ...sort, key: o.key }); close(); }} style={{ ...btn('ghost'), justifyContent: 'flex-start', color: sort.key === o.key ? NX.blue : NX.ink, background: sort.key === o.key ? NX.hover : 'transparent' }}>{o.label}</button>
+      ))}
+      <div style={{ borderTop: `1px solid ${NX.border2}`, margin: '4px 0' }} />
+      <button onClick={() => setSort({ ...sort, dir: sort.dir === 'asc' ? 'desc' : 'asc' })} style={{ ...btn('ghost'), justifyContent: 'flex-start' }}>Direction: {sort.dir === 'asc' ? 'Ascending' : 'Descending'}</button>
+    </div>
+  );
+}
+
+function GroupBody({ group, setGroup, groupOptions, close }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {groupOptions.map((o) => (
+        <button key={o.key} onClick={() => { setGroup(o.key); close(); }} style={{ ...btn('ghost'), justifyContent: 'flex-start', color: group === o.key ? NX.blue : NX.ink, background: group === o.key ? NX.hover : 'transparent' }}>{o.label}</button>
+      ))}
+    </div>
+  );
+}
+
+export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProjectId, current, onApplyView, onOpenTask, group, setGroup, groupOptions, sheet = false }) {
   const store = useTasks();
   const { savedViews, createSavedView, deleteSavedView, templates, intakeForms, projects, projectName, createTask, myEmail } = store;
   const people = usePeople();
@@ -72,139 +193,99 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
   const [intakeOpen, setIntakeOpen] = useState(false);
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 8, flexWrap: isMobile ? 'nowrap' : 'wrap', fontFamily: FONT }}>
+    <div style={{ display: 'flex', flexDirection: sheet ? 'column' : 'row', alignItems: sheet ? 'stretch' : 'center', gap: sheet ? 6 : (isMobile ? 6 : 8), flexWrap: (sheet || !isMobile) ? 'wrap' : 'nowrap', fontFamily: FONT }}>
       {/* Filters */}
-      <Popover label={activeFilterCount ? `Filters · ${activeFilterCount}` : 'Filters'} icon={SlidersHorizontal} active={activeFilterCount > 0} width={260}>
-        {() => (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div>
-              <div style={groupHead}>Status</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                {STATUS_ORDER.map((s) => { const on = filters.statuses.includes(s); const m = STATUS_META[s]; return <button key={s} onClick={() => setFilters({ ...filters, statuses: toggle(filters.statuses, s) })} style={pill(on, m.color, m.tint)}>{m.label}</button>; })}
-              </div>
-            </div>
-            <div>
-              <div style={groupHead}>Priority</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                {PRIORITY_ORDER.map((p) => { const on = filters.priorities.includes(p); const m = PRIORITY_META[p]; return <button key={p} onClick={() => setFilters({ ...filters, priorities: toggle(filters.priorities, p) })} style={pill(on, m.color, m.tint)}>{m.label}</button>; })}
-              </div>
-            </div>
-            <div>
-              <div style={groupHead}>Assignee</div>
-              <div style={{ maxHeight: 140, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
-                {people.map((u) => (
-                  <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', fontSize: 13, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={filters.assigneeIds.includes(u.email)} onChange={() => setFilters({ ...filters, assigneeIds: toggle(filters.assigneeIds, u.email) })} />
-                    {u.name}
-                  </label>
-                ))}
-                {people.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>No people</div>}
-              </div>
-            </div>
-            {!lockedProjectId && (
-              <div>
-                <div style={groupHead}>Project</div>
-                <div style={{ maxHeight: 120, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
-                  {projects.map((p) => (
-                    <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 9px', fontSize: 13, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={filters.projectIds.includes(p.id)} onChange={() => setFilters({ ...filters, projectIds: toggle(filters.projectIds, p.id) })} />
-                      {p.name}
-                    </label>
-                  ))}
-                  {projects.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>No projects</div>}
-                </div>
-              </div>
-            )}
-            {activeFilterCount > 0 && (
-              <button onClick={() => setFilters({ ...filters, assigneeIds: [], statuses: [], priorities: [], projectIds: [] })} style={{ ...btn('outline'), justifyContent: 'center' }}>Clear filters</button>
-            )}
-          </div>
-        )}
+      <Popover sheet={sheet} label={activeFilterCount ? `Filters · ${activeFilterCount}` : 'Filters'} icon={SlidersHorizontal} active={activeFilterCount > 0} width={260}>
+        {() => <FiltersBody filters={filters} setFilters={setFilters} people={people} projects={projects} lockedProjectId={lockedProjectId} />}
       </Popover>
 
       {/* Date — separate from Filters, matching the export's dedicated Date button */}
-      <Popover label="Date" icon={CalendarRange} active={dateActive} width={240}>
-        {() => (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div>
-              <div style={groupHead}>Due</div>
-              <select value={filters.due || 'any'} onChange={(e) => setFilters({ ...filters, due: e.target.value })} style={{ ...inputStyle, cursor: 'pointer' }}>
-                <option value="any">Any time</option>
-                <option value="overdue">Overdue</option>
-                <option value="today">Due today</option>
-                <option value="week">Due this week</option>
-                <option value="none">No due date</option>
-              </select>
-            </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={groupHead}>Custom range</span>
-                {(filters.dueFrom || filters.dueTo) && (
-                  <button onClick={() => setFilters({ ...filters, dueFrom: null, dueTo: null })} style={{ ...btn('ghost'), padding: '2px 6px', fontSize: 11, color: NX.blue }}>Clear</button>
-                )}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                <label style={{ display: 'block' }}>
-                  <span style={{ display: 'block', fontSize: 10, color: NX.faint, marginBottom: 3 }}>From</span>
-                  <DateField value={filters.dueFrom || ''} onChange={(v) => setFilters({ ...filters, dueFrom: v })} style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }} />
-                </label>
-                <label style={{ display: 'block' }}>
-                  <span style={{ display: 'block', fontSize: 10, color: NX.faint, marginBottom: 3 }}>To</span>
-                  <DateField value={filters.dueTo || ''} onChange={(v) => setFilters({ ...filters, dueTo: v })} style={{ ...inputStyle, padding: '6px 8px', fontSize: 12 }} />
-                </label>
-              </div>
-              {filters.dueFrom && filters.dueTo && filters.dueFrom > filters.dueTo && (
-                <p style={{ margin: '6px 0 0', fontSize: 11, color: NX.red }}>"From" is after "To".</p>
-              )}
-            </div>
-            {dateActive && (
-              <button onClick={() => setFilters({ ...filters, due: 'any', dueFrom: null, dueTo: null })} style={{ ...btn('outline'), justifyContent: 'center' }}>Clear date filter</button>
-            )}
-          </div>
-        )}
+      <Popover sheet={sheet} label="Date" icon={CalendarRange} active={dateActive} width={240}>
+        {() => <DateBody filters={filters} setFilters={setFilters} />}
       </Popover>
 
       {/* Sort */}
-      <Popover label="Sort" icon={ArrowUpDown} width={190}>
-        {(close) => (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {SORT_OPTIONS.map((o) => (
-              <button key={o.key} onClick={() => { setSort({ ...sort, key: o.key }); close(); }} style={{ ...btn('ghost'), justifyContent: 'flex-start', color: sort.key === o.key ? NX.blue : NX.ink, background: sort.key === o.key ? NX.hover : 'transparent' }}>{o.label}</button>
-            ))}
-            <div style={{ borderTop: `1px solid ${NX.border2}`, margin: '4px 0' }} />
-            <button onClick={() => setSort({ ...sort, dir: sort.dir === 'asc' ? 'desc' : 'asc' })} style={{ ...btn('ghost'), justifyContent: 'flex-start' }}>Direction: {sort.dir === 'asc' ? 'Ascending' : 'Descending'}</button>
-          </div>
-        )}
+      <Popover sheet={sheet} label="Sort" icon={ArrowUpDown} width={190}>
+        {(close) => <SortBody sort={sort} setSort={setSort} close={close} />}
       </Popover>
 
       {/* Group — optional; rendered between Sort and Saved views to match the export */}
       {groupOptions && setGroup && (
-        <Popover label="Group" icon={LayoutGrid} width={190}>
-          {(close) => (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {groupOptions.map((o) => (
-                <button key={o.key} onClick={() => { setGroup(o.key); close(); }} style={{ ...btn('ghost'), justifyContent: 'flex-start', color: group === o.key ? NX.blue : NX.ink, background: group === o.key ? NX.hover : 'transparent' }}>{o.label}</button>
-              ))}
-            </div>
-          )}
+        <Popover sheet={sheet} label="Group" icon={LayoutGrid} width={190}>
+          {(close) => <GroupBody group={group} setGroup={setGroup} groupOptions={groupOptions} close={close} />}
         </Popover>
       )}
 
       {/* Saved views */}
-      <Popover label="Saved views" icon={Bookmark} width={260}>
+      <Popover sheet={sheet} label="Saved Views" icon={Bookmark} width={260}>
         {(close) => <SavedViews {...{ savedViews, createSavedView, deleteSavedView, current, filters, sort, onApplyView, close }} />}
       </Popover>
 
       {templates.length > 0 && (
-        <button onClick={() => setTemplatesOpen(true)} title="Templates" style={{ ...btn('outline'), padding: isMobile ? 7 : undefined }}><LayoutTemplate size={15} />{!isMobile && 'Templates'}</button>
+        <button onClick={() => setTemplatesOpen(true)} title="Templates" style={{ ...btn('outline'), padding: isMobile && !sheet ? 7 : undefined, width: sheet ? '100%' : undefined, justifyContent: sheet ? 'flex-start' : undefined }}><LayoutTemplate size={15} />{(!isMobile || sheet) && 'Templates'}</button>
       )}
       {intakeForms.length > 0 && (
-        <button onClick={() => setIntakeOpen(true)} title="Intake" style={{ ...btn('outline'), padding: isMobile ? 7 : undefined }}><Inbox size={15} />{!isMobile && 'Intake'}</button>
+        <button onClick={() => setIntakeOpen(true)} title="Intake" style={{ ...btn('outline'), padding: isMobile && !sheet ? 7 : undefined, width: sheet ? '100%' : undefined, justifyContent: sheet ? 'flex-start' : undefined }}><Inbox size={15} />{(!isMobile || sheet) && 'Intake'}</button>
       )}
 
       {templatesOpen && <TemplatesModal templates={templates} createTask={createTask} onOpenTask={onOpenTask} onClose={() => setTemplatesOpen(false)} />}
       {intakeOpen && <IntakeModal forms={intakeForms} projectName={projectName} createTask={createTask} myEmail={myEmail} onOpenTask={onOpenTask} onClose={() => setIntakeOpen(false)} />}
     </div>
+  );
+}
+
+// Asana-style mobile filter sheet: a category list that drills into a full panel
+// (Filters / Date / Sort / Group / Saved Views) with a back arrow — no popovers.
+export function MobileFilters({ filters, setFilters, sort, setSort, group, setGroup, groupOptions, current, onApplyView, search, setSearch, lockedProjectId, onClose }) {
+  const store = useTasks();
+  const { savedViews, createSavedView, deleteSavedView, projects } = store;
+  const people = usePeople();
+  const [cat, setCat] = useState(null);
+
+  const activeFilterCount = filters.assigneeIds.length + filters.statuses.length + filters.priorities.length + (lockedProjectId ? 0 : filters.projectIds.length);
+  const dateActive = (filters.due && filters.due !== 'any') || filters.dueFrom || filters.dueTo;
+  const hasGroup = groupOptions && setGroup;
+
+  const cats = [
+    { key: 'filters', label: 'Filters', icon: SlidersHorizontal, badge: activeFilterCount || null },
+    { key: 'date', label: 'Date', icon: CalendarRange, badge: dateActive ? '•' : null },
+    { key: 'sort', label: 'Sort', icon: ArrowUpDown },
+    ...(hasGroup ? [{ key: 'group', label: 'Group', icon: LayoutGrid }] : []),
+    { key: 'saved', label: 'Saved Views', icon: Bookmark },
+  ];
+
+  if (!cat) {
+    return (
+      <BottomSheet title="Filter & Sort" onClose={onClose}>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {setSearch && (
+            <div style={{ position: 'relative', marginBottom: 10 }}>
+              <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
+              <input value={search || ''} onChange={(e) => setSearch(e.target.value)} placeholder="Search tasks…" style={{ ...inputStyle, paddingLeft: 32, width: '100%' }} />
+            </div>
+          )}
+          {cats.map((c) => (
+            <button key={c.key} onClick={() => setCat(c.key)} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '14px 6px', border: 'none', borderBottom: `1px solid ${NX.border2}`, background: 'transparent', cursor: 'pointer', fontSize: 15, fontWeight: 600, color: NX.ink, fontFamily: FONT, textAlign: 'left' }}>
+              <c.icon size={18} style={{ color: NX.dim }} />
+              <span style={{ flex: 1 }}>{c.label}</span>
+              {c.badge != null && <span style={{ fontSize: 12, fontWeight: 700, color: NX.blue }}>{c.badge}</span>}
+              <ChevronRight size={18} style={{ color: NX.faint }} />
+            </button>
+          ))}
+        </div>
+      </BottomSheet>
+    );
+  }
+
+  const catLabel = { filters: 'Filters', date: 'Date', sort: 'Sort', group: 'Group', saved: 'Saved Views' }[cat];
+  return (
+    <BottomSheet title={catLabel} onClose={onClose} onBack={() => setCat(null)}>
+      {cat === 'filters' && <FiltersBody filters={filters} setFilters={setFilters} people={people} projects={projects} lockedProjectId={lockedProjectId} />}
+      {cat === 'date' && <DateBody filters={filters} setFilters={setFilters} />}
+      {cat === 'sort' && <SortBody sort={sort} setSort={setSort} close={() => {}} />}
+      {cat === 'group' && <GroupBody group={group} setGroup={setGroup} groupOptions={groupOptions} close={() => {}} />}
+      {cat === 'saved' && <SavedViews {...{ savedViews, createSavedView, deleteSavedView, current, filters, sort, onApplyView, close: onClose }} />}
+    </BottomSheet>
   );
 }
 
@@ -222,14 +303,14 @@ function SavedViews({ savedViews, createSavedView, deleteSavedView, current, fil
       {savedViews.map((v) => (
         <div key={v.id} style={{ display: 'flex', alignItems: 'center' }}>
           <button onClick={() => { onApplyView(v); close(); }} style={{ ...btn('ghost'), justifyContent: 'flex-start', flex: 1 }}>{v.name}</button>
-          <button onClick={() => { if (confirm(`Delete view "${v.name}"?`)) deleteSavedView(v.id); }} title="Delete view" style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><Trash2 size={13} /></button>
+          <button onClick={() => { if (confirm(`Delete view "${v.name}"?`)) deleteSavedView(v.id); }} title="Delete View" style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><Trash2 size={13} /></button>
         </div>
       ))}
       <div style={{ borderTop: `1px solid ${NX.border2}`, margin: '4px 0' }} />
       {naming ? (
         <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') save(); }} placeholder="View name…" style={{ ...inputStyle, fontSize: 13 }} />
       ) : (
-        <button onClick={() => setNaming(true)} style={{ ...btn('ghost'), justifyContent: 'flex-start' }}><Plus size={15} />Save current view</button>
+        <button onClick={() => setNaming(true)} style={{ ...btn('ghost'), justifyContent: 'flex-start' }}><Plus size={15} />Save Current View</button>
       )}
     </div>
   );
@@ -249,7 +330,7 @@ function TemplatesModal({ templates, createTask, onOpenTask, onClose }) {
     } catch { /* store refetch surfaces errors */ } finally { setBusy(false); }
   };
   return (
-    <Modal title="Task templates" onClose={onClose} width={560}>
+    <Modal title="Task Templates" onClose={onClose} width={560}>
       <p style={{ margin: '0 0 16px', fontSize: 13, color: NX.dim }}>Start from a standardized checklist. Applying a template creates a parent task with its subtasks pre-filled.</p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {templates.map((t) => (
@@ -289,7 +370,7 @@ function IntakeModal({ forms, projectName, createTask, myEmail, onOpenTask, onCl
     <Modal title={form.title || 'Submit a request'} onClose={onClose}
       footer={<>
         <button onClick={onClose} style={btn('outline')}>Cancel</button>
-        <button onClick={submit} disabled={!summary.trim() || busy} style={{ ...btn('primary'), opacity: !summary.trim() || busy ? 0.6 : 1 }}>Submit request</button>
+        <button onClick={submit} disabled={!summary.trim() || busy} style={{ ...btn('primary'), opacity: !summary.trim() || busy ? 0.6 : 1 }}>Submit Request</button>
       </>}>
       <p style={{ margin: '0 0 16px', fontSize: 13, color: NX.dim }}>Submit a structured request. On submit, a task is created{form.targetProjectId ? ` in ${projectName(form.targetProjectId)}` : ''}.</p>
       <div style={{ marginBottom: 12 }}>
@@ -304,7 +385,7 @@ function IntakeModal({ forms, projectName, createTask, myEmail, onOpenTask, onCl
           </select>
         </div>
         <div>
-          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5 }}>Needed by</label>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5 }}>Needed By</label>
           <DateField value={neededBy} onChange={(v) => setNeededBy(v || '')} placeholder="Pick a date" style={inputStyle} />
         </div>
       </div>

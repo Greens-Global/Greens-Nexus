@@ -2,7 +2,7 @@
 // Dashboard (KPIs, status/dept/assignee bars, completion donut, time tracking,
 // custom charts). Ported 1:1 from the export's NexusCalendarView / NexusDashboard.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Diamond, Sliders, Check, CalendarDays, Video, Rocket, PartyPopper } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Diamond, Sliders, Check, CalendarDays, Video, Rocket, PartyPopper, Plus } from 'lucide-react';
 import { NX, FONT, btn, STATUS_META, STATUS_ORDER } from '../theme';
 import { taskStats } from '../lib';
 import { Card, LightBar, Donut, CustomChartsPanel } from './charts';
@@ -13,7 +13,7 @@ const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 const toISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 const KIND_META = {
-  due: { label: 'Due dates', color: '#2563eb', Icon: CalendarDays },
+  due: { label: 'Due Dates', color: '#2563eb', Icon: CalendarDays },
   meeting: { label: 'Meetings', color: '#0891b2', Icon: Video },
   release: { label: 'Releases', color: '#7c3aed', Icon: Rocket },
   holiday: { label: 'Holidays', color: '#f59e0b', Icon: PartyPopper },
@@ -30,7 +30,8 @@ function holidaysForYear(y) {
   };
 }
 
-export function CalendarView({ tasks, onOpen }) {
+export function CalendarView({ tasks, onOpen, onCreate }) {
+  const [hoverDay, setHoverDay] = useState(null);
   const [cursor, setCursor] = useState(() => new Date());
   const [weekly, setWeekly] = useState(false);
   const [show, setShow] = useState({ due: true, meeting: true, release: true, holiday: true });
@@ -134,8 +135,14 @@ export function CalendarView({ tasks, onOpen }) {
           const events = byDate[iso] ?? [];
           const cap = weekly ? 8 : 3;
           return (
-            <div key={iso} style={{ borderBottom: `1px solid ${NX.border}`, borderRight: `1px solid ${NX.border}`, padding: 6, minHeight: weekly ? 320 : 104, background: inMonth ? NX.surface : NX.surface2, opacity: inMonth ? 1 : 0.6 }}>
-              <span style={{ display: 'inline-flex', width: 24, height: 24, alignItems: 'center', justifyContent: 'center', borderRadius: '50%', fontSize: 11, fontWeight: 600, background: iso === todayIso ? NX.primary : 'transparent', color: iso === todayIso ? '#fff' : NX.dim }}>{d.getDate()}</span>
+            <div key={iso} onMouseEnter={() => setHoverDay(iso)} onMouseLeave={() => setHoverDay((h) => (h === iso ? null : h))}
+              style={{ borderBottom: `1px solid ${NX.border}`, borderRight: `1px solid ${NX.border}`, padding: 6, minHeight: weekly ? 320 : 104, background: inMonth ? NX.surface : NX.surface2, opacity: inMonth ? 1 : 0.6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ display: 'inline-flex', width: 24, height: 24, alignItems: 'center', justifyContent: 'center', borderRadius: '50%', fontSize: 11, fontWeight: 600, background: iso === todayIso ? NX.primary : 'transparent', color: iso === todayIso ? '#fff' : NX.dim }}>{d.getDate()}</span>
+                {onCreate && inMonth && hoverDay === iso && (
+                  <button onClick={() => onCreate(iso)} title="Add Task" style={{ ...btn('ghost'), padding: 2, color: NX.faint }}><Plus size={14} /></button>
+                )}
+              </div>
               <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {events.slice(0, cap).map((ev, i) => ev.taskId ? (
                   <button key={i} onClick={() => onOpen(ev.taskId)} title={`${KIND_META[ev.kind].label}: ${ev.label}`} style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 6, padding: '2px 6px', textAlign: 'left', fontSize: 11, fontWeight: 500, border: 'none', cursor: 'pointer', background: ev.tint, color: ev.color, overflow: 'hidden' }}>
@@ -189,13 +196,13 @@ export function DashboardView({ tasks, stats: pre, store, scopeKey = 'workspace'
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: 16 }}>
-        <Card title="Tasks by status"><LightBar data={byStatus} /></Card>
-        <Card title="Completion status"><Donut total={stats.total} segments={[{ label: 'Completed', value: stats.completed, color: NX.green }, { label: 'Incomplete', value: stats.total - stats.completed, color: NX.purple }]} /></Card>
-        <Card title="Tasks by department"><LightBar data={byDept} /></Card>
-        <Card title="Tasks by assignee"><LightBar data={byAssignee} /></Card>
+        <Card title="Tasks by Status"><LightBar data={byStatus} /></Card>
+        <Card title="Completion Status"><Donut total={stats.total} segments={[{ label: 'Completed', value: stats.completed, color: NX.green }, { label: 'Incomplete', value: stats.total - stats.completed, color: NX.purple }]} /></Card>
+        <Card title="Tasks by Team"><LightBar data={byDept} /></Card>
+        <Card title="Tasks by Assignee"><LightBar data={byAssignee} /></Card>
       </div>
 
-      <Card title="Time tracking — estimate vs actual">
+      <Card title="Time Tracking — Estimate vs Actual">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
           <div><div style={{ fontSize: 12, color: NX.dim }}>Estimated</div><div style={{ fontSize: 28, fontWeight: 700, color: NX.ink }}>{totalEst}h</div></div>
           <div><div style={{ fontSize: 12, color: NX.dim }}>Actual</div><div style={{ fontSize: 28, fontWeight: 700, color: NX.blue }}>{totalAct}h</div></div>

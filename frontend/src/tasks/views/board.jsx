@@ -130,7 +130,7 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
           <span style={{ fontSize: 10, fontWeight: 700, color: NX.faint, letterSpacing: 0.3 }}>{t.code}</span>
           {t.isMilestone && <Diamond size={11} style={{ color: NX.purple }} />}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2 }}>
-            <button onClick={(e) => { e.stopPropagation(); onOpen(t.id); }} onMouseDown={(e) => e.stopPropagation()} title="More actions" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><MoreHorizontal size={15} /></button>
+            <button onClick={(e) => { e.stopPropagation(); onOpen(t.id); }} onMouseDown={(e) => e.stopPropagation()} title="More Actions" style={{ ...btn('ghost'), padding: 3, color: NX.faint }}><MoreHorizontal size={15} /></button>
             <button onClick={(e) => { e.stopPropagation(); store.toggleComplete(t); }} onMouseDown={(e) => e.stopPropagation()} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={15} /> : <Circle size={15} />}</button>
           </div>
         </div>
@@ -175,11 +175,11 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
         <div style={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
           <WipMenu limit={limit} onSet={(v) => setLimit(status, v)} />
           {customStatusIds.has(status) && (
-            <button onClick={() => deleteSection(status)} title="Delete section" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Trash2 size={14} /></button>
+            <button onClick={() => deleteSection(status)} title="Delete Section" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Trash2 size={14} /></button>
           )}
-          <button onClick={() => setAddIn(status)} title="Add task" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Plus size={15} /></button>
+          <button onClick={() => setAddIn(status)} title="Add Task" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Plus size={15} /></button>
           {swimlane === 'none' && (
-            <button onClick={() => toggleCollapse(status)} title="Collapse section" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><ChevronsLeft size={15} /></button>
+            <button onClick={() => toggleCollapse(status)} title="Collapse Section" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><ChevronsLeft size={15} /></button>
           )}
         </div>
       </div>
@@ -221,7 +221,7 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
             return collapsed.has(status) ? (
               <button key={status} onClick={() => toggleCollapse(status)}
                 onDragOver={(e) => { e.preventDefault(); setDragOver(status); }} onDragLeave={() => setDragOver((d) => (d === status ? null : d))} onDrop={(e) => { e.stopPropagation(); drop(status); }}
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, width: 40, flexShrink: 0, alignSelf: 'stretch', borderRadius: 16, border: `1px solid ${isOver ? NX.blue : NX.border}`, background: NX.surface2, padding: '12px 0', cursor: 'pointer' }} title="Expand section">
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, width: 40, flexShrink: 0, alignSelf: 'stretch', borderRadius: 16, border: `1px solid ${isOver ? NX.blue : NX.border}`, background: NX.surface2, padding: '12px 0', cursor: 'pointer' }} title="Expand Section">
                 <ChevronsRight size={14} style={{ color: NX.faint }} />
                 <span style={{ width: 10, height: 10, borderRadius: '50%', background: m.color }} />
                 <span style={{ fontSize: 11, fontWeight: 700, color: NX.faint }}>{tasks.length}</span>
@@ -309,7 +309,7 @@ function AddSectionColumn({ addingSection, setAddingSection, sectionName, setSec
           </div>
         </div>
       ) : (
-        <button onClick={() => setAddingSection(true)} style={{ ...btn('ghost'), justifyContent: 'flex-start', color: NX.faint, padding: '8px 8px' }}><Plus size={15} />Add section</button>
+        <button onClick={() => setAddingSection(true)} style={{ ...btn('ghost'), justifyContent: 'flex-start', color: NX.faint, padding: '8px 8px' }}><Plus size={15} />Add Section</button>
       )}
     </div>
   );

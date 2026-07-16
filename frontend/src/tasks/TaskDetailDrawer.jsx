@@ -224,16 +224,16 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
             <button onClick={() => patch({ likedByIds: liked ? task.likedByIds.filter((e) => e !== myEmail) : [...(task.likedByIds || []), myEmail] })} title={liked ? 'Unlike' : 'Like'} style={{ ...btn('ghost'), padding: 7, color: liked ? NX.blue : NX.faint }}>
               <ThumbsUp size={16} fill={liked ? 'currentColor' : 'none'} />
             </button>
-            <button onClick={() => { navigator.clipboard?.writeText(`${window.location.origin}${window.location.pathname}?task=${task.id}`); }} title="Copy task link" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><Link2 size={16} /></button>
+            <button onClick={() => { navigator.clipboard?.writeText(`${window.location.origin}${window.location.pathname}?task=${task.id}`); }} title="Copy Task Link" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><Link2 size={16} /></button>
             {!isMobile && (
               <button onClick={toggleExpand} title={expanded ? 'Collapse' : 'Expand'} style={{ ...btn('ghost'), padding: 7, color: NX.faint }}>
                 {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
               </button>
             )}
-            <Pop width={210} trigger={(t) => <button onClick={t} title="More actions" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><MoreHorizontal size={16} /></button>}>
+            <Pop width={210} trigger={(t) => <button onClick={t} title="More Actions" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><MoreHorizontal size={16} /></button>}>
               {(close) => (
                 <>
-                  {onEdit && <MenuItem icon={<Pencil size={14} />} onClick={() => { onEdit(activeId); close(); }}>Edit task</MenuItem>}
+                  {onEdit && <MenuItem icon={<Pencil size={14} />} onClick={() => { onEdit(activeId); close(); }}>Edit Task</MenuItem>}
                   <MenuItem icon={<Diamond size={14} style={{ color: task.isMilestone ? NX.purple : undefined }} />} onClick={() => { patch({ isMilestone: !task.isMilestone }); close(); }}>
                     {task.isMilestone ? 'Unmark milestone' : 'Mark as milestone'}
                   </MenuItem>
@@ -430,7 +430,7 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
         </Pop>
       </Row>
 
-      <Row label="Due date">
+      <Row label="Due Date">
         <DateField value={task.dueOn || ''} onChange={(v) => patch({ dueOn: v || '' })} style={{ ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 12 }} />
       </Row>
 
@@ -439,7 +439,7 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
         {dept && <Chip color={NX.dim} tint={NX.border2}>{dept}</Chip>}
       </Row>
 
-      <Row label="Blocked by">
+      <Row label="Blocked By">
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
           {blockedBy.map((b) => (
             <span key={b.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${NX.border}`, borderRadius: 999, padding: '3px 10px', fontSize: 12, color: NX.ink }}>
@@ -448,7 +448,7 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
               <button onClick={() => removeDependency(b.id)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={12} /></button>
             </span>
           ))}
-          <Pop width={260} trigger={(t) => <button onClick={t} style={{ ...btn('outline'), padding: '5px 11px', fontSize: 12 }}>Add dependency</button>}>
+          <Pop width={260} trigger={(t) => <button onClick={t} style={{ ...btn('outline'), padding: '5px 11px', fontSize: 12 }}>Add Dependency</button>}>
             {(close) => (depCandidates.length ? depCandidates.map((c) => (
               <MenuItem key={c.id} onClick={() => { addDependency(c); close(); }}>{c.code} · {c.title}</MenuItem>
             )) : <div style={{ padding: 9, fontSize: 12, color: NX.faint }}>No eligible tasks in this project</div>)}
@@ -488,7 +488,7 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
       </Section>
 
       {/* Time tracking */}
-      <Section title="Time tracking">
+      <Section title="Time Tracking">
         <TimeTracking task={task} patch={patch} />
       </Section>
 
@@ -500,7 +500,7 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
       {/* Add comment — dropped on mobile: the Comments/All-activity block at the
           bottom of the stacked layout already has a composer. */}
       {!isMobile && (
-        <Section title="Add comment">
+        <Section title="Add Comment">
           <QuickComment task={task} addComment={addComment} />
         </Section>
       )}
@@ -762,7 +762,7 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
         <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} placeholder="Add subtask"
           style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', fontFamily: FONT, fontSize: 13 }} />
         {dueOn && <span style={{ fontSize: 11, color: NX.faint }}>{fmtDate(dueOn)}</span>}
-        <button onClick={() => dateRef.current?.showPicker?.() ?? dateRef.current?.focus()} title="Due date" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><CalendarDays size={15} /></button>
+        <button onClick={() => dateRef.current?.showPicker?.() ?? dateRef.current?.focus()} title="Due Date" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><CalendarDays size={15} /></button>
         <input ref={dateRef} type="date" value={dueOn} onChange={(e) => setDueOn(e.target.value)} style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }} tabIndex={-1} />
         <div style={{ minWidth: 150 }}>
           <PersonSelect value={assigneeId || null} people={people} onChange={(email) => setAssigneeId(email || '')} placeholder="Assignee" />
@@ -808,9 +808,9 @@ function PropertiesTab({ task, nameOf, projectName, deptName, customFields, patc
     ['Priority', <Chip color={pm.color} tint={pm.tint}>{pm.label}</Chip>],
     ['Assignee', task.assigneeId ? <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Avatar email={task.assigneeId} name={nameOf(task.assigneeId)} size={18} /> {nameOf(task.assigneeId)}</span> : 'Unassigned'],
     ['Project', task.projectId ? projectName(task.projectId) : '—'],
-    ['Department', task.departmentId ? deptName(task.departmentId) : '—'],
-    ['Start date', fmtDate(task.startOn)],
-    ['Due date', fmtDate(task.dueOn)],
+    ['Team', task.departmentId ? deptName(task.departmentId) : '—'],
+    ['Start Date', fmtDate(task.startOn)],
+    ['Due Date', fmtDate(task.dueOn)],
     ['Estimate', task.estimateHours != null ? `${task.estimateHours}h` : '—'],
     ['Actual', task.actualHours != null ? `${task.actualHours}h` : '—'],
     ['Milestone', task.isMilestone ? 'Yes' : 'No'],
@@ -838,7 +838,7 @@ function PropertiesTab({ task, nameOf, projectName, deptName, customFields, patc
 
       {customFields.length > 0 && (
         <div style={{ marginTop: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 8 }}>Custom fields</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 8 }}>Custom Fields</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {customFields.map((f) => (
               <Row key={f.id} label={f.name}>

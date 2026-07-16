@@ -34,14 +34,6 @@ const TASK_SUBS = ['home', 'mine', 'projects', 'portfolios', 'teams', 'tasks'];
 const DEFAULT_SUB = 'home';
 const ALL_SUBS = [...TASK_SUBS, 'tickets', 'manage'];
 
-// What the mobile floating + creates on each page — mirrors the create button
-// that page already offers. Manage has its own CRUD screens, so it gets none.
-const FAB_KIND = {
-  home: 'task', mine: 'task', tasks: 'task',
-  projects: 'project', portfolios: 'portfolio',
-  teams: 'department', tickets: 'ticket',
-};
-
 function SubView({ sub, projectId, onNavigate, onExitManage }) {
   switch (sub) {
     case 'home':       return <HomeView onNavigate={onNavigate} />;
@@ -64,6 +56,12 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
 
   const onManage = sub === 'manage';
   const onTicket = sub === 'tickets';
+
+  // A task created from the Create menu / floating + inherits the screen's
+  // context — scoped to the project you've drilled into, like Asana.
+  const taskDefaults = (sub === 'tasks' && projectId) ? { projectId } : {};
+  // My Tasks and a project's task workspace render their own floating MobileTaskBar.
+  const hasMobileBar = sub === 'mine' || sub === 'tasks';
 
   // Sub-view navigation. A project drill-in (from Projects) targets the generic
   // task list locked to that project; a within-module tab jump switches sub.
@@ -96,11 +94,12 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
             global header reference (SOP's Playbook/Learn bar): shared
             .primary-btn / .secondary-btn classes, matching tab treatment. */}
         <div className="nx-primary-bar" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)', flexShrink: 0 }}>
-          {primaryTab('Task', !onTicket && !onManage, () => go(TASK_SUBS.includes(sub) ? sub : 'home'))}
-          {primaryTab('Ticket', onTicket, () => go('tickets'))}
+          {primaryTab('Tasks', !onTicket && !onManage, () => go(TASK_SUBS.includes(sub) ? sub : 'home'))}
+          {primaryTab('Tickets', onTicket, () => go('tickets'))}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-            {/* Desktop only — on mobile the floating + (below) does the creating. */}
-            {!onManage && !isMobile && <CreateMenu onNavigate={go} />}
+            {/* Navbar Create menu. On mobile it's shown on the screens that don't
+                have their own MobileTaskBar + (My Tasks / workspace keep the bar's +). */}
+            {!onManage && (!isMobile || !hasMobileBar) && <CreateMenu onNavigate={go} taskDefaults={taskDefaults} />}
             {onManage ? (
               <button className="primary-btn nx-iconbtn" onClick={() => go('home')} title="Exit" style={{ fontFamily: FONT }}>
                 <X size={14} /> <span className="nx-btn-label">Exit</span>
@@ -137,9 +136,9 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
         <div style={{ flex: 1, minHeight: 0 }}>
           <SubView sub={sub} projectId={projectId} onNavigate={subNavigate} onExitManage={() => go('home')} />
         </div>
-        {/* Mobile floating +: creates whatever the current page creates. */}
-        {isMobile && FAB_KIND[sub] && <CreateMenu onNavigate={go} fab />}
-        <ReportBugButton />
+        {/* Create moved into the navbar on mobile (see the Create menu above); the
+            My Tasks / workspace screens still create via their MobileTaskBar +. */}
+        <ReportBugButton bottom={isMobile && hasMobileBar ? 84 : undefined} />
       </div>
     </TasksProvider>
   );

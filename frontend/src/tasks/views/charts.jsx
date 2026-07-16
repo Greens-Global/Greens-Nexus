@@ -77,10 +77,10 @@ const STYLE_OPTIONS = [
 ];
 const DIMENSIONS = [
   { key: 'status', label: 'Status' }, { key: 'priority', label: 'Priority' },
-  { key: 'assignee', label: 'Assignee' }, { key: 'project', label: 'Project' }, { key: 'department', label: 'Department' },
+  { key: 'assignee', label: 'Assignee' }, { key: 'project', label: 'Project' }, { key: 'department', label: 'Team' },
 ];
 const METRICS = [
-  { key: 'count', label: 'Task count' }, { key: 'sum_estimate', label: 'Estimated hours' }, { key: 'sum_actual', label: 'Actual hours' },
+  { key: 'count', label: 'Task Count' }, { key: 'sum_estimate', label: 'Estimated Hours' }, { key: 'sum_actual', label: 'Actual Hours' },
 ];
 const KEY = 'nexus.customCharts';
 
@@ -185,12 +185,12 @@ export function CustomChartsPanel({ scopeKey, tasks, store }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '8px 2px 12px' }}>
-        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: NX.ink }}>Custom charts</h3>
-        <button onClick={() => setAdding(true)} style={btn('outline')}><Plus size={14} />Add chart</button>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: NX.ink }}>Custom Charts</h3>
+        <button onClick={() => setAdding(true)} style={btn('outline')}><Plus size={14} />Add Chart</button>
       </div>
       {charts.length === 0 ? (
         <div style={{ borderRadius: 16, border: `1px dashed ${NX.border}`, background: NX.surface, padding: '32px 16px', textAlign: 'center', fontSize: 13, color: NX.faint }}>
-          No custom charts yet. Click <span style={{ fontWeight: 700, color: NX.ink }}>Add chart</span> to build one from any dimension, metric and filter.
+          No custom charts yet. Click <span style={{ fontWeight: 700, color: NX.ink }}>Add Chart</span> to build one from any dimension, metric and filter.
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: 16 }}>
@@ -272,13 +272,13 @@ function AddChartModal({ tasks, store, initial, onClose, onSave }) {
           {/* Controls */}
           <div className="nx-scroll" style={{ width: 320, flexShrink: 0, overflow: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 18 }}>
             <div>
-              <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 700 }}>Chart details</div>
-              <label style={lbl}>Chart style</label>
+              <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 700 }}>Chart Details</div>
+              <label style={lbl}>Chart Style</label>
               <select value={cfg.style} onChange={(e) => patch({ style: e.target.value })} style={sel}>{STYLE_OPTIONS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}</select>
             </div>
             <div style={{ borderTop: `1px solid ${NX.border}`, paddingTop: 16 }}>
-              <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 700 }}>Chart data</div>
-              <label style={lbl}>X-axis (group by)</label>
+              <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 700 }}>Chart Data</div>
+              <label style={lbl}>X-Axis (Group By)</label>
               <select value={cfg.dimension} onChange={(e) => patch({ dimension: e.target.value })} style={sel}>{DIMENSIONS.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}</select>
               <label style={{ ...lbl, marginTop: 12 }}>Y-axis (metric)</label>
               <select value={cfg.metric} onChange={(e) => patch({ metric: e.target.value })} style={sel}>{METRICS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}</select>
@@ -294,7 +294,7 @@ function AddChartModal({ tasks, store, initial, onClose, onSave }) {
               </div>
             </div>
             <div style={{ borderTop: `1px solid ${NX.border}`, paddingTop: 16 }}>
-              <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 700 }}>Data annotations</div>
+              <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 700 }}>Data Annotations</div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: NX.ink, cursor: 'pointer' }}>
                 <input type="checkbox" checked={cfg.dataLabels} onChange={(e) => patch({ dataLabels: e.target.checked })} /> Data labels
               </label>

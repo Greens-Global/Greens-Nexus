@@ -70,7 +70,7 @@ export default function TeamsView({ onNavigate }) {
           this page is for browsing/editing existing ones. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: `1px solid ${NX.border}`, flexWrap: 'wrap', background: NX.surface, flexShrink: 0 }}>
         <div style={{ fontSize: 17, fontWeight: 700 }}>Teams</div>
-        <div style={{ fontSize: 13, color: NX.dim }}>Departments group members and their work.</div>
+        <div style={{ fontSize: 13, color: NX.dim }}>Teams group members and their work.</div>
       </div>
 
       <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 16 }}>
@@ -98,7 +98,7 @@ export default function TeamsView({ onNavigate }) {
                         }}>{isRemove ? 'Remove' : 'Add'}</span>
                       </div>
                       <div style={{ fontSize: 12, color: NX.faint, marginTop: 1 }}>
-                        {isRemove ? 'Removal' : 'Invite'} for {deptName(r.departmentId) || 'a department'}
+                        {isRemove ? 'Removal' : 'Invite'} for {deptName(r.departmentId) || 'a team'}
                         {r.requestedById ? ` · requested by ${nameOf(r.requestedById)}` : ''}
                       </div>
                     </div>
@@ -121,7 +121,7 @@ export default function TeamsView({ onNavigate }) {
 
         {/* Department grid */}
         {departments.length === 0 ? (
-          <EmptyState icon={Users} title="No departments yet" hint="Create a department to group members and their work." />
+          <EmptyState icon={Users} title="No Teams Yet" hint="Create a team to group members and their work." />
         ) : (
           <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fill, minmax(min(300px, 100%), 1fr))' }}>
             {departments.map((d) => (
@@ -211,13 +211,13 @@ export function DeptModal({ dept, onClose, onDelete }) {
       onClose();
     } catch (e) {
       setSaving(false);
-      alert('Could not save the department.');
+      alert('Could not save the team.');
     }
   };
 
   return (
     <Modal
-      title={dept ? 'Edit department' : 'New department'}
+      title={dept ? 'Edit Team' : 'Create a Team'}
       onClose={onClose}
       footer={(
         <>
@@ -228,7 +228,7 @@ export function DeptModal({ dept, onClose, onDelete }) {
           )}
           <button onClick={onClose} style={btn('outline')}>Cancel</button>
           <button onClick={save} disabled={!name.trim() || saving} style={{ ...btn('primary'), opacity: !name.trim() || saving ? 0.55 : 1 }}>
-            {dept ? 'Save changes' : 'Create department'}
+            {dept ? 'Save Changes' : 'Create Team'}
           </button>
         </>
       )}
@@ -306,7 +306,8 @@ function DepartmentDetail({ dept, onBack, onEdit, onNavigate }) {
   const Icon = deptIcon(dept.icon);
   const color = dept.color || NX.blue;
   const members = dept.memberIds || [];
-  const deptProjects = projects.filter((p) => p.departmentId === dept.id);
+  const inDept = (p) => (p.departmentIds?.length ? p.departmentIds : (p.departmentId ? [p.departmentId] : [])).includes(dept.id);
+  const deptProjects = projects.filter(inDept);
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, background: NX.surface }}>
@@ -317,7 +318,7 @@ function DepartmentDetail({ dept, onBack, onEdit, onNavigate }) {
           <Icon size={22} />
         </span>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <button onClick={onEdit} style={{ ...btn('ghost'), padding: 0, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 22, fontWeight: 700, color: NX.ink }} title="Edit team">
+          <button onClick={onEdit} style={{ ...btn('ghost'), padding: 0, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 22, fontWeight: 700, color: NX.ink }} title="Edit Team">
             {dept.name}<ChevronDown size={17} style={{ color: NX.faint }} />
           </button>
           <div style={{ fontSize: 12, color: NX.faint }}>
@@ -379,7 +380,8 @@ function DeptOverviewTab({ dept, deptProjects, onSeeMembers, onNavigate }) {
   useClickOutside(assignRef, () => setAssignOpen(false), assignOpen);
   useClickOutside(addRef, () => setAddOpen(false), addOpen);
   const people = usePeople();
-  const otherProjects = projects.filter((p) => p.departmentId !== dept.id);
+  const teamsOf = (p) => (p.departmentIds?.length ? p.departmentIds : (p.departmentId ? [p.departmentId] : []));
+  const otherProjects = projects.filter((p) => !teamsOf(p).includes(dept.id));
 
   const countFor = (projectId) => tasks.filter((t) => t.projectId === projectId).length;
 
@@ -400,7 +402,7 @@ function DeptOverviewTab({ dept, deptProjects, onSeeMembers, onNavigate }) {
                   {otherProjects.length === 0 ? (
                     <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>No other projects to assign.</div>
                   ) : otherProjects.map((p) => (
-                    <button key={p.id} onClick={() => { updateProject(p.id, { departmentId: dept.id }).catch(() => {}); setAssignOpen(false); }}
+                    <button key={p.id} onClick={() => { updateProject(p.id, { departmentIds: [...teamsOf(p), dept.id] }).catch(() => {}); setAssignOpen(false); }}
                       style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', fontSize: 13 }}>
                       <FolderKanban size={14} style={{ color: NX.faint }} />{p.name}
                     </button>
@@ -437,7 +439,7 @@ function DeptOverviewTab({ dept, deptProjects, onSeeMembers, onNavigate }) {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, position: 'relative' }}>
             {shown.map((email) => <Avatar key={email} email={email} name={nameOf(email)} size={40} />)}
             <span ref={addRef} style={{ position: 'relative' }}>
-              <button onClick={() => setAddOpen((o) => !o)} title="Add member" style={{
+              <button onClick={() => setAddOpen((o) => !o)} title="Add Member" style={{
                 width: 40, height: 40, borderRadius: '50%', border: `1px dashed ${NX.border}`, background: 'transparent',
                 color: NX.dim, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
               }}><PlusIcon size={16} /></button>
@@ -485,10 +487,10 @@ function DeptMembersTab({ dept }) {
               <div style={{ fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(email)}</div>
               <div style={{ fontSize: 12, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</div>
             </div>
-            <button onClick={() => remove(email)} title="Remove from department" style={{ ...btn('ghost'), padding: '5px 8px', color: NX.dim, fontSize: 12 }}><X size={13} />Remove</button>
+            <button onClick={() => remove(email)} title="Remove from team" style={{ ...btn('ghost'), padding: '5px 8px', color: NX.dim, fontSize: 12 }}><X size={13} />Remove</button>
           </div>
         ))}
-        {members.length === 0 && <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: NX.faint }}>No members yet. Add teammates to give them access to this department.</div>}
+        {members.length === 0 && <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: NX.faint }}>No members yet. Add teammates to give them access to this team.</div>}
       </div>
     </div>
   );
@@ -499,7 +501,7 @@ function DeptWorkTab({ deptProjects, tasks, onNavigate }) {
   const toggle = (id) => setOpenIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   if (deptProjects.length === 0) {
-    return <EmptyState icon={FolderKanban} title="No projects yet" hint="Assign a project to this department to see its work here." />;
+    return <EmptyState icon={FolderKanban} title="No Projects Yet" hint="Assign a project to this team to see its work here." />;
   }
 
   return (
@@ -516,7 +518,7 @@ function DeptWorkTab({ deptProjects, tasks, onNavigate }) {
                 <span style={{ fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                 <span style={{ fontSize: 12, color: NX.faint }}>{projectTasks.length} task{projectTasks.length === 1 ? '' : 's'}</span>
               </button>
-              <button onClick={() => onNavigate && onNavigate({ projectId: p.id })} style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 12, fontWeight: 600, color: NX.primary }}>Open project</button>
+              <button onClick={() => onNavigate && onNavigate({ projectId: p.id })} style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 12, fontWeight: 600, color: NX.primary }}>Open Project</button>
             </div>
             {open && (
               projectTasks.length === 0 ? (

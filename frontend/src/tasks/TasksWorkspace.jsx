@@ -8,10 +8,12 @@ import { EMPTY_FILTER, matchesFilter, topLevel, sortTasks, groupTasks, taskStats
 import { NX, FONT, btn, input as inputStyle, STATUS_ORDER, STATUS_META, chip } from './theme';
 import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile } from './components';
 import CreateTaskModal from './CreateTaskModal';
+import QuickCreateTask from './QuickCreateTask';
+import MobileTaskBar from './MobileTaskBar';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import { CalendarView, DashboardView } from './views/extras';
 import { TimelineView, FilesView, WorkloadView } from './views/more';
-import { ProductivityBar } from './productivity';
+import { ProductivityBar, MobileFilters } from './productivity';
 import RichListView from './views/richlist';
 import BoardView from './views/board';
 
@@ -38,7 +40,10 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const [sort, setSort] = useState({ key: 'manual', dir: 'asc' });
   const [selected, setSelected] = useState(new Set());
   const [openId, setOpenId] = useState(null);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(null); // full CreateTaskModal defaults (desktop / "Full details")
+  const [quickCreate, setQuickCreate] = useState(null); // mobile Asana-style quick-add defaults
+  // Mobile → lightweight quick-add sheet; desktop → the full form. Same context defaults either way.
+  const openCreate = (defs) => (isMobile ? setQuickCreate(defs) : setCreating(defs));
 
   const filter = {
     ...filters, search,
@@ -85,13 +90,13 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
             </>
           ) : title}
         </div>
-        <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => setCreating(true)}><Plus size={15} />New task</button>
+        {!isMobile && <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => openCreate({ projectId: lockedProjectId || '' })}><Plus size={15} />New Task</button>}
       </div>
 
-      {/* Row 2 — view tabs + search & filters. Desktop: one row. Mobile: the
-          view tabs get their own scrollable line, search & filters wrap below. */}
-      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 8 : 12, padding: '0 20px 12px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, overflowX: 'visible' }}>
-        <div className={isMobile ? 'scroll-tabs' : undefined} style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, flexShrink: 0, maxWidth: '100%', overflowX: isMobile ? 'auto' : 'visible' }}>
+      {/* Row 2 — view tabs + search & filters (desktop). Mobile: replaced by the floating MobileTaskBar. */}
+      {!isMobile && (
+      <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 12, padding: '0 20px 12px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, overflowX: 'visible' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, flexShrink: 0, maxWidth: '100%', overflowX: 'visible' }}>
           {VIEW_KINDS.map((v) => (
             <button key={v.key} onClick={() => setView(v.key)} title={v.label} style={{
               ...btn('ghost'), padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap',
@@ -100,8 +105,8 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
             }}><v.icon size={15} />{v.label}</button>
           ))}
         </div>
-        <div style={{ marginLeft: isMobile ? 0 : 'auto', width: isMobile ? '100%' : 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          <div style={{ position: 'relative', width: isMobile ? 'auto' : 220, flex: isMobile ? 1 : 'none' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <div style={{ position: 'relative', width: 220 }}>
             <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search tasks…" style={{ ...inputStyle, paddingLeft: 32 }} />
           </div>
@@ -113,17 +118,18 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
           />
         </div>
       </div>
+      )}
 
       {/* Body */}
-      <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas }}>
+      <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, paddingBottom: isMobile ? 88 : undefined }}>
         {view === 'list' ? (
-          <RichListView visible={visible} group={group} ctx={ctx} store={store} people={people} selected={selected} toggleSel={toggleSel} onOpen={setOpenId} onSelectAll={selectAll} />
+          <RichListView visible={visible} group={group} ctx={ctx} store={store} people={people} selected={selected} toggleSel={toggleSel} onOpen={setOpenId} onSelectAll={selectAll} lockedProjectId={lockedProjectId} />
         ) : visible.length === 0 ? (
-          <EmptyState icon={CheckCircle2} title="No tasks yet" hint="Create your first task to get going." />
+          <EmptyState icon={CheckCircle2} title="No Tasks Yet" hint="Create your first task to get going." />
         ) : view === 'board' ? (
           <BoardView visible={visible} group={group} ctx={ctx} store={store} onOpen={setOpenId} lockedProjectId={lockedProjectId} />
         ) : view === 'calendar' ? (
-          <CalendarView tasks={visible} onOpen={setOpenId} />
+          <CalendarView tasks={visible} onOpen={setOpenId} onCreate={(iso) => openCreate({ projectId: lockedProjectId || '', dueOn: iso })} />
         ) : view === 'timeline' ? (
           <TimelineView tasks={visible} onOpen={setOpenId} nameOf={nameOf} />
         ) : view === 'files' ? (
@@ -148,7 +154,26 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         </div>
       )}
 
-      {creating && <CreateTaskModal defaults={{ projectId: lockedProjectId || '' }} onClose={() => setCreating(false)} />}
+      {isMobile && (
+        <MobileTaskBar
+          views={VIEW_KINDS} view={view} setView={setView}
+          onCreate={() => openCreate({ projectId: lockedProjectId || '' })}
+          filterSheet={(onClose) => (
+            <MobileFilters
+              filters={filters} setFilters={setFilters} sort={sort} setSort={setSort}
+              group={group} setGroup={setGroup}
+              groupOptions={(view === 'list' || view === 'board') ? GROUPS.map((g) => ({ key: g, label: g === 'none' ? 'None' : g[0].toUpperCase() + g.slice(1) })) : null}
+              current={{ view, group }} onApplyView={applyView}
+              search={search} setSearch={setSearch}
+              lockedProjectId={lockedProjectId}
+              onClose={onClose}
+            />
+          )}
+        />
+      )}
+
+      {quickCreate && <QuickCreateTask defaults={quickCreate} onClose={() => setQuickCreate(null)} onFullDetails={(d) => { setQuickCreate(null); setCreating({ ...quickCreate, ...d }); }} />}
+      {creating && <CreateTaskModal defaults={creating} onClose={() => setCreating(null)} />}
       {openId && <TaskDetailDrawer taskId={openId} onClose={() => setOpenId(null)} />}
     </div>
   );
@@ -165,7 +190,7 @@ function TaskRow({ t, store, selected, toggleSel, onOpen }) {
       onMouseEnter={(e) => { if (!selected.has(t.id)) e.currentTarget.style.background = NX.surface2; }}
       onMouseLeave={(e) => { if (!selected.has(t.id)) e.currentTarget.style.background = NX.surface; }}>
       <input type="checkbox" checked={selected.has(t.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleSel(t.id)} style={{ cursor: 'pointer' }} />
-      <button onClick={(e) => { e.stopPropagation(); toggleComplete(t); }} title="Toggle complete" style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>
+      <button onClick={(e) => { e.stopPropagation(); toggleComplete(t); }} title="Toggle Complete" style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>
         {t.completed ? <CheckCircle2 size={19} /> : <Circle size={19} />}
       </button>
       <div style={{ minWidth: 0 }}>

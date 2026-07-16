@@ -9,18 +9,19 @@ import { fmtDate } from './lib';
 import { NX, FONT, btn, card } from './theme';
 import { Avatar, useClickOutside, useIsMobile } from './components';
 import TaskDetailDrawer from './TaskDetailDrawer';
+import { ProjectCreateModal } from './ProjectsView';
 
 const WIDGET_META = [
-  { key: 'my_tasks', label: 'My tasks' },
+  { key: 'my_tasks', label: 'My Tasks' },
   { key: 'projects', label: 'Projects' },
   { key: 'teams', label: 'Teams' },
-  { key: 'team_members', label: 'Team members' },
+  { key: 'team_members', label: 'Team Members' },
   { key: 'notifications', label: 'Notifications' },
 ];
 const DEFAULT_LAYOUT = ['my_tasks', 'projects'];
 const LAYOUT_KEY = 'nexus.homeWidgets';
 const TABS = ['Upcoming', 'Overdue', 'Completed'];
-const RANGES = [{ key: 'day', label: 'My day', days: 0 }, { key: 'week', label: 'My week', days: 7 }, { key: 'month', label: 'My month', days: 30 }];
+const RANGES = [{ key: 'day', label: 'My Day', days: 0 }, { key: 'week', label: 'My Week', days: 7 }, { key: 'month', label: 'My Month', days: 30 }];
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const addDays = (iso, n) => { const d = new Date(iso); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
@@ -37,6 +38,7 @@ export default function HomeView({ onNavigate }) {
   const [newTitle, setNewTitle] = useState('');
   const [newDue, setNewDue] = useState(null);
   const [openId, setOpenId] = useState(null);
+  const [creatingProject, setCreatingProject] = useState(false);
   const [customizing, setCustomizing] = useState(false);
   const isMobile = useIsMobile();
   const dateRef = useRef(null);
@@ -78,7 +80,7 @@ export default function HomeView({ onNavigate }) {
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <Avatar email={myEmail} name={nameOf(myEmail)} size={38} />
-            <button onClick={() => onNavigate('mine')} style={{ ...btn('ghost'), padding: 0, fontSize: 16, fontWeight: 700, color: NX.ink }}>My tasks</button>
+            <button onClick={() => onNavigate('mine')} style={{ ...btn('ghost'), padding: 0, fontSize: 16, fontWeight: 700, color: NX.ink }}>My Tasks</button>
           </div>
           {moreBtn(() => onNavigate('mine'))}
         </div>
@@ -99,7 +101,7 @@ export default function HomeView({ onNavigate }) {
             <button onMouseDown={(e) => { e.preventDefault(); commitCreate(true); }} style={{ ...btn('ghost'), padding: 4, color: NX.faint }} title="Details"><ChevronRight size={16} /></button>
           </div>
         ) : (
-          <button onClick={() => setCreating(true)} style={{ ...btn('ghost'), padding: '6px 0', color: NX.dim, fontSize: 13, fontWeight: 500 }}><Plus size={15} /> Create task</button>
+          <button onClick={() => setCreating(true)} style={{ ...btn('ghost'), padding: '6px 0', color: NX.dim, fontSize: 13, fontWeight: 500 }}><Plus size={15} /> Create Task</button>
         )}
         {shown.length === 0 ? <p style={{ padding: '24px 0', textAlign: 'center', fontSize: 13, color: NX.faint }}>Nothing here.</p> : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -120,15 +122,15 @@ export default function HomeView({ onNavigate }) {
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Projects</h2>
           {moreBtn(() => onNavigate('projects'))}
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <button onClick={() => onNavigate('projects')} style={{ display: 'flex', alignItems: 'center', gap: 12, border: `1px dashed ${NX.border}`, borderRadius: 12, padding: 12, cursor: 'pointer', background: 'transparent', textAlign: 'left', fontFamily: FONT }}>
-            <span style={{ display: 'flex', width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 10, border: `1px dashed ${NX.border}`, color: NX.faint }}><Plus size={18} /></span>
-            <span style={{ fontSize: 13, fontWeight: 600, color: NX.dim }}>Create project</span>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 12 }}>
+          <button onClick={() => setCreatingProject(true)} style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, border: `1px dashed ${NX.border}`, borderRadius: 12, padding: 12, cursor: 'pointer', background: 'transparent', textAlign: 'left', fontFamily: FONT }}>
+            <span style={{ display: 'flex', width: 40, height: 40, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: 10, border: `1px dashed ${NX.border}`, color: NX.faint }}><Plus size={18} /></span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: NX.dim, whiteSpace: 'nowrap' }}>Create Project</span>
           </button>
           {recentProjects.map((p) => (
-            <button key={p.id} onClick={() => onNavigate({ projectId: p.id })} style={{ display: 'flex', alignItems: 'center', gap: 12, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 12, cursor: 'pointer', background: NX.surface, textAlign: 'left', fontFamily: FONT }}>
-              <span style={{ display: 'flex', width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 10, background: `${p.color || NX.purple}26`, color: p.color || NX.purple }}><FolderKanban size={18} /></span>
-              <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+            <button key={p.id} onClick={() => onNavigate({ projectId: p.id })} style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 12, cursor: 'pointer', background: NX.surface, textAlign: 'left', fontFamily: FONT }}>
+              <span style={{ display: 'flex', width: 40, height: 40, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderRadius: 10, background: `${p.color || NX.purple}26`, color: p.color || NX.purple }}><FolderKanban size={18} /></span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
             </button>
           ))}
         </div>
@@ -143,7 +145,7 @@ export default function HomeView({ onNavigate }) {
         {myDepartments.length === 0 ? <p style={{ padding: '16px 0', fontSize: 13, color: NX.faint }}>You're not part of any team yet.</p> : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {myDepartments.map((d) => {
-              const pc = projects.filter((p) => p.departmentId === d.id).length;
+              const pc = projects.filter((p) => (p.departmentIds?.length ? p.departmentIds : (p.departmentId ? [p.departmentId] : [])).includes(d.id)).length;
               return (
                 <button key={d.id} onClick={() => onNavigate('teams')} style={{ display: 'flex', alignItems: 'center', gap: 12, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 12, cursor: 'pointer', background: NX.surface, textAlign: 'left', fontFamily: FONT }}>
                   <span style={{ display: 'flex', width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 9, background: `${d.color}1a`, color: d.color }}><Building2 size={18} /></span>
@@ -161,7 +163,7 @@ export default function HomeView({ onNavigate }) {
     if (key === 'team_members') return widgetBox(
       <>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-          <Building2 size={18} style={{ color: NX.faint }} /><h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Team members</h2><span style={{ fontSize: 13, color: NX.faint }}>{teamMembers.length}</span>
+          <Building2 size={18} style={{ color: NX.faint }} /><h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Team Members</h2><span style={{ fontSize: 13, color: NX.faint }}>{teamMembers.length}</span>
         </div>
         {teamMembers.length === 0 ? <p style={{ padding: '16px 0', fontSize: 13, color: NX.faint }}>No teammates yet.</p> : (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -226,6 +228,7 @@ export default function HomeView({ onNavigate }) {
       </div>
 
       {customizing && <CustomizeModal widgets={widgets} setWidgets={persist} onClose={() => setCustomizing(false)} />}
+      {creatingProject && <ProjectCreateModal onClose={() => setCreatingProject(false)} onCreated={(p) => onNavigate({ projectId: p.id })} />}
       {openId && <TaskDetailDrawer taskId={openId} onClose={() => setOpenId(null)} />}
     </div>
   );
@@ -243,7 +246,7 @@ function CustomizeModal({ widgets, setWidgets, onClose }) {
           <button onClick={onClose} style={{ ...btn('ghost'), padding: 6 }}><X size={16} /></button>
         </div>
         <div style={{ maxHeight: '70vh', overflow: 'auto', padding: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, marginBottom: 6 }}>Shown widgets</div>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, marginBottom: 6 }}>Shown Widgets</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
             {draft.length === 0 && <p style={{ fontSize: 12, color: NX.faint }}>No widgets. Add one below.</p>}
             {draft.map((key, i) => (
@@ -255,7 +258,7 @@ function CustomizeModal({ widgets, setWidgets, onClose }) {
               </div>
             ))}
           </div>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, marginBottom: 6 }}>Add widgets</div>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, marginBottom: 6 }}>Add Widgets</div>
           {available.length === 0 ? <p style={{ fontSize: 12, color: NX.faint }}>All widgets are already on your Home.</p> : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {available.map((w) => (
@@ -268,7 +271,7 @@ function CustomizeModal({ widgets, setWidgets, onClose }) {
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, borderTop: `1px solid ${NX.border}`, padding: '12px 20px' }}>
           <button onClick={onClose} style={btn('outline')}>Cancel</button>
-          <button onClick={() => { setWidgets(draft); onClose(); }} style={btn('primary')}>Save layout</button>
+          <button onClick={() => { setWidgets(draft); onClose(); }} style={btn('primary')}>Save Layout</button>
         </div>
       </div>
     </div>

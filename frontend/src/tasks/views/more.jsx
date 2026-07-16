@@ -37,7 +37,7 @@ export function TimelineView({ tasks, onOpen, nameOf }) {
   }, [rows]);
 
   if (rows.length === 0) {
-    return <div style={{ padding: 16 }}><EmptyState icon={Diamond} title="Nothing scheduled" hint="Give tasks a start or due date to see them on the timeline." /></div>;
+    return <div style={{ padding: 16 }}><EmptyState icon={Diamond} title="Nothing Scheduled" hint="Give tasks a start or due date to see them on the timeline." /></div>;
   }
 
   const dayOffset = (iso) => Math.round((fromISO(iso).getTime() - fromISO(start).getTime()) / DAY);
@@ -150,7 +150,7 @@ export function FilesView({ tasks, onOpen }) {
         <span style={{ fontSize: 12, color: NX.dim }}>{files.length} file{files.length === 1 ? '' : 's'}</span>
       </div>
       {rows === null ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 30 }}>Loading…</div>
-        : files.length === 0 ? <EmptyState icon={Paperclip} title="No attachments yet" hint="Files attached to any task show up here." />
+        : files.length === 0 ? <EmptyState icon={Paperclip} title="No Attachments Yet" hint="Files attached to any task show up here." />
           : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
               {files.map(({ a, t }) => (
@@ -188,7 +188,7 @@ export function WorkloadView({ tasks, nameOf }) {
   }, [tasks]);
   const maxHours = Math.max(1, CAPACITY, ...rows.map((r) => r.hours));
 
-  if (!rows.length) return <div style={{ padding: 16 }}><EmptyState icon={AlertTriangle} title="No assigned open tasks" hint="Assign tasks with estimates to see workload." /></div>;
+  if (!rows.length) return <div style={{ padding: 16 }}><EmptyState icon={AlertTriangle} title="No Assigned Open Tasks" hint="Assign tasks with estimates to see workload." /></div>;
 
   return (
     <div style={{ margin: 16, border: `1px solid ${NX.border}`, borderRadius: 14, background: NX.surface, padding: 20, fontFamily: FONT }}>

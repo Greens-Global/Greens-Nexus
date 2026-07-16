@@ -83,6 +83,7 @@ def _run_migrations():
             "ALTER TABLE tasks ADD COLUMN description VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN type VARCHAR DEFAULT 'task'",
             "ALTER TABLE tasks ADD COLUMN assignee_email VARCHAR DEFAULT ''",
+            "ALTER TABLE tasks ADD COLUMN owner_email VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN follower_emails JSON DEFAULT '[]'",
             "ALTER TABLE tasks ADD COLUMN liked_by_emails JSON DEFAULT '[]'",
             "ALTER TABLE tasks ADD COLUMN access_level VARCHAR DEFAULT 'org'",
@@ -114,6 +115,7 @@ def _run_migrations():
             "ALTER TABLE tasks ADD COLUMN synced_with_asana BOOLEAN DEFAULT 0",
             # Task Module: bug-report screenshots on tickets
             "ALTER TABLE task_tickets ADD COLUMN images JSON DEFAULT '[]'",
+            "ALTER TABLE task_projects ADD COLUMN department_ids JSON DEFAULT '[]'",
             # Roles & Access redesign: job-role templates live on nexus_groups
             "ALTER TABLE nexus_groups ADD COLUMN is_job_role BOOLEAN DEFAULT 0",
             "ALTER TABLE nexus_groups ADD COLUMN tier VARCHAR DEFAULT ''",
@@ -270,6 +272,7 @@ def _run_migrations():
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'task'",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assignee_email TEXT DEFAULT ''",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS owner_email TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS follower_emails JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS liked_by_emails JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS access_level TEXT DEFAULT 'org'",
@@ -300,6 +303,7 @@ def _run_migrations():
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS synced_with_asana BOOLEAN DEFAULT FALSE",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS department_ids JSONB DEFAULT '[]'::jsonb",
         # Roles & Access redesign: job-role templates live on nexus_groups
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS is_job_role BOOLEAN DEFAULT FALSE",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS tier VARCHAR DEFAULT ''",

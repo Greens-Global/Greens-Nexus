@@ -1,7 +1,7 @@
 // Task Module — shared UI atoms (inline-styled to match the export's light theme).
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Check, ChevronDown } from 'lucide-react';
+import { X, Check, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn } from './theme';
 import { fmtDate } from './lib';
@@ -103,33 +103,104 @@ export function useIsMobile(query = '(max-width: 640px)') {
 // formatted text and the native input is kept, invisible, on top of it — clicks
 // still open the OS calendar (showPicker), keyboard and mobile pickers still
 // work, and we don't reimplement a calendar.
-export function DateField({ value, onChange, placeholder = '—', color, style, title, disabled }) {
+// ── Nexus calendar picker (replaces the native OS date popup) ────────────────
+const CAL_WEEK = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+const CAL_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const pad2 = (n) => String(n).padStart(2, '0');
+const dateToISO = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const isoToDate = (s) => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, (m || 1) - 1, d || 1); };
+const sameYMD = (a, b) => !!a && !!b && a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+
+// Popover calendar rendered to a portal, fixed-positioned near the trigger and
+// flipped up when there isn't room below — so it works inside modals/sheets too.
+function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef }) {
+  const selected = value ? isoToDate(value) : null;
+  const today = new Date();
+  const [cursor, setCursor] = useState(() => { const b = selected || today; return new Date(b.getFullYear(), b.getMonth(), 1); });
   const ref = useRef(null);
-  const openPicker = () => {
-    const el = ref.current;
-    if (!el || disabled) return;
-    if (typeof el.showPicker === 'function') { try { el.showPicker(); return; } catch { /* fall through */ } }
-    el.focus();
+  useEffect(() => {
+    const onDoc = (e) => {
+      if (ref.current && ref.current.contains(e.target)) return;
+      if (anchorRef?.current && anchorRef.current.contains(e.target)) return;
+      onClose();
+    };
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+  }, [onClose, anchorRef]);
+
+  const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  const offset = (first.getDay() + 6) % 7; // Monday-first
+  const days = Array.from({ length: 42 }, (_, i) => { const d = new Date(first); d.setDate(1 - offset + i); return d; });
+
+  const W = 300, H = 372;
+  const left = Math.max(8, Math.min(anchorRect.left, window.innerWidth - W - 8));
+  const flipUp = anchorRect.bottom + 6 + H > window.innerHeight && anchorRect.top > H;
+  const vpos = flipUp ? { bottom: window.innerHeight - anchorRect.top + 6 } : { top: anchorRect.bottom + 6 };
+  const navBtn = { ...btn('ghost'), padding: 5, color: NX.dim };
+  const linkBtn = { background: 'transparent', border: 'none', cursor: 'pointer', color: NX.blue, fontWeight: 600, fontSize: 13, fontFamily: FONT, padding: '4px 6px' };
+
+  return createPortal(
+    <div ref={ref} style={{
+      position: 'fixed', left, width: W, ...vpos, background: NX.surface, border: `1px solid ${NX.border}`,
+      borderRadius: 14, boxShadow: '0 16px 44px rgba(0,0,0,0.22)', zIndex: 5000, padding: 14, fontFamily: FONT,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: NX.ink }}>{CAL_MONTHS[cursor.getMonth()]} {cursor.getFullYear()}</div>
+        <div style={{ display: 'flex', gap: 2 }}>
+          <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} style={navBtn} aria-label="Previous month"><ChevronLeft size={18} /></button>
+          <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} style={navBtn} aria-label="Next month"><ChevronRight size={18} /></button>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', marginBottom: 4 }}>
+        {CAL_WEEK.map((w) => <div key={w} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: NX.faint, padding: '4px 0' }}>{w}</div>)}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2 }}>
+        {days.map((d, i) => {
+          const inMonth = d.getMonth() === cursor.getMonth();
+          const isToday = sameYMD(d, today);
+          const isSel = sameYMD(d, selected);
+          return (
+            <button key={i} onClick={() => { onChange(dateToISO(d)); onClose(); }} style={{
+              height: 36, borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 13,
+              fontWeight: (isSel || isToday) ? 700 : 500, fontFamily: FONT,
+              background: isSel ? NX.primary : 'transparent',
+              color: isSel ? '#fff' : (inMonth ? NX.ink : NX.faint),
+              boxShadow: isToday && !isSel ? `inset 0 0 0 1.5px ${NX.blue}` : 'none',
+            }}>{d.getDate()}</button>
+          );
+        })}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, borderTop: `1px solid ${NX.border2}`, paddingTop: 8 }}>
+        <button onClick={() => { onChange(null); onClose(); }} style={linkBtn}>Clear</button>
+        <button onClick={() => { onChange(dateToISO(today)); onClose(); }} style={linkBtn}>Today</button>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+export function DateField({ value, onChange, placeholder = '—', color, style, title, disabled }) {
+  const [open, setOpen] = useState(false);
+  const [rect, setRect] = useState(null);
+  const btnRef = useRef(null);
+  const openCal = () => {
+    if (disabled) return;
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) { setRect(r); setOpen(true); }
   };
   return (
     <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', ...style }}>
       <button
-        type="button" title={title || 'Set date'} disabled={disabled}
-        onClick={(e) => { e.stopPropagation(); openPicker(); }}
+        ref={btnRef} type="button" title={title || 'Set date'} disabled={disabled}
+        onClick={(e) => { e.stopPropagation(); open ? setOpen(false) : openCal(); }}
         style={{
           border: 'none', background: 'transparent', padding: 0, margin: 0, cursor: disabled ? 'default' : 'pointer',
           fontFamily: FONT, fontSize: 'inherit', fontWeight: 'inherit', whiteSpace: 'nowrap',
           color: color || (value ? NX.ink : NX.faint),
         }}
       >{value ? fmtDate(value) : placeholder}</button>
-      {/* Invisible but still the real control: it owns the picker + the value. */}
-      <input
-        ref={ref} type="date" value={value || ''} disabled={disabled}
-        onClick={(e) => e.stopPropagation()}
-        onChange={(e) => onChange(e.target.value || null)}
-        tabIndex={-1} aria-hidden="true"
-        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0, pointerEvents: 'none', border: 'none', padding: 0 }}
-      />
+      {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} />}
     </span>
   );
 }

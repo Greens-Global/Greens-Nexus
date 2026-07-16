@@ -187,6 +187,7 @@ export const api = {
   getTaskAttachments: (id) => req(`/tasks/${id}/attachments`),
   addTaskAttachment: (id, data) => req(`/tasks/${id}/attachments`, { method: "POST", body: JSON.stringify(data) }),
   deleteTaskAttachment: (aid) => req(`/tasks/attachments/${aid}`, { method: "DELETE" }),
+  ocrImage: (file) => { const fd = new FormData(); fd.append("image", file); return req("/task-ocr", { method: "POST", body: fd, timeoutMs: 60_000 }); },
   getTaskActivity: (id) => req(`/tasks/${id}/activity`),
   getGlobalTaskActivity: () => req("/tasks/activity"),
   // Sections & custom statuses (board columns)

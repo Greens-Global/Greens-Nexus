@@ -77,7 +77,7 @@ export default function PortfoliosView({ onNavigate }) {
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search portfolios…"
               style={{ ...inputStyle, paddingLeft: 40, paddingTop: isMobile ? 8 : 10, paddingBottom: isMobile ? 8 : 10, borderRadius: 999 }} />
           </div>
-          <label title="Show archived" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: isMobile ? 12 : 13, color: NX.dim, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}>
+          <label title="Show Archived" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: isMobile ? 12 : 13, color: NX.dim, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}>
             <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} style={{ cursor: 'pointer' }} />
             {isMobile ? 'Archived' : 'Show archived'}
           </label>
@@ -87,7 +87,7 @@ export default function PortfoliosView({ onNavigate }) {
       {/* Body — table with expandable rows (Portfolio | Tasks | Progress | Projects) */}
       <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, padding: 16 }}>
         {visible.length === 0 ? (
-          <EmptyState icon={Briefcase} title="No portfolios yet" hint="Group projects into a portfolio to track their combined progress." />
+          <EmptyState icon={Briefcase} title="No Portfolios Yet" hint="Group projects into a portfolio to track their combined progress." />
         ) : (
           <div style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, overflow: 'hidden' }}>
             <div className="nx-scroll" style={{ overflowX: 'auto' }}>
@@ -119,8 +119,8 @@ export default function PortfoliosView({ onNavigate }) {
                           {memberProjects.map((p) => <span key={p.id} style={chip(NX.dim, NX.surface2)}>{p.name}</span>)}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }} onClick={(e) => e.stopPropagation()}>
-                          <button title="Open portfolio" onClick={() => setDetailId(pf.id)} style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><ArrowUpRight size={14} /></button>
-                          <button title="Edit portfolio" onClick={() => setEditing(pf)} style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><Pencil size={14} /></button>
+                          <button title="Open Portfolio" onClick={() => setDetailId(pf.id)} style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><ArrowUpRight size={14} /></button>
+                          <button title="Edit Portfolio" onClick={() => setEditing(pf)} style={{ ...btn('ghost'), padding: 5, color: NX.faint }}><Pencil size={14} /></button>
                         </div>
                       </div>
 
@@ -215,7 +215,7 @@ function PortfolioModal({ portfolio, people, projects, onClose, onCreate, onUpda
 
   return (
     <Modal
-      title={isEdit ? 'Edit portfolio' : 'New portfolio'}
+      title={isEdit ? 'Edit Portfolio' : 'Create a Portfolio'}
       onClose={onClose}
       footer={
         <>
@@ -229,7 +229,7 @@ function PortfolioModal({ portfolio, people, projects, onClose, onCreate, onUpda
       <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
         <div>
           <label style={label}>Name</label>
-          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Portfolio name" style={inputStyle} onKeyDown={(e) => e.key === 'Enter' && save()} />
+          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Portfolio Name" style={inputStyle} onKeyDown={(e) => e.key === 'Enter' && save()} />
         </div>
         <div>
           <label style={label}>Description</label>
@@ -257,6 +257,21 @@ function PortfolioModal({ portfolio, people, projects, onClose, onCreate, onUpda
         </div>
       </div>
     </Modal>
+  );
+}
+
+// Self-contained "create a portfolio" modal that reuses the full PortfolioModal
+// form, so the navbar + Create menu matches the Portfolios tab exactly.
+export function PortfolioCreateModal({ onClose, onCreated }) {
+  const { projects, createPortfolio } = useTasks();
+  const people = usePeople();
+  return (
+    <PortfolioModal
+      portfolio={null} people={people} projects={projects}
+      onClose={onClose}
+      onCreate={async (data) => { const p = await createPortfolio(data); onCreated && onCreated(p); return p; }}
+      onUpdate={() => {}} onDelete={() => {}} afterDelete={() => {}}
+    />
   );
 }
 
@@ -307,8 +322,8 @@ function PortfolioDetail({ pf, store, rollup, people, onBack, onNavigate, onEdit
             </div>
             <div style={{ fontSize: 12.5, color: NX.dim, marginTop: 2 }}>{rows.length ? ids.length : 0} projects · {agg.total} tasks · {agg.pct}% complete</div>
           </div>
-          <button onClick={onEdit} style={btn('outline')}><Pencil size={15} />Edit portfolio</button>
-          <button onClick={() => setManaging(true)} style={btn('primary')}><FolderKanban size={15} />Manage projects</button>
+          <button onClick={onEdit} style={btn('outline')}><Pencil size={15} />Edit Portfolio</button>
+          <button onClick={() => setManaging(true)} style={btn('primary')}><FolderKanban size={15} />Manage Projects</button>
         </div>
         {ids.length > 0 && (
           <div style={{ position: 'relative', maxWidth: 340 }}>
@@ -323,12 +338,12 @@ function PortfolioDetail({ pf, store, rollup, people, onBack, onNavigate, onEdit
         {ids.length === 0 ? (
           <div style={{ ...card, padding: 40, textAlign: 'center' }}>
             <FolderKanban size={30} style={{ color: NX.faint, marginBottom: 10 }} />
-            <div style={{ fontSize: 14, fontWeight: 600 }}>No projects in this portfolio</div>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>No Projects in This Portfolio</div>
             <div style={{ fontSize: 13, color: NX.dim, marginTop: 4, marginBottom: 14 }}>Add projects to start rolling up their progress.</div>
-            <button onClick={() => setManaging(true)} style={{ ...btn('primary'), display: 'inline-flex' }}><Plus size={15} />Add projects</button>
+            <button onClick={() => setManaging(true)} style={{ ...btn('primary'), display: 'inline-flex' }}><Plus size={15} />Add Projects</button>
           </div>
         ) : rows.length === 0 ? (
-          <EmptyState icon={FolderKanban} title="No projects match your search" />
+          <EmptyState icon={FolderKanban} title="No Projects Match Your Search" />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {rows.map((p) => {
@@ -355,8 +370,8 @@ function PortfolioDetail({ pf, store, rollup, people, onBack, onNavigate, onEdit
                   </div>
                   {pr.overdue > 0 && <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: NX.red, flexShrink: 0 }}><AlertTriangle size={12} />{pr.overdue}</span>}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-                    <button title="Move up" disabled={idx === 0 || busy} onClick={() => move(idx, -1)} style={{ ...btn('ghost'), padding: 5, opacity: idx === 0 ? 0.35 : 1 }}><ArrowUp size={15} /></button>
-                    <button title="Move down" disabled={idx === ids.length - 1 || busy} onClick={() => move(idx, 1)} style={{ ...btn('ghost'), padding: 5, opacity: idx === ids.length - 1 ? 0.35 : 1 }}><ArrowDown size={15} /></button>
+                    <button title="Move Up" disabled={idx === 0 || busy} onClick={() => move(idx, -1)} style={{ ...btn('ghost'), padding: 5, opacity: idx === 0 ? 0.35 : 1 }}><ArrowUp size={15} /></button>
+                    <button title="Move Down" disabled={idx === ids.length - 1 || busy} onClick={() => move(idx, 1)} style={{ ...btn('ghost'), padding: 5, opacity: idx === ids.length - 1 ? 0.35 : 1 }}><ArrowDown size={15} /></button>
                     <button title="Remove from portfolio" disabled={busy} onClick={() => removeProject(p.id)} style={{ ...btn('ghost'), padding: 5, color: NX.red }}><X size={16} /></button>
                   </div>
                 </div>
@@ -399,7 +414,7 @@ function ManageProjectsModal({ allProjects, currentIds, onClose, onSave }) {
 
   return (
     <Modal
-      title="Manage projects"
+      title="Manage Projects"
       onClose={onClose}
       footer={<>
         <button onClick={onClose} style={btn('ghost')}>Cancel</button>
