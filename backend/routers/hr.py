@@ -1514,7 +1514,7 @@ def resend_welcome(eid: str, user: dict = Depends(require_hr_write), db: Session
 # ---------------------------------------------------------------------------
 # HR Section A — Companies/Entities + Work Sites (structural foundation)
 # ---------------------------------------------------------------------------
-from models import HrEntity, HrWorkSite, HrDepartment
+from models import HrEntity, HrWorkSite, HrDepartment, NexusSetting
 
 
 class EntityIn(BaseModel):
@@ -1527,6 +1527,7 @@ class EntityIn(BaseModel):
     logo_url:           Optional[str] = ""
     notes:              Optional[str] = ""
     domains:            Optional[str] = ""   # comma-separated email domains
+    manager_email:      Optional[str] = ""   # company manager (a Nexus person)
 
 
 class EntityUpdate(BaseModel):
@@ -1539,6 +1540,7 @@ class EntityUpdate(BaseModel):
     logo_url:           Optional[str] = None
     notes:              Optional[str] = None
     domains:            Optional[str] = None
+    manager_email:      Optional[str] = None
 
 
 def _serialize_entity(e: HrEntity) -> dict:
@@ -1546,6 +1548,7 @@ def _serialize_entity(e: HrEntity) -> dict:
         "id": e.id, "name": e.name, "legalName": e.legal_name, "country": e.country,
         "taxId": e.tax_id, "registeredAddress": e.registered_address, "signatory": e.signatory,
         "logoUrl": e.logo_url, "notes": e.notes, "domains": e.domains or "",
+        "managerEmail": e.manager_email or "",
         "createdAt": e.created_at, "updatedAt": e.updated_at,
     }
 
@@ -1567,6 +1570,7 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
         registered_address=(body.registered_address or "").strip(), signatory=(body.signatory or "").strip(),
         logo_url=(body.logo_url or "").strip(), notes=body.notes or "",
         domains=_norm_domains(body.domains or ""),
+        manager_email=(body.manager_email or "").strip().lower(),
         created_by=user["email"], created_at=now, updated_at=now,
     )
     db.add(row)
@@ -1587,6 +1591,8 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
             continue
         if key == "domains":
             value = _norm_domains(value)
+        elif key == "manager_email":
+            value = value.strip().lower()
         setattr(row, {"legal_name": "legal_name", "tax_id": "tax_id", "registered_address": "registered_address"}.get(key, key),
                 value.strip() if isinstance(value, str) and key != "notes" else value)
     row.updated_at = datetime.now(timezone.utc).isoformat()
@@ -1601,6 +1607,35 @@ def delete_entity(entity_id: str, user: dict = Depends(require_hr_delete), db: S
     if row:
         db.delete(row); db.commit()
     return {"ok": True}
+
+
+# ── Group manager — one person overseeing ALL companies (the escalation step
+# above each company's manager). A singleton, stored in nexus_settings.
+
+_GROUP_MANAGER_KEY = "hr.group_manager_email"
+
+
+class GroupManagerIn(BaseModel):
+    email: Optional[str] = ""
+
+
+@router.get("/group-manager")
+def get_group_manager(user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    row = db.query(NexusSetting).filter(NexusSetting.key == _GROUP_MANAGER_KEY).first()
+    return {"email": (row.value if row else "") or ""}
+
+
+@router.put("/group-manager")
+def set_group_manager(body: GroupManagerIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    row = db.query(NexusSetting).filter(NexusSetting.key == _GROUP_MANAGER_KEY).first()
+    if not row:
+        row = NexusSetting(key=_GROUP_MANAGER_KEY)
+        db.add(row)
+    row.value = (body.email or "").strip().lower()
+    row.updated_by = user["email"]
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit()
+    return {"email": row.value}
 
 
 # ── Departments — scoped to a company, NOT a Nexus-wide hardcoded list ──────────

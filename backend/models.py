@@ -898,6 +898,20 @@ class HrEntity(Base):
     # Email domains owned by this company (comma-separated, no @) — the M365 sync
     # imports accounts on these domains and auto-tags them to this company.
     domains            = Column(String, default="")
+    # Who runs this company operationally (a Nexus person's work email) — the
+    # escalation target when a worker has no reports-to. Distinct from signatory.
+    manager_email      = Column(String, default="")
+
+
+class NexusSetting(Base):
+    """Tiny app-wide key-value store. First use: the HR group manager (the person
+    overseeing ALL companies — escalation above each company's manager). New
+    table — create_all builds it, no migration line needed."""
+    __tablename__ = "nexus_settings"
+    key        = Column(String, primary_key=True)
+    value      = Column(String, default="")
+    updated_by = Column(String, default="")
+    updated_at = Column(String, default="")
 
 
 class HrDepartment(Base):

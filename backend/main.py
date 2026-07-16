@@ -118,6 +118,8 @@ def _run_migrations():
             "ALTER TABLE nexus_groups ADD COLUMN description VARCHAR DEFAULT ''",
             # Company email domains — drive M365 import + auto company tagging
             "ALTER TABLE hr_entities ADD COLUMN domains VARCHAR DEFAULT ''",
+            # Company manager (operational head; escalation target)
+            "ALTER TABLE hr_entities ADD COLUMN manager_email VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -305,6 +307,8 @@ def _run_migrations():
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS description VARCHAR DEFAULT ''",
         # Company email domains — drive M365 import + auto company tagging
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS domains VARCHAR DEFAULT ''",
+        # Company manager (operational head; escalation target)
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS manager_email VARCHAR DEFAULT ''",
     ]
     with engine.connect() as conn:
         for sql in migrations:

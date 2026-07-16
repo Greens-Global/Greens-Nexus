@@ -508,6 +508,8 @@ export const api = {
   getEntities:    ()         => req('/hr/entities'),
   createEntity:   (data)     => req('/hr/entities', { method: 'POST', body: JSON.stringify(data) }),
   updateEntity:   (id, data) => req(`/hr/entities/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getGroupManager: ()        => req('/hr/group-manager'),
+  setGroupManager: (email)   => req('/hr/group-manager', { method: 'PUT', body: JSON.stringify({ email }) }),
   deleteEntity:   (id)       => req(`/hr/entities/${id}`, { method: 'DELETE' }),
   // per-company departments (managed list, not free text)
   getCompanyDepartments:    (entityId)       => req(`/hr/entities/${entityId}/departments`),
