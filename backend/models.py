@@ -895,6 +895,9 @@ class HrEntity(Base):
     created_by         = Column(String, default="")
     created_at         = Column(String, default="")
     updated_at         = Column(String, default="")
+    # Email domains owned by this company (comma-separated, no @) — the M365 sync
+    # imports accounts on these domains and auto-tags them to this company.
+    domains            = Column(String, default="")
 
 
 class HrDepartment(Base):
