@@ -20,6 +20,7 @@ class Task(Base):
     status            = Column(String, default="not_started")  # + custom board-column ids
     priority          = Column(String, default="medium")   # low|medium|high|urgent
     assignee_email    = Column(String, default="", index=True)
+    owner_email       = Column(String, default="", index=True)
     follower_emails   = Column(JSON, default=list)
     liked_by_emails   = Column(JSON, default=list)
     access_level      = Column(String, default="org")      # org|restricted
@@ -1414,7 +1415,8 @@ class TaskProject(Base):
     color         = Column(String, default="")
     owner_email   = Column(String, default="", index=True)
     portfolio_id  = Column(String, default="", index=True)
-    department_id = Column(String, default="", index=True)
+    department_id = Column(String, default="", index=True)   # primary team (first of department_ids)
+    department_ids = Column(JSON, default=list)               # all teams the project belongs to
     status        = Column(String, default="not_started")
     start_on      = Column(String, default="")
     due_on        = Column(String, default="")
@@ -1598,6 +1600,7 @@ class TaskTicket(Base):
     code           = Column(String, default="")
     subject        = Column(String, nullable=False)
     description    = Column(String, default="")
+    type           = Column(String, default="request")   # bug|incident|service_request|task|question|request
     status         = Column(String, default="new")       # new|open|in_progress|on_hold|resolved|closed|reopened
     priority       = Column(String, default="medium")
     requester_email= Column(String, default="", index=True)
@@ -1605,10 +1608,28 @@ class TaskTicket(Base):
     department_id  = Column(String, default="", index=True)
     linked_task_id = Column(String, default="")
     tags           = Column(JSON, default=list)
+    images         = Column(JSON, default=list)   # screenshot data URLs / storage links
+    watcher_emails = Column(JSON, default=list)   # people notified on ticket changes
+    resolution     = Column(String, default="")   # fixed|wont_fix|duplicate|cannot_reproduce|done
+    custom_field_values = Column(JSON, default=dict)  # {customFieldId: value} — reuses the task custom-field defs
+    links          = Column(JSON, default=list)   # [{ticketId, type}] — relates|duplicate|blocks|blocked_by
+    task_ids       = Column(JSON, default=list)   # tasks spawned from / linked to this ticket (one ticket → many tasks)
+    component      = Column(String, default="")   # category/component name (see TaskTicketComponent)
+    csat_rating    = Column(Integer, default=0)   # 1-5 satisfaction rating; 0 = not rated
+    csat_comment   = Column(String, default="")
     sla_due_on     = Column(String, default="")
     resolved_at    = Column(String, default="")
     created_at     = Column(String, default="")
     modified_at    = Column(String, default="")
+
+
+class TaskTicketComponent(Base):
+    """A ticket component / category (e.g. "Billing", "Network"). Small config
+    table managed from Manage; tickets reference one by name."""
+    __tablename__ = "task_ticket_components"
+    id         = Column(String, primary_key=True)
+    name       = Column(String, nullable=False)
+    created_at = Column(String, default="")
 
 
 class TaskChangelogEntry(Base):

@@ -3,23 +3,21 @@
 // project. Ported from the export's ProjectsPage/ProjectOverview into the Nexus
 // inline-style idiom.
 import { useMemo, useState } from 'react';
-import { Plus, Search, FolderKanban, ArrowLeft, AlertTriangle, Pencil, Trash2, Archive } from 'lucide-react';
+import { Plus, Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { taskStats } from './lib';
-import { NX, FONT, btn, input as inputStyle, card, chip, STATUS_ORDER, STATUS_META } from './theme';
-import { Avatar, StatusChip, EmptyState, Modal, usePeople, PersonSelect } from './components';
+import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
+import { Avatar, StatusChip, EmptyState, Modal, usePeople, PersonSelect, useIsMobile } from './components';
 import TasksWorkspace from './TasksWorkspace';
-
-// A small palette of NX-ish swatches for the project colour picker.
-const SWATCHES = [NX.blue, NX.purple, NX.teal, NX.green, NX.amber, NX.red, NX.pink, NX.dim];
 
 const EMPTY_FORM = {
   name: '', description: '', color: NX.blue, ownerId: null,
-  departmentId: '', portfolioId: '', status: 'not_started',
+  departmentIds: [], portfolioId: '', status: 'not_started',
   startOn: '', dueOn: '', archived: false,
 };
 
 export default function ProjectsView({ onNavigate }) {
+  const isMobile = useIsMobile();
   const store = useTasks();
   const { projects, portfolios, departments, tasks, deptName, nameOf, portfolioById,
     createProject, updateProject, deleteProject } = store;
@@ -46,25 +44,17 @@ export default function ProjectsView({ onNavigate }) {
 
   const openProject = openId ? projects.find((p) => p.id === openId) : null;
 
-  // ── Drill-in: reuse the Tasks workspace locked to this project ──────────────
+  // ── Drill-in: reuse the Tasks workspace locked to this project. Its own Row 1
+  // header owns the back arrow (icon-only) + project name/team, so no separate
+  // header wrapper here. ──────────────────────────────────────────────────────
   if (openProject) {
-    return (
-      <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
-          <button onClick={() => setOpenId(null)} style={{ ...btn('outline'), padding: '6px 10px' }}><ArrowLeft size={15} />Projects</button>
-          <span style={{ width: 12, height: 12, borderRadius: 4, background: openProject.color || NX.blue, flexShrink: 0 }} />
-        </div>
-        <div style={{ flex: 1, minHeight: 0 }}>
-          <TasksWorkspace lockedProjectId={openProject.id} title={openProject.name} />
-        </div>
-      </div>
-    );
+    return <TasksWorkspace lockedProjectId={openProject.id} title={openProject.name} onBack={() => setOpenId(null)} />;
   }
 
   const startCreate = () => setEditing({ ...EMPTY_FORM });
   const startEdit = (p) => setEditing({
     id: p.id, name: p.name || '', description: p.description || '', color: p.color || NX.blue,
-    ownerId: p.ownerId || null, departmentId: p.departmentId || '', portfolioId: p.portfolioId || '',
+    ownerId: p.ownerId || null, departmentIds: p.departmentIds?.length ? p.departmentIds : (p.departmentId ? [p.departmentId] : []), portfolioId: p.portfolioId || '',
     status: p.status || 'not_started', startOn: p.startOn || '', dueOn: p.dueOn || '', archived: !!p.archived,
   });
 
@@ -74,29 +64,41 @@ export default function ProjectsView({ onNavigate }) {
   };
 
   return (
-    <div style={{ fontFamily: FONT, color: NX.ink, height: '100%', overflow: 'auto', background: NX.surface }}>
-      {/* Toolbar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: `1px solid ${NX.border}`, flexWrap: 'wrap' }}>
-        <div>
-          <div style={{ fontSize: 19, fontWeight: 700 }}>Projects</div>
-          <div style={{ fontSize: 12.5, color: NX.dim, marginTop: 1 }}>Every project with live task rollups.</div>
+    <div style={{ fontFamily: FONT, color: NX.ink, height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, background: NX.canvas }}>
+      {/* Header — title/subtitle left, New Project top-right, full-width search below */}
+      <div style={{ padding: isMobile ? '12px 12px 10px' : '20px 24px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: isMobile ? 20 : 26, fontWeight: 800, letterSpacing: '-0.02em' }}>Projects</div>
+            {!isMobile && <div style={{ fontSize: 13.5, color: NX.dim, marginTop: 4 }}>Every project in the workspace with live task rollups.</div>}
+          </div>
+          {/* Desktop keeps the labelled button; on mobile it joins the row below
+              as an icon (and the floating + also creates a project here). */}
+          {!isMobile && <button style={{ ...btn('primary'), padding: '10px 18px', fontSize: 13.5, borderRadius: 10 }} onClick={startCreate}><Plus size={16} />New Project</button>}
         </div>
-        <div style={{ position: 'relative', minWidth: 200, flex: '1 1 200px', maxWidth: 320, marginLeft: 'auto' }}>
-          <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search projects…" style={{ ...inputStyle, paddingLeft: 32 }} />
+        {/* New Project · Search · Show archived — one line on mobile */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, marginTop: isMobile ? 10 : 16, flexWrap: isMobile ? 'nowrap' : 'wrap' }}>
+          {isMobile && (
+            <button title="New Project" onClick={startCreate} style={{ ...btn('primary'), padding: 9, borderRadius: 10, flexShrink: 0 }}><Plus size={16} /></button>
+          )}
+          <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 0, maxWidth: isMobile ? 'none' : 420 }}>
+            <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search projects…"
+              style={{ ...inputStyle, paddingLeft: 40, paddingTop: isMobile ? 8 : 10, paddingBottom: isMobile ? 8 : 10, borderRadius: 999 }} />
+          </div>
+          <label title="Show Archived" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: isMobile ? 12 : 13, color: NX.dim, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
+            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} style={{ cursor: 'pointer' }} />
+            {isMobile ? 'Archived' : 'Show archived'}
+          </label>
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: NX.dim, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} style={{ cursor: 'pointer' }} />
-          Show archived
-        </label>
-        <button style={btn('primary')} onClick={startCreate}><Plus size={15} />New project</button>
       </div>
 
-      {/* Grid */}
+      {/* Grid — grey body, white project cards */}
+      <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas }}>
       {cards.length === 0 ? (
-        <EmptyState icon={FolderKanban} title={search.trim() ? 'No projects match your search' : 'No projects yet'} hint={search.trim() ? undefined : 'Create your first project to group tasks and track progress.'} />
+        <EmptyState icon={FolderKanban} title={search.trim() ? 'No Projects Match Your Search' : 'No Projects Yet'} hint={search.trim() ? undefined : 'Create your first project to group tasks and track progress.'} />
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14, padding: 16 }}>
+        <div className="nx-gutter" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))', gap: 14, padding: 16 }}>
           {cards.map(({ project: p, stats }) => {
             const pf = p.portfolioId ? portfolioById(p.portfolioId) : null;
             const dcolor = p.color || NX.blue;
@@ -115,13 +117,17 @@ export default function ProjectsView({ onNavigate }) {
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 14.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                      {p.departmentId && deptName(p.departmentId) && <span style={chip(dcolor, `${dcolor}1a`)}>{deptName(p.departmentId)}</span>}
+                      {(p.departmentIds?.length ? p.departmentIds : (p.departmentId ? [p.departmentId] : [])).map((did) => {
+                        const dn = deptName(did); if (!dn) return null;
+                        const c = store.deptById?.(did)?.color || dcolor;
+                        return <span key={did} style={chip(c, `${c}1a`)}>{dn}</span>;
+                      })}
                       {p.archived && <span style={chip(NX.faint, NX.border2)}><Archive size={11} />Archived</span>}
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 2 }} onClick={(e) => e.stopPropagation()}>
-                    <button title="Edit project" onClick={() => startEdit(p)} style={{ ...btn('ghost'), padding: 5 }}><Pencil size={14} /></button>
-                    <button title="Delete project" onClick={() => remove(p)} style={{ ...btn('ghost'), padding: 5, color: NX.red }}><Trash2 size={14} /></button>
+                    <button title="Edit Project" onClick={() => startEdit(p)} style={{ ...btn('ghost'), padding: 5 }}><Pencil size={14} /></button>
+                    <button title="Delete Project" onClick={() => remove(p)} style={{ ...btn('ghost'), padding: 5, color: NX.red }}><Trash2 size={14} /></button>
                   </div>
                 </div>
 
@@ -159,6 +165,7 @@ export default function ProjectsView({ onNavigate }) {
           })}
         </div>
       )}
+      </div>
 
       {editing && (
         <ProjectModal
@@ -190,17 +197,17 @@ function ProjectModal({ form, setForm, people, departments, portfolios, onClose,
 
   return (
     <Modal
-      title={form.id ? 'Edit project' : 'Add project'}
+      title={form.id ? 'Edit Project' : 'Create a Project'}
       onClose={onClose}
       footer={<>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
-        <button style={{ ...btn('primary'), opacity: valid ? 1 : 0.5, pointerEvents: valid ? 'auto' : 'none' }} onClick={onSave}>{form.id ? 'Save changes' : 'Create project'}</button>
+        <button style={{ ...btn('primary'), opacity: valid ? 1 : 0.5, pointerEvents: valid ? 'auto' : 'none' }} onClick={onSave}>{form.id ? 'Save Changes' : 'Create Project'}</button>
       </>}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div>
           <label style={label}>Name</label>
-          <input autoFocus value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Project name" style={inputStyle} />
+          <input autoFocus value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Project Name" style={inputStyle} />
         </div>
 
         <div>
@@ -209,38 +216,29 @@ function ProjectModal({ form, setForm, people, departments, portfolios, onClose,
         </div>
 
         <div>
-          <label style={label}>Colour</label>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {SWATCHES.map((c) => (
-              <button key={c} type="button" onClick={() => set({ color: c })} aria-label={c} style={{
-                width: 26, height: 26, borderRadius: 8, background: c, cursor: 'pointer',
-                border: form.color === c ? `2px solid ${NX.ink}` : '2px solid transparent',
-                boxShadow: form.color === c ? `0 0 0 2px ${NX.surface} inset` : 'none',
-              }} />
-            ))}
-          </div>
+          <label style={label}>Owner</label>
+          <PersonSelect value={form.ownerId} onChange={(email) => set({ ownerId: email })} people={people} placeholder="No owner" />
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
-            <label style={label}>Owner</label>
-            <PersonSelect value={form.ownerId} onChange={(email) => set({ ownerId: email })} people={people} placeholder="No owner" />
-          </div>
-          <div>
-            <label style={label}>Status</label>
-            <select value={form.status} onChange={(e) => set({ status: e.target.value })} style={{ ...inputStyle, cursor: 'pointer' }}>
-              {STATUS_ORDER.map((s) => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
-            </select>
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <div>
-            <label style={label}>Department</label>
-            <select value={form.departmentId} onChange={(e) => set({ departmentId: e.target.value })} style={{ ...inputStyle, cursor: 'pointer' }}>
-              <option value="">None</option>
-              {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
+            <label style={label}>Teams</label>
+            {departments.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: NX.faint }}>No teams yet.</div>
+            ) : (
+              <div style={{ maxHeight: 160, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {departments.map((d) => {
+                  const on = (form.departmentIds || []).includes(d.id);
+                  return (
+                    <label key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={on} onChange={() => set({ departmentIds: on ? form.departmentIds.filter((x) => x !== d.id) : [...(form.departmentIds || []), d.id] })} style={{ cursor: 'pointer' }} />
+                      <span style={{ width: 9, height: 9, borderRadius: '50%', background: d.color || NX.purple, flexShrink: 0 }} />
+                      {d.name}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
           </div>
           <div>
             <label style={label}>Portfolio</label>
@@ -251,22 +249,30 @@ function ProjectModal({ form, setForm, people, departments, portfolios, onClose,
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <div>
-            <label style={label}>Start date</label>
-            <input type="date" value={form.startOn || ''} onChange={(e) => set({ startOn: e.target.value })} style={{ ...inputStyle, cursor: 'pointer' }} />
-          </div>
-          <div>
-            <label style={label}>Due date</label>
-            <input type="date" value={form.dueOn || ''} onChange={(e) => set({ dueOn: e.target.value })} style={{ ...inputStyle, cursor: 'pointer' }} />
-          </div>
-        </div>
-
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: NX.ink, cursor: 'pointer' }}>
           <input type="checkbox" checked={form.archived} onChange={(e) => set({ archived: e.target.checked })} style={{ cursor: 'pointer' }} />
           Archived
         </label>
       </div>
     </Modal>
+  );
+}
+
+// Self-contained "create a project" modal that reuses the full ProjectModal form,
+// so the navbar + Create menu matches the Projects tab exactly.
+export function ProjectCreateModal({ onClose, onCreated, defaults }) {
+  const { departments, portfolios, createProject } = useTasks();
+  const people = usePeople();
+  const [form, setForm] = useState(() => ({ ...EMPTY_FORM, ...(defaults || {}) }));
+  return (
+    <ProjectModal
+      form={form} setForm={setForm} people={people} departments={departments} portfolios={portfolios}
+      onClose={onClose}
+      onSave={async () => {
+        const { id, ...data } = form;
+        try { const p = await createProject(data); onCreated && onCreated(p); onClose(); }
+        catch { window.alert('Could not save the project.'); }
+      }}
+    />
   );
 }

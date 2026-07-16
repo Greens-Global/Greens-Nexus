@@ -11,7 +11,7 @@
 //
 // The backend stores each entry as a free-form `payload` dict (task_changelog_entries),
 // so every field below lives inside that payload; the server owns only id/createdAt/updatedAt.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Sparkles, Clock, Tag, ClipboardCheck, Plus, X, ArrowRight, CheckCircle2, User,
@@ -22,18 +22,19 @@ import {
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
+import { fmtDate } from './lib';
 import { NX, FONT, chip, card, btn, input as inputStyle } from './theme';
-import { Avatar, Modal, usePeople, PersonSelect } from './components';
+import { Avatar, Modal, usePeople, PersonSelect, useClickOutside } from './components';
 
 // ── Change-type / environment / status metadata (ported from changelogMeta.ts) ──
 const CHANGE_TYPE_META = {
-  'Bug Fix':         { label: 'Bug Fix',         color: '#dc2626', tint: '#fde5e5', icon: Bug },
-  'Performance':     { label: 'Performance',     color: '#d97706', tint: '#fdefd7', icon: TrendingUp },
-  'New Feature':     { label: 'New Feature',     color: '#16a34a', tint: '#e3f5ea', icon: Sparkles },
-  'Security Update': { label: 'Security Update', color: '#db2777', tint: '#fbe3ef', icon: ShieldAlert },
-  'Hotfix':          { label: 'Hotfix',          color: '#ea580c', tint: '#ffe4d6', icon: Flame },
-  'Maintenance':     { label: 'Maintenance',     color: '#7c3aed', tint: '#efe6fd', icon: Wrench },
-  'Improvement':     { label: 'Improvement',     color: '#2563eb', tint: '#e0eafe', icon: ArrowUpCircle },
+  'Bug Fix':         { label: 'Bug Fix',         color: '#dc2626', tint: 'rgba(220,38,38,0.15)', icon: Bug },
+  'Performance':     { label: 'Performance',     color: '#d97706', tint: 'rgba(217,119,6,0.16)', icon: TrendingUp },
+  'New Feature':     { label: 'New Feature',     color: '#16a34a', tint: 'rgba(22,163,74,0.15)', icon: Sparkles },
+  'Security Update': { label: 'Security Update', color: '#db2777', tint: 'rgba(219,39,119,0.15)', icon: ShieldAlert },
+  'Hotfix':          { label: 'Hotfix',          color: '#ea580c', tint: 'rgba(217,119,6,0.16)', icon: Flame },
+  'Maintenance':     { label: 'Maintenance',     color: '#7c3aed', tint: 'rgba(124,58,237,0.15)', icon: Wrench },
+  'Improvement':     { label: 'Improvement',     color: '#2563eb', tint: 'rgba(37,99,235,0.15)', icon: ArrowUpCircle },
 };
 const CHANGE_TYPES = ['Bug Fix', 'Performance', 'New Feature', 'Security Update', 'Hotfix', 'Maintenance', 'Improvement'];
 const ENVIRONMENT_META = {
@@ -43,10 +44,10 @@ const ENVIRONMENT_META = {
 };
 const ENVIRONMENTS = ['Production', 'Staging', 'Beta'];
 const STATUS_META = {
-  'Pending Review': { color: '#d97706', tint: '#fdefd7' },
-  'Released':       { color: '#16a34a', tint: '#e3f5ea' },
-  'Scheduled':      { color: '#2563eb', tint: '#e0eafe' },
-  'Draft':          { color: '#5b6472', tint: '#eef0f3' },
+  'Pending Review': { color: '#d97706', tint: 'rgba(217,119,6,0.16)' },
+  'Released':       { color: '#16a34a', tint: 'rgba(22,163,74,0.15)' },
+  'Scheduled':      { color: '#2563eb', tint: 'rgba(37,99,235,0.15)' },
+  'Draft':          { color: '#5b6472', tint: 'rgba(128,140,160,0.16)' },
 };
 const STATUSES = ['Pending Review', 'Released', 'Scheduled', 'Draft'];
 const typeMeta = (t) => CHANGE_TYPE_META[t] || { label: t || 'Update', color: NX.dim, tint: NX.border2, icon: Sparkles };
@@ -63,7 +64,7 @@ function toLocalDate(iso) {
 }
 function formatFullDate(iso) {
   const d = toLocalDate(iso);
-  return d && !isNaN(d) ? d.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+  return d && !isNaN(d) ? fmtDate(d) : '';
 }
 function formatTime(iso) {
   if (!iso || !String(iso).includes('T')) return '';
@@ -85,7 +86,7 @@ function relativeDayLabel(iso) {
   if (diff === 0) return 'Today';
   if (diff === 1) return 'Yesterday';
   if (diff > 1 && diff < 7) return `${diff} days ago`;
-  return day.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  return fmtDate(day);
 }
 function isWithinDays(iso, days) {
   const day = toLocalDate(dateKey(iso));
@@ -203,7 +204,7 @@ export default function Changelog({ onClose }) {
     : TABS;
 
   return createPortal(
-    <div style={{ position: 'fixed', inset: 0, zIndex: 3000, fontFamily: FONT, color: NX.ink, background: NX.canvas, display: 'flex', flexDirection: 'column', animation: 'fadeIn 0.13s ease' }}>
+    <div className="nx-tasks-portal" style={{ position: 'fixed', inset: 0, zIndex: 3000, fontFamily: FONT, color: NX.ink, background: NX.canvas, display: 'flex', flexDirection: 'column', animation: 'fadeIn 0.13s ease' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
         <Sparkles size={20} style={{ color: NX.blue, flexShrink: 0 }} />
@@ -211,7 +212,7 @@ export default function Changelog({ onClose }) {
           <div style={{ fontSize: 20, fontWeight: 700 }}>Documentation &amp; Changelog</div>
           <div style={{ fontSize: 13, color: NX.dim }}>Track all updates, releases and changes across Nexus.</div>
         </div>
-        <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => setAdding(true)}><Plus size={15} />Add new update</button>
+        <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => setAdding(true)}><Plus size={15} />Add New Update</button>
         <button onClick={onClose} title="Close" aria-label="Close" style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><X size={18} /></button>
       </div>
 
@@ -380,7 +381,7 @@ function EntryCard({ entry, nameOf, onViewDetails }) {
           {entry.description && <p style={{ margin: '12px 0 0', fontSize: 13, lineHeight: 1.55, color: NX.ink }}>{entry.description}</p>}
 
           {entry.businessImpact && (
-            <div style={{ marginTop: 12, display: 'flex', alignItems: 'flex-start', gap: 8, borderRadius: 8, background: '#e0eafe', color: NX.blue, padding: '10px 12px', fontSize: 13 }}>
+            <div style={{ marginTop: 12, display: 'flex', alignItems: 'flex-start', gap: 8, borderRadius: 8, background: 'rgba(37,99,235,0.15)', color: NX.blue, padding: '10px 12px', fontSize: 13 }}>
               <CheckCircle2 size={15} style={{ flexShrink: 0, marginTop: 1 }} /><span>{entry.businessImpact}</span>
             </div>
           )}
@@ -503,7 +504,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit })
         <span style={{ fontSize: 12, fontWeight: 600, color: NX.dim }}>{filtered.length} entries</span>
       </div>
 
-      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', minHeight: 0, flex: 1 }}>
+      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', minHeight: 0, flex: 1 }}>
         {/* Master list */}
         <div className="nx-scroll" style={{ minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 20, paddingRight: 4 }}>
           {groups.map(([k, group]) => (
@@ -561,7 +562,7 @@ function TimelineRow({ entry, selected, onClick }) {
     <button onClick={onClick} style={{
       display: 'flex', alignItems: 'center', gap: 16, width: '100%', textAlign: 'left', cursor: 'pointer',
       borderBottom: `1px solid ${NX.border}`, borderLeft: 'none', borderRight: 'none', borderTop: 'none',
-      padding: '14px 16px', background: selected ? '#eef4ff' : 'transparent', fontFamily: FONT,
+      padding: '14px 16px', background: selected ? 'rgba(37,99,235,0.10)' : 'transparent', fontFamily: FONT,
     }}>
       <span style={{ width: 48, flexShrink: 0, fontFamily: 'monospace', fontSize: 12, color: NX.dim }}>{formatTime(releasedKey(entry))}</span>
       <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: meta.color }} />
@@ -702,7 +703,7 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
               {generating ? 'Generating…' : 'Generate from git'}
             </button>
           )}
-          <button style={btn('primary')} onClick={onAdd}><Plus size={15} />Add new update</button>
+          <button style={btn('primary')} onClick={onAdd}><Plus size={15} />Add New Update</button>
         </div>
       </div>
       <p style={{ margin: '0 0 20px', fontSize: 13, color: NX.dim }}>
@@ -712,7 +713,7 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
       </p>
 
       <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: NX.ink }}>Pending review</h2>
+        <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: NX.ink }}>Pending Review</h2>
         {pending.length > 0 && <Badge label={String(pending.length)} color="#d97706" tint="#fdefd7" />}
       </div>
 
@@ -743,7 +744,7 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
         </div>
       )}
 
-      <h2 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 700, color: NX.ink }}>All updates</h2>
+      <h2 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 700, color: NX.ink }}>All Updates</h2>
       <div style={{ ...card, overflow: 'hidden' }}>
         {rest.map(({ entry, status }) => {
           const meta = typeMeta(entry.type);
@@ -784,6 +785,8 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
   const [tab, setTab] = useState('Overview');
   const [status, setStatusLocal] = useState(() => statusOf(entry));
   const [statusOpen, setStatusOpen] = useState(false);
+  const statusRef = useRef(null);
+  useClickOutside(statusRef, () => setStatusOpen(false), statusOpen);
   const [preview, setPreview] = useState(null);
   const [comments, setComments] = useState(null);
   const [draft, setDraft] = useState('');
@@ -820,7 +823,7 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {onEdit && <button onClick={onEdit} style={btn('outline')}><Pencil size={13} />Edit</button>}
           {isAdmin ? (
-            <div style={{ position: 'relative' }}>
+            <div ref={statusRef} style={{ position: 'relative' }}>
               <button onClick={() => setStatusOpen((o) => !o)} style={{ ...chip(statusMeta.color, statusMeta.tint), border: 'none', cursor: 'pointer', padding: '5px 11px' }}>
                 {status}<ChevronDown size={13} />
               </button>
@@ -871,7 +874,7 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
       </div>
 
       {/* Sub-tab body */}
-      <div className="nx-scroll" style={{ minHeight: 0, flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+      <div className="nx-scroll nx-gutter" style={{ minHeight: 0, flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
         {tab === 'Overview' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
             <div>

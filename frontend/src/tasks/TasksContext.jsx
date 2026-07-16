@@ -15,14 +15,15 @@ const Ctx = createContext(null);
 const CAMEL_TO_SNAKE = {
   assigneeId: 'assignee_email', followerIds: 'follower_emails', likedByIds: 'liked_by_emails',
   accessLevel: 'access_level', projectId: 'project_id', sectionId: 'section_id',
-  departmentId: 'department_id', parentTaskId: 'parent_task_id', subtaskIds: 'subtask_ids',
+  departmentId: 'department_id', departmentIds: 'department_ids', parentTaskId: 'parent_task_id', subtaskIds: 'subtask_ids',
   blockedByIds: 'blocked_by_ids', blockingIds: 'blocking_ids', dependencyTypes: 'dependency_types',
   customFieldValues: 'custom_field_values', startOn: 'start_on', dueOn: 'due_on',
   estimateHours: 'estimate_hours', actualHours: 'actual_hours', isMilestone: 'is_milestone',
   approvalStatus: 'approval_status', ownerId: 'owner_email', memberIds: 'member_emails',
   portfolioId: 'portfolio_id', projectIds: 'project_ids', targetProjectId: 'target_project_id',
   requesterId: 'requester_email', linkedTaskId: 'linked_task_id', slaDueOn: 'sla_due_on',
-  subtaskTitles: 'subtask_titles',
+  watcherIds: 'watcher_emails', csatRating: 'csat_rating', csatComment: 'csat_comment',
+  taskIds: 'task_ids', subtaskTitles: 'subtask_titles',
 };
 function toBody(patch) {
   const out = {};
@@ -39,6 +40,7 @@ export function TasksProvider({ children }) {
   const [portfolios, setPortfolios] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [tickets, setTickets] = useState([]);
+  const [ticketComponents, setTicketComponents] = useState([]);
   const [savedViews, setSavedViews] = useState([]);
   const [rules, setRules] = useState([]);
   const [templates, setTemplates] = useState([]);
@@ -52,12 +54,13 @@ export function TasksProvider({ children }) {
   const commentCache = useRef({});   // taskId -> comment[]
 
   const loadCore = useCallback(async () => {
-    const [t, p, pf, d, tk, sv, r, tpl, cf, cs, mr, intk, chl] = await Promise.all([
+    const [t, p, pf, d, tk, tc, sv, r, tpl, cf, cs, mr, intk, chl] = await Promise.all([
       api.getTasks().catch(() => []),
       api.getTaskProjects().catch(() => []),
       api.getTaskPortfolios().catch(() => []),
       api.getTaskDepartments().catch(() => []),
       api.getTaskTickets().catch(() => []),
+      api.getTicketComponents().catch(() => []),
       api.getTaskSavedViews().catch(() => []),
       api.getTaskAutomationRules().catch(() => []),
       api.getTaskTemplates().catch(() => []),
@@ -68,7 +71,7 @@ export function TasksProvider({ children }) {
       api.getTaskChangelog().catch(() => []),
     ]);
     setTasks(t || []); setProjects(p || []); setPortfolios(pf || []); setDepartments(d || []);
-    setTickets(tk || []); setSavedViews(sv || []); setRules(r || []); setTemplates(tpl || []);
+    setTickets(tk || []); setTicketComponents(tc || []); setSavedViews(sv || []); setRules(r || []); setTemplates(tpl || []);
     setCustomFields(cf || []); setCustomStatuses(cs || []); setMemberRequests(mr || []);
     setIntakeForms(intk || []); setChangelog(chl || []);
     setLoading(false);
@@ -171,6 +174,13 @@ export function TasksProvider({ children }) {
     createTicket: mk(api.createTaskTicket, setTickets),
     updateTicket: mkUpd(api.updateTaskTicket, setTickets),
     deleteTicket: mkDel(api.deleteTaskTicket, setTickets),
+    createTicketComponent: mk(api.addTicketComponent, setTicketComponents),
+    deleteTicketComponent: mkDel(api.deleteTicketComponent, setTicketComponents),
+    // link/escalate return the updated ticket(s); refresh the whole list so the
+    // inverse link on the other ticket (and any priority bump) is reflected too.
+    addTicketLink: async (id, targetId, type) => { const r = await api.addTicketLink(id, { ticket_id: targetId, type }); setTickets(await api.getTaskTickets().catch(() => [])); return r; },
+    removeTicketLink: async (id, targetId) => { const r = await api.removeTicketLink(id, targetId); setTickets(await api.getTaskTickets().catch(() => [])); return r; },
+    escalateTicket: async (id) => { const r = await api.escalateTicket(id); setTickets((p) => p.map((x) => (x.id === id ? r : x))); return r; },
     createSavedView: mk(api.createTaskSavedView, setSavedViews),
     deleteSavedView: mkDel(api.deleteTaskSavedView, setSavedViews),
     createRule: mk(api.createTaskAutomationRule, setRules),
@@ -209,7 +219,7 @@ export function TasksProvider({ children }) {
 
   const value = {
     loading, myEmail, nameOf,
-    tasks, projects, portfolios, departments, tickets, savedViews, rules, templates,
+    tasks, projects, portfolios, departments, tickets, ticketComponents, savedViews, rules, templates,
     customFields, customStatuses, notifications, memberRequests, intakeForms, changelog,
     taskById, projectById, portfolioById, deptById, projectName, deptName,
     getComments, addComment, commentCache: commentCache.current,

@@ -8,6 +8,7 @@
 @keyframes pdfEditorIn { from { opacity: 0; transform: scale(0.965) translateY(10px); } to { opacity: 1; transform: none; } }
 
 :root {
+  color-scheme: light;
   --paper:       #f4f5f7;
   --card:        #ffffff;
   --sidebar:     #ffffff;
@@ -60,9 +61,24 @@
   --color-purple: 271,60%,48%;
   --color-red:    350,65%,48%;
   --color-gold:   42,80%,42%;
+
+  /* Task Module palette — structural tokens (theme-aware). The module's NX
+     palette in theme.js points at these; accent colours (blue/green/…) stay
+     literal since they're alpha-composited. */
+  --nx-canvas:   #f4f5f7;
+  --nx-surface:  #ffffff;
+  --nx-surface2: #fafbfc;
+  --nx-ink:      #1a1d24;
+  --nx-dim:      #5b6472;
+  --nx-faint:    #8b93a1;
+  --nx-border:   #e6e8ec;
+  --nx-border2:  #eef0f3;
+  --nx-hover:    #f0f2f5;
+  --nx-primary:  #111827;
 }
 
 [data-theme="dark"] {
+  color-scheme: dark;
   --body-bg: linear-gradient(145deg, #0a0e1a 0%, #0f1629 100%);
   --paper:   #0d1117;
   --card:    #161b27;
@@ -98,6 +114,19 @@
   --shadow-sm: 0 1px 3px rgba(0,0,0,.5), 0 1px 6px rgba(0,0,0,.35);
   --shadow-md: 0 2px 12px rgba(0,0,0,.6), 0 4px 24px rgba(0,0,0,.45);
   --shadow-lg: 0 8px 32px rgba(0,0,0,.7), 0 2px 10px rgba(0,0,0,.5);
+
+  /* Task Module palette — dark theme. Elevation order (darkest→lightest):
+     canvas < surface2 < surface, mirroring light where page < band < card. */
+  --nx-canvas:   #0d1117;
+  --nx-surface:  #171c29;
+  --nx-surface2: #10141e;
+  --nx-ink:      #e8edf5;
+  --nx-dim:      #9aa6bd;
+  --nx-faint:    #6b7688;
+  --nx-border:   rgba(255,255,255,0.10);
+  --nx-border2:  rgba(255,255,255,0.055);
+  --nx-hover:    rgba(255,255,255,0.06);
+  --nx-primary:  #3a4358;
 }
 
 /* â”€â”€ Reset â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -604,6 +633,14 @@ h1,h2,h3,h4,h5,h6,
 
 /* â”€â”€ Viewport â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .viewport { padding: 32px 36px; overflow-y: auto; background: transparent; }
+
+/* Task module manages its own full-height flex layout + internal scrolling
+   (fixed header/tabs, scrolling body per sub-view) — the default .viewport
+   padding + content-based sizing left empty margins on every side and let
+   the module's white chrome fall short of the viewport instead of filling
+   it. Strip padding and give it a definite height (100vh minus the 56px
+   .top-header) so height:100% cascades correctly through the module. */
+.viewport-flush { padding: 0; overflow: hidden; display: flex; flex-direction: column; height: calc(100vh - 56px); }
 
 /* â”€â”€ Buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .primary-btn, .btn-primary {
@@ -1345,6 +1382,18 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 .scroll-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; }
 .scroll-tabs::-webkit-scrollbar { display: none; height: 0; }
 
+/* Task Module themed scrollbars — theme-aware (light/dark) via --nx-* tokens.
+   color-scheme (set on :root per theme) already darkens native/unstyled bars;
+   these give the module's styled scroll areas a slimmer, on-brand thumb. */
+.nx-scroll { scrollbar-width: thin; scrollbar-color: var(--nx-faint) transparent; }
+.nx-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.nx-scroll::-webkit-scrollbar-track { background: transparent; }
+.nx-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--nx-faint); border-radius: 8px;
+  border: 2px solid transparent; background-clip: padding-box;
+}
+.nx-scroll::-webkit-scrollbar-thumb:hover { background-color: var(--nx-dim); background-clip: padding-box; }
+
 /* â”€â”€ Gradient KPI cards (June 2026 design pass) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Soft per-color gradient tint on KPI cards with a colored left edge.
    Uses ONLY the existing palette variables â€” no new colors. */
@@ -1423,6 +1472,30 @@ mark.search-hit {
 /* Smaller laptops (1366x768 and friends): reclaim horizontal space */
 @media (max-width: 1366px) {
   .viewport { padding: 24px 22px; }
+}
+
+/* ── Task Module rich list — hover-reveal cell affordances ───────────────────
+   Hovering a row greys the whole row (set inline in JS); hovering a specific
+   editable cell lifts it with a white surface + subtle blue ring and reveals
+   its picker affordance — pill dropdown chevrons, the native date-picker
+   calendar icon, and number-input spinners. Matches the standalone export's
+   table. Kept as real CSS since inline styles can't express :hover on their own. */
+.rl-cell { border-radius: 6px; transition: background 0.1s, box-shadow 0.1s; }
+.rl-cell:hover, .rl-cell:focus-within {
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.35);
+}
+.rl-chevron { opacity: 0; transition: opacity 0.1s; }
+.rl-cell:hover .rl-chevron, .rl-cell:focus-within .rl-chevron { opacity: 0.55; }
+.rl-date::-webkit-calendar-picker-indicator { opacity: 0; transition: opacity 0.1s; }
+.rl-cell:hover .rl-date::-webkit-calendar-picker-indicator,
+.rl-cell:focus-within .rl-date::-webkit-calendar-picker-indicator { opacity: 1; }
+.rl-num::-webkit-inner-spin-button, .rl-num::-webkit-outer-spin-button { opacity: 0; transition: opacity 0.1s; }
+.rl-cell:hover .rl-num::-webkit-inner-spin-button, .rl-cell:hover .rl-num::-webkit-outer-spin-button,
+.rl-cell:focus-within .rl-num::-webkit-inner-spin-button, .rl-cell:focus-within .rl-num::-webkit-outer-spin-button { opacity: 1; }
+
+:root[data-theme="dark"] .rl-cell:hover, :root[data-theme="dark"] .rl-cell:focus-within {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 @media (max-width: 900px) {
@@ -2268,4 +2341,105 @@ button, [role="button"], select { touch-action: manipulation; }
   white-space: nowrap;
   user-select: none;
   cursor: default;
+}
+
+/* ============================================================
+   Task module — responsive chrome
+   The module is inline-styled (ported 1:1 from the export), so these rules
+   need !important to win over the element's own style attribute. Breakpoints
+   match the rest of the app: 1366 (laptop) / 900 (tablet) / 640 (phone).
+   ============================================================ */
+
+/* Laptops and small notebooks — trim the chrome a little. */
+@media (max-width: 1366px) {
+  .nx-module-tab { padding: 11px 10px !important; }
+}
+
+/* Tablets / iPad — tighter tabs, less page gutter. */
+@media (max-width: 900px) {
+  .nx-ptab { padding: 10px 12px !important; font-size: 0.9rem !important; }
+  .nx-primary-bar { padding: 0 12px !important; }
+  .nx-module-tabs { padding: 0 12px !important; }
+  .nx-module-tab { padding: 10px 9px !important; font-size: 13px !important; gap: 6px !important; }
+  .nx-page { padding: 16px !important; }
+}
+
+/* Phones — icon-only Create/Manage, compact navbar, full-bleed cards. */
+@media (max-width: 640px) {
+  /* Create / Manage / Exit collapse to their icon. */
+  .nx-tasks .nx-btn-label { display: none; }
+  .nx-tasks .nx-iconbtn {
+    padding: 8px !important;
+    gap: 0 !important;
+    min-width: 36px;
+    justify-content: center;
+  }
+
+  /* Navbar: both rows shrink so the whole header fits one screen. */
+  .nx-primary-bar { padding: 0 8px !important; gap: 2px !important; }
+  .nx-ptab { padding: 8px 10px !important; font-size: 0.85rem !important; }
+  .nx-module-tabs { padding: 0 6px !important; gap: 0 !important; }
+  .nx-module-tab { padding: 9px 8px !important; font-size: 12px !important; gap: 5px !important; }
+
+  /* Cards run edge to edge instead of floating in a wide gutter. */
+  .nx-page { padding: 10px !important; }
+  .nx-card-grid { gap: 10px !important; }
+
+  /* Page bodies across the module (My Tasks, Projects, Portfolios, Teams,
+     Changelog): shrink the 16-24px gutter so content cards use the full width. */
+  .nx-gutter { padding: 8px !important; }
+}
+
+/* Very narrow phones (≤430px): drop the module-tab icons so Home / My Tasks /
+   Projects / Portfolios / Teams fit as text-only labels. */
+@media (max-width: 430px) {
+  .nx-module-tab-icon { display: none !important; }
+}
+
+/* ---- Task module — small-screen corrections ------------------------------
+   1. No `zoom` scaling. It was tried and reverted: zoom shrinks an element's
+      used size, so the module and its fixed overlays no longer covered the
+      viewport — that was the white strip down the right/bottom edge.
+   2. The global `.scroll-tabs` rule turns every tab strip into a sticky bar
+      (top: 56px) below 900px. Inside the task module that made the module tabs
+      and view tabs float over the content beneath them, so it's turned off
+      here — the strips still scroll/swipe horizontally, they just don't stick. */
+@media (max-width: 900px) {
+  .nx-tasks .scroll-tabs,
+  .nx-tasks-portal .scroll-tabs {
+    position: static !important;
+    top: auto !important;
+    z-index: auto !important;
+  }
+}
+
+/* ---- Task module — smaller type on phones ---------------------------------
+   Font sizes in this module are inline px literals, so CSS can only reach them
+   with !important, and only where a selector can name the element. Controls
+   (button/input/select/textarea/label) are nameable and carry most of the
+   module's text, so they get a single step down. Structural text (page titles,
+   card headings) is sized per-view via the isMobile flag in JSX instead.
+
+   Deliberately NOT done here: a blanket `.nx-tasks * { font-size }`, which
+   would flatten the 11px→26px hierarchy to one size, and container `zoom`,
+   which shrinks the box itself and left a blank strip down the page edge.
+   Geometry (padding, gaps, widths) is untouched, so nothing reflows. */
+@media (max-width: 640px) {
+  .nx-tasks button,
+  .nx-tasks select,
+  .nx-tasks label,
+  .nx-tasks-portal button,
+  .nx-tasks-portal select,
+  .nx-tasks-portal label {
+    font-size: 12.5px !important;
+  }
+
+  /* Inputs stay at 16px: anything smaller makes iOS zoom the page on focus
+     (the same rule the rest of Nexus follows). */
+  .nx-tasks input,
+  .nx-tasks textarea,
+  .nx-tasks-portal input,
+  .nx-tasks-portal textarea {
+    font-size: 16px !important;
+  }
 }

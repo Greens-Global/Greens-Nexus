@@ -16,6 +16,8 @@ import TeamsView from '../tasks/TeamsView';
 import TicketsView from '../tasks/TicketsView';
 import ManageView from '../tasks/ManageView';
 import ReportBugButton from '../tasks/ReportBug';
+import CreateMenu from '../tasks/CreateMenu';
+import { useIsMobile } from '../tasks/components';
 import { NX, FONT } from '../tasks/theme';
 
 // Module tabs — matches the export's NexusModuleTabs exactly (no "All tasks").
@@ -36,10 +38,10 @@ function SubView({ sub, projectId, onNavigate, onExitManage }) {
   switch (sub) {
     case 'home':       return <HomeView onNavigate={onNavigate} />;
     case 'mine':       return <MyTasksView onOpenTask={(id) => onNavigate('open-task', id)} />;
-    case 'tasks':      return <TasksWorkspace lockedProjectId={projectId} />;
+    case 'tasks':      return <TasksWorkspace lockedProjectId={projectId} onBack={() => onNavigate('projects')} />;
     case 'projects':   return <ProjectsView onNavigate={onNavigate} />;
     case 'portfolios': return <PortfoliosView onNavigate={onNavigate} />;
-    case 'teams':      return <TeamsView />;
+    case 'teams':      return <TeamsView onNavigate={onNavigate} />;
     case 'tickets':    return <TicketsView />;
     case 'manage':     return <ManageView onExit={onExitManage} />;
     default:           return <HomeView onNavigate={onNavigate} />;
@@ -48,11 +50,18 @@ function SubView({ sub, projectId, onNavigate, onExitManage }) {
 
 export default function Tasks({ activeSub, onSubChange, onNavigate }) {
   const sub = ALL_SUBS.includes(activeSub) ? activeSub : DEFAULT_SUB;
+  const isMobile = useIsMobile();
   const [projectId, setProjectId] = useState(null);
   const go = (key) => (onSubChange ? onSubChange(key) : undefined);
 
   const onManage = sub === 'manage';
   const onTicket = sub === 'tickets';
+
+  // A task created from the Create menu / floating + inherits the screen's
+  // context — scoped to the project you've drilled into, like Asana.
+  const taskDefaults = (sub === 'tasks' && projectId) ? { projectId } : {};
+  // My Tasks and a project's task workspace render their own floating MobileTaskBar.
+  const hasMobileBar = sub === 'mine' || sub === 'tasks';
 
   // Sub-view navigation. A project drill-in (from Projects) targets the generic
   // task list locked to that project; a within-module tab jump switches sub.
@@ -64,56 +73,72 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
     return onNavigate ? onNavigate(a, b) : undefined;
   };
 
+  // Tab styling matches the SOP module's Playbook/Learn bar exactly: Plus
+  // Jakarta Sans, var(--text-primary)/var(--text-secondary), a 2.5px rounded
+  // underline instead of a border, 10px 18px padding.
   const primaryTab = (label, active, onClick) => (
-    <button onClick={onClick} style={{
-      display: 'flex', alignItems: 'center', gap: 8, padding: '13px 0', whiteSpace: 'nowrap',
-      border: 'none', borderBottom: `2px solid ${active ? NX.ink : 'transparent'}`, background: 'transparent',
-      cursor: 'pointer', fontSize: 16, fontWeight: 700, fontFamily: FONT, color: active ? NX.ink : NX.dim,
-    }}>{label}</button>
+    <button onClick={onClick} className="nx-ptab" style={{
+      background: 'none', border: 'none', padding: '10px 18px', whiteSpace: 'nowrap',
+      fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '0.95rem',
+      cursor: 'pointer', color: active ? 'var(--text-primary)' : 'var(--text-secondary)', position: 'relative',
+    }}>
+      {label}
+      {active && <span style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: 'var(--text-primary)', borderRadius: '4px 4px 0 0' }} />}
+    </button>
   );
 
   return (
     <TasksProvider>
-      <div style={{ fontFamily: FONT, display: 'flex', flexDirection: 'column', height: '100%', background: NX.canvas }}>
-        {/* Primary bar — Task | Ticket + Manage (export's NexusPrimaryTabs) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 24, padding: '0 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, flexShrink: 0 }}>
-          {primaryTab('Task', !onTicket && !onManage, () => go(TASK_SUBS.includes(sub) ? sub : 'home'))}
-          {primaryTab('Ticket', onTicket, () => go('tickets'))}
+      <div className="nx-tasks" style={{ fontFamily: FONT, display: 'flex', flexDirection: 'column', height: '100%', background: NX.canvas }}>
+        {/* Primary bar — Task | Ticket + Create + Manage, styled to the Nexus
+            global header reference (SOP's Playbook/Learn bar): shared
+            .primary-btn / .secondary-btn classes, matching tab treatment. */}
+        <div className="nx-primary-bar" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)', flexShrink: 0 }}>
+          {primaryTab('Tasks', !onTicket && !onManage, () => go(TASK_SUBS.includes(sub) ? sub : 'home'))}
+          {primaryTab('Tickets', onTicket, () => go('tickets'))}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Navbar Create menu. On mobile it's shown on the screens that don't
+                have their own MobileTaskBar + (My Tasks / workspace keep the bar's +). */}
+            {!onManage && (!isMobile || !hasMobileBar) && <CreateMenu onNavigate={go} taskDefaults={taskDefaults} />}
             {onManage ? (
-              <button onClick={() => go('home')} style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8,
-                border: `1px solid ${NX.primary}`, background: NX.primary, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: FONT,
-              }}><X size={14} /> Exit</button>
+              <button className="primary-btn nx-iconbtn" onClick={() => go('home')} title="Exit" style={{ fontFamily: FONT }}>
+                <X size={14} /> <span className="nx-btn-label">Exit</span>
+              </button>
             ) : (
-              <button onClick={() => go('manage')} style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8,
-                border: `1px solid ${NX.border}`, background: NX.surface, color: NX.ink, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: FONT,
-              }}><Settings size={14} /> Manage</button>
+              <button className="secondary-btn nx-iconbtn" onClick={() => go('manage')} title="Manage" style={{ fontFamily: FONT }}>
+                <Settings size={14} /> <span className="nx-btn-label">Manage</span>
+              </button>
             )}
           </div>
         </div>
 
         {/* Module tabs — only in Task mode (hidden on Ticket / Manage) */}
         {!onTicket && !onManage && (
-          <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '0 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, overflowX: 'auto', flexShrink: 0 }}>
+          <div className="scroll-tabs nx-module-tabs" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '0 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, overflowX: 'auto', flexShrink: 0 }}>
             {MODULE_TABS.map(({ key, label, icon: Icon }) => {
               const on = key === sub || (key === 'projects' && sub === 'tasks');
               return (
-                <button key={key} onClick={() => go(key)} style={{
+                <button key={key} onClick={() => go(key)} className="nx-module-tab" style={{
                   display: 'flex', alignItems: 'center', gap: 8, padding: '12px 12px', whiteSpace: 'nowrap',
                   border: 'none', borderBottom: `2px solid ${on ? NX.primary : 'transparent'}`, background: 'transparent',
                   cursor: 'pointer', fontSize: 14, fontWeight: 600, fontFamily: FONT, color: on ? NX.ink : NX.dim,
-                }}><Icon size={16} /> {label}</button>
+                }}><Icon size={16} className="nx-module-tab-icon" /> {label}</button>
               );
             })}
           </div>
         )}
 
-        <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+        {/* No overflow here — every sub-view owns its own header + scrolling
+            body (e.g. PortfoliosView, MyTasksView). A second overflow:auto
+            wrapper here double-nests scroll containers, which on some
+            viewport sizes breaks height:100% propagation and clips content
+            instead of letting the sub-view's own body scroll. */}
+        <div style={{ flex: 1, minHeight: 0 }}>
           <SubView sub={sub} projectId={projectId} onNavigate={subNavigate} onExitManage={() => go('home')} />
         </div>
-        <ReportBugButton />
+        {/* Create moved into the navbar on mobile (see the Create menu above); the
+            My Tasks / workspace screens still create via their MobileTaskBar +. */}
+        <ReportBugButton bottom={isMobile && hasMobileBar ? 84 : undefined} />
       </div>
     </TasksProvider>
   );

@@ -7,8 +7,8 @@ export const EMPTY_FILTER = {
   tags: [], due: 'any', dueFrom: null, dueTo: null, search: '',
 };
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
-const addDays = (iso, n) => { const d = new Date(iso); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+export const todayISO = () => new Date().toISOString().slice(0, 10);
+export const addDays = (iso, n) => { const d = new Date(iso); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 
 function dueMatches(task, due, dueFrom, dueTo) {
   if (dueFrom && (!task.dueOn || task.dueOn < dueFrom)) return false;
@@ -66,6 +66,24 @@ export function sortTasks(list, sort = { key: 'manual', dir: 'asc' }) {
   return sort.dir === 'desc' ? out.reverse() : out;
 }
 
+/** The context a new task inherits when added under a given group section —
+ *  so "Do Today" dates it today, a status column sets that status, a project
+ *  group scopes it to that project, etc. (Asana's add-from-anywhere flow). */
+export function groupAddDefaults(group, key) {
+  if (group === 'date') {
+    const today = todayISO();
+    if (key === 'today') return { dueOn: today };
+    if (key === 'week') return { dueOn: addDays(today, 7) };
+    if (key === 'later') return { dueOn: addDays(today, 14) };
+    return {}; // "Recently Assigned" → no due date
+  }
+  if (group === 'status') return { status: key };
+  if (group === 'priority') return { priority: key };
+  if (group === 'project') return key && key !== '—' ? { projectId: key } : {};
+  if (group === 'department') return key && key !== '—' ? { departmentId: key } : {};
+  return {}; // assignee, none
+}
+
 /** Group tasks by a GroupBy key. Returns [{ key, label, tasks }] ordered sensibly. */
 export function groupTasks(list, group, ctx = {}) {
   if (!group || group === 'none') return [{ key: 'all', label: '', tasks: list }];
@@ -74,10 +92,10 @@ export function groupTasks(list, group, ctx = {}) {
     const today = todayISO();
     const weekEnd = addDays(today, 7);
     const out = [
-      { key: 'recent', label: 'Recently assigned', tasks: [] },
-      { key: 'today', label: 'Do today', tasks: [] },
-      { key: 'week', label: 'Do next week', tasks: [] },
-      { key: 'later', label: 'Do later', tasks: [] },
+      { key: 'recent', label: 'Recently Assigned', tasks: [] },
+      { key: 'today', label: 'Do Today', tasks: [] },
+      { key: 'week', label: 'Do Next Week', tasks: [] },
+      { key: 'later', label: 'Do Later', tasks: [] },
     ];
     const by = Object.fromEntries(out.map((b) => [b.key, b]));
     for (const t of list) {
@@ -95,9 +113,9 @@ export function groupTasks(list, group, ctx = {}) {
     if (group === 'status') push(t.status || 'not_started', STATUS_META[t.status]?.label || t.status, t);
     else if (group === 'priority') push(t.priority || 'low', (t.priority || 'low').replace(/^\w/, (c) => c.toUpperCase()), t);
     else if (group === 'assignee') push(t.assigneeId || '—', ctx.nameOf ? ctx.nameOf(t.assigneeId) : (t.assigneeId || 'Unassigned'), t);
-    else if (group === 'project') push(t.projectId || '—', ctx.projectName?.(t.projectId) || 'No project', t);
-    else if (group === 'department') push(t.departmentId || '—', ctx.deptName?.(t.departmentId) || 'No department', t);
-    else if (group === 'date') push(t.dueOn || '—', t.dueOn || 'No due date', t);
+    else if (group === 'project') push(t.projectId || '—', ctx.projectName?.(t.projectId) || 'No Project', t);
+    else if (group === 'department') push(t.departmentId || '—', ctx.deptName?.(t.departmentId) || 'No Team', t);
+    else if (group === 'date') push(t.dueOn || '—', t.dueOn || 'No Due Date', t);
     else push('all', '', t);
   }
   let arr = [...buckets.values()];
@@ -112,4 +130,32 @@ export function taskStats(list) {
   const inProgress = list.filter((t) => t.status === 'in_progress' && !t.completed).length;
   const overdue = list.filter((t) => t.dueOn && t.dueOn < todayISO() && !t.completed).length;
   return { total, completed, inProgress, overdue, pct: total ? Math.round((completed / total) * 100) : 0 };
+}
+
+// ── Dates ────────────────────────────────────────────────────────────────────
+// One date format for the whole module: mm/dd/yyyy. The views previously each
+// rolled their own (`Jul 15`, `15 July 2026`, locale default…), so a task's due
+// date read differently depending on which screen you were looking at.
+// `en-US` is pinned explicitly — the browser locale must not decide this.
+const asDate = (v) => {
+  if (!v) return null;
+  const d = new Date(typeof v === 'string' && v.length <= 10 ? `${v}T00:00:00` : v);
+  return isNaN(d) ? null : d;
+};
+
+/** mm/dd/yyyy — e.g. 07/15/2026. Returns '' for empty, the raw value if unparseable. */
+export function fmtDate(v) {
+  const d = asDate(v);
+  if (!d) return v || '';
+  return d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+}
+
+/** mm/dd/yyyy, h:mm AM — for activity/comment timestamps. */
+export function fmtDateTime(v) {
+  const d = asDate(v);
+  if (!d) return v || '';
+  return d.toLocaleString('en-US', {
+    month: '2-digit', day: '2-digit', year: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  });
 }
