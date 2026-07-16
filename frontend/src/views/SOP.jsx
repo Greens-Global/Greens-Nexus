@@ -854,7 +854,7 @@ export default function SOP({ activeSub, onSubChange }) {
   const openAssign = async (course) => {
     setAssign({ course, roster: null, directory: [], picks: [], due: '', busy: false, q: '' });
     try {
-      const [roster, directory] = await Promise.all([api.getKbCourseAssignments(course.id), api.getRolesDirectory()]);
+      const [roster, directory] = await Promise.all([api.getKbCourseAssignments(course.id), api.getPeopleDirectory()]);
       setAssign(a => (a ? { ...a, roster, directory } : a));
     } catch (e) { setErr(e.message || 'Failed to load assignments'); }
   };

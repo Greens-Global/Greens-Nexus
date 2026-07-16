@@ -65,12 +65,12 @@ export function Modal({ title, onClose, children, footer, width = 560 }) {
   );
 }
 
-// Loads the roles directory once (deduped in api.js) → [{email,name}] for pickers.
+// Loads the Nexus People directory once (deduped in api.js) → [{email,name}] for pickers.
 export function usePeople() {
   const [people, setPeople] = useState([]);
   useEffect(() => {
     let alive = true;
-    api.getRolesDirectory().then((rows) => {
+    api.getPeopleDirectory().then((rows) => {
       if (!alive) return;
       setPeople((rows || []).map((u) => ({ email: (u.email || '').toLowerCase(), name: u.name || u.display_name || u.email })).filter((p) => p.email));
     }).catch(() => {});

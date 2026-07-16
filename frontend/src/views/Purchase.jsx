@@ -67,7 +67,7 @@ export default function Purchase({ activeSub = null }) {
   const [approverEmail, setApproverEmail] = useState('');
 
   useEffect(() => {
-    api.getRolesDirectory().then(setDirectory).catch(() => {});
+    api.getPeopleDirectory().then(setDirectory).catch(() => {});
     api.getItemApprovers().then(rows => {
       setApprovers(rows);
       const remembered = localStorage.getItem('nexus-approver-email');

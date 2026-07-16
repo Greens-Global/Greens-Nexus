@@ -1163,7 +1163,8 @@ async def upload_photo(eid: str, file: UploadFile = File(...),
 # The M365 directory import is scoped to the company's own domains only. Guests
 # (#EXT# accounts) and every other vanity/partner domain (e.g. Z#Incentives)
 # stay out of HR entirely. (Neil, Jun 27)
-_COMPANY_DOMAINS = ("greensglobal.com", "greensstorage.com")
+# aaravconstruction.com added Jul 16 (Visesh) — their staff are part of Nexus.
+_COMPANY_DOMAINS = ("greensglobal.com", "greensstorage.com", "aaravconstruction.com")
 
 
 def _primary_addr(g: dict) -> str:
@@ -1242,7 +1243,7 @@ def _graph_directory(token: str) -> list:
 @router.post("/employees/sync-m365")
 def sync_m365(user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     """Pull the M365 directory into HR. Only the company's own domains
-    (greensglobal.com, greensstorage.com) come in — guests and partner domains
+    (see _COMPANY_DOMAINS) come in — guests and other partner domains
     are skipped, and so are non-people: departed staff (#Inactive convention)
     and shared/site/room mailboxes. People not in HR yet are created; existing
     profiles are linked by Entra id / work email and have empty fields backfilled
