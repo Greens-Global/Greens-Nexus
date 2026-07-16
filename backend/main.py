@@ -13,6 +13,7 @@ from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import jobroles  # Roles & Access redesign (Jul 2026)
 from routers import access_scopes  # row-level scopes for external users (Jul 2026)
 from routers import qa  # Testing module — dev-only via NEXUS_QA_MODULE env (Jul 2026)
+from routers import credvault  # Credential Vault (Jul 2026)
 from audit import AuditMiddleware
 
 
@@ -503,4 +504,5 @@ app.include_router(myhr.router)
 app.include_router(hr_interviews.router)
 app.include_router(task_projects.router)  # Task Module: projects/portfolios/departments
 app.include_router(task_config.router)    # Task Module: views/rules/templates/tickets/notifications/changelog
+app.include_router(credvault.router)      # Credential Vault: encrypted company/personal secrets ("credvault" grant)
 

@@ -1731,3 +1731,94 @@ class QaAssignment(Base):
     note           = Column(String, default="")
     assigned_by    = Column(String, default="")
     created_at     = Column(String, default="")
+# Credential Vault (ported from the standalone credential-vault-dev app — Jul 2026)
+# Company + personal password vault. Secrets are Fernet-encrypted at rest
+# (NEXUS_VAULT_KEY env var; see routers/credvault.py) and are NEVER returned by
+# list endpoints — only by explicit per-item reveal endpoints, every one of
+# which writes a vault_access_logs row (who revealed what, when). Access is
+# gated by the "credvault" module grant. Personal credentials are strictly
+# owner-scoped: no admin bypass.
+# ─────────────────────────────────────────────────────────────────────────────
+class VaultCredential(Base):
+    __tablename__ = "vault_credentials"
+    id                 = Column(String, primary_key=True)
+    name               = Column(String, nullable=False)
+    dept               = Column(String, default="")
+    type               = Column(String, default="Password")   # Password|API key|Access key|Certificate
+    username           = Column(String, default="")
+    url                = Column(String, default="")
+    secret_enc         = Column(String, default="")           # Fernet ciphertext — never in list responses
+    secret_hash        = Column(String, default="")           # sha256 — reuse detection without decrypting
+    tier               = Column(String, default="Standard")   # Standard|High|Critical
+    owner_email        = Column(String, default="", index=True)
+    backup_owner_email = Column(String, default="")
+    strength           = Column(String, default="strong")     # weak|fair|strong (evaluated server-side)
+    breached           = Column(Boolean, default=False)
+    rotation_max       = Column(Integer, default=90)          # days between required rotations
+    custom_expiry      = Column(Boolean, default=False)
+    rotated_at         = Column(String, default="")           # ISO — last password change
+    expires_at         = Column(String, default="")           # ISO date — hard expiry (API keys), optional
+    deleted_at         = Column(String, default="")           # soft delete → Trash tab
+    deleted_by         = Column(String, default="")
+    created_at         = Column(String, default="")
+    created_by         = Column(String, default="")
+
+
+class VaultPersonalCredential(Base):
+    """Private per-user credential — bound to the signed-in MS account email.
+    Owner-only at the API: not readable by admins or anyone else."""
+    __tablename__ = "vault_personal_credentials"
+    id          = Column(String, primary_key=True)
+    owner_email = Column(String, default="", index=True)
+    name        = Column(String, nullable=False)
+    username    = Column(String, default="")
+    type        = Column(String, default="Password")
+    note        = Column(String, default="")
+    secret_enc  = Column(String, default="")
+    strength    = Column(String, default="strong")
+    created_at  = Column(String, default="")
+
+
+class VaultShareRequest(Base):
+    """Pending approval: either a share request routed to the credential's
+    owner (owner_email set) or a Critical-tier reveal request routed to Global
+    Admins (owner_email empty)."""
+    __tablename__ = "vault_share_requests"
+    id                 = Column(String, primary_key=True)
+    cred_id            = Column(String, default="", index=True)
+    requested_by_email = Column(String, default="")
+    shared_to_email    = Column(String, default="")           # recipient of the access
+    owner_email        = Column(String, default="")           # ""=Global Admin approval queue
+    duration_ms        = Column(BigInteger, default=3600000)
+    duration_label     = Column(String, default="1 Hour")
+    status             = Column(String, default="pending")    # pending|approved|denied
+    created_at         = Column(String, default="")
+    decided_at         = Column(String, default="")
+    decided_by         = Column(String, default="")
+
+
+class VaultAccessGrant(Base):
+    """Time-boxed shared access to one credential. The secret itself is never
+    copied here — reveal goes back through the credential + this grant check."""
+    __tablename__ = "vault_access_grants"
+    id         = Column(String, primary_key=True)
+    cred_id    = Column(String, default="", index=True)
+    granted_to = Column(String, default="", index=True)
+    granted_by = Column(String, default="")
+    granted_at = Column(String, default="")                   # ISO
+    expires_at = Column(String, default="")                   # ISO
+
+
+class VaultAccessLog(Base):
+    """Vault audit trail — every reveal/copy/create/edit/remove/share/deny."""
+    __tablename__ = "vault_access_logs"
+    id          = Column(String, primary_key=True)
+    actor_email = Column(String, default="", index=True)
+    actor_name  = Column(String, default="")
+    action      = Column(String, default="")                  # Revealed|Copied|Created|Edited|Removed|Recovered|Imported|Requested|Shared|Denied
+    cred_id     = Column(String, default="")
+    cred_name   = Column(String, default="")
+    dept        = Column(String, default="")
+    detail      = Column(JSON, nullable=True)                 # [{field,from,to}] for edits
+    loc         = Column(String, default="")
+    created_at  = Column(String, default="", index=True)

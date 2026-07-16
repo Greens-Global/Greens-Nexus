@@ -678,6 +678,29 @@ export const api = {
   timeSchedDelete:   (id)        => req(`/timeclock/schedule/${id}`, { method: 'DELETE' }),
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
+
+  // ── Credential Vault (secrets only ever come back from the /reveal endpoints) ──
+  cvCredentials:    ()           => req('/credvault/credentials'),
+  cvCreate:         (body)       => req('/credvault/credentials', { method: 'POST', body: JSON.stringify(body) }),
+  cvUpdate:         (id, body)   => req(`/credvault/credentials/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  cvDelete:         (id)         => req(`/credvault/credentials/${id}`, { method: 'DELETE' }),
+  cvBulkDelete:     (ids)        => req('/credvault/credentials/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+  cvRestore:        (id)         => req(`/credvault/credentials/${id}/restore`, { method: 'POST' }),
+  cvPurge:          (id)         => req(`/credvault/credentials/${id}/permanent`, { method: 'DELETE' }),
+  cvReveal:         (id)         => req(`/credvault/credentials/${id}/reveal`, { method: 'POST' }),
+  cvCopied:         (id)         => req(`/credvault/credentials/${id}/copied`, { method: 'POST' }),
+  cvImport:         (rows)       => req('/credvault/import', { method: 'POST', body: JSON.stringify({ rows }) }),
+  cvShare:          (id, body)   => req(`/credvault/credentials/${id}/share`, { method: 'POST', body: JSON.stringify(body) }),
+  cvRequests:       ()           => req('/credvault/requests'),
+  cvApproveRequest: (id)         => req(`/credvault/requests/${id}/approve`, { method: 'POST' }),
+  cvDenyRequest:    (id)         => req(`/credvault/requests/${id}/deny`, { method: 'POST' }),
+  cvGrants:         ()           => req('/credvault/grants'),
+  cvGrantReveal:    (id)         => req(`/credvault/grants/${id}/reveal`, { method: 'POST' }),
+  cvLogs:           ()           => req('/credvault/logs'),
+  cvPersonal:       ()           => req('/credvault/personal'),
+  cvPersonalCreate: (body)       => req('/credvault/personal', { method: 'POST', body: JSON.stringify(body) }),
+  cvPersonalDelete: (id)         => req(`/credvault/personal/${id}`, { method: 'DELETE' }),
+  cvPersonalReveal: (id)         => req(`/credvault/personal/${id}/reveal`, { method: 'POST' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch —

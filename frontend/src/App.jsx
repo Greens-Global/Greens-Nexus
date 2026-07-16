@@ -44,6 +44,7 @@ const PublicSign          = lazy(() => import("./views/PublicSign"));
 const TimeClock           = lazy(() => import("./views/TimeClock"));
 const MyHR                = lazy(() => import("./views/MyHR"));
 const Testing             = lazy(() => import("./views/Testing"));
+const CredentialVault     = lazy(() => import("./views/CredentialVault"));
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // Views that aren't registered MODULES (e.g. "purchase") fall back to a
@@ -71,6 +72,7 @@ const VIEW_MIN_ROLES = {
   'marketing':          'supervisor',
   'admin':              'administrator',
   'testing':            'supervisor',   // dev-only module; grant-driven for testers below supervisor
+  'credvault':          'supervisor',
 };
 
 // E2E mode (Playwright CI only — VITE_E2E is never set on real builds): skip the
@@ -147,6 +149,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "timeclock":          return <TimeClock />;
     case "myhr":               return <MyHR />;
     case "testing":            return <Testing />;
+    case "credvault":          return <CredentialVault />;
     default:                   return <Placeholder viewName={activeView} onBack={() => onNavigate("dashboard")} />;
   }
 }
