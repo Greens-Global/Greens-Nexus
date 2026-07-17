@@ -1482,6 +1482,7 @@ class TaskComment(Base):
     created_at   = Column(String, default="")
     edited_at    = Column(String, default="")
     pinned       = Column(Boolean, default=False)
+    internal     = Column(Boolean, default=False)   # ticket notes only: agent-visible, not shared with the requester
 
 
 class TaskAttachment(Base):
@@ -1521,6 +1522,7 @@ class TaskSavedView(Base):
     filters     = Column(JSON, default=dict)
     sort        = Column(JSON, default=dict)
     group       = Column(String, default="none")
+    scope       = Column(String, default="task")         # task|ticket — which module the view belongs to
     created_at  = Column(String, default="")
 
 
@@ -1605,13 +1607,16 @@ class TaskTicket(Base):
     priority       = Column(String, default="medium")
     requester_email= Column(String, default="", index=True)
     assignee_email = Column(String, default="", index=True)
-    department_id  = Column(String, default="", index=True)
+    department_id  = Column(String, default="", index=True)   # task department ("Team")
+    company_id     = Column(String, default="", index=True)   # HrEntity.id — company from the People module
+    hr_department_id = Column(String, default="", index=True) # HrDepartment.id — department from the People module
     linked_task_id = Column(String, default="")
     tags           = Column(JSON, default=list)
     images         = Column(JSON, default=list)   # screenshot data URLs / storage links
     watcher_emails = Column(JSON, default=list)   # people notified on ticket changes
     resolution     = Column(String, default="")   # fixed|wont_fix|duplicate|cannot_reproduce|done
     custom_field_values = Column(JSON, default=dict)  # {customFieldId: value} — reuses the task custom-field defs
+    type_fields    = Column(JSON, default=dict)   # {fieldKey: value} — per-type intake fields (bug/incident/… specific)
     links          = Column(JSON, default=list)   # [{ticketId, type}] — relates|duplicate|blocks|blocked_by
     task_ids       = Column(JSON, default=list)   # tasks spawned from / linked to this ticket (one ticket → many tasks)
     component      = Column(String, default="")   # category/component name (see TaskTicketComponent)

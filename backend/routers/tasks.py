@@ -500,8 +500,11 @@ def list_comments(task_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{task_id}/comments", status_code=201)
-def add_comment(task_id: str, body: CommentCreate, user: dict = Depends(get_current_user),
-                db: Session = Depends(get_db)):
+def add_comment(task_id: str, body: CommentCreate, notify: bool = True,
+                user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # `notify=false` (query param) posts silently — used by the Asana importer to
+    # backfill historical comments without pinging assignees/followers. Defaults
+    # to true, so normal in-app commenting is unchanged.
     t = _get_task(db, task_id)
     cid = gen_id()
     c = models.TaskComment(id=cid, task_id=task_id,
@@ -514,11 +517,12 @@ def add_comment(task_id: str, body: CommentCreate, user: dict = Depends(get_curr
     t.activity_ids = list(t.activity_ids or []) + [aid]
     # notify assignee + followers (except author)
     author = user["email"].lower()
-    for who in set([(t.assignee_email or "").lower(), *[(e or "").lower() for e in (t.follower_emails or [])]]):
-        if who and who != author:
-            task_notify(db, kind="task_activity", for_email=who,
-                        title="New comment on a task", body=f"{t.code} · {t.title}", task_id=task_id,
-                        nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+    if notify:
+        for who in set([(t.assignee_email or "").lower(), *[(e or "").lower() for e in (t.follower_emails or [])]]):
+            if who and who != author:
+                task_notify(db, kind="task_activity", for_email=who,
+                            title="New comment on a task", body=f"{t.code} · {t.title}", task_id=task_id,
+                            nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     db.commit()
     db.refresh(c)
     fire_task_event(task_id, "comment")

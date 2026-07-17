@@ -27,7 +27,8 @@ def _nz(v):
 def saved_view_to_dict(s: models.TaskSavedView) -> dict:
     return {"id": s.id, "ownerId": _nz(s.owner_email), "name": s.name, "view": s.view or "list",
             "filters": s.filters if isinstance(s.filters, dict) else {},
-            "sort": s.sort if isinstance(s.sort, dict) else {}, "group": s.group or "none"}
+            "sort": s.sort if isinstance(s.sort, dict) else {}, "group": s.group or "none",
+            "scope": s.scope or "task"}
 
 
 class SavedViewBody(BaseModel):
@@ -41,7 +42,9 @@ class SavedViewBody(BaseModel):
 
 @router.get("/task-saved-views")
 def list_saved_views(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    rows = db.query(models.TaskSavedView).filter(models.TaskSavedView.owner_email == user["email"].lower()).all()
+    rows = (db.query(models.TaskSavedView)
+            .filter(models.TaskSavedView.owner_email == user["email"].lower(),
+                    models.TaskSavedView.scope != "ticket").all())
     return [saved_view_to_dict(s) for s in rows]
 
 
@@ -49,7 +52,7 @@ def list_saved_views(user: dict = Depends(get_current_user), db: Session = Depen
 def create_saved_view(body: SavedViewBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     s = models.TaskSavedView(id=body.id or gen_id(), owner_email=user["email"].lower(), name=body.name,
                              view=body.view or "list", filters=body.filters or {}, sort=body.sort or {},
-                             group=body.group or "none", created_at=now_iso())
+                             group=body.group or "none", scope="task", created_at=now_iso())
     db.add(s)
     db.commit()
     db.refresh(s)
@@ -60,6 +63,188 @@ def create_saved_view(body: SavedViewBody, user: dict = Depends(get_current_user
 def delete_saved_view(view_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskSavedView).filter(models.TaskSavedView.id == view_id).delete()
     db.commit()
+
+
+# ── Saved TICKET views (same table, scope='ticket'; filters hold the ticket
+#    filter set: {scope,status,priority,type,component,sla,search,groupBy,view}) ──
+@router.get("/task-ticket-views")
+def list_ticket_views(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = (db.query(models.TaskSavedView)
+            .filter(models.TaskSavedView.owner_email == user["email"].lower(),
+                    models.TaskSavedView.scope == "ticket").all())
+    return [saved_view_to_dict(s) for s in rows]
+
+
+@router.post("/task-ticket-views", status_code=201)
+def create_ticket_view(body: SavedViewBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    s = models.TaskSavedView(id=body.id or gen_id(), owner_email=user["email"].lower(), name=body.name,
+                             view=body.view or "list", filters=body.filters or {}, sort=body.sort or {},
+                             group=body.group or "none", scope="ticket", created_at=now_iso())
+    db.add(s)
+    db.commit()
+    db.refresh(s)
+    return saved_view_to_dict(s)
+
+
+@router.delete("/task-ticket-views/{view_id}", status_code=204)
+def delete_ticket_view(view_id: str, db: Session = Depends(get_db)):
+    db.query(models.TaskSavedView).filter(models.TaskSavedView.id == view_id).delete()
+    db.commit()
+
+
+# ── Asana import (Manage → Import) ───────────────────────────────────────────
+# Runs the same logic as the CLI tool (backend/asana_import.py) but server-side,
+# in-process: reads projects/tasks/subtasks/comments/attachments from the Asana
+# REST API and creates them by calling the existing task/project/section create
+# functions directly (no HTTP self-calls, one request). Manager+ only.
+class AsanaTokenBody(BaseModel):
+    token: str
+
+
+@router.post("/task-asana-projects", dependencies=[Depends(require_manager)])
+def asana_projects(body: AsanaTokenBody):
+    """List the (non-archived) projects the token can see, across all workspaces,
+    so the Import UI can offer a picker instead of asking for raw GIDs."""
+    from asana_import import Asana, ImportError_
+    asana = Asana(body.token)
+    try:
+        out = []
+        for w in asana.get("/workspaces", opt_fields="name"):
+            for p in asana.get("/projects", workspace=w["gid"], opt_fields="name,archived"):
+                if p.get("archived"):
+                    continue
+                out.append({"gid": p["gid"], "name": p.get("name") or p["gid"], "workspace": w.get("name") or ""})
+        return out
+    except ImportError_ as e:
+        raise HTTPException(400, f"Asana request failed: {e}")
+
+
+class AsanaImportBody(BaseModel):
+    token: str
+    project_gids: Optional[list] = None
+    workspace: Optional[str] = ""
+    subtasks: bool = True
+    comments: bool = True
+    attachments: bool = True
+    silent_comments: bool = True
+    attach_max_mb: float = 5.0
+    email_map: Optional[dict] = None
+
+
+@router.post("/task-asana-import", dependencies=[Depends(require_manager)])
+def asana_import(body: AsanaImportBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    import base64
+    import mimetypes
+    import urllib.request
+    # Reuse the tested Asana client + field mapping from the CLI tool, and the
+    # existing create handlers (called directly — Depends defaults are bypassed).
+    from asana_import import Asana, resolve_assignee, priority_from_custom, section_name, TASK_OPT_FIELDS, ImportError_
+    from routers.tasks import (create_task, create_section, add_comment, add_attachment, update_task,
+                               TaskCreate, SectionBody, CommentCreate, AttachmentCreate, TaskUpdate)
+    from routers.task_projects import create_project, ProjectBody
+
+    if not (body.project_gids or body.workspace):
+        raise HTTPException(400, "Provide at least one project GID or a workspace GID.")
+
+    asana = Asana(body.token)
+    email_map = {k.lower(): v for k, v in (body.email_map or {}).items()}
+    counts = {"projects": 0, "tasks": 0, "subtasks": 0, "comments": 0, "attachments": 0, "errors": []}
+    cap = body.attach_max_mb * 1024 * 1024
+
+    def import_comments(gid, tid):
+        for s in asana.get(f"/tasks/{gid}/stories",
+                           opt_fields="type,resource_subtype,text,created_at,created_by.name,created_by.email"):
+            if s.get("type") != "comment" and s.get("resource_subtype") != "comment_added":
+                continue
+            text = (s.get("text") or "").strip()
+            if not text:
+                continue
+            cb = s.get("created_by") or {}
+            author = (cb.get("email") or "").lower()
+            author = email_map.get(author) or email_map.get((cb.get("name") or "").lower()) or author
+            prov = " · ".join([x for x in (cb.get("name"), (s.get("created_at") or "")[:10]) if x])
+            cbody = f"[Asana · {prov}]\n{text}" if prov else text
+            add_comment(tid, CommentCreate(body=cbody, author_email=author or None),
+                        notify=(not body.silent_comments), user=user, db=db)
+            counts["comments"] += 1
+
+    def import_attachments(gid, tid):
+        for a in asana.get(f"/tasks/{gid}/attachments",
+                           opt_fields="name,download_url,permanent_url,view_url,size,host"):
+            name = a.get("name") or "attachment"
+            size = a.get("size") or 0
+            kind = "image" if (mimetypes.guess_type(name)[0] or "").startswith("image/") else "doc"
+            host = a.get("host") or ""
+            url = ""
+            if host and host != "asana":
+                url = a.get("permanent_url") or a.get("view_url") or a.get("download_url") or ""
+            else:
+                dl = a.get("download_url")
+                if dl and 0 < size <= cap:
+                    try:
+                        with urllib.request.urlopen(dl, timeout=90) as r:
+                            raw = r.read()
+                        mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
+                        url = f"data:{mime};base64,{base64.b64encode(raw).decode()}"
+                    except Exception:
+                        url = a.get("view_url") or dl or ""
+                else:
+                    url = a.get("view_url") or dl or ""
+            add_attachment(tid, AttachmentCreate(name=name, size=f"{max(1, round(size / 1024))} KB", kind=kind, url=url),
+                           user=user, db=db)
+            counts["attachments"] += 1
+
+    def import_task(t, project_id, section_cache, parent_id=""):
+        sid = ""
+        if not parent_id:
+            sname = section_name(t)
+            if sname:
+                if sname not in section_cache:
+                    sec = create_section(SectionBody(project_id=project_id, name=sname), db=db)
+                    section_cache[sname] = sec["id"]
+                sid = section_cache[sname]
+        created = create_task(TaskCreate(
+            title=t.get("name") or "(untitled)", description=t.get("notes") or "",
+            priority=priority_from_custom(t), assignee_email=resolve_assignee(t, email_map),
+            project_id=project_id if not parent_id else "", section_id=sid, parent_task_id=parent_id,
+            tags=[tg.get("name") for tg in (t.get("tags") or []) if tg.get("name")],
+            due_on=t.get("due_on") or (t.get("due_at") or "")[:10], status="not_started",
+        ), user=user, db=db)
+        tid = created["id"]
+        if t.get("completed"):
+            update_task(tid, TaskUpdate(completed=True), user=user, db=db)
+        counts["subtasks" if parent_id else "tasks"] += 1
+        if body.comments:
+            import_comments(t["gid"], tid)
+        if body.attachments:
+            import_attachments(t["gid"], tid)
+        if body.subtasks:
+            for sub in asana.get(f"/tasks/{t['gid']}/subtasks", opt_fields=TASK_OPT_FIELDS):
+                import_task(sub, project_id, section_cache, tid)
+
+    try:
+        gids = list(body.project_gids or [])
+        if body.workspace:
+            gids += [p["gid"] for p in asana.get("/projects", workspace=body.workspace, opt_fields="name")]
+    except ImportError_ as e:
+        # first Asana call failed — almost always a bad token or GID.
+        raise HTTPException(400, f"Asana request failed: {e}")
+
+    for gid in gids:
+        try:
+            proj = asana.get(f"/projects/{gid}", opt_fields="name,notes")
+            p = create_project(ProjectBody(name=proj.get("name") or f"Asana {gid}",
+                                           description=proj.get("notes") or ""), user=user, db=db)
+            counts["projects"] += 1
+            section_cache = {}
+            for t in asana.get(f"/projects/{gid}/tasks", opt_fields=TASK_OPT_FIELDS):
+                import_task(t, p["id"], section_cache, "")
+        except HTTPException:
+            raise
+        except Exception as e:
+            counts["errors"].append(f"project {gid}: {e}")
+
+    return counts
 
 
 # ── Automation rules ─────────────────────────────────────────────────────────
@@ -240,10 +425,12 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
             "type": t.type or "request",
             "status": t.status or "new", "priority": t.priority or "medium",
             "requesterId": _nz(t.requester_email), "assigneeId": _nz(t.assignee_email),
-            "departmentId": _nz(t.department_id), "linkedTaskId": _nz(t.linked_task_id),
+            "departmentId": _nz(t.department_id), "companyId": _nz(t.company_id), "hrDepartmentId": _nz(t.hr_department_id),
+            "linkedTaskId": _nz(t.linked_task_id),
             "tags": t.tags or [], "images": t.images or [], "watcherIds": t.watcher_emails or [],
             "resolution": _nz(t.resolution),
             "customFieldValues": t.custom_field_values if isinstance(t.custom_field_values, dict) else {},
+            "typeFields": t.type_fields if isinstance(t.type_fields, dict) else {},
             "links": t.links if isinstance(t.links, list) else [],
             "taskIds": t.task_ids if isinstance(t.task_ids, list) else [],
             "component": _nz(t.component),
@@ -263,12 +450,15 @@ class TicketBody(BaseModel):
     requester_email: Optional[str] = ""
     assignee_email: Optional[str] = ""
     department_id: Optional[str] = ""
+    company_id: Optional[str] = ""
+    hr_department_id: Optional[str] = ""
     linked_task_id: Optional[str] = ""
     tags: Optional[list] = None
     images: Optional[list] = None
     watcher_emails: Optional[list] = None
     resolution: Optional[str] = ""
     custom_field_values: Optional[dict] = None
+    type_fields: Optional[dict] = None
     component: Optional[str] = ""
     sla_due_on: Optional[str] = ""
 
@@ -281,12 +471,15 @@ class TicketUpdate(BaseModel):
     priority: Optional[str] = None
     assignee_email: Optional[str] = None
     department_id: Optional[str] = None
+    company_id: Optional[str] = None
+    hr_department_id: Optional[str] = None
     linked_task_id: Optional[str] = None
     tags: Optional[list] = None
     images: Optional[list] = None
     watcher_emails: Optional[list] = None
     resolution: Optional[str] = None
     custom_field_values: Optional[dict] = None
+    type_fields: Optional[dict] = None
     task_ids: Optional[list] = None
     component: Optional[str] = None
     csat_rating: Optional[int] = None
@@ -310,11 +503,13 @@ def _ticket_participants(t: models.TaskTicket) -> set:
 
 
 def _notify_participants(db: Session, t: models.TaskTicket, actor_email: str, kind: str,
-                         title: str, body: str):
-    """Notify a ticket's participants (watchers/assignee/requester) except the actor."""
+                         title: str, body: str, exclude: set | None = None):
+    """Notify a ticket's participants (watchers/assignee/requester) except the actor
+    and anyone in `exclude` (e.g. the requester, for internal notes)."""
     action = {"view": "tasks", "sub": "tickets", "label": "View ticket"}
+    skip = {(actor_email or "").lower()} | {e.lower() for e in (exclude or set())}
     for email in _ticket_participants(t):
-        if email == (actor_email or "").lower():
+        if email in skip:
             continue
         task_notify(db, kind=kind, for_email=email, title=title, body=body, nexus_action=action)
 
@@ -333,9 +528,10 @@ def create_ticket(body: TicketBody, user: dict = Depends(get_current_user), db: 
         status=body.status or "new", priority=body.priority or "medium",
         requester_email=(body.requester_email or user["email"]).lower(),
         assignee_email=(body.assignee_email or "").lower(), department_id=body.department_id or "",
+        company_id=body.company_id or "", hr_department_id=body.hr_department_id or "",
         linked_task_id=body.linked_task_id or "", tags=body.tags or [], images=body.images or [],
         watcher_emails=body.watcher_emails or [], resolution=body.resolution or "",
-        custom_field_values=body.custom_field_values or {}, links=[], task_ids=[],
+        custom_field_values=body.custom_field_values or {}, type_fields=body.type_fields or {}, links=[], task_ids=[],
         component=body.component or "", csat_rating=0, csat_comment="",
         sla_due_on=body.sla_due_on or "", resolved_at="", created_at=now, modified_at=now,
     )
@@ -424,6 +620,7 @@ def _ticket_or_404(db: Session, ticket_id: str) -> models.TaskTicket:
 
 def _tcomment(c) -> dict:
     return {"id": c.id, "ticketId": c.task_id, "authorId": _nz(c.author_email), "body": c.body or "",
+            "internal": bool(getattr(c, "internal", False)),
             "createdAt": c.created_at or "", "editedAt": _nz(c.edited_at)}
 
 
@@ -435,6 +632,7 @@ def _tattachment(a) -> dict:
 
 class TicketCommentBody(BaseModel):
     body: str
+    internal: Optional[bool] = False
 
 
 class TicketAttachmentBody(BaseModel):
@@ -453,12 +651,18 @@ def list_ticket_comments(ticket_id: str, db: Session = Depends(get_db)):
 @router.post("/task-tickets/{ticket_id}/comments", status_code=201)
 def add_ticket_comment(ticket_id: str, body: TicketCommentBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _ticket_or_404(db, ticket_id)
-    c = models.TaskComment(id=gen_id(), task_id=ticket_id, author_email=user["email"], body=body.body or "", created_at=now_iso())
+    internal = bool(body.internal)
+    c = models.TaskComment(id=gen_id(), task_id=ticket_id, author_email=user["email"], body=body.body or "",
+                           internal=internal, created_at=now_iso())
     db.add(c)
     log_activity(db, type="commented", actor_email=user["email"], entity_kind="ticket",
-                 entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail="commented")
+                 entity_id=t.id, entity_code=t.code, entity_title=t.subject,
+                 detail="added an internal note" if internal else "commented")
+    # Internal notes stay with the agents — don't ping the requester.
     _notify_participants(db, t, user["email"], kind="ticket_comment",
-                         title="New comment on a ticket", body=f"{t.code} · {t.subject}")
+                         title="Internal note on a ticket" if internal else "New comment on a ticket",
+                         body=f"{t.code} · {t.subject}",
+                         exclude={(t.requester_email or "").lower()} if internal else None)
     db.commit()
     db.refresh(c)
     return _tcomment(c)
@@ -501,6 +705,22 @@ def list_ticket_activity(ticket_id: str, db: Session = Depends(get_db)):
             .filter(models.TaskActivity.entity_kind == "ticket", models.TaskActivity.entity_id == ticket_id)
             .order_by(models.TaskActivity.at.desc()).all())
     return [{"id": a.id, "type": a.type or "", "actorId": _nz(a.actor_email), "at": a.at or "", "detail": a.detail or ""} for a in rows]
+
+
+# ── Org lookups for tickets — company + department from the People module.
+#    Read-only id+name lists, available to any authenticated user (the /hr
+#    endpoints are permission-gated, which a plain ticket requester may lack). ──
+@router.get("/ticket-companies")
+def list_ticket_companies(db: Session = Depends(get_db)):
+    rows = db.query(models.HrEntity).order_by(models.HrEntity.name).all()
+    return [{"id": e.id, "name": e.name} for e in rows]
+
+
+@router.get("/ticket-departments")
+def list_ticket_departments(db: Session = Depends(get_db)):
+    rows = (db.query(models.HrDepartment)
+            .order_by(models.HrDepartment.sort_order, models.HrDepartment.name).all())
+    return [{"id": d.id, "name": d.name, "companyId": d.company_id} for d in rows]
 
 
 # ── Ticket components / categories ───────────────────────────────────────────

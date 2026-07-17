@@ -38,7 +38,8 @@ const CAMEL_TO_SNAKE = {
   estimateHours: 'estimate_hours', actualHours: 'actual_hours', isMilestone: 'is_milestone',
   approvalStatus: 'approval_status', ownerId: 'owner_email', memberIds: 'member_emails',
   portfolioId: 'portfolio_id', projectIds: 'project_ids', targetProjectId: 'target_project_id',
-  requesterId: 'requester_email', linkedTaskId: 'linked_task_id', slaDueOn: 'sla_due_on',
+  requesterId: 'requester_email', linkedTaskId: 'linked_task_id', slaDueOn: 'sla_due_on', typeFields: 'type_fields',
+  companyId: 'company_id', hrDepartmentId: 'hr_department_id',
   watcherIds: 'watcher_emails', csatRating: 'csat_rating', csatComment: 'csat_comment',
   taskIds: 'task_ids', subtaskTitles: 'subtask_titles',
 };
@@ -59,6 +60,7 @@ export function TasksProvider({ children }) {
   const [tickets, setTickets] = useState([]);
   const [ticketComponents, setTicketComponents] = useState([]);
   const [savedViews, setSavedViews] = useState([]);
+  const [ticketViews, setTicketViews] = useState([]);
   const [rules, setRules] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [customFields, setCustomFields] = useState([]);
@@ -71,7 +73,7 @@ export function TasksProvider({ children }) {
   const commentCache = useRef({});   // taskId -> comment[]
 
   const loadCore = useCallback(async () => {
-    const [t, p, pf, d, tk, tc, sv, r, tpl, cf, cs, mr, intk, chl] = await Promise.all([
+    const [t, p, pf, d, tk, tc, sv, r, tpl, cf, cs, mr, intk, chl, tvw] = await Promise.all([
       api.getTasks().catch(() => []),
       api.getTaskProjects().catch(() => []),
       api.getTaskPortfolios().catch(() => []),
@@ -86,11 +88,12 @@ export function TasksProvider({ children }) {
       api.getTaskMemberRequests().catch(() => []),
       api.getTaskIntakeForms().catch(() => []),
       api.getTaskChangelog().catch(() => []),
+      api.getTicketViews().catch(() => []),
     ]);
     setTasks(t || []); setProjects(p || []); setPortfolios(pf || []); setDepartments(d || []);
     setTickets(tk || []); setTicketComponents(tc || []); setSavedViews(sv || []); setRules(r || []); setTemplates(tpl || []);
     setCustomFields(cf || []); setCustomStatuses(cs || []); setMemberRequests(mr || []);
-    setIntakeForms(intk || []); setChangelog(chl || []);
+    setIntakeForms(intk || []); setChangelog(chl || []); setTicketViews(tvw || []);
     setLoading(false);
   }, []);
 
@@ -200,6 +203,8 @@ export function TasksProvider({ children }) {
     escalateTicket: async (id) => { const r = await api.escalateTicket(id); setTickets((p) => p.map((x) => (x.id === id ? r : x))); return r; },
     createSavedView: mk(api.createTaskSavedView, setSavedViews),
     deleteSavedView: mkDel(api.deleteTaskSavedView, setSavedViews),
+    createTicketView: mk(api.createTicketView, setTicketViews),
+    deleteTicketView: mkDel(api.deleteTicketView, setTicketViews),
     createRule: mk(api.createTaskAutomationRule, setRules),
     updateRule: mkUpd(api.updateTaskAutomationRule, setRules),
     deleteRule: mkDel(api.deleteTaskAutomationRule, setRules),
@@ -241,7 +246,7 @@ export function TasksProvider({ children }) {
 
   const value = {
     loading, myEmail, nameOf,
-    tasks, projects, portfolios, departments, tickets, ticketComponents, savedViews, rules, templates,
+    tasks, projects, portfolios, departments, tickets, ticketComponents, savedViews, ticketViews, rules, templates,
     customFields, customStatuses, statusMeta, statusOrder, notifications, memberRequests, intakeForms, changelog,
     taskById, projectById, portfolioById, deptById, projectName, deptName,
     getComments, addComment, commentCache: commentCache.current,

@@ -60,6 +60,7 @@ const SWATCHES = [NX.blue, NX.green, NX.amber, NX.red, NX.purple, NX.teal, NX.pi
 // ── Sub-tabs registry ─────────────────────────────────────────────────────────
 const SUBTABS = [
   { key: 'tasklist', label: 'Task List', icon: List },
+  { key: 'import', label: 'Import', icon: Download },
   { key: 'departments', label: 'Teams', icon: Users },
   { key: 'rules', label: 'Automation Rules', icon: Zap },
   { key: 'fields', label: 'Custom Fields', icon: ListChecks },
@@ -101,6 +102,7 @@ export default function ManageView() {
       ) : (
         <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.surface2, padding: 20 }}>
           <div style={{ maxWidth: 940, margin: '0 auto' }}>
+            {tab === 'import' && <AsanaImportTab store={store} />}
             {tab === 'departments' && <DepartmentsTab store={store} />}
             {tab === 'rules' && <RulesTab store={store} />}
             {tab === 'fields' && <FieldsTab store={store} />}
@@ -116,6 +118,117 @@ export default function ManageView() {
   );
 }
 
+
+// ── Import from Asana — paste a token + project GIDs, runs server-side ─────────
+function AsanaImportTab({ store }) {
+  const [token, setToken] = useState('');
+  const [gids, setGids] = useState('');
+  const [opts, setOpts] = useState({ subtasks: true, comments: true, attachments: true, silent_comments: true });
+  const [busy, setBusy] = useState(false);
+  const [loadingProjects, setLoadingProjects] = useState(false);
+  const [projects, setProjects] = useState(null);   // null = not loaded; [] = loaded, none
+  const [picked, setPicked] = useState(() => new Set());
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+  const toggle = (k) => setOpts((o) => ({ ...o, [k]: !o[k] }));
+  const togglePick = (gid) => setPicked((s) => { const n = new Set(s); n.has(gid) ? n.delete(gid) : n.add(gid); return n; });
+
+  const loadProjects = async () => {
+    if (!token.trim()) { setError('Enter your Asana token first.'); return; }
+    setError(''); setLoadingProjects(true);
+    try {
+      const list = await api.asanaListProjects({ token: token.trim() });
+      setProjects(list);
+      if (list.length === 0) setError('No projects found for this token.');
+    } catch (e) { setError(e.message || String(e)); } finally { setLoadingProjects(false); }
+  };
+
+  const run = async () => {
+    // selected from the picker + any manually typed GIDs
+    const typed = gids.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+    const list = [...new Set([...picked, ...typed])];
+    if (!token.trim() || list.length === 0) { setError('Pick at least one project (or type a GID).'); return; }
+    setError(''); setResult(null); setBusy(true);
+    try {
+      const res = await api.asanaImport({ token: token.trim(), project_gids: list, ...opts });
+      setResult(res);
+      await store.refresh?.();   // pull the newly-created projects/tasks into the UI
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally { setBusy(false); }
+  };
+
+  const check = (k, label, hint) => (
+    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, cursor: 'pointer', marginBottom: 8 }}>
+      <input type="checkbox" checked={opts[k]} onChange={() => toggle(k)} style={{ marginTop: 2 }} />
+      <span><span style={{ fontWeight: 600, color: NX.ink }}>{label}</span>{hint && <span style={{ color: NX.faint }}> — {hint}</span>}</span>
+    </label>
+  );
+
+  return (
+    <div>
+      <SectionHead title="Import from Asana" hint="Bring projects, tasks, subtasks, comments and attachments in from an Asana workspace." />
+      <div style={{ ...card, padding: 16, maxWidth: 620 }}>
+        <Field label="Asana Personal Access Token">
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input type="password" value={token} onChange={(e) => { setToken(e.target.value); setProjects(null); setPicked(new Set()); }} placeholder="1/…  (app.asana.com → My Apps → Personal access tokens)"
+              style={{ ...inputStyle, flex: 1 }} autoComplete="off" />
+            <button onClick={loadProjects} disabled={loadingProjects || !token.trim()} style={{ ...btn('outline'), flexShrink: 0, opacity: loadingProjects ? 0.6 : 1 }}>
+              {loadingProjects ? 'Loading…' : 'Load projects'}
+            </button>
+          </div>
+        </Field>
+
+        {/* Project picker — populated by "Load projects" */}
+        {projects && projects.length > 0 && (
+          <Field label={`Projects  (${picked.size} selected)`}>
+            <div style={{ maxHeight: 240, overflowY: 'auto', border: `1px solid ${NX.border}`, borderRadius: 8 }}>
+              {projects.map((p) => (
+                <label key={p.gid} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', fontSize: 13, cursor: 'pointer', borderBottom: `1px solid ${NX.border2}` }}>
+                  <input type="checkbox" checked={picked.has(p.gid)} onChange={() => togglePick(p.gid)} />
+                  <span style={{ flex: 1, minWidth: 0, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                  {p.workspace && <span style={{ fontSize: 11, color: NX.faint }}>{p.workspace}</span>}
+                </label>
+              ))}
+            </div>
+          </Field>
+        )}
+
+        <Field label={projects && projects.length ? 'Or add project GID(s) manually' : 'Project GID(s)'}>
+          <input value={gids} onChange={(e) => setGids(e.target.value)} placeholder="e.g. 1201234567890  1209876543210  (space or comma separated)" style={inputStyle} />
+          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>Tip: use <b>Load projects</b> above to avoid GID mistakes. A project URL is app.asana.com/0/<b>&lt;GID&gt;</b>/list — the middle number (not a task or “My Tasks” id).</div>
+        </Field>
+        <label style={fieldLabel}>Options</label>
+        {check('subtasks', 'Subtasks', 'import nested subtasks')}
+        {check('comments', 'Comments', 'keep original author & date')}
+        {check('attachments', 'Attachments', 'small files inlined; large ones linked')}
+        {check('silent_comments', 'Silent comments', "don't notify people about historical comments")}
+        {error && <div style={{ color: NX.red, fontSize: 13, marginTop: 8 }}>{error}</div>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 }}>
+          <button onClick={run} disabled={busy} style={{ ...btn('primary'), opacity: busy ? 0.6 : 1 }}>
+            <Download size={15} />{busy ? 'Importing…' : 'Import'}
+          </button>
+          {busy && <span style={{ fontSize: 12.5, color: NX.dim }}>Reading Asana and creating tasks — this can take a minute for large projects.</span>}
+        </div>
+        {result && (
+          <div style={{ marginTop: 14, padding: 12, borderRadius: 10, background: NX.hover, fontSize: 13 }}>
+            <div style={{ fontWeight: 700, color: NX.green, marginBottom: 6 }}>✓ Import complete</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, color: NX.dim }}>
+              <span><b style={{ color: NX.ink }}>{result.projects}</b> projects</span>
+              <span><b style={{ color: NX.ink }}>{result.tasks}</b> tasks</span>
+              <span><b style={{ color: NX.ink }}>{result.subtasks}</b> subtasks</span>
+              <span><b style={{ color: NX.ink }}>{result.comments}</b> comments</span>
+              <span><b style={{ color: NX.ink }}>{result.attachments}</b> attachments</span>
+            </div>
+            {result.errors?.length > 0 && (
+              <div style={{ marginTop: 8, color: NX.red, fontSize: 12 }}>{result.errors.length} error(s): {result.errors.join('; ')}</div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ── 0. Departments — creation lives here (Manage-only); Teams page browses/edits ──
 function DepartmentsTab({ store }) {
