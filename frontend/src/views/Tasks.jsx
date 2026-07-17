@@ -18,6 +18,7 @@ import ManageView from '../tasks/ManageView';
 import ReportBugButton from '../tasks/ReportBug';
 import CreateMenu from '../tasks/CreateMenu';
 import { useIsMobile } from '../tasks/components';
+import { useRole } from '../contexts/RoleContext';
 import { NX, FONT } from '../tasks/theme';
 
 // Module tabs — matches the export's NexusModuleTabs exactly (no "All tasks").
@@ -49,7 +50,13 @@ function SubView({ sub, projectId, onNavigate, onExitManage }) {
 }
 
 export default function Tasks({ activeSub, onSubChange, onNavigate }) {
-  const sub = ALL_SUBS.includes(activeSub) ? activeSub : DEFAULT_SUB;
+  const { can } = useRole();
+  // The Manage tab is an admin surface — restricted to manage access
+  // (Manager / IT Admin / Global Admin). Others can neither open it nor land on
+  // it via a stale URL/sub.
+  const canManage = !!can?.('manager');
+  const requested = ALL_SUBS.includes(activeSub) ? activeSub : DEFAULT_SUB;
+  const sub = (requested === 'manage' && !canManage) ? DEFAULT_SUB : requested;
   const isMobile = useIsMobile();
   const [projectId, setProjectId] = useState(null);
   const go = (key) => (onSubChange ? onSubChange(key) : undefined);
@@ -104,11 +111,11 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
               <button className="primary-btn nx-iconbtn" onClick={() => go('home')} title="Exit" style={{ fontFamily: FONT }}>
                 <X size={14} /> <span className="nx-btn-label">Exit</span>
               </button>
-            ) : (
+            ) : canManage ? (
               <button className="secondary-btn nx-iconbtn" onClick={() => go('manage')} title="Manage" style={{ fontFamily: FONT }}>
                 <Settings size={14} /> <span className="nx-btn-label">Manage</span>
               </button>
-            )}
+            ) : null}
           </div>
         </div>
 

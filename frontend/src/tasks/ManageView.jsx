@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
   BarChart3, Download, X, CheckCircle2, Flag, ArrowRightLeft, User, Calendar, MessageSquare,
-  Circle, Palette, Users,
+  Circle, Palette, Users, List,
 } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { api } from '../api';
@@ -16,6 +16,7 @@ import {
 } from './theme';
 import { Avatar, EmptyState, Modal } from './components';
 import { taskStats, topLevel, fmtDateTime } from './lib';
+import TasksWorkspace from './TasksWorkspace';
 import { DeptModal, deptIcon } from './TeamsView';
 
 // ── Small shared bits ─────────────────────────────────────────────────────────
@@ -58,6 +59,7 @@ const SWATCHES = [NX.blue, NX.green, NX.amber, NX.red, NX.purple, NX.teal, NX.pi
 
 // ── Sub-tabs registry ─────────────────────────────────────────────────────────
 const SUBTABS = [
+  { key: 'tasklist', label: 'Task List', icon: List },
   { key: 'departments', label: 'Teams', icon: Users },
   { key: 'rules', label: 'Automation Rules', icon: Zap },
   { key: 'fields', label: 'Custom Fields', icon: ListChecks },
@@ -90,22 +92,30 @@ export default function ManageView() {
         })}
       </div>
 
-      {/* Body */}
-      <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.surface2, padding: 20 }}>
-        <div style={{ maxWidth: 940, margin: '0 auto' }}>
-          {tab === 'departments' && <DepartmentsTab store={store} />}
-          {tab === 'rules' && <RulesTab store={store} />}
-          {tab === 'fields' && <FieldsTab store={store} />}
-          {tab === 'statuses' && <StatusesTab store={store} />}
-          {tab === 'templates' && <TemplatesTab store={store} />}
-          {tab === 'intake' && <IntakeTab store={store} />}
-          {tab === 'activity' && <ActivityTab store={store} />}
-          {tab === 'reporting' && <ReportingTab store={store} />}
+      {/* Body — the Task List is full-bleed (wide, self-scrolling table); the rest
+          keep the centered admin column. */}
+      {tab === 'tasklist' ? (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <TasksWorkspace title="Task List" />
         </div>
-      </div>
+      ) : (
+        <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.surface2, padding: 20 }}>
+          <div style={{ maxWidth: 940, margin: '0 auto' }}>
+            {tab === 'departments' && <DepartmentsTab store={store} />}
+            {tab === 'rules' && <RulesTab store={store} />}
+            {tab === 'fields' && <FieldsTab store={store} />}
+            {tab === 'statuses' && <StatusesTab store={store} />}
+            {tab === 'templates' && <TemplatesTab store={store} />}
+            {tab === 'intake' && <IntakeTab store={store} />}
+            {tab === 'activity' && <ActivityTab store={store} />}
+            {tab === 'reporting' && <ReportingTab store={store} />}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
 
 // ── 0. Departments — creation lives here (Manage-only); Teams page browses/edits ──
 function DepartmentsTab({ store }) {
@@ -236,6 +246,7 @@ function Toggle({ on, onChange }) {
 }
 
 function RuleModal({ rule, onClose, onSave }) {
+  const { statusOrder, statusMeta } = useTasks();
   const [name, setName] = useState(rule?.name || '');
   const [enabled, setEnabled] = useState(rule ? !!rule.enabled : true);
   const [trigger, setTrigger] = useState(rule?.trigger?.type || 'status_changed');
@@ -282,8 +293,8 @@ function RuleModal({ rule, onClose, onSave }) {
         {!NO_TRIGGER_VALUE.includes(trigger) && (
           <Field label="Value">
             <select value={triggerValue} onChange={(e) => setTriggerValue(e.target.value)} style={selectStyle}>
-              {(trigger === 'status_changed' ? STATUS_KEYS : PRIORITY_KEYS).map((k) => (
-                <option key={k} value={k}>{(trigger === 'status_changed' ? STATUS_META : PRIORITY_META)[k].label}</option>
+              {(trigger === 'status_changed' ? statusOrder : PRIORITY_KEYS).map((k) => (
+                <option key={k} value={k}>{trigger === 'status_changed' ? (statusMeta[k]?.label || k) : PRIORITY_META[k].label}</option>
               ))}
             </select>
           </Field>
@@ -304,7 +315,7 @@ function RuleModal({ rule, onClose, onSave }) {
                 </select>
               ) : a.type === 'set_status' ? (
                 <select value={a.value} onChange={(e) => setAction(i, { value: e.target.value })} style={{ ...selectStyle, flex: 1 }}>
-                  {STATUS_KEYS.map((s) => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
+                  {statusOrder.map((s) => <option key={s} value={s}>{statusMeta[s]?.label || s}</option>)}
                 </select>
               ) : (
                 <input value={a.value} onChange={(e) => setAction(i, { value: e.target.value })} placeholder="Tag" style={{ ...inputStyle, flex: 1 }} />
@@ -488,6 +499,7 @@ function TemplatesTab({ store }) {
 }
 
 function TemplateModal({ onClose, onSave }) {
+  const { statusOrder, statusMeta } = useTasks();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState('');
@@ -527,7 +539,7 @@ function TemplateModal({ onClose, onSave }) {
         <Field label="Default status">
           <select value={status} onChange={(e) => setStatus(e.target.value)} style={selectStyle}>
             <option value="">No default</option>
-            {STATUS_KEYS.map((s) => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
+            {statusOrder.map((s) => <option key={s} value={s}>{statusMeta[s]?.label || s}</option>)}
           </select>
         </Field>
       </div>
@@ -730,7 +742,7 @@ function ReportingTab({ store }) {
   const list = useMemo(() => topLevel(tasks), [tasks]);
   const stats = useMemo(() => taskStats(list), [list]);
 
-  const byStatus = STATUS_KEYS.map((s) => ({ label: STATUS_META[s].label, value: list.filter((t) => t.status === s).length, color: STATUS_META[s].color }));
+  const byStatus = store.statusOrder.map((s) => ({ label: store.statusMeta[s]?.label || s, value: list.filter((t) => t.status === s).length, color: store.statusMeta[s]?.color })).filter((d) => d.value > 0);
   const byPriority = PRIORITY_KEYS.map((p) => ({ label: PRIORITY_META[p].label, value: list.filter((t) => t.priority === p).length, color: PRIORITY_META[p].color }));
   const byProject = (projects || []).map((p) => ({ label: p.name, value: list.filter((t) => t.projectId === p.id).length, color: colorForKey(p.id) }));
 
@@ -739,7 +751,7 @@ function ReportingTab({ store }) {
     const rows = list.map((t) => [
       t.code || '',
       t.title || '',
-      STATUS_META[t.status]?.label || t.status || '',
+      store.statusMeta[t.status]?.label || t.status || '',
       PRIORITY_META[t.priority]?.label || t.priority || '',
       t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned',
       t.projectId ? (projectName(t.projectId) || '—') : '—',

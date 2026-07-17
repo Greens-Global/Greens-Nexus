@@ -166,7 +166,7 @@ export function CalendarView({ tasks, onOpen, onCreate }) {
 
 export function DashboardView({ tasks, stats: pre, store, scopeKey = 'workspace' }) {
   const stats = (pre && pre.total != null) ? pre : taskStats(tasks);
-  const byStatus = STATUS_ORDER.map((s) => ({ label: STATUS_META[s].label, value: tasks.filter((t) => t.status === s).length, color: STATUS_META[s].color }));
+  const byStatus = store.statusOrder.map((s) => ({ label: store.statusMeta[s]?.label || s, value: tasks.filter((t) => t.status === s).length, color: store.statusMeta[s]?.color })).filter((d) => d.value > 0);
   const byDept = (store.departments || []).map((d) => ({ label: d.name, value: tasks.filter((t) => t.departmentId === d.id).length, color: d.color || NX.blue })).filter((d) => d.value > 0);
 
   const byAssignee = useMemo(() => {

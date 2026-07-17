@@ -20,7 +20,7 @@ const BASE_COLS = [
   { key: 'assignee', label: 'Assignee', width: 140 },
   { key: 'project', label: 'Project', width: 132 },
   { key: 'due', label: 'Due Date', width: 112 },
-  { key: 'estimate', label: 'Estimate', width: 86 },
+  { key: 'estimate', label: 'Estimate', width: 104 },
   { key: 'actual', label: 'Actual', width: 86 },
   { key: 'priority', label: 'Priority', width: 96, center: true },
   { key: 'status', label: 'Status', width: 116, center: true },
@@ -191,8 +191,11 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
   // .rl-cell in style.css). Padding gives the highlight box some breathing room.
   const editCell = { minWidth: 0, padding: '3px 6px' };
   const pm = PRIORITY_META[t.priority] || { label: t.priority, color: NX.dim, tint: NX.border2 };
-  const sm = STATUS_META[t.status] || { label: t.status, color: NX.dim, tint: NX.border2 };
+  const sm = store.statusMeta[t.status] || { label: t.status, color: NX.dim, tint: NX.border2 };
   const dept = t.departmentId ? store.deptById(t.departmentId) : null;
+  const estH = t.estimateHours ? Math.floor(t.estimateHours) : '';
+  const estM = t.estimateHours && t.estimateHours % 1 ? Math.round((t.estimateHours % 1) * 60) : '';
+  const setEst = (h, m) => store.updateTask(t.id, { estimateHours: (h || m) ? (Number(h || 0) + Number(m || 0) / 60) : null });
   return (
     <div onClick={() => onOpen(t.id)} style={{ borderBottom: `1px solid ${NX.border2}`, background: selected ? 'rgba(37,99,235,0.10)' : 'transparent', cursor: 'pointer' }}
       onMouseEnter={(e) => { if (!selected) e.currentTarget.style.background = NX.hover; }}
@@ -224,9 +227,10 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
           <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} color={dueColor(t.dueOn, t.completed)} title="Due Date" style={{ fontSize: 12, width: '100%' }} />
         </div>
         {/* estimate */}
-        <div className="rl-cell" style={{ ...editCell, display: 'flex', alignItems: 'center', gap: 3 }} onClick={(e) => e.stopPropagation()}>
-          <input type="number" className="rl-num" min={0} value={t.estimateHours ?? ''} placeholder="—" onChange={(e) => store.updateTask(t.id, { estimateHours: e.target.value === '' ? null : Number(e.target.value) })} style={{ width: 34, textAlign: 'right', border: 'none', background: 'transparent', fontSize: 12, color: NX.dim, outline: 'none', fontFamily: FONT }} />
-          <span style={{ color: NX.faint, fontSize: 12 }}>h</span>
+        <div className="rl-cell" style={{ ...editCell, display: 'flex', alignItems: 'center', gap: 2 }} onClick={(e) => e.stopPropagation()}>
+          <input type="number" className="rl-num" min={0} value={estH} placeholder="hrs" onChange={(e) => setEst(e.target.value, estM)} style={{ width: 30, textAlign: 'right', border: 'none', background: 'transparent', fontSize: 12, color: NX.dim, outline: 'none', fontFamily: FONT }} />
+          <span style={{ color: NX.faint, fontSize: 12 }}>:</span>
+          <input type="number" className="rl-num" min={0} max={59} step={5} value={estM} placeholder="min" onChange={(e) => setEst(estH, e.target.value)} style={{ width: 30, textAlign: 'left', border: 'none', background: 'transparent', fontSize: 12, color: NX.dim, outline: 'none', fontFamily: FONT }} />
         </div>
         {/* actual */}
         <div className="rl-cell" style={{ ...editCell, display: 'flex', alignItems: 'center', gap: 3 }} onClick={(e) => e.stopPropagation()}>
@@ -242,7 +246,7 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
         {/* status */}
         <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
           <PillSelect center label={sm.label} color={sm.color} tint={sm.tint} currentKey={t.status}
-            options={STATUS_ORDER.map((s) => ({ key: s, label: STATUS_META[s].label, color: STATUS_META[s].color }))}
+            options={store.statusOrder.map((s) => ({ key: s, label: store.statusMeta[s]?.label || s, color: store.statusMeta[s]?.color }))}
             onSelect={(k) => store.setStatus(t.id, k)} />
         </div>
         {/* department */}
@@ -457,7 +461,8 @@ export default function RichListView({ visible, group, ctx, store, people, selec
     '110px',
   ].join(' ');
 
-  const groups = useMemo(() => groupTasks(visible, effGroup, ctx).filter((g) => g.tasks.length > 0), [visible, effGroup, ctx]);
+  const groupCtx = { ...ctx, statusMeta: store.statusMeta, statusOrder: store.statusOrder };
+  const groups = useMemo(() => groupTasks(visible, effGroup, groupCtx).filter((g) => g.tasks.length > 0), [visible, effGroup, ctx, store.statusMeta, store.statusOrder]);
   const visibleIds = groups.flatMap((g) => g.tasks.map((t) => t.id));
   const allSel = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
   const someSel = !allSel && visibleIds.some((id) => selected.has(id));

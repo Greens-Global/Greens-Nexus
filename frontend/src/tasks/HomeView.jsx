@@ -79,7 +79,7 @@ export default function HomeView({ onNavigate }) {
       <>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Avatar email={myEmail} name={nameOf(myEmail)} size={38} />
+            {!isMobile && <Avatar email={myEmail} name={nameOf(myEmail)} size={38} />}
             <button onClick={() => onNavigate('mine')} style={{ ...btn('ghost'), padding: 0, fontSize: 16, fontWeight: 700, color: NX.ink }}>My Tasks</button>
           </div>
           {moreBtn(() => onNavigate('mine'))}

@@ -3,8 +3,9 @@ import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { api } from '../api';
-import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn } from './theme';
+import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip, STATUS_META } from './theme';
 import { fmtDate } from './lib';
+import { useTasks } from './TasksContext';
 
 export function Avatar({ email, name, size = 26 }) {
   const label = name || email || '';
@@ -19,6 +20,10 @@ export function Avatar({ email, name, size = 26 }) {
 }
 
 export function StatusChip({ status }) {
+  // Reflect custom statuses (Manage → Custom Statuses) in addition to built-ins.
+  const { statusMeta } = useTasks();
+  const m = statusMeta?.[status];
+  if (m) return <span style={{ ...chip(m.color, m.tint) }}>{m.label}</span>;
   const { label, ...s } = statusChip(status);
   return <span style={s}>{label}</span>;
 }
@@ -220,6 +225,14 @@ export function usePeople() {
 }
 
 // A compact dropdown that picks a person (email) from the directory.
+// Prettify an email into a display name when the person isn't in the loaded
+// directory: "sagar.shoundik@greensglobal.com" → "Sagar Shoundik".
+function emailToName(email) {
+  const local = String(email || '').split('@')[0];
+  if (!local) return email || '';
+  return local.split(/[._-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ') || email;
+}
+
 export function PersonSelect({ value, onChange, people, placeholder = 'Unassigned' }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -230,13 +243,17 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
     return () => document.removeEventListener('mousedown', onDoc);
   }, []);
   const sel = people.find((p) => p.email === value);
+  // A value can be set to someone not in the loaded directory (e.g. the current
+  // user before the People directory has loaded / when it's empty). Still show
+  // them — derive a display name from the email — rather than the placeholder.
+  const chosen = sel || (value ? { email: value, name: emailToName(value) } : null);
   const filtered = q ? people.filter((p) => (p.name + p.email).toLowerCase().includes(q.toLowerCase())) : people;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button type="button" onClick={() => setOpen((o) => !o)} style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between' }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
-          {sel ? <Avatar email={sel.email} name={sel.name} size={20} /> : null}
-          <span style={{ color: sel ? NX.ink : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis' }}>{sel ? sel.name : placeholder}</span>
+          {chosen ? <Avatar email={chosen.email} name={chosen.name} size={20} /> : null}
+          <span style={{ color: chosen ? NX.ink : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis' }}>{chosen ? chosen.name : placeholder}</span>
         </span>
         <ChevronDown size={15} style={{ color: NX.faint }} />
       </button>

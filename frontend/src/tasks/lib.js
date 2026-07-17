@@ -109,8 +109,12 @@ export function groupTasks(list, group, ctx = {}) {
     if (!buckets.has(k)) buckets.set(k, { key: k, label, tasks: [] });
     buckets.get(k).tasks.push(t);
   };
+  // Callers may pass merged status metadata/order (built-in + custom) via ctx so
+  // group-by-status headers + ordering reflect Manage → Custom Statuses.
+  const statusMeta = ctx.statusMeta || STATUS_META;
+  const statusOrder = ctx.statusOrder || STATUS_ORDER;
   for (const t of list) {
-    if (group === 'status') push(t.status || 'not_started', STATUS_META[t.status]?.label || t.status, t);
+    if (group === 'status') push(t.status || 'not_started', statusMeta[t.status]?.label || t.status, t);
     else if (group === 'priority') push(t.priority || 'low', (t.priority || 'low').replace(/^\w/, (c) => c.toUpperCase()), t);
     else if (group === 'assignee') push(t.assigneeId || '—', ctx.nameOf ? ctx.nameOf(t.assigneeId) : (t.assigneeId || 'Unassigned'), t);
     else if (group === 'project') push(t.projectId || '—', ctx.projectName?.(t.projectId) || 'No Project', t);
@@ -119,7 +123,7 @@ export function groupTasks(list, group, ctx = {}) {
     else push('all', '', t);
   }
   let arr = [...buckets.values()];
-  if (group === 'status') arr.sort((a, b) => STATUS_ORDER.indexOf(a.key) - STATUS_ORDER.indexOf(b.key));
+  if (group === 'status') arr.sort((a, b) => statusOrder.indexOf(a.key) - statusOrder.indexOf(b.key));
   if (group === 'priority') arr.sort((a, b) => PRIORITY_ORDER.indexOf(a.key) - PRIORITY_ORDER.indexOf(b.key));
   return arr;
 }

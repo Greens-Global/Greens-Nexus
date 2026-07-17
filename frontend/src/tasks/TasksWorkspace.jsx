@@ -4,6 +4,7 @@
 import { useMemo, useState } from 'react';
 import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, Trash2, X, FolderKanban, ArrowLeft } from 'lucide-react';
 import { useTasks } from './TasksContext';
+import { useRole } from '../contexts/RoleContext';
 import { EMPTY_FILTER, matchesFilter, topLevel, sortTasks, groupTasks, taskStats } from './lib';
 import { NX, FONT, btn, input as inputStyle, STATUS_ORDER, STATUS_META, chip } from './theme';
 import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile } from './components';
@@ -31,6 +32,14 @@ const GROUPS = ['status', 'priority', 'assignee', 'project', 'none'];
 export default function TasksWorkspace({ lockedProjectId = null, mine = false, title = 'Tasks', onBack }) {
   const store = useTasks();
   const { tasks, nameOf, projectName, deptName, projectById, deptById, toggleComplete, bulkUpdate, deleteTask, myEmail } = store;
+  const { can } = useRole();
+  // Workload visibility:
+  //  • Never on the project task view (lockedProjectId set) — removed per request.
+  //  • Elsewhere (e.g. the Manage → Task List embed): management/oversight view,
+  //    shown only to manage access (manager+), matching the ChangelogView convention.
+  const canManage = !!can?.('manager');
+  const showWorkload = !lockedProjectId && canManage;
+  const viewKinds = showWorkload ? VIEW_KINDS : VIEW_KINDS.filter((v) => v.key !== 'workload');
   const people = usePeople();
   const isMobile = useIsMobile();
   const [view, setView] = useState('list');
@@ -97,7 +106,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
       {!isMobile && (
       <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 12, padding: '0 20px 12px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, overflowX: 'visible' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, flexShrink: 0, maxWidth: '100%', overflowX: 'visible' }}>
-          {VIEW_KINDS.map((v) => (
+          {viewKinds.map((v) => (
             <button key={v.key} onClick={() => setView(v.key)} title={v.label} style={{
               ...btn('ghost'), padding: '6px 10px', borderRadius: 7, whiteSpace: 'nowrap',
               background: view === v.key ? NX.surface : 'transparent', color: view === v.key ? NX.ink : NX.dim,
@@ -134,7 +143,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
           <TimelineView tasks={visible} onOpen={setOpenId} nameOf={nameOf} />
         ) : view === 'files' ? (
           <FilesView tasks={visible} onOpen={setOpenId} />
-        ) : view === 'workload' ? (
+        ) : (view === 'workload' && showWorkload) ? (
           <WorkloadView tasks={visible} nameOf={nameOf} />
         ) : (
           <DashboardView tasks={visible} stats={stats} store={store} scopeKey={lockedProjectId || 'workspace'} />
@@ -147,7 +156,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
           <span style={{ fontSize: 13, fontWeight: 600 }}>{selected.size} selected</span>
           <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { status: e.target.value }); clearSel(); } }} defaultValue="" style={{ ...inputStyle, width: 'auto', padding: '5px 8px', background: 'rgba(255,255,255,0.14)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)' }}>
             <option value="" disabled>Set status…</option>
-            {STATUS_ORDER.map((s) => <option key={s} value={s} style={{ color: NX.ink }}>{STATUS_META[s].label}</option>)}
+            {store.statusOrder.map((s) => <option key={s} value={s} style={{ color: NX.ink }}>{store.statusMeta[s]?.label || s}</option>)}
           </select>
           <button onClick={() => { if (confirm(`Delete ${selected.size} task(s)?`)) { [...selected].forEach(deleteTask); clearSel(); } }} style={{ ...btn('ghost'), color: '#fff' }}><Trash2 size={15} />Delete</button>
           <button onClick={clearSel} style={{ ...btn('ghost'), color: '#fff', padding: 5 }}><X size={16} /></button>
@@ -156,7 +165,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
 
       {isMobile && (
         <MobileTaskBar
-          views={VIEW_KINDS} view={view} setView={setView}
+          views={viewKinds} view={view} setView={setView}
           onCreate={() => openCreate({ projectId: lockedProjectId || '' })}
           filterSheet={(onClose) => (
             <MobileFilters

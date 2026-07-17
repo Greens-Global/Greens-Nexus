@@ -25,14 +25,18 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
 
   const [form, setForm] = useState(() => ({
     title: editing?.title ?? defaults.title ?? '', description: editing?.description ?? '',
-    // New tasks default to the creator; editing keeps whatever the task has
-    // (an unassigned task must stay unassigned).
+    // New tasks default assignee AND owner to the creator; editing keeps whatever
+    // the task has (an unassigned / unowned task must stay that way).
     assigneeId: editing ? (editing.assigneeId ?? null) : (defaults.assigneeId ?? myEmail ?? null),
-    ownerId: editing?.ownerId ?? defaults.ownerId ?? null,
+    ownerId: editing ? (editing.ownerId ?? null) : (defaults.ownerId ?? myEmail ?? null),
     priority: editing?.priority ?? defaults.priority ?? 'medium', status: editing?.status ?? defaults.status ?? 'not_started',
     projectId: editing?.projectId ?? defaults.projectId ?? '', departmentId: editing?.departmentId ?? defaults.departmentId ?? '',
-    dueOn: editing?.dueOn ?? defaults.dueOn ?? '', estimate: editing?.estimateHours != null ? String(editing.estimateHours) : '', estimateUnit: 'hr',
+    dueOn: editing?.dueOn ?? defaults.dueOn ?? '',
+    estimateHrs: editing?.estimateHours ? String(Math.floor(editing.estimateHours)) : '',
+    estimateMin: editing?.estimateHours && editing.estimateHours % 1 ? String(Math.round((editing.estimateHours % 1) * 60)) : '',
     recurFreq: editing?.recurrence?.freq ?? 'none', recurDow: editing?.recurrence?.dayOfWeek ?? 1, recurDom: editing?.recurrence?.dayOfMonth ?? 1,
+    recurEnd: editing?.recurrence?.until ? 'on' : editing?.recurrence?.count ? 'after' : 'never',
+    recurUntil: editing?.recurrence?.until ?? '', recurCount: editing?.recurrence?.count != null ? String(editing.recurrence.count) : '',
     labels: editing?.tags ?? [],
   }));
   const [labelInput, setLabelInput] = useState('');
@@ -52,8 +56,16 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
     const r = { freq: form.recurFreq, interval: 1 };
     if (form.recurFreq === 'weekly') r.dayOfWeek = Number(form.recurDow);
     if (form.recurFreq === 'monthly') r.dayOfMonth = Number(form.recurDom);
+    if (form.recurEnd === 'on' && form.recurUntil) r.until = form.recurUntil;
+    if (form.recurEnd === 'after' && form.recurCount) r.count = Math.max(1, Number(form.recurCount));
     return r;
   };
+  // Selecting a recurrence flips the task to the "Recurring" status; clearing it
+  // back to "Does not repeat" reverts a still-recurring status to Not Started.
+  const setRecurFreq = (v) => setForm((f) => ({
+    ...f, recurFreq: v,
+    status: v !== 'none' ? 'recurring' : (f.status === 'recurring' ? 'not_started' : f.status),
+  }));
   const uploadAttachment = async (parentId, f) => {
     const size = `${Math.max(1, Math.round(f.size / 1024))} KB`;
     const kind = f.type.startsWith('image/') ? 'image' : 'doc';
@@ -68,8 +80,8 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
     const deptId = form.departmentId || (form.projectId ? projectById(form.projectId)?.departmentId : '') || '';
     const core = {
       title: form.title.trim(), description: form.description, assigneeId: form.assigneeId || '', ownerId: form.ownerId || '',
-      priority: form.priority, status: form.status, projectId: form.projectId || '', departmentId: deptId,
-      dueOn: form.dueOn || '', estimateHours: form.estimate ? (form.estimateUnit === 'min' ? Number(form.estimate) / 60 : Number(form.estimate)) : null, tags: form.labels, recurrence: recurrence(),
+      priority: form.priority, status: form.recurFreq !== 'none' ? 'recurring' : form.status, projectId: form.projectId || '', departmentId: deptId,
+      dueOn: form.dueOn || '', estimateHours: (form.estimateHrs || form.estimateMin) ? (Number(form.estimateHrs || 0) + Number(form.estimateMin || 0) / 60) : null, tags: form.labels, recurrence: recurrence(),
     };
     try {
       let parentId = taskId;
@@ -128,7 +140,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
           </div>
           <div style={field}>
             <label style={label}>Recurrence</label>
-            <select value={form.recurFreq} onChange={(e) => set('recurFreq', e.target.value)} style={sel}>
+            <select value={form.recurFreq} onChange={(e) => setRecurFreq(e.target.value)} style={sel}>
               <option value="none">Does not repeat</option>
               <option value="daily">Every day</option>
               <option value="weekly">Every week</option>
@@ -151,6 +163,28 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
               </select>
             </div>
           )}
+          {form.recurFreq !== 'none' && (
+            <div style={field}>
+              <label style={label}>Ends</label>
+              <select value={form.recurEnd} onChange={(e) => set('recurEnd', e.target.value)} style={sel}>
+                <option value="never">Never</option>
+                <option value="on">On date</option>
+                <option value="after">After occurrences</option>
+              </select>
+            </div>
+          )}
+          {form.recurFreq !== 'none' && form.recurEnd === 'on' && (
+            <div style={field}>
+              <label style={label}>End Date</label>
+              <DateField value={form.recurUntil} onChange={(v) => set('recurUntil', v || '')} placeholder="Pick a date" style={input} />
+            </div>
+          )}
+          {form.recurFreq !== 'none' && form.recurEnd === 'after' && (
+            <div style={field}>
+              <label style={label}>Occurrences</label>
+              <input type="number" min="1" step="1" value={form.recurCount} onChange={(e) => set('recurCount', e.target.value)} placeholder="e.g. 10" style={input} />
+            </div>
+          )}
           <div style={field}>
             <label style={label}>Priority</label>
             <select value={form.priority} onChange={(e) => set('priority', e.target.value)} style={sel}>
@@ -159,18 +193,17 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
           </div>
           <div style={field}>
             <label style={label}>Status</label>
-            <select value={form.status} onChange={(e) => set('status', e.target.value)} style={sel}>
-              {STATUS_ORDER.map((s) => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
+            <select value={form.recurFreq !== 'none' ? 'recurring' : form.status} onChange={(e) => set('status', e.target.value)} disabled={form.recurFreq !== 'none'} style={{ ...sel, ...(form.recurFreq !== 'none' ? { opacity: 0.7, cursor: 'not-allowed' } : {}) }}>
+              {store.statusOrder.map((s) => <option key={s} value={s}>{store.statusMeta[s]?.label || s}</option>)}
             </select>
+            {form.recurFreq !== 'none' && <span style={{ fontSize: 11, color: NX.faint, marginTop: 3 }}>Recurring tasks are always “Recurring”.</span>}
           </div>
           <div style={field}>
             <label style={label}>Estimated Time</label>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <input type="number" min="0" step={form.estimateUnit === 'min' ? '5' : '0.5'} value={form.estimate} onChange={(e) => set('estimate', e.target.value)} placeholder="0" style={{ ...input, flex: 1, minWidth: 0 }} />
-              <select value={form.estimateUnit} onChange={(e) => set('estimateUnit', e.target.value)} style={{ ...sel, width: 'auto', flexShrink: 0 }}>
-                <option value="hr">hrs</option>
-                <option value="min">min</option>
-              </select>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input type="number" min="0" step="1" value={form.estimateHrs} onChange={(e) => set('estimateHrs', e.target.value)} placeholder="hrs" style={{ ...input, flex: 1, minWidth: 0 }} />
+              <span style={{ fontWeight: 700, color: '#6b7280' }}>:</span>
+              <input type="number" min="0" max="59" step="5" value={form.estimateMin} onChange={(e) => set('estimateMin', e.target.value)} placeholder="min" style={{ ...input, flex: 1, minWidth: 0 }} />
             </div>
           </div>
           <div style={field}>
