@@ -231,33 +231,33 @@ export function MyPermanentPanel({ assignments, userEmail, refresh, toast }) {
             {a.status === 'pending_acceptance' && (
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10, flexWrap: 'wrap' }}>
                 <button onClick={() => { const r = prompt('Why are you declining? (optional)') ?? ''; api.declineAssignment(a.id, { note: r }).then(() => { toast('Assignment declined.'); refresh(); }).catch(e => toast(e?.message || 'Could not decline.', 'error')); }}
-                  style={{ background: 'none', border: '1px solid hsla(var(--color-red),0.4)', borderRadius: 8, padding: '5px 12px', fontSize: 12, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 600, fontFamily: 'Inter,sans-serif' }}>
+                  className="secondary-btn" style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>
                   Decline
                 </button>
                 <button className="primary-btn" style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => setModal({ kind: 'accept', a })}>
-                  <Camera size={13} /> Accept & Upload Photo
+                  <Camera size={13} /> Accept & upload photo
                 </button>
               </div>
             )}
             {a.status === 'active' && (
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10, flexWrap: 'wrap' }}>
                 <button onClick={() => setModal({ kind: 'return', a, reason: 'dead' })}
-                  style={{ background: 'none', border: '1px solid hsla(var(--color-red),0.4)', borderRadius: 8, padding: '5px 12px', fontSize: 12, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 600, fontFamily: 'Inter,sans-serif' }}>
-                  <AlertCircle size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />Report Dead
+                  className="secondary-btn" style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>
+                  <AlertCircle size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />Report dead
                 </button>
                 <button onClick={() => setModal({ kind: 'return', a, reason: 'lost' })}
-                  style={{ background: 'none', border: '1px solid hsla(var(--color-red),0.4)', borderRadius: 8, padding: '5px 12px', fontSize: 12, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 600, fontFamily: 'Inter,sans-serif' }}>
-                  Report Lost
+                  className="secondary-btn" style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>
+                  Report lost
                 </button>
                 <button className="primary-btn" style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => setModal({ kind: 'return', a, reason: 'normal' })}>
-                  <RotateCcw size={13} /> Return Item
+                  <RotateCcw size={13} /> Return item
                 </button>
               </div>
             )}
             {a.status === 'return_initiated' && (
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
                 {a.returnReason === 'reassign' && !a.returnPhotoUrl
-                  ? <>This item is being reassigned to <strong>{a.nextAssigneeName || a.nextAssigneeEmail}</strong> — please return it: <button className="primary-btn" style={{ fontSize: 12, marginLeft: 8 }} onClick={() => setModal({ kind: 'return', a, reason: 'reassign' })}><Camera size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />Return with Photo</button></>
+                  ? <>This item is being reassigned to <strong>{a.nextAssigneeName || a.nextAssigneeEmail}</strong> — please return it: <button className="primary-btn" style={{ fontSize: 12, marginLeft: 8 }} onClick={() => setModal({ kind: 'return', a, reason: 'reassign' })}><Camera size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />Return with photo</button></>
                   : 'Waiting for a supervisor to accept the return.'}
               </div>
             )}

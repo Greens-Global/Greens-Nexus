@@ -4,7 +4,7 @@ import {
   AlertCircle, X, Loader2, ChevronDown, UploadCloud, FileSpreadsheet,
   Download, Pencil, Trash2, MapPin, ClipboardList, History, FileBarChart,
   ShoppingCart, Filter, ZoomIn, Car, Wrench, Key, Monitor, Box, FileText,
-  ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image, LayoutGrid, User, Wand2, Link2, Tag,
+  ArrowLeft, ChevronRight, Megaphone, ArrowUpDown, Send, Users, Image, LayoutGrid, User, Wand2, Link2, Tag, Settings,
 } from 'lucide-react';
 import { ErrorBanner, SkeletonBlocks } from '../components/AsyncState';
 import { useInventory }     from '../contexts/InventoryContext';
@@ -59,7 +59,7 @@ const TYPE_META = {
 const STATUS_META = {
   available:            { label: 'Available',          bg: 'hsla(var(--color-green),0.12)',  fg: 'hsl(var(--color-green))'  },
   unassigned:           { label: 'Unassigned',         bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))' },
-  checked_out:          { label: 'Checked Out',        bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
+  checked_out:          { label: 'Checked out',        bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
   permanently_assigned: { label: 'Perm. Assigned',    bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))'   },
   retired:              { label: 'Retired',             bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))'    },
 };
@@ -72,9 +72,9 @@ const OP_STATUSES = ['deployed', 'in_storage', 'in_repair', 'needs_replacement',
 const RECYCLE_BIN_DAYS = 30;
 const OP_STATUS_META = {
   deployed:          { label: 'Deployed',          bg:'hsla(var(--color-green),0.12)',  fg:'hsl(var(--color-green))'  },
-  in_storage:        { label: 'In Storage',        bg:'hsla(var(--color-blue),0.12)',   fg:'hsl(var(--color-blue))'   },
-  in_repair:         { label: 'In Repair',         bg:'hsla(var(--color-orange),0.12)', fg:'hsl(var(--color-orange))' },
-  needs_replacement: { label: 'Needs Replacement', bg:'hsla(var(--color-red),0.12)',    fg:'hsl(var(--color-red))'    },
+  in_storage:        { label: 'In storage',        bg:'hsla(var(--color-blue),0.12)',   fg:'hsl(var(--color-blue))'   },
+  in_repair:         { label: 'In repair',         bg:'hsla(var(--color-orange),0.12)', fg:'hsl(var(--color-orange))' },
+  needs_replacement: { label: 'Needs replacement', bg:'hsla(var(--color-red),0.12)',    fg:'hsl(var(--color-red))'    },
   retired:           { label: 'Retired',           bg:'var(--mist)',                    fg:'var(--muted)'             },
   lost:              { label: 'Lost',              bg:'hsla(var(--color-red),0.12)',    fg:'hsl(var(--color-red))'    },
 };
@@ -92,9 +92,9 @@ function displayStatus(item) {
 
 const CHECKOUT_STATUS_META = {
   pending:         { label: 'Pending',            bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))', Icon: Clock },
-  approved:        { label: 'Awaiting Handover',  bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))',   Icon: Package },
-  pending_receipt: { label: 'Confirm Receipt',    bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))', Icon: Camera },
-  allocated:       { label: 'In Use',             bg: 'hsla(var(--color-green),0.12)',  fg: 'hsl(var(--color-green))',  Icon: CheckCircle },
+  approved:        { label: 'Awaiting handover',  bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))',   Icon: Package },
+  pending_receipt: { label: 'Confirm receipt',    bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))', Icon: Camera },
+  allocated:       { label: 'In use',             bg: 'hsla(var(--color-green),0.12)',  fg: 'hsl(var(--color-green))',  Icon: CheckCircle },
   rejected:        { label: 'Rejected',           bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
   returned:        { label: 'Returned',           bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))',   Icon: RotateCcw },
   cancelled:       { label: 'Cancelled',          bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))',    Icon: XCircle },
@@ -104,7 +104,7 @@ const CHECKOUT_STATUS_META = {
 // "Confirm Receipt" (the employee's call to action) would read as the manager's job.
 const MANAGER_CHECKOUT_STATUS_META = {
   ...CHECKOUT_STATUS_META,
-  pending_receipt: { label: 'Employee to Confirm', bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))', Icon: Clock },
+  pending_receipt: { label: 'Employee to confirm', bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))', Icon: Clock },
 };
 
 const DEPARTMENTS = ['All', 'IT', 'Construction', 'Operations', 'Accounting', 'Facilities', 'Marketing', 'HR'];
@@ -410,7 +410,7 @@ function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
       {/* Wide enough that no label or select option ever truncates (e.g.
           "Temporary (check-out/return)" was getting cut off at 500px) */}
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:620, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', margin:'auto' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:20 }}>Add Item</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:20 }}>Add item</h3>
 
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
           <div>
@@ -527,7 +527,7 @@ function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
           <button className="primary-btn" disabled={!name.trim() || (!photoUrl && !skipPhoto) || !department.trim() || !location.trim() || saving}
             style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:120, justifyContent:'center' }}
             onClick={submit}>
-            {saving ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Saving…</> : <><Plus size={14} /> Add Item</>}
+            {saving ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Saving…</> : <><Plus size={14} /> Add item</>}
           </button>
         </div>
       </div>
@@ -757,7 +757,7 @@ function DeleteItemModal({ item, onClose, onConfirm }) {
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:400, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:8 }}>Delete Item?</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:8 }}>Delete item?</h3>
         <p style={{ fontSize:13.5, color:'var(--muted)', marginBottom:16 }}>
           Remove <strong>{item.name}</strong>? It moves to the recycle bin and can be restored later. Deleting fails if the item has an active checkout.
         </p>
@@ -1138,7 +1138,7 @@ function ReturnModal({ checkout, onClose, onSubmit, photoOptional = false }) {
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Return Item</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Return item</h3>
         <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:20 }}>
           Returning <strong>{checkout.itemName}</strong>. {photoOptional ? 'A photo is optional for this item.' : 'A photo of the item is required.'}
         </p>
@@ -1235,7 +1235,7 @@ function ExtendRequestModal({ checkout, onClose, onSubmit }) {
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="primary-btn" disabled={busy || !reason.trim()}
             style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:150, justifyContent:'center', opacity: (!reason.trim() && !busy) ? 0.5 : 1 }} onClick={submit}>
-            {busy ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Sending…</> : <><Clock size={14} /> Request Extension</>}
+            {busy ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Sending…</> : <><Clock size={14} /> Request extension</>}
           </button>
         </div>
       </div>
@@ -1993,8 +1993,8 @@ const AuditLogPanel = memo(function AuditLogPanel({ items = [], onOpenItem, onLo
 const STAGES = [
   { key:'pending',         label:'Requested'   },
   { key:'approved',        label:'Approved'    },
-  { key:'pending_receipt', label:'Handed Over' },
-  { key:'allocated',       label:'In Use'      },
+  { key:'pending_receipt', label:'Handed over' },
+  { key:'allocated',       label:'In use'      },
   { key:'returned',        label:'Returned'    },
 ];
 function StageTracker({ checkout }) {
@@ -2493,8 +2493,8 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
   const segmentTabs = (
     <div className="chip-row" style={{ display:'flex', gap:8, marginBottom:16 }}>
       {[
-        { key:'active', label:'Active Checkouts', Icon: Clock,   count: active.length    },
-        { key:'past',   label:'Past Checkouts',   Icon: History, count: completed.length },
+        { key:'active', label:'Active checkouts', Icon: Clock,   count: active.length    },
+        { key:'past',   label:'Past checkouts',   Icon: History, count: completed.length },
         { key:'permanent', label:'Permanent', Icon: User, count: liveAssignCount },
       ].map(({ key, label, Icon, count }) => {
         const sel = panelTab === key;
@@ -2621,19 +2621,19 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
                   <button className="primary-btn"
                     style={{ marginLeft:'auto', fontSize:11.5, padding:'4px 12px', display:'inline-flex', alignItems:'center', gap:4 }}
                     onClick={() => setConfirmingCo(pendingReceiptItems)}>
-                    <Camera size={12} /> Confirm Receipt for All ({pendingReceiptItems.length})
+                    <Camera size={12} /> Confirm receipt for all ({pendingReceiptItems.length})
                   </button>
                 )}
                 {showBatchReturn && onReturnAll && (
-                  <button onClick={() => setReturnAllGroup(allocatedItems)}
-                    style={{ marginLeft: showBatchReceipt ? 0 : 'auto', background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'3px 10px', fontSize:11.5, cursor:'pointer', color:'var(--ink)', display:'inline-flex', alignItems:'center', gap:4, fontFamily:'Inter,sans-serif', fontWeight:600 }}>
-                    <RotateCcw size={11} /> Return All ({allocatedItems.length})
+                  <button className="secondary-btn" onClick={() => setReturnAllGroup(allocatedItems)}
+                    style={{ marginLeft: showBatchReceipt ? 0 : 'auto', fontSize:11.5, padding:'4px 12px', display:'inline-flex', alignItems:'center', gap:4 }}>
+                    <RotateCcw size={11} /> Return all ({allocatedItems.length})
                   </button>
                 )}
                 {cancellableItems.length > 1 && !showBatchReceipt && !showBatchReturn && cancelAllKey !== groupKey && (
-                  <button onClick={() => setCancelAllKey(groupKey)}
-                    style={{ marginLeft:'auto', background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:7, padding:'3px 10px', fontSize:11.5, cursor:'pointer', color:'hsl(var(--color-red))', display:'inline-flex', alignItems:'center', gap:4, fontFamily:'Inter,sans-serif', fontWeight:600 }}>
-                    <XCircle size={11} /> Cancel All
+                  <button className="secondary-btn" onClick={() => setCancelAllKey(groupKey)}
+                    style={{ marginLeft:'auto', fontSize:11.5, padding:'4px 12px', color:'hsl(var(--color-red))', display:'inline-flex', alignItems:'center', gap:4 }}>
+                    <XCircle size={11} /> Cancel all
                   </button>
                 )}
                 {cancelAllKey === groupKey && (
@@ -2647,7 +2647,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
                         Promise.allSettled(cancellableItems.map(c => onCancel(c)))
                           .finally(() => { setCancelAllBusy(false); setCancelAllKey(null); });
                       }}>
-                      {cancelAllBusy ? <Loader2 size={11} style={{ animation:'spin 1s linear infinite' }} /> : null} Yes, Cancel All
+                      {cancelAllBusy ? <Loader2 size={11} style={{ animation:'spin 1s linear infinite' }} /> : null} Yes, cancel all
                     </button>
                   </div>
                 )}
@@ -2709,17 +2709,17 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
                       </div>
                     ) : (
                       <div style={{ display:'flex', gap:8, justifyContent:'flex-end', flexWrap:'wrap', marginTop:10 }}>
-                        <button onClick={() => {
+                        <button className="secondary-btn" onClick={() => {
                             setDismissedIds(prev => new Set([...prev, c.id]));
                             onCancel && onCancel(c, { silent: true });
                           }}
-                          style={{ background:'none', border:'1px solid var(--line)', borderRadius:8, padding:'5px 12px', fontSize:12, cursor:'pointer', color:'var(--muted)', display:'inline-flex', alignItems:'center', gap:5, fontFamily:'Inter,sans-serif', fontWeight:600 }}>
+                          style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, color:'var(--muted)' }}>
                           <X size={12} /> Discard
                         </button>
                         {onReRequest && (
                           <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
                             onClick={() => { setReRequestId(c.id); setReRequestReason(''); }}>
-                            <RotateCcw size={12} /> Request Again
+                            <RotateCcw size={12} /> Request again
                           </button>
                         )}
                       </div>
@@ -2729,30 +2729,30 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
                     {c.status === 'allocated' && onRequestExtension && c.extensionStatus !== 'pending' && (
                       <button className="secondary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5, color:'hsl(var(--color-blue))' }}
                         onClick={() => setExtendingCo(c)}>
-                        <Clock size={13} /> Extend Item
+                        <Clock size={13} /> Extend item
                       </button>
                     )}
                     {c.status === 'allocated' && (
                       <button className="primary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5 }}
                         onClick={() => onReturn(c)}>
-                        <RotateCcw size={13} /> Return Item
+                        <RotateCcw size={13} /> Return item
                       </button>
                     )}
                     {c.status === 'pending_receipt' && onConfirmReceipt && (
                       <button className="primary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5 }}
                         onClick={() => setConfirmingCo(c)}>
-                        <Camera size={13} /> Confirm Receipt &amp; Upload Photo
+                        <Camera size={13} /> Confirm receipt &amp; upload photo
                       </button>
                     )}
                     {c.status === 'approved' && (onEmployeeAccept || onSelfAllocate) && (
                       <button className="primary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5, background:'hsl(var(--color-green))' }}
                         onClick={() => onEmployeeAccept ? setAcceptingCo(c) : onSelfAllocate(c)}>
-                        <Camera size={13} /> Accept &amp; Upload Photo
+                        <Camera size={13} /> Accept &amp; upload photo
                       </button>
                     )}
                     {['pending','approved'].includes(c.status) && cancelId !== c.id && (
-                      <button onClick={() => setCancelId(c.id)}
-                        style={{ background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:8, padding:'5px 12px', fontSize:12, cursor:'pointer', color:'hsl(var(--color-red))', display:'inline-flex', alignItems:'center', gap:5, fontFamily:'Inter,sans-serif', fontWeight:600 }}>
+                      <button className="secondary-btn" onClick={() => setCancelId(c.id)}
+                        style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, color:'hsl(var(--color-red))' }}>
                         <XCircle size={13} /> Cancel
                       </button>
                     )}
@@ -2766,7 +2766,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
                             setCancelBusy(c.id);
                             onCancel(c).finally(() => { setCancelBusy(null); setCancelId(null); });
                           }}>
-                          {cancelBusy === c.id ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : null} Yes, Cancel
+                          {cancelBusy === c.id ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : null} Yes, cancel
                         </button>
                       </div>
                     )}
@@ -3061,7 +3061,7 @@ const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoadi
               onMouseLeave={e => e.currentTarget.style.boxShadow = 'var(--shadow-sm)'}>
               {/* Photo — only this part fades when unavailable; status info below stays full-colour */}
               <div onClick={() => item.photoUrl && isAvailable && !hasPending && setLightbox({ src: item.photoUrl, alt: item.name })}
-                style={{ height:140, background: item.photoUrl ? 'transparent' : tm.bg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, cursor: item.photoUrl && isAvailable && !hasPending ? 'zoom-in' : 'default', position:'relative', overflow:'hidden', opacity: (isAvailable && !hasPending) ? 1 : 0.55 }}>
+                style={{ height:160, background: item.photoUrl ? 'transparent' : tm.bg, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, cursor: item.photoUrl && isAvailable && !hasPending ? 'zoom-in' : 'default', position:'relative', overflow:'hidden', opacity: (isAvailable && !hasPending) ? 1 : 0.55 }}>
                 {item.photoUrl
                   ? <img src={item.photoUrl} alt={item.name} loading="lazy" decoding="async" style={{ width:'100%', height:'100%', objectFit:'cover', filter: (isAvailable && !hasPending) ? 'none' : 'grayscale(60%)' }} />
                   : <tm.Icon size={40} color={tm.color} />}
@@ -3073,13 +3073,13 @@ const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoadi
                 {alreadyInCart && (
                   <div style={{ position:'absolute', top:6, left:6, background:'hsl(var(--color-green))', borderRadius:6, padding:'2px 7px', display:'flex', alignItems:'center', gap:3 }}>
                     <CheckCircle size={10} color="#fff" />
-                    <span style={{ fontSize:10, color:'#fff', fontWeight:700 }}>In Cart</span>
+                    <span style={{ fontSize:10, color:'#fff', fontWeight:700 }}>In cart</span>
                   </div>
                 )}
                 {hasPending && (
                   <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.18)', display:'flex', alignItems:'flex-end', justifyContent:'center', padding:'0 0 8px' }}>
                     <span style={{ background:'rgba(220,120,0,0.85)', color:'#fff', fontSize:10.5, fontWeight:700, borderRadius:6, padding:'2px 8px' }}>
-                      Pending Request
+                      Pending request
                     </span>
                   </div>
                 )}
@@ -3091,18 +3091,17 @@ const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoadi
                   </div>
                 )}
               </div>
-              {/* Info */}
-              <div style={{ padding:'10px 12px', flex:1, display:'flex', flexDirection:'column', gap:4 }}>
-                <div style={{ fontWeight:700, fontSize:13, lineHeight:1.3 }}>{item.name}</div>
+              {/* Info — one calm meta line; the full spec lives behind the photo/
+                  details affordances rather than stacked on the card face. */}
+              <div style={{ padding:'10px 12px', flex:1, display:'flex', flexDirection:'column', gap:5 }}>
+                <div style={{ fontWeight:700, fontSize:13, lineHeight:1.3, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={item.name}>{item.name}</div>
                 <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
                   <TypeBadge type={item.itemType} />
                 </div>
-                {(item.make || item.model) && (
-                  <div style={{ fontSize:11.5, color:'var(--muted)' }}>{item.make}{item.make && item.model ? ' · ' : ''}{item.model && <span style={{ fontWeight:600 }}>{item.model}</span>}</div>
-                )}
-                {item.location && (
-                  <div style={{ display:'flex', alignItems:'center', gap:3, fontSize:11.5, color:'var(--muted)' }}>
-                    <MapPin size={10} /> {item.location}
+                {(item.make || item.model || item.location) && (
+                  <div style={{ fontSize:11.5, color:'var(--muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
+                    title={[cleanField(item.make), cleanField(item.model), cleanField(item.location)].filter(Boolean).join(' · ')}>
+                    {[[cleanField(item.make), cleanField(item.model)].filter(Boolean).join(' '), cleanField(item.location)].filter(Boolean).join(' · ')}
                   </div>
                 )}
               </div>
@@ -3112,16 +3111,16 @@ const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoadi
                   <button onClick={() => onAddToCart(item)} disabled={alreadyInCart}
                     className={alreadyInCart ? 'secondary-btn' : 'primary-btn'}
                     style={{ width:'100%', fontSize:12.5, padding:'7px 0', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
-                    {alreadyInCart ? <><CheckCircle size={12} /> In Cart</> : <><Plus size={12} /> Add to Cart</>}
+                    {alreadyInCart ? <><CheckCircle size={12} /> In cart</> : <><Plus size={12} /> Add to cart</>}
                   </button>
                 ) : hasPending ? (
-                  <div style={{ textAlign:'center', fontSize:11.5, color:'hsl(var(--color-orange))', fontWeight:600 }}>Under Review</div>
+                  <div style={{ textAlign:'center', fontSize:11.5, color:'hsl(var(--color-orange))', fontWeight:600 }}>Under review</div>
                 ) : !isAvailable ? (
                   <div style={{ textAlign:'center', fontSize:11, lineHeight:1.5 }}>
                     {item.status === 'checked_out' ? (
                       <>
                         <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 9px', borderRadius:20, fontSize:10.5, fontWeight:800, background:'hsla(var(--color-orange),0.14)', color:'hsl(var(--color-orange))' }}>
-                          In Use
+                          In use
                         </span>
                         {checkedOutBy && (
                           <span style={{ display:'block', fontSize:11, fontWeight:600, color:'var(--ink)', marginTop:3 }}>{checkedOutBy}</span>
@@ -3134,7 +3133,7 @@ const ItemPhotoGrid = memo(function ItemPhotoGrid({ items, checkouts, itemsLoadi
                       </>
                     ) : item.status === 'permanently_assigned' ? (
                       <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 9px', borderRadius:20, fontSize:10.5, fontWeight:800, background:'hsla(var(--color-blue),0.14)', color:'hsl(var(--color-blue))' }}>
-                        Permanently Assigned
+                        Permanently assigned
                       </span>
                     ) : item.status === 'retired' ? (
                       <span style={{ fontWeight:600, color:'var(--muted)' }}>Retired</span>
@@ -3467,9 +3466,9 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
       {/* Tab strip — scrolls horizontally on phones */}
       <div className="scroll-tabs" style={{ display:'flex', alignItems:'center', borderBottom:'2px solid var(--line)', marginBottom:24 }}>
         {[
-          { id:'catalog',   label:'Browse Catalog', Icon: Package,       badge: null },
-          { id:'checkouts', label:'My Checkouts',   Icon: ClipboardList, badge: activeCheckouts.length || null },
-          ...(isAllocator ? [{ id:'handover', label:'To Hand Over', Icon: Camera, badge: myAllocations.length || null }] : []),
+          { id:'catalog',   label:'Browse catalog', Icon: Package,       badge: null },
+          { id:'checkouts', label:'My checkouts',   Icon: ClipboardList, badge: activeCheckouts.length || null },
+          ...(isAllocator ? [{ id:'handover', label:'To hand over', Icon: Camera, badge: myAllocations.length || null }] : []),
         ].map(({ id, label, Icon, badge }) => (
           <button key={id} onClick={() => setTab(id)}
             style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 18px', background:'none', border:'none',
@@ -3699,7 +3698,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
                     <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
                       <span style={{ display:'inline-flex', alignItems:'center', gap:3, padding:'2px 8px', borderRadius:20, fontSize:10.5, fontWeight:800, background:'hsla(var(--color-blue),0.12)', color:'hsl(var(--color-blue))' }}>Awaiting Handover</span>
                       <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, background:'hsl(var(--color-orange))' }} onClick={() => setAllocatingCo(co)}>
-                        <Camera size={12} /> Hand Over
+                        <Camera size={12} /> Hand over
                       </button>
                     </div>
                   </div>
@@ -4895,7 +4894,7 @@ function SendAlertModal({ onClose, toast }) {
               <Megaphone size={18} color="hsl(var(--color-orange))" />
             </div>
             <div>
-              <h3 style={{ margin:0, fontSize:15, fontWeight:700 }}>Send Alert</h3>
+              <h3 style={{ margin:0, fontSize:15, fontWeight:700 }}>Send alert</h3>
               <p style={{ margin:0, fontSize:12, color:'var(--muted)' }}>Bell notification + email to selected users</p>
             </div>
           </div>
@@ -4946,7 +4945,7 @@ function SendAlertModal({ onClose, toast }) {
           <button onClick={handleSend} disabled={sending || !selected.size || !subject.trim() || !message.trim()}
             style={{ display:'inline-flex', alignItems:'center', gap:7, background:'hsl(var(--color-orange))', color:'#fff', border:'none', borderRadius:9, padding:'9px 18px', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', opacity: (sending || !selected.size || !subject.trim() || !message.trim()) ? 0.55 : 1 }}>
             {sending ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <Send size={14} />}
-            Send Alert
+            Send alert
           </button>
         </div>
       </div>
@@ -5130,69 +5129,80 @@ const ManageRow = memo(function ManageRow({ item, isSelected, highlight, onToggl
           onMouseDown={e => { if (e.shiftKey) e.preventDefault(); }}
           style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
       </td>
-      <td style={{ padding:'10px 14px' }}>
-        {item.photoUrl
-          ? <PhotoThumb url={item.photoUrl} size={44} onPreview={onPreview} />
-          : (
-            <div style={{ width:44, height:44, borderRadius:10, background:'hsla(var(--color-red),0.08)', border:'1px dashed hsla(var(--color-red),0.4)', display:'flex', alignItems:'center', justifyContent:'center' }} title="Missing photo">
-              <Camera size={18} color="hsl(var(--color-red))" />
+      {/* Item — photo + name with make/model/year as a quiet second line; the
+          old Photo/Make/Model/Ownership columns folded in here so the face of
+          the table stays calm. "Permanent" only tags the exceptions. */}
+      <td style={{ padding:'10px 14px', maxWidth:300 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0 }}>
+          {item.photoUrl
+            ? <PhotoThumb url={item.photoUrl} size={40} onPreview={onPreview} />
+            : (
+              <div style={{ width:40, height:40, borderRadius:10, background:'hsla(var(--color-red),0.08)', border:'1px dashed hsla(var(--color-red),0.4)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }} title="Missing photo">
+                <Camera size={16} color="hsl(var(--color-red))" />
+              </div>
+            )
+          }
+          <div style={{ minWidth:0 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:6, minWidth:0 }}>
+              {onDetails ? (
+                <button onClick={() => onDetails(item)} title="Open item details"
+                  style={{ background:'none', border:'none', padding:0, font:'inherit', fontWeight:600, color:'var(--ink)', cursor:'pointer', textAlign:'left', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
+                  onMouseEnter={e => { e.currentTarget.style.color = 'hsl(var(--color-blue))'; e.currentTarget.style.textDecoration = 'underline'; }}
+                  onMouseLeave={e => { e.currentTarget.style.color = 'var(--ink)'; e.currentTarget.style.textDecoration = 'none'; }}>
+                  {item.name}
+                </button>
+              ) : <span style={{ fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</span>}
+              {item.ownershipType === 'permanent' && (
+                <span style={{ fontSize:10, fontWeight:700, padding:'1px 7px', borderRadius:20, background:'hsla(var(--color-purple),0.1)', color:'hsl(var(--color-purple))', flexShrink:0 }}>Permanent</span>
+              )}
             </div>
-          )
-        }
+            {(cleanField(item.make) || cleanField(item.model)) && (
+              <div style={{ fontSize:11.5, color:'var(--muted)', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                {[cleanField(item.make), cleanField(item.model), cleanField(item.year)].filter(Boolean).join(' ')}
+              </div>
+            )}
+          </div>
+        </div>
       </td>
       <td style={{ padding:'10px 14px', fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace', fontSize:12, color:'var(--muted)', whiteSpace:'nowrap' }}>{item.serialNumber || '—'}</td>
-      <td style={{ padding:'10px 14px', fontWeight:600, maxWidth:240, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-        {onDetails ? (
-          <button onClick={() => onDetails(item)} title="Open item details"
-            style={{ background:'none', border:'none', padding:0, font:'inherit', fontWeight:600, color:'var(--ink)', cursor:'pointer', textAlign:'left', maxWidth:'100%', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
-            onMouseEnter={e => { e.currentTarget.style.color = 'hsl(var(--color-blue))'; e.currentTarget.style.textDecoration = 'underline'; }}
-            onMouseLeave={e => { e.currentTarget.style.color = 'var(--ink)'; e.currentTarget.style.textDecoration = 'none'; }}>
-            {item.name}
-          </button>
-        ) : item.name}
-      </td>
       <td style={{ padding:'10px 14px' }}><TypeBadge type={item.itemType} /></td>
-      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{cleanField(item.make) || '—'}</td>
-      <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{[cleanField(item.model), cleanField(item.year)].filter(Boolean).join(' ') || '—'}</td>
       <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{cleanField(item.department) || '—'}</td>
       <td style={{ padding:'10px 14px', color:'var(--muted)', fontSize:12 }}>{cleanField(item.location) || '—'}</td>
+      {/* One Status cell: lifecycle badge, with the op-status chip beside it only
+          when something is actually flagged (lost/dead/…). */}
       <td style={{ padding:'10px 14px' }}>
-        <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:20, background: item.ownershipType === 'permanent' ? 'hsla(var(--color-purple),0.1)' : 'hsla(var(--color-blue),0.1)', color: item.ownershipType === 'permanent' ? 'hsl(var(--color-purple))' : 'hsl(var(--color-blue))' }}>
-          {item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}
-        </span>
+        <div style={{ display:'flex', alignItems:'center', gap:5, flexWrap:'wrap' }}>
+          <StatusBadge status={displayStatus(item)} />
+          {item.opStatus && <OpStatusBadge value={item.opStatus} />}
+        </div>
       </td>
-      <td style={{ padding:'10px 14px' }}><StatusBadge status={displayStatus(item)} /></td>
-      <td style={{ padding:'10px 14px' }}><OpStatusBadge value={item.opStatus} /></td>
       {/* Actions pinned to the right so they stay reachable when the table is wider
-          than the viewport (narrow laptops clipped Assign/Edit/Delete). Opaque bg
-          masks content scrolling underneath; no shadow so it's seamless when the
-          table fits and isn't actually overlapping anything. */}
+          than the viewport. Compact aligned icon buttons — labels moved to tooltips
+          so every row's actions line up regardless of which ones apply. */}
       <td style={{ padding:'10px 14px', position:'sticky', right:0, background:'var(--card)' }}>
-        <div style={{ display:'flex', gap:6 }}>
-          {/* Per-row assign (opens the person/location modal; also in Batch Edit).
-              "Assigned" means a person holds it — that's what flips Assign→Reassign.
-              Location is just where it lives and doesn't change the label. */}
+        <div style={{ display:'flex', gap:5, justifyContent:'flex-end' }}>
           {item.ownershipType === 'permanent' && onAssign && (
             <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
-              title={item.assignedToEmail ? `Held by ${item.assignedToName || item.assignedToEmail}${item.location ? ` · at ${item.location}` : ''}` : item.location ? `At ${item.location} · no person assigned` : 'Assign a person or set a location'}
-              style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-              <User size={12} /> {item.assignedToEmail ? 'Reassign' : 'Assign'}
+              title={item.assignedToEmail ? `Held by ${item.assignedToName || item.assignedToEmail}${item.location ? ` · at ${item.location}` : ''} — reassign` : item.location ? `At ${item.location} · no person assigned — assign` : 'Assign a person or set a location'}
+              aria-label={item.assignedToEmail ? 'Reassign' : 'Assign'}
+              style={{ width:28, height:28, display:'inline-flex', alignItems:'center', justifyContent:'center', background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, color:'hsl(var(--color-purple))', cursor:'pointer' }}>
+              <User size={13} />
             </button>
           )}
           {onDetails && (
-            <button onClick={() => onDetails(item)} title="View all details & custom fields"
-              style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-              <FileText size={12} /> Details
+            <button onClick={() => onDetails(item)} title="All details & custom fields" aria-label="Details"
+              style={{ width:28, height:28, display:'inline-flex', alignItems:'center', justifyContent:'center', background:'none', border:'1px solid var(--line)', borderRadius:7, color:'var(--muted)', cursor:'pointer' }}>
+              <FileText size={13} />
             </button>
           )}
-          <button onClick={() => onEdit(item)}
-            style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-            <Pencil size={12} /> Edit
+          <button onClick={() => onEdit(item)} title="Edit item" aria-label="Edit"
+            style={{ width:28, height:28, display:'inline-flex', alignItems:'center', justifyContent:'center', background:'none', border:'1px solid var(--line)', borderRadius:7, color:'var(--muted)', cursor:'pointer' }}>
+            <Pencil size={13} />
           </button>
           {canDelete && (
-            <button onClick={() => onDelete(item)}
-              style={{ display:'inline-flex', alignItems:'center', gap:4, background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-red))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-              <Trash2 size={12} /> Delete
+            <button onClick={() => onDelete(item)} title="Delete item" aria-label="Delete"
+              style={{ width:28, height:28, display:'inline-flex', alignItems:'center', justifyContent:'center', background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, color:'hsl(var(--color-red))', cursor:'pointer' }}>
+              <Trash2 size={13} />
             </button>
           )}
         </div>
@@ -5229,22 +5239,21 @@ const ManageCard = memo(function ManageCard({ item, isSelected, highlight, onTog
       </div>
       <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:10, flexWrap:'wrap' }}>
         <TypeBadge type={item.itemType} />
-        <span style={{ fontSize:10.5, fontWeight:600, padding:'2px 8px', borderRadius:20, background: item.ownershipType === 'permanent' ? 'hsla(var(--color-purple),0.1)' : 'hsla(var(--color-blue),0.1)', color: item.ownershipType === 'permanent' ? 'hsl(var(--color-purple))' : 'hsl(var(--color-blue))' }}>
-          {item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}
-        </span>
+        {item.ownershipType === 'permanent' && (
+          <span style={{ fontSize:10, fontWeight:700, padding:'1px 7px', borderRadius:20, background:'hsla(var(--color-purple),0.1)', color:'hsl(var(--color-purple))' }}>Permanent</span>
+        )}
         {item.opStatus && <OpStatusBadge value={item.opStatus} />}
-        {Number(item.assetValue) > 0 && <span style={{ fontSize:11, fontWeight:700, color:'var(--muted)' }}>{fmtMoney(item.assetValue)}</span>}
         <div style={{ marginLeft:'auto', display:'flex', gap:6 }}>
           {item.ownershipType === 'permanent' && onAssign && (
-            <button onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
-              style={{ background:'none', border:'1px solid hsla(var(--color-purple),0.4)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-purple))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
+            <button className="secondary-btn" onClick={() => onAssign(item, item.assignedToEmail ? 'reassign' : 'assign')}
+              style={{ color:'hsl(var(--color-purple))' }}>
               {item.assignedToEmail ? 'Reassign' : 'Assign'}
             </button>
           )}
-          {onDetails && <button onClick={() => onDetails(item)} style={{ background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Details</button>}
-          <button onClick={() => onEdit(item)} style={{ background:'none', border:'1px solid var(--line)', borderRadius:7, padding:'5px 10px', color:'var(--muted)', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Edit</button>
+          {onDetails && <button className="secondary-btn" onClick={() => onDetails(item)}>Details</button>}
+          <button className="secondary-btn" onClick={() => onEdit(item)}>Edit</button>
           {canDelete && (
-            <button onClick={() => onDelete(item)} style={{ background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 10px', color:'hsl(var(--color-red))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Delete</button>
+            <button className="secondary-btn" onClick={() => onDelete(item)} style={{ color:'hsl(var(--color-red))' }}>Delete</button>
           )}
         </div>
       </div>
@@ -5255,6 +5264,7 @@ const ManageCard = memo(function ManageCard({ item, isSelected, highlight, onTog
 const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, itemsError, deptFilter, typeFilter, ownershipFilter = 'All', locationFilter = 'All', modelFilter = 'All', search, searchValue, onSearchChange, refreshItems, canDelete, onAdd, onEdit, onDelete, onImport, onExport, onExportAllPdf, onReport, checkouts, toast, onAssign, onDetails, onShowDeleted, onManageCustomFields, onManageTypes, itemTypes = ITEM_TYPES, filterControls, kpiStrip, highlightId, onHighlightDone }) {
   const [photoPreview,       setPhotoPreview]       = useState(null);
   const [exportMenu,         setExportMenu]         = useState(false); // Export ▾ dropdown
+  const [manageMenu,         setManageMenu]         = useState(false); // Manage ▾ dropdown (admin extras)
   const [selected,           setSelected]           = useState(new Set());
   const [sortCol,            setSortCol]            = useState('name');
   const [sortDir,            setSortDir]            = useState('asc');
@@ -5489,21 +5499,12 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
       {/* KPI cards sit BELOW the toolbar so the search/filter row stays at the same
           height as every other tab (Neil: fixed position, no jumping). */}
       {kpiStrip}
-      {/* Action bar */}
-      <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap', alignItems:'center' }}>
+      {/* Action bar — one row: primary action first, everyday secondaries next,
+          admin extras collected under Manage ▾ so the bar never wraps into soup. */}
+      <div style={{ display:'flex', gap:10, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
         <button className="primary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onAdd}>
-          <Plus size={14} /> Add Item
+          <Plus size={14} /> Add item
         </button>
-        {onManageCustomFields && (
-          <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onManageCustomFields}>
-            <Plus size={14} /> Add Custom Field
-          </button>
-        )}
-        {onManageTypes && (
-          <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onManageTypes}>
-            <Tag size={14} /> Manage Types
-          </button>
-        )}
         <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onImport}>
           <UploadCloud size={14} /> Import CSV
         </button>
@@ -5520,7 +5521,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
               <div style={{ position:'absolute', top:'calc(100% + 6px)', left:0, zIndex:41, background:'var(--card)', border:'1px solid var(--line)', borderRadius:10, boxShadow:'var(--shadow-lg)', minWidth:268, overflow:'hidden', padding:5 }}>
                 {/* All Items — unfiltered; pick a format */}
                 <div style={{ padding:'9px 11px' }}>
-                  <span style={{ display:'flex', alignItems:'center', gap:7, fontSize:13, fontWeight:700, color:'var(--ink)' }}><FileSpreadsheet size={14} /> All Items (CSV / PDF)</span>
+                  <span style={{ display:'flex', alignItems:'center', gap:7, fontSize:13, fontWeight:700, color:'var(--ink)' }}><FileSpreadsheet size={14} /> All items (CSV / PDF)</span>
                   <span style={{ display:'block', fontSize:11.5, color:'var(--muted)', paddingLeft:21, margin:'1px 0 8px' }}>Unfiltered — every item, all {items.length}.</span>
                   <div style={{ display:'flex', gap:7, paddingLeft:21 }}>
                     <button onClick={() => { setExportMenu(false); onExport(items); }}
@@ -5536,35 +5537,57 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
                 <button onClick={() => { setExportMenu(false); onReport({ dept: deptFilter, itemType: typeFilter }); }}
                   style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:1, width:'100%', textAlign:'left', background:'none', border:'none', cursor:'pointer', padding:'9px 11px', borderRadius:7, fontFamily:'Inter,sans-serif' }}
                   onMouseEnter={e => e.currentTarget.style.background='var(--mist)'} onMouseLeave={e => e.currentTarget.style.background='none'}>
-                  <span style={{ display:'inline-flex', alignItems:'center', gap:7, fontSize:13, fontWeight:700, color:'var(--ink)' }}><FileBarChart size={14} /> Custom Report (PDF / Excel)</span>
+                  <span style={{ display:'inline-flex', alignItems:'center', gap:7, fontSize:13, fontWeight:700, color:'var(--ink)' }}><FileBarChart size={14} /> Custom report (PDF / Excel)</span>
                   <span style={{ fontSize:11.5, color:'var(--muted)', paddingLeft:21 }}>Formatted to the current filters.</span>
                 </button>
               </div>
             </>
           )}
         </div>
-        {canDelete && onShowDeleted && (
-          <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onShowDeleted}>
-            <Trash2 size={14} /> Recycle Bin
-          </button>
+        {/* Manage ▾ — the admin extras (types, custom fields, deleted items) live
+            behind one button instead of crowding the bar. */}
+        {(onManageTypes || onManageCustomFields || (canDelete && onShowDeleted)) && (
+          <div style={{ position:'relative' }}>
+            <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={() => setManageMenu(o => !o)}>
+              <Settings size={14} /> Manage <ChevronDown size={13} style={{ opacity:.6 }} />
+            </button>
+            {manageMenu && (
+              <>
+                <div style={{ position:'fixed', inset:0, zIndex:40 }} onClick={() => setManageMenu(false)} />
+                <div style={{ position:'absolute', top:'calc(100% + 6px)', left:0, zIndex:41, background:'var(--card)', border:'1px solid var(--line)', borderRadius:10, boxShadow:'var(--shadow-lg)', minWidth:210, overflow:'hidden', padding:5 }}>
+                  {[
+                    onManageTypes        && { icon: Tag,         label: 'Manage types',      onClick: onManageTypes },
+                    onManageCustomFields && { icon: Plus,        label: 'Add custom field',  onClick: onManageCustomFields },
+                    canDelete && onShowDeleted && { icon: Trash2, label: 'Deleted items',    onClick: onShowDeleted },
+                  ].filter(Boolean).map(({ icon: MIcon, label, onClick }) => (
+                    <button key={label} onClick={() => { setManageMenu(false); onClick(); }}
+                      style={{ display:'flex', alignItems:'center', gap:8, width:'100%', textAlign:'left', background:'none', border:'none', cursor:'pointer', padding:'9px 11px', borderRadius:7, fontFamily:'Inter,sans-serif', fontSize:13, fontWeight:600, color:'var(--ink)' }}
+                      onMouseEnter={e => e.currentTarget.style.background='var(--mist)'} onMouseLeave={e => e.currentTarget.style.background='none'}>
+                      <MIcon size={14} style={{ color:'var(--muted)' }} /> {label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         )}
         {/* Batch Edit — one feature, two tabs (Fields / Photos). Only available
             once rows are ticked (Neil: never act on everything by default). The
             "select all" header checkbox + Batch Edit covers the whole-list case.
             (AI photo fill lives inside the Photos tab.) */}
         {selected.size > 0 && (
-          <button onClick={() => { setBatchTab('fields'); setBatchOpen(true); }}
+          <button className="primary-btn" onClick={() => { setBatchTab('fields'); setBatchOpen(true); }}
             title={`Batch edit the ${selItems.length} selected item${selItems.length !== 1 ? 's' : ''}`}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, position:'relative', background:'var(--pine)', color:'#fff', border:'none', borderRadius:9, padding:'7px 14px', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-            <Pencil size={13} /> Batch Edit ({selItems.length})
+            style={{ display:'inline-flex', alignItems:'center', gap:7 }}>
+            <Pencil size={14} /> Batch edit ({selItems.length})
           </button>
         )}
         {/* Assignment moved INTO Batch Edit (Neil) — no separate Assign button. */}
         {/* Batch delete */}
         {canDelete && selected.size > 0 && (
-          <button onClick={() => setBatchDeleteConfirm(true)}
-            style={{ display:'inline-flex', alignItems:'center', gap:7, background:'hsl(var(--color-red))', color:'#fff', border:'none', borderRadius:9, padding:'7px 14px', fontWeight:700, fontSize:12.5, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-            <Trash2 size={13} /> Delete {selected.size}
+          <button className="primary-btn" onClick={() => setBatchDeleteConfirm(true)}
+            style={{ display:'inline-flex', alignItems:'center', gap:7, background:'hsl(var(--color-red))' }}>
+            <Trash2 size={14} /> Delete {selected.size}
           </button>
         )}
         {missingPhotos > 0 && selected.size === 0 && (
@@ -5605,7 +5628,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
       ) : (
         <div ref={scrollRef} onScroll={e => setScrollTop(e.currentTarget.scrollTop)}
           style={{ border:'1px solid var(--line)', borderRadius:10, overflow:'auto', background:'var(--card)', maxHeight:'70vh' }}>
-          <table style={{ width:'100%', minWidth:1180, borderCollapse:'collapse', fontSize:13 }}>
+          <table style={{ width:'100%', minWidth:880, borderCollapse:'collapse', fontSize:13 }}>
             <thead style={{ position:'sticky', top:0, zIndex:2 }}>
               <tr style={{ background:'var(--mist)' }}>
                 <th style={{ padding:'10px 14px', width:36, background:'var(--mist)' }}>
@@ -5615,30 +5638,25 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
                     onChange={toggleAll}
                     style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
                 </th>
-                <SortTh col="photo" label="Photo" />
+                <SortTh col="name" label="Item" />
                 <SortTh col="serial" label="Serial" />
-                <SortTh col="name" label="Name" />
                 <SortTh col="type" label="Type" />
-                <SortTh col="make" label="Make" />
-                <SortTh col="model" label="Model" />
                 <SortTh col="dept" label="Dept" />
                 <SortTh col="location" label="Location" />
-                <SortTh col="ownership" label="Ownership" />
-                <SortTh col="status" label="Lifecycle" />
-                <SortTh col="opstatus" label="Status" />
+                <SortTh col="status" label="Status" />
                 <th style={{ padding:'10px 14px', position:'sticky', right:0, background:'var(--mist)' }}></th>
               </tr>
             </thead>
             <tbody>
               {/* Spacer for the rows scrolled past above the viewport */}
-              {padTop > 0 && <tr aria-hidden="true"><td colSpan={13} style={{ height:padTop, padding:0, border:'none' }} /></tr>}
+              {padTop > 0 && <tr aria-hidden="true"><td colSpan={8} style={{ height:padTop, padding:0, border:'none' }} /></tr>}
               {vSlice.map(item => (
                 <ManageRow key={item.id} item={item} isSelected={selected.has(item.id)} highlight={flashId === item.id}
                   onToggle={toggleSelect} onEdit={onEdit} onDelete={onDelete} onAssign={onAssign}
                   onDetails={onDetails} onPreview={setPhotoPreview} canDelete={canDelete} />
               ))}
               {/* Spacer for the rows still below the viewport */}
-              {padBot > 0 && <tr aria-hidden="true"><td colSpan={13} style={{ height:padBot, padding:0, border:'none' }} /></tr>}
+              {padBot > 0 && <tr aria-hidden="true"><td colSpan={8} style={{ height:padBot, padding:0, border:'none' }} /></tr>}
             </tbody>
           </table>
         </div>
@@ -5738,7 +5756,7 @@ function EmployeeAcceptModal({ checkout, onClose, onConfirm, photoOptional = fal
           <button className="secondary-btn" onClick={onClose} disabled={uploading}>Cancel</button>
           <button className="primary-btn" disabled={(!file && !photoOptional) || uploading}
             style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:160, justifyContent:'center' }} onClick={submit}>
-            {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><CheckCircle size={14} /> Confirm Receipt</>}
+            {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><CheckCircle size={14} /> Confirm receipt</>}
           </button>
         </div>
       </div>
@@ -5848,7 +5866,7 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
         {/* Step: who takes photos */}
         {step === 'who' && (
           <>
-            <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Hand Over {isMulti ? `${coItems.length} Items` : first.itemName}</h3>
+            <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Hand over {isMulti ? `${coItems.length} Items` : first.itemName}</h3>
             <p style={{ fontSize:13, color:'var(--muted)', marginBottom:20 }}>
               To <strong>{first.requestedBy}</strong> — who will upload the handover photo?
             </p>
@@ -6027,7 +6045,7 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={CARD}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>Confirm Receipt</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>Confirm receipt</h3>
         <p style={{ fontSize:13, color:'var(--muted)', marginBottom:16 }}>
           {isMulti
             ? `${first.assignedAllocatorName || 'Your allocator'} has handed over ${coItems.length} items to you.`
@@ -6074,7 +6092,7 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
                 <button className="primary-btn" disabled={uploading || !hasPhotos}
                   style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:150, justifyContent:'center', opacity: (!hasPhotos && !uploading) ? 0.45 : 1 }}
                   onClick={submit}>
-                  {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><CheckCircle size={14} /> Confirm Receipt</>}
+                  {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><CheckCircle size={14} /> Confirm receipt</>}
                 </button>
               </div>
             </div>
@@ -6277,7 +6295,7 @@ function ForceReturnModal({ checkout, checkouts, onClose, onConfirm }) {
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'min(85dvh, 640px)', display:'flex', flexDirection:'column' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Force Return{multi ? ` ${list.length} Items` : ''}</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Force return{multi ? ` ${list.length} Items` : ''}</h3>
         <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:16, lineHeight:1.5 }}>
           Check {multi ? <strong>{list.length} items</strong> : <strong>{list[0].itemName}</strong>} back
           in on behalf of <strong>{holders.length === 1 ? holders[0] : `${holders.length} people`}</strong>.
@@ -6554,8 +6572,8 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
         <div className="chip-row" style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', marginLeft:'auto' }}>
         {[
           { key:'active',    label:'Active',            count: pending + approved + checkouts.filter(c => c.status === 'allocated').length },
-          { key:'pending',   label:'Pending Approval',  count: pending },
-          { key:'approved',  label:'Awaiting Handover', count: approved },
+          { key:'pending',   label:'Pending approval',  count: pending },
+          { key:'approved',  label:'Awaiting handover', count: approved },
           { key:'completed', label:'Completed',         count: checkouts.filter(c => ['returned','rejected','cancelled'].includes(c.status)).length },
         ].map(f => (
           <button key={f.key} onClick={() => setStatusFilter(f.key)}
@@ -6569,7 +6587,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
             force return now lives only at the individual order/item level below. */}
         {onSendAlert && (
           <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7, color:'hsl(var(--color-orange))', flexShrink:0 }} onClick={onSendAlert}>
-            <Megaphone size={14} /> Send Alert
+            <Megaphone size={14} /> Send alert
           </button>
         )}
       </div>
@@ -6624,33 +6642,33 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
                   <div className="co-order-actions" style={{ display:'flex', gap:6, flexShrink:0, alignItems:'center', flexWrap:'wrap' }}>
                     {pendingItems.length > 1 && (
                       <>
-                        <button onClick={() => setRejectingOrder(pendingItems)}
-                          style={{ background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:8, padding:'5px 12px', fontSize:12, cursor:'pointer', color:'hsl(var(--color-red))', fontWeight:600, display:'inline-flex', alignItems:'center', gap:5, fontFamily:'Inter,sans-serif' }}>
-                          <XCircle size={12} /> Reject All
+                        <button className="secondary-btn" onClick={() => setRejectingOrder(pendingItems)}
+                          style={{ fontSize:12, color:'hsl(var(--color-red))', display:'inline-flex', alignItems:'center', gap:5 }}>
+                          <XCircle size={12} /> Reject all
                         </button>
                         <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, padding:'6px 14px' }}
                           onClick={() => setApprovingOrder(pendingItems)}>
-                          <CheckCircle size={12} /> Approve All ({pendingItems.length})
+                          <CheckCircle size={12} /> Approve all ({pendingItems.length})
                         </button>
                       </>
                     )}
                     {approvedItems.length > 1 && (
                       <>
-                        <button onClick={() => setRejectingOrder(approvedItems)}
-                          style={{ background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:8, padding:'5px 12px', fontSize:12, cursor:'pointer', color:'hsl(var(--color-red))', fontWeight:600, display:'inline-flex', alignItems:'center', gap:5, fontFamily:'Inter,sans-serif' }}>
-                          <XCircle size={12} /> Reject All ({approvedItems.length})
+                        <button className="secondary-btn" onClick={() => setRejectingOrder(approvedItems)}
+                          style={{ fontSize:12, color:'hsl(var(--color-red))', display:'inline-flex', alignItems:'center', gap:5 }}>
+                          <XCircle size={12} /> Reject all ({approvedItems.length})
                         </button>
                         <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, padding:'6px 14px', background:'hsl(var(--color-orange))' }}
                           onClick={() => setAllocatingOrder(approvedItems)}>
-                          <Camera size={12} /> Hand Over All ({approvedItems.length})
+                          <Camera size={12} /> Hand over all ({approvedItems.length})
                         </button>
                       </>
                     )}
                     {allocatedItems.length > 1 && isManager && (
-                      <button onClick={() => setForceReturnBatch(allocatedItems)}
+                      <button className="secondary-btn" onClick={() => setForceReturnBatch(allocatedItems)}
                         title="Check every in-use item on this order back in yourself"
-                        style={{ background:'none', border:'1px solid hsla(var(--color-orange),0.45)', borderRadius:8, padding:'5px 12px', fontSize:12, cursor:'pointer', color:'hsl(var(--color-orange))', fontWeight:600, display:'inline-flex', alignItems:'center', gap:5, fontFamily:'Inter,sans-serif' }}>
-                        <RotateCcw size={12} /> Force Return All ({allocatedItems.length})
+                        style={{ fontSize:12, color:'hsl(var(--color-orange))', display:'inline-flex', alignItems:'center', gap:5 }}>
+                        <RotateCcw size={12} /> Force return all ({allocatedItems.length})
                       </button>
                     )}
                   </div>
@@ -6687,8 +6705,8 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
                               </span>
                               {isManager && (
                                 <div style={{ display:'flex', gap:6, marginLeft:'auto' }}>
-                                  <button disabled={extBusyId === co.id} onClick={() => handleResolveExtension(co, 'reject')}
-                                    style={{ background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:7, padding:'3px 10px', fontSize:11.5, cursor:'pointer', color:'hsl(var(--color-red))', fontWeight:600, fontFamily:'Inter,sans-serif', display:'inline-flex', alignItems:'center', gap:4 }}>
+                                  <button className="secondary-btn" disabled={extBusyId === co.id} onClick={() => handleResolveExtension(co, 'reject')}
+                                    style={{ fontSize:11.5, color:'hsl(var(--color-red))', display:'inline-flex', alignItems:'center', gap:4 }}>
                                     <XCircle size={11} /> Reject
                                   </button>
                                   <button disabled={extBusyId === co.id} onClick={() => handleResolveExtension(co, 'approve')}
@@ -6720,8 +6738,8 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
                           )}
                           {co.status === 'pending' && (
                             <>
-                              <button onClick={() => setRejectingCo(co)}
-                                style={{ background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:8, padding:'5px 11px', fontSize:12, cursor:'pointer', color:'hsl(var(--color-red))', fontWeight:600, display:'inline-flex', alignItems:'center', gap:4, fontFamily:'Inter,sans-serif' }}>
+                              <button className="secondary-btn" onClick={() => setRejectingCo(co)}
+                                style={{ fontSize:12, color:'hsl(var(--color-red))', display:'inline-flex', alignItems:'center', gap:4 }}>
                                 <XCircle size={12} /> Reject
                               </button>
                               <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:4, padding:'6px 12px' }}
@@ -6731,22 +6749,22 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
                             </>
                           )}
                           {co.status === 'approved' && isManager && (
-                            <button onClick={() => setRejectingCo(co)}
-                              style={{ background:'none', border:'1px solid hsla(var(--color-red),0.4)', borderRadius:8, padding:'5px 11px', fontSize:12, cursor:'pointer', color:'hsl(var(--color-red))', fontWeight:600, display:'inline-flex', alignItems:'center', gap:4, fontFamily:'Inter,sans-serif' }}>
+                            <button className="secondary-btn" onClick={() => setRejectingCo(co)}
+                              style={{ fontSize:12, color:'hsl(var(--color-red))', display:'inline-flex', alignItems:'center', gap:4 }}>
                               <XCircle size={12} /> Reject
                             </button>
                           )}
                           {co.status === 'allocated' && isManager && (
-                            <button onClick={() => setForceReturnCo(co)}
+                            <button className="secondary-btn" onClick={() => setForceReturnCo(co)}
                               title="Check the item back in yourself — for when the holder can't or won't return it in the app"
-                              style={{ background:'none', border:'1px solid hsla(var(--color-orange),0.45)', borderRadius:8, padding:'5px 11px', fontSize:12, cursor:'pointer', color:'hsl(var(--color-orange))', fontWeight:600, display:'inline-flex', alignItems:'center', gap:4, fontFamily:'Inter,sans-serif' }}>
-                              <RotateCcw size={12} /> Force Return
+                              style={{ fontSize:12, color:'hsl(var(--color-orange))', display:'inline-flex', alignItems:'center', gap:4 }}>
+                              <RotateCcw size={12} /> Force return
                             </button>
                           )}
                           {co.status === 'approved' && (isMyAlloc || isManager) && (
                             <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:4, background:'hsl(var(--color-orange))', padding:'6px 12px' }}
                               onClick={() => setAllocatingCo(co)}>
-                              <Camera size={12} /> Hand Over
+                              <Camera size={12} /> Hand over
                             </button>
                           )}
                           {isCompleted && statusFilter === 'active' && (
@@ -6832,7 +6850,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
   // manager_approved displays as plain "Approved" in green — the raw status
   // string leaking into the UI was Neil/Visesh feedback.
   const STATUS_META = {
-    pending_manager:  { label:'Pending Approval', bg:'hsla(var(--color-orange),0.12)', fg:'hsl(var(--color-orange))' },
+    pending_manager:  { label:'Pending approval', bg:'hsla(var(--color-orange),0.12)', fg:'hsl(var(--color-orange))' },
     manager_approved: { label:'Approved',          bg:'hsla(var(--color-green),0.12)',  fg:'hsl(var(--color-green))'  },
     ordered:          { label:'Ordered',           bg:'hsla(var(--color-blue),0.12)',   fg:'hsl(var(--color-blue))'   },
     fulfilled:        { label:'Fulfilled',         bg:'hsla(var(--color-green),0.12)',  fg:'hsl(var(--color-green))'  },
@@ -7912,13 +7930,13 @@ export default function InventoryManagement({ activeSub }) {
       {/* Tab strip — desktop only; on phones the bottom action bar replaces it */}
       <div className="scroll-tabs im-tabs" style={{ display:'flex', gap:0, marginBottom:20, borderBottom:'1px solid var(--line)' }}>
         {[
-          { id:'myitems',      label:'My Items',          Icon: User,         badge: myActiveCount          },
+          { id:'myitems',      label:'My items',          Icon: User,         badge: myActiveCount          },
           { id:'catalog',      label:'Catalog',           Icon: Package                                     },
           { id:'manage',       label:'Manage',            Icon: ClipboardList                               },
           { id:'checkouts',    label:'Checkouts',         Icon: ShoppingCart, badge: pendingCount + approvedCount },
-          { id:'whohasit',     label:'Who Has What',      Icon: Users                                       },
-          { id:'purchasereqs', label:'Purchase Requests', Icon: FileText                                    },
-          { id:'audit',        label:'Activity Log',      Icon: History                                     },
+          { id:'whohasit',     label:'Who has what',      Icon: Users                                       },
+          { id:'purchasereqs', label:'Purchase requests', Icon: FileText                                    },
+          { id:'audit',        label:'Activity log',      Icon: History                                     },
         ].map(({ id, label, Icon, badge }) => (
           <button key={id} onClick={() => setMainTab(id)}
             style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 16px', background:'none', border:'none', borderBottom: mainTab === id ? '2px solid var(--pine)' : '2px solid transparent', color: mainTab === id ? 'var(--ink)' : 'var(--muted)', fontWeight: mainTab === id ? 700 : 600, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-1, whiteSpace:'nowrap', flexShrink:0 }}>
@@ -7979,11 +7997,11 @@ export default function InventoryManagement({ activeSub }) {
           kpiStrip={
             <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(auto-fit, minmax(104px, 1fr))', gap:8, margin:'0 0 16px' }}>
               {[
-                { label:'Available to Check Out', value: deptItems.filter(i => i.status === 'available' && i.ownershipType !== 'permanent').length, color:'card-green'  },
-                { label:'Unassigned Permanent',   value: deptItems.filter(i => i.ownershipType === 'permanent' && i.status === 'available').length, color:'card-purple' },
-                { label:'Total Items', value: deptItems.length,                                          color:'card-blue'   },
-                { label:'Checked Out', value: deptItems.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
-                { label:'Items Value', value: fmtMoney(deptItems.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },
+                { label:'Available to check out', value: deptItems.filter(i => i.status === 'available' && i.ownershipType !== 'permanent').length, color:'card-green'  },
+                { label:'Unassigned permanent',   value: deptItems.filter(i => i.ownershipType === 'permanent' && i.status === 'available').length, color:'card-purple' },
+                { label:'Total items', value: deptItems.length,                                          color:'card-blue'   },
+                { label:'Checked out', value: deptItems.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
+                { label:'Items value', value: fmtMoney(deptItems.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },
               ].map(({ label, value, color }) => (
                 <div key={label} className={`kpi-card ${color}`} style={{ padding:'8px 11px' }}>
                   <div className="kpi-label" style={{ fontSize:10.5 }}>{label}</div>
