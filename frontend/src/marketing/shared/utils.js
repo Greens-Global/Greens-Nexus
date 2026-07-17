@@ -74,6 +74,17 @@ export function formatRangeLabelShort(range) {
   return `${formatDateShort(range.start)} - ${formatDateShort(range.end)}`
 }
 
+// Compact MM/YYYY range for the "vs …" helper on KPI cards — the full
+// MM/DD/YYYY range is too wide for the narrow 7-column cards, so this drops the
+// day and keeps just month/year on the card's own full-width line.
+export function formatRangeLabelMonthYear(range) {
+  const my = (iso) => {
+    const d = parseISO(iso)
+    return `${pad2(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`
+  }
+  return `${my(range.start)} - ${my(range.end)}`
+}
+
 export function daysInMonthOf(iso) {
   const d = parseISO(iso)
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()

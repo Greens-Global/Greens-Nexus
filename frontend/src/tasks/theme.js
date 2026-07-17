@@ -36,7 +36,7 @@ export const STATUS_META = {
   in_progress: { label: 'In Progress', color: '#2563eb', tint: 'rgba(37,99,235,0.15)' },
   completed:   { label: 'Completed',   color: '#16a34a', tint: 'rgba(22,163,74,0.15)' },
 };
-export const STATUS_ORDER = ['not_started', 'recurring', 'in_progress', 'completed'];
+export const STATUS_ORDER = ['not_started', 'in_progress', 'completed', 'recurring'];
 
 export const PRIORITY_META = {
   low:    { label: 'Low',    color: '#6b7688', tint: 'rgba(128,140,160,0.16)' },

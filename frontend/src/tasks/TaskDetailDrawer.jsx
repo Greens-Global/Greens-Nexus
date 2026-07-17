@@ -25,10 +25,14 @@ const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
 
 function recurrenceLabel(r) {
   if (!r || !r.freq) return 'Does not repeat';
-  if (r.freq === 'daily') return 'Every day';
-  if (r.freq === 'weekly') return `Every week on ${DAYS[r.dayOfWeek ?? 1]}`;
-  if (r.freq === 'monthly') return `Every month on day ${r.dayOfMonth ?? 1}`;
-  return 'Does not repeat';
+  let base;
+  if (r.freq === 'daily') base = 'Every day';
+  else if (r.freq === 'weekly') base = `Every week on ${DAYS[r.dayOfWeek ?? 1]}`;
+  else if (r.freq === 'monthly') base = `Every month on day ${r.dayOfMonth ?? 1}`;
+  else return 'Does not repeat';
+  if (r.until) base += ` until ${r.until}`;
+  else if (r.count) base += ` × ${r.count}`;
+  return base;
 }
 
 // ── tiny inline primitives ───────────────────────────────────────────────────
@@ -405,8 +409,45 @@ function TitleInput({ value, completed, onCommit }) {
 // ── Overview ────────────────────────────────────────────────────────────────
 function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, depCandidates, addDependency, removeDependency, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh }) {
   const isMobile = useIsMobile();
+  const { statusMeta, statusOrder } = useTasks();
   const [recStep, setRecStep] = useState('root');
-  const sm = STATUS_META[task.status] || {};
+  // Recurrence end condition ("Ends" — Never / On date / After occurrences).
+  // Local mode so "On date"/"After" stay selected before a value is entered
+  // (an empty until/count is falsy and would otherwise read back as "Never").
+  const [recEndMode, setRecEndMode] = useState('never');
+  useEffect(() => {
+    const r = task.recurrence;
+    setRecEndMode(r?.until ? 'on' : r?.count != null ? 'after' : 'never');
+  }, [task.id]);
+  // Setting any recurrence flips the task to "Recurring"; clearing it reverts a
+  // still-recurring status back to Not Started.
+  const setRecurrence = (rec) => patch({
+    recurrence: rec,
+    status: rec ? 'recurring' : (task.status === 'recurring' ? 'not_started' : task.status),
+  });
+  // Pick a frequency from the popover, carrying any existing end condition over.
+  const pickFreq = (base) => {
+    const cur = task.recurrence || {};
+    const r = { ...base };
+    if (cur.until) r.until = cur.until;
+    if (cur.count != null) r.count = cur.count;
+    setRecEndMode(cur.until ? 'on' : cur.count != null ? 'after' : 'never');
+    setRecurrence(r);
+  };
+  // Replace the end condition on the current recurrence (strips until+count first).
+  const patchRecEnd = (changes) => {
+    const base = { ...(task.recurrence || {}) };
+    delete base.until; delete base.count;
+    setRecurrence({ ...base, ...changes });
+  };
+  const onRecEndMode = (m) => {
+    setRecEndMode(m);
+    if (m === 'never') patchRecEnd({});
+    else if (m === 'on') patchRecEnd(task.recurrence?.until ? { until: task.recurrence.until } : {});
+    else if (m === 'after') patchRecEnd(task.recurrence?.count != null ? { count: task.recurrence.count } : {});
+  };
+  const recSel = { ...inputStyle, width: 'auto', padding: '5px 8px', fontSize: 12, cursor: 'pointer' };
+  const sm = statusMeta[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
   const dept = task.departmentId ? deptName(task.departmentId) : '';
 
@@ -420,7 +461,7 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
 
       <Row label="Status">
         <Pop width={176} trigger={(t) => <button onClick={t} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}><Chip color={sm.color} tint={sm.tint}>{sm.label}</Chip></button>}>
-          {(close) => STATUS_ORDER.map((s) => <MenuItem key={s} onClick={() => { patch({ status: s }); close(); }}>{STATUS_META[s].label}</MenuItem>)}
+          {(close) => statusOrder.map((s) => <MenuItem key={s} onClick={() => { patch({ status: s }); close(); }}>{statusMeta[s]?.label || s}</MenuItem>)}
         </Pop>
       </Row>
 
@@ -457,24 +498,48 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
       </Row>
 
       <Row label="Recurrence">
-        <Pop width={200} trigger={(t) => <button onClick={() => { setRecStep('root'); t(); }} style={{ ...btn('ghost'), padding: '5px 8px', fontSize: 12 }}><Repeat size={13} /> {recurrenceLabel(task.recurrence)}</button>}>
-          {(close) => {
-            if (recStep === 'weekly') return (<>
-              <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
-              {DAYS.map((d, i) => <MenuItem key={d} onClick={() => { patch({ recurrence: { freq: 'weekly', dayOfWeek: i } }); close(); }}>{d}</MenuItem>)}
-            </>);
-            if (recStep === 'monthly') return (<>
-              <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
-              {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => <MenuItem key={d} onClick={() => { patch({ recurrence: { freq: 'monthly', dayOfMonth: d } }); close(); }}>Day {d}</MenuItem>)}
-            </>);
-            return (<>
-              <MenuItem onClick={() => { patch({ recurrence: null }); close(); }}>Does not repeat</MenuItem>
-              <MenuItem onClick={() => { patch({ recurrence: { freq: 'daily' } }); close(); }}>Every day</MenuItem>
-              <MenuItem onClick={() => setRecStep('weekly')}>Every week</MenuItem>
-              <MenuItem onClick={() => setRecStep('monthly')}>Every month</MenuItem>
-            </>);
-          }}
-        </Pop>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+          <Pop width={200} trigger={(t) => <button onClick={() => { setRecStep('root'); t(); }} style={{ ...btn('ghost'), padding: '5px 8px', fontSize: 12 }}><Repeat size={13} /> {recurrenceLabel(task.recurrence)}</button>}>
+            {(close) => {
+              if (recStep === 'weekly') return (<>
+                <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
+                {DAYS.map((d, i) => <MenuItem key={d} onClick={() => { pickFreq({ freq: 'weekly', dayOfWeek: i }); close(); }}>{d}</MenuItem>)}
+              </>);
+              if (recStep === 'monthly') return (<>
+                <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
+                {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => <MenuItem key={d} onClick={() => { pickFreq({ freq: 'monthly', dayOfMonth: d }); close(); }}>Day {d}</MenuItem>)}
+              </>);
+              return (<>
+                <MenuItem onClick={() => { setRecEndMode('never'); setRecurrence(null); close(); }}>Does not repeat</MenuItem>
+                <MenuItem onClick={() => { pickFreq({ freq: 'daily' }); close(); }}>Every day</MenuItem>
+                <MenuItem onClick={() => setRecStep('weekly')}>Every week</MenuItem>
+                <MenuItem onClick={() => setRecStep('monthly')}>Every month</MenuItem>
+              </>);
+            }}
+          </Pop>
+          {task.recurrence && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: NX.dim }}>
+              <span style={{ color: NX.faint }}>Ends</span>
+              <select value={recEndMode} onChange={(e) => onRecEndMode(e.target.value)} style={recSel}>
+                <option value="never">Never</option>
+                <option value="on">On date</option>
+                <option value="after">After occurrences</option>
+              </select>
+              {recEndMode === 'on' && (
+                <DateField value={task.recurrence.until || ''} onChange={(v) => patchRecEnd(v ? { until: v } : {})}
+                  placeholder="Pick a date" style={{ ...inputStyle, width: 'auto', padding: '5px 8px', fontSize: 12 }} />
+              )}
+              {recEndMode === 'after' && (
+                <>
+                  <input type="number" min="1" step="1" value={task.recurrence.count ?? ''} placeholder="e.g. 10"
+                    onChange={(e) => patchRecEnd(e.target.value ? { count: Math.max(1, Number(e.target.value)) } : {})}
+                    style={{ ...inputStyle, width: 72, padding: '5px 8px', fontSize: 12 }} />
+                  <span style={{ color: NX.faint }}>times</span>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </Row>
 
       {/* Description */}
@@ -800,7 +865,8 @@ function DependenciesTab({ blockedBy, blocking, task, removeDependency }) {
 
 // ── Properties ──────────────────────────────────────────────────────────────
 function PropertiesTab({ task, nameOf, projectName, deptName, customFields, patch }) {
-  const sm = STATUS_META[task.status] || {};
+  const { statusMeta } = useTasks();
+  const sm = statusMeta[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
   const rows = [
     ['Task ID', <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{task.code}</span>],

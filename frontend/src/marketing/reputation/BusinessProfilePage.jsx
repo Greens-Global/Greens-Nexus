@@ -5,12 +5,10 @@ import ProfileViewsChart from './ProfileViewsChart'
 import DiscoveryKeywordsCard from './DiscoveryKeywordsCard'
 import GbpContentSection from './GbpContentSection'
 import { initialPosts, initialPhotos, initialQuestions } from './gbpContentData'
-import { initialYelpPhotos, initialYelpQuestions } from './yelpContentData'
 import { initialFacebookPosts } from './facebookContentData'
 import { initialInstagramPosts } from './instagramContentData'
 import { postsForProperty, photosForProperty, questionsForProperty } from './gbpContentAggregate'
 import { profileMetricsByFacility, discoveryKeywordsByFacility } from './profileData'
-import { yelpProfileMetricsByFacility, yelpDiscoveryKeywordsByFacility } from './yelpProfileData'
 import { profileRowsInRange, sumProfileTotals, topDiscoveryKeywords, directDiscoverySplit } from './profileAggregate'
 import { FACILITIES } from '../shared/facilities'
 import PropertyComparisonModal from '../shared/PropertyComparisonModal'
@@ -26,14 +24,12 @@ const COMPARISON_COLUMNS = [
 
 const PLATFORMS = [
   { key: 'google', label: 'Google' },
-  { key: 'yelp', label: 'Yelp' },
   { key: 'facebook', label: 'Facebook' },
   { key: 'instagram', label: 'Instagram' },
 ]
 
 const INSIGHTS_TITLE = {
   google: 'Google Business Profile Insights',
-  yelp: 'Yelp Business Page Insights',
 }
 
 const POSTS_ONLY_TITLE = {
@@ -47,19 +43,16 @@ export default function BusinessProfilePage({ range, onRangeChange, property, on
   const [autoOpenCreatePost, setAutoOpenCreatePost] = useState(false)
   const [postsByPlatform, setPostsByPlatform] = useState({
     google: initialPosts,
-    yelp: [],
     facebook: initialFacebookPosts,
     instagram: initialInstagramPosts,
   })
   const [photosByPlatform, setPhotosByPlatform] = useState({
     google: initialPhotos,
-    yelp: initialYelpPhotos,
     facebook: [],
     instagram: [],
   })
   const [questionsByPlatform, setQuestionsByPlatform] = useState({
     google: initialQuestions,
-    yelp: initialYelpQuestions,
     facebook: [],
     instagram: [],
   })
@@ -76,12 +69,12 @@ export default function BusinessProfilePage({ range, onRangeChange, property, on
   const photos = photosByPlatform[platform]
   const questions = questionsByPlatform[platform]
 
-  // Only Google and Yelp have a "Business Profile Performance" API equivalent
-  // in this mock universe — Facebook/Instagram are organic content platforms
-  // with no view/click/call analytics, so no insights data source exists for them.
-  const insightsPlatform = platform === 'google' || platform === 'yelp' ? platform : null
-  const activeMetricsByFacility = insightsPlatform === 'google' ? profileMetricsByFacility : insightsPlatform === 'yelp' ? yelpProfileMetricsByFacility : null
-  const activeKeywordsByFacility = insightsPlatform === 'google' ? discoveryKeywordsByFacility : insightsPlatform === 'yelp' ? yelpDiscoveryKeywordsByFacility : null
+  // Only Google has a "Business Profile Performance" API equivalent in this
+  // mock universe — Facebook/Instagram are organic content platforms with no
+  // view/click/call analytics, so no insights data source exists for them.
+  const insightsPlatform = platform === 'google' ? 'google' : null
+  const activeMetricsByFacility = insightsPlatform === 'google' ? profileMetricsByFacility : null
+  const activeKeywordsByFacility = insightsPlatform === 'google' ? discoveryKeywordsByFacility : null
 
   function setPosts(updater) {
     setPostsByPlatform((prev) => ({ ...prev, [platform]: updater(prev[platform]) }))
@@ -186,7 +179,7 @@ export default function BusinessProfilePage({ range, onRangeChange, property, on
           [`Property: ${property}`],
           [],
           ['Metric', 'Value'],
-          [insightsPlatform === 'google' ? 'Maps Views' : 'Direct Views', profileTotals.mapsViews],
+          ['Maps Views', profileTotals.mapsViews],
           ['Search Views', profileTotals.searchViews],
           ['Website Clicks', profileTotals.websiteClicks],
           ['Calls', profileTotals.callClicks],

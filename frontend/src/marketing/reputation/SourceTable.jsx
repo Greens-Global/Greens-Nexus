@@ -5,7 +5,6 @@ import { C, alpha } from '../theme'
 
 const DISPLAY_NAME = {
   Google: 'Google',
-  Yelp: 'Yelp',
   Facebook: 'Facebook',
   'Storage Facility Finder': 'Storage Finder',
   Other: 'Other',

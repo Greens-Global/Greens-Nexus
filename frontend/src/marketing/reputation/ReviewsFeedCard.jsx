@@ -9,7 +9,7 @@ const FILTER_LABELS = {
   All: 'All',
 }
 
-const PLATFORM_OPTIONS = ['All', 'Google', 'Yelp', 'Facebook', 'Storage Facility Finder', 'Other']
+const PLATFORM_OPTIONS = ['All', 'Google', 'Facebook', 'Storage Facility Finder', 'Other']
 const RATING_OPTIONS = ['All', 5, 4, 3, 2, 1]
 
 export default function ReviewsFeedCard({ reviews, onApprove, onRegenerate }) {

@@ -6,7 +6,6 @@ import { C, shadowMd } from '../theme'
 
 const SOURCE_DOT = {
   'Google Ads': C.blue500,
-  'Yelp Ads': C.red500,
   Direct: C.gray500,
   'Organic Search': C.emerald500,
   Referral: C.amber500,
@@ -16,7 +15,6 @@ const SOURCE_DOT = {
 
 const SOURCE_BORDER = {
   'Google Ads': C.blue500,
-  'Yelp Ads': C.red500,
   Direct: C.gray400,
   'Organic Search': C.emerald500,
   Referral: C.amber500,

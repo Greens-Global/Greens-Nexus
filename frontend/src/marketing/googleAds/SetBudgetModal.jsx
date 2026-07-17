@@ -27,21 +27,17 @@ const cellInput = { width: '100%', padding: '6px 10px', borderRadius: 8, border:
 export default function SetBudgetModal({
   facilities,
   googleBudgetByProperty,
-  yelpBudgetByProperty,
   onChangeGoogleBudget,
-  onChangeYelpBudget,
   onClose,
 }) {
   const [period, setPeriod] = useState('monthly')
   const [google, setGoogle] = useState(googleBudgetByProperty)
-  const [yelp, setYelp] = useState(yelpBudgetByProperty)
   const [error, setError] = useState('')
 
-  function handleChange(platform, facility, raw) {
+  function handleChange(facility, raw) {
     if (raw.trim() === '') {
       setError('')
-      if (platform === 'google') setGoogle((prev) => ({ ...prev, [facility]: 0 }))
-      else setYelp((prev) => ({ ...prev, [facility]: 0 }))
+      setGoogle((prev) => ({ ...prev, [facility]: 0 }))
       return
     }
     const parsed = Number(raw)
@@ -51,19 +47,15 @@ export default function SetBudgetModal({
     }
     setError('')
     const monthly = parsed / MULTIPLIER[period]
-    if (platform === 'google') setGoogle((prev) => ({ ...prev, [facility]: monthly }))
-    else setYelp((prev) => ({ ...prev, [facility]: monthly }))
+    setGoogle((prev) => ({ ...prev, [facility]: monthly }))
   }
 
   const googleSubtotal = facilities.reduce((a, f) => a + (google[f] ?? 0), 0) * MULTIPLIER[period]
-  const yelpSubtotal = facilities.reduce((a, f) => a + (yelp[f] ?? 0), 0) * MULTIPLIER[period]
-  const grandTotal = googleSubtotal + yelpSubtotal
 
   function handleSave() {
     if (error) return
     for (const f of facilities) {
       onChangeGoogleBudget(f, google[f] ?? 0)
-      onChangeYelpBudget(f, yelp[f] ?? 0)
     }
     onClose()
   }
@@ -102,56 +94,32 @@ export default function SetBudgetModal({
         </div>
 
         <div style={{ borderRadius: 8, border: '1px solid ' + C.gray100, overflow: 'hidden' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 8, padding: '8px 12px', background: C.gray50, fontSize: 11.5, fontWeight: 500, color: C.gray500 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: '8px 12px', background: C.gray50, fontSize: 11.5, fontWeight: 500, color: C.gray500 }}>
             <div>Property</div>
-            <div>Google Ads</div>
-            <div>Yelp Ads</div>
-            <div style={{ textAlign: 'right' }}>Row Total</div>
+            <div>Google Ads Budget</div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {facilities.map((f, i) => {
-              const rowTotal = (google[f] ?? 0) * MULTIPLIER[period] + (yelp[f] ?? 0) * MULTIPLIER[period]
-              return (
-                <div key={f} style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 8, padding: '8px 12px', alignItems: 'center', borderTop: i === 0 ? 'none' : '1px solid ' + C.gray100 }}>
-                  <div style={{ fontSize: 12.5, color: C.gray700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f}</div>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={toDisplay(google[f] ?? 0, period)}
-                    onChange={(e) => handleChange('google', f, e.target.value)}
-                    style={cellInput}
-                  />
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={toDisplay(yelp[f] ?? 0, period)}
-                    onChange={(e) => handleChange('yelp', f, e.target.value)}
-                    style={cellInput}
-                  />
-                  <div style={{ textAlign: 'right', fontSize: 12.5, fontWeight: 500, color: C.gray700 }}>{formatCurrency(rowTotal)}</div>
-                </div>
-              )
-            })}
+            {facilities.map((f, i) => (
+              <div key={f} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: '8px 12px', alignItems: 'center', borderTop: i === 0 ? 'none' : '1px solid ' + C.gray100 }}>
+                <div style={{ fontSize: 12.5, color: C.gray700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f}</div>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={toDisplay(google[f] ?? 0, period)}
+                  onChange={(e) => handleChange(f, e.target.value)}
+                  style={cellInput}
+                />
+              </div>
+            ))}
           </div>
         </div>
 
         {error && <div style={{ fontSize: 12.5, color: C.red500 }}>{error}</div>}
 
-        <div style={{ borderRadius: 8, background: C.gray50, border: '1px solid ' + C.gray100, padding: 12, display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 8, fontSize: 12 }}>
-          <div>
-            <div style={{ color: C.gray400 }}>Google Ads Total</div>
-            <div style={{ fontWeight: 500, color: C.gray700 }}>{formatCurrency(googleSubtotal)}</div>
-          </div>
-          <div>
-            <div style={{ color: C.gray400 }}>Yelp Ads Total</div>
-            <div style={{ fontWeight: 500, color: C.gray700 }}>{formatCurrency(yelpSubtotal)}</div>
-          </div>
-          <div>
-            <div style={{ color: C.gray400 }}>Grand Total</div>
-            <div style={{ fontWeight: 600, color: C.gray900 }}>{formatCurrency(grandTotal)}</div>
-          </div>
+        <div style={{ borderRadius: 8, background: C.gray50, border: '1px solid ' + C.gray100, padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12 }}>
+          <div style={{ color: C.gray400 }}>Google Ads Total</div>
+          <div style={{ fontWeight: 600, color: C.gray900 }}>{formatCurrency(googleSubtotal)}</div>
         </div>
         <p style={{ fontSize: 11, color: C.gray400, marginTop: -8 }}>
           Budgets are always stored monthly — switching the period just rescales what you see and enter.

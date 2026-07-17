@@ -72,7 +72,7 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
     try {
       const t = await createTask({
         title: title.trim(), type: 'task', status: defaults.status || 'not_started',
-        priority: defaults.priority || 'medium', assigneeId: assigneeId || '', projectId, departmentId: deptId, dueOn: dueOn || '',
+        priority: defaults.priority || 'medium', assigneeId: assigneeId || '', ownerId: defaults.ownerId ?? myEmail ?? '', projectId, departmentId: deptId, dueOn: dueOn || '',
       });
       for (const it of files) await uploadAttachment(t.id, it.file);
       onClose();

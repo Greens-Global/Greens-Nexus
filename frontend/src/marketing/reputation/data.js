@@ -19,8 +19,8 @@ const rng = mulberry32(4242)
 
 const FACILITY_WEIGHTS = [0.36, 0.24, 0.17, 0.13, 0.1]
 
-const PLATFORMS = ['Google', 'Yelp', 'Facebook', 'Storage Facility Finder', 'Other']
-const PLATFORM_WEIGHTS = [0.506, 0.207, 0.128, 0.085, 0.073]
+const PLATFORMS = ['Google', 'Facebook', 'Storage Facility Finder', 'Other']
+const PLATFORM_WEIGHTS = [0.713, 0.128, 0.085, 0.074]
 
 const FIRST_NAMES = [
   'Jennifer', 'Mark', 'Sarah', 'David', 'Emily', 'Chris', 'Amanda', 'Brian', 'Nicole', 'Kevin',
@@ -179,7 +179,7 @@ const pinned = [
   },
   {
     id: 'r-pin-2',
-    platform: 'Yelp',
+    platform: 'Google',
     customer: 'Mark T.',
     rating: 3,
     text: 'Units are decent. Prices went up a bit this year.',

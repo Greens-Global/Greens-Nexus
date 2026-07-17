@@ -9,7 +9,6 @@ import { ALL_PROPERTIES } from './shared/facilities';
 import { thisMonth } from './shared/utils';
 import { computeAlerts } from './shared/alerts';
 import { monthlyBudgetByPropertyDefault } from './googleAds/data';
-import { yelpMonthlyBudgetByPropertyDefault } from './googleAds/yelpData';
 import { leadGoalByPropertyDefault } from './insights/data';
 import { generateInsights } from './insights/insightEngine';
 import { buildAccountWideInsightInput } from './insights/buildAccountWideInsightInput';
@@ -26,26 +25,23 @@ export default function Marketing() {
   const [property, setProperty] = useState(ALL_PROPERTIES);
   const [action, setAction] = useState(null);
   const [monthlyBudgetByProperty, setMonthlyBudgetByProperty] = useState(monthlyBudgetByPropertyDefault);
-  const [yelpMonthlyBudgetByProperty, setYelpMonthlyBudgetByProperty] = useState(yelpMonthlyBudgetByPropertyDefault);
   const [leadGoalByProperty, setLeadGoalByProperty] = useState(leadGoalByPropertyDefault);
   const [dismissedAlertIds, setDismissedAlertIds] = useState(() => new Set());
 
   const totalMonthlyBudget = useMemo(() => Object.values(monthlyBudgetByProperty).reduce((a, b) => a + b, 0), [monthlyBudgetByProperty]);
-  const totalYelpMonthlyBudget = useMemo(() => Object.values(yelpMonthlyBudgetByProperty).reduce((a, b) => a + b, 0), [yelpMonthlyBudgetByProperty]);
   const totalLeadGoal = useMemo(() => Object.values(leadGoalByProperty).reduce((a, b) => a + b, 0), [leadGoalByProperty]);
 
   const allAlerts = useMemo(
-    () => computeAlerts({ monthlyBudget: totalMonthlyBudget, yelpMonthlyBudget: totalYelpMonthlyBudget, leadGoal: totalLeadGoal }),
-    [totalMonthlyBudget, totalYelpMonthlyBudget, totalLeadGoal],
+    () => computeAlerts({ monthlyBudget: totalMonthlyBudget, leadGoal: totalLeadGoal }),
+    [totalMonthlyBudget, totalLeadGoal],
   );
   const alerts = useMemo(() => allAlerts.filter(a => !dismissedAlertIds.has(a.id)), [allAlerts, dismissedAlertIds]);
   const insights = useMemo(
-    () => generateInsights(buildAccountWideInsightInput({ monthlyBudgetByProperty, yelpMonthlyBudgetByProperty, leadGoalByProperty })),
-    [monthlyBudgetByProperty, yelpMonthlyBudgetByProperty, leadGoalByProperty],
+    () => generateInsights(buildAccountWideInsightInput({ monthlyBudgetByProperty, leadGoalByProperty })),
+    [monthlyBudgetByProperty, leadGoalByProperty],
   );
 
   const changeMonthlyBudget = (facility, value) => setMonthlyBudgetByProperty(prev => ({ ...prev, [facility]: value }));
-  const changeYelpMonthlyBudget = (facility, value) => setYelpMonthlyBudgetByProperty(prev => ({ ...prev, [facility]: value }));
   const changeLeadGoal = (facility, value) => setLeadGoalByProperty(prev => ({ ...prev, [facility]: value }));
   const clearAlert = (id) => setDismissedAlertIds(prev => new Set(prev).add(id));
 
@@ -71,7 +67,6 @@ export default function Marketing() {
       leadGoalByProperty={leadGoalByProperty}
       onChangeLeadGoal={changeLeadGoal}
       monthlyBudgetByProperty={monthlyBudgetByProperty}
-      yelpMonthlyBudgetByProperty={yelpMonthlyBudgetByProperty}
     />
   );
   else if (tab === 'seo') page = <SeoPage onNavigate={sharedProps.onNavigate} alerts={alerts} insights={insights} onClearAlert={clearAlert} />;
@@ -81,8 +76,6 @@ export default function Marketing() {
       {...sharedProps}
       monthlyBudgetByProperty={monthlyBudgetByProperty}
       onChangeMonthlyBudget={changeMonthlyBudget}
-      yelpMonthlyBudgetByProperty={yelpMonthlyBudgetByProperty}
-      onChangeYelpMonthlyBudget={changeYelpMonthlyBudget}
     />
   );
 

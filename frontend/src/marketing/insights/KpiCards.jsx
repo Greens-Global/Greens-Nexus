@@ -1,5 +1,5 @@
 import { UserPlus, Globe, TrendingUp, Wallet, Search, Star, Gauge, ArrowUp, ArrowDown } from 'lucide-react'
-import { formatCurrency, formatNumber, formatPercent, formatRangeLabelShort, pctChange } from '../shared/utils'
+import { formatCurrency, formatNumber, formatPercent, formatRangeLabelMonthYear, pctChange } from '../shared/utils'
 import StarRating from '../shared/StarRating'
 import { C, card, shadowMd } from '../theme'
 
@@ -14,7 +14,7 @@ export const KPI_CARD_DEFS = [
 ]
 
 export default function KpiCards({ current, previous, previousRange, onSelectMetric }) {
-  const prevLabel = `vs ${formatRangeLabelShort(previousRange)}`
+  const prevLabel = `vs ${formatRangeLabelMonthYear(previousRange)}`
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,minmax(0,1fr))', gap: 12, marginBottom: 20 }}>
@@ -28,7 +28,7 @@ export default function KpiCards({ current, previous, previousRange, onSelectMet
           <button
             key={c.key}
             onClick={() => onSelectMetric(c.key, c.label, c.format)}
-            style={{ textAlign: 'left', ...card, padding: 16, minWidth: 0, transition: 'all .15s', cursor: 'pointer' }}
+            style={{ textAlign: 'left', ...card, padding: 16, minWidth: 0, overflow: 'hidden', transition: 'all .15s', cursor: 'pointer' }}
             onMouseEnter={(e) => {
               e.currentTarget.style.borderColor = C.gray300
               e.currentTarget.style.boxShadow = shadowMd

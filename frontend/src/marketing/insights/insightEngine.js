@@ -11,13 +11,13 @@ function magnitudeSeverity(absPct) {
 }
 
 function trafficInsight(input) {
-  const { sessions, organicSessions, gaSpend, yelpSpend } = input
+  const { sessions, organicSessions, gaSpend } = input
   const delta = pctChange(sessions.current, sessions.previous)
   const severity = magnitudeSeverity(Math.abs(delta))
   if (!severity) return null
 
   const isDrop = delta < 0
-  const spendDelta = pctChange(gaSpend.current + yelpSpend.current, gaSpend.previous + yelpSpend.previous)
+  const spendDelta = pctChange(gaSpend.current, gaSpend.previous)
   const organicDelta = pctChange(organicSessions.current, organicSessions.previous)
 
   let why
@@ -26,9 +26,9 @@ function trafficInsight(input) {
 
   if (isDrop) {
     if (spendDelta <= -10) {
-      why = `This closely tracks a ${Math.abs(spendDelta).toFixed(0)}% drop in combined Google + Yelp ad spend over the same period, which is the most likely driver.`
+      why = `This closely tracks a ${Math.abs(spendDelta).toFixed(0)}% drop in Google ad spend over the same period, which is the most likely driver.`
       actions = [
-        'Increase your Google Ads / Yelp Ads budget back toward its prior level',
+        'Increase your Google Ads budget back toward its prior level',
         'Refresh ad creatives on your top campaigns to lift click-through rate',
         'Review keyword bids on underperforming campaigns',
       ]
@@ -46,7 +46,7 @@ function trafficInsight(input) {
     impact = 'If this trend continues, lead generation may decrease over the coming weeks.'
   } else {
     if (spendDelta >= 10) {
-      why = `This aligns with a ${spendDelta.toFixed(0)}% increase in combined ad spend, suggesting the extra budget is translating into more visits.`
+      why = `This aligns with a ${spendDelta.toFixed(0)}% increase in ad spend, suggesting the extra budget is translating into more visits.`
     } else if (organicDelta >= 10) {
       why = `Organic sessions grew ${organicDelta.toFixed(0)}%, suggesting improved search visibility is driving the gain.`
     } else {
@@ -121,13 +121,13 @@ function leadsInsight(input) {
 }
 
 function costPerLeadInsight(input) {
-  const { costPerLead, leads, gaSpend, yelpSpend } = input
+  const { costPerLead, leads, gaSpend } = input
   const delta = pctChange(costPerLead.current, costPerLead.previous)
   const severity = magnitudeSeverity(Math.abs(delta))
   if (!severity) return null
 
   const isWorse = delta > 0
-  const spendDelta = pctChange(gaSpend.current + yelpSpend.current, gaSpend.previous + yelpSpend.previous)
+  const spendDelta = pctChange(gaSpend.current, gaSpend.previous)
   const leadsDelta = pctChange(leads.current, leads.previous)
 
   let why
@@ -163,7 +163,7 @@ function costPerLeadInsight(input) {
     actions,
     metrics: [
       { label: 'Cost per lead', value: `${formatCurrency(costPerLead.previous)} → ${formatCurrency(costPerLead.current)}` },
-      { label: 'Combined ad spend', value: `${formatCurrency(gaSpend.previous + yelpSpend.previous)} → ${formatCurrency(gaSpend.current + yelpSpend.current)}` },
+      { label: 'Google ad spend', value: `${formatCurrency(gaSpend.previous)} → ${formatCurrency(gaSpend.current)}` },
     ],
     tab: 'google-ads',
   }
@@ -338,7 +338,7 @@ function gbpEngagementInsight(input) {
     category: 'Reputation',
     title: 'Your business listings need attention',
     whatHappened: `${parts.join(' and ')}.`,
-    why: 'Unanswered questions and stale photo galleries make listings look inactive, which Google and Yelp both weight in local ranking and which prospects notice when comparing options.',
+    why: 'Unanswered questions and stale photo galleries make listings look inactive, which Google weights in local ranking and which prospects notice when comparing options.',
     impact: 'Inactive-looking listings tend to convert fewer viewers into calls, clicks, and leads.',
     actions: [
       ...(gbp.unansweredQuestions > 0 ? ['Answer the outstanding Q&A questions on your business listings'] : []),
@@ -374,51 +374,15 @@ function leadPipelineInsight(input) {
   }
 }
 
-function adPlatformMixInsight(input) {
-  const { google, yelp } = input.adPlatforms
-  if (google.costPerConv <= 0 || yelp.costPerConv <= 0) return null
-
-  const diffPct = pctChange(yelp.costPerConv, google.costPerConv)
-  if (Math.abs(diffPct) < 20) return null
-
-  const yelpCheaper = diffPct < 0
-  const severity = Math.abs(diffPct) >= 50 ? 'Medium' : 'Low'
-  const cheaperPlatform = yelpCheaper ? 'Yelp Ads' : 'Google Ads'
-  const pricierPlatform = yelpCheaper ? 'Google Ads' : 'Yelp Ads'
-
-  return {
-    id: 'ad-platform-mix',
-    severity,
-    category: 'Efficiency',
-    title: `${cheaperPlatform} are converting more efficiently than ${pricierPlatform}`,
-    whatHappened: `Cost per conversion on ${cheaperPlatform} (${formatCurrency(yelpCheaper ? yelp.costPerConv : google.costPerConv)}) is meaningfully lower than ${pricierPlatform} (${formatCurrency(yelpCheaper ? google.costPerConv : yelp.costPerConv)}).`,
-    why: 'This usually reflects differences in audience intent or competition levels between the two platforms for your target keywords.',
-    impact: 'Shifting budget toward the more efficient platform could lower your blended cost per lead without spending more overall.',
-    actions: [`Consider shifting some budget from ${pricierPlatform} toward ${cheaperPlatform}`, 'Monitor conversion volume after any reallocation to confirm the trend holds'],
-    metrics: [
-      { label: 'Google cost/conversion', value: formatCurrency(google.costPerConv) },
-      { label: 'Yelp cost/conversion', value: formatCurrency(yelp.costPerConv) },
-    ],
-    tab: 'google-ads',
-  }
-}
-
 function budgetPacingInsight(input) {
   const { budgetPacing } = input
   if (budgetPacing.monthCoverage <= 0) return null
 
-  const candidates = (['google', 'yelp'])
-    .map((key) => {
-      const p = budgetPacing[key]
-      if (p.budget <= 0) return null
-      const projected = p.spendMonthToDate / budgetPacing.monthCoverage
-      return { platform: key === 'google' ? 'Google Ads' : 'Yelp Ads', projected, projectedPct: (projected / p.budget) * 100, budget: p.budget, spend: p.spendMonthToDate }
-    })
-    .filter((c) => c !== null && c.projectedPct >= 110)
-    .sort((a, b) => b.projectedPct - a.projectedPct)
-
-  const worst = candidates[0]
-  if (!worst) return null
+  const p = budgetPacing.google
+  if (p.budget <= 0) return null
+  const projected = p.spendMonthToDate / budgetPacing.monthCoverage
+  const worst = { platform: 'Google Ads', projected, projectedPct: (projected / p.budget) * 100, budget: p.budget, spend: p.spendMonthToDate }
+  if (worst.projectedPct < 110) return null
 
   const severity = worst.projectedPct >= 130 ? 'High' : worst.projectedPct >= 115 ? 'Medium' : 'Low'
 
@@ -634,7 +598,6 @@ const RULES = [
   seoInsight,
   gbpEngagementInsight,
   leadPipelineInsight,
-  adPlatformMixInsight,
   budgetPacingInsight,
   goalPacingInsight,
   bestWorstPropertyInsight,

@@ -66,14 +66,14 @@ const groupHead = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', c
 const pill = (on, color, tint) => ({ borderRadius: 999, padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none', background: on ? color : tint, color: on ? '#fff' : color });
 
 // ── Category bodies — shared by the desktop popovers and the mobile drill-in sheet ──
-function FiltersBody({ filters, setFilters, people, projects, lockedProjectId }) {
+function FiltersBody({ filters, setFilters, people, projects, lockedProjectId, statusOrder = STATUS_ORDER, statusMeta = STATUS_META }) {
   const activeFilterCount = filters.assigneeIds.length + filters.statuses.length + filters.priorities.length + (lockedProjectId ? 0 : filters.projectIds.length);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div>
         <div style={groupHead}>Status</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-          {STATUS_ORDER.map((s) => { const on = filters.statuses.includes(s); const m = STATUS_META[s]; return <button key={s} onClick={() => setFilters({ ...filters, statuses: toggle(filters.statuses, s) })} style={pill(on, m.color, m.tint)}>{m.label}</button>; })}
+          {statusOrder.map((s) => { const on = filters.statuses.includes(s); const m = statusMeta[s] || { label: s, color: NX.dim, tint: NX.border2 }; return <button key={s} onClick={() => setFilters({ ...filters, statuses: toggle(filters.statuses, s) })} style={pill(on, m.color, m.tint)}>{m.label}</button>; })}
         </div>
       </div>
       <div>
@@ -196,7 +196,7 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
     <div style={{ display: 'flex', flexDirection: sheet ? 'column' : 'row', alignItems: sheet ? 'stretch' : 'center', gap: sheet ? 6 : (isMobile ? 6 : 8), flexWrap: (sheet || !isMobile) ? 'wrap' : 'nowrap', fontFamily: FONT }}>
       {/* Filters */}
       <Popover sheet={sheet} label={activeFilterCount ? `Filters · ${activeFilterCount}` : 'Filters'} icon={SlidersHorizontal} active={activeFilterCount > 0} width={260}>
-        {() => <FiltersBody filters={filters} setFilters={setFilters} people={people} projects={projects} lockedProjectId={lockedProjectId} />}
+        {() => <FiltersBody filters={filters} setFilters={setFilters} people={people} projects={projects} lockedProjectId={lockedProjectId} statusOrder={store.statusOrder} statusMeta={store.statusMeta} />}
       </Popover>
 
       {/* Date — separate from Filters, matching the export's dedicated Date button */}
@@ -280,7 +280,7 @@ export function MobileFilters({ filters, setFilters, sort, setSort, group, setGr
   const catLabel = { filters: 'Filters', date: 'Date', sort: 'Sort', group: 'Group', saved: 'Saved Views' }[cat];
   return (
     <BottomSheet title={catLabel} onClose={onClose} onBack={() => setCat(null)}>
-      {cat === 'filters' && <FiltersBody filters={filters} setFilters={setFilters} people={people} projects={projects} lockedProjectId={lockedProjectId} />}
+      {cat === 'filters' && <FiltersBody filters={filters} setFilters={setFilters} people={people} projects={projects} lockedProjectId={lockedProjectId} statusOrder={store.statusOrder} statusMeta={store.statusMeta} />}
       {cat === 'date' && <DateBody filters={filters} setFilters={setFilters} />}
       {cat === 'sort' && <SortBody sort={sort} setSort={setSort} close={() => {}} />}
       {cat === 'group' && <GroupBody group={group} setGroup={setGroup} groupOptions={groupOptions} close={() => {}} />}

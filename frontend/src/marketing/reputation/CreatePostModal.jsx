@@ -33,14 +33,12 @@ const CTA_OPTIONS = [
 
 const SURFACE_LABEL = {
   google: 'Maps and Search',
-  yelp: 'Maps and Search',
   facebook: 'your Page',
   instagram: 'your profile',
 }
 
 const SHOWS_ON_LABEL = {
   google: 'Show on Google until',
-  yelp: 'Show on Yelp until',
   facebook: 'Show on Facebook until',
   instagram: 'Show on Instagram until',
 }

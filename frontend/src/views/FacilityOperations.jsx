@@ -31,6 +31,22 @@ const STAFF = [
 
 const pill = (cls, text) => <span className={`status-badge ${cls}`}>{text}</span>;
 
+// Portfolio-wide average review score, shown on the Reputation summary card.
+const AVG_RATING = 4.3;
+
+// Five stars with a fractional-filled last star (e.g. 4.3 -> four full stars
+// and a ~30%-filled fifth). An amber layer is clipped to value/5 over a grey
+// base row, so a partial rating never rounds up to a full star.
+function StarRow({ value, size = 15 }) {
+  const pct = Math.max(0, Math.min(100, (value / 5) * 100));
+  return (
+    <span style={{ position: "relative", display: "inline-block", fontSize: size, letterSpacing: 1, lineHeight: 1 }} aria-hidden="true">
+      <span style={{ color: "var(--line)" }}>★★★★★</span>
+      <span style={{ position: "absolute", inset: 0, overflow: "hidden", width: pct + "%", color: "var(--amber)", whiteSpace: "nowrap" }}>★★★★★</span>
+    </span>
+  );
+}
+
 function FMS() {
   const totalUnits  = FACILITIES.reduce((a, f) => a + f.units, 0);
   const totalRented = FACILITIES.reduce((a, f) => a + f.rented, 0);
@@ -113,14 +129,21 @@ function Reputation() {
       </div>
       <div className="kpi-grid">
         {[
-          { label: "Average Rating", value: "4.3 ★" },
+          { label: "Average Rating", rating: AVG_RATING },
           { label: "Response Rate",  value: "68%" },
           { label: "Awaiting Reply", value: pending },
           { label: "This Month",     value: "18" },
         ].map(k => (
           <div key={k.label} className="kpi-card">
             <div className="kpi-label">{k.label}</div>
-            <div className="kpi-value">{k.value}</div>
+            {k.rating != null ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="kpi-value">{k.rating.toFixed(1)}</span>
+                <StarRow value={k.rating} />
+              </div>
+            ) : (
+              <div className="kpi-value">{k.value}</div>
+            )}
           </div>
         ))}
       </div>

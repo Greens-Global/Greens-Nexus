@@ -13,7 +13,7 @@ import subprocess
 import httpx
 import models
 from database import get_db
-from auth import get_current_user, require_level
+from auth import get_current_user, require_level, require_manager
 from routers.task_util import now_iso, gen_id, fire_task_event, log_activity, task_notify
 
 router = APIRouter(tags=["Tasks"], dependencies=[Depends(get_current_user)])
@@ -82,7 +82,7 @@ def list_rules(db: Session = Depends(get_db)):
     return [rule_to_dict(r) for r in db.query(models.TaskAutomationRule).all()]
 
 
-@router.post("/task-automation-rules", status_code=201)
+@router.post("/task-automation-rules", status_code=201, dependencies=[Depends(require_manager)])
 def create_rule(body: RuleBody, db: Session = Depends(get_db)):
     if not (body.name or "").strip():
         raise HTTPException(422, "Rule name is required")
@@ -96,7 +96,7 @@ def create_rule(body: RuleBody, db: Session = Depends(get_db)):
     return rule_to_dict(r)
 
 
-@router.patch("/task-automation-rules/{rule_id}")
+@router.patch("/task-automation-rules/{rule_id}", dependencies=[Depends(require_manager)])
 def update_rule(rule_id: str, body: RuleBody, db: Session = Depends(get_db)):
     r = db.query(models.TaskAutomationRule).filter(models.TaskAutomationRule.id == rule_id).first()
     if not r:
@@ -109,7 +109,7 @@ def update_rule(rule_id: str, body: RuleBody, db: Session = Depends(get_db)):
     return rule_to_dict(r)
 
 
-@router.delete("/task-automation-rules/{rule_id}", status_code=204)
+@router.delete("/task-automation-rules/{rule_id}", status_code=204, dependencies=[Depends(require_manager)])
 def delete_rule(rule_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskAutomationRule).filter(models.TaskAutomationRule.id == rule_id).delete()
     db.commit()
@@ -135,7 +135,7 @@ def list_templates(db: Session = Depends(get_db)):
     return [template_to_dict(t) for t in db.query(models.TaskTemplate).all()]
 
 
-@router.post("/task-templates", status_code=201)
+@router.post("/task-templates", status_code=201, dependencies=[Depends(require_manager)])
 def create_template(body: TemplateBody, db: Session = Depends(get_db)):
     t = models.TaskTemplate(id=body.id or gen_id(), name=body.name, description=body.description or "",
                             patch=body.patch or {}, subtask_titles=body.subtask_titles or [],
@@ -146,7 +146,7 @@ def create_template(body: TemplateBody, db: Session = Depends(get_db)):
     return template_to_dict(t)
 
 
-@router.delete("/task-templates/{template_id}", status_code=204)
+@router.delete("/task-templates/{template_id}", status_code=204, dependencies=[Depends(require_manager)])
 def delete_template(template_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskTemplate).filter(models.TaskTemplate.id == template_id).delete()
     db.commit()
@@ -170,7 +170,7 @@ def list_intake_forms(db: Session = Depends(get_db)):
     return [intake_form_to_dict(f) for f in db.query(models.TaskIntakeForm).all()]
 
 
-@router.post("/task-intake-forms", status_code=201)
+@router.post("/task-intake-forms", status_code=201, dependencies=[Depends(require_manager)])
 def create_intake_form(body: IntakeFormBody, db: Session = Depends(get_db)):
     f = models.TaskIntakeForm(id=body.id or gen_id(), title=body.title, fields=body.fields or [],
                               target_project_id=body.target_project_id or "", created_at=now_iso())
@@ -180,7 +180,7 @@ def create_intake_form(body: IntakeFormBody, db: Session = Depends(get_db)):
     return intake_form_to_dict(f)
 
 
-@router.delete("/task-intake-forms/{form_id}", status_code=204)
+@router.delete("/task-intake-forms/{form_id}", status_code=204, dependencies=[Depends(require_manager)])
 def delete_intake_form(form_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskIntakeForm).filter(models.TaskIntakeForm.id == form_id).delete()
     db.commit()

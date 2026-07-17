@@ -4,13 +4,12 @@ import { FACILITIES } from '../shared/facilities'
 import { C } from '../theme'
 
 export const GOOGLE_CHANNELS = ['Google Search', 'Google Display', 'Google Shopping', 'Google Remarketing', 'Google Local', 'YouTube Ads']
-export const YELP_CHANNELS = ['Yelp Ads', 'Yelp Enhanced Profile', 'Yelp Sponsored Search']
 
 const labelStyle = { display: 'block', fontSize: 12.5, fontWeight: 500, color: C.gray600, marginBottom: 6 }
 const fieldStyle = { width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13, outline: 'none' }
 
-export default function NewCampaignModal({ platform: adPlatform, onClose, onCreate, defaultFacility }) {
-  const channels = adPlatform === 'google' ? GOOGLE_CHANNELS : YELP_CHANNELS
+export default function NewCampaignModal({ onClose, onCreate, defaultFacility }) {
+  const channels = GOOGLE_CHANNELS
   const [name, setName] = useState('')
   const [platform, setPlatform] = useState(channels[0])
   const [facility, setFacility] = useState(defaultFacility ?? FACILITIES[0])

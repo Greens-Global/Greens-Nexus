@@ -15,19 +15,16 @@ const TABS = [
 ]
 
 // Google's Business Profile is the only listing with all three surfaces in
-// this mock universe. Yelp has Photos/Q&A but no time-limited Posts feature.
-// Facebook/Instagram are organic content platforms only — no photo gallery
-// or public Q&A management, just Posts.
+// this mock universe. Facebook/Instagram are organic content platforms only —
+// no photo gallery or public Q&A management, just Posts.
 const TABS_BY_PLATFORM = {
   google: ['posts', 'photos', 'qna'],
-  yelp: ['photos', 'qna'],
   facebook: ['posts'],
   instagram: ['posts'],
 }
 
 const LISTING_LABEL = {
   google: 'Google Business Profile',
-  yelp: 'Yelp Business Page',
   facebook: 'Facebook Page',
   instagram: 'Instagram Business Profile',
 }

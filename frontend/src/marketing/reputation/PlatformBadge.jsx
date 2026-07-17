@@ -2,7 +2,6 @@ import { C } from '../theme'
 
 const STYLES = {
   Google: { label: 'G', bg: C.blue500, text: C.white },
-  Yelp: { label: 'Y', bg: C.red500, text: C.white },
   Facebook: { label: 'f', bg: C.indigo600, text: C.white },
   'Storage Facility Finder': { label: 'SFF', bg: C.emerald500, text: C.white },
   Other: { label: 'O', bg: C.gray400, text: C.white },

@@ -7,8 +7,25 @@ import { api } from '../api';
 import { supabase } from '../lib/supabase';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
+import { STATUS_META, STATUS_ORDER, NX } from './theme';
 
 const Ctx = createContext(null);
+
+// Merge the four built-in statuses with the workspace's custom statuses so every
+// status surface (dropdowns, chips, board columns, filters, grouping) reflects
+// what's defined in Manage → Custom Statuses. Custom-status ids are stored on
+// tasks as their `status`, so both the lookup map and the ordered list key on id.
+function buildStatusMeta(customStatuses) {
+  const meta = { ...STATUS_META };
+  for (const c of customStatuses || []) {
+    meta[c.id] = { label: c.label, color: c.color || NX.dim, tint: `${c.color || NX.dim}1a` };
+  }
+  return meta;
+}
+function buildStatusOrder(customStatuses) {
+  const custom = [...(customStatuses || [])].sort((a, b) => (a.position || 0) - (b.position || 0));
+  return [...STATUS_ORDER, ...custom.map((c) => c.id)];
+}
 
 // camelCase (frontend) → snake_case (API body). The backend serialises replies
 // back to camelCase, so we only map on the way out.
@@ -217,10 +234,15 @@ export function TasksProvider({ children }) {
     await api.markAllTaskNotificationsRead().catch(() => {});
   }, []);
 
+  // Merged status metadata + order (built-in + custom), recomputed when custom
+  // statuses change — the single source every status surface should read from.
+  const statusMeta = useMemo(() => buildStatusMeta(customStatuses), [customStatuses]);
+  const statusOrder = useMemo(() => buildStatusOrder(customStatuses), [customStatuses]);
+
   const value = {
     loading, myEmail, nameOf,
     tasks, projects, portfolios, departments, tickets, ticketComponents, savedViews, rules, templates,
-    customFields, customStatuses, notifications, memberRequests, intakeForms, changelog,
+    customFields, customStatuses, statusMeta, statusOrder, notifications, memberRequests, intakeForms, changelog,
     taskById, projectById, portfolioById, deptById, projectName, deptName,
     getComments, addComment, commentCache: commentCache.current,
     createTask, updateTask, deleteTask, bulkUpdate, toggleComplete, setStatus,

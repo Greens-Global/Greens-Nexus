@@ -12,7 +12,6 @@ import SetBudgetModal from './SetBudgetModal'
 import MetricDetailModal from './MetricDetailModal'
 import { filterRange, sumTotals, propertyBreakdownInRange } from './aggregate'
 import { geoRows, initialCampaigns, keywordRows, dailyMetrics } from './data'
-import { yelpGeoRows, yelpInitialCampaigns, yelpKeywordRows, yelpDailyMetrics } from './yelpData'
 import { downloadCSV, formatCurrency, formatDateLabel, formatNumber, formatPercent, getPreviousPeriod, thisMonth } from './utils'
 import { ALL_PROPERTIES, FACILITIES } from '../shared/facilities'
 import PropertyComparisonModal from '../shared/PropertyComparisonModal'
@@ -43,7 +42,7 @@ const COMPARISON_COLUMNS = [
   { key: 'costPerConv', label: 'Cost/Conv', value: (r) => r.costPerConv, format: (r) => formatCurrency(r.costPerConv) },
 ]
 
-const PLATFORM_LABEL = { google: 'Google Ads', yelp: 'Yelp Ads' }
+const PLATFORM_LABEL = 'Google Ads'
 
 export default function GoogleAdsPage({
   range,
@@ -56,16 +55,10 @@ export default function GoogleAdsPage({
   onClearAlert,
   monthlyBudgetByProperty,
   onChangeMonthlyBudget,
-  yelpMonthlyBudgetByProperty,
-  onChangeYelpMonthlyBudget,
   action,
   onClearAction,
 }) {
-  const [platform, setPlatform] = useState('google')
-  const [campaignsByPlatform, setCampaignsByPlatform] = useState({
-    google: initialCampaigns,
-    yelp: yelpInitialCampaigns,
-  })
+  const [campaigns, setCampaigns] = useState(initialCampaigns)
   const [showNewCampaign, setShowNewCampaign] = useState(false)
   const [showEditCampaign, setShowEditCampaign] = useState(false)
   const [showSetBudget, setShowSetBudget] = useState(false)
@@ -85,15 +78,10 @@ export default function GoogleAdsPage({
     }
   }, [action, onClearAction])
 
-  const campaigns = campaignsByPlatform[platform]
-  const activeDailyMetrics = platform === 'google' ? dailyMetrics : yelpDailyMetrics
-  const activeGeoRows = platform === 'google' ? geoRows : yelpGeoRows
-  const activeKeywordRows = platform === 'google' ? keywordRows : yelpKeywordRows
-  const activeBudgetByProperty = platform === 'google' ? monthlyBudgetByProperty : yelpMonthlyBudgetByProperty
-
-  function setCampaigns(updater) {
-    setCampaignsByPlatform((prev) => ({ ...prev, [platform]: updater(prev[platform]) }))
-  }
+  const activeDailyMetrics = dailyMetrics
+  const activeGeoRows = geoRows
+  const activeKeywordRows = keywordRows
+  const activeBudgetByProperty = monthlyBudgetByProperty
 
   const comparisonRows = useMemo(
     () => propertyBreakdownInRange(activeDailyMetrics, activeGeoRows, range),
@@ -182,7 +170,7 @@ export default function GoogleAdsPage({
 
   function downloadReport() {
     const rowsCsv = [
-      [`${PLATFORM_LABEL[platform]} Performance Report`],
+      [`${PLATFORM_LABEL} Performance Report`],
       [`Range: ${formatDateLabel(range.start)} - ${formatDateLabel(range.end)}`],
       [`Property: ${property}`],
       [],
@@ -198,7 +186,7 @@ export default function GoogleAdsPage({
       ['Campaign', 'Platform', 'Facility', 'Spend', 'Clicks', 'Conversions', 'Status'],
       ...scopedCampaigns.map((c) => [c.name, c.platform, c.facility, c.spend.toFixed(2), c.clicks, c.conversions, c.status]),
     ]
-    downloadCSV(`${platform}-ads-report_${range.start}_${range.end}.csv`, rowsCsv)
+    downloadCSV(`google-ads-report_${range.start}_${range.end}.csv`, rowsCsv)
   }
 
   return (
@@ -209,8 +197,6 @@ export default function GoogleAdsPage({
         property={property}
         properties={FACILITIES}
         onPropertyChange={onPropertyChange}
-        platform={platform}
-        onPlatformChange={setPlatform}
         onDownload={downloadReport}
         onCompare={setCompareSelection}
         onNavigate={onNavigate}
@@ -256,7 +242,6 @@ export default function GoogleAdsPage({
 
       {showNewCampaign && (
         <NewCampaignModal
-          platform={platform}
           onClose={() => setShowNewCampaign(false)}
           onCreate={createCampaign}
           defaultFacility={property === ALL_PROPERTIES ? undefined : property}
@@ -265,7 +250,6 @@ export default function GoogleAdsPage({
 
       {showEditCampaign && (
         <EditCampaignModal
-          platform={platform}
           campaigns={scopedCampaigns}
           onClose={() => setShowEditCampaign(false)}
           onSave={updateCampaignFields}
@@ -276,16 +260,14 @@ export default function GoogleAdsPage({
         <SetBudgetModal
           facilities={FACILITIES}
           googleBudgetByProperty={monthlyBudgetByProperty}
-          yelpBudgetByProperty={yelpMonthlyBudgetByProperty}
           onChangeGoogleBudget={onChangeMonthlyBudget}
-          onChangeYelpBudget={onChangeYelpMonthlyBudget}
           onClose={() => setShowSetBudget(false)}
         />
       )}
 
       {compareSelection && (
         <PropertyComparisonModal
-          title={`Compare Properties — ${PLATFORM_LABEL[platform]}`}
+          title={`Compare Properties — ${PLATFORM_LABEL}`}
           rows={comparisonRowsWithBudget.filter((r) => compareSelection.includes(r.name))}
           columns={COMPARISON_COLUMNS}
           onClose={() => setCompareSelection(null)}

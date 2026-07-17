@@ -13,7 +13,6 @@ import RatingTrendCard from '../reputation/RatingTrendCard'
 import { filterByRange, dailyRowsForProperty, sumLeadTotals, leadsByChannelInRange, propertyBreakdownInRange } from './aggregate'
 import { filterRange as gaFilterRange, sumTotals as gaSumTotals } from '../googleAds/aggregate'
 import { geoRows, dailyMetrics, initialCampaigns } from '../googleAds/data'
-import { yelpGeoRows, yelpDailyMetrics, yelpInitialCampaigns } from '../googleAds/yelpData'
 import { allReviews } from '../reputation/data'
 import { asOf, computeLifetimeStats, computeSentimentBreakdown, computeSourceSummary, hoursSince, filterByRange as repFilterByRange } from '../reputation/aggregate'
 import { initialQuestions, initialPhotos } from '../reputation/gbpContentData'
@@ -63,7 +62,6 @@ export default function InsightsPage({
   leadGoalByProperty,
   onChangeLeadGoal,
   monthlyBudgetByProperty,
-  yelpMonthlyBudgetByProperty,
   action,
   onClearAction,
 }) {
@@ -97,34 +95,23 @@ export default function InsightsPage({
   const totals = useMemo(() => sumLeadTotals(rows), [rows])
   const prevTotals = useMemo(() => sumLeadTotals(prevRows), [prevRows])
 
-  // Cost per Lead is genuinely derived from the combined Google Ads + Yelp
-  // Ads spend series, each scoped the same way their own page scopes a
-  // selected property.
+  // Cost per Lead is genuinely derived from the Google Ads spend series,
+  // scoped the same way the Ads page scopes a selected property.
   const gaFacilityShare = useMemo(() => {
     if (property === ALL_PROPERTIES) return 1
     const totalClicks = geoRows.reduce((a, g) => a + g.clicks, 0)
     const row = geoRows.find((g) => g.location === property)
     return row && totalClicks > 0 ? row.clicks / totalClicks : 1
   }, [property])
-  const yelpFacilityShare = useMemo(() => {
-    if (property === ALL_PROPERTIES) return 1
-    const totalClicks = yelpGeoRows.reduce((a, g) => a + g.clicks, 0)
-    const row = yelpGeoRows.find((g) => g.location === property)
-    return row && totalClicks > 0 ? row.clicks / totalClicks : 1
-  }, [property])
 
   const gaRows = useMemo(() => gaFilterRange(dailyMetrics, range), [range])
   const gaPrevRows = useMemo(() => gaFilterRange(dailyMetrics, previousRange), [previousRange])
-  const yelpRows = useMemo(() => gaFilterRange(yelpDailyMetrics, range), [range])
-  const yelpPrevRows = useMemo(() => gaFilterRange(yelpDailyMetrics, previousRange), [previousRange])
 
   const gaSpend = useMemo(() => gaSumTotals(gaRows).spend * gaFacilityShare, [gaRows, gaFacilityShare])
   const gaPrevSpend = useMemo(() => gaSumTotals(gaPrevRows).spend * gaFacilityShare, [gaPrevRows, gaFacilityShare])
-  const yelpSpend = useMemo(() => gaSumTotals(yelpRows).spend * yelpFacilityShare, [yelpRows, yelpFacilityShare])
-  const yelpPrevSpend = useMemo(() => gaSumTotals(yelpPrevRows).spend * yelpFacilityShare, [yelpPrevRows, yelpFacilityShare])
 
-  const costPerLead = totals.leads > 0 ? (gaSpend + yelpSpend) / totals.leads : 0
-  const prevCostPerLead = prevTotals.leads > 0 ? (gaPrevSpend + yelpPrevSpend) / prevTotals.leads : 0
+  const costPerLead = totals.leads > 0 ? gaSpend / totals.leads : 0
+  const prevCostPerLead = prevTotals.leads > 0 ? gaPrevSpend / prevTotals.leads : 0
 
   // Review Rating is genuinely derived from the Reputation reviews dataset.
   const scopedReviews = useMemo(
@@ -181,19 +168,14 @@ export default function InsightsPage({
   const monthRange = useMemo(() => thisMonth(), [])
   const monthCoverage = useMemo(() => monthCoverageFraction(monthRange), [monthRange])
   const gaMonthSpend = useMemo(() => gaSumTotals(gaFilterRange(dailyMetrics, monthRange)).spend, [monthRange])
-  const yelpMonthSpend = useMemo(() => gaSumTotals(gaFilterRange(yelpDailyMetrics, monthRange)).spend, [monthRange])
   const totalMonthlyBudget = useMemo(() => Object.values(monthlyBudgetByProperty).reduce((a, b) => a + b, 0), [monthlyBudgetByProperty])
-  const totalYelpMonthlyBudget = useMemo(() => Object.values(yelpMonthlyBudgetByProperty).reduce((a, b) => a + b, 0), [yelpMonthlyBudgetByProperty])
   const totalLeadGoal = useMemo(() => Object.values(leadGoalByProperty).reduce((a, b) => a + b, 0), [leadGoalByProperty])
   const monthLeadsTotal = useMemo(
     () => sumLeadTotals(filterByRange(dailyRowsForProperty(null), monthRange)).leads,
     [monthRange],
   )
   const campaignSummaries = useMemo(
-    () => [
-      ...initialCampaigns.map((c) => ({ name: c.name, facility: c.facility, platform: 'Google Ads', spend: c.spend, conversions: c.conversions, status: c.status })),
-      ...yelpInitialCampaigns.map((c) => ({ name: c.name, facility: c.facility, platform: 'Yelp Ads', spend: c.spend, conversions: c.conversions, status: c.status })),
-    ],
+    () => initialCampaigns.map((c) => ({ name: c.name, facility: c.facility, platform: 'Google Ads', spend: c.spend, conversions: c.conversions, status: c.status })),
     [],
   )
   const seoOpportunity = useMemo(() => {
@@ -235,7 +217,6 @@ export default function InsightsPage({
       leadToMoveInRate: { current: totals.leadToMoveInRate, previous: prevTotals.leadToMoveInRate },
       costPerLead: { current: costPerLead, previous: prevCostPerLead },
       gaSpend: { current: gaSpend, previous: gaPrevSpend },
-      yelpSpend: { current: yelpSpend, previous: yelpPrevSpend },
       reviewRating: { current: reviewRating, previous: prevReviewRating },
       sentimentPositivePct: { current: positivePctCurrent, previous: positivePctPrev },
       nps: { current: totals.npsAvg, previous: prevTotals.npsAvg },
@@ -253,13 +234,8 @@ export default function InsightsPage({
         stalePhotoProperties: stalePhotoProperties(initialPhotos),
       },
       leadsPipeline: { total: leadStats.total, unassigned: leadStats.unassigned },
-      adPlatforms: {
-        google: { costPerConv: gaSumTotals(gaRows).costPerConv },
-        yelp: { costPerConv: gaSumTotals(yelpRows).costPerConv },
-      },
       budgetPacing: {
         google: { budget: totalMonthlyBudget, spendMonthToDate: gaMonthSpend },
-        yelp: { budget: totalYelpMonthlyBudget, spendMonthToDate: yelpMonthSpend },
         monthCoverage,
       },
       goalPacing: { goal: totalLeadGoal, leadsMonthToDate: monthLeadsTotal, monthCoverage },
@@ -273,9 +249,9 @@ export default function InsightsPage({
 
     return generateInsights(input)
   }, [
-    totals, prevTotals, costPerLead, prevCostPerLead, gaSpend, gaPrevSpend, yelpSpend, yelpPrevSpend,
-    reviewRating, prevReviewRating, positivePctCurrent, positivePctPrev, reviewsInRange, gaRows, yelpRows,
-    totalMonthlyBudget, totalYelpMonthlyBudget, gaMonthSpend, yelpMonthSpend, monthCoverage, totalLeadGoal,
+    totals, prevTotals, costPerLead, prevCostPerLead, gaSpend, gaPrevSpend,
+    reviewRating, prevReviewRating, positivePctCurrent, positivePctPrev, reviewsInRange,
+    totalMonthlyBudget, gaMonthSpend, monthCoverage, totalLeadGoal,
     monthLeadsTotal, propertyRowsAll, campaignSummaries, seoOpportunity, staleLeadsInfo, reviewBacklogInfo, platformRatingsInfo,
   ])
 

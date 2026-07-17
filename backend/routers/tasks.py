@@ -7,13 +7,16 @@ email-keyed; the serialisers emit the export's runtime shape (assigneeId etc.,
 with email used as the person id) so the ported frontend maps cleanly.
 Reference implementation: routers/items.py.
 """
+import calendar
+from datetime import date, datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Any
 import models
 from database import get_db
-from auth import get_current_user
+from auth import get_current_user, require_manager
 from routers.task_util import (
     now_iso, gen_id, fire_task_event, task_notify, log_activity,
 )
@@ -180,6 +183,116 @@ def _get_task(db: Session, task_id: str) -> models.Task:
     return t
 
 
+# ── Recurrence: occurrence generation ────────────────────────────────────────
+# recurrence = {freq, interval, dayOfWeek?, dayOfMonth?, until?, count?}
+# dayOfWeek is the frontend index (0=Sunday..6=Saturday); until/count are the
+# end condition. `count` on an instance means "occurrences remaining, this one
+# inclusive" — it is decremented each time the next occurrence is spawned, so a
+# series with count=N produces exactly N tasks.
+def _add_months(d: date, n: int) -> date:
+    m = d.month - 1 + n
+    y = d.year + m // 12
+    m = m % 12 + 1
+    return date(y, m, min(d.day, calendar.monthrange(y, m)[1]))
+
+
+def _next_due(base_iso: str, rec: dict) -> str:
+    """Next due date (YYYY-MM-DD) after `base_iso`, per the recurrence rule."""
+    try:
+        base = datetime.strptime((base_iso or "")[:10], "%Y-%m-%d").date()
+    except ValueError:
+        base = date.today()
+    freq = rec.get("freq")
+    interval = max(1, int(rec.get("interval") or 1))
+    if freq == "weekly":
+        dow = rec.get("dayOfWeek")
+        if dow is None:
+            return (base + timedelta(weeks=interval)).isoformat()
+        target = (int(dow) - 1) % 7          # frontend Sun=0 → Python Mon=0
+        nxt = base + timedelta(days=1)
+        while nxt.weekday() != target:
+            nxt += timedelta(days=1)
+        return (nxt + timedelta(weeks=interval - 1)).isoformat()
+    if freq == "monthly":
+        nxt = _add_months(base, interval)
+        dom = rec.get("dayOfMonth")
+        if dom:
+            day = min(int(dom), calendar.monthrange(nxt.year, nxt.month)[1])
+            nxt = date(nxt.year, nxt.month, day)
+        return nxt.isoformat()
+    # daily (and any unknown freq) → advance whole days
+    return (base + timedelta(days=interval)).isoformat()
+
+
+def _spawn_next_occurrence(db: Session, t: models.Task, user: dict) -> Optional[models.Task]:
+    """When a recurring task is completed, create its next occurrence (unless the
+    end condition — `until` date or `count` — is reached). Returns the new task
+    or None if the series has ended. Top-level tasks only; subtasks don't recur."""
+    rec = t.recurrence
+    if not isinstance(rec, dict) or not rec.get("freq") or t.parent_task_id:
+        return None
+
+    count = rec.get("count")
+    if count is not None and int(count) <= 1:
+        return None  # this was the final occurrence
+
+    base_iso = t.due_on or (t.completed_at or now_iso())[:10]
+    next_due = _next_due(base_iso, rec)
+    until = rec.get("until")
+    if until and next_due > until:
+        return None  # past the series end date
+
+    new_rec = dict(rec)
+    if count is not None:
+        new_rec["count"] = int(count) - 1
+
+    now = now_iso()
+    nid = gen_id()
+    nxt = models.Task(
+        id=nid,
+        code=_next_code(db),
+        title=t.title,
+        description=t.description or "",
+        type=t.type or "task",
+        status="recurring",
+        priority=t.priority or "medium",
+        assignee_email=t.assignee_email or "",
+        owner_email=t.owner_email or "",
+        follower_emails=list(t.follower_emails or []),
+        liked_by_emails=[],
+        access_level=t.access_level or "org",
+        project_id=t.project_id or "",
+        section_id=t.section_id or "",
+        department_id=t.department_id or "",
+        parent_task_id="",
+        subtask_ids=[], blocked_by_ids=[], blocking_ids=[], dependency_types={},
+        tags=list(t.tags or []),
+        custom_field_values=dict(t.custom_field_values or {}),
+        start_on="",
+        due_on=next_due,
+        estimate_hours=t.estimate_hours,
+        actual_hours=None,
+        recurrence=new_rec,
+        is_milestone=bool(t.is_milestone),
+        approval_status="none",
+        completed=False,
+        completed_at="",
+        comment_ids=[], attachment_ids=[], activity_ids=[],
+        created_at=now, modified_at=now, created_by=user["email"],
+    )
+    db.add(nxt)
+    aid = log_activity(db, type="created", actor_email=user["email"], entity_id=nid,
+                       entity_code=nxt.code, entity_title=nxt.title,
+                       detail=f"recurring occurrence generated from {t.code}")
+    nxt.activity_ids = [aid]
+    if nxt.assignee_email and nxt.assignee_email != user["email"].lower():
+        task_notify(db, kind="task_assigned", for_email=nxt.assignee_email,
+                    title="Recurring task due",
+                    body=f"{nxt.code} · {nxt.title} (due {next_due})", task_id=nid,
+                    nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+    return nxt
+
+
 @router.get("")
 def list_tasks(db: Session = Depends(get_db)):
     return [task_to_dict(t) for t in db.query(models.Task).all()]
@@ -298,9 +411,14 @@ def update_task(task_id: str, upd: TaskUpdate, user: dict = Depends(get_current_
                                  detail="completed this task"))
     t.activity_ids = acts
 
+    # Completing a recurring task rolls the series forward to the next occurrence.
+    spawned = _spawn_next_occurrence(db, t, user) if (t.completed and not prev_completed) else None
+
     db.commit()
     db.refresh(t)
     fire_task_event(t.id, "updated")
+    if spawned is not None:
+        fire_task_event(spawned.id, "created")
     return task_to_dict(t)
 
 
@@ -559,7 +677,7 @@ def list_custom_statuses(db: Session = Depends(get_db)):
     return [custom_status_to_dict(s) for s in db.query(models.TaskCustomStatus).all()]
 
 
-@router.post("/meta/custom-statuses", status_code=201)
+@router.post("/meta/custom-statuses", status_code=201, dependencies=[Depends(require_manager)])
 def create_custom_status(body: CustomStatusBody, db: Session = Depends(get_db)):
     s = models.TaskCustomStatus(id=body.id or gen_id(), label=body.label,
                                 color=body.color or "", position=body.position or 0)
@@ -569,7 +687,7 @@ def create_custom_status(body: CustomStatusBody, db: Session = Depends(get_db)):
     return custom_status_to_dict(s)
 
 
-@router.delete("/meta/custom-statuses/{status_id}", status_code=204)
+@router.delete("/meta/custom-statuses/{status_id}", status_code=204, dependencies=[Depends(require_manager)])
 def delete_custom_status(status_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskCustomStatus).filter(models.TaskCustomStatus.id == status_id).delete()
     db.commit()

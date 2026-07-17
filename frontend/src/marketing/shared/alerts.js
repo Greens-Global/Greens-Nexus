@@ -1,11 +1,9 @@
 import { thisMonth } from './utils'
 import { filterRange as gaFilterRange, sumTotals as gaSumTotals } from '../googleAds/aggregate'
 import { dailyMetrics } from '../googleAds/data'
-import { yelpDailyMetrics } from '../googleAds/yelpData'
 import { allReviews } from '../reputation/data'
 import { hoursSince } from '../reputation/aggregate'
 import { initialQuestions, initialPhotos } from '../reputation/gbpContentData'
-import { initialYelpQuestions, initialYelpPhotos } from '../reputation/yelpContentData'
 import { unansweredCount, stalePhotoProperties } from '../reputation/gbpContentAggregate'
 import { ALL_PROPERTIES } from './facilities'
 import { dailyLeadMetrics } from '../insights/data'
@@ -15,7 +13,7 @@ import { filterByRange as insFilterByRange, sumLeadTotals } from '../insights/ag
 // calendar month, independent of whatever date range/property filter the
 // user currently has selected — a notification backlog should be stable,
 // not change every time you tweak a report filter.
-export function computeAlerts({ monthlyBudget, yelpMonthlyBudget, leadGoal }) {
+export function computeAlerts({ monthlyBudget, leadGoal }) {
   const alerts = []
   const month = thisMonth()
 
@@ -35,26 +33,6 @@ export function computeAlerts({ monthlyBudget, yelpMonthlyBudget, leadGoal }) {
       severity: 'warning',
       title: 'Budget nearly exhausted',
       message: `You've used ${Math.round(budgetPct)}% of this month's $${monthlyBudget.toLocaleString()} Google Ads budget.`,
-      tab: 'google-ads',
-    })
-  }
-
-  const yelpTotals = gaSumTotals(gaFilterRange(yelpDailyMetrics, month))
-  const yelpBudgetPct = yelpMonthlyBudget > 0 ? (yelpTotals.spend / yelpMonthlyBudget) * 100 : 0
-  if (yelpBudgetPct >= 100) {
-    alerts.push({
-      id: 'yelp-budget-over',
-      severity: 'critical',
-      title: 'Monthly Yelp budget exceeded',
-      message: `Yelp Ads spend is $${Math.round(yelpTotals.spend).toLocaleString()}, ${Math.round(yelpBudgetPct - 100)}% over your $${yelpMonthlyBudget.toLocaleString()} budget.`,
-      tab: 'google-ads',
-    })
-  } else if (yelpBudgetPct >= 90) {
-    alerts.push({
-      id: 'yelp-budget-warning',
-      severity: 'warning',
-      title: 'Yelp budget nearly exhausted',
-      message: `You've used ${Math.round(yelpBudgetPct)}% of this month's $${yelpMonthlyBudget.toLocaleString()} Yelp Ads budget.`,
       tab: 'google-ads',
     })
   }
@@ -116,30 +94,6 @@ export function computeAlerts({ monthlyBudget, yelpMonthlyBudget, leadGoal }) {
       severity: 'info',
       title: 'Listing photos need refreshing',
       message: `${staleProperties.length} propert${staleProperties.length === 1 ? 'y hasn\'t' : 'ies haven\'t'} added a new Business Profile photo in 60+ days.`,
-      tab: 'listings',
-    })
-  }
-
-  const unansweredYelpQuestions = unansweredCount(initialYelpQuestions, ALL_PROPERTIES)
-  if (unansweredYelpQuestions > 0) {
-    alerts.push({
-      id: 'yelp-qna-unanswered',
-      severity: 'warning',
-      title: 'Yelp Q&A questions awaiting an answer',
-      message: `${unansweredYelpQuestions} question${unansweredYelpQuestions === 1 ? '' : 's'} on your Yelp Business Page ${
-        unansweredYelpQuestions === 1 ? 'has' : 'have'
-      } no answer yet.`,
-      tab: 'listings',
-    })
-  }
-
-  const staleYelpProperties = stalePhotoProperties(initialYelpPhotos)
-  if (staleYelpProperties.length > 0) {
-    alerts.push({
-      id: 'yelp-photos-stale',
-      severity: 'info',
-      title: 'Yelp listing photos need refreshing',
-      message: `${staleYelpProperties.length} propert${staleYelpProperties.length === 1 ? 'y hasn\'t' : 'ies haven\'t'} added a new Yelp photo in 60+ days.`,
       tab: 'listings',
     })
   }

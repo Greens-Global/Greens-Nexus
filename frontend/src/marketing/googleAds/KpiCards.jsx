@@ -1,5 +1,5 @@
 import { DollarSign, Layers, MousePointerClick, Target, Wallet, Percent, CircleDollarSign, ArrowUp, ArrowDown } from 'lucide-react'
-import { formatCurrency, formatNumber, formatPercent, formatRangeLabelShort, pctChange } from './utils'
+import { formatCurrency, formatNumber, formatPercent, formatRangeLabelMonthYear, pctChange } from './utils'
 import { C } from '../theme'
 
 const cards = [
@@ -13,7 +13,7 @@ const cards = [
 ]
 
 export default function KpiCards({ current, previous, previousRange, onSelectMetric }) {
-  const prevLabel = `vs ${formatRangeLabelShort(previousRange)}`
+  const prevLabel = `vs ${formatRangeLabelMonthYear(previousRange)}`
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,minmax(0,1fr))', gap: 12, marginBottom: 20 }}>
@@ -34,6 +34,7 @@ export default function KpiCards({ current, previous, previousRange, onSelectMet
               padding: 16,
               boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)',
               minWidth: 0,
+              overflow: 'hidden',
               transition: 'all .15s',
               cursor: 'pointer',
             }}
