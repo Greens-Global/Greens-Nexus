@@ -5,3 +5,15 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=(self)
   Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+
+# The HTML entry must always revalidate so a deploy's new asset hashes are picked
+# up immediately (a stale index → deleted /assets hash → white screen). Hashed
+# assets are content-addressed, so cache them forever. (Cloudflare Pages honors
+# this; on the GitHub-Pages-origin prod host it's ignored — the index.html boot
+# watchdog covers that case, and a Cloudflare cache rule should pin the HTML too.)
+/index.html
+  Cache-Control: no-cache
+/404.html
+  Cache-Control: no-cache
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
