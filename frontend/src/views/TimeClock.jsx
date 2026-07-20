@@ -4,7 +4,7 @@ import {
   CheckCircle, Loader2, Plus, X, CalendarDays, Monitor, ChevronDown,
 } from 'lucide-react';
 import { api } from '../api';
-import DayTimeline, { TimelineLegend } from '../components/DayTimeline';
+import DayTimeline from '../components/DayTimeline';
 import BodModal from '../components/BodModal';
 import DayActivity from '../components/DayActivity';
 
@@ -439,7 +439,6 @@ export default function TimeClock() {
           <option value={14}>Last 14 days</option>
           <option value={30}>Last 30 days</option>
         </select>
-        <TimelineLegend />
         <div style={{ flex: 1 }} />
         <button className="secondary-btn" onClick={() => setMissedOpen(o => !o)}
           style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -487,7 +486,32 @@ export default function TimeClock() {
                 <span style={{ fontSize: 13, fontWeight: 800, width: 96, flexShrink: 0, color: 'var(--ink)' }}>
                   {new Date(date + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
                 </span>
-                <DayTimeline punches={d.punches} date={date} />
+                {/* Plain-language summary instead of a dense timeline you had to
+                    hover to read — first in, last out, breaks, at a glance. */}
+                {(() => {
+                  const ps = [...d.punches].sort((a, b) => a.at.localeCompare(b.at));
+                  const firstIn = ps.find(p => p.kind === 'in');
+                  const lastOut = [...ps].reverse().find(p => p.kind === 'out');
+                  const last = ps[ps.length - 1];
+                  const stillOn = last && last.kind !== 'out';
+                  const missingOut = d.flags.includes('missing_out');
+                  return (
+                    <span style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12.5 }}>
+                      {firstIn
+                        ? <span style={{ color: 'var(--ink)', fontWeight: 700 }}>In {localTime(firstIn.at)}</span>
+                        : <span style={{ color: 'var(--muted)' }}>No clock-in</span>}
+                      {firstIn && (lastOut || stillOn || missingOut) && <span style={{ color: 'var(--muted)' }}>→</span>}
+                      {stillOn
+                        ? <span style={{ color: 'var(--pine)', fontWeight: 700 }}>Still on the clock</span>
+                        : missingOut
+                          ? <span style={{ color: '#b45309', fontWeight: 700 }}>Missing clock-out</span>
+                          : lastOut
+                            ? <span style={{ color: 'var(--ink)', fontWeight: 700 }}>Out {localTime(lastOut.at)}</span>
+                            : null}
+                      {d.breakMin > 0 && <span style={{ color: 'var(--muted)' }}>· {d.breakMin}m break</span>}
+                    </span>
+                  );
+                })()}
                 {d.flags.length > 0 && <AlertTriangle size={13} style={{ color: '#b45309', flexShrink: 0 }} />}
                 <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--pine)', width: 66, textAlign: 'right', flexShrink: 0 }}>{fmtMin(d.workedMin)}</span>
               </button>
