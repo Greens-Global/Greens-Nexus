@@ -806,6 +806,91 @@ def set_monitoring_policy(body: MonitoringPolicyIn, user: dict = Depends(require
     return _policy_dict(p)
 
 
+@router.get("/monitoring/alerts")
+def monitoring_alerts(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """Tamper/coverage alerts: employees who are CLOCKED IN while monitoring is on,
+    but whose agent has gone quiet — the honest, visible way to catch someone
+    killing/uninstalling the agent to dodge capture. Nothing is hidden; the gap is
+    surfaced to their manager (team-scoped) as an attributable event. Computed from
+    existing heartbeat/punch/screenshot data — no new storage."""
+    pol = _get_policy(db)
+    if not pol.enabled:
+        return {"enabled": False, "alerts": []}
+    visible = _visible_emails(db, user)   # None = whole company (admin/HR grant)
+    now = datetime.now(timezone.utc)
+    interval_min = max(1, int(pol.interval_minutes or 5))
+    # Heartbeat is ~1/min; treat an enrolled agent as "quiet" after 5 min or two
+    # capture intervals, whichever is longer. Screenshot gap uses ~2.5 intervals.
+    stale_sec = max(300, interval_min * 60 * 2 + 120)
+    shot_gap_sec = int(interval_min * 60 * 2.5) + 120
+
+    # Latest punch per employee over the last 2 days → who is currently clocked in.
+    since = (now - timedelta(days=2)).isoformat()
+    pq = db.query(TimePunch).filter(TimePunch.voided == 0, TimePunch.at >= since)
+    if visible is not None:
+        if not visible:
+            return {"enabled": True, "alerts": []}
+        pq = pq.filter(TimePunch.employee_email.in_(visible))
+    latest = {}
+    for p in pq.order_by(TimePunch.at.desc()).all():
+        latest.setdefault(p.employee_email, p)
+    clocked = {e: p for e, p in latest.items() if p.kind != "out"}
+    if not clocked:
+        return {"enabled": True, "alerts": []}
+
+    names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
+             for e in db.query(NexusEmployee).all() if e.work_email}
+
+    def _age(iso):
+        try:
+            dt = _parse_iso(iso)
+            return (now - dt).total_seconds() if dt else None
+        except Exception:
+            return None
+
+    alerts = []
+    for email, punch in clocked.items():
+        dev = (db.query(AgentDevice)
+               .filter(AgentDevice.employee_email == email, AgentDevice.revoked == 0)
+               .order_by(AgentDevice.last_seen_at.desc()).first())
+        last_shot = (db.query(TimeScreenshot)
+                     .filter(TimeScreenshot.employee_email == email)
+                     .order_by(TimeScreenshot.at.desc()).first())
+        shot_age = _age(last_shot.at) if last_shot else None
+        seen_age = _age(dev.last_seen_at) if (dev and dev.last_seen_at) else None
+
+        reason = detail = None
+        severity = "warning"
+        if not dev:
+            # Clocked in, monitoring on, but no agent is enrolled for them, and the
+            # web widget hasn't sent a frame recently either → not being captured.
+            if pol.track_screens and (shot_age is None or shot_age > shot_gap_sec):
+                reason, severity = "No agent reporting", "high"
+                detail = "Clocked in with no enrolled agent and no recent capture."
+        elif seen_age is None or seen_age > stale_sec:
+            reason, severity = "Agent stopped reporting", "high"
+            detail = (f"Last checked in {int(seen_age // 60)} min ago."
+                      if seen_age is not None else "Agent has never checked in.")
+        elif pol.track_screens and (shot_age is None or shot_age > shot_gap_sec):
+            reason, severity = "No recent screenshots", "warning"
+            detail = (f"Agent is reporting but last frame was {int(shot_age // 60)} min ago."
+                      if shot_age is not None else "Agent is reporting but no frames yet.")
+
+        if reason:
+            alerts.append({
+                "email": email,
+                "name": names.get(email) or email.split("@")[0].replace(".", " ").title(),
+                "reason": reason, "detail": detail, "severity": severity,
+                "clockedInSince": punch.at,
+                "deviceName": (dev.device_name or dev.label) if dev else "",
+                "lastSeenAt": dev.last_seen_at if dev else "",
+                "lastShotAt": last_shot.at if last_shot else "",
+            })
+    # High severity first, then most-recently clocked in
+    alerts.sort(key=lambda a: (a["severity"] != "high", a["clockedInSince"]), reverse=False)
+    return {"enabled": True, "alerts": alerts, "checkedAt": _now_iso()}
+
+
 # ── Silent agent enrollment (no-login, token-authenticated devices) ───────────
 # The "Silent App User" model: an admin mints a device token bound to an
 # employee; the install command drops it on the machine; the agent authenticates
