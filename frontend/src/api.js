@@ -54,6 +54,33 @@ export function onBackendHealth(fn) {
 }
 export function isBackendDown() { return _backendDown; }
 
+// FastAPI 422 returns `detail` as an array of {loc, msg, type}. Passing that to
+// new Error() stringifies to "[object Object]", which then surfaces in toasts.
+// Flatten it to a readable "field: message" sentence; pass strings through.
+function _detailToMessage(detail, status) {
+  if (Array.isArray(detail)) {
+    const parts = detail.map(d => {
+      if (typeof d === 'string') return d;
+      const field = Array.isArray(d?.loc) ? d.loc.filter(x => x !== 'body').join('.') : '';
+      const msg = d?.msg || d?.message || '';
+      return field ? `${field}: ${msg}` : msg;
+    }).filter(Boolean);
+    if (parts.length) return parts.join('; ');
+  } else if (typeof detail === 'string' && detail) {
+    return detail;
+  }
+  return `API error ${status}`;
+}
+
+// Only idempotent methods (GET/HEAD) are safe to auto-retry on timeout/5xx.
+// A POST/PATCH/PUT/DELETE that committed server-side but exceeded the 18s abort
+// (Azure cold start) or 5xx'd after committing would otherwise be re-sent —
+// duplicate checkouts/assignments/notifications (P1-10). No method = GET.
+function _isRetryable(options) {
+  const method = (options.method || 'GET').toUpperCase();
+  return method === 'GET' || method === 'HEAD';
+}
+
 async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   const authHeader = await getAuthHeader(tokenRefreshed);
   const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
@@ -77,7 +104,8 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
     }
   } catch (err) {
     // fetch() itself threw — offline, CORS preflight dropped, cold-start, or timeout.
-    if (attempt < MAX_NET_ATTEMPTS) {
+    // Only retry idempotent requests: a mutation may have committed before the abort.
+    if (attempt < MAX_NET_ATTEMPTS && _isRetryable(options)) {
       await new Promise(r => setTimeout(r, 800 * attempt));
       return req(path, options, attempt + 1, tokenRefreshed);
     }
@@ -91,14 +119,15 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   }
   // Exponential backoff for 5xx — 1s, 2s, 4s — total ~7s before giving up.
   // Covers typical Azure cold-start without burning too many attempts on real errors.
-  if (res.status >= 500 && attempt < MAX_5XX_ATTEMPTS) {
+  // Mutations are never retried — a 5xx can arrive after the write committed.
+  if (res.status >= 500 && attempt < MAX_5XX_ATTEMPTS && _isRetryable(options)) {
     await new Promise(r => setTimeout(r, Math.min(1000 * 2 ** (attempt - 1), 4000)));
     return req(path, options, attempt + 1, tokenRefreshed);
   }
   if (!res.ok) {
     let detail;
     try { detail = (await res.json())?.detail; } catch { /* not JSON */ }
-    const err = new Error(detail || `API error ${res.status}`);
+    const err = new Error(_detailToMessage(detail, res.status));
     err.status = res.status;
     err.detail = detail;
     if (res.status >= 500) _setBackendDown(true);
@@ -144,7 +173,8 @@ async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) 
       clearTimeout(tid);
     }
   } catch (err) {
-    if (attempt < MAX_NET_ATTEMPTS) {
+    // Same idempotency rule as req() — don't re-send a mutation that may have run.
+    if (attempt < MAX_NET_ATTEMPTS && _isRetryable(options)) {
       await new Promise(r => setTimeout(r, 800 * attempt));
       return reqBlob(path, options, attempt + 1, tokenRefreshed);
     }
@@ -153,15 +183,16 @@ async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) 
   if (res.status === 401 && !tokenRefreshed) {
     return reqBlob(path, options, attempt, true);
   }
-  if (res.status >= 500 && attempt < MAX_5XX_ATTEMPTS) {
+  if (res.status >= 500 && attempt < MAX_5XX_ATTEMPTS && _isRetryable(options)) {
     await new Promise(r => setTimeout(r, Math.min(1000 * 2 ** (attempt - 1), 4000)));
     return reqBlob(path, options, attempt + 1, tokenRefreshed);
   }
   if (!res.ok) {
     let detail;
     try { detail = (await res.json())?.detail; } catch { /* not JSON */ }
-    const err = new Error(detail || `API error ${res.status}`);
+    const err = new Error(_detailToMessage(detail, res.status));
     err.status = res.status;
+    err.detail = detail;
     throw err;
   }
   const disposition = res.headers.get('content-disposition') || '';
@@ -406,18 +437,11 @@ export const api = {
   deleteNotif:      (id)             => req(`/notifications/${id}`, { method: 'DELETE' }),
   sendAlert:        (data)           => req('/notifications/send-alert', { method: 'POST', body: JSON.stringify(data) }),
 
-  // Inventory Requests (legacy — kept for backward compat with existing data)
-  getInventoryItems:       ()          => req('/inventory-requests/items'),
-  createInventoryItem:     (data)       => req('/inventory-requests/items', { method: 'POST', body: JSON.stringify(data) }),
-  importInventoryItems:    (items)      => req('/inventory-requests/items/import', { method: 'POST', body: JSON.stringify({ items }) }),
-  updateInventoryItem:     (id, data)   => req(`/inventory-requests/items/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  deleteInventoryItem:     (id)         => req(`/inventory-requests/items/${id}`, { method: 'DELETE' }),
-  getInventoryReport:      (params)     => reqBlob(`/inventory-requests/report?${new URLSearchParams(params)}`),
-  getInventoryAuditLog:    (params)     => req(`/inventory-requests/audit-log?${new URLSearchParams(params)}`),
+  // Inventory Requests (legacy stack being retired — P2-1). The item/request CRUD
+  // wrappers had no remaining callers and were removed; only the allocators list
+  // survives (its backend endpoint is kept and it's still used by NotificationBell
+  // + the dashboard panels).
   getInventoryAllocators:  ()          => req('/inventory-requests/allocators'),
-  getInventoryRequests:    ()          => req('/inventory-requests'),
-  createInventoryRequest:  (data)      => req('/inventory-requests', { method: 'POST', body: JSON.stringify(data) }),
-  updateInventoryRequest:  (id, data)  => req(`/inventory-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   // Items — new individual-unit system
   getItems:            (params = {})  => req(`/items?${new URLSearchParams(params)}`),

@@ -72,18 +72,26 @@ def create_notification(n: NotificationIn, user: dict = Depends(get_current_user
 def get_notifications(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """
     Returns notifications visible to the authenticated caller:
-    - recipient IS NULL/empty  → broadcast to all managers (caller filters by role client-side)
+    - recipient IS NULL/empty  → broadcast to ALL MANAGERS ONLY (level >= 3).
+      These carry who-requested-what, order totals and lost-item reports, so an
+      employee must NEVER receive them — actioning/deleting was already manager-
+      gated, but the read filter previously leaked every broadcast row to anyone.
     - recipient == email       → personal notification for this user
-    Identity comes from the verified token — never from a query parameter.
+    Identity AND level come from the verified token — never from a query parameter.
     Filter is applied at the SQL level so the DB only sends relevant rows.
     """
     email = user["email"]
-    # SQL-level filter: personal notifications for this user OR broadcasts (recipient="")
+    is_manager = user.get("level", 0) >= 3
+    # SQL-level filter: personal notifications for this user, PLUS broadcasts
+    # (recipient="") only when the caller is a manager or above.
     from sqlalchemy import or_
+    q = db.query(NexusNotification)
+    if is_manager:
+        q = q.filter(or_(NexusNotification.recipient == "", NexusNotification.recipient == email))
+    else:
+        q = q.filter(NexusNotification.recipient == email)
     rows = (
-        db.query(NexusNotification)
-        .filter(or_(NexusNotification.recipient == "", NexusNotification.recipient == email))
-        .order_by(NexusNotification.created_at.desc())
+        q.order_by(NexusNotification.created_at.desc())
         .limit(100)
         .all()
     )

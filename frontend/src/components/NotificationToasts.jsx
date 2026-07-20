@@ -1,18 +1,33 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, X } from 'lucide-react';
+import { CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, User, Clock, AlertCircle, X } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
-import { renderNotifBody }  from './NotificationBell';
+import { renderNotifBody, destinationFor } from './NotificationBell';
 import { useMsal }          from '@azure/msal-react';
 import { useRole }          from '../contexts/RoleContext';
 
+// Icon + colour per type — must match the sentiment of the event: negative
+// events (rejections, overdue, returns) previously fell through to the green
+// check default, which read as "all good" for a rejection.
 const TYPE_META = {
-  inv_request:      { icon: Package,      color: 'var(--color-blue)'   },
-  req_pending:      { icon: ShoppingCart, color: 'var(--color-orange)' },
-  item_returned:    { icon: RotateCcw,    color: 'var(--color-green)'  },
-  allocate_request: { icon: Package,      color: 'var(--color-orange)' },
-  allocated:        { icon: CheckCircle,  color: 'var(--color-green)'  },
-  approved:         { icon: CheckCircle,  color: 'var(--color-green)'  },
-  rejected:         { icon: XCircle,      color: 'var(--color-red)'    },
+  inv_request:        { icon: Package,      color: 'var(--color-blue)'   },
+  req_pending:        { icon: ShoppingCart, color: 'var(--color-orange)' },
+  item_returned:      { icon: RotateCcw,    color: 'var(--color-green)'  },
+  allocate_request:   { icon: Package,      color: 'var(--color-orange)' },
+  allocated:          { icon: CheckCircle,  color: 'var(--color-green)'  },
+  approved:           { icon: CheckCircle,  color: 'var(--color-green)'  },
+  rejected:           { icon: XCircle,      color: 'var(--color-red)'    },
+  cancelled:          { icon: XCircle,      color: 'var(--color-red)'    },
+  checkout_pending:   { icon: ShoppingCart, color: 'var(--color-orange)' },
+  extension_pending:  { icon: Clock,        color: 'var(--color-blue)'   },
+  extension_approved: { icon: CheckCircle,  color: 'var(--color-green)'  },
+  req_update:         { icon: ShoppingCart, color: 'var(--color-blue)'   },
+  req_approved:       { icon: CheckCircle,  color: 'var(--color-green)'  },
+  req_rejected:       { icon: XCircle,      color: 'var(--color-red)'    },
+  req_fulfill:        { icon: ShoppingCart, color: 'var(--color-purple)' },
+  perm_assign:        { icon: User,         color: 'var(--color-blue)'   },
+  perm_update:        { icon: CheckCircle,  color: 'var(--color-green)'  },
+  perm_return:        { icon: RotateCcw,    color: 'var(--color-orange)' },
+  overdue:            { icon: AlertCircle,  color: 'var(--color-red)'    },
 };
 
 const LIFESPAN = 7000; // how long a popup stays before auto-dismissing
@@ -103,14 +118,20 @@ export default function NotificationToasts({ onNavigate }) {
   }
 
   function handleClick(n) {
-    const isActionable = (n.type === 'inv_request' || n.type === 'req_pending' || n.type === 'checkout_pending')
+    // extension_pending is actionable too (matches the bell's ACTIONABLE_TYPES) —
+    // clicking an extension toast should open the approval flow, not just navigate.
+    const isActionable = (n.type === 'inv_request' || n.type === 'req_pending' || n.type === 'checkout_pending' || n.type === 'extension_pending')
       && (!n.recipient || n.recipient === myEmail);
     if (isActionable && can('manager')) {
       // Jump straight into the approval workflow (allocator picker / reject
       // reason) in the bell panel — no extra navigation or hunting required.
       openApproval(n.id);
-    } else if (n.action?.view && onNavigate) {
-      onNavigate(n.action.view, n.action.sub);
+    } else {
+      // Server notifications write action="" — fall back to the bell's type→
+      // destination map so lifecycle toasts (assigned / approved / returned)
+      // still navigate to the right tab instead of doing nothing.
+      const dest = destinationFor(n);
+      if (dest && onNavigate) onNavigate(dest[0], dest[1]);
     }
     close(n.id);
   }

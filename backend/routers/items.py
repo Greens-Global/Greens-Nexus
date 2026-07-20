@@ -24,7 +24,10 @@ _VALID_TRANSITIONS = {
     "pending_receipt":  {"approved"},
     "allocated":        {"approved", "pending_receipt"},
     "returned":         {"allocated"},
-    "cancelled":        {"pending", "approved", "rejected"},
+    # P1-3: a stuck pending_receipt (allocator handed over, employee never confirmed
+    # receipt) previously had NO exit — allow it to be cancelled (manager-guarded in
+    # update_checkout / the reconcile-state endpoint).
+    "cancelled":        {"pending", "approved", "rejected", "pending_receipt"},
 }
 
 _ROLE_LEVEL = {"employee": 1, "supervisor": 2, "manager": 3, "administrator": 4, "owner": 5}
@@ -57,7 +60,10 @@ _TYPE_DEFAULT_OWNER = {
     "Other":     "",
 }
 
-_DAMAGE_KEYWORDS = ("damaged", "broken", "cracked", "lost", "destroyed", "unusable", "retired")
+# P1-13: return condition is now an explicit enum on the return payload instead of
+# sniffing the free-text note for damage keywords (which false-matched "undamaged",
+# "not broken", etc. and wrongly retired items). Only these values alter op_status.
+_RETURN_CONDITIONS = ("ok", "damaged", "lost")
 
 require_items_admin  = require_level_or_module(_ROLE_LEVEL["manager"], "inventory", "editor")
 require_items_delete = require_level_or_module(_ROLE_LEVEL["owner"],   "inventory", "full")
@@ -275,7 +281,10 @@ class ItemUpdate(BaseModel):
     department:     Optional[str] = None
     default_owner:  Optional[str] = None
     ownership_type: Optional[str] = None
-    status:         Optional[str] = None
+    # P1-3: lifecycle `status` is intentionally NOT writable here — it is derived
+    # solely from checkout/assignment transitions (a raw write could strand an idle
+    # item as "checked_out" and make it permanently un-requestable). Use the
+    # reconcile-state endpoint to re-derive it. op_status (operational) stays writable.
     location:       Optional[str] = None
     photo_url:      Optional[str] = None
     picture_required: Optional[bool]  = None
@@ -501,6 +510,10 @@ def create_item(body: ItemCreate, response: Response, user: dict = Depends(requi
     name = body.name.strip()
     if not name:
         raise HTTPException(400, "Name cannot be empty")
+    # P1-14: catalogue photos must come from our Supabase storage — same guard the
+    # checkout/assignment evidence paths use — so external URLs can't land in every
+    # user's catalogue.
+    _validate_photo_url(body.photo_url, "photo_url")
     now = datetime.now(timezone.utc).isoformat()
     # Retry the rare serial race: two simultaneous adds can compute the same next
     # GG-##### and collide on the unique index. Recompute and retry a few times.
@@ -738,6 +751,9 @@ def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(require_ite
     item = db.query(Item).filter(Item.id == item_id).first()
     if not item:
         raise HTTPException(404, "Item not found")
+    # P1-14: validate any new catalogue photo URL originates from our storage bucket.
+    if body.photo_url is not None:
+        _validate_photo_url(body.photo_url, "photo_url")
     if body.name is not None:
         n = body.name.strip()
         if not n:
@@ -755,11 +771,8 @@ def update_item(item_id: str, body: ItemUpdate, user: dict = Depends(require_ite
         if ot and ot not in ("permanent", "transient"):
             raise HTTPException(400, "ownership_type must be 'permanent' or 'transient'")
         item.ownership_type = ot
-    if body.status is not None:
-        s = body.status.strip()
-        if s and s not in _ITEM_STATUSES:
-            raise HTTPException(400, f"Invalid status. Must be one of: {', '.join(_ITEM_STATUSES)}")
-        item.status = s
+    # P1-3: lifecycle `status` is derived-only — no raw write here (see ItemUpdate and
+    # POST /items/{id}/reconcile-state). op_status below is the operational field.
     if body.location  is not None: item.location  = body.location.strip()
     if body.photo_url is not None: item.photo_url = body.photo_url.strip()
     if body.picture_required is not None: item.picture_required = bool(body.picture_required)
@@ -1165,6 +1178,7 @@ class CheckoutStatusUpdate(BaseModel):
     return_photo_name:         Optional[str] = ""
     return_photo_url:          Optional[str] = ""
     condition_note:            Optional[str] = ""
+    condition:                 Optional[str] = "ok"  # P1-13: ok | damaged | lost (return only)
     handover_photo_by:         Optional[str] = ""   # 'allocator' | 'employee'
     handover_batch:            Optional[bool] = False
     receipt_photo_url:         Optional[str] = ""
@@ -1194,7 +1208,10 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
     # to prevent ID injection / collision attacks.
     server_id = f"ICHK-{uuid.uuid4().hex[:8].upper()}-{uuid.uuid4().hex[:8].upper()}"
 
-    item = db.query(Item).filter(Item.id == body.item_id).first()
+    # P1-1: lock the item row so two concurrent checkout requests can't both pass the
+    # availability / active-checkout check and double-book the same unit. FOR UPDATE
+    # serializes them; the loser then sees the winner's committed state below.
+    item = db.query(Item).filter(Item.id == body.item_id).with_for_update().first()
     if not item or item.deleted_at:
         raise HTTPException(404, "Item not found")
     if item.ownership_type != "transient":
@@ -1299,7 +1316,11 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
 
 @router.patch("/checkouts/{checkout_id}")
 def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    row = db.query(ItemCheckout).filter(ItemCheckout.id == checkout_id).first()
+    # P1-2: lock the checkout row itself up front. Previously FOR UPDATE was only taken
+    # on the ORDER siblings (below), so a SOLO (no-order) checkout took no lock at all —
+    # a concurrent approve + cancel could both read status="pending" and both proceed.
+    # Locking the row here serializes those transitions for the solo path too.
+    row = db.query(ItemCheckout).filter(ItemCheckout.id == checkout_id).with_for_update().first()
     if not row:
         # Was a 200 {"ok": false} fake-success — clients checking resp.ok showed
         # success on a vanished/stale checkout (Jul 14 audit family).
@@ -1337,8 +1358,16 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
             raise HTTPException(403, "Only the assigned allocator, the requester, or a manager can confirm handover")
     if body.status == "returned" and user["level"] < 2 and row.requested_by_email.lower() != user["email"]:
         raise HTTPException(403, "You can only return your own items")
-    if body.status == "cancelled" and row.requested_by_email.lower() != user["email"]:
-        raise HTTPException(403, "You can only cancel your own checkouts")
+    if body.status == "cancelled":
+        # P1-7: the requester can always self-cancel; a manager (level >= 3) may also
+        # cancel a still-pending/approved checkout on someone's behalf (symmetric with
+        # assignment force-cancel). The requester is then told WHO cancelled it (below).
+        is_requester = row.requested_by_email.lower() == user["email"].lower()
+        is_manager   = user.get("level", 1) >= _ROLE_LEVEL["manager"]
+        if not is_requester and not is_manager:
+            raise HTTPException(403, "You can only cancel your own checkouts")
+        if is_manager and not is_requester and row.status not in ("pending", "approved"):
+            raise HTTPException(409, "A manager can only cancel a pending or approved checkout")
 
     valid_predecessors = _VALID_TRANSITIONS.get(body.status)
     if valid_predecessors is not None and row.status not in valid_predecessors:
@@ -1358,7 +1387,9 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
 
     elif body.status == "cancelled":
         row.resolved_at = now
-        row.resolved_by = body.resolved_by or ""
+        # P1-7: record WHO cancelled — the acting user's name if the client didn't
+        # supply one (a manager cancelling on behalf otherwise recorded no actor).
+        row.resolved_by = body.resolved_by or _title_case_email(user["email"])
 
     elif body.status == "pending_receipt":
         # Supervisor confirmed physical handover; employee will upload receipt photo
@@ -1392,14 +1423,30 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
             item.status = "checked_out"
 
     elif body.status == "returned":
-        note = (body.condition_note or "").lower()
-        damaged = any(k in note for k in _DAMAGE_KEYWORDS)
+        # P1-13: explicit condition enum (ok|damaged|lost) instead of sniffing the
+        # free-text note for damage keywords. Only damaged/lost change op_status; the
+        # note stays free-text. Defaults to "ok" so pre-enum callers keep working.
+        condition = (body.condition or "ok").lower().strip()
+        if condition not in _RETURN_CONDITIONS:
+            condition = "ok"
         row.returned_at      = now
         row.return_photo_name = body.return_photo_name or ""
         row.return_photo_url  = body.return_photo_url  or ""
         row.condition_note   = body.condition_note    or ""
         if item:
-            item.status = "retired" if damaged else "available"
+            # Lifecycle status returns to available (derived from the checkout ending);
+            # a damaged/lost declaration is recorded on the SEPARATE op_status field.
+            item.status = "available"
+            if condition == "lost":
+                item.op_status = "lost"
+                item.op_status_person_email = (row.requested_by_email or "").lower()
+                item.op_status_person_name  = row.requested_by or ""
+                _notify_op_status_declaration(
+                    db, op_status="lost",
+                    person_email=item.op_status_person_email,
+                    person_name=item.op_status_person_name, item_name=item.name)
+            elif condition == "damaged":
+                item.op_status = "in_repair"
         # A pending extension is moot once the item is back — clear it and
         # action the managers' extension notification so it leaves their bell.
         if row.extension_status == "pending":
@@ -1656,6 +1703,16 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
                         title=f"Item returned: {row.item_name}",
                         body=f"{row.requested_by} returned {row.item_name}. Condition: {row.condition_note or 'No notes.'}",
                         ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
+    elif body.status == "cancelled":
+        # P1-7: when a MANAGER cancels someone else's request, tell the requester who
+        # did it — a targeted "cancelled by {manager}" note, NOT a rejection. A plain
+        # self-cancel needs no notification.
+        if row.requested_by_email and row.requested_by_email.lower() != user["email"].lower():
+            actor = _title_case_email(user["email"])
+            _notify(db, type="cancelled", recipient=row.requested_by_email,
+                    title=f"Checkout cancelled: {row.item_name}",
+                    body=f"Your request for {row.item_name} was cancelled by {actor}.",
+                    ref_id=checkout_id, item_name=row.item_name, requested_by=row.requested_by)
 
     db.commit()
     _fire_item_event(checkout_id, row.status, row.requested_by_email or "")
@@ -1677,7 +1734,10 @@ class ExtensionResolve(BaseModel):
 @router.post("/checkouts/{checkout_id}/extension")
 def request_extension(checkout_id: str, body: ExtensionRequest, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Employee asks for more days on an item they currently hold."""
-    row = db.query(ItemCheckout).filter(ItemCheckout.id == checkout_id).first()
+    # P1-2: lock the checkout row so two concurrent extension requests can't both pass
+    # the "already pending" check below — otherwise they double-create the pending
+    # extension and fire a duplicate broadcast to managers.
+    row = db.query(ItemCheckout).filter(ItemCheckout.id == checkout_id).with_for_update().first()
     if not row:
         raise HTTPException(404, "Checkout not found")
     if row.status != "allocated":
@@ -1755,6 +1815,72 @@ def resolve_extension(checkout_id: str, body: ExtensionResolve, user: dict = Dep
     db.commit()
     _fire_item_event(checkout_id, row.status, row.requested_by_email or "")
     return _checkout_to_dict(row)
+
+
+# ── Reconcile lifecycle state ─────────────────────────────────────────────────
+
+class ReconcileStateIn(BaseModel):
+    # Optionally cancel a stuck pending_receipt checkout (allocator handed over, the
+    # employee never confirmed receipt) as part of the same admin action. P1-3.
+    cancel_checkout_id: Optional[str] = ""
+
+
+@router.post("/{item_id}/reconcile-state")
+def reconcile_item_state(item_id: str, body: ReconcileStateIn,
+                         user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
+    """P1-3: re-derive an item's lifecycle status from its LIVE checkouts/assignments,
+    replacing the old raw `status` write (which could strand an item). Optionally
+    rescues a stuck `pending_receipt` checkout by cancelling it (the only exit that
+    state previously lacked). Manager-guarded (require_items_admin)."""
+    item = db.query(Item).filter(Item.id == item_id).with_for_update().first()
+    if not item or item.deleted_at:
+        raise HTTPException(404, "Item not found")
+
+    cancelled_id = ""
+    if (body.cancel_checkout_id or "").strip():
+        co = db.query(ItemCheckout).filter(
+            ItemCheckout.id == body.cancel_checkout_id.strip(),
+            ItemCheckout.item_id == item_id,
+        ).with_for_update().first()
+        if not co:
+            raise HTTPException(404, "Checkout not found on this item")
+        if co.status != "pending_receipt":
+            raise HTTPException(409, "Only a stuck pending_receipt checkout can be cancelled here")
+        co.status      = "cancelled"
+        co.resolved_at = _now_iso()
+        co.resolved_by = _title_case_email(user["email"])
+        cancelled_id   = co.id
+        # Tell the requester their unconfirmed handover was cancelled by a manager.
+        if co.requested_by_email:
+            _notify(db, type="cancelled", recipient=co.requested_by_email,
+                    title=f"Checkout cancelled: {co.item_name}",
+                    body=f"Your unconfirmed handover of {co.item_name} was cancelled by "
+                         f"{_title_case_email(user['email'])} to free the item.",
+                    ref_id=co.id, item_name=co.item_name, requested_by=co.requested_by)
+
+    # Derive from live rows. autoflush is off, so a row cancelled just above is still
+    # matched by a status filter in SQL — load by item and judge status in Python so
+    # the just-cancelled row is correctly seen as no longer live.
+    assignments = db.query(ItemAssignment).filter(ItemAssignment.item_id == item_id).all()
+    checkouts   = db.query(ItemCheckout).filter(ItemCheckout.item_id == item_id).all()
+    live_active_assign = any(a.status == "active" for a in assignments)
+    live_allocated_co  = any(c.status == "allocated" for c in checkouts)
+
+    if live_active_assign:
+        new_status = "permanently_assigned"
+    elif live_allocated_co:
+        new_status = "checked_out"
+    elif item.status == "retired":
+        new_status = "retired"   # a terminal retire stands unless something live overrides it
+    else:
+        new_status = "available"
+
+    old_status  = item.status
+    item.status = new_status
+    db.commit()
+    return {"ok": True, "item": _item_to_dict(item),
+            "previousStatus": old_status, "status": new_status,
+            "cancelledCheckoutId": cancelled_id}
 
 
 # ── AI photo fill ─────────────────────────────────────────────────────────────
@@ -2066,6 +2192,24 @@ def _action_notif(db: Session, ntype: str, ref_id: str):
         n.actioned = True
 
 
+def _clear_batch_assign_notif(db: Session, assignee_email: str):
+    """P1-4: retire a lingering bulk-assign summary bell for this assignee. The batch
+    "N items assigned to you" perm_assign carries the first assignment's id as ref_id;
+    _action_notif only clears the single-assign notif that matches the exact assignment
+    just handled, so the summary would otherwise stick around until (if ever) the FIRST
+    listed item is acted on. Its title starts with the item count (a digit), whereas
+    single-assign / reassign notifs start with text ("Item assigned…", "Please return…"),
+    so we can safely clear the summary once the assignee acts on ANY item in the batch."""
+    email = (assignee_email or "").lower()
+    for n in db.query(NexusNotification).filter(
+        NexusNotification.type == "perm_assign",
+        NexusNotification.recipient == email,
+        NexusNotification.actioned == False,
+    ).all():
+        if n.title[:1].isdigit():
+            n.actioned = True
+
+
 @router.get("/assignments")
 def list_assignments(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     q = db.query(ItemAssignment).order_by(ItemAssignment.created_at.desc())
@@ -2076,7 +2220,9 @@ def list_assignments(user: dict = Depends(get_current_user), db: Session = Depen
 
 @router.post("/{item_id}/assign", status_code=201)
 def assign_item(item_id: str, body: AssignmentCreate, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
-    item = db.query(Item).filter(Item.id == item_id).first()
+    # P1-1: lock the item row so two concurrent assigns can't both pass the
+    # live-assignment / active-checkout checks below and double-assign the same unit.
+    item = db.query(Item).filter(Item.id == item_id).with_for_update().first()
     if not item or item.deleted_at:
         raise HTTPException(404, "Item not found")
     if item.ownership_type != "permanent":
@@ -2213,14 +2359,21 @@ def bulk_assign_to_person(body: BulkAssignPersonIn, user: dict = Depends(require
         return {"assigned": 0, "skipped": []}
     blocked = _bulk_assign_blocked(db, ids)
     assigned, names = 0, []
-    for it in db.query(Item).filter(Item.id.in_(ids), or_(Item.deleted_at.is_(None), Item.deleted_at == "")).all():
+    first_asg_id = ""
+    # P1-1: lock the item rows so a concurrent single-assign / checkout can't slip a
+    # live claim in between the block scan above and the inserts below.
+    for it in db.query(Item).filter(
+            Item.id.in_(ids), or_(Item.deleted_at.is_(None), Item.deleted_at == "")).with_for_update().all():
         if it.ownership_type != "permanent":
             blocked.add(it.id)   # temporary items are checked out, never person-assigned
             continue
         if it.id in blocked:
             continue
+        asg_id = f"ASG-{uuid.uuid4().hex[:10].upper()}"
+        if not first_asg_id:
+            first_asg_id = asg_id
         db.add(ItemAssignment(
-            id=f"ASG-{uuid.uuid4().hex[:10].upper()}", item_id=it.id, item_name=it.name,
+            id=asg_id, item_id=it.id, item_name=it.name,
             assignee_email=email, assignee_name=name,
             assigned_by=_title_case_email(user["email"]), assigned_by_email=user["email"],
             status="pending_acceptance", created_at=_now_iso(),
@@ -2229,10 +2382,14 @@ def bulk_assign_to_person(body: BulkAssignPersonIn, user: dict = Depends(require
         names.append(it.name)
     if assigned:
         preview = ", ".join(names[:5]) + ("…" if len(names) > 5 else "")
+        # P1-4: give the batch bell a stable ref_id (the first assignment id) so it can
+        # be deep-linked AND auto-cleared — with ref_id="" it could never be actioned
+        # and lingered forever. Accepting/declining ANY item from the batch clears it
+        # (see _clear_batch_assign_notif in accept/decline).
         _notify(db, type="perm_assign", recipient=email,
                 title=f"{assigned} item{'s' if assigned != 1 else ''} assigned to you",
                 body=f"{_title_case_email(user['email'])} assigned you {assigned} item{'s' if assigned != 1 else ''}: {preview}. Accept each with a photo in My Items.",
-                item_name=names[0] if names else "", requested_by=name)
+                ref_id=first_asg_id, item_name=names[0] if names else "", requested_by=name)
     db.commit()
     return {"assigned": assigned, "skipped": sorted(blocked & set(ids))}
 
@@ -2264,6 +2421,7 @@ def accept_assignment(assignment_id: str, body: AssignmentAccept, user: dict = D
             body=f"{a.assignee_name or a.assignee_email} accepted {a.item_name}.{note_part}",
             ref_id=a.id, item_name=a.item_name, requested_by=a.assignee_name)
     _action_notif(db, "perm_assign", a.id)
+    _clear_batch_assign_notif(db, a.assignee_email)   # P1-4: clear the bulk-assign summary
     db.commit()
     return _assignment_to_dict(a)
 
@@ -2284,6 +2442,7 @@ def decline_assignment(assignment_id: str, body: AssignmentReturnInit, user: dic
             body=f"{a.assignee_name or a.assignee_email} declined {a.item_name}." + (f' Reason: "{a.return_note}"' if a.return_note else ""),
             ref_id=a.id, item_name=a.item_name, requested_by=a.assignee_name)
     _action_notif(db, "perm_assign", a.id)
+    _clear_batch_assign_notif(db, a.assignee_email)   # P1-4: clear the bulk-assign summary
     db.commit()
     return _assignment_to_dict(a)
 
@@ -2345,19 +2504,41 @@ def accept_assignment_return(assignment_id: str, body: AssignmentReturnAccept, u
             body=f"Your return of {a.item_name} was accepted by {a.return_accepted_by}. You are no longer responsible for it.",
             ref_id=a.id, item_name=a.item_name, requested_by=a.assignee_name)
     _action_notif(db, "perm_return", a.id)
-    # Reassignment chain: spawn the next assignment automatically
-    if a.return_reason == "reassign" and a.next_assignee_email and item and item.status == "available":
-        nxt = ItemAssignment(
-            id=f"ASG-{uuid.uuid4().hex[:10].upper()}", item_id=a.item_id, item_name=a.item_name,
-            assignee_email=a.next_assignee_email, assignee_name=a.next_assignee_name,
-            assigned_by=a.return_accepted_by, assigned_by_email=user["email"],
-            status="pending_acceptance", created_at=_now_iso(),
-        )
-        db.add(nxt)
-        _notify(db, type="perm_assign", recipient=nxt.assignee_email,
-                title=f"Item assigned to you: {a.item_name}",
-                body=f"{a.item_name} has been reassigned to you. Please accept it with a photo in My Items.",
-                ref_id=nxt.id, item_name=a.item_name, requested_by=nxt.assignee_name)
+    # Reassignment chain: spawn the next assignment automatically — but ONLY if the
+    # item actually ends up back in stock (available). P1-6: if the accepting manager
+    # dispositioned it retired/dead/lost, the promised next assignee would otherwise be
+    # silently dropped while the reassign modal claimed it was on its way. Tell both the
+    # manager and the promised assignee it was cancelled, and clear next_assignee_* so
+    # nothing dangles.
+    if a.return_reason == "reassign" and a.next_assignee_email:
+        if item and item.status == "available":
+            nxt = ItemAssignment(
+                id=f"ASG-{uuid.uuid4().hex[:10].upper()}", item_id=a.item_id, item_name=a.item_name,
+                assignee_email=a.next_assignee_email, assignee_name=a.next_assignee_name,
+                assigned_by=a.return_accepted_by, assigned_by_email=user["email"],
+                status="pending_acceptance", created_at=_now_iso(),
+            )
+            db.add(nxt)
+            _notify(db, type="perm_assign", recipient=nxt.assignee_email,
+                    title=f"Item assigned to you: {a.item_name}",
+                    body=f"{a.item_name} has been reassigned to you. Please accept it with a photo in My Items.",
+                    ref_id=nxt.id, item_name=a.item_name, requested_by=nxt.assignee_name)
+        else:
+            dropped_name  = a.next_assignee_name or a.next_assignee_email
+            dropped_email = a.next_assignee_email
+            if a.assigned_by_email:
+                _notify(db, type="perm_update", recipient=a.assigned_by_email,
+                        title=f"Reassignment cancelled: {a.item_name}",
+                        body=f"{a.item_name} was accepted back as '{dispo}', so the pending reassignment "
+                             f"to {dropped_name} did not go ahead. Assign it again once it is back in service.",
+                        ref_id=a.id, item_name=a.item_name, requested_by=a.assignee_name)
+            _notify(db, type="perm_update", recipient=dropped_email,
+                    title=f"Reassignment cancelled: {a.item_name}",
+                    body=f"{a.item_name} was going to be reassigned to you but was taken out of service on return, "
+                         "so it will not be coming to you. No action needed.",
+                    ref_id=a.id, item_name=a.item_name, requested_by=dropped_name)
+            a.next_assignee_email = ""
+            a.next_assignee_name  = ""
     db.commit()
     return _assignment_to_dict(a)
 
@@ -2432,6 +2613,25 @@ def cancel_assignment(assignment_id: str, user: dict = Depends(require_items_adm
             body=f"{a.return_accepted_by} {'cancelled the pending assignment of' if was_pending else 'force-recovered'} {a.item_name}."
                  + ("" if was_pending else " You are no longer responsible for it."),
             ref_id=a.id, item_name=a.item_name, requested_by=a.assignee_name)
+    # P1-6: if this was a reassign-in-flight, a next assignee was promised the item.
+    # Force-recover closes the assignment without spawning that next assignment, so tell
+    # the manager and the promised assignee it was cancelled, and clear next_assignee_*.
+    if a.return_reason == "reassign" and a.next_assignee_email:
+        dropped_name  = a.next_assignee_name or a.next_assignee_email
+        dropped_email = a.next_assignee_email
+        if a.assigned_by_email:
+            _notify(db, type="perm_update", recipient=a.assigned_by_email,
+                    title=f"Reassignment cancelled: {a.item_name}",
+                    body=f"{a.item_name} was force-recovered, so the pending reassignment to "
+                         f"{dropped_name} did not go ahead. Assign it again if needed.",
+                    ref_id=a.id, item_name=a.item_name, requested_by=a.assignee_name)
+        _notify(db, type="perm_update", recipient=dropped_email,
+                title=f"Reassignment cancelled: {a.item_name}",
+                body=f"{a.item_name} was going to be reassigned to you but was recovered by a manager, "
+                     "so it will not be coming to you. No action needed.",
+                ref_id=a.id, item_name=a.item_name, requested_by=dropped_name)
+        a.next_assignee_email = ""
+        a.next_assignee_name  = ""
     _action_notif(db, "perm_assign", a.id)
     _action_notif(db, "perm_return", a.id)
     db.commit()
@@ -2621,9 +2821,11 @@ def items_audit_log(
 
 # Columns the audit Undo is allowed to restore (1:1 with the audit field names the
 # frontend tracks). Scalar columns only — no relations, no side effects.
+# P1-3: lifecycle "status" removed — it is derived from checkouts/assignments, never
+# restored as a raw string (an undo could otherwise strand an item's lifecycle state).
 _UNDO_ITEM_COLS = {
     "name", "item_type", "make", "model", "year", "department", "location",
-    "default_owner", "ownership_type", "status", "serial_number",
+    "default_owner", "ownership_type", "serial_number",
     "op_status", "op_status_person_name", "asset_value", "photo_url",
 }
 

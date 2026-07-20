@@ -242,6 +242,11 @@ class Requisition(Base):
     fulfilled_at      = Column(String, default="")
     fulfillment_note  = Column(String, default="")
     fulfilled_item_id = Column(String, default="")  # items.id once it entered inventory
+    # Who actually raised the request (from the auth token), distinct from
+    # employee_email which is the beneficiary on an on-behalf request. Lets the
+    # log/notifications name the real submitter instead of guessing (Jul 2026).
+    submitted_by_email = Column(String, default="")
+    submitted_by_name  = Column(String, default="")
 
 
 class HardwareAsset(Base):
@@ -277,6 +282,11 @@ class NexusNotification(Base):
 
 
 class InventoryRequest(Base):
+    # LEGACY (P2-1, Jul 2026): the old inventory stack is retired — its router
+    # (routers/inventory_requests.py) and mock seed were removed. No live code
+    # path writes this table anymore; the class is kept only so create_all keeps
+    # the table and historical rows / audit history (resource_type ==
+    # "inventory-requests") stay readable. Retire after data migration.
     __tablename__ = "inventory_requests"
     id                 = Column(String, primary_key=True)
     item_id            = Column(String, nullable=False)
@@ -304,7 +314,11 @@ class InventoryRequest(Base):
 
 
 class InventoryItem(Base):
-    """Master stock record for a requestable inventory item.
+    """LEGACY (P2-1, Jul 2026): master stock record for the retired inventory
+    stack. Its router + mock seed were removed; kept only so create_all keeps
+    the table and any historical rows survive. Retire after data migration.
+
+    Master stock record for a requestable inventory item.
     available_qty is the live source of truth — decremented atomically when a
     request is allocated, incremented when it's returned in good condition
     (or total_qty is reduced instead, when the returned unit is damaged/retired)."""
@@ -345,7 +359,10 @@ class Item(Base):
     op_status         = Column(String, default="")     # operational status (Neil): deployed|in_storage|in_repair|needs_replacement|retired|lost; '' = unset. SEPARATE from lifecycle `status`
     op_status_person_email = Column(String, default="") # person an op_status is declared against (lost/retired) — they get the notification + show on "Who has it"
     op_status_person_name  = Column(String, default="")
-    assigned_to_location = Column(String, default="")  # set when a permanent item is assigned to a PLACE not a person — kept OUT of "Who has it" (Ankush)
+    # DEPRECATED (P2-6, Jul 2026): only ever written as "" now; ItemDetailsPanel
+    # reads item.location instead. Retire (drop column) next release — needs
+    # prod coordination, so the column stays for this release.
+    assigned_to_location = Column(String, default="")  # legacy: permanent-to-a-PLACE marker; no longer populated
     custom_fields     = Column(JSON, default=dict)     # {field_key: value} for admin-defined custom fields — see ItemCustomField
     deleted_at        = Column(String, default="")     # ISO ts; non-empty = soft-deleted (excluded from normal lists, restorable — Ankush)
     deleted_by        = Column(String, default="")     # email of whoever deleted it

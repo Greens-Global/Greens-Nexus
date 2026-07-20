@@ -61,6 +61,9 @@ const STATUS_META = {
   unassigned:           { label: 'Unassigned',         bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))' },
   location_assigned:    { label: 'Assigned · Location', bg: 'hsla(var(--color-blue),0.12)',  fg: 'hsl(var(--color-blue))'   },
   checked_out:          { label: 'Checked out',        bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
+  // Display-only: a merely-pending (not yet allocated) request — the list view
+  // must read "Under review" like the tile view, not "Checked out" (P4 status coherence).
+  under_review:         { label: 'Under review',       bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
   permanently_assigned: { label: 'Perm. Assigned',    bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))'   },
   retired:              { label: 'Retired',             bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))'    },
 };
@@ -76,7 +79,9 @@ const OP_STATUS_META = {
   in_storage:        { label: 'In storage',        bg:'hsla(var(--color-blue),0.12)',   fg:'hsl(var(--color-blue))'   },
   in_repair:         { label: 'In repair',         bg:'hsla(var(--color-orange),0.12)', fg:'hsl(var(--color-orange))' },
   needs_replacement: { label: 'Needs replacement', bg:'hsla(var(--color-red),0.12)',    fg:'hsl(var(--color-red))'    },
-  retired:           { label: 'Retired',           bg:'var(--mist)',                    fg:'var(--muted)'             },
+  // "Written off" (not "Retired") so the op-status column doesn't clash with the
+  // lifecycle "Retired" in the adjacent column (P4 copy). Backend value stays 'retired'.
+  retired:           { label: 'Written off',       bg:'var(--mist)',                    fg:'var(--muted)'             },
   lost:              { label: 'Lost',              bg:'hsla(var(--color-red),0.12)',    fg:'hsl(var(--color-red))'    },
 };
 // Op statuses declared AGAINST a person (lost/retired): they show a "Declared by"
@@ -352,7 +357,7 @@ function PhotoUpload({ value, onChange, label = 'PHOTO', required = false, hint 
           <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
             <button type="button" className="secondary-btn" style={{ fontSize:12, padding:'5px 12px' }}
               onClick={() => fileRef.current?.click()} disabled={uploading}>
-              {uploading ? 'Uploading…' : 'Replace Photo'}
+              {uploading ? 'Uploading…' : 'Replace photo'}
             </button>
             <button type="button" style={{ background:'none', border:'none', cursor:'pointer', fontSize:11.5, color:'hsl(var(--color-red))' }}
               onClick={() => { setPreview(null); onChange(''); }}>Remove</button>
@@ -362,7 +367,7 @@ function PhotoUpload({ value, onChange, label = 'PHOTO', required = false, hint 
         <button type="button"
           onClick={() => fileRef.current?.click()} disabled={uploading}
           style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 16px', borderRadius:9, border:`2px dashed ${required ? 'hsla(var(--color-red),0.4)' : 'var(--line)'}`, background: required ? 'hsla(var(--color-red),0.04)' : 'var(--mist)', cursor:'pointer', fontSize:13, color:'var(--muted)', width:'100%', justifyContent:'center' }}>
-          {uploading ? <><Loader2 size={15} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><Camera size={15} /> {required ? 'Upload Photo (required)' : 'Upload Photo'}</>}
+          {uploading ? <><Loader2 size={15} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><Camera size={15} /> {required ? 'Upload photo (required)' : 'Upload photo'}</>}
         </button>
       )}
       {/* Paste an image URL instead of uploading a file (Neil: add URL to
@@ -398,7 +403,7 @@ function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
   const [aiFill,        setAiFill]        = useState(true);
   const [saving,        setSaving]        = useState(false);
   const [error,         setError]         = useState('');
-  useEscapeKey(onClose);
+  useEscapeKey(() => { if (!saving) onClose(); }); // don't close mid-save (P4)
 
   function handleTypeChange(t) {
     setItemType(t);
@@ -426,7 +431,7 @@ function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
   return (
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:16, overflowY:'auto' }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onClick={e => e.target === e.currentTarget && !saving && onClose()}>
       {/* Wide enough that no label or select option ever truncates (e.g.
           "Temporary (check-out/return)" was getting cut off at 500px) */}
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:620, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', margin:'auto' }}>
@@ -523,7 +528,7 @@ function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
                 style={{ cursor:'pointer', accentColor:'var(--pine)', marginTop:2 }} />
               <span>
                 <strong style={{ color:'var(--ink)' }}>Add without a photo for now</strong> — the item will show
-                under Missing Photos; add one later via Batch Update Photos or AI Photo Fill.
+                under Missing photos; add one later via Batch update photos or AI photo fill.
               </span>
             </label>
           )}
@@ -606,7 +611,7 @@ function EditItemModal({ item, onClose, onSave, types = ITEM_TYPES }) {
   const [saving,        setSaving]        = useState(false);
   const [aiFilling,     setAiFilling]     = useState(false);
   const [error,         setError]         = useState('');
-  useEscapeKey(onClose);
+  useEscapeKey(() => { if (!saving) onClose(); }); // don't close mid-save (P4)
 
   async function aiFindPhoto() {
     setAiFilling(true); setError('');
@@ -640,11 +645,11 @@ function EditItemModal({ item, onClose, onSave, types = ITEM_TYPES }) {
   return (
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:16, overflowY:'auto' }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onClick={e => e.target === e.currentTarget && !saving && onClose()}>
       {/* Wide enough that no label or select option ever truncates (e.g.
           "Temporary (check-out/return)" was getting cut off at 500px) */}
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:620, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', margin:'auto' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:20 }}>Edit Item</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:20 }}>Edit item</h3>
 
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
           <div>
@@ -751,7 +756,7 @@ function EditItemModal({ item, onClose, onSave, types = ITEM_TYPES }) {
           <button className="secondary-btn" onClick={onClose} disabled={saving}>Cancel</button>
           <button className="primary-btn" disabled={!name.trim() || saving}
             style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:120, justifyContent:'center' }} onClick={submit}>
-            {saving ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Saving…</> : 'Save Changes'}
+            {saving ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Saving…</> : 'Save changes'}
           </button>
         </div>
       </div>
@@ -871,15 +876,26 @@ function triggerDownload(filename, blob) {
   a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 
+// Export the DISPLAY status (Unassigned / Assigned · Location / Checked out …)
+// rather than the raw lifecycle string, so who-has-what round-trips (P4). The
+// unclear "Lifecycle"/"Status" pair is renamed to "Status" (deployment state) and
+// "Condition" (op-status). Extra columns are ignored on re-import.
+function itemDisplayStatusLabel(i) {
+  const s = displayStatus(i);
+  if (s === 'location_assigned') return i.location ? `Assigned · ${i.location}` : 'Assigned · Location';
+  return STATUS_META[s]?.label || s || '';
+}
 function downloadItemsCsv(items, customFields = []) {
   // Serial leads the export so re-importing this file updates rows in place
-  // (the importer matches on serial, not name). Operational status + every custom
-  // field follow the core columns, so a round-trip carries the full record.
+  // (the importer matches on serial, not name). Display status + holder columns +
+  // every custom field follow the core columns, so a round-trip carries the full record.
   const cf = customFields || [];
-  const header = ['Serial','Name','Type','Make','Model','Year','Department','Owner','Ownership','Location','Lifecycle','Status', ...cf.map(f => f.label)];
+  const header = ['Serial','Name','Type','Make','Model','Year','Department','Owner','Ownership','Location','Status','Condition','Assigned To Name','Assigned To Email', ...cf.map(f => f.label)];
   const lines = [header.map(csvField).join(',')];
   for (const i of items) {
-    const base = [i.serialNumber,i.name,i.itemType,i.make,i.model,i.year,i.department,i.defaultOwner,i.ownershipType,i.location,i.status, OP_STATUS_META[i.opStatus]?.label || i.opStatus || ''];
+    const base = [i.serialNumber,i.name,i.itemType,i.make,i.model,i.year,i.department,i.defaultOwner,i.ownershipType,i.location,
+      itemDisplayStatusLabel(i), OP_STATUS_META[i.opStatus]?.label || i.opStatus || '',
+      i.assignedToName || '', i.assignedToEmail || ''];
     const extra = cf.map(f => (i.customFields && i.customFields[f.fieldKey] != null) ? i.customFields[f.fieldKey] : '');
     lines.push([...base, ...extra].map(csvField).join(','));
   }
@@ -906,9 +922,11 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
   const [rows,      setRows]      = useState(null);
   const [parseErr,  setParseErr]  = useState('');
   const [importing, setImporting] = useState(false);
+  const [importErr, setImportErr] = useState('');
   const [done,      setDone]      = useState(null);
   const fileRef = useRef(null);
-  useEscapeKey(onClose);
+  // Don't let ESC/backdrop dismiss the modal mid-import (P4 modal polish).
+  useEscapeKey(() => { if (!importing) onClose(); });
 
   const [parsing, setParsing] = useState(false);
   async function handleFile(file) {
@@ -929,9 +947,11 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
   function doImport() {
     const valid = rows.filter(r => r._valid);
     if (!valid.length || importing) return;
-    setImporting(true);
+    setImporting(true); setImportErr('');
     Promise.resolve(onImport(valid))
       .then(res => setDone(res))
+      // Surface the failure inline instead of silently leaving the modal open (P4).
+      .catch(err => setImportErr(err?.message || 'Import failed — please try again.'))
       .finally(() => setImporting(false));
   }
 
@@ -946,13 +966,14 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
   return (
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onClick={e => e.target === e.currentTarget && !importing && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:920, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'92vh', overflowY:'auto' }}>
         {done ? (
           <>
-            <h3 style={{ fontSize:16, fontWeight:700, marginBottom:10 }}>Import Complete</h3>
+            <h3 style={{ fontSize:16, fontWeight:700, marginBottom:10 }}>Import complete</h3>
             <p style={{ fontSize:13.5, color:'var(--muted)', marginBottom:20 }}>
               <strong>{done.created}</strong> items added{done.updated ? <>, <strong>{done.updated}</strong> updated</> : null}. <strong>{done.skipped}</strong> rows skipped.
+              {done.added_types?.length ? <> <strong>{done.added_types.length}</strong> new type{done.added_types.length !== 1 ? 's' : ''} created: {done.added_types.join(', ')}.</> : null}
               New rows each get a Nexus serial. Re-importing the same file updates units in place — matched by <strong>Serial</strong>,
               or by content for rows without one — so it won't create duplicates. To change fields, edit the exported file or use Batch Edit.
               Photos must be added manually in the Manage tab — one item at a time.
@@ -962,7 +983,7 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
         ) : (
           <>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
-              <h3 style={{ fontSize:16, fontWeight:700 }}>Import Items from CSV or Excel</h3>
+              <h3 style={{ fontSize:16, fontWeight:700 }}>Import items from CSV or Excel</h3>
               <button onClick={() => downloadImportTemplate(customFields)} className="secondary-btn" style={{ fontSize:12, padding:'5px 12px', display:'inline-flex', alignItems:'center', gap:5 }}>
                 <Download size={13} /> Template
               </button>
@@ -984,14 +1005,16 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
                 <div style={{ fontSize:12.5, color:'var(--muted)', marginBottom:10 }}>
                   <strong style={{ color:'hsl(var(--color-green))' }}>{valid.length} valid</strong>
                   {invalid.length > 0 && <>, <strong style={{ color:'hsl(var(--color-red))' }}>{invalid.length} missing name (skipped)</strong></>}
-                  {warned.length > 0 && <>, <strong style={{ color:'hsl(var(--color-orange))' }}>{warned.length} row{warned.length !== 1 ? 's' : ''} with an unknown type (saved as "Other")</strong></>}
+                  {warned.length > 0 && <>, <strong style={{ color:'hsl(var(--color-orange))' }}>{warned.length} row{warned.length !== 1 ? 's' : ''} with a new/unknown type</strong></>}
                 </div>
-                {/* Show EVERY distinct unknown type so they can all be reviewed before
-                    importing — not just a count (Amy: "could not see all 14"). */}
+                {/* Show EVERY distinct new/unknown type so they can all be reviewed
+                    before importing — not just a count (Amy: "could not see all 14").
+                    The backend AI-matches these to an existing type or creates them,
+                    then reports the created ones after import (P1-12). */}
                 {unknownTypes.length > 0 && (
                   <div style={{ border:'1px solid hsla(var(--color-orange),0.35)', background:'hsla(var(--color-orange),0.06)', borderRadius:8, padding:'10px 12px', marginBottom:14 }}>
                     <div style={{ fontSize:12, fontWeight:700, color:'hsl(var(--color-orange))', marginBottom:7 }}>
-                      {unknownTypes.length} unknown type{unknownTypes.length !== 1 ? 's' : ''} — these rows will be saved as "Other":
+                      {unknownTypes.length} type{unknownTypes.length !== 1 ? 's' : ''} not in your list yet — these may be matched to an existing type or created on import (you'll get the created list afterwards):
                     </div>
                     <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
                       {unknownTypes.map(t => (
@@ -1029,11 +1052,12 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
                     Previewing the first {PREVIEW_CAP.toLocaleString()} of {rows.length.toLocaleString()} rows — all {valid.length.toLocaleString()} valid rows will still be imported.
                   </p>
                 )}
+                {importErr && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', margin:'0 0 10px', textAlign:'right' }}>{importErr}</p>}
                 <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
-                  <button className="secondary-btn" onClick={onClose}>Cancel</button>
+                  <button className="secondary-btn" onClick={onClose} disabled={importing}>Cancel</button>
                   <button className="primary-btn" disabled={!valid.length || importing}
                     style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={doImport}>
-                    {importing ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Importing…</> : `Import ${valid.length} Items`}
+                    {importing ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Importing…</> : `Import ${valid.length} items`}
                   </button>
                 </div>
               </>
@@ -1079,7 +1103,7 @@ function ReportModal({ onClose, checkouts, initial }) {
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom: (initial?.dept && initial.dept !== 'All') || (initial?.itemType && initial.itemType !== 'All') ? 6 : 16 }}>Export Report</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom: (initial?.dept && initial.dept !== 'All') || (initial?.itemType && initial.itemType !== 'All') ? 6 : 16 }}>Export report</h3>
         {((initial?.dept && initial.dept !== 'All') || (initial?.itemType && initial.itemType !== 'All')) && (
           <p style={{ fontSize:12, color:'var(--muted)', marginBottom:16 }}>Pre-filled from your current filters — adjust below, then export as PDF or Excel.</p>
         )}
@@ -1129,13 +1153,22 @@ function ReportModal({ onClose, checkouts, initial }) {
 }
 
 // ── Return Modal ───────────────────────────────────────────────────────────────
+// Explicit return condition (Neil / P1-13): an enum replaces the backend's old
+// damage-keyword sniffing (which auto-retired items on "undamaged"/"not broken").
+const RETURN_CONDITIONS = [
+  { v:'ok',      label:'Good' },
+  { v:'damaged', label:'Damaged' },
+  { v:'lost',    label:'Lost' },
+];
 function ReturnModal({ checkout, onClose, onSubmit, photoOptional = false }) {
   const [file,          setFile]          = useState(null);
   const [preview,       setPreview]       = useState('');
   const [conditionNote, setConditionNote] = useState('');
+  const [condition,     setCondition]     = useState('ok');
   const [submitting,    setSubmitting]    = useState(false);
   const fileRef = useRef(null);
-  useEscapeKey(onClose);
+  // Don't let ESC dismiss mid-submit (P4 modal polish).
+  useEscapeKey(() => { if (!submitting) onClose(); });
 
   function handleFile(f) {
     if (!f) return;
@@ -1148,7 +1181,8 @@ function ReturnModal({ checkout, onClose, onSubmit, photoOptional = false }) {
   function submit() {
     if ((!file && !photoOptional) || submitting) return;
     setSubmitting(true);
-    Promise.resolve(onSubmit({ file, photoName: file?.name || '', conditionNote }))
+    // `condition` drives the backend's retire/lost handling; the note stays free-text.
+    Promise.resolve(onSubmit({ file, photoName: file?.name || '', conditionNote, condition }))
       .catch(() => {})
       .finally(() => setSubmitting(false));
   }
@@ -1156,7 +1190,7 @@ function ReturnModal({ checkout, onClose, onSubmit, photoOptional = false }) {
   return (
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onClick={e => e.target === e.currentTarget && !submitting && onClose()}>
       <div tabIndex={0} style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', outline:'none' }}
         onPaste={e => { const f = imageFromPaste(e); if (f) { e.preventDefault(); handleFile(f); } }}>
         <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Return item</h3>
@@ -1178,10 +1212,28 @@ function ReturnModal({ checkout, onClose, onSubmit, photoOptional = false }) {
             ) : (
               <button type="button" onClick={() => fileRef.current?.click()}
                 style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', borderRadius:9, border:`2px dashed ${photoOptional ? 'var(--line)' : 'hsla(var(--color-red),0.4)'}`, background: photoOptional ? 'var(--mist)' : 'hsla(var(--color-red),0.04)', cursor:'pointer', fontSize:13, color:'var(--muted)' }}>
-                <Camera size={15} /> Take / Upload Photo
+                <Camera size={15} /> Take / upload photo
               </button>
             )}
             <p style={{ fontSize:11, color:'var(--muted)', margin:'6px 0 0' }}>or press Ctrl+V to paste a screenshot</p>
+          </div>
+          {/* Explicit condition (P1-13) — the backend uses this instead of sniffing the note. */}
+          <div>
+            <label style={FL}>CONDITION</label>
+            <div style={{ display:'flex', gap:8 }}>
+              {RETURN_CONDITIONS.map(({ v, label }) => {
+                const sel = condition === v;
+                return (
+                  <button key={v} type="button" onClick={() => setCondition(v)}
+                    style={{ flex:1, padding:'8px 6px', borderRadius:9, fontSize:12.5, fontWeight:700, cursor:'pointer', fontFamily:'Inter,sans-serif',
+                      border:`1px solid ${sel ? (v === 'ok' ? 'hsl(var(--color-green))' : 'hsl(var(--color-red))') : 'var(--line)'}`,
+                      background: sel ? (v === 'ok' ? 'hsla(var(--color-green),0.1)' : 'hsla(var(--color-red),0.08)') : 'var(--card)',
+                      color: sel ? (v === 'ok' ? 'hsl(var(--color-green))' : 'hsl(var(--color-red))') : 'var(--muted)' }}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <div>
             <label style={FL}>CONDITION NOTES <span style={{ fontSize:11, fontWeight:400 }}>(optional — note any damage)</span></label>
@@ -1195,7 +1247,7 @@ function ReturnModal({ checkout, onClose, onSubmit, photoOptional = false }) {
           <button className="secondary-btn" onClick={onClose} disabled={submitting}>Cancel</button>
           <button className="primary-btn" disabled={(!file && !photoOptional) || submitting}
             style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:130, justifyContent:'center' }} onClick={submit}>
-            {submitting ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Returning…</> : <><RotateCcw size={14} /> Confirm Return</>}
+            {submitting ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Returning…</> : <><RotateCcw size={14} /> Confirm return</>}
           </button>
         </div>
       </div>
@@ -1224,7 +1276,7 @@ function ExtendRequestModal({ checkout, onClose, onSubmit }) {
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:400, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Request an Extension</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Request an extension</h3>
         <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:20 }}>
           Ask for more time with <strong>{checkout.itemName}</strong>. A manager will review your request.
         </p>
@@ -2079,14 +2131,21 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
   const totalValue = cart.reduce((s, c) => s + valueOf(c), 0);
   const [approvers,     setApprovers]     = useState([]);
   const [approverEmail, setApproverEmail] = useState('');
+  const [approverErr,   setApproverErr]   = useState(false);
+  // On-behalf: ops staff check items out FOR a construction worker who came to
+  // the office (Neil). Default = for myself; picking a person routes the checkout
+  // into THEIR My Items via requested_by_email while raised_by stays this user.
+  const [forSelf,  setForSelf]  = useState(true);
+  const [forName,  setForName]  = useState('');
+  const [forEmail, setForEmail] = useState('');
   useEffect(() => { if (!open) return; const h = e => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [open, onClose]);
   useEffect(() => { document.body.style.overflow = open ? 'hidden' : ''; return () => { document.body.style.overflow = ''; }; }, [open]);
 
   // Load the manager list once the drawer opens; default the pick to the last
   // manager this user sent a request to, else the majority department's usual
   // manager, else leave it for the employee to choose.
-  useEffect(() => {
-    if (!open || !showApprover || approvers.length) return;
+  const loadApprovers = useCallback(() => {
+    setApproverErr(false);
     api.getItemApprovers().then(rows => {
       setApprovers(rows);
       setApproverEmail(prev => {
@@ -2097,11 +2156,18 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
         const pick = suggestAllocator(pseudoItems, rows);
         return pick ? pick.email : '';
       });
-    }).catch(() => {});
+    // P4: surface a retry instead of leaving Submit permanently dead with no message.
+    }).catch(() => setApproverErr(true));
+  }, [cart]);
+  useEffect(() => {
+    if (!open || !showApprover || approvers.length) return;
+    loadApprovers();
   }, [open, showApprover]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const approver  = approvers.find(a => a.email === approverEmail) || null;
-  const canSubmit = cart.length > 0 && reason.trim() && !submitting && (!showApprover || !!approver);
+  // On-behalf needs a real directory match (email) — a free-typed name isn't enough.
+  const behalfOk  = forSelf || !!forEmail;
+  const canSubmit = cart.length > 0 && reason.trim() && !submitting && (!showApprover || !!approver) && behalfOk;
 
   function applyDaysToAll(days) {
     cart.forEach(c => onDaysChange(c.id, days));
@@ -2116,7 +2182,7 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
             <ShoppingCart size={17} color="hsl(var(--color-green))" />
           </div>
           <div>
-            <div style={{ fontWeight:700, fontSize:15 }}>Checkout Cart</div>
+            <div style={{ fontWeight:700, fontSize:15 }}>Checkout cart</div>
             <div style={{ fontSize:12, color:'var(--muted)', marginTop:1 }}>
               {cart.length} item{cart.length !== 1 ? 's' : ''}{totalValue > 0 && <> · <strong style={{ color:'var(--ink)' }}>{fmtMoney(totalValue)}</strong> total value</>}
             </div>
@@ -2192,13 +2258,39 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
                 </span>
               </div>
 
+              <div style={{ marginBottom:16 }}>
+                <label style={FL}>WHO IS THIS REQUEST FOR?</label>
+                <div style={{ display:'flex', gap:8, marginBottom: forSelf ? 0 : 8 }}>
+                  {[[true, 'Myself'], [false, 'Someone else']].map(([v, l]) => (
+                    <button key={l} type="button" onClick={() => { setForSelf(v); if (v) { setForName(''); setForEmail(''); } }}
+                      style={{ flex:1, padding:'8px 0', borderRadius:9, border:`1px solid ${forSelf === v ? 'var(--pine)' : 'var(--line)'}`, background: forSelf === v ? 'var(--pine)' : 'transparent', color: forSelf === v ? '#fff' : 'var(--muted)', fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>{l}</button>
+                  ))}
+                </div>
+                {!forSelf && (
+                  <>
+                    <PersonTypeahead valueName={forName} placeholder="Type a name…"
+                      onPick={({ email, name }) => { setForName(name); setForEmail(email); }} />
+                    <p style={{ fontSize:11.5, color: forEmail ? 'var(--muted)' : 'hsl(var(--color-orange))', margin:'6px 0 0' }}>
+                      {forEmail ? `It'll show in ${forName}'s My items.` : 'Pick the person from the list so it lands in their account.'}
+                    </p>
+                  </>
+                )}
+              </div>
+
               {showApprover && (
                 <div style={{ marginBottom:16 }}>
                   <label style={FL}>WHO SHOULD APPROVE THIS? <span style={{ color:'hsl(var(--color-red))' }}>*</span></label>
-                  <select className="form-input" style={{ width:'100%' }} value={approverEmail} onChange={e => setApproverEmail(e.target.value)}>
-                    <option value="">— select a manager —</option>
-                    {approvers.map(a => <option key={a.email} value={a.email}>{a.name}</option>)}
-                  </select>
+                  {approverErr ? (
+                    <div style={{ fontSize:12.5, color:'hsl(var(--color-red))', display:'flex', alignItems:'center', gap:8 }}>
+                      Couldn't load approvers.
+                      <button className="secondary-btn" style={{ fontSize:12, padding:'4px 12px' }} onClick={loadApprovers}>Retry</button>
+                    </div>
+                  ) : (
+                    <select className="form-input" style={{ width:'100%' }} value={approverEmail} onChange={e => setApproverEmail(e.target.value)}>
+                      <option value="">— select a manager —</option>
+                      {approvers.map(a => <option key={a.email} value={a.email}>{a.name}</option>)}
+                    </select>
+                  )}
                   <p style={{ fontSize:11.5, color:'var(--muted)', margin:'6px 0 0' }}>
                     Only this manager will be notified of your request.
                   </p>
@@ -2227,9 +2319,10 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
               style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
               onClick={() => {
                 if (approver) localStorage.setItem('nexus-approver-email', approver.email);
-                onSubmit({ reason, approverEmail: approver?.email || '', approverName: approver?.name || '' });
+                onSubmit({ reason, approverEmail: approver?.email || '', approverName: approver?.name || '',
+                           forName: forSelf ? '' : forName, forEmail: forSelf ? '' : forEmail });
               }}>
-              {submitting ? <><Loader2 size={15} style={{ animation:'spin 1s linear infinite' }} /> Submitting…</> : <><CheckCircle size={15} /> Submit {cart.length} Checkout{cart.length !== 1 ? 's' : ''}</>}
+              {submitting ? <><Loader2 size={15} style={{ animation:'spin 1s linear infinite' }} /> Submitting…</> : <><CheckCircle size={15} /> Submit {cart.length} checkout{cart.length !== 1 ? 's' : ''}</>}
             </button>
           </div>
         )}
@@ -2253,7 +2346,8 @@ function BatchReRequestModal({ checkouts, onClose, onSubmit }) {
     Object.fromEntries(checkouts.map(c => [c.id, c.days || 1])));
   const setItemDays = (id, v) => {
     const n = parseInt(v, 10);
-    setDays(d => ({ ...d, [id]: Number.isNaN(n) ? '' : Math.max(1, Math.min(365, n)) }));
+    // Backend rejects >90 days — clamp here too (cart/extension already cap at 90).
+    setDays(d => ({ ...d, [id]: Number.isNaN(n) ? '' : Math.max(1, Math.min(90, n)) }));
   };
   useEscapeKey(onClose);
 
@@ -2290,7 +2384,7 @@ function BatchReRequestModal({ checkouts, onClose, onSubmit }) {
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:440, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'85vh', overflowY:'auto' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Request Again</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Request again</h3>
         <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:16 }}>
           {checkouts.length} item{checkouts.length !== 1 ? 's' : ''} from your past checkouts will go in as one new request. Days are pre-filled from last time — adjust any of them below before submitting.
         </p>
@@ -2300,7 +2394,7 @@ function BatchReRequestModal({ checkouts, onClose, onSubmit }) {
             <div key={c.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', borderTop: idx > 0 ? '1px solid var(--line)' : 'none' }}>
               <span style={{ flex:1, minWidth:0, fontSize:13, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.itemName}</span>
               <div style={{ display:'inline-flex', alignItems:'center', gap:6, flexShrink:0 }}>
-                <input type="number" min={1} max={365} value={days[c.id] ?? ''}
+                <input type="number" min={1} max={90} value={days[c.id] ?? ''}
                   onChange={e => setItemDays(c.id, e.target.value)}
                   onBlur={e => { if (!e.target.value) setItemDays(c.id, 1); }}
                   className="form-input"
@@ -2331,7 +2425,7 @@ function BatchReRequestModal({ checkouts, onClose, onSubmit }) {
           <button className="primary-btn" disabled={!canSubmit} onClick={submit}
             style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
             {busy ? <Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> : <RotateCcw size={13} />}
-            Request {checkouts.length} Item{checkouts.length !== 1 ? 's' : ''} Again
+            Request {checkouts.length} item{checkouts.length !== 1 ? 's' : ''} again
           </button>
         </div>
       </div>
@@ -2716,24 +2810,27 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
                               onReRequest(c, reRequestReason.trim())
                                 .then(() => {
                                   setReRequestId(null); setReRequestReason('');
-                                  // The fresh request replaces this rejected card —
-                                  // clear it to Past Checkouts so the item isn't listed twice
+                                  // Fresh request created — just hide the rejected card
+                                  // locally. Do NOT cancel the rejected row (P1-11): it must
+                                  // stay 'rejected' so history keeps the manager's decision.
                                   setDismissedIds(prev => new Set([...prev, c.id]));
-                                  onCancel && onCancel(c, { silent: true });
                                 })
+                                // onReRequest already toasts + rethrows on failure; keep the
+                                // rejected card in place (don't dismiss) if the create failed.
                                 .catch(() => {})
                                 .finally(() => setReRequestBusy(false));
                             }}>
                             {reRequestBusy ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : <RotateCcw size={12} />}
-                            Submit Again
+                            Submit again
                           </button>
                         </div>
                       </div>
                     ) : (
                       <div style={{ display:'flex', gap:8, justifyContent:'flex-end', flexWrap:'wrap', marginTop:10 }}>
                         <button className="secondary-btn" onClick={() => {
+                            // Just dismiss the card from this view — the rejected row stays
+                            // 'rejected' (P1-11: never rewrite it to cancelled).
                             setDismissedIds(prev => new Set([...prev, c.id]));
-                            onCancel && onCancel(c, { silent: true });
                           }}
                           style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, color:'var(--muted)' }}>
                           <X size={12} /> Discard
@@ -2824,7 +2921,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
           </button>
           <button className="primary-btn" onClick={() => setBatchReRequestOpen(true)}
             style={{ marginLeft:'auto', fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5, padding:'6px 14px' }}>
-            <RotateCcw size={13} /> Request Again ({batchItems.length})
+            <RotateCcw size={13} /> Request again ({batchItems.length})
           </button>
         </div>
       )}
@@ -3337,9 +3434,9 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
     setCart(prev => prev.map(c => c.id === cartId ? { ...c, days } : c));
   }
 
-  async function handleSubmitCart({ reason, approverEmail, approverName }) {
+  async function handleSubmitCart({ reason, approverEmail, approverName, forName = '', forEmail = '' }) {
     setSubmitting(true);
-    const results = await submitCartCheckouts(cart, { reason, raisedBy: userName, raisedByEmail: userEmail, approverEmail, approverName });
+    const results = await submitCartCheckouts(cart, { reason, raisedBy: userName, raisedByEmail: userEmail, forName, forEmail, approverEmail, approverName });
     const succeededItems = cart.filter((_, i) => results[i].status === 'fulfilled');
     const failedItems    = cart.filter((_, i) => results[i].status === 'rejected');
     await Promise.all(succeededItems.map(c => api.removeItemFromCart(c.item.id).catch(() => {})));
@@ -3433,12 +3530,13 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
             </button>
           );
           const topCards = [
-            { Icon:ShoppingCart,  colorVar:'color-green',  title:'Checkout an Item',      sub:'Browse available equipment and raise a checkout request.',                                                                          go:() => { setMode('catalog'); setTab('catalog'); },   badge:null },
-            { Icon:RotateCcw,     colorVar:'color-blue',   title:'Extend an Item', sub:activeCheckouts.length > 0 ? `${activeCheckouts.length} item${activeCheckouts.length!==1?'s':''} currently checked out.` : 'Return equipment you have, or ask for more time.', go:() => { setMode('catalog'); setTab('checkouts'); }, badge:activeCheckouts.length||null },
+            { Icon:ShoppingCart,  colorVar:'color-green',  title:'Check out an item',      sub:'Browse available equipment and raise a checkout request.',                                                                          go:() => { setMode('catalog'); setTab('catalog'); },   badge:null },
+            // Covers BOTH return and extend, so the title says so (UX-030).
+            { Icon:RotateCcw,     colorVar:'color-blue',   title:'Return or extend', sub:activeCheckouts.length > 0 ? `${activeCheckouts.length} item${activeCheckouts.length!==1?'s':''} currently checked out.` : 'Return equipment you have, or ask for more time.', go:() => { setMode('catalog'); setTab('checkouts'); }, badge:activeCheckouts.length||null },
             // Managers get a Manage card right on the home screen (Neil: no way in from here).
-            ...(showManage && onEnterManage ? [{ Icon:Box, colorVar:'color-purple', title:'Manage Items', sub:'Add, edit, assign, import, types and the activity log — the full management tools.', go:onEnterManage, badge:null }] : []),
+            ...(showManage && onEnterManage ? [{ Icon:Box, colorVar:'color-purple', title:'Manage items', sub:'Add, edit, assign, import, types and the activity log — the full management tools.', go:onEnterManage, badge:null }] : []),
           ];
-          const purchaseCard = { Icon:ClipboardList, colorVar:'color-orange', title:'Purchase Request', sub:'Need something not in the catalog? Submit a formal purchase request.', go:() => window.dispatchEvent(new CustomEvent('nexus:navigate',{detail:{view:'purchase'}})), badge:null };
+          const purchaseCard = { Icon:ClipboardList, colorVar:'color-orange', title:'Purchase request', sub:'Need something not in the catalog? Submit a formal purchase request.', go:() => window.dispatchEvent(new CustomEvent('nexus:navigate',{detail:{view:'purchase'}})), badge:null };
           return (
             <>
               <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))', gap:16 }}>
@@ -3454,7 +3552,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
           <div style={{ padding:'14px 18px', borderRadius:12, border:'1px solid hsla(var(--color-green),0.3)', background:'hsla(var(--color-green),0.06)', display:'flex', alignItems:'center', gap:12, maxWidth:520, marginTop:24 }}>
             <ShoppingCart size={16} color="hsl(var(--color-green))" style={{ flexShrink:0 }} />
             <span style={{ fontSize:13, fontWeight:600, color:'var(--ink)', flex:1 }}>{cart.length} item{cart.length!==1?'s':''} waiting in your cart</span>
-            <button className="primary-btn" onClick={() => setCartOpen(true)} style={{ fontSize:12, padding:'6px 14px', flexShrink:0 }}>View Cart</button>
+            <button className="primary-btn" onClick={() => setCartOpen(true)} style={{ fontSize:12, padding:'6px 14px', flexShrink:0 }}>View cart</button>
           </div>
         )}
         <CartDrawer open={cartOpen} cart={cart} items={items} onClose={() => setCartOpen(false)} onRemove={removeFromCart} onSubmit={handleSubmitCart} submitting={submitting} onDaysChange={handleDaysChange} showApprover />
@@ -3475,7 +3573,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
           style={{ display:'inline-flex', alignItems:'center', gap:6, background:'none', border:'none', cursor:'pointer', color:'var(--muted)', fontSize:13, fontFamily:'Inter,sans-serif', padding:'4px 0', transition:'color 0.15s' }}
           onMouseEnter={e => e.currentTarget.style.color='var(--ink)'}
           onMouseLeave={e => e.currentTarget.style.color='var(--muted)'}>
-          <ArrowLeft size={14} /> Back to Home
+          <ArrowLeft size={14} /> Back to home
         </button>
         <button onClick={() => setCartOpen(true)}
           className="header-cart"
@@ -3615,13 +3713,13 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
                           <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.make||'—'}</td>
                           <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.model||'—'}</td>
                           <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.location||'—'}</td>
-                          <td style={{ padding:'8px 14px' }}><StatusBadge status={hasPending ? 'checked_out' : displayStatus(item)} item={item} /></td>
+                          <td style={{ padding:'8px 14px' }}><StatusBadge status={hasPending ? 'under_review' : displayStatus(item)} item={item} /></td>
                           <td style={{ padding:'8px 14px' }}>
                             {canAdd && (
                               <button onClick={() => addToCart(item)} disabled={alreadyInCart}
                                 className={alreadyInCart ? 'secondary-btn' : 'primary-btn'}
                                 style={{ fontSize:12, padding:'5px 12px', display:'inline-flex', alignItems:'center', gap:5 }}>
-                                {alreadyInCart ? <><CheckCircle size={11} /> In Cart</> : <><Plus size={11} /> Add</>}
+                                {alreadyInCart ? <><CheckCircle size={11} /> In cart</> : <><Plus size={11} /> Add</>}
                               </button>
                             )}
                           </td>
@@ -3652,13 +3750,16 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
       {/* ── MY CHECKOUTS TAB ── */}
       {tab === 'checkouts' && (
         <div>
-          {myCheckouts.length === 0 ? (
+          {/* P0-5: mount the panel (which holds the Permanent tab where assignments
+              are accepted) whenever the user has EITHER checkouts OR assignments —
+              today's acceptance banner deep-links here and must not dead-end. */}
+          {myCheckouts.length === 0 && !assignments.some(a => a.assigneeEmail === userEmail) ? (
             <div style={{ textAlign:'center', padding:'64px 20px', color:'var(--muted)' }}>
               <Package size={36} style={{ opacity:.15, display:'block', margin:'0 auto 14px' }} />
               <div style={{ fontWeight:600, fontSize:15, marginBottom:6 }}>No checkouts yet</div>
               <div style={{ fontSize:13, marginBottom:20 }}>Browse the catalog to check out equipment.</div>
               <button className="primary-btn" onClick={() => setTab('catalog')} style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
-                <Package size={14} /> Browse Catalog
+                <Package size={14} /> Browse catalog
               </button>
             </div>
           ) : (
@@ -3673,10 +3774,14 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
                   .catch(() => { throw new Error(`Could not confirm receipt for ${co.itemName}.`); })
               : undefined}
               onReturnAll={async (items, data) => {
+                // P1-5: count real successes/failures instead of always claiming all N returned.
+                let ok = 0, failed = 0;
                 for (const c of items) {
-                  try { await onReturn(c.id, data); } catch { /* keep going */ }
+                  try { await onReturn(c.id, data); ok++; } catch { failed++; }
                 }
-                toast(`Returned ${items.length} item${items.length !== 1 ? 's' : ''}.`);
+                refreshCheckouts && refreshCheckouts();
+                if (failed === 0) toast(`Returned ${ok} item${ok !== 1 ? 's' : ''}.`);
+                else toast(`Returned ${ok} · ${failed} failed.`, 'error');
               }}
               onRequestExtension={(co, days, reason) =>
                 api.requestItemExtension(co.id, { days, reason })
@@ -3862,7 +3967,7 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
                       <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.make || '—'}</td>
                       <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.model || '—'}</td>
                       <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.location || '—'}</td>
-                      <td style={{ padding:'8px 14px' }}><StatusBadge status={hasPending ? 'checked_out' : displayStatus(item)} item={item} /></td>
+                      <td style={{ padding:'8px 14px' }}><StatusBadge status={hasPending ? 'under_review' : displayStatus(item)} item={item} /></td>
                       <td style={{ padding:'8px 14px' }}>
                         {canAdd && (
                           <button onClick={() => onAddToCart(item)} disabled={alreadyInCart}
@@ -4421,6 +4526,7 @@ function BatchPhotoModal({ items, usingSelection, onSwitchTab, onClose, onUpdate
 // the table stays lean. Editable in place.
 function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved, toast }) {
   useEscapeKey(onClose);
+  const nameOf = useNameResolver(); // resolve holder name, never a raw email (P4 names)
   const applicable = (customFields || []).filter(f => !f.appliesToType || f.appliesToType === item.itemType);
   const [op,      setOp]      = useState(item.opStatus || '');
   const [opPersonEmail, setOpPersonEmail] = useState(item.opStatusPersonEmail || '');
@@ -4485,7 +4591,7 @@ function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved, toast
           <Row label="Ownership">{item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}</Row>
           <Row label="Lifecycle"><StatusBadge status={displayStatus(item)} item={item} /></Row>
           <Row label="Asset value">{Number(item.assetValue) > 0 ? fmtMoney(item.assetValue) : '—'}</Row>
-          {personHeld && <Row label="Held by">{item.assignedToName || auditName(item.assignedToEmail)}</Row>}
+          {personHeld && <Row label="Held by">{nameOf(item.assignedToEmail, item.assignedToName)}</Row>}
 
           {/* Operational status (Neil) */}
           <div style={{ fontSize:10.5, fontWeight:800, color:'var(--muted)', letterSpacing:'.06em', margin:'16px 0 4px' }}>OPERATIONAL STATUS</div>
@@ -4590,19 +4696,19 @@ function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast }) {
     catch (e) { toast?.(e?.message || 'Could not remove type.', 'error'); }
     finally { setBusy(false); }
   }
-  // Deleting a type that items still use needs a confirm — those items keep their
-  // type text but it stops being pickable (Neil: deletable by managers).
-  const askRemove = name => ((counts[name] || 0) > 0 ? setConfirmDel(name) : remove(name));
+  // Every delete needs a confirm now (P4: even zero-count types shouldn't vanish on
+  // a stray click). Types still in use keep their text but stop being pickable.
+  const askRemove = name => setConfirmDel(name);
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:16, padding:'22px 26px 20px', width:'100%', maxWidth:440, boxShadow:'var(--shadow-lg)', maxHeight:'min(85dvh,640px)', display:'flex', flexDirection:'column' }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
-          <h3 style={{ margin:0, fontSize:16, fontWeight:700, display:'inline-flex', alignItems:'center', gap:7 }}><Tag size={16} /> Manage Item Types</h3>
+          <h3 style={{ margin:0, fontSize:16, fontWeight:700, display:'inline-flex', alignItems:'center', gap:7 }}><Tag size={16} /> Manage item types</h3>
           <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
         </div>
         <p style={{ margin:'0 0 14px', fontSize:12.5, color:'var(--muted)' }}>
-          These are the types everyone picks from. A CSV import can’t invent new types — add the real one here first, then re-import.
+          These are the types everyone picks from. A CSV import may match a new/unknown type to one of these or create it — the created ones are reported after the import. Add or curate them here.
         </p>
         <div style={{ display:'flex', gap:8, marginBottom:14 }}>
           <input className="form-input" style={{ flex:1 }} value={newType} placeholder="New type — e.g. Office"
@@ -4628,7 +4734,7 @@ function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast }) {
               </div>
               {confirmDel === t && (
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, fontSize:12 }}>
-                  <span style={{ color:'var(--muted)' }}>{counts[t]} item{counts[t] !== 1 ? 's' : ''} use this — remove anyway?</span>
+                  <span style={{ color:'var(--muted)' }}>{(counts[t] || 0) > 0 ? `${counts[t]} item${counts[t] !== 1 ? 's' : ''} use this — remove anyway?` : 'Remove this type?'}</span>
                   <span style={{ display:'flex', gap:6, flexShrink:0 }}>
                     <button className="secondary-btn" style={{ fontSize:11.5, padding:'3px 10px' }} onClick={() => setConfirmDel(null)} disabled={busy}>Cancel</button>
                     <button onClick={() => remove(t)} disabled={busy} style={{ fontSize:11.5, padding:'3px 10px', borderRadius:7, border:'none', background:'hsl(var(--color-red))', color:'#fff', fontWeight:700, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Remove</button>
@@ -4651,6 +4757,7 @@ function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
   const [appliesTo,  setAppliesTo]  = useState('');
   const [saving,     setSaving]     = useState(false);
   const [busyId,     setBusyId]     = useState(null);
+  const [confirmDelId, setConfirmDelId] = useState(null); // in-app confirm (no native confirm)
 
   async function add() {
     if (!label.trim() || saving) return;
@@ -4669,7 +4776,7 @@ function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
     } finally { setSaving(false); }
   }
   async function remove(f) {
-    if (!window.confirm(`Delete the "${f.label}" field? Existing values stay stored but stop showing.`)) return;
+    setConfirmDelId(null);
     setBusyId(f.id);
     try { await api.deleteItemCustomField(f.id); onChanged?.(); }
     catch (e) { toast?.(e?.message || 'Could not delete field.', 'error'); }
@@ -4690,19 +4797,30 @@ function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
           ) : (
             <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:16 }}>
               {fields.map(f => (
-                <div key={f.id} style={{ display:'flex', alignItems:'center', gap:10, border:'1px solid var(--line)', borderRadius:9, padding:'8px 12px' }}>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontWeight:600, fontSize:13 }}>{f.label}</div>
-                    <div style={{ fontSize:11, color:'var(--muted)' }}>
-                      {(CUSTOM_FIELD_TYPE_OPTS.find(o => o.v === f.fieldType)?.label || f.fieldType)}
-                      {f.appliesToType ? ` · ${f.appliesToType} only` : ' · all types'}
-                      {f.fieldType === 'select' && f.options?.length ? ` · ${f.options.join(', ')}` : ''}
+                <div key={f.id} style={{ display:'flex', flexDirection:'column', gap:8, border:'1px solid var(--line)', borderRadius:9, padding:'8px 12px' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontWeight:600, fontSize:13 }}>{f.label}</div>
+                      <div style={{ fontSize:11, color:'var(--muted)' }}>
+                        {(CUSTOM_FIELD_TYPE_OPTS.find(o => o.v === f.fieldType)?.label || f.fieldType)}
+                        {f.appliesToType ? ` · ${f.appliesToType} only` : ' · all types'}
+                        {f.fieldType === 'select' && f.options?.length ? ` · ${f.options.join(', ')}` : ''}
+                      </div>
                     </div>
+                    <button onClick={() => setConfirmDelId(f.id)} disabled={busyId === f.id}
+                      style={{ background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 9px', color:'hsl(var(--color-red))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif', display:'inline-flex', alignItems:'center', gap:4 }}>
+                      {busyId === f.id ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : <Trash2 size={12} />}
+                    </button>
                   </div>
-                  <button onClick={() => remove(f)} disabled={busyId === f.id}
-                    style={{ background:'none', border:'1px solid hsla(var(--color-red),0.35)', borderRadius:7, padding:'5px 9px', color:'hsl(var(--color-red))', fontSize:11.5, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif', display:'inline-flex', alignItems:'center', gap:4 }}>
-                    {busyId === f.id ? <Loader2 size={12} style={{ animation:'spin 1s linear infinite' }} /> : <Trash2 size={12} />}
-                  </button>
+                  {confirmDelId === f.id && (
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, fontSize:12 }}>
+                      <span style={{ color:'var(--muted)' }}>Delete the "{f.label}" field? Existing values stay stored but stop showing.</span>
+                      <span style={{ display:'flex', gap:6, flexShrink:0 }}>
+                        <button className="secondary-btn" style={{ fontSize:11.5, padding:'3px 10px' }} onClick={() => setConfirmDelId(null)} disabled={busyId === f.id}>Cancel</button>
+                        <button onClick={() => remove(f)} disabled={busyId === f.id} style={{ fontSize:11.5, padding:'3px 10px', borderRadius:7, border:'none', background:'hsl(var(--color-red))', color:'#fff', fontWeight:700, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>Delete</button>
+                      </span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -4741,7 +4859,7 @@ function CustomFieldsAdminModal({ fields, onClose, onChanged, toast }) {
           <button className="secondary-btn" onClick={onClose}>Done</button>
           <button className="primary-btn" onClick={add} disabled={!label.trim() || saving}
             style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:110, justifyContent:'center', opacity:(!label.trim()||saving)?0.55:1 }}>
-            {saving ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <Plus size={14} />} Add Field
+            {saving ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <Plus size={14} />} Add field
           </button>
         </div>
       </div>
@@ -4868,8 +4986,9 @@ function SendAlertModal({ onClose, toast }) {
   const [sending,    setSending]    = useState(false);
 
   useEffect(() => {
-    api.getAllRoles()
-      .then(rows => setUsers(rows))
+    // People directory (nexus_employees), not the raw GAL/roles list (P4 names).
+    api.getPeopleDirectory()
+      .then(rows => setUsers(Array.isArray(rows) ? rows : []))
       .catch(() => setUsers([]))
       .finally(() => setUsersLoading(false));
   }, []);
@@ -4877,7 +4996,7 @@ function SendAlertModal({ onClose, toast }) {
   const filteredUsers = users.filter(u => {
     if (!search) return true;
     const q = search.toLowerCase();
-    return (u.display_name || '').toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
+    return (u.name || u.display_name || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q);
   });
 
   function toggleUser(email) {
@@ -4942,7 +5061,7 @@ function SendAlertModal({ onClose, toast }) {
                   <label key={u.email} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 14px', cursor:'pointer', borderBottom:'1px solid var(--line)', background: checked ? 'hsla(var(--color-green),0.06)' : 'transparent' }}>
                     <input type="checkbox" checked={checked} onChange={() => toggleUser(u.email)} style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
                     <div style={{ flex:1 }}>
-                      <div style={{ fontWeight:600, fontSize:13 }}>{u.display_name || auditName(u.email)}</div>
+                      <div style={{ fontWeight:600, fontSize:13 }}>{u.name || u.display_name || auditName(u.email)}</div>
                       <div style={{ fontSize:11.5, color:'var(--muted)' }}>{u.email}</div>
                     </div>
                   </label>
@@ -5324,7 +5443,9 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
     if (sortCol === 'dept')      { av = (a.department || '').toLowerCase();     bv = (b.department || '').toLowerCase(); }
     if (sortCol === 'location')  { av = (a.location || '').toLowerCase();       bv = (b.location || '').toLowerCase(); }
     if (sortCol === 'ownership') { av = (a.ownershipType || 'transient');       bv = (b.ownershipType || 'transient'); }
-    if (sortCol === 'status')    { av = a.status;                               bv = b.status; }
+    // Sort by the DISPLAYED status (Unassigned / Assigned · Location …), matching
+    // the badge the column actually shows (P4 status coherence).
+    if (sortCol === 'status')    { av = displayStatus(a);                       bv = displayStatus(b); }
     if (sortCol === 'opstatus')  { av = (a.opStatus || '').toLowerCase();       bv = (b.opStatus || '').toLowerCase(); }
     if (sortCol === 'photo')     { av = a.photoUrl ? 1 : 0;                     bv = b.photoUrl ? 1 : 0; }
     if (av === bv) return 0;
@@ -5380,7 +5501,9 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightId]);
 
-  const missingPhotos = items.filter(i => !i.photoUrl).length;
+  // Photo-optional items (pictureRequired === false, e.g. keys) don't count as
+  // "missing a photo" (P1-16 / UX-017).
+  const missingPhotos = items.filter(i => !i.photoUrl && i.pictureRequired !== false).length;
   const selItems      = filtered.filter(i => selected.has(i.id));
   const blockedItems  = selItems.filter(i =>
     (checkouts || []).some(c => c.itemId === i.id && ['pending','approved','pending_receipt','allocated'].includes(c.status))
@@ -5756,7 +5879,7 @@ function EmployeeAcceptModal({ checkout, onClose, onConfirm, photoOptional = fal
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div tabIndex={0} style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', outline:'none' }}
         onPaste={e => { const f = imageFromPaste(e); if (f) { e.preventDefault(); handleFile(f); } }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Confirm You Have It</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Confirm you have it</h3>
         <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:20 }}>
           Take a photo of <strong>{checkout.itemName}</strong> to confirm you received it. This creates a condition record for the handover.
         </p>
@@ -5773,7 +5896,7 @@ function EmployeeAcceptModal({ checkout, onClose, onConfirm, photoOptional = fal
           ) : (
             <button type="button" onClick={() => fileRef.current?.click()}
               style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', borderRadius:9, border:`2px dashed ${photoOptional ? 'var(--line)' : 'hsla(var(--color-red),0.4)'}`, background: photoOptional ? 'var(--mist)' : 'hsla(var(--color-red),0.04)', cursor:'pointer', fontSize:13, color:'var(--muted)' }}>
-              <Camera size={15} /> Take / Upload Photo
+              <Camera size={15} /> Take / upload photo
             </button>
           )}
           <p style={{ fontSize:11, color:'var(--muted)', margin:'6px 0 0' }}>or press Ctrl+V to paste a screenshot</p>
@@ -5818,7 +5941,7 @@ function PhotoSlot({ label, slotKey, photos, onChange, required = true }) {
       ) : (
         <button type="button" onClick={() => ref.current?.click()}
           style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'12px', borderRadius:9, border:`2px dashed ${required ? 'hsla(var(--color-red),0.4)' : 'var(--line)'}`, background: required ? 'hsla(var(--color-red),0.04)' : 'var(--mist)', cursor:'pointer', fontSize:13, color:'var(--muted)', fontFamily:'Inter,sans-serif' }}>
-          <Camera size={15} /> Take / Upload Photo {required
+          <Camera size={15} /> Take / upload photo {required
             ? <span style={{ fontSize:11, marginLeft:4, color:'hsl(var(--color-red))' }}>*</span>
             : <span style={{ fontSize:11, marginLeft:4 }}>(optional)</span>}
         </button>
@@ -5840,7 +5963,14 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
   const [photos,    setPhotos]    = useState({});       // { [coId|'batch']: { file, preview, name } }
   const [uploading, setUploading] = useState(false);
   const [error,     setError]     = useState('');
-  useEscapeKey(onClose);
+  useEscapeKey(() => { if (!uploading) onClose(); });
+
+  // P0-4: the "Photos by You" path had NO photo guard (button only disabled while
+  // uploading), letting a handover complete with no evidence. Mirror
+  // ReceiptConfirmModal — require the photo(s) unless the item is photo-optional.
+  const hasPhotos = photoOptional || (photoMode === 'batch'
+    ? !!photos['batch']?.file
+    : coItems.every(co => !!photos[co.id]?.file));
 
   function handlePhotoChange(key, val) { setPhotos(prev => ({ ...prev, [key]: val })); }
 
@@ -5853,6 +5983,7 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
   }
 
   async function submitAllocator() {
+    if (!hasPhotos) return;
     setUploading(true); setError('');
     try {
       const photoMap = {};
@@ -5889,7 +6020,7 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
   return (
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onClick={e => e.target === e.currentTarget && !uploading && onClose()}>
       <div style={CARD}>
 
         {/* Step: who takes photos */}
@@ -5903,8 +6034,8 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
               {/* Neil: no icons here (misleading), and "Employee" → "Requester" —
                   everyone is technically an employee */}
               {[
-                { id:'you',      title:'Photos by You',       sub:'You upload now — individual items or a batch shot.' },
-                { id:'employee', title:'Photos by Requester', sub:'Requester confirms receipt and uploads on their side.' },
+                { id:'you',      title:'Photos by you',       sub:'You upload now — individual items or a batch shot.' },
+                { id:'employee', title:'Photos by requester', sub:'Requester confirms receipt and uploads on their side.' },
               ].map(opt => (
                 <button key={opt.id} onClick={() => opt.id === 'you' ? setStep(isMulti ? 'mode' : 'upload') || setPhotoMode('batch') : setStep('employee')}
                   style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:6, padding:'14px 16px', borderRadius:12, border:'1.5px solid var(--line)', background:'var(--mist)', cursor:'pointer', textAlign:'left', fontFamily:'Inter,sans-serif', transition:'border-color .15s, box-shadow .15s' }}
@@ -5924,14 +6055,14 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
         {/* Step: individual or batch (only for multi-item orders) */}
         {step === 'mode' && (
           <>
-            <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Photo Style</h3>
+            <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Photo style</h3>
             <p style={{ fontSize:13, color:'var(--muted)', marginBottom:20 }}>
               Handing over <strong>{coItems.length} items</strong> to <strong>{first.requestedBy}</strong>.
             </p>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
               {[
-                { id:'individual', title:'Individual Photos', sub:'One photo per item — best for high-value assets.' },
-                { id:'batch',      title:'Batch Photo',       sub:'One photo of all items together — quick for groups.' },
+                { id:'individual', title:'Individual photos', sub:'One photo per item — best for high-value assets.' },
+                { id:'batch',      title:'Batch photo',       sub:'One photo of all items together — quick for groups.' },
               ].map(opt => (
                 <button key={opt.id} onClick={() => { setPhotoMode(opt.id); setStep('upload'); }}
                   style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:6, padding:'14px 16px', borderRadius:12, border:'1.5px solid var(--line)', background:'var(--mist)', cursor:'pointer', textAlign:'left', fontFamily:'Inter,sans-serif', transition:'border-color .15s' }}
@@ -5954,7 +6085,7 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
           <>
             <h3 style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>
               {/* Single-item handover must not read "Batch Photo" (Neil) */}
-              {!isMulti ? 'Handover Photo' : photoMode === 'batch' ? 'Batch Photo' : 'Individual Photos'}
+              {!isMulti ? 'Handover photo' : photoMode === 'batch' ? 'Batch photo' : 'Individual photos'}
             </h3>
             <p style={{ fontSize:13, color:'var(--muted)', marginBottom:16 }}>
               {photoMode === 'batch'
@@ -5971,10 +6102,10 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
               <button className="secondary-btn" style={{ fontSize:12 }} onClick={() => setStep(isMulti ? 'mode' : 'who')}>← Back</button>
               <div style={{ display:'flex', gap:8 }}>
                 <button className="secondary-btn" onClick={onClose} disabled={uploading}>Cancel</button>
-                <button className="primary-btn" disabled={uploading}
-                  style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:150, justifyContent:'center' }}
+                <button className="primary-btn" disabled={uploading || !hasPhotos}
+                  style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:150, justifyContent:'center', opacity: (!hasPhotos && !uploading) ? 0.45 : 1 }}
                   onClick={submitAllocator}>
-                  {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><CheckCircle size={14} /> Confirm Handover</>}
+                  {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Uploading…</> : <><CheckCircle size={14} /> Confirm handover</>}
                 </button>
               </div>
             </div>
@@ -5984,7 +6115,7 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
         {/* Step: employee-photo confirmation */}
         {step === 'employee' && (
           <>
-            <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Confirm Handover</h3>
+            <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Confirm handover</h3>
             <div style={{ background:'hsla(var(--color-blue),0.07)', border:'1px solid hsla(var(--color-blue),0.2)', borderRadius:10, padding:'14px 16px', marginBottom:20 }}>
               <div style={{ fontWeight:600, fontSize:13.5, marginBottom:4 }}>
                 {isMulti ? `${coItems.length} items` : first.itemName} → {first.requestedBy}
@@ -6006,7 +6137,7 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
                 <button className="primary-btn" disabled={uploading}
                   style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:160, justifyContent:'center' }}
                   onClick={submitEmployee}>
-                  {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Please wait…</> : <><CheckCircle size={14} /> Handed Over — Notify {(first.requestedBy || 'Requester').split(' ')[0]}</>}
+                  {uploading ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Please wait…</> : <><CheckCircle size={14} /> Handed over — notify {(first.requestedBy || 'Requester').split(' ')[0]}</>}
                 </button>
               </div>
             </div>
@@ -6029,7 +6160,7 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
   const [photos,    setPhotos]    = useState({});
   const [uploading, setUploading] = useState(false);
   const [error,     setError]     = useState('');
-  useEscapeKey(onClose);
+  useEscapeKey(() => { if (!uploading) onClose(); });
 
   const hasPhotos = photoOptional || (photoMode === 'batch'
     ? !!photos['batch']?.file
@@ -6072,7 +6203,7 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
   return (
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onClick={e => e.target === e.currentTarget && !uploading && onClose()}>
       <div style={CARD}>
         <h3 style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>Confirm receipt</h3>
         <p style={{ fontSize:13, color:'var(--muted)', marginBottom:16 }}>
@@ -6084,15 +6215,15 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
         {step === 'mode' && (
           <>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
+              {/* No emoji icons here — matches AllocateModal (Neil rejected them). */}
               {[
-                { id:'individual', icon:'🖼️', title:'Individual Photos', sub:'One photo per item.' },
-                { id:'batch',      icon:'📦', title:'Batch Photo',       sub:'One photo of all items together.' },
+                { id:'individual', title:'Individual photos', sub:'One photo per item.' },
+                { id:'batch',      title:'Batch photo',       sub:'One photo of all items together.' },
               ].map(opt => (
                 <button key={opt.id} onClick={() => { setPhotoMode(opt.id); setStep('upload'); }}
                   style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:6, padding:'14px 16px', borderRadius:12, border:'1.5px solid var(--line)', background:'var(--mist)', cursor:'pointer', textAlign:'left', fontFamily:'Inter,sans-serif', transition:'border-color .15s' }}
                   onMouseEnter={e => e.currentTarget.style.borderColor='var(--pine)'}
                   onMouseLeave={e => e.currentTarget.style.borderColor='var(--line)'}>
-                  <span style={{ fontSize:22 }}>{opt.icon}</span>
                   <span style={{ fontWeight:700, fontSize:13.5 }}>{opt.title}</span>
                   <span style={{ fontSize:12, color:'var(--muted)', lineHeight:1.4 }}>{opt.sub}</span>
                 </button>
@@ -6173,16 +6304,20 @@ function ApproveCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onC
   const [suggested,   setSuggested]   = useState(null);
   const [busy,        setBusy]        = useState(false);
   const [error,       setError]       = useState('');
+  const [allocErr,    setAllocErr]    = useState(false);
   useEscapeKey(onClose);
 
-  useEffect(() => {
+  const loadAllocators = useCallback(() => {
+    setAllocErr(false);
     api.getItemAllocators().then(rows => {
       setAllocators(rows);
       // Pre-select the department's usual allocator (user can still change it)
       const pick = suggestAllocator(items, rows);
       if (pick) { setSuggested(pick); setPickedEmail(prev => prev || pick.email); }
-    }).catch(() => {});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // P4: surface a retry instead of a dead Approve button with no message.
+    }).catch(() => setAllocErr(true));
+  }, [items]);
+  useEffect(() => { loadAllocators(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function submit() {
     const chosen = allocators.find(a => a.email === pickedEmail)
@@ -6199,7 +6334,7 @@ function ApproveCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onC
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Approve Checkout{isMulti ? 's' : ''}</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Approve checkout{isMulti ? 's' : ''}</h3>
         {isMulti ? (
           <>
             <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:8 }}>
@@ -6228,10 +6363,17 @@ function ApproveCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onC
               </button>
             )}
           </div>
-          <select className="form-input" style={{ width:'100%' }} value={pickedEmail} onChange={e => setPickedEmail(e.target.value)}>
-            <option value="">— select allocator —</option>
-            {allocators.map(a => <option key={a.email} value={a.email}>{a.name} ({a.role})</option>)}
-          </select>
+          {allocErr ? (
+            <div style={{ fontSize:12.5, color:'hsl(var(--color-red))', display:'flex', alignItems:'center', gap:8 }}>
+              Couldn't load allocators.
+              <button className="secondary-btn" style={{ fontSize:12, padding:'4px 12px' }} onClick={loadAllocators}>Retry</button>
+            </div>
+          ) : (
+            <select className="form-input" style={{ width:'100%' }} value={pickedEmail} onChange={e => setPickedEmail(e.target.value)}>
+              <option value="">— select allocator —</option>
+              {allocators.map(a => <option key={a.email} value={a.email}>{a.name} ({a.role})</option>)}
+            </select>
+          )}
           {suggested && pickedEmail === suggested.email && (
             <p style={{ display:'flex', alignItems:'center', gap:5, fontSize:11.5, color:'hsl(var(--color-blue))', margin:'7px 0 0' }}>
               <CheckCircle size={12} style={{ flexShrink:0 }} />
@@ -6275,7 +6417,7 @@ function RejectCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onCo
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:380, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Reject Checkout{isMulti ? 's' : ''}</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Reject checkout{isMulti ? 's' : ''}</h3>
         {isMulti ? (
           <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:16 }}>
             Rejecting <strong>{items.length} items</strong> for <strong>{first.requestedBy}</strong>. One reason applies to all.
@@ -6349,7 +6491,7 @@ function ForceReturnModal({ checkout, checkouts, onClose, onConfirm }) {
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button disabled={!reason.trim() || busy} onClick={submit}
             style={{ background:'hsl(var(--color-orange))', color:'#fff', border:'none', borderRadius:8, padding:'8px 18px', fontWeight:700, fontSize:13.5, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:7, fontFamily:'Inter,sans-serif', opacity: (!reason.trim() || busy) ? 0.6 : 1 }}>
-            {busy ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <RotateCcw size={14} />} Check Back In
+            {busy ? <Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> : <RotateCcw size={14} />} Check back in
           </button>
         </div>
       </div>
@@ -6481,25 +6623,40 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
   // Order-level actions run sequentially (not Promise.all) so the backend's
   // per-order notification batching sees each update committed in turn.
   async function handleApproveOrder(orderItems, allocEmail, allocName) {
+    // P1-5: count real successes/failures — the loop used to swallow per-item
+    // errors then always claim "N approved".
+    let ok = 0, failed = 0;
     for (const co of orderItems) {
-      try { await approveRequest(co.id, userName, allocEmail, allocName); } catch { /* keep going */ }
+      try { await approveRequest(co.id, userName, allocEmail, allocName); ok++; } catch { failed++; }
     }
-    toast(`${orderItems.length} item${orderItems.length > 1 ? 's' : ''} approved — assigned to ${allocName}.`);
     refreshCheckouts();
+    if (failed === 0) toast(`Approved ${ok} item${ok !== 1 ? 's' : ''} — assigned to ${allocName}.`);
+    else toast(`Approved ${ok} · ${failed} failed.`, 'error');
   }
 
-  function handleReject(co, reason) {
-    rejectRequest(co.id, userName, reason);
-    toast('Checkout rejected.');
-    refreshCheckouts();
+  // P0-3: await the (now-rejecting) context call; only toast success after it
+  // resolves, error-toast + rethrow on failure so the modal stays open.
+  async function handleReject(co, reason) {
+    try {
+      await rejectRequest(co.id, userName, reason);
+      toast('Checkout rejected.');
+    } catch (err) {
+      toast(err?.message || 'Could not reject the checkout.', 'error');
+      throw err;
+    } finally {
+      refreshCheckouts();
+    }
   }
 
   async function handleRejectOrder(orderItems, reason) {
+    // P1-5: count real successes/failures.
+    let ok = 0, failed = 0;
     for (const co of orderItems) {
-      try { await api.updateItemCheckout(co.id, { status: 'rejected', resolved_by: userName, reject_reason: reason }); } catch { /* keep going */ }
+      try { await api.updateItemCheckout(co.id, { status: 'rejected', resolved_by: userName, reject_reason: reason }); ok++; } catch { failed++; }
     }
-    toast(`${orderItems.length} item${orderItems.length > 1 ? 's' : ''} rejected.`);
     refreshCheckouts();
+    if (failed === 0) toast(`Rejected ${ok} item${ok !== 1 ? 's' : ''}.`);
+    else toast(`Rejected ${ok} · ${failed} failed.`, 'error');
   }
 
   // Neil's "one big bug": the manager must be able to check an item back in
@@ -6548,16 +6705,20 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
   }
 
   async function handleAllocateOrder(orderItems, { photoBy, batch, photoMap }) {
+    // P1-5: count real successes/failures in both handover paths.
+    let ok = 0, failed = 0;
     if (photoBy === 'employee') {
       for (const co of orderItems) {
-        try { await initiateHandover(co.id, userName); } catch { /* keep going */ }
+        try { await initiateHandover(co.id, userName); ok++; } catch { failed++; }
       }
-      toast(`${orderItems[0]?.requestedBy} has been notified to confirm receipt of ${orderItems.length} item${orderItems.length > 1 ? 's' : ''}.`);
+      if (failed === 0) toast(`${orderItems[0]?.requestedBy} has been notified to confirm receipt of ${ok} item${ok !== 1 ? 's' : ''}.`);
+      else toast(`Notified for ${ok} · ${failed} failed.`, 'error');
     } else {
       for (const co of orderItems) {
-        try { await allocateItem(co.id, userName, photoMap[co.id]?.url || '', photoMap[co.id]?.name || '', { handoverPhotoBy: 'allocator', handoverBatch: batch }); } catch { /* keep going */ }
+        try { await allocateItem(co.id, userName, photoMap[co.id]?.url || '', photoMap[co.id]?.name || '', { handoverPhotoBy: 'allocator', handoverBatch: batch }); ok++; } catch { failed++; }
       }
-      toast(`${orderItems.length} item${orderItems.length > 1 ? 's' : ''} handed over to ${orderItems[0]?.requestedBy}.`);
+      if (failed === 0) toast(`${ok} item${ok !== 1 ? 's' : ''} handed over to ${orderItems[0]?.requestedBy}.`);
+      else toast(`Handed over ${ok} · ${failed} failed.`, 'error');
       refreshItems();
     }
     refreshCheckouts();
@@ -7013,7 +7174,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
                 <button className="secondary-btn" style={{ fontSize:12 }} onClick={() => { setApprovingId(null); setPickedFulfiller(''); }} disabled={busyId === r.id}>Cancel</button>
                 <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
                   disabled={!pickedFulfiller || busyId === r.id} onClick={() => submitApprove(r)}>
-                  {busyId === r.id ? <Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> : <CheckCircle size={13} />} Confirm Approval
+                  {busyId === r.id ? <Loader2 size={13} style={{ animation:'spin 1s linear infinite' }} /> : <CheckCircle size={13} />} Confirm approval
                 </button>
               </div>
             </div>
@@ -7061,7 +7222,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
               {r.status === 'manager_approved' && (
                 <button className="secondary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
                   onClick={() => { setOrderingId(r.id); setOrderNote(''); }}>
-                  <Send size={12} /> Mark Ordered
+                  <Send size={12} /> Mark ordered
                 </button>
               )}
               <button className="secondary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, color:'var(--muted)' }}
@@ -7072,7 +7233,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
               <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
                 title="Item received — add it to the items catalog (and optionally assign it to the requester)"
                 onClick={() => setAddingForReq(r)}>
-                <Package size={12} /> Received — Add to Items
+                <Package size={12} /> Received — add to items
               </button>
             </div>
           )
@@ -7088,7 +7249,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
       <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:14 }}>
         <button className="primary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:6, padding:'7px 16px' }}
           onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view:'purchase', sub:'new' } }))}>
-          <Plus size={13} /> New Purchase Request
+          <Plus size={13} /> New purchase request
         </button>
       </div>
       {pending.length > 0 && (
@@ -7201,6 +7362,7 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
   const [view, setView] = useState('person'); // 'person' | 'location' (Neil: split Who Has What)
   const [photoPreview, setPhotoPreview] = useState(null);
   const [detail, setDetail] = useState(null);
+  const nameOf = useNameResolver(); // never show a raw email as the holder label (P4 names)
 
   // Transient: live checkouts grouped by holder
   const holders = useMemo(() => {
@@ -7281,7 +7443,7 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
     p.items.some(i => (i.name || '').toLowerCase().includes(search.toLowerCase()))
   ), [places, search]);
   const holderOf = (i) => {
-    if (i.assignedToName || i.assignedToEmail) return i.assignedToName || i.assignedToEmail;
+    if (i.assignedToName || i.assignedToEmail) return nameOf(i.assignedToEmail, i.assignedToName);
     const co = checkouts.find(c => c.itemId === i.id && ['approved','pending_receipt','allocated'].includes(c.status));
     return co ? co.requestedBy : '';
   };
@@ -7296,7 +7458,7 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
         </div>
         {/* By Person / By Location (Neil: search GSE → see everything there) */}
         <div style={{ display:'inline-flex', border:'1px solid var(--line)', borderRadius:9, overflow:'hidden', flexShrink:0 }}>
-          {[['person', 'By Person', User], ['location', 'By Location', MapPin]].map(([k, label, Icon]) => (
+          {[['person', 'By person', User], ['location', 'By location', MapPin]].map(([k, label, Icon]) => (
             <button key={k} onClick={() => setView(k)}
               style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'7px 14px', fontSize:12.5, fontWeight:700, border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif', background: view === k ? 'var(--pine)' : 'var(--card)', color: view === k ? '#fff' : 'var(--muted)' }}>
               <Icon size={13} /> {label}
@@ -7545,19 +7707,21 @@ export default function InventoryManagement({ activeSub }) {
     setCart(prev => [...prev, { id: optimisticId, item, days: 1 }]);
     api.addItemToCart({ item_id: item.id, item_name: item.name, item_type: item.itemType })
       .then(saved => setCart(prev => prev.map(c => c.id === optimisticId ? { id: saved.id, item, days: 1 } : c)))
-      .catch(() => setCart(prev => prev.filter(c => c.id !== optimisticId)));
-  }, [inCart]);
+      // P4: surface the failure instead of the row silently disappearing.
+      .catch(err => { setCart(prev => prev.filter(c => c.id !== optimisticId)); toast(err?.message || 'Could not add item to cart.', 'error'); });
+  }, [inCart, toast]);
   function removeFromCart(cartId) {
     const entry = cart.find(c => c.id === cartId);
     setCart(prev => prev.filter(c => c.id !== cartId));
-    if (entry) api.removeItemFromCart(entry.item.id).catch(() => {});
+    // P4: on failure, restore the row and tell the user rather than swallowing it.
+    if (entry) api.removeItemFromCart(entry.item.id).catch(err => { setCart(prev => prev.some(c => c.id === cartId) ? prev : [...prev, entry]); toast(err?.message || 'Could not remove item from cart.', 'error'); });
   }
   function handleDaysChange(cartId, days) {
     setCart(prev => prev.map(c => c.id === cartId ? { ...c, days } : c));
   }
-  async function handleSubmitCart({ reason, approverEmail, approverName }) {
+  async function handleSubmitCart({ reason, approverEmail, approverName, forName = '', forEmail = '' }) {
     setCartBusy(true);
-    const results = await submitCartCheckouts(cart, { reason, raisedBy: userName, raisedByEmail: userEmail, approverEmail, approverName });
+    const results = await submitCartCheckouts(cart, { reason, raisedBy: userName, raisedByEmail: userEmail, forName, forEmail, approverEmail, approverName });
     const succeededItems = cart.filter((_, i) => results[i].status === 'fulfilled');
     const failedItems    = cart.filter((_, i) => results[i].status === 'rejected');
     await Promise.all(succeededItems.map(c => api.removeItemFromCart(c.item.id).catch(() => {})));
@@ -7828,11 +7992,15 @@ export default function InventoryManagement({ activeSub }) {
       .catch(() => { throw new Error(`Could not confirm receipt for ${co.itemName}.`); }),
     [confirmReceipt, userName]);
   const handleReturnAll = useCallback(async (cos, data) => {
+    // P1-5: count real successes/failures rather than always claiming all N returned.
+    let ok = 0, failed = 0;
     for (const c of cos) {
-      try { await returnItem(c.id, data); } catch { /* keep going */ }
+      try { await returnItem(c.id, data); ok++; } catch { failed++; }
     }
-    toast(`Returned ${cos.length} item${cos.length !== 1 ? 's' : ''}.`);
-  }, [returnItem, toast]);
+    refreshCheckouts();
+    if (failed === 0) toast(`Returned ${ok} item${ok !== 1 ? 's' : ''}.`);
+    else toast(`Returned ${ok} · ${failed} failed.`, 'error');
+  }, [returnItem, toast, refreshCheckouts]);
   const handleRequestExtension = useCallback((co, days, reason) =>
     api.requestItemExtension(co.id, { days, reason })
       .then(() => { toast(`Extension requested for ${co.itemName} — awaiting approval.`); refreshCheckouts(); }),
@@ -8043,11 +8211,16 @@ export default function InventoryManagement({ activeSub }) {
           filterControls={filterSelects}
           kpiStrip={
             <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(auto-fit, minmax(104px, 1fr))', gap:8, margin:'0 0 16px' }}>
+              {/* Tiles now cover every lifecycle bucket so the counts reconcile against
+                  Total items (P4): available-to-checkout + unassigned-permanent +
+                  assigned-to-location + assigned-to-person + checked-out (+ retired). */}
               {[
                 { label:'Available to check out', value: deptItems.filter(i => i.status === 'available' && i.ownershipType !== 'permanent').length, color:'card-green'  },
                 { label:'Unassigned permanent',   value: deptItems.filter(i => displayStatus(i) === 'unassigned').length, color:'card-purple' },
-                { label:'Total items', value: deptItems.length,                                          color:'card-blue'   },
+                { label:'Assigned · location',    value: deptItems.filter(i => displayStatus(i) === 'location_assigned').length, color:'card-blue' },
+                { label:'Assigned · person',      value: deptItems.filter(i => i.status === 'permanently_assigned').length, color:'card-blue' },
                 { label:'Checked out', value: deptItems.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
+                { label:'Total items', value: deptItems.length,                                          color:'card-blue'   },
                 { label:'Items value', value: fmtMoney(deptItems.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },
               ].map(({ label, value, color }) => (
                 <div key={label} className={`kpi-card ${color}`} style={{ padding:'8px 11px' }}>
@@ -8159,12 +8332,18 @@ export default function InventoryManagement({ activeSub }) {
       {returningCo  && (
         <ReturnModal checkout={returningCo} onClose={() => setReturningCo(null)}
           photoOptional={photoOptionalIds.has(returningCo.itemId)}
-          onSubmit={data => returnItem(returningCo.id, data).then(() => { toast(`Return confirmed — ${returningCo.itemName}`); setReturningCo(null); })} />
+          onSubmit={data => returnItem(returningCo.id, data)
+            .then(() => { toast(`Return confirmed — ${returningCo.itemName}`); setReturningCo(null); })
+            .catch(err => toast(err?.message || 'Could not confirm return — please try again.', 'error'))} />
       )}
 
+      {/* P1-15: managers pick a targeted approver here too — without showApprover this
+          cart submitted approver_email:'' and broadcast to every manager. (Follow-up:
+          this Manage-mode cart is a second, divergent cart state from the employee
+          path — unify to one cart context in a later refactor.) */}
       <CartDrawer open={cartOpen} cart={cart} items={items} onClose={() => setCartOpen(false)}
         onRemove={removeFromCart} onSubmit={handleSubmitCart} submitting={cartBusy}
-        onDaysChange={handleDaysChange} />
+        onDaysChange={handleDaysChange} showApprover />
 
       <Toast toasts={toasts} onDismiss={dismissToast} />
     </div>
