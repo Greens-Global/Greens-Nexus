@@ -3537,15 +3537,13 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
             ...(showManage && onEnterManage ? [{ Icon:Box, colorVar:'color-purple', title:'Manage items', sub:'Add, edit, assign, import, types and the activity log — the full management tools.', go:onEnterManage, badge:null }] : []),
           ];
           const purchaseCard = { Icon:ClipboardList, colorVar:'color-orange', title:'Purchase request', sub:'Need something not in the catalog? Submit a formal purchase request.', go:() => window.dispatchEvent(new CustomEvent('nexus:navigate',{detail:{view:'purchase'}})), badge:null };
+          // All actions in one responsive grid so every card is the same size
+          // (Purchase request used to sit in its own 380px row, which read as
+          // a shrunken odd-one-out next to the full-width top cards).
           return (
-            <>
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))', gap:16 }}>
-                {topCards.map(renderCard)}
-              </div>
-              <div style={{ display:'grid', gridTemplateColumns:'minmax(0,1fr)', gap:16, marginTop:16, maxWidth:380, marginBottom:cart.length ? 28 : 0 }}>
-                {renderCard(purchaseCard)}
-              </div>
-            </>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:16, marginBottom:cart.length ? 28 : 0 }}>
+              {[...topCards, purchaseCard].map(renderCard)}
+            </div>
           );
         })()}
         {cart.length > 0 && (
@@ -7709,7 +7707,10 @@ export default function InventoryManagement({ activeSub }) {
       .then(saved => setCart(prev => prev.map(c => c.id === optimisticId ? { id: saved.id, item, days: 1 } : c)))
       // P4: surface the failure instead of the row silently disappearing.
       .catch(err => { setCart(prev => prev.filter(c => c.id !== optimisticId)); toast(err?.message || 'Could not add item to cart.', 'error'); });
-  }, [inCart, toast]);
+    // `toast` intentionally omitted: it's a stable useCallback declared lower in
+    // this component, so listing it here read it in the temporal dead zone and
+    // crashed the whole view ("Cannot access 'toast' before initialization").
+  }, [inCart]); // eslint-disable-line react-hooks/exhaustive-deps
   function removeFromCart(cartId) {
     const entry = cart.find(c => c.id === cartId);
     setCart(prev => prev.filter(c => c.id !== cartId));

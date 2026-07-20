@@ -49,8 +49,12 @@ def create_notification(n: NotificationIn, user: dict = Depends(get_current_user
         raise HTTPException(400, "Title too long (max 200 chars)")
     if len(n.body) > 1000:
         raise HTTPException(400, "Body too long (max 1000 chars)")
+    # Server-generate the id and INSERT (never merge/upsert on a client id) — a
+    # client-supplied id + merge let a supervisor overwrite any existing
+    # notification's contents/recipient. Ignore n.id entirely.
+    server_id = str(uuid.uuid4())
     row = NexusNotification(
-        id           = n.id,
+        id           = server_id,
         type         = n.type,
         recipient    = (n.recipient or "").lower(),
         title        = n.title,
@@ -63,9 +67,9 @@ def create_notification(n: NotificationIn, user: dict = Depends(get_current_user
         read_by      = "",
         created_at   = datetime.now(timezone.utc).isoformat(),
     )
-    db.merge(row)   # upsert — idempotent on repeated calls
+    db.add(row)
     db.commit()
-    return {"id": n.id}
+    return {"id": server_id}
 
 
 @router.get("")

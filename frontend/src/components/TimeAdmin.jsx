@@ -166,6 +166,43 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     api.timeTeamShots(shotDate, shotWho.email).then(r => setShotFrames(r.shots || [])).catch(() => setShotFrames([]));
   }, [shotWho, shotDate]);
 
+  // Disclosed-monitoring tamper/coverage alerts — surfaces employees who are
+  // clocked in while their agent has gone quiet (killed/uninstalled/offline), so
+  // evasion is a visible, attributable event rather than a silent success. Polled.
+  const [monAlerts, setMonAlerts] = useState([]);
+  useEffect(() => {
+    let live = true;
+    const loadAlerts = () => api.timeMonitoringAlerts()
+      .then(r => { if (live) setMonAlerts(Array.isArray(r?.alerts) ? r.alerts : []); })
+      .catch(() => {});
+    loadAlerts();
+    const t = setInterval(loadAlerts, 60000);
+    return () => { live = false; clearInterval(t); };
+  }, []);
+
+  // Punch-fix requests (employee add/remove) awaiting this approver's decision.
+  const [punchReqs, setPunchReqs] = useState([]);
+  const loadPunchReqs = useCallback(() =>
+    api.timePunchRequests('pending').then(r => setPunchReqs(Array.isArray(r) ? r : [])).catch(() => {}), []);
+  useEffect(() => {
+    loadPunchReqs();
+    const t = setInterval(loadPunchReqs, 60000);
+    return () => clearInterval(t);
+  }, [loadPunchReqs]);
+  async function decidePunchReq(id, status) {
+    let note = '';
+    if (status === 'rejected') {
+      const r = window.prompt('Reason (sent to the employee):');
+      if (r === null) return;   // cancelled
+      note = r;
+    }
+    try {
+      await api.timeDecidePunchRequest(id, { status, note });
+      toastOk(`Request ${status}.`);
+      loadPunchReqs();
+    } catch (e) { toastErr(e?.message || 'Could not update the request.'); }
+  }
+
   useEffect(() => {
     if (!person) { setPersonAct(null); return; }
     let live = true;
@@ -247,9 +284,34 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         ))}
       </div>
 
+      {/* Monitoring tamper/coverage alerts — clocked in but agent quiet. */}
+      {monAlerts.length > 0 && (
+        <div style={{ marginBottom: 16, border: '1px solid hsla(var(--color-red),0.4)', background: 'hsla(var(--color-red),0.06)', borderRadius: 12, padding: '12px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <AlertTriangle size={15} style={{ color: 'hsl(var(--color-red))' }} />
+            <span style={{ fontWeight: 800, fontSize: 13.5 }}>Monitoring alerts</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+              {monAlerts.length} clocked in with a quiet agent
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {monAlerts.map(a => (
+              <div key={a.email} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12.5 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                  background: a.severity === 'high' ? 'hsl(var(--color-red))' : '#b45309' }} />
+                <strong>{a.name}</strong>
+                <span style={{ fontWeight: 700, color: a.severity === 'high' ? 'hsl(var(--color-red))' : '#b45309' }}>{a.reason}</span>
+                {a.detail && <span style={{ color: 'var(--muted)' }}>{a.detail}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Sub-tabs */}
       <div className="chip-row scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
         {[['timecards', 'Timecards'], ['livemap', 'Live map'], ['attendance', 'Attendance'], ['insights', 'Insights'],
+          ['requests', `Punch requests${punchReqs.length ? ` (${punchReqs.length})` : ''}`],
           ['screenshots', 'Screenshots'], ['shifts', 'Shifts'], ['payroll', 'Payroll'],
           ['timeoff', `Time off${pendingCount ? ` (${pendingCount})` : ''}`]].map(([key, label]) => (
           <button key={key} onClick={() => setView(key)}
@@ -521,6 +583,38 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
       {view === 'payroll' && <PayrollTimecard toastOk={toastOk} toastErr={toastErr} />}
 
       {view === 'livemap' && <LiveCrewMap toastErr={toastErr} employees={employees} />}
+
+      {/* Punch-fix requests — employee asked to add/remove a punch; approve applies it. */}
+      {view === 'requests' && (
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
+          {punchReqs.length === 0 ? (
+            <div style={{ padding: '24px 18px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
+              No punch-fix requests waiting. When someone asks to add or remove a punch, it shows here for you to approve or reject.
+            </div>
+          ) : punchReqs.map(r => {
+            const kindLabel = { in: 'clock-in', out: 'clock-out', break_start: 'break start', break_end: 'break end' }[r.punchKind] || r.punchKind;
+            return (
+              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 220 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800 }}>{r.employeeName || r.employeeEmail}</div>
+                  <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 2 }}>
+                    {r.action === 'add'
+                      ? `Add a ${kindLabel} punch${r.at ? ` at ${new Date(r.at + 'Z').toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}`
+                      : 'Remove a punch'}
+                  </div>
+                  {r.reason && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>“{r.reason}”</div>}
+                </div>
+                <button className="secondary-btn" onClick={() => decidePunchReq(r.id, 'rejected')}
+                  style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>Reject</button>
+                <button className="primary-btn" onClick={() => decidePunchReq(r.id, 'approved')}
+                  style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <CheckCircle size={13} /> Approve
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Time-off register — requests table, pending rows carry the decisions */}
       {view === 'timeoff' && (

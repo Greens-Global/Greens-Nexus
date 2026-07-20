@@ -36,7 +36,8 @@ from auth import get_current_user, require_level_or_module, require_administrato
 from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, TimeBod,
                     AgentDevice, AgentActivity, Shift, ShiftGroup, ShiftGroupMember,
                     ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee,
-                    TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent)
+                    TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
+                    PunchRequest)
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET
 from routers.esign import _client_meta
 
@@ -804,6 +805,234 @@ def set_monitoring_policy(body: MonitoringPolicyIn, user: dict = Depends(require
     p.updated_by, p.updated_at = user["email"], _now_iso()
     db.commit()
     return _policy_dict(p)
+
+
+@router.get("/monitoring/alerts")
+def monitoring_alerts(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """Tamper/coverage alerts: employees who are CLOCKED IN while monitoring is on,
+    but whose agent has gone quiet — the honest, visible way to catch someone
+    killing/uninstalling the agent to dodge capture. Nothing is hidden; the gap is
+    surfaced to their manager (team-scoped) as an attributable event. Computed from
+    existing heartbeat/punch/screenshot data — no new storage."""
+    pol = _get_policy(db)
+    if not pol.enabled:
+        return {"enabled": False, "alerts": []}
+    visible = _visible_emails(db, user)   # None = whole company (admin/HR grant)
+    now = datetime.now(timezone.utc)
+    interval_min = max(1, int(pol.interval_minutes or 5))
+    # Heartbeat is ~1/min; treat an enrolled agent as "quiet" after 5 min or two
+    # capture intervals, whichever is longer. Screenshot gap uses ~2.5 intervals.
+    stale_sec = max(300, interval_min * 60 * 2 + 120)
+    shot_gap_sec = int(interval_min * 60 * 2.5) + 120
+
+    # Latest punch per employee over the last 2 days → who is currently clocked in.
+    since = (now - timedelta(days=2)).isoformat()
+    pq = db.query(TimePunch).filter(TimePunch.voided == 0, TimePunch.at >= since)
+    if visible is not None:
+        if not visible:
+            return {"enabled": True, "alerts": []}
+        pq = pq.filter(TimePunch.employee_email.in_(visible))
+    latest = {}
+    for p in pq.order_by(TimePunch.at.desc()).all():
+        latest.setdefault(p.employee_email, p)
+    clocked = {e: p for e, p in latest.items() if p.kind != "out"}
+    if not clocked:
+        return {"enabled": True, "alerts": []}
+
+    names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
+             for e in db.query(NexusEmployee).all() if e.work_email}
+
+    def _age(iso):
+        try:
+            dt = _parse_iso(iso)
+            return (now - dt).total_seconds() if dt else None
+        except Exception:
+            return None
+
+    alerts = []
+    for email, punch in clocked.items():
+        dev = (db.query(AgentDevice)
+               .filter(AgentDevice.employee_email == email, AgentDevice.revoked == 0)
+               .order_by(AgentDevice.last_seen_at.desc()).first())
+        last_shot = (db.query(TimeScreenshot)
+                     .filter(TimeScreenshot.employee_email == email)
+                     .order_by(TimeScreenshot.at.desc()).first())
+        shot_age = _age(last_shot.at) if last_shot else None
+        seen_age = _age(dev.last_seen_at) if (dev and dev.last_seen_at) else None
+
+        reason = detail = None
+        severity = "warning"
+        if not dev:
+            # Clocked in, monitoring on, but no agent is enrolled for them, and the
+            # web widget hasn't sent a frame recently either → not being captured.
+            if pol.track_screens and (shot_age is None or shot_age > shot_gap_sec):
+                reason, severity = "No agent reporting", "high"
+                detail = "Clocked in with no enrolled agent and no recent capture."
+        elif seen_age is None or seen_age > stale_sec:
+            reason, severity = "Agent stopped reporting", "high"
+            detail = (f"Last checked in {int(seen_age // 60)} min ago."
+                      if seen_age is not None else "Agent has never checked in.")
+        elif pol.track_screens and (shot_age is None or shot_age > shot_gap_sec):
+            reason, severity = "No recent screenshots", "warning"
+            detail = (f"Agent is reporting but last frame was {int(shot_age // 60)} min ago."
+                      if shot_age is not None else "Agent is reporting but no frames yet.")
+
+        if reason:
+            alerts.append({
+                "email": email,
+                "name": names.get(email) or email.split("@")[0].replace(".", " ").title(),
+                "reason": reason, "detail": detail, "severity": severity,
+                "clockedInSince": punch.at,
+                "deviceName": (dev.device_name or dev.label) if dev else "",
+                "lastSeenAt": dev.last_seen_at if dev else "",
+                "lastShotAt": last_shot.at if last_shot else "",
+            })
+    # High severity first, then most-recently clocked in
+    alerts.sort(key=lambda a: (a["severity"] != "high", a["clockedInSince"]), reverse=False)
+    return {"enabled": True, "alerts": alerts, "checkedAt": _now_iso()}
+
+
+# ── Punch-fix requests (employee asks, approver approves/rejects) ─────────────
+# An employee can request to ADD a missed punch or REMOVE a wrong one. Nothing
+# changes on the timesheet until an approver (HR/manager) approves — then the
+# punch is created/voided with a full audit trail. Both parties are notified.
+
+_PR_KINDS = ("in", "out", "break_start", "break_end")
+
+
+def _pr_dict(r: PunchRequest) -> dict:
+    return {
+        "id": r.id, "employeeEmail": r.employee_email, "employeeName": r.employee_name,
+        "action": r.action, "punchKind": r.punch_kind, "at": r.at, "localDate": r.local_date,
+        "targetPunchId": r.target_punch_id, "reason": r.reason, "status": r.status,
+        "decidedBy": r.decided_by, "decidedAt": r.decided_at, "decisionNote": r.decision_note,
+        "appliedPunchId": r.applied_punch_id, "createdAt": r.created_at,
+    }
+
+
+class PunchRequestIn(BaseModel):
+    action:         str = "add"          # add | remove
+    punch_kind:     Optional[str] = "in" # for add
+    at:             Optional[str] = ""   # for add: UTC ISO of the requested punch
+    target_punch_id: Optional[str] = ""  # for remove
+    reason:         str = ""
+    tz_offset_min:  Optional[int] = 0
+
+
+@router.post("/punch-requests")
+def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    email = user["email"]
+    reason = (body.reason or "").strip()
+    if not reason:
+        raise HTTPException(400, "Please give a reason so your approver can review it.")
+    action = body.action if body.action in ("add", "remove") else "add"
+    now = _now_iso()
+    at_utc, target_id, local_date = "", "", _local_date(now, body.tz_offset_min or 0)
+    if action == "add":
+        if body.punch_kind not in _PR_KINDS:
+            raise HTTPException(400, f"punch_kind must be one of {_PR_KINDS}")
+        at_utc = (body.at or "").strip()
+        if not at_utc or not _parse_iso(at_utc):
+            raise HTTPException(400, "Pick the date and time for the punch.")
+        local_date = _local_date(at_utc, body.tz_offset_min or 0)
+    else:  # remove
+        target_id = (body.target_punch_id or "").strip()
+        tp = db.query(TimePunch).filter(TimePunch.id == target_id,
+                                        TimePunch.employee_email == email, TimePunch.voided == 0).first()
+        if not tp:
+            raise HTTPException(404, "That punch isn't yours or no longer exists.")
+        local_date = tp.local_date
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+    name = f"{emp.first_name} {emp.last_name}".strip() if emp else email.split("@")[0].replace(".", " ").title()
+    req = PunchRequest(id=str(uuid.uuid4()), employee_email=email, employee_name=name,
+                       action=action, punch_kind=body.punch_kind or "in", at=at_utc,
+                       local_date=local_date, tz_offset_min=body.tz_offset_min or 0,
+                       target_punch_id=target_id, reason=reason, status="pending", created_at=now)
+    db.add(req)
+    # Notify the approver (the employee's manager). If no manager is set, the
+    # request still surfaces in the team review queue below.
+    what = (f"add a {body.punch_kind} punch" if action == "add" else "remove a punch")
+    if emp and emp.manager_email:
+        _hr_notify(db, emp.manager_email, "Timesheet fix requested",
+                   f"{name} asked to {what}. Reason: {reason}",
+                   ref_id=req.id, action={"view": "hr", "sub": "hr-time"})
+    db.commit()
+    return _pr_dict(req)
+
+
+@router.get("/punch-requests/mine")
+def my_punch_requests(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = (db.query(PunchRequest).filter(PunchRequest.employee_email == user["email"])
+            .order_by(PunchRequest.created_at.desc()).limit(50).all())
+    return [_pr_dict(r) for r in rows]
+
+
+@router.get("/punch-requests")
+def list_punch_requests(status: str = "pending", user: dict = Depends(require_team_read),
+                        db: Session = Depends(get_db)):
+    """Approver review queue — team-scoped, so a manager sees only their reports'."""
+    visible = _visible_emails(db, user)
+    q = db.query(PunchRequest)
+    if status:
+        q = q.filter(PunchRequest.status == status)
+    if visible is not None:
+        if not visible:
+            return []
+        q = q.filter(PunchRequest.employee_email.in_(visible))
+    return [_pr_dict(r) for r in q.order_by(PunchRequest.created_at.desc()).limit(200).all()]
+
+
+class PunchRequestDecision(BaseModel):
+    status: str            # approved | rejected
+    note:   Optional[str] = ""
+
+
+@router.patch("/punch-requests/{req_id}")
+def decide_punch_request(req_id: str, body: PunchRequestDecision,
+                         user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    r = db.query(PunchRequest).filter(PunchRequest.id == req_id).with_for_update().first()
+    if not r:
+        raise HTTPException(404, "Request not found")
+    if r.status != "pending":
+        raise HTTPException(409, f"This request was already {r.status}.")
+    visible = _visible_emails(db, user)
+    if visible is not None and r.employee_email not in visible:
+        raise HTTPException(403, "That employee isn't on your team.")
+    decision = body.status if body.status in ("approved", "rejected") else ""
+    if not decision:
+        raise HTTPException(400, "status must be approved or rejected")
+    now = _now_iso()
+    note = (body.note or "").strip()
+    if decision == "approved":
+        if r.action == "add":
+            tp = TimePunch(id=str(uuid.uuid4()), employee_email=r.employee_email, kind=r.punch_kind,
+                           at=r.at, local_date=r.local_date, tz_offset_min=r.tz_offset_min or 0,
+                           geo_status="no_location", source="manual", note=r.reason[:300],
+                           created_by=user["email"], created_at=now,
+                           adjust_note=f"Approved punch-fix request by {user['email']}")
+            db.add(tp); db.flush()
+            r.applied_punch_id = tp.id
+        else:  # remove → void the target punch (kept for audit, excluded from totals)
+            tp = db.query(TimePunch).filter(TimePunch.id == r.target_punch_id).first()
+            if tp:
+                tp.voided = 1
+                tp.adjusted_by = user["email"]
+                tp.adjusted_at = now
+                tp.adjust_note = f"Voided via approved punch-fix request. {note}".strip()
+                r.applied_punch_id = tp.id
+        _hr_notify(db, r.employee_email, "Timesheet fix approved",
+                   f"Your request to {'add' if r.action=='add' else 'remove'} a punch was approved."
+                   + (f" Note: {note}" if note else ""),
+                   ref_id=r.id, action={"view": "timeclock", "sub": "timesheet"})
+    else:  # rejected
+        _hr_notify(db, r.employee_email, "Timesheet fix rejected",
+                   f"Your request to {'add' if r.action=='add' else 'remove'} a punch was not approved."
+                   + (f" Reason: {note}" if note else ""),
+                   ref_id=r.id, action={"view": "timeclock", "sub": "timesheet"})
+    r.status = decision
+    r.decided_by, r.decided_at, r.decision_note = user["email"], now, note
+    db.commit()
+    return _pr_dict(r)
 
 
 # ── Silent agent enrollment (no-login, token-authenticated devices) ───────────

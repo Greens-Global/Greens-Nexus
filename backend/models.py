@@ -1437,6 +1437,30 @@ class MonitoringPolicy(Base):
     updated_at       = Column(String, default="")
 
 
+class PunchRequest(Base):
+    """An employee's request to FIX their timesheet — add a missed punch or remove
+    a wrong one — that an approver (HR/manager) must approve or reject before it
+    takes effect. Unlike a self-service backfill (which lands immediately, flagged),
+    this is gated: nothing changes on the timesheet until approved."""
+    __tablename__ = "punch_requests"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    employee_name  = Column(String, default="")
+    action         = Column(String, default="add")      # add | remove
+    punch_kind     = Column(String, default="in")       # add: in|out|break_start|break_end
+    at             = Column(String, default="")          # add: requested punch time (UTC ISO)
+    local_date     = Column(String, default="", index=True)
+    tz_offset_min  = Column(Integer, default=0)
+    target_punch_id= Column(String, default="")          # remove: which punch to void
+    reason         = Column(String, default="")          # employee's justification (required)
+    status         = Column(String, default="pending", index=True)  # pending | approved | rejected
+    decided_by     = Column(String, default="")          # approver email
+    decided_at     = Column(String, default="")
+    decision_note  = Column(String, default="")          # approver's note (esp. on reject)
+    applied_punch_id = Column(String, default="")        # the TimePunch created/voided on approval
+    created_at     = Column(String, default="")
+
+
 class MonitoringConsent(Base):
     """Per-day record that the employee was shown, and acknowledged, the monitoring
     notice at clock-in. Enforced server-side: with monitoring enabled, the first
