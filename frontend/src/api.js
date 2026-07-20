@@ -1,22 +1,7 @@
 import { msalInstance, msalReady } from './msalInstance';
 import { apiTokenRequest } from './authConfig';
-import { InteractionRequiredAuthError } from '@azure/msal-browser';
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
-
-// When the silent token refresh fails because the session genuinely needs
-// interaction (expired refresh token, or third-party-cookie-blocked silent
-// renewal behind an ad-blocker/VPN), the old code returned no header, so every
-// request 401'd forever and the user sat in a "logged in but nothing works"
-// shell. Instead, re-authenticate via redirect. Guarded so it can't loop:
-// single-flight (_reauthing), throttled across reloads (30s), and never in E2E.
-let _reauthing = false;
-function _shouldReauth(err) {
-  if (import.meta.env.VITE_E2E === 'true' || _reauthing) return false;
-  try { if (Date.now() - Number(sessionStorage.getItem('nexus:reauth-at') || 0) < 30000) return false; } catch { /* ignore */ }
-  return err instanceof InteractionRequiredAuthError
-    || ['interaction_required', 'login_required', 'consent_required'].includes(err?.errorCode);
-}
 
 async function getAuthHeader(forceRefresh = false) {
   // Wait for MSAL to finish loading its cache before asking for a token.
@@ -32,12 +17,7 @@ async function getAuthHeader(forceRefresh = false) {
       forceRefresh,
     });
     return { Authorization: `Bearer ${result.idToken}` };
-  } catch (err) {
-    if (_shouldReauth(err)) {
-      _reauthing = true;
-      try { sessionStorage.setItem('nexus:reauth-at', String(Date.now())); } catch { /* ignore */ }
-      msalInstance.acquireTokenRedirect({ ...apiTokenRequest, account: accounts[0] }).catch(() => {});
-    }
+  } catch {
     return {};
   }
 }
