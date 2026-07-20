@@ -1685,7 +1685,8 @@ def _ensure_departments(db: Session, entity: HrEntity) -> None:
 
 
 def _serialize_dept(d: HrDepartment) -> dict:
-    return {"id": d.id, "name": d.name, "sortOrder": d.sort_order}
+    return {"id": d.id, "name": d.name, "sortOrder": d.sort_order,
+            "leadEmail": d.lead_email or "", "backupEmail": d.backup_email or ""}
 
 
 @router.get("/entities/{entity_id}/departments")
@@ -1718,6 +1719,28 @@ def add_department(entity_id: str, body: DepartmentIn, user: dict = Depends(requ
         return [_serialize_dept(d) for d in sorted(rows, key=lambda d: (d.sort_order, d.name))]
     nxt = max([r.sort_order for r in rows], default=-1) + 1
     db.add(HrDepartment(id=str(uuid.uuid4()), company_id=entity_id, name=name, sort_order=nxt, created_by=user["email"], created_at=datetime.now(timezone.utc).isoformat()))
+    db.commit()
+    rows = db.query(HrDepartment).filter(HrDepartment.company_id == entity_id).order_by(HrDepartment.sort_order, HrDepartment.name).all()
+    return [_serialize_dept(d) for d in rows]
+
+
+class DepartmentUpdate(BaseModel):
+    lead_email:   Optional[str] = None
+    backup_email: Optional[str] = None
+
+
+@router.patch("/entities/{entity_id}/departments/{dept_id}")
+def update_department(entity_id: str, dept_id: str, body: DepartmentUpdate,
+                      user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Set the triage lead / backup for a department. Tickets raised against it are
+    left unassigned and these two are notified to assign an employee."""
+    row = db.query(HrDepartment).filter(HrDepartment.id == dept_id, HrDepartment.company_id == entity_id).first()
+    if not row:
+        raise HTTPException(404, "Department not found")
+    if body.lead_email is not None:
+        row.lead_email = (body.lead_email or "").strip().lower()
+    if body.backup_email is not None:
+        row.backup_email = (body.backup_email or "").strip().lower()
     db.commit()
     rows = db.query(HrDepartment).filter(HrDepartment.company_id == entity_id).order_by(HrDepartment.sort_order, HrDepartment.name).all()
     return [_serialize_dept(d) for d in rows]

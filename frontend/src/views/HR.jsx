@@ -2665,12 +2665,15 @@ function LeaveTab({ employees, toastOk, toastErr }) {
 // ── Companies / legal entities manager (HR Section A) ────────────────────────
 // Manage one company's department list (Neil: departments live within a company,
 // custom per company — not a Nexus-wide hardcoded list).
-function CompanyDepartments({ entity, toastOk, toastErr }) {
+function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
   const [depts, setDepts] = useState(null);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const load = () => api.getCompanyDepartments(entity.id).then(setDepts).catch(() => setDepts([]));
   useEffect(() => { setDepts(null); load(); }, [entity.id]);
+  // Anyone with a work email can lead triage — not restricted to this company, since
+  // a shared function (IT, Finance) often serves several entities.
+  const staff = employees.filter(e => e.workEmail && e.status !== 'offboarded');
   async function add() {
     const n = name.trim();
     if (!n || busy) return; setBusy(true);
@@ -2681,6 +2684,13 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
   async function remove(d) {
     try { const list = await api.deleteCompanyDepartment(entity.id, d.id); setDepts(list); }
     catch (e) { toastErr(e?.message || 'Could not remove department.'); }
+  }
+  async function setOwner(d, field, email) {
+    try {
+      const list = await api.updateCompanyDepartment(entity.id, d.id, { [field]: email });
+      setDepts(list);
+      toastOk?.(email ? `${d.name} tickets now go to ${email}.` : `Cleared ${d.name} ${field === 'lead_email' ? 'lead' : 'backup'}.`);
+    } catch (e) { toastErr(e?.message || 'Could not update department.'); }
   }
   return (
     <div style={{ overflowY: 'auto', flex: 1, padding: '16px 22px' }}>
@@ -2697,26 +2707,45 @@ function CompanyDepartments({ entity, toastOk, toastErr }) {
       {depts === null ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>Loading…</div>
         : depts.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>No departments yet — add the first one above.</div>
         : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 1.4fr 32px', gap: 10, padding: '8px 12px', background: 'var(--paper)', borderBottom: '1px solid var(--line)', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>
+              <span>Department</span><span>Ticket lead</span><span>Backup</span><span />
+            </div>
             {depts.map(d => (
-              <span key={d.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 8px 6px 13px', borderRadius: 20, background: 'var(--paper)', border: '1px solid var(--line)', fontSize: 13, fontWeight: 600 }}>
-                {d.name}
+              <div key={d.id} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.4fr 1.4fr 32px', gap: 10, padding: '8px 12px', alignItems: 'center', borderBottom: '1px solid var(--line)' }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{d.name}</span>
+                {['lead_email', 'backup_email'].map(fieldKey => {
+                  const current = fieldKey === 'lead_email' ? (d.leadEmail || '') : (d.backupEmail || '');
+                  const unset = fieldKey === 'lead_email' && !current;
+                  return (
+                    <select key={fieldKey} className="form-input" value={current}
+                      onChange={e => setOwner(d, fieldKey, e.target.value)}
+                      style={{ fontSize: 12.5, padding: '5px 8px', ...(unset ? { borderColor: 'hsl(var(--color-amber))' } : null) }}>
+                      <option value="">{fieldKey === 'lead_email' ? '— no lead —' : '— none —'}</option>
+                      {staff.map(p => <option key={p.workEmail} value={p.workEmail.toLowerCase()}>{p.fullName || p.workEmail}</option>)}
+                    </select>
+                  );
+                })}
                 <button onClick={() => remove(d)} title={`Remove ${d.name}`} aria-label={`Remove ${d.name}`}
-                  style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', padding: 0 }}
+                  style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 24, height: 24, borderRadius: '50%', padding: 0 }}
                   onMouseOver={e => { e.currentTarget.style.background = 'hsla(var(--color-red),0.14)'; e.currentTarget.style.color = 'hsl(var(--color-red))'; }}
                   onMouseOut={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--muted)'; }}>
                   <X size={13} />
                 </button>
-              </span>
+              </div>
             ))}
           </div>
         )}
-      <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 16 }}>Removing a department leaves anyone already in it untouched — it just stops being pickable.</p>
+      <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 16 }}>
+        Tickets raised against a department arrive unassigned and notify its <strong>ticket lead</strong> (and backup), who assigns them to an employee.
+        A department with no lead notifies nobody — its tickets sit in the triage queue until someone picks them up.
+      </p>
+      <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>Removing a department leaves anyone already in it untouched — it just stops being pickable.</p>
     </div>
   );
 }
 
-function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
+function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, toastErr }) {
   const blank = { name: '', legal_name: '', country: '', tax_id: '', registered_address: '', signatory: '', notes: '', domains: '', manager_email: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [f, setF] = useState(blank);
@@ -2786,7 +2815,7 @@ function EntitiesModal({ entities, onClose, onChanged, toastOk, toastErr }) {
         {deptId ? (
           <>
             {deptEntity
-              ? <CompanyDepartments entity={deptEntity} toastOk={toastOk} toastErr={toastErr} />
+              ? <CompanyDepartments entity={deptEntity} employees={employees} toastOk={toastOk} toastErr={toastErr} />
               : <div style={{ flex: 1, padding: 24, color: 'var(--muted)' }}>Company not found.</div>}
             <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
               <button className="secondary-btn" onClick={() => setMode(null)}>Back</button>
@@ -3724,7 +3753,7 @@ export default function HR({ activeSub, onSubChange }) {
           onSaved={onSaved} toastOk={toastOk} toastErr={toastErr} />
       )}
       {entitiesOpen && (
-        <EntitiesModal entities={entities} onClose={() => setEntitiesOpen(false)}
+        <EntitiesModal entities={entities} employees={employees} onClose={() => setEntitiesOpen(false)}
           onChanged={() => { load(); return loadEntities(); }} toastOk={toastOk} toastErr={toastErr} />
       )}
       {sitesOpen && (

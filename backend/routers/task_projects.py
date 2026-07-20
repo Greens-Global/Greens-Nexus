@@ -1,6 +1,11 @@
-"""Task Module — organisation router: projects, portfolios, departments, and the
-department member-request workflow. Single router with absolute paths (one
-include in main.py). Email-keyed; serialisers emit the export's runtime shape.
+"""Task Module — organisation router: projects, portfolios, teams, and the
+team member-request workflow. Single router with absolute paths (one include
+in main.py). Email-keyed; serialisers emit the export's runtime shape.
+
+"Team" (TaskTeam) is scoped to ONE project (IT Team/QA Team/... WITHIN a
+project) — not to be confused with a project's `hr_department_id`, which
+points at the real People-module department (HrDepartment) that owns the
+project. Same dual-field shape TaskTicket already uses for this distinction.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -9,7 +14,8 @@ from typing import Optional
 import models
 from database import get_db
 from auth import get_current_user
-from routers.task_util import now_iso, gen_id, task_notify, admin_emails
+from routers.task_util import now_iso, gen_id, task_notify, admin_emails, is_manager, visible_project_ids
+from routers.hr import _ensure_departments
 
 router = APIRouter(tags=["Tasks"], dependencies=[Depends(get_current_user)])
 
@@ -18,12 +24,33 @@ def _nz(v):
     return v if v not in ("", None) else None
 
 
+def _resolve_hr_department(db: Session, email: str):
+    """Auto-populate a project's department from its creator's own People-module
+    record, rather than a manual picker — name-matches NexusEmployee.department
+    against that person's company's HrDepartment list (_ensure_departments
+    already seeds/backfills that list from employee data). No match (employee
+    not found, no department set, etc.) -> ("", ""); a project without a
+    department stays valid."""
+    emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == email).first()
+    if not emp or not emp.company or not emp.department:
+        return "", ""
+    entity = db.query(models.HrEntity).filter(models.HrEntity.id == emp.company).first()
+    if not entity:
+        return "", ""
+    _ensure_departments(db, entity)
+    dept = (db.query(models.HrDepartment)
+            .filter(models.HrDepartment.company_id == emp.company,
+                    models.HrDepartment.name == emp.department).first())
+    return (dept.id, dept.name) if dept else ("", "")
+
+
 def project_to_dict(p: models.TaskProject) -> dict:
     return {
         "id": p.id, "name": p.name, "description": p.description or "", "color": _nz(p.color),
         "ownerId": _nz(p.owner_email), "memberIds": p.member_emails or [],
-        "portfolioId": _nz(p.portfolio_id), "departmentId": _nz(p.department_id),
-        "departmentIds": p.department_ids or ([p.department_id] if p.department_id else []),
+        "portfolioId": _nz(p.portfolio_id),
+        "hrDepartmentId": _nz(p.hr_department_id), "hrDepartmentName": _nz(p.hr_department_name),
+        "accessLevel": p.access_level or "org",
         "status": p.status or "not_started", "startOn": _nz(p.start_on), "dueOn": _nz(p.due_on),
         "archived": bool(p.archived), "activityIds": p.activity_ids or [],
         "createdAt": p.created_at or "", "modifiedAt": p.modified_at or "",
@@ -38,13 +65,13 @@ def portfolio_to_dict(p: models.TaskPortfolio) -> dict:
     }
 
 
-def department_to_dict(d: models.TaskDepartment) -> dict:
-    return {"id": d.id, "name": d.name, "color": d.color or "", "icon": d.icon or "",
+def team_to_dict(d: models.TaskTeam) -> dict:
+    return {"id": d.id, "projectId": _nz(d.project_id), "name": d.name, "color": d.color or "", "icon": d.icon or "",
             "memberIds": d.member_emails or [], "createdAt": d.created_at or ""}
 
 
 def member_request_to_dict(m: models.TaskMemberRequest) -> dict:
-    return {"id": m.id, "departmentId": m.department_id, "userId": _nz(m.user_email),
+    return {"id": m.id, "teamId": m.department_id, "userId": _nz(m.user_email),
             "kind": m.kind or "add", "requestedById": _nz(m.requested_by), "status": m.status or "pending",
             "createdAt": m.created_at or "", "decidedAt": _nz(m.decided_at), "decidedById": _nz(m.decided_by)}
 
@@ -58,8 +85,7 @@ class ProjectBody(BaseModel):
     owner_email: Optional[str] = ""
     member_emails: Optional[list] = None
     portfolio_id: Optional[str] = ""
-    department_id: Optional[str] = ""
-    department_ids: Optional[list] = None
+    access_level: Optional[str] = None
     status: Optional[str] = "not_started"
     start_on: Optional[str] = ""
     due_on: Optional[str] = ""
@@ -67,21 +93,28 @@ class ProjectBody(BaseModel):
 
 
 @router.get("/task-projects")
-def list_projects(db: Session = Depends(get_db)):
-    return [project_to_dict(p) for p in db.query(models.TaskProject).all()]
+def list_projects(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = db.query(models.TaskProject).all()
+    if is_manager(user):
+        return [project_to_dict(p) for p in rows]
+    visible = visible_project_ids(db, user["email"])
+    return [project_to_dict(p) for p in rows if p.id in visible]
 
 
 @router.post("/task-projects", status_code=201)
 def create_project(body: ProjectBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     now = now_iso()
-    # A project can belong to several teams; department_id stays the primary (first).
-    dept_ids = body.department_ids if body.department_ids is not None else ([body.department_id] if body.department_id else [])
-    dept_ids = [d for d in dept_ids if d]
+    hr_dept_id, hr_dept_name = _resolve_hr_department(db, user["email"])
     p = models.TaskProject(
         id=body.id or gen_id(), name=body.name, description=body.description or "",
         color=body.color or "", owner_email=(body.owner_email or user["email"]).lower(),
         member_emails=body.member_emails or [], portfolio_id=body.portfolio_id or "",
-        department_id=(dept_ids[0] if dept_ids else ""), department_ids=dept_ids, status=body.status or "not_started",
+        hr_department_id=hr_dept_id, hr_department_name=hr_dept_name,
+        # New projects default to 'restricted' (visible only to the owner,
+        # its teams' members, and task assignees) — a stricter default than
+        # the DB column's own 'org' backfill for pre-existing rows.
+        access_level=body.access_level or "restricted",
+        status=body.status or "not_started",
         start_on=body.start_on or "", due_on=body.due_on or "", archived=False,
         activity_ids=[], created_at=now, modified_at=now, created_by=user["email"],
     )
@@ -106,12 +139,6 @@ def update_project(project_id: str, body: ProjectBody, db: Session = Depends(get
         if k == "owner_email" and v is not None:
             v = (v or "").lower()
         setattr(p, k, v)
-    # keep the multi-team list and the primary department_id in sync
-    if "department_ids" in data:
-        p.department_ids = [d for d in (p.department_ids or []) if d]
-        p.department_id = p.department_ids[0] if p.department_ids else ""
-    elif "department_id" in data:
-        p.department_ids = [p.department_id] if p.department_id else []
     p.modified_at = now_iso()
     db.commit()
     db.refresh(p)
@@ -123,9 +150,12 @@ def delete_project(project_id: str, db: Session = Depends(get_db)):
     p = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).first()
     if not p:
         raise HTTPException(404, "Project not found")
-    # unlink tasks + portfolio references
+    # unlink tasks + portfolio references; a team can't outlive its project
     for t in db.query(models.Task).filter(models.Task.project_id == project_id).all():
         t.project_id = ""
+        t.team_id = ""
+    for team in db.query(models.TaskTeam).filter(models.TaskTeam.project_id == project_id).all():
+        db.delete(team)
     for pf in db.query(models.TaskPortfolio).all():
         if project_id in (pf.project_ids or []):
             pf.project_ids = [x for x in pf.project_ids if x != project_id]
@@ -193,54 +223,62 @@ def delete_portfolio(portfolio_id: str, db: Session = Depends(get_db)):
     db.commit()
 
 
-# ── Departments ──────────────────────────────────────────────────────────────
-class DepartmentBody(BaseModel):
+# ── Teams (project-scoped — see module docstring) ───────────────────────────
+class TeamBody(BaseModel):
     id: Optional[str] = None
-    name: str
+    project_id: Optional[str] = ""
+    # Optional so a partial PATCH (e.g. assigning just project_id from a
+    # project's Teams checklist) doesn't have to resend the name — required
+    # in practice on create, checked explicitly below.
+    name: Optional[str] = None
     color: Optional[str] = ""
     icon: Optional[str] = ""
     member_emails: Optional[list] = None
 
 
-@router.get("/task-departments")
-def list_departments(db: Session = Depends(get_db)):
-    return [department_to_dict(d) for d in db.query(models.TaskDepartment).all()]
+@router.get("/task-teams")
+def list_teams(db: Session = Depends(get_db)):
+    return [team_to_dict(d) for d in db.query(models.TaskTeam).all()]
 
 
-@router.post("/task-departments", status_code=201)
-def create_department(body: DepartmentBody, db: Session = Depends(get_db)):
-    d = models.TaskDepartment(id=body.id or gen_id(), name=body.name, color=body.color or "",
-                              icon=body.icon or "", member_emails=body.member_emails or [],
-                              created_at=now_iso())
+@router.post("/task-teams", status_code=201)
+def create_team(body: TeamBody, db: Session = Depends(get_db)):
+    if not (body.name or "").strip():
+        raise HTTPException(422, "Team name is required")
+    d = models.TaskTeam(id=body.id or gen_id(), project_id=body.project_id or "", name=body.name, color=body.color or "",
+                        icon=body.icon or "", member_emails=body.member_emails or [],
+                        created_at=now_iso())
     db.add(d)
     db.commit()
     db.refresh(d)
-    return department_to_dict(d)
+    return team_to_dict(d)
 
 
-@router.patch("/task-departments/{dept_id}")
-def update_department(dept_id: str, body: DepartmentBody, db: Session = Depends(get_db)):
-    d = db.query(models.TaskDepartment).filter(models.TaskDepartment.id == dept_id).first()
+@router.patch("/task-teams/{team_id}")
+def update_team(team_id: str, body: TeamBody, db: Session = Depends(get_db)):
+    d = db.query(models.TaskTeam).filter(models.TaskTeam.id == team_id).first()
     if not d:
-        raise HTTPException(404, "Department not found")
+        raise HTTPException(404, "Team not found")
     data = body.model_dump(exclude_unset=True, exclude={"id"})
     for k, v in data.items():
         setattr(d, k, v)
     db.commit()
     db.refresh(d)
-    return department_to_dict(d)
+    return team_to_dict(d)
 
 
-@router.delete("/task-departments/{dept_id}", status_code=204)
-def delete_department(dept_id: str, db: Session = Depends(get_db)):
-    db.query(models.TaskDepartment).filter(models.TaskDepartment.id == dept_id).delete()
+@router.delete("/task-teams/{team_id}", status_code=204)
+def delete_team(team_id: str, db: Session = Depends(get_db)):
+    for t in db.query(models.Task).filter(models.Task.team_id == team_id).all():
+        t.team_id = ""
+    db.query(models.TaskTeam).filter(models.TaskTeam.id == team_id).delete()
     db.commit()
 
 
 # ── Member requests ──────────────────────────────────────────────────────────
 class MemberRequestBody(BaseModel):
     id: Optional[str] = None
-    department_id: str
+    team_id: str
     user_email: str
     kind: Optional[str] = "add"
 
@@ -258,18 +296,18 @@ def list_member_requests(db: Session = Depends(get_db)):
 def raise_member_request(body: MemberRequestBody, user: dict = Depends(get_current_user),
                          db: Session = Depends(get_db)):
     m = models.TaskMemberRequest(
-        id=body.id or gen_id(), department_id=body.department_id,
+        id=body.id or gen_id(), department_id=body.team_id,
         user_email=(body.user_email or "").lower(), kind=body.kind or "add",
         requested_by=user["email"], status="pending", created_at=now_iso(),
         decided_at="", decided_by="",
     )
     db.add(m)
-    dept = db.query(models.TaskDepartment).filter(models.TaskDepartment.id == body.department_id).first()
-    dept_name = dept.name if dept else "a department"
+    team = db.query(models.TaskTeam).filter(models.TaskTeam.id == body.team_id).first()
+    team_name = team.name if team else "a team"
     task_notify(db, kind="member_request", for_email="admins",
-                title="Department member request",
-                body=f"{user['email']} requested to {m.kind} {m.user_email} for {dept_name}",
-                department_id=body.department_id, request_id=m.id,
+                title="Team member request",
+                body=f"{user['email']} requested to {m.kind} {m.user_email} for {team_name}",
+                department_id=body.team_id, request_id=m.id,
                 nexus_action={"view": "tasks", "sub": "teams", "label": "Review request"})
     db.commit()
     db.refresh(m)
@@ -290,14 +328,14 @@ def decide_member_request(request_id: str, body: DecideBody, user: dict = Depend
     m.decided_at = now_iso()
     m.decided_by = user["email"]
     if m.status == "approved":
-        dept = db.query(models.TaskDepartment).filter(models.TaskDepartment.id == m.department_id).first()
-        if dept:
-            members = [e for e in (dept.member_emails or [])]
+        team = db.query(models.TaskTeam).filter(models.TaskTeam.id == m.department_id).first()
+        if team:
+            members = [e for e in (team.member_emails or [])]
             if m.kind == "add" and m.user_email not in members:
                 members.append(m.user_email)
             elif m.kind == "remove":
                 members = [e for e in members if e != m.user_email]
-            dept.member_emails = members
+            team.member_emails = members
     task_notify(db, kind=("request_approved" if m.status == "approved" else "request_rejected"),
                 for_email=m.requested_by, title=f"Member request {m.status}",
                 body=f"Your request to {m.kind} {m.user_email} was {m.status}.",

@@ -17,7 +17,7 @@ import {
 import { Avatar, EmptyState, Modal } from './components';
 import { taskStats, topLevel, fmtDateTime } from './lib';
 import TasksWorkspace from './TasksWorkspace';
-import { DeptModal, deptIcon } from './TeamsView';
+import { TeamModal, deptIcon } from './TeamsView';
 
 // ── Small shared bits ─────────────────────────────────────────────────────────
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
@@ -60,7 +60,7 @@ const SWATCHES = [NX.blue, NX.green, NX.amber, NX.red, NX.purple, NX.teal, NX.pi
 // ── Sub-tabs registry ─────────────────────────────────────────────────────────
 const SUBTABS = [
   { key: 'tasklist', label: 'Task List', icon: List },
-  { key: 'import', label: 'Import', icon: Download },
+  { key: 'import', label: 'Asana', icon: Download },
   { key: 'departments', label: 'Teams', icon: Users },
   { key: 'rules', label: 'Automation Rules', icon: Zap },
   { key: 'fields', label: 'Custom Fields', icon: ListChecks },
@@ -103,7 +103,7 @@ export default function ManageView() {
         <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.surface2, padding: 20 }}>
           <div style={{ maxWidth: 940, margin: '0 auto' }}>
             {tab === 'import' && <AsanaImportTab store={store} />}
-            {tab === 'departments' && <DepartmentsTab store={store} />}
+            {tab === 'departments' && <TeamsTab store={store} />}
             {tab === 'rules' && <RulesTab store={store} />}
             {tab === 'fields' && <FieldsTab store={store} />}
             {tab === 'statuses' && <StatusesTab store={store} />}
@@ -226,30 +226,190 @@ function AsanaImportTab({ store }) {
           </div>
         )}
       </div>
+
+      <div style={{ height: 24 }} />
+      <AsanaSyncPanel store={store} />
     </div>
   );
 }
 
-// ── 0. Departments — creation lives here (Manage-only); Teams page browses/edits ──
-function DepartmentsTab({ store }) {
-  const { departments, tasks, nameOf, deleteDepartment } = store;
-  const [editing, setEditing] = useState(null); // {} for new, dept object to edit, null closed
+// ── Two-way sync (Nexus <-> Asana) ────────────────────────────────────────────
+function AsanaSyncPanel({ store }) {
+  const [cfg, setCfg] = useState(null);
+  const [token, setToken] = useState('');
+  const [map, setMap] = useState({});   // nexusProjectId -> asanaProjectGid
+  const [hooks, setHooks] = useState([]);
+  const [hookEnv, setHookEnv] = useState({ publicBase: '', isSyncWorker: false });
+  const [asanaProjects, setAsanaProjects] = useState(null);   // null = not loaded
+  const [targetBase, setTargetBase] = useState('');   // override only; blank = use the API's own host
+  const [busy, setBusy] = useState('');
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
 
-  const taskCountByDept = useMemo(() => {
+  const load = () => {
+    api.getAsanaSyncConfig().then((c) => {
+      setCfg(c);
+      setMap(Object.fromEntries((c.projectMap || []).map((m) => [m.nexusProjectId, m.asanaProjectGid])));
+    }).catch(() => setCfg({ enabled: false, hasToken: false, projectMap: [] }));
+    api.getAsanaWebhooks().then((r) => {
+      setHooks(r.webhooks || []);
+      setHookEnv({ publicBase: r.publicBase || '', isSyncWorker: !!r.isSyncWorker });
+    }).catch(() => setHooks([]));
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  const loadAsanaProjects = async () => {
+    setErr(''); setBusy('loadproj');
+    try { setAsanaProjects(await api.getAsanaSyncProjects()); }
+    catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
+  };
+
+  const webhooks = async (action) => {
+    setErr(''); setMsg(''); setBusy(action);
+    try {
+      if (action === 'register') {
+        const res = await api.registerAsanaWebhooks({ target_base: targetBase.trim() || null });
+        setMsg(`Registered ${res.registered} webhook(s).`);
+      } else {
+        const res = await api.deleteAsanaWebhooks();
+        setMsg(`Removed ${res.removed} webhook(s).`);
+      }
+      load();
+    } catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
+  };
+
+  const saveConfig = async (patch) => {
+    setErr(''); setMsg(''); setBusy('config');
+    try { const c = await api.setAsanaSyncConfig(patch); setCfg((p) => ({ ...p, ...c })); setToken(''); setMsg('Saved.'); }
+    catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
+  };
+  const saveMap = async () => {
+    setErr(''); setMsg(''); setBusy('map');
+    const maps = Object.entries(map).filter(([, g]) => g && g.trim()).map(([nexusProjectId, asanaProjectGid]) => ({ nexusProjectId, asanaProjectGid: asanaProjectGid.trim() }));
+    try { await api.setAsanaProjectMap({ maps }); setMsg(`Saved ${maps.length} project mapping(s).`); load(); }
+    catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
+  };
+  const run = async (which) => {
+    setErr(''); setMsg(''); setBusy(which);
+    try {
+      const res = which === 'pull' ? await api.asanaSyncPull() : await api.asanaSyncPushAll();
+      await store.refresh?.();
+      setMsg(which === 'pull' ? `Pulled from Asana: +${res.created} created, ${res.updated} updated, +${res.comments || 0} comments.` : `Pushed ${res.pushed} task(s) to Asana.`);
+      load();
+    } catch (e) { setErr(e.message || String(e)); } finally { setBusy(''); }
+  };
+
+  if (!cfg) return null;
+  const projects = store.projects || [];
+  return (
+    <div>
+      <SectionHead title="Two-way Sync" hint="Keep tasks in mapped Nexus projects in sync with Asana (title, description, due date, done)." />
+      <div style={{ ...card, padding: 16, maxWidth: 640 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, fontSize: 13 }}>
+          <input type="checkbox" checked={!!cfg.enabled} onChange={(e) => saveConfig({ enabled: e.target.checked })} />
+          <span style={{ fontWeight: 700, color: NX.ink }}>Sync enabled</span>
+          <span style={{ color: NX.faint }}>{cfg.enabled ? 'new tasks in mapped projects push to Asana automatically' : 'off'}</span>
+        </label>
+        <Field label={`Service token ${cfg.hasToken ? '(set — leave blank to keep)' : '(required)'}`}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={cfg.hasToken ? '•••••• set' : '1/… Asana PAT with write access'} style={{ ...inputStyle, flex: 1 }} autoComplete="off" />
+            <button onClick={() => saveConfig({ token })} disabled={!token.trim() || busy === 'config'} style={{ ...btn('outline'), flexShrink: 0 }}>Save token</button>
+          </div>
+        </Field>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Field label="Workspace GID (for assignee sync)">
+            <input value={cfg.workspaceGid || ''} onChange={(e) => setCfg((p) => ({ ...p, workspaceGid: e.target.value }))} onBlur={(e) => saveConfig({ workspace_gid: e.target.value })} placeholder="120…" style={inputStyle} />
+          </Field>
+          <Field label="Default project GID (unmapped tasks)">
+            <input value={cfg.defaultProjectGid || ''} onChange={(e) => setCfg((p) => ({ ...p, defaultProjectGid: e.target.value }))} onBlur={(e) => saveConfig({ default_project_gid: e.target.value })} placeholder="Optional" style={inputStyle} />
+          </Field>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+          <label style={{ ...fieldLabel, marginBottom: 0 }}>Project mapping (Nexus → Asana)</label>
+          <button onClick={loadAsanaProjects} disabled={!cfg.hasToken || busy === 'loadproj'} title={cfg.hasToken ? '' : 'Save a token first'} style={{ ...btn('ghost'), padding: '3px 8px', fontSize: 12, marginLeft: 'auto', color: NX.blue }}>
+            {busy === 'loadproj' ? 'Loading…' : (asanaProjects ? 'Reload Asana projects' : 'Load Asana projects')}
+          </button>
+        </div>
+        <div style={{ maxHeight: 220, overflowY: 'auto', border: `1px solid ${NX.border}`, borderRadius: 8, marginBottom: 10 }}>
+          {projects.length === 0 && <div style={{ padding: 10, fontSize: 12.5, color: NX.faint }}>No Nexus projects yet.</div>}
+          {projects.map((p) => (
+            <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderBottom: `1px solid ${NX.border2}` }}>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+              {asanaProjects ? (
+                <select value={map[p.id] || ''} onChange={(e) => setMap((m) => ({ ...m, [p.id]: e.target.value }))} style={{ ...inputStyle, appearance: 'auto', cursor: 'pointer', width: 230, padding: '5px 8px', fontSize: 12 }}>
+                  <option value="">— not synced —</option>
+                  {asanaProjects.map((ap) => <option key={ap.gid} value={ap.gid}>{ap.name}</option>)}
+                </select>
+              ) : (
+                <input value={map[p.id] || ''} onChange={(e) => setMap((m) => ({ ...m, [p.id]: e.target.value }))} placeholder="Asana project GID" style={{ ...inputStyle, width: 200, padding: '5px 8px', fontSize: 12 }} />
+              )}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          <button onClick={saveMap} disabled={busy === 'map'} style={btn('outline')}>{busy === 'map' ? 'Saving…' : 'Save mapping'}</button>
+          <button onClick={() => run('push')} disabled={!!busy} style={btn('outline')}><ArrowRightLeft size={14} />{busy === 'push' ? 'Pushing…' : 'Push all → Asana'}</button>
+          <button onClick={() => run('pull')} disabled={!!busy} style={btn('primary')}><Download size={14} />{busy === 'pull' ? 'Pulling…' : 'Pull ← Asana'}</button>
+          {cfg.lastPullAt && <span style={{ fontSize: 11.5, color: NX.faint }}>last pull {fmtDateTime(cfg.lastPullAt)}</span>}
+        </div>
+        {msg && <div style={{ marginTop: 10, fontSize: 13, color: NX.green }}>{msg}</div>}
+        {err && <div style={{ marginTop: 10, fontSize: 13, color: NX.red }}>{err}</div>}
+
+        {/* Real-time inbound via Asana webhooks (needs a public API URL) */}
+        <div style={{ borderTop: `1px solid ${NX.border2}`, marginTop: 16, paddingTop: 14 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: NX.dim, marginBottom: 8 }}>Real-time (webhooks)</div>
+          <Field label={hookEnv.publicBase ? 'Public API base URL (override — blank uses this API)' : 'Public API base URL (Asana must reach it)'}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input value={targetBase} onChange={(e) => setTargetBase(e.target.value)} placeholder={hookEnv.publicBase || 'https://your-public-api-host'} style={{ ...inputStyle, flex: 1 }} />
+              <button onClick={() => webhooks('register')} disabled={(!hookEnv.publicBase && !targetBase.trim()) || !!busy} style={{ ...btn('outline'), flexShrink: 0 }}>{busy === 'register' ? 'Registering…' : 'Register'}</button>
+              {hooks.length > 0 && <button onClick={() => webhooks('delete')} disabled={!!busy} style={{ ...btn('ghost'), flexShrink: 0, color: NX.red }}>{busy === 'delete' ? 'Removing…' : 'Remove'}</button>}
+            </div>
+          </Field>
+          <div style={{ fontSize: 12, color: hooks.length ? NX.green : NX.faint }}>
+            {hooks.length ? `✓ ${hooks.length} active webhook(s) — Asana changes stream in live.` : 'No webhooks — inbound relies on the auto-pull + manual Pull.'}
+          </div>
+          <div style={{ fontSize: 11, color: NX.faint, marginTop: 4 }}>
+            {hookEnv.publicBase
+              ? `Registers against ${hookEnv.publicBase} — leave the field blank unless you're pointing Asana somewhere else.`
+              : 'This API has no public URL, so Asana can’t reach it. Register from the deployed dev/prod site, or paste a public tunnel URL.'}
+          </div>
+          {!hookEnv.isSyncWorker && (
+            <div style={{ fontSize: 11, color: NX.amber, marginTop: 6 }}>
+              Background sync is off in this backend — automatic push and the periodic pull only run on the deployed API, so one instance owns the shared Asana workspace. “Push all” and “Pull” below still work from here.
+            </div>
+          )}
+        </div>
+
+        <div style={{ marginTop: 12, fontSize: 11.5, color: NX.faint }}>
+          Syncs both ways: title · description · due date · done · assignee · comments. Inbound is live via webhooks, with a 5-min auto-pull fallback on the deployed API (and manual “Pull” anywhere).
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── 0. Teams — creation lives here (Manage-only); Teams page browses/edits ──
+function TeamsTab({ store }) {
+  const { teams, tasks, nameOf, deleteTeam, projects } = store;
+  const [editing, setEditing] = useState(null); // {} for new, team object to edit, null closed
+
+  const taskCountByTeam = useMemo(() => {
     const m = {};
-    for (const t of tasks) if (t.departmentId) m[t.departmentId] = (m[t.departmentId] || 0) + 1;
+    for (const t of tasks) if (t.teamId) m[t.teamId] = (m[t.teamId] || 0) + 1;
     return m;
   }, [tasks]);
+  const projectName = (id) => projects.find((p) => p.id === id)?.name || 'Unassigned';
 
   return (
     <div>
-      <SectionHead title="Teams" hint="Create and manage the teams members are grouped into."
+      <SectionHead title="Teams" hint="Create and manage the teams members are grouped into, within a project."
         action={<button style={btn('primary')} onClick={() => setEditing({})}><Plus size={15} />New Team</button>} />
 
-      {departments.length === 0 ? (
+      {teams.length === 0 ? (
         <EmptyState icon={Users} title="No Teams Yet" hint="Create a team to group members and their work." />
       ) : (
-        departments.map((d) => {
+        teams.map((d) => {
           const Icon = deptIcon(d.icon);
           const color = d.color || NX.blue;
           const members = d.memberIds || [];
@@ -259,7 +419,7 @@ function DepartmentsTab({ store }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: NX.ink }}>{d.name}</div>
                 <div style={{ fontSize: 12, color: NX.faint, marginTop: 1 }}>
-                  {members.length} member{members.length === 1 ? '' : 's'} · {taskCountByDept[d.id] || 0} task{(taskCountByDept[d.id] || 0) === 1 ? '' : 's'}
+                  {projectName(d.projectId)} · {members.length} member{members.length === 1 ? '' : 's'} · {taskCountByTeam[d.id] || 0} task{(taskCountByTeam[d.id] || 0) === 1 ? '' : 's'}
                 </div>
               </div>
               <IconButton icon={Pencil} title="Edit Team" onClick={() => setEditing(d)} />
@@ -269,10 +429,10 @@ function DepartmentsTab({ store }) {
       )}
 
       {editing && (
-        <DeptModal
-          dept={editing.id ? editing : null}
+        <TeamModal
+          team={editing.id ? editing : null}
           onClose={() => setEditing(null)}
-          onDelete={editing.id ? () => { if (confirm(`Delete "${editing.name}"? This can't be undone.`)) { deleteDepartment(editing.id); setEditing(null); } } : null}
+          onDelete={editing.id ? () => { if (confirm(`Delete "${editing.name}"? This can't be undone.`)) { deleteTeam(editing.id); setEditing(null); } } : null}
         />
       )}
     </div>

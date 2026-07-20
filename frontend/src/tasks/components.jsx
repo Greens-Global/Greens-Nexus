@@ -273,3 +273,69 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
     </div>
   );
 }
+
+// Multi-select sibling of PersonSelect — same directory, search and avatars, but
+// picks stay selected and the menu stays open so several people can be added in
+// one go. `value` is an array of emails; onChange receives a new array.
+export function PersonMultiSelect({ value, onChange, people, placeholder = 'Select people' }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const ref = useRef(null);
+  useEffect(() => {
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+  const emails = Array.isArray(value) ? value : [];
+  const personFor = (em) => people.find((p) => p.email === em) || { email: em, name: emailToName(em) };
+  const filtered = q ? people.filter((p) => (p.name + p.email).toLowerCase().includes(q.toLowerCase())) : people;
+  const toggle = (em) => onChange(emails.includes(em) ? emails.filter((x) => x !== em) : [...emails, em]);
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', height: 'auto', minHeight: 36, padding: '5px 10px' }}>
+        {/* Chips scroll past ~3 rows rather than growing the field without bound —
+            in a narrow grid column each chip takes its own row. */}
+        <span className="nx-scroll" style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', maxHeight: 96, overflowY: 'auto' }}>
+          {emails.length === 0 && <span style={{ color: NX.faint }}>{placeholder}</span>}
+          {emails.map((em) => {
+            const p = personFor(em);
+            return (
+              <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 7px 2px 2px', fontSize: 12, color: NX.ink }}>
+                <Avatar email={p.email} name={p.name} size={18} />
+                {p.name}
+                {/* A span, not a button — this sits inside the dropdown trigger button. */}
+                <span role="button" tabIndex={0} title={`Remove ${p.name}`}
+                  onClick={(e) => { e.stopPropagation(); toggle(em); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); toggle(em); } }}
+                  style={{ display: 'inline-flex', cursor: 'pointer', color: NX.faint }}>
+                  <X size={11} />
+                </span>
+              </span>
+            );
+          })}
+        </span>
+        <ChevronDown size={15} style={{ color: NX.faint, flexShrink: 0 }} />
+      </button>
+      {open && (
+        <div className="nx-scroll" style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 50, maxHeight: 280, overflowY: 'auto' }}>
+          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…" style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+          {filtered.map((p) => {
+            const on = emails.includes(p.email);
+            return (
+              <div key={p.email} onClick={() => toggle(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: on ? NX.hover : 'transparent' }}>
+                <Avatar email={p.email} name={p.name} size={22} />
+                <span style={{ flex: 1 }}>{p.name}</span>
+                {on && <Check size={14} style={{ color: NX.blue }} />}
+              </div>
+            );
+          })}
+          {filtered.length === 0 && (
+            <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>
+              {q ? `No people match “${q}”.` : 'No people in the directory.'}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

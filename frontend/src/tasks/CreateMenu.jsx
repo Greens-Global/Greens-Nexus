@@ -8,7 +8,7 @@ import { useTasks } from './TasksContext';
 import { NX, FONT, btn, input as inputStyle } from './theme';
 import { Modal } from './components';
 import CreateTaskModal from './CreateTaskModal';
-import { CreateTicketModal } from './TicketsView';
+import { CreateTicketModal } from '../tickets/TicketsView';
 import { ProjectCreateModal } from './ProjectsView';
 import { PortfolioCreateModal } from './PortfoliosView';
 
@@ -23,7 +23,7 @@ const ITEMS = [
 // dropdown. Either way, tapping it opens the same Task / Ticket / Project /
 // Portfolio quick-create menu — the FAB just anchors it above the button.
 export default function CreateMenu({ onNavigate, fab = false, taskDefaults = {} }) {
-  const { createDepartment } = useTasks();
+  const { createTeam, projects } = useTasks();
   const [open, setOpen] = useState(false);
   const [show, setShow] = useState(null); // 'task' | 'ticket' | 'project' | 'portfolio' | 'department' | null
   const ref = useRef(null);
@@ -39,13 +39,15 @@ export default function CreateMenu({ onNavigate, fab = false, taskDefaults = {} 
   const field = { marginBottom: 14 };
 
   const [deptName, setDeptName] = useState('');
+  const [deptProjectId, setDeptProjectId] = useState('');
   const [deptBusy, setDeptBusy] = useState(false);
+  const deptCanSubmit = deptName.trim() && !deptBusy;
   const submitDept = async () => {
-    if (!deptName.trim() || deptBusy) return;
+    if (!deptCanSubmit) return;
     setDeptBusy(true);
     try {
-      await createDepartment({ name: deptName.trim(), color: NX.blue, memberIds: [] });
-      setDeptName(''); setShow(null);
+      await createTeam({ name: deptName.trim(), project_id: deptProjectId, color: NX.blue, memberIds: [] });
+      setDeptName(''); setDeptProjectId(''); setShow(null);
       onNavigate && onNavigate('teams');
     } catch (e) { alert(`Could not create team: ${e.message || e}`); } finally { setDeptBusy(false); }
   };
@@ -89,7 +91,7 @@ export default function CreateMenu({ onNavigate, fab = false, taskDefaults = {} 
         </div>
       )}
 
-      {show === 'task' && <CreateTaskModal defaults={taskDefaults} onClose={() => setShow(null)} />}
+      {show === 'task' && <CreateTaskModal defaults={taskDefaults} onClose={() => setShow(null)} lockedProjectId={taskDefaults.projectId || ''} />}
       {show === 'ticket' && <CreateTicketModal onClose={() => setShow(null)} />}
 
       {show === 'project' && (
@@ -106,7 +108,7 @@ export default function CreateMenu({ onNavigate, fab = false, taskDefaults = {} 
         <Modal title="Create a Team" onClose={() => setShow(null)} footer={
           <>
             <button style={btn('outline')} onClick={() => setShow(null)}>Cancel</button>
-            <button style={{ ...btn('primary'), opacity: deptBusy ? 0.6 : 1 }} onClick={submitDept} disabled={deptBusy || !deptName.trim()}>
+            <button style={{ ...btn('primary'), opacity: !deptCanSubmit ? 0.6 : 1 }} onClick={submitDept} disabled={!deptCanSubmit}>
               {deptBusy ? 'Creating…' : 'Create'}
             </button>
           </>
@@ -115,6 +117,13 @@ export default function CreateMenu({ onNavigate, fab = false, taskDefaults = {} 
             <label style={label}>Name</label>
             <input autoFocus value={deptName} onChange={(e) => setDeptName(e.target.value)} placeholder="Team name" style={inputStyle}
               onKeyDown={(e) => e.key === 'Enter' && submitDept()} />
+          </div>
+          <div style={field}>
+            <label style={label}>Project (optional)</label>
+            <select value={deptProjectId} onChange={(e) => setDeptProjectId(e.target.value)} style={inputStyle}>
+              <option value="">No project</option>
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
           </div>
         </Modal>
       )}

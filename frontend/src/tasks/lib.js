@@ -3,7 +3,7 @@
 import { PRIORITY_ORDER, STATUS_ORDER, STATUS_META } from './theme';
 
 export const EMPTY_FILTER = {
-  assigneeIds: [], statuses: [], priorities: [], departmentIds: [], projectIds: [],
+  assigneeIds: [], statuses: [], priorities: [], teamIds: [], projectIds: [],
   tags: [], due: 'any', dueFrom: null, dueTo: null, search: '',
 };
 
@@ -30,7 +30,7 @@ export function matchesFilter(task, f = EMPTY_FILTER) {
   if (f.assigneeIds?.length && !f.assigneeIds.includes(task.assigneeId)) return false;
   if (f.statuses?.length && !f.statuses.includes(task.status)) return false;
   if (f.priorities?.length && !f.priorities.includes(task.priority)) return false;
-  if (f.departmentIds?.length && !f.departmentIds.includes(task.departmentId)) return false;
+  if (f.teamIds?.length && !f.teamIds.includes(task.teamId)) return false;
   if (f.projectIds?.length && !f.projectIds.includes(task.projectId)) return false;
   if (f.tags?.length && !f.tags.some((t) => (task.tags || []).includes(t))) return false;
   if (!dueMatches(task, f.due || 'any', f.dueFrom, f.dueTo)) return false;
@@ -80,7 +80,7 @@ export function groupAddDefaults(group, key) {
   if (group === 'status') return { status: key };
   if (group === 'priority') return { priority: key };
   if (group === 'project') return key && key !== '—' ? { projectId: key } : {};
-  if (group === 'department') return key && key !== '—' ? { departmentId: key } : {};
+  if (group === 'team') return key && key !== '—' ? { teamId: key } : {};
   return {}; // assignee, none
 }
 
@@ -118,7 +118,7 @@ export function groupTasks(list, group, ctx = {}) {
     else if (group === 'priority') push(t.priority || 'low', (t.priority || 'low').replace(/^\w/, (c) => c.toUpperCase()), t);
     else if (group === 'assignee') push(t.assigneeId || '—', ctx.nameOf ? ctx.nameOf(t.assigneeId) : (t.assigneeId || 'Unassigned'), t);
     else if (group === 'project') push(t.projectId || '—', ctx.projectName?.(t.projectId) || 'No Project', t);
-    else if (group === 'department') push(t.departmentId || '—', ctx.deptName?.(t.departmentId) || 'No Team', t);
+    else if (group === 'team') push(t.teamId || '—', ctx.teamName?.(t.teamId) || 'No Team', t);
     else if (group === 'date') push(t.dueOn || '—', t.dueOn || 'No Due Date', t);
     else push('all', '', t);
   }

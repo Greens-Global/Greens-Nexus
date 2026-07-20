@@ -12,6 +12,9 @@ task codes, validation and notifications behave normally — no raw DB writes).
   - Attachments: Asana-hosted files under --attach-max-mb are downloaded and
                 inlined (self-contained, no expiring links); larger/external
                 files keep a permanent link.
+  - Teams     : each project's Asana team → a Nexus department ("Team" in the
+                UI), created once (matched by Asana team gid, not name — reruns
+                reuse it) with its members carried over. Skip with --no-teams.
 
 ------------------------------------------------------------------------------
 QUICK START (local dev — the backend on :8000 runs with NEXUS_SKIP_AUTH, so no
@@ -135,11 +138,11 @@ class Nexus:
 
 # ── state (idempotency) ──────────────────────────────────────────────────────
 def load_state():
-    state = {"projects": {}, "sections": {}, "tasks": {}, "comments": {}, "attachments": {}}
+    state = {"projects": {}, "sections": {}, "tasks": {}, "comments": {}, "attachments": {}, "teams": {}}
     if os.path.exists(STATE_PATH):
         with open(STATE_PATH, encoding="utf-8") as f:
             state.update(json.load(f))
-    for k in ("projects", "sections", "tasks", "comments", "attachments"):
+    for k in ("projects", "sections", "tasks", "comments", "attachments", "teams"):
         state.setdefault(k, {})
     return state
 
@@ -159,6 +162,18 @@ def resolve_assignee(task, email_map):
     if name in email_map:
         return email_map[name]
     return email  # may be "" → unassigned
+
+
+def resolve_member_email(user, email_map):
+    """Same email/name → Nexus work email lookup as resolve_assignee, but for a
+    plain Asana user object (team members) instead of a task's `assignee`."""
+    email = (user.get("email") or "").lower()
+    name = user.get("name") or ""
+    if email in email_map:
+        return email_map[email]
+    if name in email_map:
+        return email_map[name]
+    return email  # may be "" → dropped by the caller
 
 
 def priority_from_custom(task):
@@ -187,23 +202,32 @@ def section_name(task):
 
 # ── import ───────────────────────────────────────────────────────────────────
 def import_project(asana, nexus, project_gid, state, email_map, args):
-    proj = asana.get(f"/projects/{project_gid}", opt_fields="name,notes")
+    proj = asana.get(f"/projects/{project_gid}", opt_fields="name,notes,team.gid,team.name")
     pname = proj.get("name") or f"Asana {project_gid}"
     print(f"\n=== Project: {pname}  ({project_gid}) ===")
 
-    # 1) project
+    # 1) project (only look up its Asana team — an extra API call — if we're
+    # actually about to create it; already-imported projects keep whatever
+    # department they were assigned on first import or by hand since).
     if project_gid in state["projects"]:
         nexus_pid = state["projects"][project_gid]
         print(f"  project already imported → {nexus_pid}")
-    elif args.dry_run:
-        nexus_pid = f"DRY-{project_gid}"
-        print(f"  [dry-run] would create project '{pname}'")
     else:
-        created = nexus.post("/task-projects", {"name": pname, "description": proj.get("notes") or ""})
-        nexus_pid = created["id"]
-        state["projects"][project_gid] = nexus_pid
-        save_state(state)
-        print(f"  created project → {nexus_pid}")
+        dept_id = ""
+        if not args.no_teams and proj.get("team"):
+            dept_id = _ensure_department(asana, nexus, proj["team"], state, email_map, args)
+        if args.dry_run:
+            nexus_pid = f"DRY-{project_gid}"
+            print(f"  [dry-run] would create project '{pname}'" + (f" under team {proj['team'].get('name')}" if dept_id else ""))
+        else:
+            body = {"name": pname, "description": proj.get("notes") or ""}
+            if dept_id:
+                body["department_id"] = dept_id
+            created = nexus.post("/task-projects", body)
+            nexus_pid = created["id"]
+            state["projects"][project_gid] = nexus_pid
+            save_state(state)
+            print(f"  created project → {nexus_pid}")
 
     # 2) top-level tasks (subtasks fetched per-task below)
     tasks = asana.get(f"/projects/{project_gid}/tasks", opt_fields=TASK_OPT_FIELDS)
@@ -214,6 +238,28 @@ def import_project(asana, nexus, project_gid, state, email_map, args):
     print(f"  done: +{counts['created']} tasks, +{counts['subtasks']} subtasks, "
           f"+{counts['comments']} comments, +{counts['attachments']} attachments, "
           f"{counts['skipped']} tasks already present")
+
+
+def _ensure_department(asana, nexus, team, state, email_map, args):
+    """Map an Asana team (compact {gid, name} from the project's `team` field) to
+    a Nexus department ("Team" in the UI), creating it once and reusing it on
+    reruns via state["teams"]. Pulls the team's members in too."""
+    team_gid = team.get("gid")
+    if not team_gid:
+        return ""
+    if team_gid in state["teams"]:
+        return state["teams"][team_gid]
+    name = team.get("name") or f"Asana Team {team_gid}"
+    members = asana.get(f"/teams/{team_gid}/users", opt_fields="name,email")
+    member_emails = sorted({resolve_member_email(m, email_map) for m in members} - {""})
+    if args.dry_run:
+        print(f"  [dry-run] would create team '{name}' ({len(member_emails)} members)")
+        return f"DRY-{team_gid}"
+    dept = nexus.post("/task-departments", {"name": name, "member_emails": member_emails})
+    state["teams"][team_gid] = dept["id"]
+    save_state(state)
+    print(f"  created team → {name} ({len(member_emails)} members)")
+    return dept["id"]
 
 
 def _ensure_section(nexus, nexus_pid, name, state, args):
@@ -367,6 +413,7 @@ def main():
     src.add_argument("--workspace", metavar="GID", help="import every project in this workspace")
     ap.add_argument("--nexus", default="http://127.0.0.1:8000", help="Nexus API base URL (default: local dev)")
     ap.add_argument("--email-map", help="JSON file mapping Asana email/name → Nexus work email")
+    ap.add_argument("--no-teams", action="store_true", help="skip importing the project's Asana team as a Nexus department")
     ap.add_argument("--no-subtasks", action="store_true", help="skip subtask import (fewer API calls)")
     ap.add_argument("--no-comments", action="store_true", help="skip importing comments (Asana stories)")
     ap.add_argument("--silent-comments", action="store_true",

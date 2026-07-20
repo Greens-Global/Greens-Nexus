@@ -9,7 +9,7 @@ import {
   ArrowLeft, ArrowRightToLine, CheckCircle2, Circle, ChevronDown, ChevronRight,
   ChevronLeft, Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, CalendarDays, Maximize2, Minimize2,
-  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check,
+  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban,
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
@@ -95,6 +95,32 @@ function Pop({ trigger, children, width = 200 }) {
     </div>
   );
 }
+// Searchable list inside the "Add Dependency" popover — filters by title/code
+// as you type, same shape as PersonSelect's search-then-list.
+function DependencyPickerBody({ candidates, onPick }) {
+  const [q, setQ] = useState('');
+  const query = q.trim().toLowerCase();
+  const filtered = query
+    ? candidates.filter((c) => c.title.toLowerCase().includes(query) || (c.code || '').toLowerCase().includes(query))
+    : candidates;
+  return (
+    <div>
+      <input
+        autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a task…"
+        style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '7px 9px', marginBottom: 4, fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }}
+      />
+      <div style={{ maxHeight: 230, overflowY: 'auto' }}>
+        {filtered.length ? filtered.slice(0, 40).map((c) => (
+          <MenuItem key={c.id} onClick={() => onPick(c)}>{c.code} · {c.title}</MenuItem>
+        )) : (
+          <div style={{ padding: 9, fontSize: 12, color: NX.faint, textAlign: 'center' }}>
+            {candidates.length ? 'No matching tasks.' : 'No eligible tasks in this project'}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 function MenuItem({ icon, onClick, danger, children }) {
   const [hover, setHover] = useState(false);
   return (
@@ -108,7 +134,7 @@ function MenuItem({ icon, onClick, danger, children }) {
 
 export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
   const store = useTasks();
-  const { taskById, tasks, projectName, deptName, nameOf, myEmail, customFields = [], updateTask, deleteTask, createTask, getComments, addComment } = store;
+  const { taskById, tasks, teams, projectName, teamName, nameOf, myEmail, customFields = [], updateTask, deleteTask, createTask, getComments, addComment } = store;
   const people = usePeople();
 
   const [activeId, setActiveId] = useState(taskId);
@@ -172,6 +198,9 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
     const dep = taskById[depId];
     if (dep) updateTask(depId, { blockingIds: (dep.blockingIds || []).filter((x) => x !== activeId) });
   };
+  const setDependencyType = (depId, type) => {
+    patch({ dependencyTypes: { ...(task.dependencyTypes || {}), [depId]: type } });
+  };
 
   const TABS = [
     ['overview', 'Overview'], ['comments', 'Comments'], ['activity', 'Activity'],
@@ -186,8 +215,9 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
     switch (key) {
       case 'overview': return (
         <OverviewTab
-          task={task} patch={patch} people={people} projectName={projectName} deptName={deptName}
+          task={task} patch={patch} people={people} projectName={projectName} teamName={teamName} teams={teams}
           blockedBy={blockedBy} depCandidates={depCandidates} addDependency={addDependency} removeDependency={removeDependency}
+          setDependencyType={setDependencyType}
           subtasks={subtasks} createTask={createTask} updateTask={updateTask} onOpenSub={setActiveId}
           nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} refresh={store.refresh}
         />
@@ -197,7 +227,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
       case 'attachments':  return <AttachmentsTab task={task} refresh={store.refresh} />;
       case 'subtasks':     return <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={setActiveId} />;
       case 'dependencies': return <DependenciesTab blockedBy={blockedBy} blocking={blocking} task={task} removeDependency={removeDependency} />;
-      case 'properties':   return <PropertiesTab task={task} nameOf={nameOf} projectName={projectName} deptName={deptName} customFields={customFields} patch={patch} />;
+      case 'properties':   return <PropertiesTab task={task} nameOf={nameOf} projectName={projectName} teamName={teamName} customFields={customFields} patch={patch} />;
       default:             return null;
     }
   };
@@ -407,7 +437,7 @@ function TitleInput({ value, completed, onCommit }) {
 }
 
 // ── Overview ────────────────────────────────────────────────────────────────
-function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, depCandidates, addDependency, removeDependency, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh }) {
+function OverviewTab({ task, patch, people, projectName, teamName, teams, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh }) {
   const isMobile = useIsMobile();
   const { statusMeta, statusOrder } = useTasks();
   const [recStep, setRecStep] = useState('root');
@@ -449,7 +479,7 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
   const recSel = { ...inputStyle, width: 'auto', padding: '5px 8px', fontSize: 12, cursor: 'pointer' };
   const sm = statusMeta[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
-  const dept = task.departmentId ? deptName(task.departmentId) : '';
+  const projectTeams = (teams || []).filter((tm) => tm.projectId === task.projectId);
 
   return (
     <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
@@ -477,22 +507,58 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
 
       <Row label="Project">
         <span style={{ color: NX.ink }}>{task.projectId ? projectName(task.projectId) : '—'}</span>
-        {dept && <Chip color={NX.dim} tint={NX.border2}>{dept}</Chip>}
+      </Row>
+
+      <Row label="Team">
+        {task.projectId ? (
+          <Pop width={200} trigger={(t) => (
+            <button onClick={t} style={{ display: 'flex', alignItems: 'center', gap: 5, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: task.teamId ? NX.ink : NX.faint, fontSize: 13, fontFamily: FONT }}>
+              {teamName(task.teamId) || 'No team'} <ChevronDown size={13} style={{ color: NX.faint }} />
+            </button>
+          )}>
+            {(close) => (
+              <>
+                <MenuItem icon={!task.teamId ? <Check size={13} /> : <span style={{ width: 13, display: 'inline-block' }} />} onClick={() => { patch({ teamId: '' }); close(); }}>No team</MenuItem>
+                {projectTeams.length === 0 ? (
+                  <div style={{ padding: 9, fontSize: 12, color: NX.faint }}>No teams in this project</div>
+                ) : projectTeams.map((tm) => (
+                  <MenuItem key={tm.id} icon={task.teamId === tm.id ? <Check size={13} /> : <span style={{ width: 13, display: 'inline-block' }} />} onClick={() => { patch({ teamId: tm.id }); close(); }}>{tm.name}</MenuItem>
+                ))}
+              </>
+            )}
+          </Pop>
+        ) : (
+          <span style={{ color: NX.faint, fontSize: 13 }}>Pick a project first</span>
+        )}
       </Row>
 
       <Row label="Blocked By">
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
-          {blockedBy.map((b) => (
-            <span key={b.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${NX.border}`, borderRadius: 999, padding: '3px 10px', fontSize: 12, color: NX.ink }}>
-              <CheckCircle2 size={13} style={{ color: NX.faint }} />
-              {b.title}{b.dueOn ? ` · ${fmtDate(b.dueOn)}` : ''}
-              <button onClick={() => removeDependency(b.id)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={12} /></button>
-            </span>
-          ))}
-          <Pop width={260} trigger={(t) => <button onClick={t} style={{ ...btn('outline'), padding: '5px 11px', fontSize: 12 }}>Add Dependency</button>}>
-            {(close) => (depCandidates.length ? depCandidates.map((c) => (
-              <MenuItem key={c.id} onClick={() => { addDependency(c); close(); }}>{c.code} · {c.title}</MenuItem>
-            )) : <div style={{ padding: 9, fontSize: 12, color: NX.faint }}>No eligible tasks in this project</div>)}
+          {blockedBy.map((b) => {
+            const dt = (task.dependencyTypes || {})[b.id] || 'FS';
+            return (
+              <div key={b.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+                <Pop width={210} trigger={(t) => (
+                  <button onClick={t} style={{ display: 'flex', alignItems: 'center', gap: 5, border: `1px solid ${NX.border}`, borderRadius: 8, background: 'transparent', cursor: 'pointer', padding: '5px 9px', fontSize: 12, fontWeight: 600, color: NX.amber }}>
+                    <Ban size={13} /> Blocked by · {dt} <ChevronDown size={11} />
+                  </button>
+                )}>
+                  {(close) => Object.entries(DEP_TYPES).map(([k, label]) => (
+                    <MenuItem key={k} icon={dt === k ? <Check size={13} /> : <span style={{ width: 13, display: 'inline-block' }} />} onClick={() => { setDependencyType(b.id, k); close(); }}>
+                      {label} · {k}
+                    </MenuItem>
+                  ))}
+                </Pop>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${NX.border}`, borderRadius: 999, padding: '3px 10px', fontSize: 12, color: NX.ink }}>
+                  <CheckCircle2 size={13} style={{ color: NX.faint }} />
+                  {b.title}{b.dueOn ? ` · ${fmtDate(b.dueOn)}` : ''}
+                  <button onClick={() => removeDependency(b.id)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={12} /></button>
+                </span>
+              </div>
+            );
+          })}
+          <Pop width={280} trigger={(t) => <button onClick={t} style={{ ...btn('outline'), padding: '5px 11px', fontSize: 12 }}>Add Dependency</button>}>
+            {(close) => <DependencyPickerBody candidates={depCandidates} onPick={(c) => { addDependency(c); close(); }} />}
           </Pop>
         </div>
       </Row>
@@ -802,7 +868,7 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
 
   const add = async () => {
     const t = title.trim(); if (!t) return;
-    await createTask({ title: t, parentTaskId: task.id, projectId: task.projectId, departmentId: task.departmentId, assigneeId, dueOn, status: 'not_started', priority: 'medium', type: 'task' }).catch(() => {});
+    await createTask({ title: t, parentTaskId: task.id, projectId: task.projectId, teamId: task.teamId, assigneeId, dueOn, status: 'not_started', priority: 'medium', type: 'task' }).catch(() => {});
     setTitle(''); setDueOn(''); setAssigneeId('');
   };
 
@@ -865,7 +931,7 @@ function DependenciesTab({ blockedBy, blocking, task, removeDependency }) {
 }
 
 // ── Properties ──────────────────────────────────────────────────────────────
-function PropertiesTab({ task, nameOf, projectName, deptName, customFields, patch }) {
+function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patch }) {
   const { statusMeta } = useTasks();
   const sm = statusMeta[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
@@ -875,7 +941,7 @@ function PropertiesTab({ task, nameOf, projectName, deptName, customFields, patc
     ['Priority', <Chip color={pm.color} tint={pm.tint}>{pm.label}</Chip>],
     ['Assignee', task.assigneeId ? <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Avatar email={task.assigneeId} name={nameOf(task.assigneeId)} size={18} /> {nameOf(task.assigneeId)}</span> : 'Unassigned'],
     ['Project', task.projectId ? projectName(task.projectId) : '—'],
-    ['Team', task.departmentId ? deptName(task.departmentId) : '—'],
+    ['Team', task.teamId ? teamName(task.teamId) : '—'],
     ['Start Date', fmtDate(task.startOn)],
     ['Due Date', fmtDate(task.dueOn)],
     ['Estimate', task.estimateHours != null ? `${task.estimateHours}h` : '—'],

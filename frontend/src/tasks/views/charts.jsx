@@ -77,7 +77,7 @@ const STYLE_OPTIONS = [
 ];
 const DIMENSIONS = [
   { key: 'status', label: 'Status' }, { key: 'priority', label: 'Priority' },
-  { key: 'assignee', label: 'Assignee' }, { key: 'project', label: 'Project' }, { key: 'department', label: 'Team' },
+  { key: 'assignee', label: 'Assignee' }, { key: 'project', label: 'Project' }, { key: 'team', label: 'Team' },
 ];
 const METRICS = [
   { key: 'count', label: 'Task Count' }, { key: 'sum_estimate', label: 'Estimated Hours' }, { key: 'sum_actual', label: 'Actual Hours' },
@@ -112,8 +112,8 @@ function computeSeries(cfg, tasks, store) {
   if (cfg.dimension === 'priority') {
     return PRIORITY_ORDER.map((p) => ({ label: PRIORITY_META[p].label, value: val(rows.filter((t) => t.priority === p)), color: PRIORITY_META[p].color })).filter((d) => d.value > 0);
   }
-  if (cfg.dimension === 'department') {
-    return store.departments.map((d) => ({ label: d.name, value: val(rows.filter((t) => t.departmentId === d.id)), color: d.color || NX.blue })).filter((d) => d.value > 0);
+  if (cfg.dimension === 'team') {
+    return store.teams.map((d) => ({ label: d.name, value: val(rows.filter((t) => t.teamId === d.id)), color: d.color || NX.blue })).filter((d) => d.value > 0);
   }
   if (cfg.dimension === 'project') {
     return store.projects.map((p, i) => ({ label: p.name, value: val(rows.filter((t) => t.projectId === p.id)), color: PALETTE[i % PALETTE.length] })).filter((d) => d.value > 0);

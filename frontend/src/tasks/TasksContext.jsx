@@ -32,14 +32,14 @@ function buildStatusOrder(customStatuses) {
 const CAMEL_TO_SNAKE = {
   assigneeId: 'assignee_email', followerIds: 'follower_emails', likedByIds: 'liked_by_emails',
   accessLevel: 'access_level', projectId: 'project_id', sectionId: 'section_id',
-  departmentId: 'department_id', departmentIds: 'department_ids', parentTaskId: 'parent_task_id', subtaskIds: 'subtask_ids',
+  teamId: 'team_id', parentTaskId: 'parent_task_id', subtaskIds: 'subtask_ids',
   blockedByIds: 'blocked_by_ids', blockingIds: 'blocking_ids', dependencyTypes: 'dependency_types',
   customFieldValues: 'custom_field_values', startOn: 'start_on', dueOn: 'due_on',
   estimateHours: 'estimate_hours', actualHours: 'actual_hours', isMilestone: 'is_milestone',
   approvalStatus: 'approval_status', ownerId: 'owner_email', memberIds: 'member_emails',
   portfolioId: 'portfolio_id', projectIds: 'project_ids', targetProjectId: 'target_project_id',
   requesterId: 'requester_email', linkedTaskId: 'linked_task_id', slaDueOn: 'sla_due_on', typeFields: 'type_fields',
-  companyId: 'company_id', hrDepartmentId: 'hr_department_id',
+  companyId: 'company_id', hrDepartmentId: 'hr_department_id', hrDepartmentName: 'hr_department_name',
   watcherIds: 'watcher_emails', csatRating: 'csat_rating', csatComment: 'csat_comment',
   taskIds: 'task_ids', subtaskTitles: 'subtask_titles',
 };
@@ -56,7 +56,7 @@ export function TasksProvider({ children }) {
   const [tasks, setTasks] = useState([]);
   const [projects, setProjects] = useState([]);
   const [portfolios, setPortfolios] = useState([]);
-  const [departments, setDepartments] = useState([]);
+  const [teams, setTeams] = useState([]);
   const [tickets, setTickets] = useState([]);
   const [ticketComponents, setTicketComponents] = useState([]);
   const [savedViews, setSavedViews] = useState([]);
@@ -77,7 +77,7 @@ export function TasksProvider({ children }) {
       api.getTasks().catch(() => []),
       api.getTaskProjects().catch(() => []),
       api.getTaskPortfolios().catch(() => []),
-      api.getTaskDepartments().catch(() => []),
+      api.getTaskTeams().catch(() => []),
       api.getTaskTickets().catch(() => []),
       api.getTicketComponents().catch(() => []),
       api.getTaskSavedViews().catch(() => []),
@@ -90,7 +90,7 @@ export function TasksProvider({ children }) {
       api.getTaskChangelog().catch(() => []),
       api.getTicketViews().catch(() => []),
     ]);
-    setTasks(t || []); setProjects(p || []); setPortfolios(pf || []); setDepartments(d || []);
+    setTasks(t || []); setProjects(p || []); setPortfolios(pf || []); setTeams(d || []);
     setTickets(tk || []); setTicketComponents(tc || []); setSavedViews(sv || []); setRules(r || []); setTemplates(tpl || []);
     setCustomFields(cf || []); setCustomStatuses(cs || []); setMemberRequests(mr || []);
     setIntakeForms(intk || []); setChangelog(chl || []); setTicketViews(tvw || []);
@@ -124,9 +124,9 @@ export function TasksProvider({ children }) {
   const taskById = useMemo(() => Object.fromEntries(tasks.map((t) => [t.id, t])), [tasks]);
   const projectById = useCallback((id) => projects.find((p) => p.id === id), [projects]);
   const portfolioById = useCallback((id) => portfolios.find((p) => p.id === id), [portfolios]);
-  const deptById = useCallback((id) => departments.find((d) => d.id === id), [departments]);
+  const teamById = useCallback((id) => teams.find((d) => d.id === id), [teams]);
   const projectName = useCallback((id) => projectById(id)?.name || '', [projectById]);
-  const deptName = useCallback((id) => deptById(id)?.name || '', [deptById]);
+  const teamName = useCallback((id) => teamById(id)?.name || '', [teamById]);
 
   const patchLocalTask = useCallback((id, patch) => {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
@@ -145,7 +145,14 @@ export function TasksProvider({ children }) {
       const saved = await api.updateTask(id, toBody(patch));
       setTasks((prev) => prev.map((t) => (t.id === id ? saved : t)));
       return saved;
-    } catch (e) { refetchTasks().catch(() => {}); throw e; }
+    } catch (e) {
+      refetchTasks().catch(() => {});
+      // Surfaces things like a dependency-gate rejection (blocked by an
+      // unfinished FS/SS/FF/SF task) — the optimistic change above just got
+      // reverted by the refetch, so silence here would look like nothing happened.
+      if (e?.status && e.status !== 401) alert(e.message || 'Could not update this task.');
+      throw e;
+    }
   }, [patchLocalTask, refetchTasks]);
 
   const toggleComplete = useCallback((t) => updateTask(t.id, { completed: !t.completed }), [updateTask]);
@@ -157,10 +164,15 @@ export function TasksProvider({ children }) {
   }, [refetchTasks]);
 
   const bulkUpdate = useCallback(async (ids, patch) => {
-    const rows = await api.bulkUpdateTasks(ids, toBody(patch));
-    const map = Object.fromEntries(rows.map((r) => [r.id, r]));
-    setTasks((prev) => prev.map((t) => map[t.id] || t));
-    return rows;
+    try {
+      const rows = await api.bulkUpdateTasks(ids, toBody(patch));
+      const map = Object.fromEntries(rows.map((r) => [r.id, r]));
+      setTasks((prev) => prev.map((t) => map[t.id] || t));
+      return rows;
+    } catch (e) {
+      if (e?.status && e.status !== 401) alert(e.message || 'Could not update these tasks.');
+      throw e;
+    }
   }, []);
 
   // Comments (loaded on demand, cached)
@@ -188,9 +200,9 @@ export function TasksProvider({ children }) {
     createPortfolio: mk(api.createTaskPortfolio, setPortfolios),
     updatePortfolio: mkUpd(api.updateTaskPortfolio, setPortfolios),
     deletePortfolio: mkDel(api.deleteTaskPortfolio, setPortfolios),
-    createDepartment: mk(api.createTaskDepartment, setDepartments),
-    updateDepartment: mkUpd(api.updateTaskDepartment, setDepartments),
-    deleteDepartment: mkDel(api.deleteTaskDepartment, setDepartments),
+    createTeam: mk(api.createTaskTeam, setTeams),
+    updateTeam: mkUpd(api.updateTaskTeam, setTeams),
+    deleteTeam: mkDel(api.deleteTaskTeam, setTeams),
     createTicket: mk(api.createTaskTicket, setTickets),
     updateTicket: mkUpd(api.updateTaskTicket, setTickets),
     deleteTicket: mkDel(api.deleteTaskTicket, setTickets),
@@ -246,9 +258,9 @@ export function TasksProvider({ children }) {
 
   const value = {
     loading, myEmail, nameOf,
-    tasks, projects, portfolios, departments, tickets, ticketComponents, savedViews, ticketViews, rules, templates,
+    tasks, projects, portfolios, teams, tickets, ticketComponents, savedViews, ticketViews, rules, templates,
     customFields, customStatuses, statusMeta, statusOrder, notifications, memberRequests, intakeForms, changelog,
-    taskById, projectById, portfolioById, deptById, projectName, deptName,
+    taskById, projectById, portfolioById, teamById, projectName, teamName,
     getComments, addComment, commentCache: commentCache.current,
     createTask, updateTask, deleteTask, bulkUpdate, toggleComplete, setStatus,
     markNotificationRead, markAllNotificationsRead, refresh: loadCore,

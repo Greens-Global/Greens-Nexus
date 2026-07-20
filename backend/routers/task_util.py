@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 import httpx
 from sqlalchemy.orm import Session
 
-from models import TaskNotification, TaskActivity, NexusRole, NexusNotification
+from models import TaskNotification, TaskActivity, NexusRole, NexusNotification, TaskProject, TaskTeam, Task
 
 _SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
@@ -109,3 +109,49 @@ def admin_emails(db: Session) -> list[str]:
     when a caller needs the concrete list)."""
     rows = db.query(NexusRole).filter(NexusRole.role.in_(["administrator", "owner"])).all()
     return [r.email for r in rows if r.email]
+
+
+# ── Visibility (Jul 2026) ─────────────────────────────────────────────────────
+def is_manager(user: dict) -> bool:
+    """Managers/admins bypass Task-module visibility restrictions entirely —
+    same level cutoff as require_manager elsewhere in this app (auth.py)."""
+    return (user or {}).get("level", 0) >= 3
+
+
+def visible_project_ids(db: Session, email: str) -> set[str]:
+    """Project ids a non-manager user may see: marked 'org' (Nexus Global),
+    owned by them, containing a team they're a member of, or containing a
+    task they're the assignee of. Deliberately does NOT look at individual
+    tasks' own access_level here — Task.access_level defaults to 'org' (its
+    own pre-existing default, unchanged), so treating "has an org task" as
+    "project is visible" would expose almost every project to everyone the
+    moment it has any task in it. A task's own org-visibility only grants
+    visibility to that one task (see task_is_visible), not its whole project."""
+    email = (email or "").lower()
+    ids: set[str] = set()
+    for p in db.query(TaskProject).all():
+        if (p.access_level or "org") == "org" or (p.owner_email or "").lower() == email:
+            ids.add(p.id)
+    for t in db.query(TaskTeam).filter(TaskTeam.project_id != "").all():
+        if email in [m.lower() for m in (t.member_emails or [])]:
+            ids.add(t.project_id)
+    for t in db.query(Task).filter(Task.project_id != "").all():
+        if (t.assignee_email or "").lower() == email:
+            ids.add(t.project_id)
+    return ids
+
+
+def task_is_visible(t: Task, email: str, visible_proj_ids: set[str]) -> bool:
+    """A task is visible if it's independently 'org', the viewer is its
+    assignee/owner/creator/a follower, or it sits in a project the viewer can
+    already see (org-wide, owned, or via team/assignee collaboration)."""
+    email = (email or "").lower()
+    if (t.access_level or "org") == "org":
+        return True
+    if email in ((t.assignee_email or "").lower(), (t.owner_email or "").lower(), (t.created_by or "").lower()):
+        return True
+    if email in [f.lower() for f in (t.follower_emails or [])]:
+        return True
+    if t.project_id and t.project_id in visible_proj_ids:
+        return True
+    return False

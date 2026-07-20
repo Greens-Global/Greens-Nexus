@@ -30,7 +30,7 @@ const dueColor = (iso, done) => { if (!iso || done) return NX.faint; const t = t
 
 export default function HomeView({ onNavigate }) {
   const store = useTasks();
-  const { tasks, projects, departments, notifications, myEmail, nameOf, createTask, toggleComplete } = store;
+  const { tasks, projects, teams, notifications, myEmail, nameOf, createTask, toggleComplete } = store;
   const [tab, setTab] = useState('Upcoming');
   const [range, setRange] = useState('week');
   const [rangeOpen, setRangeOpen] = useState(false);
@@ -58,8 +58,8 @@ export default function HomeView({ onNavigate }) {
   const upcoming = myTasks.filter((t) => !t.completed && (!t.dueOn || (t.dueOn >= todayISO() && t.dueOn <= rangeEnd)));
   const shown = tab === 'Upcoming' ? upcoming : tab === 'Overdue' ? overdue : completed;
   const collaborators = useMemo(() => { const s = new Set(); for (const t of myTasks) for (const f of (t.followerIds || [])) if (f !== myEmail) s.add(f); return s.size; }, [myTasks, myEmail]);
-  const myDepartments = useMemo(() => departments.filter((d) => (d.memberIds || []).includes(myEmail)), [departments, myEmail]);
-  const teamMembers = useMemo(() => { const s = new Set(); myDepartments.forEach((d) => (d.memberIds || []).forEach((id) => s.add(id))); return [...s]; }, [myDepartments]);
+  const myTeams = useMemo(() => teams.filter((d) => (d.memberIds || []).includes(myEmail)), [teams, myEmail]);
+  const teamMembers = useMemo(() => { const s = new Set(); myTeams.forEach((d) => (d.memberIds || []).forEach((id) => s.add(id))); return [...s]; }, [myTeams]);
   const recentProjects = projects.slice(0, 4);
 
   const cancelCreate = () => { setCreating(false); setNewTitle(''); setNewDue(null); };
@@ -142,16 +142,16 @@ export default function HomeView({ onNavigate }) {
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Teams</h2>
           {moreBtn(() => onNavigate('teams'))}
         </div>
-        {myDepartments.length === 0 ? <p style={{ padding: '16px 0', fontSize: 13, color: NX.faint }}>You're not part of any team yet.</p> : (
+        {myTeams.length === 0 ? <p style={{ padding: '16px 0', fontSize: 13, color: NX.faint }}>You're not part of any team yet.</p> : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {myDepartments.map((d) => {
-              const pc = projects.filter((p) => (p.departmentIds?.length ? p.departmentIds : (p.departmentId ? [p.departmentId] : [])).includes(d.id)).length;
+            {myTeams.map((d) => {
+              const proj = d.projectId ? projects.find((p) => p.id === d.projectId) : null;
               return (
                 <button key={d.id} onClick={() => onNavigate('teams')} style={{ display: 'flex', alignItems: 'center', gap: 12, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 12, cursor: 'pointer', background: NX.surface, textAlign: 'left', fontFamily: FONT }}>
                   <span style={{ display: 'flex', width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 9, background: `${d.color}1a`, color: d.color }}><Building2 size={18} /></span>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</div>
-                    <div style={{ fontSize: 12, color: NX.faint }}>{(d.memberIds || []).length} member{(d.memberIds || []).length === 1 ? '' : 's'} · {pc} project{pc === 1 ? '' : 's'}</div>
+                    <div style={{ fontSize: 12, color: NX.faint }}>{(d.memberIds || []).length} member{(d.memberIds || []).length === 1 ? '' : 's'} · {proj ? proj.name : 'Unassigned'}</div>
                   </div>
                 </button>
               );

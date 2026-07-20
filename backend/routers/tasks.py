@@ -19,6 +19,7 @@ from database import get_db
 from auth import get_current_user, require_manager
 from routers.task_util import (
     now_iso, gen_id, fire_task_event, task_notify, log_activity,
+    is_manager, visible_project_ids, task_is_visible,
 )
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"], dependencies=[Depends(get_current_user)])
@@ -46,7 +47,7 @@ def task_to_dict(t: models.Task) -> dict:
         "accessLevel":      t.access_level or "org",
         "projectId":        _nz(t.project_id),
         "sectionId":        _nz(t.section_id),
-        "departmentId":     _nz(t.department_id),
+        "teamId":           _nz(t.team_id),
         "parentTaskId":     _nz(t.parent_task_id),
         "subtaskIds":       t.subtask_ids or [],
         "blockedByIds":     t.blocked_by_ids or [],
@@ -119,10 +120,13 @@ class TaskCreate(BaseModel):
     owner_email:      Optional[str] = ""
     follower_emails:  Optional[list] = None
     liked_by_emails:  Optional[list] = None
-    access_level:     Optional[str] = "org"
+    # None (not "org") so create_task can tell "not specified" apart from an
+    # explicit choice — an unspecified task inherits its project's visibility
+    # instead of always defaulting to org-wide.
+    access_level:     Optional[str] = None
     project_id:       Optional[str] = ""
     section_id:       Optional[str] = ""
-    department_id:    Optional[str] = ""
+    team_id:          Optional[str] = ""
     parent_task_id:   Optional[str] = ""
     subtask_ids:      Optional[list] = None
     blocked_by_ids:   Optional[list] = None
@@ -153,7 +157,7 @@ class TaskUpdate(BaseModel):
     access_level:     Optional[str] = None
     project_id:       Optional[str] = None
     section_id:       Optional[str] = None
-    department_id:    Optional[str] = None
+    team_id:          Optional[str] = None
     parent_task_id:   Optional[str] = None
     subtask_ids:      Optional[list] = None
     blocked_by_ids:   Optional[list] = None
@@ -181,6 +185,57 @@ def _get_task(db: Session, task_id: str) -> models.Task:
     if not t:
         raise HTTPException(404, "Task not found")
     return t
+
+
+def _check_dependency_gate(db: Session, t: models.Task, prev_status: str, prev_completed: bool,
+                            new_status: str, new_completed: bool) -> None:
+    """Enforce blockedBy relationship types before a status/completion change lands.
+    FS/SS gate the task *starting* (leaving not_started); FF/SF gate it *finishing*
+    (completed). 'Started' on the blocker means it has left not_started OR is
+    completed. Raises 400 with a message naming the still-blocking task."""
+    if not t.blocked_by_ids:
+        return
+    starting_now = prev_status == "not_started" and new_status != "not_started"
+    completing_now = (not prev_completed) and new_completed
+    if not (starting_now or completing_now):
+        return
+    dep_types = t.dependency_types or {}
+    blockers = {b.id: b for b in db.query(models.Task).filter(models.Task.id.in_(t.blocked_by_ids)).all()}
+    for blocker_id in t.blocked_by_ids:
+        blocker = blockers.get(blocker_id)
+        if not blocker:
+            continue
+        dep_type = dep_types.get(blocker_id, "FS")
+        blocker_started = blocker.status != "not_started" or blocker.completed
+        blocker_completed = bool(blocker.completed)
+        name = blocker.code or blocker.title
+        if dep_type == "FS" and (starting_now or completing_now) and not blocker_completed:
+            raise HTTPException(400, f"Blocked by {name}: finish it before starting or completing this task (Finish → Start).")
+        if dep_type == "SS" and starting_now and not blocker_started:
+            raise HTTPException(400, f"Blocked by {name}: start it before starting this task (Start → Start).")
+        if dep_type == "FF" and completing_now and not blocker_completed:
+            raise HTTPException(400, f"Blocked by {name}: finish it before completing this task (Finish → Finish).")
+        if dep_type == "SF" and completing_now and not blocker_started:
+            raise HTTPException(400, f"Blocked by {name}: start it before completing this task (Start → Finish).")
+
+
+def _asana_push(task_id: str) -> None:
+    """Fire-and-forget outbound Asana sync. Fully guarded — must never affect the
+    task operation that triggered it (runs in a daemon thread on its own session)."""
+    try:
+        from asana_sync import on_task_changed
+        on_task_changed(task_id)
+    except Exception:
+        pass
+
+
+def _asana_push_comment(comment_id: str) -> None:
+    """Fire-and-forget outbound comment sync. Fully guarded."""
+    try:
+        from asana_sync import on_comment_added
+        on_comment_added(comment_id)
+    except Exception:
+        pass
 
 
 # ── Recurrence: occurrence generation ────────────────────────────────────────
@@ -263,7 +318,7 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict) -> Optional[
         access_level=t.access_level or "org",
         project_id=t.project_id or "",
         section_id=t.section_id or "",
-        department_id=t.department_id or "",
+        team_id=t.team_id or "",
         parent_task_id="",
         subtask_ids=[], blocked_by_ids=[], blocking_ids=[], dependency_types={},
         tags=list(t.tags or []),
@@ -294,14 +349,24 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict) -> Optional[
 
 
 @router.get("")
-def list_tasks(db: Session = Depends(get_db)):
-    return [task_to_dict(t) for t in db.query(models.Task).all()]
+def list_tasks(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = db.query(models.Task).all()
+    if is_manager(user):
+        return [task_to_dict(t) for t in rows]
+    visible_projects = visible_project_ids(db, user["email"])
+    return [task_to_dict(t) for t in rows if task_is_visible(t, user["email"], visible_projects)]
 
 
 @router.post("", status_code=201)
 def create_task(body: TaskCreate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     now = now_iso()
     tid = body.id or gen_id()
+    # No explicit access_level -> inherit the project's (so a task in a
+    # restricted project doesn't leak org-wide by default); no project either
+    # -> falls back to org, same as before.
+    project = (db.query(models.TaskProject).filter(models.TaskProject.id == body.project_id).first()
+               if body.project_id else None)
+    access_level = body.access_level or (project.access_level if project else None) or "org"
     t = models.Task(
         id=tid,
         code=body.code or _next_code(db),
@@ -314,10 +379,10 @@ def create_task(body: TaskCreate, user: dict = Depends(get_current_user), db: Se
         owner_email=(body.owner_email or "").lower(),
         follower_emails=body.follower_emails or [],
         liked_by_emails=body.liked_by_emails or [],
-        access_level=body.access_level or "org",
+        access_level=access_level,
         project_id=body.project_id or "",
         section_id=body.section_id or "",
-        department_id=body.department_id or "",
+        team_id=body.team_id or "",
         parent_task_id=body.parent_task_id or "",
         subtask_ids=body.subtask_ids or [],
         blocked_by_ids=body.blocked_by_ids or [],
@@ -355,6 +420,7 @@ def create_task(body: TaskCreate, user: dict = Depends(get_current_user), db: Se
     db.commit()
     db.refresh(t)
     fire_task_event(tid, "created")
+    _asana_push(tid)
     return task_to_dict(t)
 
 
@@ -366,6 +432,10 @@ def update_task(task_id: str, upd: TaskUpdate, user: dict = Depends(get_current_
     prev_assignee = (t.assignee_email or "").lower()
     prev_status = t.status
     prev_completed = bool(t.completed)
+
+    new_status = data.get("status", prev_status)
+    new_completed = bool(data.get("completed", prev_completed)) or (data.get("status") == "completed")
+    _check_dependency_gate(db, t, prev_status, prev_completed, new_status, new_completed)
 
     for field, val in data.items():
         if field == "completed":
@@ -417,8 +487,10 @@ def update_task(task_id: str, upd: TaskUpdate, user: dict = Depends(get_current_
     db.commit()
     db.refresh(t)
     fire_task_event(t.id, "updated")
+    _asana_push(t.id)
     if spawned is not None:
         fire_task_event(spawned.id, "created")
+        _asana_push(spawned.id)
     return task_to_dict(t)
 
 
@@ -457,7 +529,7 @@ class BulkUpdate(BaseModel):
     patch: dict[str, Any]
 
 
-_BULK_ALLOWED = {"status", "priority", "assignee_email", "department_id", "project_id",
+_BULK_ALLOWED = {"status", "priority", "assignee_email", "team_id", "project_id",
                  "completed", "tags", "due_on", "start_on", "is_milestone"}
 
 
@@ -465,6 +537,12 @@ _BULK_ALLOWED = {"status", "priority", "assignee_email", "department_id", "proje
 def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     patch = {k: v for k, v in (body.patch or {}).items() if k in _BULK_ALLOWED}
     rows = db.query(models.Task).filter(models.Task.id.in_(body.ids)).all()
+    if "status" in patch or "completed" in patch:
+        for t in rows:
+            prev_status, prev_completed = t.status, bool(t.completed)
+            new_status = patch.get("status", prev_status)
+            new_completed = bool(patch.get("completed", prev_completed)) or (patch.get("status") == "completed")
+            _check_dependency_gate(db, t, prev_status, prev_completed, new_status, new_completed)
     for t in rows:
         for k, v in patch.items():
             if k == "assignee_email":
@@ -526,6 +604,7 @@ def add_comment(task_id: str, body: CommentCreate, notify: bool = True,
     db.commit()
     db.refresh(c)
     fire_task_event(task_id, "comment")
+    _asana_push_comment(cid)
     return comment_to_dict(c)
 
 

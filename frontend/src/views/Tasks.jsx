@@ -13,7 +13,7 @@ import MyTasksView from '../tasks/MyTasksView';
 import ProjectsView from '../tasks/ProjectsView';
 import PortfoliosView from '../tasks/PortfoliosView';
 import TeamsView from '../tasks/TeamsView';
-import TicketsView from '../tasks/TicketsView';
+import TicketsView from '../tickets/TicketsView';
 import ManageView from '../tasks/ManageView';
 import ReportBugButton from '../tasks/ReportBug';
 import CreateMenu from '../tasks/CreateMenu';
@@ -111,7 +111,8 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
               <button className="primary-btn nx-iconbtn" onClick={() => go('home')} title="Exit" style={{ fontFamily: FONT }}>
                 <X size={14} /> <span className="nx-btn-label">Exit</span>
               </button>
-            ) : canManage ? (
+            ) : (canManage && !onTicket) ? (
+              /* Manage is a Task-mode admin surface — hidden on the Tickets tab. */
               <button className="secondary-btn nx-iconbtn" onClick={() => go('manage')} title="Manage" style={{ fontFamily: FONT }}>
                 <Settings size={14} /> <span className="nx-btn-label">Manage</span>
               </button>

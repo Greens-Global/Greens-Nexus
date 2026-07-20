@@ -31,7 +31,7 @@ const GROUPS = ['status', 'priority', 'assignee', 'project', 'none'];
 
 export default function TasksWorkspace({ lockedProjectId = null, mine = false, title = 'Tasks', onBack }) {
   const store = useTasks();
-  const { tasks, nameOf, projectName, deptName, projectById, deptById, toggleComplete, bulkUpdate, deleteTask, myEmail } = store;
+  const { tasks, nameOf, projectName, teamName, projectById, toggleComplete, bulkUpdate, deleteTask, myEmail } = store;
   const { can } = useRole();
   // Workload visibility:
   //  • Never on the project task view (lockedProjectId set) — removed per request.
@@ -79,9 +79,8 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
     const all = ids.length > 0 && ids.every((id) => s.has(id));
     return all ? new Set() : new Set(ids);
   });
-  const ctx = { nameOf, projectName, deptName };
+  const ctx = { nameOf, projectName, teamName };
   const lockedProject = lockedProjectId ? projectById(lockedProjectId) : null;
-  const lockedDept = lockedProject?.departmentId ? deptById(lockedProject.departmentId) : null;
 
   return (
     <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', background: NX.canvas }}>
@@ -93,9 +92,9 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 20, fontWeight: 700, minWidth: 0 }}>
           {lockedProject ? (
             <>
-              <FolderKanban size={19} style={{ color: lockedDept?.color || NX.purple, flexShrink: 0 }} />
+              <FolderKanban size={19} style={{ color: lockedProject.color || NX.purple, flexShrink: 0 }} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lockedProject.name}</span>
-              {lockedDept && <span style={chip(lockedDept.color, `${lockedDept.color}1a`)}>{lockedDept.name}</span>}
+              {lockedProject.hrDepartmentName && <span style={chip(NX.dim, NX.border2)}>{lockedProject.hrDepartmentName}</span>}
             </>
           ) : title}
         </div>
@@ -182,7 +181,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
       )}
 
       {quickCreate && <QuickCreateTask defaults={quickCreate} onClose={() => setQuickCreate(null)} onFullDetails={(d) => { setQuickCreate(null); setCreating({ ...quickCreate, ...d }); }} />}
-      {creating && <CreateTaskModal defaults={creating} onClose={() => setCreating(null)} />}
+      {creating && <CreateTaskModal defaults={creating} onClose={() => setCreating(null)} lockedProjectId={lockedProjectId || ''} />}
       {openId && <TaskDetailDrawer taskId={openId} onClose={() => setOpenId(null)} />}
     </div>
   );

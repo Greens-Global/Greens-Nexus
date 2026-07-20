@@ -11,6 +11,8 @@ from routers import timeclock
 from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews
 # NOTE: `inventory_requests` router retired Jul 2026 (P2-1) — legacy inventory stack removed.
 from routers import task_projects, task_config  # Task Module (Jul 2026)
+from routers import tickets as tickets_router    # Ticket Module — split out of task_config (Jul 2026)
+from routers import asana_webhook  # Asana two-way sync — public webhook receiver
 from routers import jobroles  # Roles & Access redesign (Jul 2026)
 from routers import access_scopes  # row-level scopes for external users (Jul 2026)
 from routers import qa  # Testing module — dev-only via NEXUS_QA_MODULE env (Jul 2026)
@@ -180,6 +182,27 @@ def _run_migrations():
             "CREATE INDEX IF NOT EXISTS ix_notif_ref ON nexus_notifications (ref_id)",
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_checkout_live ON item_checkouts (item_id) WHERE status IN ('pending','approved','pending_receipt','allocated')",
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_assignment_live ON item_assignments (item_id) WHERE status IN ('pending_acceptance','active','return_initiated')",
+            # Task Module: "Team" becomes project-scoped (IT Team/QA Team/... WITHIN
+            # a project) instead of a flat cross-project list; a project's org
+            # classifier is now the real People-module department (Jul 2026).
+            # task_teams is a NEW table name, so create_all (which runs before this
+            # function) already creates it empty before we get here — a plain
+            # RENAME would then fail every time (target already exists) and
+            # silently strand the real rows in task_departments forever. Copy
+            # instead: INSERT OR IGNORE no-ops on rerun (id is the PK), and the
+            # DROP only succeeds once the copy has landed everything.
+            "INSERT OR IGNORE INTO task_teams (id, project_id, name, color, icon, member_emails, created_at) "
+            "SELECT id, '', name, color, icon, member_emails, created_at FROM task_departments",
+            "DROP TABLE IF EXISTS task_departments",
+            "ALTER TABLE tasks DROP COLUMN department_id",
+            "ALTER TABLE tasks ADD COLUMN team_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_projects DROP COLUMN department_ids",
+            "ALTER TABLE task_projects ADD COLUMN hr_department_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_projects ADD COLUMN hr_department_name VARCHAR DEFAULT ''",
+            # Project visibility (Jul 2026): mirrors Task.access_level. Existing
+            # projects backfill to 'org' (everyone already saw everything) —
+            # only newly-created projects default to 'restricted' (create_project).
+            "ALTER TABLE task_projects ADD COLUMN access_level VARCHAR DEFAULT 'org'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -299,6 +322,14 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS identity_type VARCHAR DEFAULT 'internal'",
         # HR mailbox export: progress total (table itself is created by create_all)
         "ALTER TABLE hr_mailbox_exports ADD COLUMN IF NOT EXISTS total INTEGER DEFAULT 0",
+        # Ticket triage routing: who assigns a department's incoming tickets
+        "ALTER TABLE hr_departments ADD COLUMN IF NOT EXISTS lead_email VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_departments ADD COLUMN IF NOT EXISTS backup_email VARCHAR DEFAULT ''",
+        # Ticket approval gate (service/change/access requests)
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS approval_status VARCHAR DEFAULT 'none'",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS approver_email VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS approval_note VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS approval_decided_at VARCHAR DEFAULT ''",
         # E-Sign multi-document packets: PDFs attached to a template, carried on the envelope
         "ALTER TABLE hr_sign_templates ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS documents JSONB DEFAULT '[]'::jsonb",
@@ -403,6 +434,28 @@ def _run_migrations():
         "CREATE INDEX IF NOT EXISTS ix_notif_ref ON nexus_notifications (ref_id)",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_checkout_live ON item_checkouts (item_id) WHERE status IN ('pending','approved','pending_receipt','allocated')",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_assignment_live ON item_assignments (item_id) WHERE status IN ('pending_acceptance','active','return_initiated')",
+        # Task Module: "Team" becomes project-scoped (IT Team/QA Team/... WITHIN
+        # a project) instead of a flat cross-project list; a project's org
+        # classifier is now the real People-module department (Jul 2026).
+        # task_teams is a NEW table name, so create_all (which runs before this
+        # function) already creates it empty before we get here — a plain
+        # RENAME would then fail every time (target already exists) and
+        # silently strand the real rows in task_departments forever. Copy
+        # instead: ON CONFLICT DO NOTHING no-ops on rerun (id is the PK), and
+        # the DROP only succeeds once the copy has landed everything.
+        "INSERT INTO task_teams (id, project_id, name, color, icon, member_emails, created_at) "
+        "SELECT id, '', name, color, icon, member_emails, created_at FROM task_departments "
+        "ON CONFLICT (id) DO NOTHING",
+        "DROP TABLE IF EXISTS task_departments",
+        "ALTER TABLE tasks DROP COLUMN IF EXISTS department_id",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS team_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_projects DROP COLUMN IF EXISTS department_ids",
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS hr_department_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS hr_department_name VARCHAR DEFAULT ''",
+        # Project visibility (Jul 2026): mirrors Task.access_level. Existing
+        # projects backfill to 'org' (everyone already saw everything) — only
+        # newly-created projects default to 'restricted' (create_project).
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS access_level VARCHAR DEFAULT 'org'",
     ]
     with engine.connect() as conn:
         for sql in migrations:
@@ -468,6 +521,13 @@ async def lifespan(app: FastAPI):
         print("[startup] daily reminders scheduled")
     except Exception as e:
         print(f"[startup] reminders skipped: {e}")
+    # Asana sync fallback poll (webhooks handle real-time; this is the safety net).
+    try:
+        from asana_sync import start_auto_pull, is_sync_worker
+        start_auto_pull()
+        print(f"[startup] asana auto-pull {'scheduled' if is_sync_worker() else 'skipped (not the sync worker)'}")
+    except Exception as e:
+        print(f"[startup] asana auto-pull skipped: {e}")
     yield
 
 
@@ -538,6 +598,8 @@ app.include_router(timeclock.router)
 app.include_router(myhr.router)
 app.include_router(hr_interviews.router)
 app.include_router(task_projects.router)  # Task Module: projects/portfolios/departments
-app.include_router(task_config.router)    # Task Module: views/rules/templates/tickets/notifications/changelog
+app.include_router(task_config.router)    # Task Module: views/rules/templates/notifications/changelog
+app.include_router(tickets_router.router) # Ticket Module: tickets, conversation, components, links, escalation
 app.include_router(credvault.router)      # Credential Vault: encrypted company/personal secrets ("credvault" grant)
+app.include_router(asana_webhook.router)  # Asana two-way sync: public webhook receiver (verified by HMAC)
 

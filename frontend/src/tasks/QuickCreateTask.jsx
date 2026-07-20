@@ -27,7 +27,7 @@ async function uploadAttachment(taskId, f) {
 
 export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails }) {
   const store = useTasks();
-  const { createTask, projectById, myEmail } = store;
+  const { createTask, myEmail } = store;
   const people = usePeople();
   const [title, setTitle] = useState(defaults.title || '');
   const [dueOn, setDueOn] = useState(defaults.dueOn || '');
@@ -70,11 +70,10 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
     if (!canCreate) return;
     setBusy(true);
     const projectId = defaults.projectId || '';
-    const deptId = projectId ? (projectById(projectId)?.departmentId || '') : (defaults.departmentId || '');
     try {
       const t = await createTask({
         title: title.trim(), type: 'task', status: defaults.status || 'not_started',
-        priority: defaults.priority || 'medium', assigneeId: assigneeId || '', ownerId: defaults.ownerId ?? myEmail ?? '', projectId, departmentId: deptId, dueOn: dueOn || '',
+        priority: defaults.priority || 'medium', assigneeId: assigneeId || '', ownerId: defaults.ownerId ?? myEmail ?? '', projectId, teamId: defaults.teamId || '', dueOn: dueOn || '',
       });
       for (const it of files) await uploadAttachment(t.id, it.file);
       onClose();
