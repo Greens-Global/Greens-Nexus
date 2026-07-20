@@ -7709,7 +7709,10 @@ export default function InventoryManagement({ activeSub }) {
       .then(saved => setCart(prev => prev.map(c => c.id === optimisticId ? { id: saved.id, item, days: 1 } : c)))
       // P4: surface the failure instead of the row silently disappearing.
       .catch(err => { setCart(prev => prev.filter(c => c.id !== optimisticId)); toast(err?.message || 'Could not add item to cart.', 'error'); });
-  }, [inCart, toast]);
+    // `toast` intentionally omitted: it's a stable useCallback declared lower in
+    // this component, so listing it here read it in the temporal dead zone and
+    // crashed the whole view ("Cannot access 'toast' before initialization").
+  }, [inCart]); // eslint-disable-line react-hooks/exhaustive-deps
   function removeFromCart(cartId) {
     const entry = cart.find(c => c.id === cartId);
     setCart(prev => prev.filter(c => c.id !== cartId));
