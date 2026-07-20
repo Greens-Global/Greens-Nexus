@@ -109,7 +109,9 @@ export default function TimeClock() {
   const [monAgree, setMonAgree] = useState(false);
   const [monBusy, setMonBusy] = useState(false);
   const [missed, setMissed] = useState({ kind: 'out', at: '', note: '' });
+  const [myReqs, setMyReqs] = useState([]);    // my punch-fix requests + their status
   const [, setTick] = useState(0);             // re-render for the live timer
+  useEffect(() => { api.timeMyPunchRequests().then(setMyReqs).catch(() => {}); }, []);
   const msgTimer = useRef(null);
 
   const toast = (ok, text) => {
@@ -223,16 +225,31 @@ export default function TimeClock() {
     setBusy('');
   }
 
+  // Employee's fix requests (add/remove a punch) awaiting approver review.
+  function loadMyRequests() { api.timeMyPunchRequests().then(setMyReqs).catch(() => {}); }
+
   async function submitMissed() {
-    if (!missed.at || !missed.note.trim()) { toast(false, 'Pick the time and add a short note.'); return; }
+    if (!missed.at || !missed.note.trim()) { toast(false, 'Pick the time and add a reason.'); return; }
     try {
       const utc = new Date(missed.at).toISOString().slice(0, 19);
-      await api.timeSelfPunch({ kind: missed.kind, at: utc,
-        tz_offset_min: new Date().getTimezoneOffset(), note: missed.note.trim() });
-      toast(true, 'Missed punch added — it will show as self-corrected for review.');
+      // Goes to your approver — nothing changes on the timesheet until they approve.
+      await api.timePunchRequestCreate({ action: 'add', punch_kind: missed.kind, at: utc,
+        tz_offset_min: new Date().getTimezoneOffset(), reason: missed.note.trim() });
+      toast(true, "Request sent to your approver — you'll be notified when it's reviewed.");
       setMissedOpen(false); setMissed({ kind: 'out', at: '', note: '' });
-      load();
-    } catch (e) { toast(false, e?.message || 'Could not add the punch.'); }
+      loadMyRequests();
+    } catch (e) { toast(false, e?.message || 'Could not send the request.'); }
+  }
+
+  async function requestRemovePunch(p) {
+    const reason = window.prompt('Why should this punch be removed? (sent to your approver)');
+    if (reason === null) return;
+    if (!reason.trim()) { toast(false, 'A reason is required.'); return; }
+    try {
+      await api.timePunchRequestCreate({ action: 'remove', target_punch_id: p.id, reason: reason.trim() });
+      toast(true, "Removal request sent to your approver.");
+      loadMyRequests();
+    } catch (e) { toast(false, e?.message || 'Could not send the request.'); }
   }
 
   const last = status?.lastPunch;
@@ -457,11 +474,30 @@ export default function TimeClock() {
               onChange={e => setMissed(m => ({ ...m, at: e.target.value }))} style={{ fontSize: 12.5 }} />
             <input className="form-input" placeholder="Why was it missed? (required)" value={missed.note}
               onChange={e => setMissed(m => ({ ...m, note: e.target.value }))} style={{ flex: 1, minWidth: 200, fontSize: 12.5 }} />
-            <button className="primary-btn" onClick={submitMissed} style={{ fontSize: 12.5 }}>Add punch</button>
+            <button className="primary-btn" onClick={submitMissed} style={{ fontSize: 12.5 }}>Send request</button>
           </div>
           <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--muted)' }}>
-            Self-added punches are marked for manager review. Anything older than 7 days needs a manager.
+            This goes to your approver — nothing changes on your timesheet until they approve it.
           </p>
+        </div>
+      )}
+
+      {/* My pending/decided fix requests, so the employee can track them. */}
+      {myReqs.length > 0 && (
+        <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {myReqs.slice(0, 6).map(r => {
+            const c = r.status === 'approved' ? 'hsl(var(--color-green))'
+              : r.status === 'rejected' ? 'hsl(var(--color-red))' : '#b45309';
+            const when = r.action === 'add' && r.at ? ` at ${localTime(r.at)}` : '';
+            return (
+              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12, padding: '7px 12px', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10 }}>
+                <span style={{ fontWeight: 700, textTransform: 'capitalize', color: c, minWidth: 64 }}>{r.status}</span>
+                <span style={{ color: 'var(--ink)' }}>{r.action === 'add' ? `Add ${KIND_LABEL[r.punchKind] || r.punchKind}${when}` : 'Remove a punch'}</span>
+                {r.reason && <span style={{ color: 'var(--muted)' }}>· {r.reason}</span>}
+                {r.status === 'rejected' && r.decisionNote && <span style={{ color: 'hsl(var(--color-red))' }}>· {r.decisionNote}</span>}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -530,6 +566,9 @@ export default function TimeClock() {
                         {p.geoStatus === 'in_fence' && <MapPin size={10} />}
                         {p.geoStatus === 'out_of_fence' && <AlertTriangle size={10} />}
                         {p.source !== 'web' && 'ⓜ'}
+                        {/* Ask an approver to remove a wrong punch (doesn't delete it directly). */}
+                        <button onClick={() => requestRemovePunch(p)} title="Request removal of this punch"
+                          style={{ marginLeft: 2, background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', opacity: 0.5, padding: 0, fontSize: 13, lineHeight: 1 }}>×</button>
                       </span>
                     );
                   })}

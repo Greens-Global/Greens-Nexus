@@ -661,6 +661,11 @@ export const api = {
   timeSetMonitoringPolicy: (data) => req('/timeclock/monitoring/policy', { method: 'PUT', body: JSON.stringify(data) }),
   timeTeamShots:     (date, email) => req(`/timeclock/team-screenshots?date=${date || ''}&email=${encodeURIComponent(email || '')}`),
   timeMonitoringAlerts: () => req('/timeclock/monitoring/alerts'),
+  // Punch-fix requests: employee asks, approver (HR/manager) approves/rejects
+  timePunchRequestCreate: (data) => req('/timeclock/punch-requests', { method: 'POST', body: JSON.stringify(data) }),
+  timeMyPunchRequests:    () => req('/timeclock/punch-requests/mine'),
+  timePunchRequests:      (status) => req(`/timeclock/punch-requests?status=${status || 'pending'}`),
+  timeDecidePunchRequest: (id, data) => req(`/timeclock/punch-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   timeOffCreate:     (data)      => req('/timeclock/timeoff', { method: 'POST', body: JSON.stringify(data) }),
   timeOffMine:       ()          => req('/timeclock/timeoff/mine'),
   timeOffList:       (status)    => req(`/timeclock/timeoff?status=${status || ''}`),
