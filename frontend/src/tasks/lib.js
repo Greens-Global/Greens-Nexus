@@ -136,6 +136,20 @@ export function taskStats(list) {
   return { total, completed, inProgress, overdue, pct: total ? Math.round((completed / total) * 100) : 0 };
 }
 
+// ── Clipboard ────────────────────────────────────────────────────────────────
+/** Image files from a paste event (Ctrl+V screenshot). Pasted blobs sometimes
+ *  arrive nameless — give them one so upload paths that read `f.name` work. */
+export function filesFromPaste(e) {
+  const out = [];
+  for (const item of e.clipboardData?.items || []) {
+    if (item.type?.startsWith('image/')) {
+      const f = item.getAsFile();
+      if (f) out.push(f.name ? f : new File([f], `paste-${Date.now()}.png`, { type: f.type || 'image/png' }));
+    }
+  }
+  return out;
+}
+
 // ── Dates ────────────────────────────────────────────────────────────────────
 // One date format for the whole module: mm/dd/yyyy. The views previously each
 // rolled their own (`Jul 15`, `15 July 2026`, locale default…), so a task's due

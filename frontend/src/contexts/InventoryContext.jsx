@@ -174,15 +174,19 @@ export function InventoryProvider({ children }) {
 
   // ── Checkout actions ──────────────────────────────────────────────────────
 
-  const submitCartCheckouts = useCallback((cartItems, { reason, raisedBy, raisedByEmail, approverEmail = '', approverName = '' }) => {
+  const submitCartCheckouts = useCallback((cartItems, { reason, raisedBy, raisedByEmail, forName = '', forEmail = '', approverEmail = '', approverName = '' }) => {
     const orderId = crypto.randomUUID();
+    // On-behalf: the item lands in the BENEFICIARY's My Items (requested_by*),
+    // while raised_by records who actually submitted it. Default = self.
+    const beneficiaryName  = forName  || raisedBy;
+    const beneficiaryEmail = forEmail || raisedByEmail;
     const promises = cartItems.map(cartItem => {
       const id = genCheckoutId();
       const itemDays = cartItem.days ?? 1;
       const optimistic = {
         id, itemId: cartItem.item.id, itemName: cartItem.item.name,
-        itemType: cartItem.item.itemType, requestedBy: raisedBy,
-        requestedByEmail: raisedByEmail, raisedBy, department: cartItem.item.department,
+        itemType: cartItem.item.itemType, requestedBy: beneficiaryName,
+        requestedByEmail: beneficiaryEmail, raisedBy, department: cartItem.item.department,
         days: itemDays, reason, status: 'pending', createdAt: new Date().toISOString(),
         checkoutPhotoUrl: cartItem.photoUrl || null, orderId,
       };
@@ -191,8 +195,8 @@ export function InventoryProvider({ children }) {
       const itemValue = Number(cartItem.item.assetValue ?? items.find(i => i.id === cartItem.item.id)?.assetValue) || 0;
       return api.createItemCheckout({
         id, item_id: cartItem.item.id, item_name: cartItem.item.name,
-        item_type: cartItem.item.itemType, requested_by: raisedBy,
-        requested_by_email: raisedByEmail, raised_by: raisedBy,
+        item_type: cartItem.item.itemType, requested_by: beneficiaryName,
+        requested_by_email: beneficiaryEmail, raised_by: raisedBy,
         department: cartItem.item.department, days: itemDays, reason,
         asset_value: itemValue,
         checkout_photo_url: cartItem.photoUrl || '',
@@ -233,9 +237,9 @@ export function InventoryProvider({ children }) {
     setCheckouts(prev => prev.map(c =>
       c.id === id ? { ...c, status: 'rejected', resolvedAt: new Date().toISOString(), resolvedBy: managerName, rejectReason: reason } : c
     ));
-    api.updateItemCheckout(id, { status: 'rejected', resolved_by: managerName, reject_reason: reason })
-      .then(() => fetchCheckouts())
-      .catch(() => fetchCheckouts());
+    return api.updateItemCheckout(id, { status: 'rejected', resolved_by: managerName, reject_reason: reason })
+      .then(saved => { fetchCheckouts(); return saved; })
+      .catch(err => { fetchCheckouts(); throw err; });
   }, [fetchCheckouts]);
 
   const cancelRequest = useCallback((id, requesterName) => {
@@ -283,7 +287,7 @@ export function InventoryProvider({ children }) {
       .catch(err => { fetchCheckouts(); throw err; });
   }, [fetchCheckouts, fetchItems]);
 
-  const returnItem = useCallback(async (id, { file, photoName, conditionNote }) => {
+  const returnItem = useCallback(async (id, { file, photoName, conditionNote, condition = 'ok', pictureRequired = true }) => {
     const now = new Date().toISOString();
     let permanentUrl = '';
     let photoUploadError = null;
@@ -303,6 +307,9 @@ export function InventoryProvider({ children }) {
         permanentUrl = urlData.publicUrl;
       } else if (error) {
         photoUploadError = error.message || 'Photo upload failed';
+        // Evidence is mandatory unless the item is flagged photo-optional — never
+        // mark the checkout returned without it. Reject BEFORE the status change.
+        if (pictureRequired !== false) throw new Error(photoUploadError);
       }
     }
 
@@ -319,6 +326,7 @@ export function InventoryProvider({ children }) {
       return_photo_name: photoName || '',
       return_photo_url:  permanentUrl || '',
       condition_note:    conditionNote || '',
+      condition:         condition || 'ok',   // P1-13: explicit enum drives retire/lost, not note-sniffing
     }).then(saved => {
       fetchCheckouts();
       fetchItems();

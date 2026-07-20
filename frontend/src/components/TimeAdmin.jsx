@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Clock, ChevronDown, ChevronRight, ChevronLeft, MapPin, AlertTriangle, Download,
-  Pencil, Plus, Loader2, X, CheckCircle, Ban,
+  Pencil, Plus, Loader2, X, CheckCircle, Ban, Camera, MoonStar,
 } from 'lucide-react';
 import { api } from '../api';
 import DayTimeline from './DayTimeline';
@@ -150,6 +150,22 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
   const [personAct, setPersonAct] = useState(null);   // app-usage for that person
   const [shiftMode, setShiftMode] = useState('schedule'); // schedule | presets
 
+  // Disclosed-monitoring: manager-scoped screenshot gallery (team-scoped API).
+  const [shotDate, setShotDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [shotPeople, setShotPeople] = useState(null);
+  const [shotWho, setShotWho] = useState(null);       // {email, name}
+  const [shotFrames, setShotFrames] = useState(null);
+  useEffect(() => {
+    if (view !== 'screenshots') return;
+    setShotPeople(null); setShotWho(null); setShotFrames(null);
+    api.timeTeamShots(shotDate).then(r => setShotPeople(r.people || [])).catch(() => setShotPeople([]));
+  }, [view, shotDate]);
+  useEffect(() => {
+    if (!shotWho) { setShotFrames(null); return; }
+    setShotFrames(null);
+    api.timeTeamShots(shotDate, shotWho.email).then(r => setShotFrames(r.shots || [])).catch(() => setShotFrames([]));
+  }, [shotWho, shotDate]);
+
   useEffect(() => {
     if (!person) { setPersonAct(null); return; }
     let live = true;
@@ -234,7 +250,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
       {/* Sub-tabs */}
       <div className="chip-row scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
         {[['timecards', 'Timecards'], ['livemap', 'Live map'], ['attendance', 'Attendance'], ['insights', 'Insights'],
-          ['shifts', 'Shifts'], ['payroll', 'Payroll'],
+          ['screenshots', 'Screenshots'], ['shifts', 'Shifts'], ['payroll', 'Payroll'],
           ['timeoff', `Time off${pendingCount ? ` (${pendingCount})` : ''}`]].map(([key, label]) => (
           <button key={key} onClick={() => setView(key)}
             style={{ padding: '6px 15px', borderRadius: 10, border: `1px solid ${view === key ? 'var(--pine)' : 'var(--line)'}`,
@@ -538,6 +554,72 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Screenshots — disclosed-monitoring, manager-scoped team gallery.
+          Pick a day → team members with captures → their frame grid (signed URLs). */}
+      {view === 'screenshots' && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+            {shotWho && (
+              <button className="secondary-btn" onClick={() => setShotWho(null)}
+                style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px' }}>
+                <ChevronLeft size={13} /> Back
+              </button>
+            )}
+            <Camera size={15} style={{ color: 'var(--pine)' }} />
+            <span style={{ fontSize: 13.5, fontWeight: 800 }}>Screenshots{shotWho ? ` — ${shotWho.name}` : ''}</span>
+            <div style={{ flex: 1 }} />
+            <input className="form-input" type="date" value={shotDate} onChange={e => setShotDate(e.target.value)}
+              style={{ fontSize: 12, width: 150 }} />
+          </div>
+
+          {!shotWho && (
+            shotPeople === null
+              ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+              : shotPeople.length === 0
+                ? <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
+                    No captures on this day. Frames are saved while a team member is clocked in with screen capture on.
+                  </div>
+                : <div style={{ display: 'grid', gap: 8 }}>
+                    {shotPeople.map(p => (
+                      <button key={p.email} onClick={() => setShotWho(p)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12, cursor: 'pointer', textAlign: 'left',
+                          border: '1.5px solid var(--line)', background: 'var(--card)', fontFamily: 'Inter,sans-serif' }}>
+                        <Camera size={15} style={{ color: 'var(--pine)' }} />
+                        <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1 }}>{p.name}</span>
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>{p.count} frame{p.count === 1 ? '' : 's'}</span>
+                      </button>
+                    ))}
+                  </div>
+          )}
+
+          {shotWho && (
+            shotFrames === null
+              ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+              : shotFrames.length === 0
+                ? <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>No frames for this person on this day.</div>
+                : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
+                    {shotFrames.map(s => (
+                      <a key={s.id} href={s.url} target="_blank" rel="noopener noreferrer"
+                        style={{ display: 'block', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', textDecoration: 'none', background: 'var(--mist)' }}>
+                        <img src={s.url} alt={`Capture ${localTime(s.at)}`} loading="lazy"
+                          style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', display: 'block' }} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px' }}>
+                          <span style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--ink)' }}>{localTime(s.at)}</span>
+                          <span style={{ fontSize: 10.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.activeView}</span>
+                          {s.idleSec >= 300 && (
+                            <span title={`No input for ${Math.round(s.idleSec / 60)} min at capture`}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 800, color: '#b45309' }}>
+                              <MoonStar size={10} /> idle {Math.round(s.idleSec / 60)}m
+                            </span>
+                          )}
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+          )}
         </div>
       )}
 

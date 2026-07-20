@@ -1,10 +1,15 @@
 # Greens Nexus Agent (desktop)
 
 A tray-resident companion to the Nexus time-tracking module. While an employee
-is **clocked in**, it captures **every monitor** every 5 minutes and uploads to
-the same `/timeclock/screenshot` API the web app uses — so the frames land in
-the same storage bucket, `time_screenshots` table, and the admin gallery
+is **clocked in**, it captures **every monitor** on a server-set cadence and
+uploads to the same `/timeclock/screenshot` API the web app uses — so the frames
+land in the same storage bucket, `time_screenshots` table, and the admin gallery
 (**avatar → Admin → Screenshots**), indistinguishable from web captures.
+
+This is a **disclosed** time-and-attendance agent on company-owned devices: it
+is a visible tray app, captures **only while the employee is clocked in** (which
+they acknowledge at clock-in), and collects activity metrics + active-window
+titles — **never keystroke content**.
 
 ## Why a separate app?
 
@@ -29,8 +34,18 @@ multi-monitor capture, and it is why Hubstaff/Time Doctor ship desktop agents.
   later launches are silent.
 - **Gating**: it polls `/timeclock/status` every 60s and only captures while the
   last punch is not `out`. Employees can **Pause capture** from the tray menu.
+- **Server-driven policy**: cadence and toggles are **not** hardcoded. Each poll
+  fetches the monitoring policy (silent mode: the `policy` field on
+  `/timeclock/agent/checkin`; interactive: `GET /timeclock/monitoring/policy`)
+  and honors `enabled`, `intervalMinutes`, `randomize` (jitter each interval
+  ±25% so a frame can't be timed/gamed), `trackScreens` (screenshots),
+  `trackWindows` (window titles), and `trackInput` (activity %). The `config.js`
+  interval is only a fallback until the server answers. When the shift becomes
+  active the first shot is taken promptly (not a full interval later), so a brief
+  clock-in/out can't dodge capture. A `409` from the screenshot API (not clocked
+  in, or screens disabled by policy) is treated as a benign skip.
 - **Capture**: `desktopCapturer.getSources({types:['screen']})` → one JPEG per
-  display (max 1280px, q55) → multipart upload with idle seconds
+  display (max 1920px, q85) → multipart upload with idle seconds
   (`powerMonitor.getSystemIdleTime()`) and a `desktop agent · screen N/M` label.
 
 ## One-time Entra setup (admin)
@@ -79,4 +94,4 @@ NEXUS_API_BASE=https://<prod-api-host> NEXUS_WEB_BASE=https://nexus.greensglobal
 | `NEXUS_WEB_BASE` | `https://dev.nexus.greensglobal.com` | "Open Time Clock" target |
 | `NEXUS_CLIENT_ID` | Nexus app reg | Entra client id |
 | `NEXUS_TENANT_ID` | Greens tenant | Entra tenant id |
-| `NEXUS_CAPTURE_MS` | `300000` | capture interval (ms) |
+| `NEXUS_CAPTURE_MS` | `300000` | **fallback** capture interval (ms), used only until the server policy is fetched |

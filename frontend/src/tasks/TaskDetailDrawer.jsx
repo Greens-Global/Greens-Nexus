@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { fmtDate as fmtDateRaw, fmtDateTime } from './lib';
+import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste } from './lib';
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '—');
@@ -755,9 +755,7 @@ function AttachmentsTab({ task, refresh }) {
   const reload = () => api.getTaskAttachments(task.id).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [task.id]);
 
-  const onFile = (e) => {
-    const f = e.target.files?.[0]; e.target.value = '';
-    if (!f) return;
+  const sendFile = (f) => {
     const size = `${Math.max(1, Math.round(f.size / 1024))} KB`;
     const kind = f.type.startsWith('image/') ? 'image' : 'doc';
     // Backend AttachmentCreate stores a single `url` (Supabase link, or an inline
@@ -766,12 +764,15 @@ function AttachmentsTab({ task, refresh }) {
     if (f.size <= MAX_INLINE) { const r = new FileReader(); r.onload = () => send(typeof r.result === 'string' ? r.result : undefined); r.onerror = () => send(undefined); r.readAsDataURL(f); }
     else send(undefined);
   };
+  const onFile = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) sendFile(f); };
+  const onPaste = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); files.forEach(sendFile); } };
   const del = async (a) => { await api.deleteTaskAttachment(a.id).catch(() => {}); reload(); refresh?.(); };
 
   return (
-    <div style={{ marginTop: 14 }}>
+    <div onPaste={onPaste} tabIndex={0} style={{ marginTop: 14, outline: 'none' }}>
       <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={onFile} />
       <button onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12, marginBottom: 12 }}><Paperclip size={13} /> Attach file</button>
+      <span style={{ fontSize: 11, color: NX.faint, marginLeft: 8 }}>or press Ctrl+V to paste a screenshot</span>
       {rows === null ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 20 }}>Loading…</div>
         : rows.length === 0 ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 20 }}>No attachments yet.</div>
           : (

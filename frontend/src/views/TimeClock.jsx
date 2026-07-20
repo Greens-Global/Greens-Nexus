@@ -104,6 +104,10 @@ export default function TimeClock() {
   const [missedOpen, setMissedOpen] = useState(false);
   const [openDays, setOpenDays] = useState({});   // expanded timesheet days
   const [bodMode, setBodMode] = useState(null);   // 'bod' | 'eod' | null — day-message modal
+  // Disclosed-monitoring consent gate (first in-punch of the day). See doPunch/actualPunch.
+  const [monGate, setMonGate] = useState(null);   // { text } | null
+  const [monAgree, setMonAgree] = useState(false);
+  const [monBusy, setMonBusy] = useState(false);
   const [missed, setMissed] = useState({ kind: 'out', at: '', note: '' });
   const [, setTick] = useState(0);             // re-render for the live timer
   const msgTimer = useRef(null);
@@ -159,8 +163,37 @@ export default function TimeClock() {
       tz_offset_min: new Date().getTimezoneOffset() }).catch(() => {});
   }
 
-  async function actualPunch(kind) {
+  // ── Disclosed-monitoring consent gate ───────────────────────────────────────
+  // On company-owned devices the first in-punch of the day must acknowledge
+  // today's monitoring notice before it's recorded. Open the gate, and on
+  // confirm record consent then retry the punch once (consented=true).
+  function openMonGate(detail) {
+    const m = status?.monitoring || {};
+    setMonAgree(false);
+    setMonGate({ text: detail?.text || m.text || '' });
+  }
+  async function confirmMonitoring() {
+    if (monBusy) return;
+    setMonBusy(true);
+    try {
+      await api.timeMonitoringConsent();
+      setStatus(s => (s?.monitoring ? { ...s, monitoring: { ...s.monitoring, consentRequired: false } } : s));
+      setMonGate(null);
+      setMonBusy(false);
+      actualPunch('in', true);
+    } catch (e) {
+      toast(false, e?.message || 'Could not record your acknowledgment.');
+      setMonBusy(false);
+    }
+  }
+
+  async function actualPunch(kind, consented = false) {
     if (busy) return;
+    // First in-punch of the day: gate on the monitoring notice if consent is owed.
+    if (kind === 'in' && !consented && status?.monitoring?.consentRequired) {
+      openMonGate();
+      return;
+    }
     setBusy(kind);
     const pos = await getPosition();
     try {
@@ -175,7 +208,18 @@ export default function TimeClock() {
       toast(true, `${KIND_META[kind].label} at ${localTime(p.at)}${where}.`);
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed')); // sync the global mini-timer
       load();
-    } catch (e) { toast(false, e?.message || 'Punch failed.'); }
+    } catch (e) {
+      // The backend can also gate the in-punch with a 409 — show the notice,
+      // then retry once after the employee acknowledges (openMonGate → confirm).
+      const needsConsent = e?.detail?.code === 'monitoring_consent_required'
+        || /monitoring_consent_required/i.test(e?.message || '');
+      if (kind === 'in' && !consented && needsConsent) {
+        openMonGate(e?.detail);
+        setBusy('');
+        return;
+      }
+      toast(false, e?.message || 'Punch failed.');
+    }
     setBusy('');
   }
 
@@ -338,6 +382,14 @@ export default function TimeClock() {
         Your location is captured only at the moment you punch, to confirm you're at a work site.
         If location is off or you're away from a site, the punch still counts — it's simply flagged for review.
       </p>
+      {/* Disclosed-monitoring: standing notice on the clock page (full text is acknowledged at the first in-punch). */}
+      {status?.monitoring?.enabled && (
+        <p style={{ margin: '-8px 0 18px', fontSize: 12, color: 'var(--muted)' }}>
+          On this company-owned device, while you're clocked in Nexus may capture periodic screenshots,
+          the apps you have open, and your overall activity level — to verify work time only, never your
+          keystrokes, and it stops when you clock out. You acknowledge the full notice the first time you clock in each day.
+        </p>
+      )}
 
       {/* Fill the fold: week chart, today's screen activity, upcoming time off */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 18 }}>
@@ -603,6 +655,40 @@ export default function TimeClock() {
           onClose={() => setBodMode(null)}
           toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />;
       })()}
+
+      {/* Disclosed-monitoring consent gate — real notice the employee reads and
+          acknowledges before the first in-punch is recorded. */}
+      {monGate && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1440, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 540, maxHeight: 'min(90dvh, 680px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+            <div style={{ padding: '15px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Monitor size={18} style={{ color: 'var(--pine)' }} />
+              <div style={{ flex: 1 }}>
+                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>Before you clock in</h3>
+                <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)' }}>Please read and acknowledge how this device is monitored.</p>
+              </div>
+              <button onClick={() => setMonGate(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+            </div>
+            <div style={{ padding: '16px 22px', overflowY: 'auto', fontSize: 13, color: 'var(--ink)', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
+              {monGate.text || 'This is a company-owned device. While you are clocked in, Greens Nexus records your worked time and may capture periodic screenshots of your work screen, the apps and windows you have open, and your overall activity level. This is used only to verify work time and activity — it never captures your keystrokes, and it stops the moment you clock out.'}
+            </div>
+            <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer', marginBottom: 12 }}>
+                <input type="checkbox" checked={monAgree} onChange={e => setMonAgree(e.target.checked)}
+                  style={{ width: 16, height: 16, accentColor: 'var(--pine)' }} />
+                I understand and agree
+              </label>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button className="secondary-btn" onClick={() => setMonGate(null)}>Cancel</button>
+                <button className="primary-btn" onClick={confirmMonitoring} disabled={!monAgree || monBusy}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {monBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Acknowledge &amp; clock in
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

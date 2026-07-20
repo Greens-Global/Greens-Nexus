@@ -5,14 +5,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { Camera, CheckCircle, XCircle, RotateCcw, Loader2, AlertCircle, User, Package, ZoomIn, MapPin } from 'lucide-react';
 import { api } from '../api';
+import { emailToName } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 
 const FL = { fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, letterSpacing: '.04em' };
 
 export const ASSIGN_STATUS_META = {
-  pending_acceptance: { label: 'Awaiting Acceptance', bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
+  pending_acceptance: { label: 'Awaiting acceptance', bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
   active:             { label: 'Assigned',            bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))'   },
-  return_initiated:   { label: 'Return in Progress',  bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))' },
+  return_initiated:   { label: 'Return in progress',  bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))' },
   closed:             { label: 'Closed',              bg: 'var(--mist)',                    fg: 'var(--muted)'             },
   declined:           { label: 'Declined',            bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))'    },
   cancelled:          { label: 'Cancelled',           bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))'    },
@@ -31,8 +32,14 @@ let _asgState = [];
 const _asgSubs = new Set();
 let _asgTimer = null;
 let _asgInFlight = false;
+let _asgRefetchQueued = false;   // a refresh was asked for WHILE a fetch was in flight
 function _asgFetch() {
-  if (_asgInFlight) return Promise.resolve();   // dedup concurrent callers
+  // P1-8: a modal's onDone→refresh() that lands during the 15s poll's in-flight
+  // window used to be a silent no-op, so the poll's pre-mutation snapshot won.
+  // Instead of dropping the request, remember it and run one follow-up fetch once
+  // the current one resolves — this catches the just-committed mutation without
+  // spinning a tight loop (the flag is cleared before the single re-fetch).
+  if (_asgInFlight) { _asgRefetchQueued = true; return Promise.resolve(); }
   _asgInFlight = true;
   return api.getAssignments()
     .then(rows => {
@@ -42,7 +49,10 @@ function _asgFetch() {
       }
     })
     .catch(() => {})
-    .finally(() => { _asgInFlight = false; });
+    .finally(() => {
+      _asgInFlight = false;
+      if (_asgRefetchQueued) { _asgRefetchQueued = false; _asgFetch(); }  // follow-up for the mutation that raced the poll
+    });
 }
 export function useAssignments() {
   const [assignments, setAssignments] = useState(_asgState);
@@ -75,11 +85,24 @@ async function uploadPhoto(file, prefix) {
 function PhotoField({ file, setFile, required = true }) {
   const ref = useRef(null);
   const [preview, setPreview] = useState(null);
+  function take(f) {
+    if (!f) return;
+    setFile(f); const r = new FileReader(); r.onload = ev => setPreview(ev.target.result); r.readAsDataURL(f);
+  }
+  // Screenshot Ctrl+V lands the same as choosing a file
+  function onPaste(e) {
+    for (const it of e.clipboardData?.items || []) {
+      if (it.type && it.type.startsWith('image/')) {
+        const blob = it.getAsFile();
+        if (blob) { e.preventDefault(); take(blob.name ? blob : new File([blob], `paste-${Date.now()}.png`, { type: blob.type || 'image/png' })); return; }
+      }
+    }
+  }
   return (
-    <div>
+    <div tabIndex={0} onPaste={onPaste} style={{ outline: 'none' }}>
       <label style={FL}>PHOTO {required ? <span style={{ color: 'hsl(var(--color-red))' }}>*</span> : <span style={{ fontWeight: 400 }}>(optional)</span>}</label>
       <input ref={ref} type="file" accept="image/*" style={{ display: 'none' }}
-        onChange={e => { const f = e.target.files?.[0]; if (!f) return; setFile(f); const r = new FileReader(); r.onload = ev => setPreview(ev.target.result); r.readAsDataURL(f); }} />
+        onChange={e => take(e.target.files?.[0])} />
       {preview
         ? <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <img src={preview} alt="" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--line)' }} />
@@ -87,17 +110,20 @@ function PhotoField({ file, setFile, required = true }) {
           </div>
         : <button type="button" onClick={() => ref.current?.click()}
             style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 12, borderRadius: 9, border: '2px dashed hsla(var(--color-blue),0.4)', background: 'hsla(var(--color-blue),0.04)', cursor: 'pointer', fontSize: 13, color: 'var(--muted)' }}>
-            <Camera size={15} /> Take / Upload Photo
+            <Camera size={15} /> Take / upload photo
           </button>}
+      {!preview && <p style={{ fontSize: 11, color: 'var(--muted)', margin: '5px 0 0' }}>or press Ctrl+V to paste a screenshot</p>}
     </div>
   );
 }
 
-function ModalShell({ title, sub, children, onClose }) {
-  useEffect(() => { const h = e => e.key === 'Escape' && onClose(); window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [onClose]);
+function ModalShell({ title, sub, children, onClose, busy = false }) {
+  // P4 modal guards: don't let ESC or a backdrop click tear the modal down while
+  // an accept/return/cancel is in flight — that would also lose the onDone refresh.
+  useEffect(() => { const h = e => { if (e.key === 'Escape' && !busy) onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [onClose, busy]);
   return (
     <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      onClick={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
       <div style={{ background: 'var(--card)', borderRadius: 14, padding: 28, width: '100%', maxWidth: 430, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
         <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>{title}</h3>
         {sub && <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 18 }}>{sub}</p>}
@@ -128,6 +154,10 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
         : `This item is already assigned to ${item.assignedToName || chosen.name}.`)
     : '';
   const locChanged = loc.trim() !== (item.location || '').trim();
+  // Temporary items are checked out, never person-assigned — the backend rejects
+  // it (accepting would silently flip ownership to permanent). Steer to location.
+  const transient = item.ownershipType !== 'permanent';
+  useEffect(() => { if (transient) setTab('location'); }, [transient]);
 
   function submitPerson() {
     setBusy(true); setError('');
@@ -144,7 +174,7 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
   }
 
   return (
-    <ModalShell onClose={onClose}
+    <ModalShell onClose={onClose} busy={busy}
       title={reassign ? `Reassign ${item.name}` : `Assign ${item.name}`}
       sub="Assign it to a person (they accept with a photo) or set where it lives — a location and a person can both apply.">
       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
@@ -155,6 +185,12 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
       </div>
 
       {tab === 'person' ? (
+        transient ? (
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '4px 0 0' }}>
+            This is a temporary item — people take it via checkout, not permanent assignment.
+            To give it to one person for good, change its ownership to Permanent first (Batch edit → Ownership).
+          </p>
+        ) : (
         <>
           <label style={FL}>ASSIGN TO <span style={{ color: 'hsl(var(--color-red))' }}>*</span></label>
           {/* Show the email, not just the name — the directory has duplicate people
@@ -164,8 +200,9 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
             <option value="">— select a person —</option>
             {directory.map(d => <option key={d.email} value={d.email}>{d.name ? `${d.name} — ${d.email}` : d.email}</option>)}
           </select>
-          {reassign && <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Currently with {item.assignedToName || item.assignedToEmail} — they’ll be asked to return it with a photo, then the new person accepts.</p>}
+          {reassign && <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }} title={item.assignedToEmail || ''}>Currently with {item.assignedToName || emailToName(item.assignedToEmail)} — they’ll be asked to return it with a photo, then the new person accepts.</p>}
         </>
+        )
       ) : (
         <>
           <label style={FL}>LOCATION</label>
@@ -183,11 +220,11 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
         <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
         {tab === 'person' ? (
           <button className="primary-btn" disabled={!chosen || busy || sameAsCurrent} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={submitPerson}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <User size={14} />} {reassign ? 'Start Reassignment' : 'Assign'}
+            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <User size={14} />} {reassign ? 'Start reassignment' : 'Assign'}
           </button>
         ) : (
           <button className="primary-btn" disabled={busy || !locChanged} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={submitLocation}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <MapPin size={14} />} Set Location
+            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <MapPin size={14} />} Set location
           </button>
         )}
       </div>
@@ -230,34 +267,34 @@ export function MyPermanentPanel({ assignments, userEmail, refresh, toast }) {
             </div>
             {a.status === 'pending_acceptance' && (
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10, flexWrap: 'wrap' }}>
-                <button onClick={() => { const r = prompt('Why are you declining? (optional)') ?? ''; api.declineAssignment(a.id, { note: r }).then(() => { toast('Assignment declined.'); refresh(); }).catch(e => toast(e?.message || 'Could not decline.', 'error')); }}
-                  style={{ background: 'none', border: '1px solid hsla(var(--color-red),0.4)', borderRadius: 8, padding: '5px 12px', fontSize: 12, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 600, fontFamily: 'Inter,sans-serif' }}>
+                <button onClick={() => setModal({ kind: 'decline', a })}
+                  className="secondary-btn" style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>
                   Decline
                 </button>
                 <button className="primary-btn" style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => setModal({ kind: 'accept', a })}>
-                  <Camera size={13} /> Accept & Upload Photo
+                  <CheckCircle size={13} /> Accept
                 </button>
               </div>
             )}
             {a.status === 'active' && (
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10, flexWrap: 'wrap' }}>
                 <button onClick={() => setModal({ kind: 'return', a, reason: 'dead' })}
-                  style={{ background: 'none', border: '1px solid hsla(var(--color-red),0.4)', borderRadius: 8, padding: '5px 12px', fontSize: 12, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 600, fontFamily: 'Inter,sans-serif' }}>
-                  <AlertCircle size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />Report Dead
+                  className="secondary-btn" style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>
+                  <AlertCircle size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />Report dead
                 </button>
                 <button onClick={() => setModal({ kind: 'return', a, reason: 'lost' })}
-                  style={{ background: 'none', border: '1px solid hsla(var(--color-red),0.4)', borderRadius: 8, padding: '5px 12px', fontSize: 12, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 600, fontFamily: 'Inter,sans-serif' }}>
-                  Report Lost
+                  className="secondary-btn" style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>
+                  Report lost
                 </button>
                 <button className="primary-btn" style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => setModal({ kind: 'return', a, reason: 'normal' })}>
-                  <RotateCcw size={13} /> Return Item
+                  <RotateCcw size={13} /> Return item
                 </button>
               </div>
             )}
             {a.status === 'return_initiated' && (
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
                 {a.returnReason === 'reassign' && !a.returnPhotoUrl
-                  ? <>This item is being reassigned to <strong>{a.nextAssigneeName || a.nextAssigneeEmail}</strong> — please return it: <button className="primary-btn" style={{ fontSize: 12, marginLeft: 8 }} onClick={() => setModal({ kind: 'return', a, reason: 'reassign' })}><Camera size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />Return with Photo</button></>
+                  ? <>This item is being reassigned to <strong title={a.nextAssigneeEmail || ''}>{a.nextAssigneeName || emailToName(a.nextAssigneeEmail)}</strong> — please return it: <button className="primary-btn" style={{ fontSize: 12, marginLeft: 8 }} onClick={() => setModal({ kind: 'return', a, reason: 'reassign' })}><Camera size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />Return with photo</button></>
                   : 'Waiting for a supervisor to accept the return.'}
               </div>
             )}
@@ -268,10 +305,43 @@ export function MyPermanentPanel({ assignments, userEmail, refresh, toast }) {
       {modal?.kind === 'accept' && (
         <AcceptAssignmentModal a={modal.a} onClose={() => setModal(null)} onDone={() => { refresh(); setModal(null); }} toast={toast} />
       )}
+      {modal?.kind === 'decline' && (
+        <DeclineAssignmentModal a={modal.a} onClose={() => setModal(null)} onDone={() => { refresh(); setModal(null); }} toast={toast} />
+      )}
       {modal?.kind === 'return' && (
         <AssignmentReturnModal a={modal.a} reason={modal.reason} onClose={() => setModal(null)} onDone={() => { refresh(); setModal(null); }} toast={toast} />
       )}
     </div>
+  );
+}
+
+// Employee: decline a pending assignment, giving the manager an optional reason.
+// In-app modal (no native prompt) so the reason box matches the rest of the flow.
+function DeclineAssignmentModal({ a, onClose, onDone, toast }) {
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  return (
+    <ModalShell onClose={onClose} busy={busy} title={`Decline ${a.itemName}`}
+      sub="Let the manager know why, so they can reassign it. The reason is optional.">
+      <label style={FL}>REASON <span style={{ fontSize: 11, fontWeight: 400 }}>(optional)</span></label>
+      <textarea rows={2} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13 }} value={note}
+        onChange={e => setNote(e.target.value)} placeholder="e.g. I already have one" autoFocus />
+      {error && <p style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', marginTop: 10 }}>{error}</p>}
+      <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 18 }}>
+        <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
+        <button disabled={busy}
+          style={{ background: 'hsl(var(--color-red))', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, fontFamily: 'Inter,sans-serif', opacity: busy ? 0.7 : 1 }}
+          onClick={() => {
+            setBusy(true); setError('');
+            api.declineAssignment(a.id, { note: note.trim() })
+              .then(() => { toast('Assignment declined.'); onDone(); })
+              .catch(e => { setError(e?.message || 'Could not decline.'); setBusy(false); });
+          }}>
+          {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <XCircle size={14} />} Decline
+        </button>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -281,10 +351,10 @@ function AcceptAssignmentModal({ a, onClose, onDone, toast }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   return (
-    <ModalShell onClose={onClose} title={`Accept ${a.itemName}`}
-      sub="Take a photo of the item as you received it — this records the handover and its condition.">
+    <ModalShell onClose={onClose} busy={busy} title={`Accept ${a.itemName}`}
+      sub="One click and it's yours. A photo is optional for permanent items — add one if you want a condition record.">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <PhotoField file={file} setFile={setFile} />
+        <PhotoField file={file} setFile={setFile} required={false} />
         <div>
           <label style={FL}>CONDITION NOTES <span style={{ fontSize: 11, fontWeight: 400 }}>(optional — note any existing damage)</span></label>
           <textarea rows={2} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13 }} value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Small dent on the lid" />
@@ -293,16 +363,16 @@ function AcceptAssignmentModal({ a, onClose, onDone, toast }) {
       {error && <p style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', marginTop: 10 }}>{error}</p>}
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 18 }}>
         <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-        <button className="primary-btn" disabled={!file || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
+        <button className="primary-btn" disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
           onClick={async () => {
             setBusy(true); setError('');
             try {
-              const { url, name } = await uploadPhoto(file, `accept-${a.id}`);
+              const { url, name } = file ? await uploadPhoto(file, `accept-${a.id}`) : { url: '', name: '' };
               await api.acceptAssignment(a.id, { photo_url: url, photo_name: name, note: note.trim() });
               toast(`${a.itemName} is now assigned to you.`); onDone();
             } catch (e) { setError(e?.message || 'Could not accept.'); setBusy(false); }
           }}>
-          {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Accept Assignment
+          {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Accept assignment
         </button>
       </div>
     </ModalShell>
@@ -324,7 +394,7 @@ function AssignmentReturnModal({ a, reason, onClose, onDone, toast }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   return (
-    <ModalShell onClose={onClose} title={`${c.title}: ${a.itemName}`} sub={c.sub}>
+    <ModalShell onClose={onClose} busy={busy} title={`${c.title}: ${a.itemName}`} sub={c.sub}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {needPhoto && <PhotoField file={file} setFile={setFile} />}
         <div>
@@ -345,7 +415,7 @@ function AssignmentReturnModal({ a, reason, onClose, onDone, toast }) {
               toast('Return submitted — a supervisor will verify and accept it.'); onDone();
             } catch (e) { setError(e?.message || 'Could not submit return.'); setBusy(false); }
           }}>
-          {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <RotateCcw size={14} />} Submit Return
+          {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <RotateCcw size={14} />} Submit return
         </button>
       </div>
     </ModalShell>
@@ -362,22 +432,30 @@ export function AssignmentsQueue({ assignments, userEmail = '', refresh, toast, 
   const [selfAccept, setSelfAccept] = useState(null); // accept an item assigned to ME, from the queue
   const [preview, setPreview] = useState(null);
   const [cancelling, setCancelling] = useState(null); // assignment pending in-app confirm (no native dialogs)
+  const [modalBusy, setModalBusy] = useState(false);  // gates ESC/backdrop close on the body-driven modals (P4)
   const [search, setSearch] = useState('');
   const live = assignments.filter(a => ['pending_acceptance', 'active', 'return_initiated'].includes(a.status));
   const q = search.trim().toLowerCase();
   const matchesSearch = a => !q ||
     (a.itemName || '').toLowerCase().includes(q) ||
     (a.assigneeName || '').toLowerCase().includes(q) ||
-    (a.assigneeEmail || '').toLowerCase().includes(q);
-  const shown = (chip === 'live' ? live
+    (a.assigneeEmail || '').toLowerCase().includes(q) ||
+    (a.nextAssigneeName || '').toLowerCase().includes(q) ||
+    (a.nextAssigneeEmail || '').toLowerCase().includes(q);
+  // History (closed/declined/cancelled) can be long. Filter by the search FIRST,
+  // then cap — otherwise searching someone whose return closed 51+ rows ago found
+  // nothing because the slice ran before the filter (P4 history search). Declined
+  // items live here too, so they stay discoverable in the manager queue.
+  const base = chip === 'live' ? live
     : chip === 'returns' ? assignments.filter(a => a.status === 'return_initiated')
     : chip === 'pending' ? assignments.filter(a => a.status === 'pending_acceptance')
-    : assignments.filter(a => ['closed', 'declined', 'cancelled'].includes(a.status)).slice(0, 50)
-  ).filter(matchesSearch);
+    : assignments.filter(a => ['closed', 'declined', 'cancelled'].includes(a.status));
+  const filtered = base.filter(matchesSearch);
+  const shown = chip === 'history' ? filtered.slice(0, 50) : filtered;
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-        {[['live', `Live (${live.length})`], ['returns', 'Returns to Accept'], ['pending', 'Awaiting Acceptance'], ['history', 'History']].map(([k, l]) => (
+        {[['live', `Live (${live.length})`], ['returns', 'Returns to accept'], ['pending', 'Awaiting acceptance'], ['history', 'History']].map(([k, l]) => (
           <button key={k} onClick={() => setChip(k)}
             style={{ padding: '5px 14px', borderRadius: 20, border: `1px solid ${chip === k ? 'var(--pine)' : 'var(--line)'}`, background: chip === k ? 'hsla(var(--color-green),0.1)' : 'transparent', color: chip === k ? 'hsl(var(--color-green))' : 'var(--muted)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
             {l}
@@ -407,8 +485,8 @@ export function AssignmentsQueue({ assignments, userEmail = '', refresh, toast, 
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 13.5 }}>{a.itemName}</div>
                   <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                    {a.assigneeName || a.assigneeEmail}
-                    {a.status === 'return_initiated' && a.returnReason === 'reassign' && a.nextAssigneeName && <> → <strong>{a.nextAssigneeName}</strong></>}
+                    <span title={a.assigneeEmail || ''}>{a.assigneeName || emailToName(a.assigneeEmail)}</span>
+                    {a.status === 'return_initiated' && a.returnReason === 'reassign' && (a.nextAssigneeName || a.nextAssigneeEmail) && <> → <strong title={a.nextAssigneeEmail || ''}>{a.nextAssigneeName || emailToName(a.nextAssigneeEmail)}</strong></>}
                     {a.returnNote && <span style={{ fontStyle: 'italic' }}> · "{a.returnNote}"</span>}
                   </div>
                 </div>
@@ -421,21 +499,21 @@ export function AssignmentsQueue({ assignments, userEmail = '', refresh, toast, 
                 )}
                 {a.status === 'return_initiated' && (a.returnPhotoUrl || a.returnReason === 'lost') && (
                   <button className="primary-btn" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => setAccepting(a)}>
-                    <CheckCircle size={12} /> Accept Return
+                    <CheckCircle size={12} /> Accept return
                   </button>
                 )}
                 {/* If this item is assigned to ME, accept it right here (no need to
                     go hunting in My Items) — same photo-accept flow. */}
                 {a.status === 'pending_acceptance' && (a.assigneeEmail || '').toLowerCase() === (userEmail || '').toLowerCase() && (
                   <button className="primary-btn" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => setSelfAccept(a)}>
-                    <Camera size={12} /> Accept &amp; Upload Photo
+                    <Camera size={12} /> Accept &amp; upload photo
                   </button>
                 )}
                 {['pending_acceptance', 'active', 'return_initiated'].includes(a.status) && (
                   <button title={a.status === 'pending_acceptance' ? 'Cancel assignment' : 'Force-recover (employee unavailable)'}
                     onClick={() => setCancelling(a)}
                     style={{ background: 'none', border: '1px solid hsla(var(--color-red),0.4)', borderRadius: 8, padding: '5px 11px', fontSize: 12, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 600, fontFamily: 'Inter,sans-serif' }}>
-                    <XCircle size={12} style={{ verticalAlign: '-2px', marginRight: 3 }} />{a.status === 'pending_acceptance' ? 'Cancel' : 'Force Recover'}
+                    <XCircle size={12} style={{ verticalAlign: '-2px', marginRight: 3 }} />{a.status === 'pending_acceptance' ? 'Cancel' : 'Force recover'}
                   </button>
                 )}
               </div>
@@ -444,18 +522,18 @@ export function AssignmentsQueue({ assignments, userEmail = '', refresh, toast, 
         </div>
       )}
       {accepting && (
-        <ModalShell onClose={() => setAccepting(null)} title={`Accept return: ${accepting.itemName}`}
-          sub={`From ${accepting.assigneeName || accepting.assigneeEmail}. ${accepting.returnReason === 'reassign' && accepting.nextAssigneeName ? `Accepting will assign it to ${accepting.nextAssigneeName} next.` : 'Choose what happens to the item.'}`}>
-          <AcceptReturnBody a={accepting} onClose={() => setAccepting(null)} onDone={() => { refresh(); setAccepting(null); }} toast={toast} />
+        <ModalShell onClose={() => setAccepting(null)} busy={modalBusy} title={`Accept return: ${accepting.itemName}`}
+          sub={`From ${accepting.assigneeName || emailToName(accepting.assigneeEmail)}. ${accepting.returnReason === 'reassign' && (accepting.nextAssigneeName || accepting.nextAssigneeEmail) ? `Accepting will assign it to ${accepting.nextAssigneeName || emailToName(accepting.nextAssigneeEmail)} next.` : 'Choose what happens to the item.'}`}>
+          <AcceptReturnBody a={accepting} onClose={() => setAccepting(null)} onBusy={setModalBusy} onDone={() => { setModalBusy(false); refresh(); setAccepting(null); }} toast={toast} />
         </ModalShell>
       )}
       {cancelling && (
-        <ModalShell onClose={() => setCancelling(null)}
+        <ModalShell onClose={() => setCancelling(null)} busy={modalBusy}
           title={cancelling.status === 'pending_acceptance' ? 'Cancel this assignment?' : `Force-recover ${cancelling.itemName}?`}
           sub={cancelling.status === 'pending_acceptance'
-            ? `${cancelling.itemName} hasn't been accepted by ${cancelling.assigneeName || cancelling.assigneeEmail} yet — cancelling puts it back in stock.`
-            : `Take ${cancelling.itemName} back from ${cancelling.assigneeName || cancelling.assigneeEmail} without their confirmation. Use this when the holder can't complete the return themselves.`}>
-          <CancelAssignmentBody a={cancelling} onClose={() => setCancelling(null)} onDone={() => { refresh(); setCancelling(null); }} toast={toast} />
+            ? `${cancelling.itemName} hasn't been accepted by ${cancelling.assigneeName || emailToName(cancelling.assigneeEmail)} yet — cancelling puts it back in stock.`
+            : `Take ${cancelling.itemName} back from ${cancelling.assigneeName || emailToName(cancelling.assigneeEmail)} without their confirmation. Use this when the holder can't complete the return themselves.`}>
+          <CancelAssignmentBody a={cancelling} onClose={() => setCancelling(null)} onBusy={setModalBusy} onDone={() => { setModalBusy(false); refresh(); setCancelling(null); }} toast={toast} />
         </ModalShell>
       )}
       {selfAccept && (
@@ -470,31 +548,36 @@ export function AssignmentsQueue({ assignments, userEmail = '', refresh, toast, 
   );
 }
 
-function CancelAssignmentBody({ a, onClose, onDone, toast }) {
+function CancelAssignmentBody({ a, onClose, onDone, toast, onBusy }) {
   const [busy, setBusy] = useState(false);
   const recover = a.status !== 'pending_acceptance';
   function go() {
-    setBusy(true);
+    setBusy(true); onBusy?.(true);   // tell the shell we're mid-save so ESC/backdrop can't drop us (P4)
     api.cancelAssignment(a.id)
       .then(() => { toast(recover ? `${a.itemName} recovered — back in stock.` : 'Assignment cancelled.'); onDone(); })
-      .catch(e => { toast(e?.message || 'Failed.', 'error'); setBusy(false); });
+      .catch(e => { toast(e?.message || 'Failed.', 'error'); setBusy(false); onBusy?.(false); });
   }
   return (
     <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
-      <button className="secondary-btn" onClick={onClose} disabled={busy}>Keep Assigned</button>
+      <button className="secondary-btn" onClick={onClose} disabled={busy}>Keep assigned</button>
       <button onClick={go} disabled={busy}
         style={{ background: 'hsl(var(--color-red))', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'Inter,sans-serif', opacity: busy ? 0.7 : 1 }}>
         {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <XCircle size={13} />}
-        {recover ? 'Force Recover' : 'Cancel Assignment'}
+        {recover ? 'Force recover' : 'Cancel assignment'}
       </button>
     </div>
   );
 }
 
-function AcceptReturnBody({ a, onClose, onDone, toast }) {
+function AcceptReturnBody({ a, onClose, onDone, toast, onBusy }) {
   const dead = ['dead', 'lost'].includes(a.returnReason);
   const [dispo, setDispo] = useState(dead ? 'retired' : 'stock');
   const [busy, setBusy] = useState(false);
+  // P1-6: this return may be promising the item to a next assignee (reassign
+  // chain). If the manager picks anything other than "back to stock", that
+  // reassignment is dropped — warn up front so it isn't a silent surprise.
+  const nextName = a.returnReason === 'reassign' ? (a.nextAssigneeName || emailToName(a.nextAssigneeEmail)) : '';
+  const promisedNext = !!(a.returnReason === 'reassign' && (a.nextAssigneeName || a.nextAssigneeEmail));
   return (
     <>
       <label style={FL}>DISPOSITION</label>
@@ -505,10 +588,16 @@ function AcceptReturnBody({ a, onClose, onDone, toast }) {
           </label>
         ))}
       </div>
+      {promisedNext && dispo !== 'stock' && (
+        <p style={{ fontSize: 12, color: 'hsl(var(--color-orange))', marginTop: 10, display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+          <AlertCircle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+          This item is promised to {nextName}. Retiring it will cancel that reassignment.
+        </p>
+      )}
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 18 }}>
         <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
         <button className="primary-btn" disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
-          onClick={() => { setBusy(true); api.acceptAssignmentReturn(a.id, { disposition: dispo }).then(() => { toast('Return accepted.'); onDone(); }).catch(e => { toast(e?.message || 'Failed.', 'error'); setBusy(false); }); }}>
+          onClick={() => { setBusy(true); onBusy?.(true); api.acceptAssignmentReturn(a.id, { disposition: dispo }).then(() => { toast('Return accepted.'); onDone(); }).catch(e => { toast(e?.message || 'Failed.', 'error'); setBusy(false); onBusy?.(false); }); }}>
           {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Confirm
         </button>
       </div>

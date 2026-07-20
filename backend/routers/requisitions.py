@@ -1,4 +1,5 @@
 import io
+import uuid
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -15,17 +16,47 @@ def _ts():
     return datetime.utcnow().isoformat()
 
 
+def _email_to_name(email: str) -> str:
+    """Readable display name from an email local-part (auth tokens carry no name)."""
+    local = (email or "").split("@", 1)[0]
+    return " ".join(p.capitalize() for p in local.replace("_", ".").split(".") if p) or (email or "")
+
+
+# Requisition lifecycle guard (target status → set of allowed predecessor statuses).
+# Mirrors the _VALID_TRANSITIONS pattern in items.py / inventory_requests.py so a
+# status can only advance along a legal edge; any other jump returns 409. This blocks
+# reject-after-fulfilled, double-approve (which also double-fires notifications), and
+# confirm/return of a never-allocated requisition.
+_VALID_TRANSITIONS = {
+    "manager_approved":  {"pending_manager"},
+    "rejected":          {"pending_manager"},
+    "ordered":           {"manager_approved"},
+    "fulfilled":         {"manager_approved", "ordered"},
+    "asset_allocated":   {"manager_approved"},
+    "return_initiated":  {"asset_allocated"},
+    "returned":          {"return_initiated"},
+    "asset_lost":        {"asset_allocated", "return_initiated"},
+}
+
+
+def _check_transition(req, target: str):
+    valid = _VALID_TRANSITIONS.get(target)
+    if valid is not None and req.status not in valid:
+        raise HTTPException(409, f"Cannot move a '{req.status}' requisition to '{target}'")
+
+
 # ── Schemas ──────────────────────────────────────────────────────────────────
 
 class RequisitionCreate(BaseModel):
-    id: str
+    # NOTE: `id` and `status` are deliberately NOT accepted from the client — the
+    # server generates the id and always starts the row at "pending_manager" so an
+    # employee can't POST a pre-approved/fulfilled requisition and skip approval.
     employee_name: str
     employee_email: str = ""    # beneficiary — on-behalf requests tag THEIR email so it lands in their log
     employee_dept: str
     item: str
     quantity: int = 1
     reason: str = ""
-    status: str = "pending_manager"
     supervisor_name: str = ""
     approver_email: str = ""    # manager picked by the requester — only they get the notification
 
@@ -101,6 +132,7 @@ def list_requisitions(
     if user["level"] < 3:
         q = q.filter(
             (models.Requisition.employee_email == user["email"]) |
+            (models.Requisition.submitted_by_email == user["email"]) |  # on-behalf: the submitter can track it too
             (models.Requisition.employee_email == "")  # legacy rows without email
         )
 
@@ -135,32 +167,46 @@ def create_requisition(
     db:   Session = Depends(get_db),
 ):
     payload = data.model_dump(exclude={"approver_email"})
+    # id + status are server-owned (client can't supply them) — generate a unique id
+    # (same shape as items.py) and pin the starting status to "pending_manager".
+    server_id = f"REQ-{uuid.uuid4().hex[:8].upper()}-{uuid.uuid4().hex[:8].upper()}"
+    # Verified submitter from the token — never trusted from the body.
+    submitter_email = (user["email"] or "").lower().strip()
+    submitter_name  = _email_to_name(user["email"])
     # Beneficiary tagging: an on-behalf request lands in the BENEFICIARY's log,
     # so honour a client-supplied email; default to the verified submitter.
-    payload["employee_email"] = (data.employee_email or user["email"]).lower().strip()
-    req = models.Requisition(**payload, created_at=_ts(), updated_at=_ts())
+    payload["employee_email"] = (data.employee_email or submitter_email).lower().strip()
+    on_behalf = bool(payload["employee_email"]) and payload["employee_email"] != submitter_email
+    req = models.Requisition(
+        **payload, id=server_id, status="pending_manager",
+        submitted_by_email=submitter_email, submitted_by_name=submitter_name,
+        created_at=_ts(), updated_at=_ts(),
+    )
     db.add(req)
 
     # Notification is created HERE, server-side — employees can't write to the
     # notifications API (level gate), so the old frontend addNotification call
     # silently 403'd and managers never heard about employee requisitions.
+    # The verified submitter is persisted (submitted_by_*) AND named in the body
+    # on an on-behalf request so the approver can see who actually raised it.
     reason_snip = (data.reason or "").strip().split("\n")[0][:120]
     _req_notify(db,
         type="req_pending",
         recipient=(data.approver_email or "").lower().strip(),  # targeted; empty = all managers
         title="New Purchase Requisition",
         body=f"{data.employee_name} ({data.employee_dept}) requested {data.quantity}× {data.item}."
+             + (f" Submitted by {submitter_name}." if on_behalf else "")
              + (f' Reason: "{reason_snip}"' if reason_snip else ""),
-        ref_id=data.id, item_name=data.item, requested_by=data.employee_name,
+        ref_id=server_id, item_name=data.item, requested_by=data.employee_name,
     )
     # On-behalf: tell the beneficiary a request was raised for them
-    if payload["employee_email"] and payload["employee_email"] != user["email"].lower():
+    if on_behalf:
         _req_notify(db,
             type="req_update",
             recipient=payload["employee_email"],
             title=f"Purchase request raised for you: {data.item}",
-            body=f"{user.get('name') or 'A colleague'} submitted a purchase request for {data.quantity}× {data.item} on your behalf. It is pending manager approval.",
-            ref_id=data.id, item_name=data.item, requested_by=data.employee_name,
+            body=f"{submitter_name} submitted a purchase request for {data.quantity}× {data.item} on your behalf. It is pending manager approval.",
+            ref_id=server_id, item_name=data.item, requested_by=data.employee_name,
         )
 
     db.commit()
@@ -198,6 +244,7 @@ def approve_requisition(req_id: str, body: RequisitionApprove, user: dict = Depe
     req = db.query(models.Requisition).filter(models.Requisition.id == req_id).first()
     if not req:
         raise HTTPException(404, "Requisition not found")
+    _check_transition(req, "manager_approved")
     req.status = "manager_approved"
     req.manager_name = body.manager_name
     req.manager_approval_date = _ts()
@@ -245,8 +292,7 @@ def mark_ordered(req_id: str, body: RequisitionOrder, user: dict = Depends(requi
     req = db.query(models.Requisition).filter(models.Requisition.id == req_id).first()
     if not req:
         raise HTTPException(404, "Requisition not found")
-    if req.status != "manager_approved":
-        raise HTTPException(409, f"Cannot mark a '{req.status}' requisition as ordered")
+    _check_transition(req, "ordered")
     _require_fulfiller(req, user)
     req.status = "ordered"
     req.ordered_at = _ts()
@@ -271,8 +317,7 @@ def fulfill_requisition(req_id: str, body: RequisitionFulfill, user: dict = Depe
     req = db.query(models.Requisition).filter(models.Requisition.id == req_id).first()
     if not req:
         raise HTTPException(404, "Requisition not found")
-    if req.status not in ("manager_approved", "ordered"):
-        raise HTTPException(409, f"Cannot fulfill a '{req.status}' requisition")
+    _check_transition(req, "fulfilled")
     _require_fulfiller(req, user)
     req.status = "fulfilled"
     req.fulfilled_at = _ts()
@@ -309,6 +354,7 @@ def reject_requisition(req_id: str, body: RequisitionReject, user: dict = Depend
     req = db.query(models.Requisition).filter(models.Requisition.id == req_id).first()
     if not req:
         raise HTTPException(404, "Requisition not found")
+    _check_transition(req, "rejected")
     req.status = "rejected"
     req.manager_name = body.manager_name
     req.rejection_reason = body.rejection_reason
@@ -334,6 +380,7 @@ def allocate_asset(req_id: str, body: RequisitionAllocate, user: dict = Depends(
     asset = db.query(models.HardwareAsset).filter(models.HardwareAsset.id == body.asset_id).first()
     if not req:
         raise HTTPException(404, "Requisition not found")
+    _check_transition(req, "asset_allocated")
     if not asset:
         raise HTTPException(404, "Asset not found")
     if asset.status != "Available":
@@ -367,6 +414,7 @@ def initiate_return(req_id: str, body: RequisitionReturn, user: dict = Depends(g
         raise HTTPException(404, "Requisition not found")
     if user["level"] < 2 and req.employee_email.lower() != user["email"]:
         raise HTTPException(403, "You can only return your own allocated items")
+    _check_transition(req, "return_initiated")
     if req.asset_id:
         asset = db.query(models.HardwareAsset).filter(models.HardwareAsset.id == req.asset_id).first()
         if asset:
@@ -385,6 +433,7 @@ def confirm_return(req_id: str, body: RequisitionConfirmReturn, user: dict = Dep
     req = db.query(models.Requisition).filter(models.Requisition.id == req_id).first()
     if not req:
         raise HTTPException(404, "Requisition not found")
+    _check_transition(req, "returned")
     if req.asset_id:
         asset = db.query(models.HardwareAsset).filter(models.HardwareAsset.id == req.asset_id).first()
         if asset:
@@ -410,6 +459,7 @@ def mark_lost(req_id: str, body: RequisitionMarkLost, user: dict = Depends(requi
     req = db.query(models.Requisition).filter(models.Requisition.id == req_id).first()
     if not req:
         raise HTTPException(404, "Requisition not found")
+    _check_transition(req, "asset_lost")
     if req.asset_id:
         asset = db.query(models.HardwareAsset).filter(models.HardwareAsset.id == req.asset_id).first()
         if asset:

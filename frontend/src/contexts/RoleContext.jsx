@@ -55,7 +55,12 @@ export const ROLES = {
 
 export function RoleProvider({ children }) {
   const { accounts }    = useMsal();
-  const myEmail         = (accounts[0]?.username ?? '').toLowerCase();
+  // E2E builds have no MSAL account — use a placeholder identity so the role
+  // still loads from the API (the NEXUS_SKIP_AUTH backend resolves who we are
+  // server-side). Without this, headless runs are stuck as 'employee' and the
+  // nightly QA specs can never exercise manager/admin surfaces.
+  const _e2eEmail       = import.meta.env.VITE_E2E === 'true' ? 'e2e@local' : '';
+  const myEmail         = (accounts[0]?.username ?? _e2eEmail).toLowerCase();
 
   const [myRole,    setMyRole]    = useState('employee');
   const [allRoles,  setAllRoles]  = useState({});   // { email: role }

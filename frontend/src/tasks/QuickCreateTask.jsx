@@ -8,6 +8,7 @@ import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { usePeople, PersonSelect, DateField } from './components';
 import { BottomSheet } from './MobileTaskBar';
+import { filesFromPaste } from './lib';
 import { NX, FONT, btn, input as inputStyle } from './theme';
 
 const fieldLabel = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5 };
@@ -41,11 +42,12 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
   const attachRef = useRef(null);
   const scanRef = useRef(null);
 
-  const addFiles = (e) => {
-    const list = Array.from(e.target.files || []); e.target.value = '';
+  const pushFiles = (list) => {
     if (!list.length) return;
     setFiles((prev) => [...prev, ...list.map((f) => ({ file: f, image: f.type.startsWith('image/'), url: f.type.startsWith('image/') ? URL.createObjectURL(f) : null }))]);
   };
+  const addFiles = (e) => { const list = Array.from(e.target.files || []); e.target.value = ''; pushFiles(list); };
+  const onPaste = (e) => { const list = filesFromPaste(e); if (list.length) { e.preventDefault(); pushFiles(list); } };
   const removeFile = (i) => setFiles((prev) => { const it = prev[i]; if (it?.url) URL.revokeObjectURL(it.url); return prev.filter((_, n) => n !== i); });
 
   // ABC scanner → capture a photo, OCR it on the server, append the text to the name.
@@ -84,7 +86,7 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
 
   return (
     <BottomSheet title="New Task" onClose={onClose}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontFamily: FONT }}>
+      <div onPaste={onPaste} tabIndex={0} style={{ display: 'flex', flexDirection: 'column', gap: 14, fontFamily: FONT, outline: 'none' }}>
         <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
           placeholder="Task name" style={{ ...inputStyle, fontSize: 17, fontWeight: 600, padding: '10px 12px' }} />
@@ -119,7 +121,9 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
           <button title="Add photo" aria-label="Add photo" onClick={() => setPhotoMenu((v) => !v)} style={iconBtn()}><ImageIcon size={20} /></button>
           <button title="Attach file" aria-label="Attach file" onClick={() => attachRef.current?.click()} style={iconBtn()}><Paperclip size={20} /></button>
           <button title="Scan text" aria-label="Scan text" disabled={ocrBusy} onClick={() => scanRef.current?.click()} style={iconBtn({ opacity: ocrBusy ? 0.5 : 1 })}><ScanText size={20} /></button>
-          {ocrBusy && <span style={{ fontSize: 12, color: NX.faint }}>Scanning…</span>}
+          {ocrBusy
+            ? <span style={{ fontSize: 12, color: NX.faint }}>Scanning…</span>
+            : <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>}
           {photoMenu && (
             <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 6, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 28px rgba(0,0,0,0.18)', zIndex: 10, padding: 4, minWidth: 180 }}>
               <button onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take photo</button>

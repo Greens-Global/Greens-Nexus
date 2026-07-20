@@ -22,7 +22,7 @@ import {
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
-import { fmtDate } from './lib';
+import { fmtDate, filesFromPaste } from './lib';
 import { NX, FONT, chip, card, btn, input as inputStyle } from './theme';
 import { Avatar, Modal, usePeople, PersonSelect, useClickOutside } from './components';
 
@@ -1065,8 +1065,9 @@ function readAsDataUrl(file) {
 }
 
 function ScreenshotDropzone({ label, value, onChange }) {
+  const onPaste = async (e) => { const [f] = filesFromPaste(e); if (f) { e.preventDefault(); onChange(await readAsDataUrl(f)); } };
   return (
-    <div>
+    <div onPaste={onPaste} tabIndex={0} style={{ outline: 'none' }}>
       <div style={{ marginBottom: 4, fontSize: 11, fontWeight: 600, color: NX.faint }}>{label}</div>
       {value ? (
         <div style={{ position: 'relative' }}>
@@ -1076,6 +1077,7 @@ function ScreenshotDropzone({ label, value, onChange }) {
       ) : (
         <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, aspectRatio: '16 / 9', cursor: 'pointer', borderRadius: 8, border: `1px dashed ${NX.border}`, textAlign: 'center', fontSize: 12, color: NX.dim }}>
           <Upload size={16} />Upload {label.toLowerCase()}
+          <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
           <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async (e) => { const f = e.target.files?.[0]; if (f) onChange(await readAsDataUrl(f)); }} />
         </label>
       )}

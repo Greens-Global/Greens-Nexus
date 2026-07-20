@@ -641,6 +641,22 @@ function PhotoEditorModal({ employee: e, onClose, onSaved, toastOk, toastErr }) 
     setNat(null);
   }
 
+  // Ctrl+V a screenshot/snip anywhere in the modal → same cropper flow as a
+  // chosen file.
+  function handlePaste(ev) {
+    const list = ev.clipboardData?.items || [];
+    for (const it of list) {
+      if (it.type && it.type.startsWith('image/')) {
+        const blob = it.getAsFile();
+        if (blob) {
+          ev.preventDefault();
+          pickFile(blob.name ? blob : new File([blob], `paste-${Date.now()}.png`, { type: blob.type || 'image/png' }));
+          return;
+        }
+      }
+    }
+  }
+
   function onZoom(z) {
     // Keep the stage centre fixed while zooming
     if (!nat) { setZoom(z); return; }
@@ -684,7 +700,7 @@ function PhotoEditorModal({ employee: e, onClose, onSaved, toastOk, toastErr }) 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={ev => ev.target === ev.currentTarget && !busy && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 380, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+      <div onPaste={handlePaste} tabIndex={0} style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 380, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', outline: 'none' }}>
         <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Profile photo</h3>
           <button onClick={onClose} disabled={busy} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
@@ -717,7 +733,7 @@ function PhotoEditorModal({ employee: e, onClose, onSaved, toastOk, toastErr }) 
               style={{ flex: 1, accentColor: 'var(--pine)' }} />
             <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 700 }}>+</span>
           </div>
-          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Drag to reposition · slide to zoom</div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Drag to reposition · slide to zoom · Ctrl+V to paste a screenshot</div>
         </div>
         <div style={{ padding: '14px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
           <label className="secondary-btn" style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>

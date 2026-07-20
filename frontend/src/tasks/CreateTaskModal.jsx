@@ -8,6 +8,7 @@ import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { Modal, PersonSelect, usePeople, DateField } from './components';
 import { ProjectCreateModal } from './ProjectsView';
+import { filesFromPaste } from './lib';
 import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORITY_ORDER } from './theme';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -50,6 +51,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
   const addLabel = () => { const v = labelInput.trim(); if (v && !form.labels.includes(v)) set('labels', [...form.labels, v]); setLabelInput(''); };
   const addSubtask = () => { const v = subtaskInput.trim(); if (v) setSubtasks((s) => [...s, { title: v }]); setSubtaskInput(''); };
   const onFiles = (list) => { if (list) setAttachments((prev) => [...prev, ...Array.from(list)]); };
+  const onPasteFiles = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); onFiles(files); } };
 
   const recurrence = () => {
     if (form.recurFreq === 'none') return null;
@@ -240,7 +242,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
           </div>
         </div>
 
-        <div style={field}>
+        <div onPaste={onPasteFiles} tabIndex={0} style={{ ...field, outline: 'none' }}>
           <label style={label}>Attachments</label>
           <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
@@ -251,6 +253,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
               </span>
             ))}
             <button type="button" onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), fontSize: 12, padding: '6px 10px' }}><Paperclip size={13} /> Attach file</button>
+            <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
           </div>
         </div>
       </div>
