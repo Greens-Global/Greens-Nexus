@@ -12,6 +12,18 @@ async function getStatus(token) {
   return r.json();
 }
 
+// Interactive mode: fetch the employee's effective monitoring policy (cadence +
+// what may be collected). The server is the source of truth; config.js values
+// are only a fallback until this answers. Returns the `policy` object.
+async function getPolicy(token) {
+  const r = await fetch(`${config.apiBase}/timeclock/monitoring/policy`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!r.ok) throw new Error(`policy ${r.status}`);
+  const j = await r.json();
+  return j && j.policy ? j.policy : j;
+}
+
 // Upload one screen's JPEG. Mirrors the web widget's multipart shape exactly,
 // so it flows into the same storage bucket + time_screenshots table + gallery.
 async function uploadShot(token, jpegBuffer, { idleSec, activeView, tzOffsetMin }) {
@@ -54,6 +66,9 @@ async function agentUploadShot(token, jpegBuffer, { idleSec, activeView, tzOffse
   const r = await fetch(`${config.apiBase}/timeclock/agent/screenshot`, {
     method: 'POST', headers: { 'X-Agent-Token': token }, body: form,
   });
+  // 409 = not clocked in, or screen capture disabled by policy — benign stop,
+  // same as the interactive uploadShot path.
+  if (r.status === 409) return { stopped: true };
   if (!r.ok) throw new Error(`upload ${r.status}`);
   return r.json();
 }
@@ -68,4 +83,4 @@ async function agentPostActivity(token, body) {
   return r.json();
 }
 
-module.exports = { getStatus, uploadShot, agentCheckin, agentUploadShot, agentPostActivity };
+module.exports = { getStatus, getPolicy, uploadShot, agentCheckin, agentUploadShot, agentPostActivity };

@@ -36,7 +36,7 @@ from auth import get_current_user, require_level_or_module, require_administrato
 from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, TimeBod,
                     AgentDevice, AgentActivity, Shift, ShiftGroup, ShiftGroupMember,
                     ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee,
-                    TrackConsent, TrackSession, TrackPing)
+                    TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent)
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET
 from routers.esign import _client_meta
 
@@ -243,6 +243,7 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
     has_in = (db.query(TimePunch)
               .filter(TimePunch.employee_email == email, TimePunch.kind == "in",
                       TimePunch.local_date == local_today, TimePunch.voided == 0).first())
+    pol = _get_policy(db)
     return {
         "lastPunch": _serialize(last) if last else None,
         "allowed": _allowed_kinds(last.kind if last else None),
@@ -250,6 +251,14 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
         "todayUtc": today,
         "geofencedSites": sites,
         "bodRequired": has_bod is None and has_in is None,
+        # Monitoring disclosure: the widget/agent read this to show the notice and
+        # know whether to capture. consentRequired drives the clock-in gate.
+        "monitoring": {
+            **_policy_dict(pol),
+            "consentRequired": bool(pol.enabled) and not _has_monitoring_consent(db, email, local_today),
+            "textVersion": _MONITORING_TEXT_VERSION,
+            "text": _MONITORING_NOTICE,
+        },
     }
 
 
@@ -266,6 +275,15 @@ def punch(body: PunchIn, request: Request,
     if body.kind not in allowed:
         raise HTTPException(409, f"Can't punch '{body.kind}' right now — allowed: {', '.join(allowed)}")
     now = _now_iso()
+    # Disclosed-monitoring gate: with monitoring enabled, the shift's first in-punch
+    # is refused until the employee has acknowledged today's notice. The client
+    # catches this code, shows the notice, POSTs /monitoring/consent, then retries.
+    if body.kind == "in":
+        pol = _get_policy(db)
+        if pol.enabled and not _has_monitoring_consent(db, email, _local_date(now, body.tz_offset_min or 0)):
+            raise HTTPException(409, detail={"code": "monitoring_consent_required",
+                                             "version": _MONITORING_TEXT_VERSION,
+                                             "text": _MONITORING_NOTICE})
     # Double-tap guard: an identical punch within 60s is a duplicate, not intent
     if last and last.kind == body.kind:
         prev = _parse_iso(last.at)
@@ -652,6 +670,51 @@ def _clocked_in(db: Session, email: str) -> bool:
     return bool(last and last.kind != "out")
 
 
+# ── Monitoring policy + per-shift consent (DISCLOSED design) ──────────────────
+# The desktop agent captures screenshots/activity while clocked in. Two rules make
+# that disclosed rather than covert: (1) the employee acknowledges a plain-language
+# notice at clock-in (MonitoringConsent), enforced server-side; (2) HOW/how-often
+# is a central admin policy (MonitoringPolicy) the agent fetches, not hidden constants.
+
+# Versioned so re-acknowledgment is forced if the wording materially changes.
+_MONITORING_TEXT_VERSION = "2026-07-20"
+_MONITORING_NOTICE = (
+    "While you are clocked in on this company device, Nexus records periodic "
+    "screenshots, the title of your active window, and an overall activity level "
+    "(how much you're at the keyboard/mouse — never what you type). Capture runs "
+    "only during your shift and stops the moment you clock out. Clock in to start "
+    "your shift and begin monitoring."
+)
+
+
+def _get_policy(db: Session) -> MonitoringPolicy:
+    """The single monitoring policy row, created with safe defaults on first read."""
+    p = db.query(MonitoringPolicy).filter(MonitoringPolicy.id == "default").first()
+    if not p:
+        p = MonitoringPolicy(id="default", updated_at=_now_iso())
+        db.add(p); db.commit()
+    return p
+
+
+def _policy_dict(p: MonitoringPolicy) -> dict:
+    return {
+        "enabled":         bool(p.enabled),
+        "intervalMinutes": max(1, int(p.interval_minutes or 5)),
+        "randomize":       bool(p.randomize),
+        "trackScreens":    bool(p.track_screens),
+        "trackWindows":    bool(p.track_windows),
+        "trackInput":      bool(p.track_input),
+    }
+
+
+def _has_monitoring_consent(db: Session, email: str, local_date: str) -> bool:
+    return db.query(MonitoringConsent).filter(
+        MonitoringConsent.employee_email == email,
+        MonitoringConsent.local_date == local_date,
+        MonitoringConsent.text_version == _MONITORING_TEXT_VERSION,
+    ).first() is not None
+
+
 def _store_shot(db: Session, email: str, blob: bytes, idle_sec: int, active_view: str, tz_offset_min: int):
     if not blob or len(blob) > 2_000_000:
         raise HTTPException(400, "Screenshot missing or larger than 2 MB")
@@ -679,8 +742,68 @@ def upload_screenshot(request: Request, file: UploadFile = File(...),
     email = user["email"]
     if not _clocked_in(db, email):
         raise HTTPException(409, "Not clocked in — capture stops with the shift.")
+    pol = _get_policy(db)
+    if not (pol.enabled and pol.track_screens):
+        raise HTTPException(409, "Screen capture is disabled by policy.")
     row = _store_shot(db, email, file.file.read(), idle_sec, active_view, tz_offset_min)
     return {"ok": True, "id": row.id}
+
+
+# ── Monitoring: consent + policy endpoints ────────────────────────────────────
+
+class MonitoringConsentIn(BaseModel):
+    text_version: str = ""
+    tz_offset_min: Optional[int] = 0
+
+
+@router.post("/monitoring/consent")
+def record_monitoring_consent(body: MonitoringConsentIn, request: Request,
+                              user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Employee acknowledges today's monitoring notice. Records ip/ua/version so
+    the disclosure is provable. Idempotent per day+version."""
+    email = user["email"]
+    now = _now_iso()
+    local_date = _local_date(now, body.tz_offset_min or 0)
+    version = (body.text_version or _MONITORING_TEXT_VERSION).strip()
+    if _has_monitoring_consent(db, email, local_date):
+        return {"ok": True, "alreadyRecorded": True}
+    ip, ua = _client_meta(request)
+    db.add(MonitoringConsent(id=str(uuid.uuid4()), employee_email=email, local_date=local_date,
+                             text_version=version, granted_at=now, ip=ip, user_agent=ua, created_at=now))
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/monitoring/policy")
+def get_monitoring_policy(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Effective policy — any authenticated user (incl. the interactive agent using
+    the employee's own token) may read it; it's cadence/toggles, not sensitive data."""
+    return _policy_dict(_get_policy(db))
+
+
+class MonitoringPolicyIn(BaseModel):
+    enabled:          Optional[bool] = None
+    interval_minutes: Optional[int]  = None
+    randomize:        Optional[bool] = None
+    track_screens:    Optional[bool] = None
+    track_windows:    Optional[bool] = None
+    track_input:      Optional[bool] = None
+
+
+@router.put("/monitoring/policy")
+def set_monitoring_policy(body: MonitoringPolicyIn, user: dict = Depends(require_administrator),
+                          db: Session = Depends(get_db)):
+    """Admin sets the monitoring cadence and what's collected. Central + auditable."""
+    p = _get_policy(db)
+    if body.enabled          is not None: p.enabled = int(body.enabled)
+    if body.interval_minutes is not None: p.interval_minutes = max(1, min(60, int(body.interval_minutes)))
+    if body.randomize        is not None: p.randomize = int(body.randomize)
+    if body.track_screens    is not None: p.track_screens = int(body.track_screens)
+    if body.track_windows    is not None: p.track_windows = int(body.track_windows)
+    if body.track_input      is not None: p.track_input = int(body.track_input)
+    p.updated_by, p.updated_at = user["email"], _now_iso()
+    db.commit()
+    return _policy_dict(p)
 
 
 # ── Silent agent enrollment (no-login, token-authenticated devices) ───────────
@@ -799,7 +922,11 @@ def agent_checkin(body: AgentCheckinIn, dev: AgentDevice = Depends(get_agent_dev
                          source="agent", created_by="agent", created_at=now))
         clocked = False
     db.commit()
-    return {"capture": working, "email": email}
+    # Policy travels with the heartbeat so the silent agent uses central cadence/
+    # toggles instead of hardcoded constants. capture also respects the master
+    # switch: never ask the agent to capture when monitoring is disabled.
+    pol = _get_policy(db)
+    return {"capture": bool(working and pol.enabled), "email": email, "policy": _policy_dict(pol)}
 
 
 @router.post("/agent/screenshot")
@@ -807,9 +934,16 @@ def agent_screenshot(request: Request, file: UploadFile = File(...),
                      idle_sec: int = Form(0), active_view: str = Form(""),
                      tz_offset_min: int = Form(0),
                      dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
-    """Frame from a silent device — identity comes from the token, so no login
-    and no web punch-clock gate (the agent gates on its own activity)."""
-    row = _store_shot(db, dev.employee_email, file.file.read(), idle_sec, active_view, tz_offset_min)
+    """Frame from a silent device. Identity comes from the token, but the server
+    still enforces the shift boundary and policy — parity with the web /screenshot,
+    so a stale/misbehaving agent can't bank frames outside a clocked-in shift."""
+    email = dev.employee_email
+    if not _clocked_in(db, email):
+        raise HTTPException(409, "Not clocked in — capture stops with the shift.")
+    pol = _get_policy(db)
+    if not (pol.enabled and pol.track_screens):
+        raise HTTPException(409, "Screen capture is disabled by policy.")
+    row = _store_shot(db, email, file.file.read(), idle_sec, active_view, tz_offset_min)
     return {"ok": True, "id": row.id}
 
 
@@ -1701,6 +1835,37 @@ def list_screenshots(date: str = "", email: str = "",
     rows = q.filter(TimeScreenshot.employee_email == email.strip().lower()) \
             .order_by(TimeScreenshot.at).all()
     return {"date": day, "email": email, "shots": [
+        {"id": s.id, "at": s.at, "idleSec": s.idle_sec or 0, "activeView": s.active_view or "",
+         "url": _signed_url(s.storage_path)} for s in rows]}
+
+
+@router.get("/team-screenshots")
+def team_screenshots(date: str = "", email: str = "",
+                     user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """Manager-scoped screenshot gallery — same shape as the admin /screenshots but
+    limited to the caller's visible team (their reports), so a level-3 manager can
+    review their own team without company-wide access."""
+    visible = _visible_emails(db, user)   # None = whole company (admin/HR grant)
+    day = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    q = db.query(TimeScreenshot).filter(TimeScreenshot.local_date == day)
+    if visible is not None:
+        if not visible:
+            return {"date": day, "people": []}
+        q = q.filter(TimeScreenshot.employee_email.in_(visible))
+    if not email:
+        counts = {}
+        for s in q.all():
+            counts[s.employee_email] = counts.get(s.employee_email, 0) + 1
+        names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
+                 for e in db.query(NexusEmployee).all() if e.work_email}
+        return {"date": day, "people": [
+            {"email": em, "name": names.get(em) or em.split("@")[0].replace(".", " ").title(), "count": n}
+            for em, n in sorted(counts.items())]}
+    tgt = email.strip().lower()
+    if visible is not None and tgt not in visible:
+        raise HTTPException(403, "That employee isn't on your team.")
+    rows = q.filter(TimeScreenshot.employee_email == tgt).order_by(TimeScreenshot.at).all()
+    return {"date": day, "email": tgt, "shots": [
         {"id": s.id, "at": s.at, "idleSec": s.idle_sec or 0, "activeView": s.active_view or "",
          "url": _signed_url(s.storage_path)} for s in rows]}
 

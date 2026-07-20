@@ -1419,6 +1419,40 @@ class TrackPing(Base):
     source         = Column(String, default="mobile")
 
 
+class MonitoringPolicy(Base):
+    """Admin-set, server-side policy the desktop agent fetches each heartbeat —
+    replaces the agent's hardcoded interval/toggles so capture cadence and what's
+    collected are controlled centrally and auditable. Single row (id='default').
+    DISCLOSED monitoring: capture only runs while clocked in and after the
+    employee acknowledges it (see MonitoringConsent); this row just governs HOW."""
+    __tablename__ = "monitoring_policy"
+    id               = Column(String, primary_key=True, default="default")
+    enabled          = Column(Integer, default=1)   # master switch; 0 = no capture at all
+    interval_minutes = Column(Integer, default=5)   # base cadence between captures
+    randomize        = Column(Integer, default=1)   # jitter the interval so a shot can't be timed/gamed
+    track_screens    = Column(Integer, default=1)   # screenshots
+    track_windows    = Column(Integer, default=1)   # active foreground window title
+    track_input      = Column(Integer, default=1)   # aggregate active/idle % — NEVER keystroke content
+    updated_by       = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class MonitoringConsent(Base):
+    """Per-day record that the employee was shown, and acknowledged, the monitoring
+    notice at clock-in. Enforced server-side: with monitoring enabled, the first
+    in-punch of the day is refused until this exists (mirrors TrackConsent, but
+    per-day rather than standing). This is what makes the monitoring DISCLOSED."""
+    __tablename__ = "monitoring_consent"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    local_date     = Column(String, default="", index=True)
+    text_version   = Column(String, default="")         # which notice wording was acknowledged
+    granted_at     = Column(String, default="")
+    ip             = Column(String, default="")
+    user_agent     = Column(String, default="")
+    created_at     = Column(String, default="")
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # Task Module — supporting tables (ported from task-module export, Jul 2026)
 # All email-keyed; ISO-string timestamps; jsonb for arrays/maps. See Task above.

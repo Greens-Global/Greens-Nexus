@@ -21,6 +21,58 @@ let paused = false;
 let status = null;
 let lastShotAt = 0;
 let ticking = false;
+let nextDueAt = 0;         // when the next screenshot pass is allowed (drives cadence)
+let wasCapturing = false;  // capturing-state edge, so we can shoot promptly at shift start
+
+// ── Effective monitoring policy ────────────────────────────────────────────────
+// The SERVER decides cadence + what may be collected. config.js only supplies
+// fallback defaults until the server has answered (silent: /agent/checkin's
+// `policy`; interactive: GET /timeclock/monitoring/policy). This is a disclosed,
+// clocked-in-only capture policy — never keystroke content.
+const DEFAULT_POLICY = {
+  enabled: true,
+  intervalMinutes: config.captureIntervalMs / 60000,
+  randomize: false,
+  trackScreens: true,
+  trackWindows: true,
+  trackInput: true,
+};
+let policy = { ...DEFAULT_POLICY };
+
+// Merge a server policy onto the defaults (tolerant of missing fields).
+function applyPolicy(p) {
+  if (!p || typeof p !== 'object') return;
+  const mins = Number(p.intervalMinutes);
+  policy = {
+    enabled: p.enabled !== false,
+    intervalMinutes: mins > 0 ? mins : DEFAULT_POLICY.intervalMinutes,
+    randomize: !!p.randomize,
+    trackScreens: p.trackScreens !== false,
+    trackWindows: p.trackWindows !== false,
+    trackInput: p.trackInput !== false,
+  };
+}
+
+function baseIntervalMs() {
+  const mins = policy.intervalMinutes > 0 ? policy.intervalMinutes : DEFAULT_POLICY.intervalMinutes;
+  return mins * 60 * 1000;
+}
+
+// Next capture time. When randomize is on, jitter ±25% (0.75–1.25×) so a frame
+// can't be timed/gamed. Computed per-capture, not a fixed setInterval.
+function scheduleNext() {
+  const base = baseIntervalMs();
+  const ms = policy.randomize ? base * (0.75 + Math.random() * 0.5) : base;
+  nextDueAt = Date.now() + Math.round(ms);
+}
+
+// Edge-detect the capturing state; on a not→yes transition (shift starts / turns
+// active) make the first shot due NOW so a quick clock-in/out can't dodge capture.
+function markCapturing(canCapture) {
+  if (canCapture && !wasCapturing) nextDueAt = 0;
+  wasCapturing = canCapture;
+  return canCapture;
+}
 
 // ── Silent (token) mode ────────────────────────────────────────────────────────
 // If a device token was provisioned (env var, or a file the install command
@@ -151,7 +203,8 @@ async function doCapture(manual) {
 }
 
 // Silent heartbeat: report activity (auto-punches happen server-side), learn
-// whether to capture, then capture every 5 min while active.
+// whether to capture + the current policy, then capture on the server-set
+// (optionally randomized) cadence while active.
 async function silentTick() {
   if (ticking) return;
   ticking = true;
@@ -166,24 +219,33 @@ async function silentTick() {
       platform: process.platform,
       tz_offset_min: new Date().getTimezoneOffset(),
     }).catch(() => null);
-    if (r) { silentEmail = r.email || silentEmail; silentCapture = !!r.capture && !paused; }
-    refreshTray();
-    // Flush the last window of app activity (accumulated by sampleTick)
-    const act = activity.flush();
-    if (act.segments.length) {
-      api.agentPostActivity(deviceToken, {
-        segments: act.segments, active_pct: act.activePct, tz_offset_min: new Date().getTimezoneOffset(),
-      }).catch(() => {});
+    if (r) {
+      silentEmail = r.email || silentEmail;
+      silentCapture = !!r.capture && !paused;   // server already clears capture when disabled
+      applyPolicy(r.policy);                     // server-driven cadence + toggles
     }
-    if (silentCapture && Date.now() - lastShotAt >= config.captureIntervalMs) {
+    refreshTray();
+    // Flush the last window of app activity (accumulated by sampleTick). Report
+    // titles only when trackWindows, activity % only when trackInput.
+    const act = activity.flush();
+    if ((policy.trackWindows && act.segments.length) || policy.trackInput) {
+      const body = { tz_offset_min: new Date().getTimezoneOffset() };
+      if (policy.trackWindows) body.segments = act.segments;
+      if (policy.trackInput) body.active_pct = act.activePct;
+      api.agentPostActivity(deviceToken, body).catch(() => {});
+    }
+    const canCapture = markCapturing(silentCapture && policy.enabled && policy.trackScreens);
+    if (canCapture && Date.now() >= nextDueAt) {
       try {
         const screens = await captureAllScreens();
         for (const s of screens) {
           const label = `desktop agent${s.total > 1 ? ` · screen ${s.index}/${s.total}` : ''}`;
-          await api.agentUploadShot(deviceToken, s.jpeg, { idleSec, activeView: label, tzOffsetMin: new Date().getTimezoneOffset() });
+          const res = await api.agentUploadShot(deviceToken, s.jpeg, { idleSec, activeView: label, tzOffsetMin: new Date().getTimezoneOffset() });
+          if (res && res.stopped) break;   // benign 409 → stop this pass
         }
         lastShotAt = Date.now();
       } catch { /* next tick retries */ }
+      scheduleNext();                       // (randomized) delay until the next pass
     }
   } finally { ticking = false; }
 }
@@ -203,9 +265,13 @@ async function tick() {
   try {
     if (!(await ensureToken())) { refreshTray(); return; }
     status = await api.getStatus(token).catch(() => status);
+    const pol = await api.getPolicy(token).catch(() => null);   // server-driven cadence + toggles
+    if (pol) applyPolicy(pol);
     refreshTray();
-    if (clockedIn() && !paused && Date.now() - lastShotAt >= config.captureIntervalMs) {
+    const canCapture = markCapturing(clockedIn() && !paused && policy.enabled && policy.trackScreens);
+    if (canCapture && Date.now() >= nextDueAt) {
       await doCapture(false);
+      scheduleNext();                       // (randomized) delay until the next pass
     }
   } finally { ticking = false; }
 }
@@ -219,11 +285,12 @@ app.whenReady().then(async () => {
   refreshTray();
   if (silentMode) {
     tick();                                  // headless: no login prompt
-    // Sample the foreground app between heartbeats (silent mode only)
+    // Sample the foreground app between heartbeats (silent mode only). Skip when
+    // paused or when policy collects neither titles nor activity %.
     setInterval(() => {
-      if (paused) return;
+      if (paused || !policy.enabled || (!policy.trackWindows && !policy.trackInput)) return;
       const idle = powerMonitor.getSystemIdleTime();
-      activity.sample(idle, config.sampleMs / 1000, config.idleActiveSec).catch(() => {});
+      activity.sample(idle, config.sampleMs / 1000, config.idleActiveSec, { trackWindows: policy.trackWindows }).catch(() => {});
     }, config.sampleMs);
   }
   // Non-silent: do NOT auto-open a Microsoft login (that popped AADSTS9002327 on

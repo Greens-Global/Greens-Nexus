@@ -8,10 +8,15 @@ import BodModal from './BodModal';
 // work-session screen capture engine. Capture is consent-per-shift: the user
 // explicitly picks their screen in the browser dialog (Chrome then shows a
 // persistent "sharing" indicator — nothing is covert, matching monitoring-law
-// transparency norms). While sharing, one frame is uploaded every 5 minutes
-// with an idle-seconds reading; it all stops at punch-out or tab close.
+// transparency norms). While sharing, one frame is uploaded per interval with an
+// idle-seconds reading; it all stops at punch-out or tab close.
+//
+// Disclosed-monitoring: the capture control is only offered when the admin
+// monitoring policy has both `enabled` and `trackScreens` on. Cadence follows
+// `intervalMinutes`, and when `randomize` is set each gap is jittered ±25% so the
+// exact capture moment can't be predicted (read from api.timeStatus().monitoring).
 
-const SHOT_EVERY_MS = 5 * 60 * 1000;
+const SHOT_EVERY_MS = 5 * 60 * 1000;   // fallback until policy loads
 
 const fmtHMS = (sec) => {
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
@@ -29,6 +34,9 @@ export default function TimeclockWidget() {
   const lastShot = useRef(0);                       // wall-clock ms of the last frame
   const shotInFlight = useRef(false);
   const lastActive = useRef(Date.now());
+  const gapRef = useRef(SHOT_EVERY_MS);             // base interval from policy (ms)
+  const randomizeRef = useRef(false);              // jitter each gap ±25%?
+  const nextGapRef = useRef(SHOT_EVERY_MS);        // the currently-scheduled gap (jittered)
 
   const load = useCallback(() => {
     api.timeStatus().then(setStatus).catch(() => {});
@@ -66,6 +74,17 @@ export default function TimeclockWidget() {
   const onBreak = last?.kind === 'break_start';
   const elapsedSec = last ? Math.max(0, Math.floor((Date.now() - new Date(last.at + 'Z').getTime()) / 1000)) : 0;
 
+  // Disclosed-monitoring policy drives whether capture is offered and its cadence.
+  const mon = status?.monitoring;
+  const canCapture = !!(mon?.enabled && mon?.trackScreens);
+  const intervalMin = Math.max(1, mon?.intervalMinutes || 5);
+  gapRef.current = intervalMin * 60 * 1000;
+  randomizeRef.current = !!mon?.randomize;
+  // Next gap until a shot is due — jittered ±25% when the policy randomizes.
+  const nextGap = () => randomizeRef.current
+    ? Math.round(gapRef.current * (0.75 + Math.random() * 0.5))
+    : gapRef.current;
+
   function dropStream(stream) {
     stream.getTracks().forEach(t => t.stop());
     streamsRef.current = streamsRef.current.filter(s => s !== stream);
@@ -76,20 +95,22 @@ export default function TimeclockWidget() {
     [...streamsRef.current].forEach(dropStream);
   }
 
-  // Capture stops the moment the shift ends (or the user revokes sharing).
-  useEffect(() => { if (!clockedIn && capturing) stopCapture(); }, [clockedIn, capturing]);
+  // Capture stops the moment the shift ends, the policy turns screen tracking
+  // off, or the user revokes sharing.
+  useEffect(() => { if ((!clockedIn || !canCapture) && capturing) stopCapture(); }, [clockedIn, canCapture, capturing]);
 
-  // Fire a shot only when a full interval has really elapsed (wall-clock guard
+  // Fire a shot only when the scheduled gap has really elapsed (wall-clock guard
   // against throttled/coalesced background timers) and none is already running.
   function maybeShot() {
     if (!streamsRef.current.length || shotInFlight.current) return;
-    if (Date.now() - lastShot.current >= SHOT_EVERY_MS) takeShot();
+    if (Date.now() - lastShot.current >= nextGapRef.current) takeShot();
   }
 
   async function takeShot() {
     if (shotInFlight.current) return;
     shotInFlight.current = true;
     lastShot.current = Date.now();
+    nextGapRef.current = nextGap();   // schedule the next (possibly jittered) gap
     // Snapshot EVERY shared screen (multi-monitor: one stream per screen)
     try {
     for (let i = 0; i < streamsRef.current.length; i++) {
@@ -175,8 +196,10 @@ export default function TimeclockWidget() {
           {onBreak ? 'break' : 'working'}
         </span>
       </button>
+      {/* Disclosed-monitoring: capture control only appears when the policy enables screen tracking. */}
+      {canCapture && (
       <button onClick={capturing ? stopCapture : startCapture}
-        title={capturing ? `Screen capture is ON (${capturing} screen${capturing === 1 ? '' : 's'}) — a frame of each is saved every 5 minutes. Click to stop.`
+        title={capturing ? `Screen capture is ON (${capturing} screen${capturing === 1 ? '' : 's'}) — a frame of each is saved every ${intervalMin} minute${intervalMin === 1 ? '' : 's'}${randomizeRef.current ? ' (timing varies)' : ''}. Click to stop.`
           : 'Start work-session screen capture (you pick the screen; your browser shows a sharing indicator the whole time)'}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 9px', borderRadius: 999, cursor: 'pointer',
           border: capturing ? '1.5px solid #b91c1c' : '1.5px solid var(--line)',
@@ -184,7 +207,8 @@ export default function TimeclockWidget() {
           color: capturing ? '#b91c1c' : 'var(--muted)', fontSize: 10.5, fontWeight: 800, fontFamily: 'Inter,sans-serif' }}>
         {capturing ? <MonitorUp size={12} /> : <MonitorX size={12} />} {capturing ? `REC${capturing > 1 ? ` ×${capturing}` : ''}` : 'capture off'}
       </button>
-      {capturing > 0 && (
+      )}
+      {canCapture && capturing > 0 && (
         <button onClick={startCapture} title="Also capture another screen (pick your second monitor)"
           style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', cursor: 'pointer',
             border: '1.5px solid var(--line)', background: 'transparent', color: 'var(--muted)', fontSize: 13, fontWeight: 800, fontFamily: 'Inter,sans-serif', padding: 0 }}>

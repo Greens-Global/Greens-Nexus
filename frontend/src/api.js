@@ -441,7 +441,9 @@ export const api = {
   // wrappers had no remaining callers and were removed; only the allocators list
   // survives (its backend endpoint is kept and it's still used by NotificationBell
   // + the dashboard panels).
-  getInventoryAllocators:  ()          => req('/inventory-requests/allocators'),
+  // Legacy /inventory-requests router was retired — the equivalent Nexus-People
+  // allocator list now lives on the items router. Kept the name; repointed the URL.
+  getInventoryAllocators:  ()          => req('/items/allocators'),
 
   // Items — new individual-unit system
   getItems:            (params = {})  => req(`/items?${new URLSearchParams(params)}`),
@@ -653,6 +655,11 @@ export const api = {
   timeExportCsv:     (start, end, mode) => reqBlob(`/timeclock/export.csv?start=${start || ''}&end=${end || ''}&mode=${mode || 'summary'}`),
   timeShotUpload:    (form)      => req('/timeclock/screenshot', { method: 'POST', body: form }),
   timeShots:         (date, email) => req(`/timeclock/screenshots?date=${date || ''}&email=${encodeURIComponent(email || '')}`),
+  // Disclosed monitoring: per-shift consent, admin policy, manager-scoped gallery
+  timeMonitoringConsent: () => req('/timeclock/monitoring/consent', { method: 'POST', body: JSON.stringify({ text_version: '', tz_offset_min: new Date().getTimezoneOffset() }) }),
+  timeMonitoringPolicy:  () => req('/timeclock/monitoring/policy'),
+  timeSetMonitoringPolicy: (data) => req('/timeclock/monitoring/policy', { method: 'PUT', body: JSON.stringify(data) }),
+  timeTeamShots:     (date, email) => req(`/timeclock/team-screenshots?date=${date || ''}&email=${encodeURIComponent(email || '')}`),
   timeOffCreate:     (data)      => req('/timeclock/timeoff', { method: 'POST', body: JSON.stringify(data) }),
   timeOffMine:       ()          => req('/timeclock/timeoff/mine'),
   timeOffList:       (status)    => req(`/timeclock/timeoff?status=${status || ''}`),
