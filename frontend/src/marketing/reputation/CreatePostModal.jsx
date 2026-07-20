@@ -64,12 +64,31 @@ export default function CreatePostModal({ facilities, defaultFacility, platform,
     if (!isEdit) setExpiresDate(addDays(ANCHOR_DATE, DEFAULT_LIFESPAN[t]))
   }
 
-  function onFileChosen(e) {
-    const file = e.target.files?.[0]
+  function readFile(file) {
     if (!file) return
     const reader = new FileReader()
     reader.onload = () => setImageUrl(String(reader.result))
     reader.readAsDataURL(file)
+  }
+
+  function onFileChosen(e) {
+    readFile(e.target.files?.[0])
+  }
+
+  // Ctrl+V a screenshot → same path as choosing a file. Pasting text (a URL)
+  // into the link box still works normally.
+  function handlePaste(e) {
+    const list = e.clipboardData?.items || []
+    for (const it of list) {
+      if (it.type && it.type.startsWith('image/')) {
+        const blob = it.getAsFile()
+        if (blob) {
+          e.preventDefault()
+          readFile(blob.name ? blob : new File([blob], `paste-${Date.now()}.png`, { type: blob.type || 'image/png' }))
+          return
+        }
+      }
+    }
   }
 
   const showsUntil = useMemo(() => formatDateLabel(expiresDate), [expiresDate])
@@ -153,12 +172,13 @@ export default function CreatePostModal({ facilities, defaultFacility, platform,
               style={{ ...inputStyle, resize: 'none' }}
             />
           </div>
-          <div>
+          <div onPaste={handlePaste} tabIndex={0} style={{ outline: 'none' }}>
             <label style={labelStyle}>Photo (optional)</label>
             <div style={{ display: 'flex', gap: 8 }}>
               <input
                 value={imageUrl.startsWith('data:') ? '' : imageUrl}
                 onChange={(e) => setImageUrl(e.target.value)}
+                onPaste={handlePaste}
                 placeholder={imageUrl.startsWith('data:') ? 'Photo uploaded from device' : 'Paste an image URL...'}
                 style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13, outline: 'none' }}
               />
@@ -173,6 +193,7 @@ export default function CreatePostModal({ facilities, defaultFacility, platform,
               </button>
               <input ref={fileInputRef} type="file" accept="image/*" onChange={onFileChosen} style={{ display: 'none' }} />
             </div>
+            <p style={{ marginTop: 4, fontSize: 11, color: C.gray400 }}>or press Ctrl+V to paste a screenshot</p>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 12 }}>
             <div>

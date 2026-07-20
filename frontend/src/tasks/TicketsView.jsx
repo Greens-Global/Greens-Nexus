@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Ticket, Plus, Search, Link2, Trash2, CheckCircle2, Clock, Bug, AlertOctagon, Wrench, HelpCircle, ClipboardList, Paperclip, Send, X, Download, MessageSquare, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, Timer, ArrowUp, Star } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { fmtDate as fmtDateRaw } from './lib';
+import { fmtDate as fmtDateRaw, filesFromPaste } from './lib';
 
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '—');
 import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from './theme';
@@ -890,20 +890,22 @@ function TicketAttachments({ ticketId }) {
   const reload = () => api.getTicketAttachments(ticketId).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [ticketId]);
 
-  const onFile = (e) => {
-    const f = e.target.files?.[0]; e.target.value = ''; if (!f) return;
+  const sendFile = (f) => {
     const size = `${Math.max(1, Math.round(f.size / 1024))} KB`;
     const kind = f.type.startsWith('image/') ? 'image' : 'doc';
     const send = (url) => api.addTicketAttachment(ticketId, { name: f.name, size, kind, url: url || '' }).then(() => reload()).catch(() => {});
     if (f.size <= MAX_INLINE) { const r = new FileReader(); r.onload = () => send(typeof r.result === 'string' ? r.result : ''); r.onerror = () => send(''); r.readAsDataURL(f); }
     else send('');
   };
+  const onFile = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) sendFile(f); };
+  const onPaste = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); files.forEach(sendFile); } };
   const del = async (id) => { await api.deleteTicketAttachment(id).catch(() => {}); reload(); };
 
   return (
-    <div>
+    <div onPaste={onPaste} tabIndex={0} style={{ outline: 'none' }}>
       <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={onFile} />
       <button onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12, marginBottom: 12 }}><Paperclip size={13} /> Attach file</button>
+      <span style={{ fontSize: 11, color: NX.faint, marginLeft: 8 }}>or press Ctrl+V to paste a screenshot</span>
       {rows === null ? <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>Loading…</div>
         : rows.length === 0 ? <div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 16 }}>No attachments yet.</div>
           : (

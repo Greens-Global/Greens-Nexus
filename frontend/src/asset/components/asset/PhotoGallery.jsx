@@ -37,8 +37,7 @@ export function PhotoGallery({ p, n, onSave }) {
     setExpanded(true);
   };
 
-  const handleUpload = async (e) => {
-    const files = [...(e.target.files || [])];
+  const addFiles = async (files) => {
     const resized = [];
     for (const file of files) {
       if (file.type.startsWith('image/')) {
@@ -50,7 +49,25 @@ export function PhotoGallery({ p, n, onSave }) {
       }
     }
     setDraftImages((prev) => [...prev, ...resized]);
+  };
+
+  const handleUpload = async (e) => {
+    await addFiles([...(e.target.files || [])]);
     e.target.value = '';
+  };
+
+  const handlePaste = (e) => {
+    const list = e.clipboardData?.items || [];
+    for (const it of list) {
+      if (it.type && it.type.startsWith('image/')) {
+        const blob = it.getAsFile();
+        if (blob) {
+          e.preventDefault();
+          addFiles([blob.name ? blob : new File([blob], `paste-${Date.now()}.png`, { type: blob.type || 'image/png' })]);
+          return;
+        }
+      }
+    }
   };
 
   const images = editing ? draftImages : currentImages;
@@ -221,11 +238,12 @@ export function PhotoGallery({ p, n, onSave }) {
           )}
 
           {editing && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+            <div onPaste={handlePaste} tabIndex={0} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap', outline: 'none' }}>
               <label className="secondary-btn" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, margin: 0 }}>
                 <Upload size={14} /> Upload pictures
                 <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleUpload} />
               </label>
+              <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>or press Ctrl+V to paste a screenshot</span>
               <button
                 className="secondary-btn"
                 onClick={() => { setEditing(false); setDraftImages([]); }}

@@ -75,11 +75,24 @@ async function uploadPhoto(file, prefix) {
 function PhotoField({ file, setFile, required = true }) {
   const ref = useRef(null);
   const [preview, setPreview] = useState(null);
+  function take(f) {
+    if (!f) return;
+    setFile(f); const r = new FileReader(); r.onload = ev => setPreview(ev.target.result); r.readAsDataURL(f);
+  }
+  // Screenshot Ctrl+V lands the same as choosing a file
+  function onPaste(e) {
+    for (const it of e.clipboardData?.items || []) {
+      if (it.type && it.type.startsWith('image/')) {
+        const blob = it.getAsFile();
+        if (blob) { e.preventDefault(); take(blob.name ? blob : new File([blob], `paste-${Date.now()}.png`, { type: blob.type || 'image/png' })); return; }
+      }
+    }
+  }
   return (
-    <div>
+    <div tabIndex={0} onPaste={onPaste} style={{ outline: 'none' }}>
       <label style={FL}>PHOTO {required ? <span style={{ color: 'hsl(var(--color-red))' }}>*</span> : <span style={{ fontWeight: 400 }}>(optional)</span>}</label>
       <input ref={ref} type="file" accept="image/*" style={{ display: 'none' }}
-        onChange={e => { const f = e.target.files?.[0]; if (!f) return; setFile(f); const r = new FileReader(); r.onload = ev => setPreview(ev.target.result); r.readAsDataURL(f); }} />
+        onChange={e => take(e.target.files?.[0])} />
       {preview
         ? <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <img src={preview} alt="" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--line)' }} />
@@ -89,6 +102,7 @@ function PhotoField({ file, setFile, required = true }) {
             style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 12, borderRadius: 9, border: '2px dashed hsla(var(--color-blue),0.4)', background: 'hsla(var(--color-blue),0.04)', cursor: 'pointer', fontSize: 13, color: 'var(--muted)' }}>
             <Camera size={15} /> Take / Upload Photo
           </button>}
+      {!preview && <p style={{ fontSize: 11, color: 'var(--muted)', margin: '5px 0 0' }}>or press Ctrl+V to paste a screenshot</p>}
     </div>
   );
 }
@@ -128,6 +142,10 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
         : `This item is already assigned to ${item.assignedToName || chosen.name}.`)
     : '';
   const locChanged = loc.trim() !== (item.location || '').trim();
+  // Temporary items are checked out, never person-assigned — the backend rejects
+  // it (accepting would silently flip ownership to permanent). Steer to location.
+  const transient = item.ownershipType !== 'permanent';
+  useEffect(() => { if (transient) setTab('location'); }, [transient]);
 
   function submitPerson() {
     setBusy(true); setError('');
@@ -155,6 +173,12 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
       </div>
 
       {tab === 'person' ? (
+        transient ? (
+          <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '4px 0 0' }}>
+            This is a temporary item — people take it via checkout, not permanent assignment.
+            To give it to one person for good, change its ownership to Permanent first (Batch edit → Ownership).
+          </p>
+        ) : (
         <>
           <label style={FL}>ASSIGN TO <span style={{ color: 'hsl(var(--color-red))' }}>*</span></label>
           {/* Show the email, not just the name — the directory has duplicate people
@@ -166,6 +190,7 @@ export function AssignItemModal({ item, mode, userEmail = '', locations = [], on
           </select>
           {reassign && <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Currently with {item.assignedToName || item.assignedToEmail} — they’ll be asked to return it with a photo, then the new person accepts.</p>}
         </>
+        )
       ) : (
         <>
           <label style={FL}>LOCATION</label>
@@ -230,12 +255,12 @@ export function MyPermanentPanel({ assignments, userEmail, refresh, toast }) {
             </div>
             {a.status === 'pending_acceptance' && (
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10, flexWrap: 'wrap' }}>
-                <button onClick={() => { const r = prompt('Why are you declining? (optional)') ?? ''; api.declineAssignment(a.id, { note: r }).then(() => { toast('Assignment declined.'); refresh(); }).catch(e => toast(e?.message || 'Could not decline.', 'error')); }}
+                <button onClick={() => { const r = prompt('Why are you declining? (optional)'); if (r === null) return; api.declineAssignment(a.id, { note: r }).then(() => { toast('Assignment declined.'); refresh(); }).catch(e => toast(e?.message || 'Could not decline.', 'error')); }}
                   className="secondary-btn" style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>
                   Decline
                 </button>
                 <button className="primary-btn" style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => setModal({ kind: 'accept', a })}>
-                  <Camera size={13} /> Accept & upload photo
+                  <CheckCircle size={13} /> Accept
                 </button>
               </div>
             )}
@@ -282,9 +307,9 @@ function AcceptAssignmentModal({ a, onClose, onDone, toast }) {
   const [error, setError] = useState('');
   return (
     <ModalShell onClose={onClose} title={`Accept ${a.itemName}`}
-      sub="Take a photo of the item as you received it — this records the handover and its condition.">
+      sub="One click and it's yours. A photo is optional for permanent items — add one if you want a condition record.">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <PhotoField file={file} setFile={setFile} />
+        <PhotoField file={file} setFile={setFile} required={false} />
         <div>
           <label style={FL}>CONDITION NOTES <span style={{ fontSize: 11, fontWeight: 400 }}>(optional — note any existing damage)</span></label>
           <textarea rows={2} className="form-input" style={{ width: '100%', resize: 'vertical', fontSize: 13 }} value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Small dent on the lid" />
@@ -293,11 +318,11 @@ function AcceptAssignmentModal({ a, onClose, onDone, toast }) {
       {error && <p style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', marginTop: 10 }}>{error}</p>}
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 18 }}>
         <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
-        <button className="primary-btn" disabled={!file || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
+        <button className="primary-btn" disabled={busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
           onClick={async () => {
             setBusy(true); setError('');
             try {
-              const { url, name } = await uploadPhoto(file, `accept-${a.id}`);
+              const { url, name } = file ? await uploadPhoto(file, `accept-${a.id}`) : { url: '', name: '' };
               await api.acceptAssignment(a.id, { photo_url: url, photo_name: name, note: note.trim() });
               toast(`${a.itemName} is now assigned to you.`); onDone();
             } catch (e) { setError(e?.message || 'Could not accept.'); setBusy(false); }

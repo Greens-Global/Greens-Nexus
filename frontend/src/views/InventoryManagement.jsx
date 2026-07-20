@@ -59,6 +59,7 @@ const TYPE_META = {
 const STATUS_META = {
   available:            { label: 'Available',          bg: 'hsla(var(--color-green),0.12)',  fg: 'hsl(var(--color-green))'  },
   unassigned:           { label: 'Unassigned',         bg: 'hsla(var(--color-purple),0.12)', fg: 'hsl(var(--color-purple))' },
+  location_assigned:    { label: 'Assigned · Location', bg: 'hsla(var(--color-blue),0.12)',  fg: 'hsl(var(--color-blue))'   },
   checked_out:          { label: 'Checked out',        bg: 'hsla(var(--color-orange),0.12)', fg: 'hsl(var(--color-orange))' },
   permanently_assigned: { label: 'Perm. Assigned',    bg: 'hsla(var(--color-blue),0.12)',   fg: 'hsl(var(--color-blue))'   },
   retired:              { label: 'Retired',             bg: 'hsla(var(--color-red),0.12)',    fg: 'hsl(var(--color-red))'    },
@@ -85,9 +86,26 @@ const OP_STATUS_PERSON = new Set(['lost', 'retired']);
 
 // Display status: a permanent item that nobody holds is "Unassigned", not
 // "Available" — green Available implies it could be checked out, which
-// permanent items can't be.
+// permanent items can't be. A permanent item placed at a location with no
+// person holding it counts as assigned to that location (Neil, Jul 17), so
+// batch "assign to location" visibly lands instead of still reading Unassigned.
 function displayStatus(item) {
-  return item.ownershipType === 'permanent' && item.status === 'available' ? 'unassigned' : item.status;
+  if (item.ownershipType === 'permanent' && item.status === 'available') {
+    return (!item.assignedToEmail && item.location) ? 'location_assigned' : 'unassigned';
+  }
+  return item.status;
+}
+
+// First image on a paste event (screenshot Ctrl+V) as an upload-ready File —
+// wire onto photo modals so every upload spot also accepts a pasted image.
+function imageFromPaste(e) {
+  for (const it of e.clipboardData?.items || []) {
+    if (it.type && it.type.startsWith('image/')) {
+      const blob = it.getAsFile();
+      if (blob) return blob.name ? blob : new File([blob], `paste-${Date.now()}.png`, { type: blob.type || 'image/png' });
+    }
+  }
+  return null;
 }
 
 const CHECKOUT_STATUS_META = {
@@ -182,11 +200,13 @@ function TypeBadge({ type }) {
   );
 }
 
-function StatusBadge({ status }) {
+function StatusBadge({ status, item }) {
   const m = STATUS_META[status] || { label: status, bg:'var(--mist)', fg:'var(--muted)' };
+  // location_assigned shows the actual site ("Assigned · GSE") when we have the row
+  const label = status === 'location_assigned' && item?.location ? `Assigned · ${item.location}` : m.label;
   return (
     <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:20, fontSize:'11px', fontWeight:600, background:m.bg, color:m.fg, whiteSpace:'nowrap' }}>
-      {m.label}
+      {label}
     </span>
   );
 }
@@ -1137,7 +1157,8 @@ function ReturnModal({ checkout, onClose, onSubmit, photoOptional = false }) {
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+      <div tabIndex={0} style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', outline:'none' }}
+        onPaste={e => { const f = imageFromPaste(e); if (f) { e.preventDefault(); handleFile(f); } }}>
         <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Return item</h3>
         <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:20 }}>
           Returning <strong>{checkout.itemName}</strong>. {photoOptional ? 'A photo is optional for this item.' : 'A photo of the item is required.'}
@@ -1160,6 +1181,7 @@ function ReturnModal({ checkout, onClose, onSubmit, photoOptional = false }) {
                 <Camera size={15} /> Take / Upload Photo
               </button>
             )}
+            <p style={{ fontSize:11, color:'var(--muted)', margin:'6px 0 0' }}>or press Ctrl+V to paste a screenshot</p>
           </div>
           <div>
             <label style={FL}>CONDITION NOTES <span style={{ fontSize:11, fontWeight:400 }}>(optional — note any damage)</span></label>
@@ -3593,7 +3615,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
                           <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.make||'—'}</td>
                           <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.model||'—'}</td>
                           <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.location||'—'}</td>
-                          <td style={{ padding:'8px 14px' }}><StatusBadge status={hasPending ? 'checked_out' : displayStatus(item)} /></td>
+                          <td style={{ padding:'8px 14px' }}><StatusBadge status={hasPending ? 'checked_out' : displayStatus(item)} item={item} /></td>
                           <td style={{ padding:'8px 14px' }}>
                             {canAdd && (
                               <button onClick={() => addToCart(item)} disabled={alreadyInCart}
@@ -3840,7 +3862,7 @@ const ManagerCatalogTab = memo(function ManagerCatalogTab({ items, itemsLoading,
                       <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.make || '—'}</td>
                       <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.model || '—'}</td>
                       <td style={{ padding:'8px 14px', color:'var(--muted)', fontSize:12 }}>{item.location || '—'}</td>
-                      <td style={{ padding:'8px 14px' }}><StatusBadge status={hasPending ? 'checked_out' : displayStatus(item)} /></td>
+                      <td style={{ padding:'8px 14px' }}><StatusBadge status={hasPending ? 'checked_out' : displayStatus(item)} item={item} /></td>
                       <td style={{ padding:'8px 14px' }}>
                         {canAdd && (
                           <button onClick={() => onAddToCart(item)} disabled={alreadyInCart}
@@ -4461,7 +4483,7 @@ function ItemDetailsPanel({ item, customFields, canEdit, onClose, onSaved, toast
           <Row label="Department">{cleanField(item.department) || '—'}</Row>
           <Row label="Location">{cleanField(item.location) || '—'}</Row>
           <Row label="Ownership">{item.ownershipType === 'permanent' ? 'Permanent' : 'Temporary'}</Row>
-          <Row label="Lifecycle"><StatusBadge status={displayStatus(item)} /></Row>
+          <Row label="Lifecycle"><StatusBadge status={displayStatus(item)} item={item} /></Row>
           <Row label="Asset value">{Number(item.assetValue) > 0 ? fmtMoney(item.assetValue) : '—'}</Row>
           {personHeld && <Row label="Held by">{item.assignedToName || auditName(item.assignedToEmail)}</Row>}
 
@@ -5172,7 +5194,7 @@ const ManageRow = memo(function ManageRow({ item, isSelected, highlight, onToggl
           when something is actually flagged (lost/dead/…). */}
       <td style={{ padding:'10px 14px' }}>
         <div style={{ display:'flex', alignItems:'center', gap:5, flexWrap:'wrap' }}>
-          <StatusBadge status={displayStatus(item)} />
+          <StatusBadge status={displayStatus(item)} item={item} />
           {item.opStatus && <OpStatusBadge value={item.opStatus} />}
         </div>
       </td>
@@ -5235,7 +5257,7 @@ const ManageCard = memo(function ManageCard({ item, isSelected, highlight, onTog
             {[item.serialNumber, cleanField(item.make), cleanField(item.model), cleanField(item.location)].filter(Boolean).join(' · ') || '—'}
           </div>
         </div>
-        <StatusBadge status={displayStatus(item)} />
+        <StatusBadge status={displayStatus(item)} item={item} />
       </div>
       <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:10, flexWrap:'wrap' }}>
         <TypeBadge type={item.itemType} />
@@ -5406,6 +5428,9 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
     const ids = batchScope.map(i => i.id);
     try {
       const parts = [];
+      // "Assign to location" already writes location — drop a ticked location
+      // field so the same value isn't written twice by two endpoints.
+      if (fields && assignment?.kind === 'location') delete fields.location;
       if (fields && Object.keys(fields).length) {
         const res = await api.bulkUpdateItems(ids, fields);
         const n = res?.updated ?? ids.length;
@@ -5419,7 +5444,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
         } else {
           const r = await api.bulkAssignPerson(ids, assignment.email, assignment.name);
           parts.push(`assigned ${r?.assigned ?? ids.length} to ${assignment.name || assignment.email}`);
-          if (r?.skipped?.length) parts.push(`${r.skipped.length} skipped (in use)`);
+          if (r?.skipped?.length) parts.push(`${r.skipped.length} skipped (in use or temporary)`);
         }
       }
       await refreshItems();
@@ -5729,7 +5754,8 @@ function EmployeeAcceptModal({ checkout, onClose, onConfirm, photoOptional = fal
     <div role="dialog" aria-modal="true"
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+      <div tabIndex={0} style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', outline:'none' }}
+        onPaste={e => { const f = imageFromPaste(e); if (f) { e.preventDefault(); handleFile(f); } }}>
         <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Confirm You Have It</h3>
         <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:20 }}>
           Take a photo of <strong>{checkout.itemName}</strong> to confirm you received it. This creates a condition record for the handover.
@@ -5750,6 +5776,7 @@ function EmployeeAcceptModal({ checkout, onClose, onConfirm, photoOptional = fal
               <Camera size={15} /> Take / Upload Photo
             </button>
           )}
+          <p style={{ fontSize:11, color:'var(--muted)', margin:'6px 0 0' }}>or press Ctrl+V to paste a screenshot</p>
         </div>
         {error && <p style={{ fontSize:12.5, color:'hsl(var(--color-red))', marginTop:10 }}>{error}</p>}
         <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
@@ -5776,7 +5803,8 @@ function PhotoSlot({ label, slotKey, photos, onChange, required = true }) {
     reader.readAsDataURL(f);
   }
   return (
-    <div style={{ marginBottom:12 }}>
+    <div tabIndex={0} style={{ marginBottom:12, outline:'none' }}
+      onPaste={e => { const f = imageFromPaste(e); if (f) { e.preventDefault(); handleFile(f); } }}>
       {label && <div style={{ fontSize:11.5, fontWeight:600, color:'var(--muted)', marginBottom:5, textTransform:'uppercase', letterSpacing:'.04em' }}>{label}</div>}
       <input ref={ref} type="file" accept="image/*" style={{ display:'none' }} onChange={e => handleFile(e.target.files?.[0])} />
       {entry.preview ? (
@@ -5795,6 +5823,7 @@ function PhotoSlot({ label, slotKey, photos, onChange, required = true }) {
             : <span style={{ fontSize:11, marginLeft:4 }}>(optional)</span>}
         </button>
       )}
+      {!entry.preview && <p style={{ fontSize:11, color:'var(--muted)', margin:'5px 0 0' }}>or press Ctrl+V to paste a screenshot</p>}
     </div>
   );
 }
@@ -7832,11 +7861,28 @@ export default function InventoryManagement({ activeSub }) {
 
   if (roleLoading) return <SkeletonBlocks count={6} height={56} borderRadius={10} />;
 
+  // Items assigned to me still awaiting my acceptance — persistent callout; the
+  // 7s toast alone is easy to miss (Neil couldn't find where his iPhone landed).
+  const awaitingAcceptance = assignments.filter(a => a.assigneeEmail === userEmail && a.status === 'pending_acceptance').length;
+  const goAccept = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view:'inventory', sub:'permanent' } }));
+  const acceptBanner = awaitingAcceptance > 0 ? (
+    <div role="button" tabIndex={0} onClick={goAccept} onKeyDown={e => e.key === 'Enter' && goAccept()}
+      style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderRadius:10, marginBottom:14,
+               background:'hsla(var(--color-blue),0.08)', border:'1px solid hsla(var(--color-blue),0.35)', cursor:'pointer' }}>
+      <Package size={16} style={{ color:'hsl(var(--color-blue))', flexShrink:0 }} />
+      <span style={{ fontSize:13, color:'var(--ink)' }}>
+        <strong>{awaitingAcceptance} item{awaitingAcceptance !== 1 ? 's' : ''}</strong> assigned to you — waiting for your acceptance.
+      </span>
+      <span style={{ marginLeft:'auto', fontSize:12.5, fontWeight:700, color:'hsl(var(--color-blue))', whiteSpace:'nowrap' }}>Review →</span>
+    </div>
+  ) : null;
+
   // Everyone lands on the normal employee screen. Managers get a "Manage" tab on it
   // that flips into the full management UI below (Neil). Employees never see it.
   if (!isManager || !manageMode) {
     return (
       <>
+        {acceptBanner}
         <EmployeeView
           items={items} checkouts={checkouts} activeSub={activeSub}
           userName={userName} userEmail={userEmail}
@@ -7895,6 +7941,7 @@ export default function InventoryManagement({ activeSub }) {
 
   return (
     <div style={{ animation:'fadeIn var(--transition-normal) ease-in-out' }}>
+      {acceptBanner}
       {/* Header */}
       <div className="view-header" style={{ marginBottom:0 }}>
         <div className="view-title-group">
@@ -7998,7 +8045,7 @@ export default function InventoryManagement({ activeSub }) {
             <div className="kpi-grid" style={{ gridTemplateColumns:'repeat(auto-fit, minmax(104px, 1fr))', gap:8, margin:'0 0 16px' }}>
               {[
                 { label:'Available to check out', value: deptItems.filter(i => i.status === 'available' && i.ownershipType !== 'permanent').length, color:'card-green'  },
-                { label:'Unassigned permanent',   value: deptItems.filter(i => i.ownershipType === 'permanent' && i.status === 'available').length, color:'card-purple' },
+                { label:'Unassigned permanent',   value: deptItems.filter(i => displayStatus(i) === 'unassigned').length, color:'card-purple' },
                 { label:'Total items', value: deptItems.length,                                          color:'card-blue'   },
                 { label:'Checked out', value: deptItems.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
                 { label:'Items value', value: fmtMoney(deptItems.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },

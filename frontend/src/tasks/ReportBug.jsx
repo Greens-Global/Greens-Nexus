@@ -5,6 +5,7 @@ import { useRef, useState } from 'react';
 import { Bug, ImagePlus, X } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { Modal, useIsMobile } from './components';
+import { filesFromPaste } from './lib';
 import { NX, FONT, input as inputStyle, btn, PRIORITY_ORDER } from './theme';
 
 // Screenshots ride along in the ticket's `images` list as data URLs. Keep them
@@ -34,8 +35,7 @@ function ReportBugModal({ onClose }) {
   const fileRef = useRef(null);
   const canSubmit = title.trim() && description.trim();
 
-  const onFiles = (e) => {
-    const files = Array.from(e.target.files || []); e.target.value = '';
+  const addShots = (files) => {
     for (const f of files) {
       if (!f.type.startsWith('image/')) continue;
       if (f.size > MAX_SHOT) { alert(`"${f.name}" is over 2 MB — please attach a smaller screenshot.`); continue; }
@@ -44,6 +44,8 @@ function ReportBugModal({ onClose }) {
       r.readAsDataURL(f);
     }
   };
+  const onFiles = (e) => { const files = Array.from(e.target.files || []); e.target.value = ''; addShots(files); };
+  const onPaste = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); addShots(files); } };
   const removeShot = (i) => setShots((prev) => prev.filter((_, n) => n !== i));
 
   const submit = async () => {
@@ -67,7 +69,7 @@ function ReportBugModal({ onClose }) {
         <button onClick={submit} disabled={!canSubmit || busy} style={{ ...btn('primary'), opacity: !canSubmit || busy ? 0.55 : 1 }}>Submit bug report</button>
       </>
     }>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div onPaste={onPaste} tabIndex={0} style={{ display: 'flex', flexDirection: 'column', gap: 14, outline: 'none' }}>
         <div>
           <label style={label}>Module</label>
           <select value={module} onChange={(e) => setModule(e.target.value)} style={sel}>{MODULES.map((m) => <option key={m} value={m}>{m}</option>)}</select>
@@ -108,7 +110,7 @@ function ReportBugModal({ onClose }) {
               }}><ImagePlus size={18} /> Add</button>
             )}
           </div>
-          <p style={{ margin: '6px 0 0', fontSize: 11, color: NX.faint }}>Up to {MAX_SHOTS} images, 2 MB each.</p>
+          <p style={{ margin: '6px 0 0', fontSize: 11, color: NX.faint }}>Up to {MAX_SHOTS} images, 2 MB each — or press Ctrl+V to paste a screenshot.</p>
         </div>
       </div>
     </Modal>

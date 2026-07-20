@@ -84,8 +84,16 @@ keep the diff minimal.
   Items carry `assigned_to_email` as the current pointer; history lives in the
   assignment rows. Per Neil: Items and Assets are ONE concept — equipment
   warranties/serials belong on the `items` table, do not build a parallel system.
-- Photos are evidence: handover, receipt, return, and assignment acceptance all
-  require them (lost-item reports are the exception).
+- Photos are evidence: checkout handover, receipt, and return require them
+  (lost-item reports are the exception). Permanent-assignment ACCEPTANCE photo
+  is optional (Neil, Jul 17 — one-click accept); assignment returns still
+  require one.
+- People pickers: always the curated Nexus People list (`getPeopleDirectory()`
+  → `/myhr/directory`), never M365/GAL-derived lists. Backend approver/allocator
+  endpoints filter role-holders against `nexus_employees`.
+- Every image-upload widget must accept Ctrl+V clipboard paste (see
+  `imageFromPaste` in `InventoryManagement.jsx` / `filesFromPaste` in
+  `tasks/lib.js` for the pattern) with an "or press Ctrl+V…" hint.
 
 ## Asset Management module — scope (Ankush)
 

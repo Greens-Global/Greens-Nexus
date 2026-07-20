@@ -16,7 +16,7 @@ from typing import Optional
 import httpx
 from database import get_db
 from auth import get_current_user, require_level_or_module
-from models import Item, ItemCheckout, ItemCartEntry, ItemAssignment, ItemCustomField, ItemType, NexusRole, NexusNotification, AuditLog
+from models import Item, ItemCheckout, ItemCartEntry, ItemAssignment, ItemCustomField, ItemType, NexusRole, NexusNotification, AuditLog, NexusEmployee
 
 _VALID_TRANSITIONS = {
     "approved":         {"pending"},
@@ -822,6 +822,12 @@ def delete_item(item_id: str, user: dict = Depends(require_items_delete), db: Se
     ).count()
     if active:
         raise HTTPException(409, "Cannot delete an item with an active checkout against it")
+    live_assignment = db.query(ItemAssignment).filter(
+        ItemAssignment.item_id == item_id,
+        ItemAssignment.status.in_(["pending_acceptance", "active", "return_initiated"]),
+    ).count()
+    if live_assignment:
+        raise HTTPException(409, "Cannot delete an item someone is still assigned — recover it first")
     _soft_delete(item, user["email"])
     db.commit()
     return {"ok": True}
@@ -848,6 +854,14 @@ def bulk_delete_items(body: BulkDeleteRequest, user: dict = Depends(require_item
             ItemCheckout.status.in_(["pending", "approved", "pending_receipt", "allocated"]),
         ).all()
     }
+    # Live permanent assignments block deletion the same way live checkouts do —
+    # deleting a held item orphans the assignment once the recycle bin purges.
+    assigned_item_ids = {
+        row.item_id for row in db.query(ItemAssignment.item_id).filter(
+            ItemAssignment.item_id.in_(ids),
+            ItemAssignment.status.in_(["pending_acceptance", "active", "return_initiated"]),
+        ).all()
+    }
     items = db.query(Item).filter(Item.id.in_(ids), or_(Item.deleted_at.is_(None), Item.deleted_at == "")).all()
     found_ids = {it.id for it in items}
 
@@ -855,6 +869,9 @@ def bulk_delete_items(body: BulkDeleteRequest, user: dict = Depends(require_item
     for it in items:
         if it.id in active_item_ids:
             blocked.append({"id": it.id, "name": it.name, "reason": "active checkout"})
+            continue
+        if it.id in assigned_item_ids:
+            blocked.append({"id": it.id, "name": it.name, "reason": "live assignment"})
             continue
         _soft_delete(it, user["email"])
         deleted += 1
@@ -1178,7 +1195,7 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
     server_id = f"ICHK-{uuid.uuid4().hex[:8].upper()}-{uuid.uuid4().hex[:8].upper()}"
 
     item = db.query(Item).filter(Item.id == body.item_id).first()
-    if not item:
+    if not item or item.deleted_at:
         raise HTTPException(404, "Item not found")
     if item.ownership_type != "transient":
         raise HTTPException(400, "Only transient items can be checked out")
@@ -1284,7 +1301,9 @@ def create_checkout(body: CheckoutIn, user: dict = Depends(get_current_user), db
 def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     row = db.query(ItemCheckout).filter(ItemCheckout.id == checkout_id).first()
     if not row:
-        return {"ok": False, "error": "not found"}
+        # Was a 200 {"ok": false} fake-success — clients checking resp.ok showed
+        # success on a vanished/stale checkout (Jul 14 audit family).
+        raise HTTPException(404, "Checkout not found")
 
     if row.order_id:
         # Serialize concurrent updates within the same order. "Approve All" /
@@ -2058,8 +2077,14 @@ def list_assignments(user: dict = Depends(get_current_user), db: Session = Depen
 @router.post("/{item_id}/assign", status_code=201)
 def assign_item(item_id: str, body: AssignmentCreate, user: dict = Depends(require_items_admin), db: Session = Depends(get_db)):
     item = db.query(Item).filter(Item.id == item_id).first()
-    if not item:
+    if not item or item.deleted_at:
         raise HTTPException(404, "Item not found")
+    if item.ownership_type != "permanent":
+        # Accepting an assignment force-flips ownership to permanent — a silent
+        # one-way change that pulls the item out of the checkout catalogue.
+        # Require the explicit ownership edit first instead.
+        raise HTTPException(400, f'"{item.name}" is a temporary item — it gets checked out, not permanently assigned. '
+                                 "Change its ownership to Permanent first if it should live with one person.")
     live = db.query(ItemAssignment).filter(
         ItemAssignment.item_id == item_id, ItemAssignment.status.in_(_LIVE_ASSIGN)).first()
     if live:
@@ -2189,6 +2214,9 @@ def bulk_assign_to_person(body: BulkAssignPersonIn, user: dict = Depends(require
     blocked = _bulk_assign_blocked(db, ids)
     assigned, names = 0, []
     for it in db.query(Item).filter(Item.id.in_(ids), or_(Item.deleted_at.is_(None), Item.deleted_at == "")).all():
+        if it.ownership_type != "permanent":
+            blocked.add(it.id)   # temporary items are checked out, never person-assigned
+            continue
         if it.id in blocked:
             continue
         db.add(ItemAssignment(
@@ -2219,10 +2247,10 @@ def accept_assignment(assignment_id: str, body: AssignmentAccept, user: dict = D
         raise HTTPException(403, "Only the assignee can accept this assignment")
     if a.status != "pending_acceptance":
         raise HTTPException(409, "Assignment is not awaiting acceptance")
-    if not body.photo_url:
-        raise HTTPException(400, "A photo of the received item is required")
+    # Photo is OPTIONAL on permanent-assignment acceptance (Neil, Jul 17) —
+    # checkout handover/receipt/return photos remain mandatory elsewhere.
     a.status = "active"
-    a.accept_photo_url, a.accept_photo_name = body.photo_url, body.photo_name or ""
+    a.accept_photo_url, a.accept_photo_name = body.photo_url or "", body.photo_name or ""
     a.accept_note, a.accepted_at = (body.note or "").strip(), _now_iso()
     item = db.query(Item).filter(Item.id == a.item_id).first()
     if item:
@@ -2412,6 +2440,26 @@ def cancel_assignment(assignment_id: str, user: dict = Depends(require_items_adm
 
 # ── Allocators / Approvers ────────────────────────────────────────────────────
 
+def _nexus_people_only(db: Session, rows):
+    """Restrict role-holder rows to people on the curated Nexus People list
+    (nexus_employees) and use their People name. Role grants can exist for any
+    M365 account; pickers must only ever offer real Nexus people (Neil, Jul 17)."""
+    people = {
+        (e.work_email or "").lower(): f"{e.first_name} {e.last_name}".strip()
+        for e in db.query(NexusEmployee)
+                   .filter(NexusEmployee.status != "offboarded")
+                   .filter(NexusEmployee.work_email != "").all()
+    }
+    out = []
+    for r in rows:
+        name = people.get((r.email or "").lower())
+        if name is None:
+            continue
+        out.append({"email": r.email, "name": name or r.display_name or _title_case_email(r.email),
+                    "role": r.role})
+    return sorted(out, key=lambda p: p["name"].lower())
+
+
 @router.get("/approvers")
 def list_approvers(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Manager-level users an employee can address their checkout request to.
@@ -2419,10 +2467,7 @@ def list_approvers(user: dict = Depends(get_current_user), db: Session = Depends
     rows = db.query(NexusRole).filter(NexusRole.role.in_(
         [role for role, level in _ROLE_LEVEL.items() if level >= _ROLE_LEVEL["manager"]]
     )).order_by(NexusRole.email).all()
-    return [
-        {"email": r.email, "name": r.display_name or _title_case_email(r.email), "role": r.role}
-        for r in rows
-    ]
+    return _nexus_people_only(db, rows)
 
 
 @router.get("/allocators")
@@ -2432,10 +2477,7 @@ def list_allocators(user: dict = Depends(get_current_user), db: Session = Depend
     rows = db.query(NexusRole).filter(NexusRole.role.in_(
         [role for role, level in _ROLE_LEVEL.items() if level >= _ROLE_LEVEL["supervisor"]]
     )).order_by(NexusRole.email).all()
-    return [
-        {"email": r.email, "name": r.display_name or _title_case_email(r.email), "role": r.role}
-        for r in rows
-    ]
+    return _nexus_people_only(db, rows)
 
 
 # ── Report ────────────────────────────────────────────────────────────────────

@@ -12,7 +12,7 @@ from typing import Optional
 import httpx
 from database import get_db
 from auth import get_current_user, require_level_or_module
-from models import InventoryRequest, InventoryItem, NexusRole, AuditLog
+from models import InventoryRequest, InventoryItem, NexusRole, AuditLog, NexusEmployee
 
 # Valid predecessor statuses for each target status — guards against illegal
 # jumps like pending -> allocated or re-approving an already-resolved request.
@@ -370,10 +370,22 @@ def list_allocators(user: dict = Depends(get_current_user), db: Session = Depend
     rows = db.query(NexusRole).filter(NexusRole.role.in_(
         [role for role, level in _ROLE_LEVEL.items() if level >= _ROLE_LEVEL["supervisor"]]
     )).order_by(NexusRole.email).all()
-    return [
-        {"email": r.email, "name": r.display_name or _title_case_email(r.email), "role": r.role}
-        for r in rows
-    ]
+    # Only offer people on the curated Nexus People list — role grants can exist
+    # for any M365 account, but pickers must show real Nexus people only.
+    people = {
+        (e.work_email or "").lower(): f"{e.first_name} {e.last_name}".strip()
+        for e in db.query(NexusEmployee)
+                   .filter(NexusEmployee.status != "offboarded")
+                   .filter(NexusEmployee.work_email != "").all()
+    }
+    out = []
+    for r in rows:
+        name = people.get((r.email or "").lower())
+        if name is None:
+            continue
+        out.append({"email": r.email, "name": name or r.display_name or _title_case_email(r.email),
+                    "role": r.role})
+    return sorted(out, key=lambda p: p["name"].lower())
 
 
 @router.get("")

@@ -31,10 +31,34 @@ export function FieldInput({ f, value, onChange }) {
   // original filename on a sibling key (f.nameKey) so the table/summary can show a filename
   // without decoding the data URL.
   if (f.type === 'file') {
+    const applyFile = async (file) => {
+      try {
+        const dataUrl = await fileToDataUrl(file);
+        onChange(f.k, dataUrl);
+        if (f.nameKey) onChange(f.nameKey, file.name);
+      } catch {
+        // unreadable file — silently ignore, field stays unchanged
+      }
+    };
+    // Image on the clipboard → store it exactly like a chosen file; anything else
+    // (text etc.) falls through to the browser's default paste behaviour.
+    const handlePaste = (e) => {
+      const list = e.clipboardData?.items || [];
+      for (const it of list) {
+        if (it.type && it.type.startsWith('image/')) {
+          const blob = it.getAsFile();
+          if (blob) {
+            e.preventDefault();
+            applyFile(blob.name ? blob : new File([blob], `paste-${Date.now()}.png`, { type: blob.type || 'image/png' }));
+            return;
+          }
+        }
+      }
+    };
     return (
       <div className={f.full ? 'form-group form-group-full' : 'form-group'}>
         {label}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div onPaste={handlePaste} tabIndex={0} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', outline: 'none' }}>
           <label className="secondary-btn" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, margin: 0 }}>
             <Upload size={14} /> {value ? 'Replace file' : 'Upload file'}
             <input
@@ -43,18 +67,13 @@ export function FieldInput({ f, value, onChange }) {
               onChange={async (e) => {
                 const file = e.target.files?.[0];
                 if (file) {
-                  try {
-                    const dataUrl = await fileToDataUrl(file);
-                    onChange(f.k, dataUrl);
-                    if (f.nameKey) onChange(f.nameKey, file.name);
-                  } catch {
-                    // unreadable file — silently ignore, field stays unchanged
-                  }
+                  await applyFile(file);
                   e.target.value = '';
                 }
               }}
             />
           </label>
+          <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>or press Ctrl+V to paste a screenshot</span>
           {value && (
             <a
               href={value}

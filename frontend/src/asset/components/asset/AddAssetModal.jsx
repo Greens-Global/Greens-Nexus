@@ -105,6 +105,25 @@ export function AddAssetModal({ row, properties, onSave, onDelete, onClose }) {
     e.target.value = '';
   };
 
+  const handleImagePaste = (e) => {
+    const list = e.clipboardData?.items || [];
+    for (const it of list) {
+      if (it.type && it.type.startsWith('image/')) {
+        const blob = it.getAsFile();
+        if (blob) {
+          e.preventDefault();
+          const file = blob.name ? blob : new File([blob], `paste-${Date.now()}.png`, { type: blob.type || 'image/png' });
+          resizeImageToDataUrl(file)
+            .then((url) => setField('image', url))
+            .catch(() => {
+              // unreadable image — leave field unchanged
+            });
+          return;
+        }
+      }
+    }
+  };
+
   const changedAddressFields = addressFieldsChanged(row, values);
   const needsAddressReason = kind === 'property' && changedAddressFields.length > 0;
 
@@ -414,7 +433,7 @@ export function AddAssetModal({ row, properties, onSave, onDelete, onClose }) {
 
       {/* Step 1 (or editing): image uploader. */}
       {showFieldForm && (
-        <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--border-color)' }}>
+        <div onPaste={handleImagePaste} tabIndex={0} style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--border-color)', outline: 'none' }}>
           <div style={{ ...SECTION_LABEL_STYLE, color: 'var(--pine)', fontSize: '0.7rem', marginBottom: 10 }}>Image</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             {values.image ? (
@@ -451,6 +470,7 @@ export function AddAssetModal({ row, properties, onSave, onDelete, onClose }) {
                   Remove
                 </button>
               )}
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>or press Ctrl+V to paste a screenshot</span>
               <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Shown on the asset card and detail.</span>
             </div>
             <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
