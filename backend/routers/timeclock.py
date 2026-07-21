@@ -37,7 +37,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     AgentDevice, Shift, ShiftGroup, ShiftGroupMember,
                     ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee,
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
-                    PunchRequest, AgentActivity, AppRating)
+                    PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember)
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET
 from routers.esign import _client_meta
 
@@ -269,12 +269,18 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
         "bodRequired": has_bod is None and has_in is None,
         # Monitoring disclosure: the widget/agent read this to show the notice and
         # know whether to capture. consentRequired drives the clock-in gate.
-        "monitoring": {
+        # Exempt members (leadership) are never captured, gated, or asked to consent.
+        "monitoring": (lambda exempt: {
             **_policy_dict(pol),
-            "consentRequired": bool(pol.enabled) and not _has_monitoring_consent(db, email, local_today),
+            "exempt": exempt,
+            # Exempt people are not captured — force the capture flags off for them
+            # so the widget offers no screen-share and clock-in isn't gated on one.
+            **({"trackScreens": False, "trackWindows": False, "trackInput": False} if exempt else {}),
+            "consentRequired": bool(pol.enabled) and not exempt
+                               and not _has_monitoring_consent(db, email, local_today),
             "textVersion": _MONITORING_TEXT_VERSION,
             "text": _MONITORING_NOTICE,
-        },
+        })(_is_monitoring_exempt(db, email)),
     }
 
 
@@ -296,7 +302,8 @@ def punch(body: PunchIn, request: Request,
     # catches this code, shows the notice, POSTs /monitoring/consent, then retries.
     if body.kind == "in":
         pol = _get_policy(db)
-        if pol.enabled and not _has_monitoring_consent(db, email, _local_date(now, body.tz_offset_min or 0)):
+        if pol.enabled and not _is_monitoring_exempt(db, email) \
+                and not _has_monitoring_consent(db, email, _local_date(now, body.tz_offset_min or 0)):
             raise HTTPException(409, detail={"code": "monitoring_consent_required",
                                              "version": _MONITORING_TEXT_VERSION,
                                              "text": _MONITORING_NOTICE})
@@ -747,6 +754,17 @@ def _policy_dict(p: MonitoringPolicy) -> dict:
     }
 
 
+def _is_monitoring_exempt(db: Session, email: str) -> bool:
+    """True when the person belongs to any group flagged monitoring_exempt — used
+    for leadership, who clock in without sharing a screen and are not captured."""
+    gids = [m.group_id for m in db.query(NexusGroupMember.group_id)
+            .filter(NexusGroupMember.email == email).all()]
+    if not gids:
+        return False
+    return db.query(NexusGroup.id).filter(
+        NexusGroup.id.in_(gids), NexusGroup.monitoring_exempt == 1).first() is not None
+
+
 def _has_monitoring_consent(db: Session, email: str, local_date: str) -> bool:
     return db.query(MonitoringConsent).filter(
         MonitoringConsent.employee_email == email,
@@ -785,6 +803,8 @@ def upload_screenshot(request: Request, file: UploadFile = File(...),
     pol = _get_policy(db)
     if not (pol.enabled and pol.track_screens):
         raise HTTPException(409, "Screen capture is disabled by policy.")
+    if _is_monitoring_exempt(db, email):
+        raise HTTPException(409, "You are exempt from screen monitoring.")
     row = _store_shot(db, email, file.file.read(), idle_sec, active_view, tz_offset_min)
     return {"ok": True, "id": row.id}
 

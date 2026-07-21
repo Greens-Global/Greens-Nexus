@@ -137,6 +137,7 @@ def _run_migrations():
             "ALTER TABLE nexus_groups ADD COLUMN is_job_role BOOLEAN DEFAULT 0",
             "ALTER TABLE nexus_groups ADD COLUMN tier VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_groups ADD COLUMN description VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN monitoring_exempt BOOLEAN DEFAULT 0",
             # Company email domains — drive M365 import + auto company tagging
             "ALTER TABLE hr_entities ADD COLUMN domains VARCHAR DEFAULT ''",
             # Company manager (operational head; escalation target)
@@ -381,6 +382,7 @@ def _run_migrations():
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS is_job_role BOOLEAN DEFAULT FALSE",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS tier VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS description VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS monitoring_exempt BOOLEAN DEFAULT FALSE",
         # Company email domains — drive M365 import + auto company tagging
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS domains VARCHAR DEFAULT ''",
         # Company manager (operational head; escalation target)

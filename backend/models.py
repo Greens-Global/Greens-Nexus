@@ -474,6 +474,10 @@ class NexusGroup(Base):
     is_job_role     = Column(Integer, default=0)
     tier            = Column(String, default="")   # employee/supervisor/manager/administrator/owner — job roles only
     description     = Column(String, default="")
+    # Members of a group flagged monitoring_exempt=1 are excused from screen-share
+    # monitoring: no capture is offered and clock-in is not gated on sharing a
+    # screen (used for leadership). A person is exempt if ANY of their groups sets it.
+    monitoring_exempt = Column(Integer, default=0)
 
 
 class NexusGroupMember(Base):

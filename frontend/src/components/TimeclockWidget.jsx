@@ -120,8 +120,18 @@ export default function TimeclockWidget() {
   startRef.current = startCapture;
   useEffect(() => {
     window.__nexusCapture = {
-      start: () => { if (!streamsRef.current.length) startRef.current?.(); },
+      // Resolves true when a screen stream is live OR capture isn't required here
+      // (policy off, or this person is monitoring-exempt); false only when a share
+      // IS required and the employee dismissed the browser's picker. The punch
+      // button awaits this to enforce share-to-clock-in for non-exempt staff.
+      start: async () => {
+        if (streamsRef.current.length) return true;   // already sharing
+        if (!canCaptureRef.current) return true;      // not required for this person
+        await startRef.current?.();
+        return streamsRef.current.length > 0;
+      },
       stop: stopCapture,
+      required: () => canCaptureRef.current,
     };
     return () => { if (window.__nexusCapture) delete window.__nexusCapture; };
     // eslint-disable-next-line react-hooks/exhaustive-deps

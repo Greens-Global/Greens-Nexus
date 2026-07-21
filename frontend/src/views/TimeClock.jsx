@@ -450,15 +450,22 @@ export default function TimeClock() {
               {(status.allowed || []).map(kind => {
                 const M = KIND_META[kind];
                 return (
-                  <button key={kind} onClick={() => {
-                      // Start screen capture from within the punch-in / end-break
-                      // click — the browser only grants screen sharing on a user
-                      // gesture, so it can't auto-start after the punch resolves.
-                      // No-op if the monitoring policy is off or a stream is still
-                      // running (the usual case: the stream survives the break and
-                      // capture just un-pauses). Only re-acquires — with a picker —
-                      // when the stream was torn down during the break.
-                      if (kind === 'in' || kind === 'break_end') window.__nexusCapture?.start?.();
+                  <button key={kind} onClick={async () => {
+                      // Screen-share is required to clock in / come back from break
+                      // (except for monitoring-exempt staff). The browser only grants
+                      // sharing on a user gesture, so start it from within this click
+                      // and WAIT: if the person dismisses the picker, block the punch.
+                      // start() resolves true when a stream is live or capture isn't
+                      // required here — so a false means "required but declined".
+                      if (kind === 'in' || kind === 'break_end') {
+                        const ok = await (window.__nexusCapture?.start?.() ?? Promise.resolve(true));
+                        if (!ok) {
+                          toast(false, kind === 'in'
+                            ? 'You need to share a screen to clock in. Choose a screen when your browser asks, then tap again.'
+                            : 'You need to share a screen to end your break. Choose a screen when your browser asks, then tap again.');
+                          return;
+                        }
+                      }
                       doPunch(kind);
                     }} disabled={!!busy}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 9, padding: '14px 26px', borderRadius: 12,

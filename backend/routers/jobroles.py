@@ -81,6 +81,7 @@ def _serialize(jr: NexusGroup, db: Session) -> dict:
         "allowed_modules": _parse_modules(jr.allowed_modules or ""),
         "member_count": len(members),
         "members": members,
+        "monitoring_exempt": bool(getattr(jr, "monitoring_exempt", False)),
         "created_by": jr.created_by,
         "created_at": jr.created_at,
     }
@@ -93,12 +94,14 @@ class JobRoleBody(BaseModel):
     tier: str = "employee"
     description: Optional[str] = ""
     allowed_modules: Optional[list[ModuleGrant]] = []
+    monitoring_exempt: Optional[bool] = False
 
 class JobRoleUpdate(BaseModel):
     name: Optional[str] = None
     tier: Optional[str] = None
     description: Optional[str] = None
     allowed_modules: Optional[list[ModuleGrant]] = None
+    monitoring_exempt: Optional[bool] = None
 
 class AssignBody(BaseModel):
     email: str
@@ -143,6 +146,7 @@ def create_job_role(body: JobRoleBody, user: dict = Depends(require_administrato
         tier=tier,
         description=(body.description or "").strip(),
         allowed_modules=_modules_csv(body.allowed_modules),
+        monitoring_exempt=1 if body.monitoring_exempt else 0,
         created_by=user["email"],
         created_at=now,
     )
@@ -166,6 +170,8 @@ def update_job_role(jr_id: str, body: JobRoleUpdate, user: dict = Depends(requir
         jr.description = body.description.strip()
     if body.allowed_modules is not None:
         jr.allowed_modules = _modules_csv(body.allowed_modules)
+    if body.monitoring_exempt is not None:
+        jr.monitoring_exempt = 1 if body.monitoring_exempt else 0
 
     tier_changed = False
     if body.tier is not None:
