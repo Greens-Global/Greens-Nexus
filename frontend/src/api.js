@@ -54,6 +54,33 @@ export function onBackendHealth(fn) {
 }
 export function isBackendDown() { return _backendDown; }
 
+// ── Keep-warm ─────────────────────────────────────────────────────────────────
+// The dev/prod API is Azure App Service, which parks the process after a few
+// idle minutes and then cold-starts (5-15s) on the next request — so the FIRST
+// screen a user opens after any lull feels slow and "glitchy". A cheap /health
+// ping on boot and every few minutes (only while the tab is visible) keeps the
+// process warm through a working session, so navigations stay snappy. This is a
+// mitigation, not a substitute for enabling "Always On" on the App Service —
+// that eliminates cold starts entirely at the infra level.
+let _keepWarmTimer = null;
+function _pingHealth() {
+  // Bare fetch — no auth, no retry, never flips the reconnecting banner; a failed
+  // warm-up ping should be invisible.
+  fetch(`${BASE}/health`, { cache: 'no-store' }).catch(() => {});
+}
+export function startKeepWarm(everyMs = 4 * 60_000) {
+  if (_keepWarmTimer) return;               // idempotent — safe to call once on boot
+  _pingHealth();                            // start waking the backend immediately
+  _keepWarmTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') _pingHealth();
+  }, everyMs);
+  // Returning to a tab that sat idle is exactly when the backend has gone cold —
+  // ping right away so the next click doesn't eat the cold start.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') _pingHealth();
+  });
+}
+
 // FastAPI 422 returns `detail` as an array of {loc, msg, type}. Passing that to
 // new Error() stringifies to "[object Object]", which then surfaces in toasts.
 // Flatten it to a readable "field: message" sentence; pass strings through.
