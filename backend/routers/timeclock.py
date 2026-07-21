@@ -22,7 +22,7 @@ import io
 import math
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 from typing import List, Optional
 
 import httpx
@@ -1757,16 +1757,26 @@ def _monday_str(date_str: str) -> str:
     return (d - timedelta(days=d.weekday())).strftime("%Y-%m-%d")
 
 
-@router.get("/payroll")
-def payroll_timecard(email: str, start: str, end: str,
-                     user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    """A SwipeClock-style timecard for one employee over a pay period: in/out
-    segments per day, weekly overtime split (>40h at 1.5x), and wage totals off
-    the manager-set hourly rate. Exact minutes, no rounding."""
-    em = email.strip().lower()
-    scope = _visible_emails(db, user)
-    if scope is not None and em not in scope:
-        raise HTTPException(403, "Outside your team")
+# ── Bi-weekly pay period (California: Sunday→Saturday × 2 = 14 days) ───────────
+# Periods step 14 days from a fixed Sunday anchor. If the company's real payroll
+# calendar starts on a different Sunday, shift this anchor by 7 days once.
+_PAYPERIOD_ANCHOR = date(2024, 1, 7)   # a Sunday
+_PAYPERIOD_DAYS = 14
+
+
+def _pay_period(date_str: str):
+    """Return (start_iso, end_iso) of the bi-weekly period containing date_str."""
+    d = datetime.strptime(date_str, "%Y-%m-%d").date()
+    idx = (d - _PAYPERIOD_ANCHOR).days // _PAYPERIOD_DAYS
+    start = _PAYPERIOD_ANCHOR + timedelta(days=idx * _PAYPERIOD_DAYS)
+    return start.isoformat(), (start + timedelta(days=_PAYPERIOD_DAYS - 1)).isoformat()
+
+
+def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
+    """Per-day in/out segments, weekly overtime split (>40h at 1.5x), and wage
+    totals off the HR-set hourly rate over [start, end]. Exact minutes, no
+    rounding. Also aggregates break minutes and (when web capture ran) idle
+    minutes so the timesheet can show a worked/break/idle composition bar."""
     punches = _live_punches(db, em, start, end)
     byday = {}
     for p in punches:
@@ -1775,10 +1785,11 @@ def payroll_timecard(email: str, start: str, end: str,
     rate = float(rate_row.hourly_rate) if rate_row else 0.0
 
     weekly_cum, days_out = {}, []
-    total_reg = total_ot = missing_punches = 0
+    total_reg = total_ot = total_break = missing_punches = 0
     edited_punches = sum(1 for p in punches if p.adjusted_by)
 
     for date in sorted(byday.keys()):
+        day_break = 0
         segs = []
         open_in = None
         open_in_at = ""
@@ -1808,6 +1819,7 @@ def payroll_timecard(email: str, start: str, end: str,
                     mins = int(round((t - open_in).total_seconds() / 60 - brk))
                     segs.append({"in": open_in_at, "out": p.at, "inId": open_in_id, "outId": p.id,
                                  "workedMin": max(0, mins), "flags": sorted(sflags)})
+                    day_break += int(round(brk))
                     open_in = None
             elif p.kind == "break_start":
                 if open_break is None and open_in is not None:
@@ -1819,6 +1831,7 @@ def payroll_timecard(email: str, start: str, end: str,
         if open_in is not None:
             segs.append({"in": open_in_at, "out": "", "inId": open_in_id, "outId": "",
                          "workedMin": 0, "flags": sorted(sflags | {"missing_out"})})
+            day_break += int(round(brk))
             missing_punches += 1
 
         mon = _monday_str(date)
@@ -1834,16 +1847,59 @@ def payroll_timecard(email: str, start: str, end: str,
             day_ot += ot
         total_reg += day_reg
         total_ot += day_ot
+        total_break += day_break
         days_out.append({"date": date, "weekStart": mon, "segments": segs,
-                         "workedMin": day_reg + day_ot, "regMin": day_reg, "otMin": day_ot})
+                         "workedMin": day_reg + day_ot, "regMin": day_reg, "otMin": day_ot,
+                         "breakMin": day_break})
 
     reg_pay = round(total_reg / 60 * rate, 2)
     ot_pay = round(total_ot / 60 * rate * _OT_MULT, 2)
+    worked_min = total_reg + total_ot
+
+    # Idle estimate for the composition bar (best-effort, from web capture): a
+    # frame whose idle-at-capture ≥ 4 min stands in for one capture interval of
+    # idle time. Only meaningful while the browser capture was actively sharing;
+    # 0 otherwise. Capped at worked so active never goes negative.
+    interval_min = max(1, int(_get_policy(db).interval_minutes or 5))
+    idle_frames = (db.query(TimeScreenshot)
+                   .filter(TimeScreenshot.employee_email == em,
+                           TimeScreenshot.local_date >= start, TimeScreenshot.local_date <= end,
+                           TimeScreenshot.idle_sec >= 240).count())
+    idle_min = min(worked_min, idle_frames * interval_min)
+    active_min = max(0, worked_min - idle_min)
+
     return {"email": em, "start": start, "end": end, "rate": rate, "rateSet": rate_row is not None,
             "days": days_out,
             "totals": {"regMin": total_reg, "otMin": total_ot, "regPay": reg_pay, "otPay": ot_pay,
                        "totalPay": round(reg_pay + ot_pay, 2),
+                       "breakMin": total_break, "workedMin": worked_min,
+                       "activeMin": active_min, "idleMin": idle_min,
                        "missingPunches": missing_punches, "editedPunches": edited_punches}}
+
+
+@router.get("/payroll")
+def payroll_timecard(email: str, start: str, end: str,
+                     user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """Manager timecard for one employee over [start, end] — see _compute_timecard."""
+    em = email.strip().lower()
+    scope = _visible_emails(db, user)
+    if scope is not None and em not in scope:
+        raise HTTPException(403, "Outside your team")
+    return _compute_timecard(db, em, start, end)
+
+
+@router.get("/my-payroll")
+def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The signed-in employee's own bi-weekly timecard. `start` = a pay-period
+    start date (Sunday); omit for the current period. Returns the period bounds,
+    per-day rows, weekly-OT split, pay, and the worked/break/idle composition."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    anchor = start.strip() or today
+    p_start, p_end = _pay_period(anchor)
+    card = _compute_timecard(db, user["email"], p_start, p_end)
+    card["periodStart"], card["periodEnd"] = p_start, p_end
+    card["periodDays"] = _PAYPERIOD_DAYS
+    return card
 
 
 class RateIn(BaseModel):
