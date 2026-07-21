@@ -55,6 +55,24 @@ function WeekBars({ days }) {
   );
 }
 
+// Bars for a full bi-weekly pay period (one per day, from /my-payroll's day list).
+function PeriodBars({ days }) {
+  const series = (days || []).map(d => ({ key: d.date, min: d.workedMin || 0, date: new Date(d.date + 'T12:00:00') }));
+  const max = Math.max(60 * 8, ...series.map(s => s.min));
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 110 }}>
+      {series.map(s => (
+        <div key={s.key} title={`${s.key} — ${Math.floor(s.min / 60)}h ${String(s.min % 60).padStart(2, '0')}m`}
+          style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
+          <div style={{ width: '78%', maxWidth: 26, height: Math.max(s.min ? 4 : 2, (s.min / max) * 74),
+            background: s.min ? 'var(--pine)' : 'var(--mist)', borderRadius: '4px 4px 2px 2px', opacity: 0.9 }} />
+          <span style={{ fontSize: 8.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{s.date.getDate()}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
 const fmtMin = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
 const fmtHMS = (sec) => `${Math.floor(sec / 3600)}:${String(Math.floor((sec % 3600) / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
@@ -297,6 +315,12 @@ export default function TimeClock() {
       .then(setPayData).catch(() => setPayData(null))
       .finally(() => setPayLoading(false));
   }, [tab, payStart]);
+  // Clock tab shows the CURRENT pay period (independent of any timesheet nav).
+  const [clockPeriod, setClockPeriod] = useState(null);
+  useEffect(() => {
+    if (tab !== 'clock') return;
+    api.timeMyPayroll('').then(setClockPeriod).catch(() => setClockPeriod(null));
+  }, [tab]);
   function shiftPeriod(dir) {
     const base = payData?.periodStart || todayKey;
     const d = new Date(base + 'T12:00:00');
@@ -448,12 +472,34 @@ export default function TimeClock() {
       {/* Fill the fold: week chart, today's screen activity, upcoming time off */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 18 }}>
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '18px 20px' }}>
-          <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 14 }}>This week</div>
-          <WeekBars days={days} />
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, fontSize: 12 }}>
-            <span style={{ color: 'var(--muted)', fontWeight: 600 }}>Total {fmtMin(weekTotal)}</span>
-            <span style={{ color: 'var(--muted)' }}>{dayKeys.length} day{dayKeys.length !== 1 ? 's' : ''} active · {weekBreak}m breaks</span>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 14 }}>
+            <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>This pay period</span>
+            {clockPeriod?.periodStart && (
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                {fmtShort(clockPeriod.periodStart)} – {fmtShort(clockPeriod.periodEnd)}
+              </span>
+            )}
           </div>
+          {clockPeriod ? (<>
+            <PeriodBars days={clockPeriod.days} />
+            {(() => {
+              const t = clockPeriod.totals || {};
+              const activeDays = (clockPeriod.days || []).filter(d => (d.workedMin || 0) > 0).length;
+              return (
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, fontSize: 12 }}>
+                  <span style={{ color: 'var(--muted)', fontWeight: 600 }}>Total {fmtMin(t.workedMin || 0)}</span>
+                  <span style={{ color: 'var(--muted)' }}>{activeDays} day{activeDays !== 1 ? 's' : ''} worked · {t.breakMin || 0}m breaks</span>
+                </div>
+              );
+            })()}
+            <button className="secondary-btn" style={{ fontSize: 11, padding: '4px 11px', marginTop: 12 }} onClick={() => setTab('timesheet')}>
+              Open timesheet
+            </button>
+          </>) : (
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, height: 110, color: 'var(--muted)' }}>
+              <WeekBars days={days} />
+            </div>
+          )}
         </div>
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '18px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
