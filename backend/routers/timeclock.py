@@ -662,19 +662,34 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                           TimeApproval.period_start >= (start or "0"),
                           TimeApproval.period_end <= (end or "9")).all()}
         w.writerow(["Employee", "Email", "Date", "First In", "Last Out",
-                    "Worked Hours", "Break Minutes", "Flags", "Approved"])
+                    "Worked Hours", "Regular Hours", "OT Hours (1.5x)", "DT Hours (2x)",
+                    "Break Minutes", "Flags", "OT Rule", "Rate $/hr",
+                    "Regular Pay", "OT Pay", "DT Pay", "Total Pay", "Approved"])
         for r in rows:
+            # Use the overtime engine (respects each person's ca/federal/none rule)
+            # for the reg/OT/DT split + pay; first-in/last-out/flags come from the
+            # day summary already loaded.
+            card = _compute_timecard(db, r["email"], start, end)
+            cday = {d["date"]: d for d in card["days"]}
+            T = card["totals"]
+            rate = card["rate"]
             for date in sorted(r["days"]):
                 d = r["days"][date]
+                cd = cday.get(date, {})
                 w.writerow([r["name"], r["email"], date,
                             d["firstIn"][11:16] if d["firstIn"] else "",
                             d["lastOut"][11:16] if d["lastOut"] else "",
-                            f"{d['workedMin'] / 60:.2f}", d["breakMin"],
-                            " ".join(d["flags"]),
+                            f"{cd.get('workedMin', d['workedMin']) / 60:.2f}",
+                            f"{cd.get('regMin', 0) / 60:.2f}", f"{cd.get('otMin', 0) / 60:.2f}",
+                            f"{cd.get('dtMin', 0) / 60:.2f}", d["breakMin"],
+                            " ".join(d["flags"]), "", "", "", "", "",
                             "yes" if (r["email"], date) in day_ok else ""])
             all_days_ok = bool(r["days"]) and all((r["email"], dt) in day_ok for dt in r["days"])
             w.writerow([r["name"], r["email"], "TOTAL", "", "",
-                        f"{r['workedMin'] / 60:.2f}", r["breakMin"], "",
+                        f"{T['workedMin'] / 60:.2f}", f"{T['regMin'] / 60:.2f}",
+                        f"{T['otMin'] / 60:.2f}", f"{T['dtMin'] / 60:.2f}", T["breakMin"], "",
+                        card["overtimeRule"], f"{rate:.2f}",
+                        f"{T['regPay']:.2f}", f"{T['otPay']:.2f}", f"{T['dtPay']:.2f}", f"{T['totalPay']:.2f}",
                         "yes" if (r["email"] in approved or all_days_ok) else "no"])
     buf.seek(0)
     fname = f"timeclock-{mode}-{start or 'all'}-to-{end or 'now'}.csv"
