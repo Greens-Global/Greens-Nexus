@@ -123,14 +123,13 @@ export default function ManageView() {
 function AsanaImportTab({ store }) {
   const [token, setToken] = useState('');
   const [gids, setGids] = useState('');
-  const [opts, setOpts] = useState({ subtasks: true, comments: true, attachments: true, silent_comments: true });
+  const opts = { subtasks: true, comments: true, attachments: true, silent_comments: true };
   const [busy, setBusy] = useState(false);
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [projects, setProjects] = useState(null);   // null = not loaded; [] = loaded, none
   const [picked, setPicked] = useState(() => new Set());
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
-  const toggle = (k) => setOpts((o) => ({ ...o, [k]: !o[k] }));
   const togglePick = (gid) => setPicked((s) => { const n = new Set(s); n.has(gid) ? n.delete(gid) : n.add(gid); return n; });
 
   const loadProjects = async () => {
@@ -157,13 +156,6 @@ function AsanaImportTab({ store }) {
       setError(e.message || String(e));
     } finally { setBusy(false); }
   };
-
-  const check = (k, label, hint) => (
-    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, cursor: 'pointer', marginBottom: 8 }}>
-      <input type="checkbox" checked={opts[k]} onChange={() => toggle(k)} style={{ marginTop: 2 }} />
-      <span><span style={{ fontWeight: 600, color: NX.ink }}>{label}</span>{hint && <span style={{ color: NX.faint }}> — {hint}</span>}</span>
-    </label>
-  );
 
   return (
     <div>
@@ -198,11 +190,6 @@ function AsanaImportTab({ store }) {
           <input value={gids} onChange={(e) => setGids(e.target.value)} placeholder="e.g. 1201234567890  1209876543210  (space or comma separated)" style={inputStyle} />
           <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>Tip: use <b>Load projects</b> above to avoid GID mistakes. A project URL is app.asana.com/0/<b>&lt;GID&gt;</b>/list — the middle number (not a task or “My Tasks” id).</div>
         </Field>
-        <label style={fieldLabel}>Options</label>
-        {check('subtasks', 'Subtasks', 'import nested subtasks')}
-        {check('comments', 'Comments', 'keep original author & date')}
-        {check('attachments', 'Attachments', 'small files inlined; large ones linked')}
-        {check('silent_comments', 'Silent comments', "don't notify people about historical comments")}
         {error && <div style={{ color: NX.red, fontSize: 13, marginTop: 8 }}>{error}</div>}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 }}>
           <button onClick={run} disabled={busy} style={{ ...btn('primary'), opacity: busy ? 0.6 : 1 }}>

@@ -16,6 +16,7 @@ import { Avatar, EmptyState, Modal, usePeople, PersonSelect } from './components
 import { useTasks } from './TasksContext';
 import { topLevel } from './lib';
 import { CalendarView } from './views/extras';
+import { emailToName } from '../lib/utils';
 
 // Curated team icons (keys match the export's deptIcons set).
 const DEPT_ICONS = [
@@ -205,7 +206,7 @@ function TeamCard({ team, projectName, nameOf, taskCount, onOpen }) {
 export function TeamModal({ team, onClose, onDelete }) {
   const { createTeam, updateTeam, projects } = useTasks();
   const people = usePeople();
-  const nameOfLocal = (email) => people.find((p) => p.email === email)?.name || email;
+  const nameOfLocal = (email) => people.find((p) => p.email === email)?.name || emailToName(email);
 
   const [name, setName] = useState(team?.name || '');
   const [projectId, setProjectId] = useState(team?.projectId || '');

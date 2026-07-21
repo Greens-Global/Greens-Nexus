@@ -177,3 +177,14 @@ export function fmtDateTime(v) {
     hour: 'numeric', minute: '2-digit',
   });
 }
+
+/** Asana-imported comments are stamped "[Asana · Name · date]\n<text>" so the
+ * original author survives even when the Asana account has no matching Nexus
+ * email (import falls back to author_email "asana-sync"). Pull that name out
+ * so it can be shown as the real author instead of a raw fallback string, and
+ * drop the bracket line from the rendered body so it isn't shown twice. */
+export function parseImportedAuthor(body) {
+  const m = /^\[Asana · ([^·\]]+?)(?:\s*·\s*(\d{4}-\d{2}-\d{2}))?\]\n?/.exec(body || '');
+  if (!m) return null;
+  return { name: m[1].trim(), date: m[2] || '', text: body.slice(m[0].length) };
+}

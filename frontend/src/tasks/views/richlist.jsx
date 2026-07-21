@@ -12,6 +12,7 @@ import {
 import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults } from '../lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey } from '../theme';
 import { Avatar, useClickOutside, DateField } from '../components';
+import { emailToName } from '../../lib/utils';
 
 const BASE_COLS = [
   { key: 'checkbox', label: '', width: 28 },
@@ -142,7 +143,7 @@ function AssigneeCell({ value, people, onSelect }) {
   const ref = useRef(null);
   const panelRef = useRef(null);
   useClickOutside([ref, panelRef], () => { setOpen(false); setQ(''); }, open);
-  const name = value ? (people.find((p) => p.email === value)?.name || value) : null;
+  const name = value ? (people.find((p) => p.email === value)?.name || emailToName(value)) : null;
   const pick = (em) => { onSelect(em); setOpen(false); setQ(''); };
   const filtered = q ? people.filter((p) => (p.name + p.email).toLowerCase().includes(q.toLowerCase())) : people;
   return (

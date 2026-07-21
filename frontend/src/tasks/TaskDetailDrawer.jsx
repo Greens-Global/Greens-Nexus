@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste } from './lib';
+import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor } from './lib';
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '—');
@@ -760,19 +760,22 @@ function CommentItem({ c, nameOf, mine, onPin, onEdit, onDelete }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(c.body);
   const [hover, setHover] = useState(false);
+  const imported = parseImportedAuthor(c.body);
+  const displayName = imported?.name || nameOf(c.authorId);
+  const displayBody = imported ? imported.text : c.body;
   return (
     <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ display: 'flex', gap: 10, padding: 8, borderRadius: 10, background: c.pinned ? 'rgba(217,119,6,0.14)' : 'transparent' }}>
-      <Avatar email={c.authorId} name={nameOf(c.authorId)} size={26} />
+      <Avatar email={c.authorId} name={displayName} size={26} />
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{nameOf(c.authorId)}</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{displayName}</span>
           <span style={{ fontSize: 11, color: NX.faint }}>{fmtDateTime(c.createdAt)}</span>
           {c.editedAt && <span style={{ fontSize: 11, fontStyle: 'italic', color: NX.faint }}>(edited)</span>}
           {c.pinned && <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: NX.amber }}>Pinned</span>}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 2, opacity: hover ? 1 : 0, transition: 'opacity 0.12s' }}>
             <button onClick={onPin} title={c.pinned ? 'Unpin' : 'Pin'} style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Pin size={12} /></button>
             {mine && <>
-              <button onClick={() => { setText(c.body); setEditing(true); }} title="Edit" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Pencil size={12} /></button>
+              <button onClick={() => { setText(displayBody); setEditing(true); }} title="Edit" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Pencil size={12} /></button>
               <button onClick={onDelete} title="Delete" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Trash2 size={12} /></button>
             </>}
           </div>
@@ -785,7 +788,7 @@ function CommentItem({ c, nameOf, mine, onPin, onEdit, onDelete }) {
               <button onClick={() => setEditing(false)} style={{ ...btn('outline'), padding: '5px 10px', fontSize: 12 }}>Cancel</button>
             </div>
           </div>
-        ) : <p style={{ margin: '2px 0 0', whiteSpace: 'pre-wrap', fontSize: 13, color: NX.dim }}>{c.body}</p>}
+        ) : <p style={{ margin: '2px 0 0', whiteSpace: 'pre-wrap', fontSize: 13, color: NX.dim }}>{displayBody}</p>}
       </div>
     </div>
   );
