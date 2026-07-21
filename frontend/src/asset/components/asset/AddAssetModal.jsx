@@ -105,6 +105,25 @@ export function AddAssetModal({ row, properties, onSave, onDelete, onClose }) {
     e.target.value = '';
   };
 
+  const handleImagePaste = (e) => {
+    const list = e.clipboardData?.items || [];
+    for (const it of list) {
+      if (it.type && it.type.startsWith('image/')) {
+        const blob = it.getAsFile();
+        if (blob) {
+          e.preventDefault();
+          const file = blob.name ? blob : new File([blob], `paste-${Date.now()}.png`, { type: blob.type || 'image/png' });
+          resizeImageToDataUrl(file)
+            .then((url) => setField('image', url))
+            .catch(() => {
+              // unreadable image — leave field unchanged
+            });
+          return;
+        }
+      }
+    }
+  };
+
   const changedAddressFields = addressFieldsChanged(row, values);
   const needsAddressReason = kind === 'property' && changedAddressFields.length > 0;
 
@@ -234,7 +253,7 @@ export function AddAssetModal({ row, properties, onSave, onDelete, onClose }) {
             {isAdding && step === 1 ? 'Back' : 'Cancel'}
           </button>
           <button className="primary-btn" onClick={isAdding && step === 0 ? () => setStep(1) : save}>
-            {isAdding && step === 0 ? 'Continue' : row ? 'Save' : 'Create asset'}
+            {isAdding && step === 0 ? 'Continue' : row ? 'Save' : 'Create Asset'}
           </button>
         </>
       }
@@ -387,7 +406,7 @@ export function AddAssetModal({ row, properties, onSave, onDelete, onClose }) {
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" className="secondary-btn" onClick={downloadTemplate} style={{ fontSize: '0.8rem', padding: '7px 13px' }}>
-              Download CSV template
+              Download CSV Template
             </button>
             <button type="button" className="secondary-btn" onClick={() => importInputRef.current && importInputRef.current.click()} style={{ fontSize: '0.8rem', padding: '7px 13px' }}>
               Import CSV
@@ -414,7 +433,7 @@ export function AddAssetModal({ row, properties, onSave, onDelete, onClose }) {
 
       {/* Step 1 (or editing): image uploader. */}
       {showFieldForm && (
-        <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--border-color)' }}>
+        <div onPaste={handleImagePaste} tabIndex={0} style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--border-color)', outline: 'none' }}>
           <div style={{ ...SECTION_LABEL_STYLE, color: 'var(--pine)', fontSize: '0.7rem', marginBottom: 10 }}>Image</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             {values.image ? (
@@ -444,13 +463,14 @@ export function AddAssetModal({ row, properties, onSave, onDelete, onClose }) {
             )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
               <button className="secondary-btn" onClick={() => imageInputRef.current?.click()} style={{ fontSize: '0.78rem', padding: '7px 14px' }}>
-                {values.image ? 'Change image' : 'Upload image'}
+                {values.image ? 'Change Image' : 'Upload Image'}
               </button>
               {values.image && (
                 <button className="secondary-btn" onClick={() => setField('image', '')} style={{ fontSize: '0.78rem', padding: '7px 14px', color: 'hsl(var(--color-red))' }}>
                   Remove
                 </button>
               )}
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>or press Ctrl+V to paste a screenshot</span>
               <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>Shown on the asset card and detail.</span>
             </div>
             <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />

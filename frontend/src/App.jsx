@@ -14,10 +14,11 @@ import TimeclockWidget from "./components/TimeclockWidget";
 import GlobalSearch from "./components/GlobalSearch";
 import PullToRefresh from "./components/PullToRefresh";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
-import { onBackendHealth } from "./api";
+import { onBackendHealth, startKeepWarm } from "./api";
 
 // Always loaded — critical path
 import LoginPage from "./views/LoginPage";
+import PolicyGate from "./components/PolicyGate";
 import Dashboard from "./views/Dashboard";
 
 // Lazy-loaded — only fetched when the user navigates there
@@ -32,6 +33,7 @@ const FacilityOperations  = lazy(() => import("./views/FacilityOperations"));
 const Development         = lazy(() => import("./views/Development"));
 const PropertyAsset       = lazy(() => import("./views/PropertyAsset"));
 const HR                  = lazy(() => import("./views/HR"));
+const Documents           = lazy(() => import("./views/Documents"));
 const InvestorRelations   = lazy(() => import("./views/InvestorRelations"));
 const Marketing           = lazy(() => import("./views/Marketing"));
 const Admin               = lazy(() => import("./views/Admin"));
@@ -42,6 +44,8 @@ const Placeholder         = lazy(() => import("./views/Placeholder"));
 const PublicSign          = lazy(() => import("./views/PublicSign"));
 const TimeClock           = lazy(() => import("./views/TimeClock"));
 const MyHR                = lazy(() => import("./views/MyHR"));
+const Testing             = lazy(() => import("./views/Testing"));
+const CredentialVault     = lazy(() => import("./views/CredentialVault"));
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // Views that aren't registered MODULES (e.g. "purchase") fall back to a
@@ -65,9 +69,19 @@ const VIEW_MIN_ROLES = {
   'accounting':         'supervisor',
   'investor-relations': 'supervisor',
   'hr':                 'supervisor',
+  'documents':          'supervisor',
   'marketing':          'supervisor',
   'admin':              'administrator',
+  'testing':            'supervisor',   // dev-only module; grant-driven for testers below supervisor
+  'credvault':          'supervisor',
 };
+
+// E2E mode (Playwright CI only — VITE_E2E is never set on real builds): skip the
+// MSAL login gates entirely so headless tests can drive the app against a local
+// NEXUS_SKIP_AUTH backend. Everything else behaves normally.
+const _E2E = import.meta.env.VITE_E2E === 'true';
+const AuthedGate  = _E2E ? ({ children }) => children : AuthenticatedTemplate;
+const UnauthedGate = _E2E ? () => null : UnauthenticatedTemplate;
 
 // Waits for role to load so the UI never flashes with wrong access level
 function RoleGate({ children }) {
@@ -127,6 +141,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "accounting":         return <Accounting activeSub={activeSub} onSubChange={onSubChange} />;
     case "investor-relations": return <InvestorRelations activeSub={activeSub} onSubChange={onSubChange} />;
     case "hr":                 return <HR activeSub={activeSub} onSubChange={onSubChange} />;
+    case "documents":          return <Documents activeSub={activeSub} onSubChange={onSubChange} />;
     case "marketing":          return <Marketing activeSub={activeSub} onSubChange={onSubChange} />;
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
     case "admin":              return <Admin />;
@@ -134,6 +149,8 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "support":            return <Support />;
     case "timeclock":          return <TimeClock />;
     case "myhr":               return <MyHR />;
+    case "testing":            return <Testing />;
+    case "credvault":          return <CredentialVault />;
     default:                   return <Placeholder viewName={activeView} onBack={() => onNavigate("dashboard")} />;
   }
 }
@@ -161,6 +178,7 @@ const DEFAULT_SUBS = {
   development:       "dev-permits",
   "property-asset":  "asset-portfolio",
   hr:                "hr-ms",
+  documents:         "documents-esign",
   "investor-relations": "investor-dashboard",
   marketing:         "marketing-ads",
   accounting:        "transactions",
@@ -193,11 +211,14 @@ export default function App() {
   const activeSubRef  = useRef(activeSub);
   useEffect(() => { activeViewRef.current = activeView; activeSubRef.current = activeSub; }, [activeView, activeSub]);
   const [adminPanelOpen,   setAdminPanelOpen]   = useState(false);
-  const [adminPanelTab,    setAdminPanelTab]    = useState('access');
+  const [adminPanelTab,    setAdminPanelTab]    = useState('audit');
   const [backendDown,      setBackendDown]      = useState(false);
   const sidebarRef = useRef(null);
 
   useEffect(() => onBackendHealth(setBackendDown), []);
+  // Keep the Azure backend warm through a working session so screens don't eat a
+  // cold start on every open.
+  useEffect(() => { startKeepWarm(); }, []);
 
   // Collapse sidebar when clicking outside it — lets clicks pass through to content.
   // Must listen on 'click', NOT 'mousedown': collapsing on mousedown reflows the
@@ -284,7 +305,8 @@ export default function App() {
 
   return (
     <>
-      <AuthenticatedTemplate>
+      <AuthedGate>
+        <PolicyGate>
         <NotificationProvider>
         <RoleProvider>
         <RoleGate>
@@ -337,7 +359,7 @@ export default function App() {
               prevLabel={navHistory.length > 0 ? viewLabel(navHistory[navHistory.length - 1].view) : null}
               onOpenAdmin={tab => { setAdminPanelTab(tab); setAdminPanelOpen(true); }}
             />
-            <div className="viewport">
+            <div className={activeView === 'tasks' ? 'viewport viewport-flush' : 'viewport'}>
               <ViewErrorBoundary resetKey={`${activeView}/${activeSub}`}>
               <Suspense fallback={
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
@@ -365,10 +387,11 @@ export default function App() {
         </RoleGate>
         </RoleProvider>
         </NotificationProvider>
-      </AuthenticatedTemplate>
-      <UnauthenticatedTemplate>
+        </PolicyGate>
+      </AuthedGate>
+      <UnauthedGate>
         <LoginPage />
-      </UnauthenticatedTemplate>
+      </UnauthedGate>
     </>
   );
 }

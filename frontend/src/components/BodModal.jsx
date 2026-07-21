@@ -49,24 +49,36 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   const [loading, setLoading] = useState(true);
   const [ack, setAck] = useState(false);
 
-  // On open: resolve the ONE chat an admin bound to this person's group.
+  // On open: resolve the ONE chat an admin bound to this person's group, and
+  // pre-fill the composer with this person's template (their last BOD/EOD post,
+  // or a starter default) so they only tweak it rather than write from scratch.
   useEffect(() => {
     let live = true;
     (async () => {
-      const my = await api.timeMyChat().catch(() => null);
+      const [my, tpl] = await Promise.all([
+        api.timeMyChat().catch(() => null),
+        M.reasonOnly ? Promise.resolve(null) : api.timeBodTemplate(mode).catch(() => null),
+      ]);
       if (!live) return;
       if (my?.chatId) setBound({ id: my.chatId, name: my.chatName });
+      if (tpl) {
+        setMessage(prev => prev || tpl.message || '');
+        setTasks(prev => prev || tpl.tasks || '');
+      }
       setLoading(false);
     })();
     return () => { live = false; };
-  }, []);
+  }, [mode]);
 
   function buildHtml() {
     if (M.reasonOnly) return `I'm on a break${message.trim() ? ` for ${esc(message.trim())}` : ''}.`;
-    // Auto-stamp today's date onto BOD/EOD posts (e.g. "BOD · Mon, 7 Jul 2026").
-    const dateStr = new Date().toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+    // Header spells out the kind and stamps the date AND time, so the post reads
+    // e.g. "Beginning of day · Mon, 21 Jul 2026 · 9:15 AM".
+    const now = new Date();
+    const dateStr = now.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+    const timeStr = now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
     const taskLines = tasks.split('\n').map(t => t.trim()).filter(Boolean);
-    return `<b>${M.tag} · ${dateStr}:</b> ${esc(message)}`
+    return `<b>${M.title} · ${dateStr} · ${timeStr}</b><br/>${esc(message)}`
       + (taskLines.length ? `<br/><br/><b>${M.tasksHead}</b><br/>${taskLines.map(t => `• ${esc(t)}`).join('<br/>')}` : '');
   }
 

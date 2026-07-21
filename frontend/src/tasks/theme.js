@@ -1,19 +1,21 @@
 // Task Module — design token bridge (ported from the export's index.css nx-* theme).
-// The export used TailwindCSS v4 utilities against these tokens; Nexus uses inline
-// styles, so we expose them as a JS object + small style helpers, keeping the exact
-// hex values so the module looks identical to the standalone export.
+// Nexus uses inline styles, so we expose the palette as a JS object + style helpers.
+// STRUCTURAL tokens (surfaces/text/borders) point at theme-aware CSS variables
+// (defined in style.css :root / [data-theme="dark"]) so the whole module adapts to
+// dark mode. ACCENT colours stay literal hex — they read on both themes and are
+// alpha-composited in a few places (e.g. `${NX.blue}1a`), which requires a real hex.
 
 export const NX = {
-  canvas:   '#f4f5f7',
-  surface:  '#ffffff',
-  surface2: '#fafbfc',
-  ink:      '#1a1d24',
-  dim:      '#5b6472',
-  faint:    '#8b93a1',
-  border:   '#e6e8ec',
-  border2:  '#eef0f3',
-  hover:    '#f0f2f5',
-  primary:  '#111827',
+  canvas:   'var(--nx-canvas)',
+  surface:  'var(--nx-surface)',
+  surface2: 'var(--nx-surface2)',
+  ink:      'var(--nx-ink)',
+  dim:      'var(--nx-dim)',
+  faint:    'var(--nx-faint)',
+  border:   'var(--nx-border)',
+  border2:  'var(--nx-border2)',
+  hover:    'var(--nx-hover)',
+  primary:  'var(--nx-primary)',
   blue:     '#2563eb',
   green:    '#16a34a',
   amber:    '#d97706',
@@ -25,20 +27,22 @@ export const NX = {
 
 export const FONT = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 
-// Status + priority metadata (verbatim from constants/taskMeta.ts).
+// Status + priority metadata. Tints are translucent rgba (not opaque pastels) so
+// chips look native over both the light card and the dark card. Colours stay hex
+// so they can also be used as SVG fills/strokes (custom-chart donut/line).
 export const STATUS_META = {
-  not_started: { label: 'Not Started', color: '#5b6472', tint: '#eef0f3' },
-  recurring:   { label: 'Recurring',   color: '#0d9488', tint: '#dcf5f1' },
-  in_progress: { label: 'In Progress', color: '#2563eb', tint: '#e0eafe' },
-  completed:   { label: 'Completed',   color: '#16a34a', tint: '#e3f5ea' },
+  not_started: { label: 'Not Started', color: '#6b7688', tint: 'rgba(128,140,160,0.16)' },
+  recurring:   { label: 'Recurring',   color: '#0d9488', tint: 'rgba(13,148,136,0.15)' },
+  in_progress: { label: 'In Progress', color: '#2563eb', tint: 'rgba(37,99,235,0.15)' },
+  completed:   { label: 'Completed',   color: '#16a34a', tint: 'rgba(22,163,74,0.15)' },
 };
-export const STATUS_ORDER = ['not_started', 'recurring', 'in_progress', 'completed'];
+export const STATUS_ORDER = ['not_started', 'in_progress', 'completed', 'recurring'];
 
 export const PRIORITY_META = {
-  low:    { label: 'Low',    color: '#5b6472', tint: '#eef0f3' },
-  medium: { label: 'Medium', color: '#2563eb', tint: '#e0eafe' },
-  high:   { label: 'High',   color: '#d97706', tint: '#fdefd7' },
-  urgent: { label: 'Urgent', color: '#dc2626', tint: '#fde5e5' },
+  low:    { label: 'Low',    color: '#6b7688', tint: 'rgba(128,140,160,0.16)' },
+  medium: { label: 'Medium', color: '#2563eb', tint: 'rgba(37,99,235,0.15)' },
+  high:   { label: 'High',   color: '#d97706', tint: 'rgba(217,119,6,0.16)' },
+  urgent: { label: 'Urgent', color: '#dc2626', tint: 'rgba(220,38,38,0.15)' },
 };
 export const PRIORITY_ORDER = ['urgent', 'high', 'medium', 'low'];
 

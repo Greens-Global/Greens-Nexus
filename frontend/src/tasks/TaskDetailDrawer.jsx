@@ -3,7 +3,7 @@
 // Properties). Ported from the export's features/task-detail/* (24 files) into a
 // single consolidated file matching this module's inline-style idiom, wired to
 // the real TasksContext store + api.js instead of the export's mocked Zustand store.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ArrowLeft, ArrowRightToLine, CheckCircle2, Circle, ChevronDown, ChevronRight,
@@ -13,24 +13,26 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
+import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste } from './lib';
+
+// Drawer shows an em-dash for an unset date rather than an empty cell.
+const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '—');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
-import { Avatar, PersonSelect, usePeople } from './components';
+import { Avatar, PersonSelect, usePeople, useIsMobile, DateField } from './components';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-function fmtDate(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso.length <= 10 ? iso + 'T00:00:00' : iso);
-  if (isNaN(d)) return iso;
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
 function recurrenceLabel(r) {
   if (!r || !r.freq) return 'Does not repeat';
-  if (r.freq === 'daily') return 'Every day';
-  if (r.freq === 'weekly') return `Every week on ${DAYS[r.dayOfWeek ?? 1]}`;
-  if (r.freq === 'monthly') return `Every month on day ${r.dayOfMonth ?? 1}`;
-  return 'Does not repeat';
+  let base;
+  if (r.freq === 'daily') base = 'Every day';
+  else if (r.freq === 'weekly') base = `Every week on ${DAYS[r.dayOfWeek ?? 1]}`;
+  else if (r.freq === 'monthly') base = `Every month on day ${r.dayOfMonth ?? 1}`;
+  else return 'Does not repeat';
+  if (r.until) base += ` until ${r.until}`;
+  else if (r.count) base += ` × ${r.count}`;
+  return base;
 }
 
 // ── tiny inline primitives ───────────────────────────────────────────────────
@@ -60,9 +62,14 @@ function Chip({ color, tint, children }) {
   );
 }
 // Lightweight popover anchored under its trigger; closes on outside click / Esc.
+// Opens left-aligned, but flips to right-aligned when that would run past the
+// viewport's right edge — a trigger near the edge (the header's "more actions")
+// otherwise pushes the panel off-screen, which is unreachable on a phone.
 function Pop({ trigger, children, width = 200 }) {
   const [open, setOpen] = useState(false);
+  const [flip, setFlip] = useState(false);
   const ref = useRef(null);
+  const panelRef = useRef(null);
   useEffect(() => {
     if (!open) return;
     const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
@@ -71,11 +78,17 @@ function Pop({ trigger, children, width = 200 }) {
     document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
   }, [open]);
+  useLayoutEffect(() => {
+    if (!open) { setFlip(false); return; }
+    const el = panelRef.current;
+    if (!el) return;
+    setFlip(el.getBoundingClientRect().right > window.innerWidth - 8);
+  }, [open]);
   return (
     <div ref={ref} style={{ position: 'relative', display: 'inline-flex' }}>
       {trigger(() => setOpen((o) => !o))}
       {open && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, width, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 60, padding: 4, maxHeight: 300, overflowY: 'auto' }}>
+        <div ref={panelRef} style={{ position: 'absolute', top: '100%', left: flip ? 'auto' : 0, right: flip ? 0 : 'auto', marginTop: 4, width, maxWidth: 'calc(100vw - 16px)', background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', zIndex: 60, padding: 4, maxHeight: 300, overflowY: 'auto' }}>
           {children(() => setOpen(false))}
         </div>
       )}
@@ -124,6 +137,11 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
   const expanded = width >= maxW - 2;
   const toggleExpand = () => setWidth(expanded ? Math.round(maxW * 0.6) : maxW);
 
+  // On a phone the drawer is always full-bleed: there's no room for a 60%
+  // drawer, so the expand/collapse toggle and the drag-to-resize handle are
+  // both dropped and the saved width is ignored.
+  const isMobile = useIsMobile();
+
   // Derive relations from the live task list (robust against optimistic updates).
   const subtasks = useMemo(() => tasks.filter((t) => t.parentTaskId === activeId), [tasks, activeId]);
   const blockedBy = useMemo(() => (task?.blockedByIds || []).map((id) => taskById[id]).filter(Boolean), [task, taskById]);
@@ -159,36 +177,67 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
     ['overview', 'Overview'], ['comments', 'Comments'], ['activity', 'Activity'],
     ['attachments', 'Attachments'], ['subtasks', 'Subtasks'], ['dependencies', 'Dependencies'], ['properties', 'Properties'],
   ];
+  // Phones stack Overview (which already contains its own Attachments block)
+  // and then the Comments|All-activity block. Attachments is NOT repeated here,
+  // and Subtasks/Dependencies/Properties are left off the phone layout.
+  const MOBILE_SECTIONS = ['overview'];
+
+  const paneFor = (key) => {
+    switch (key) {
+      case 'overview': return (
+        <OverviewTab
+          task={task} patch={patch} people={people} projectName={projectName} deptName={deptName}
+          blockedBy={blockedBy} depCandidates={depCandidates} addDependency={addDependency} removeDependency={removeDependency}
+          subtasks={subtasks} createTask={createTask} updateTask={updateTask} onOpenSub={setActiveId}
+          nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} refresh={store.refresh}
+        />
+      );
+      case 'comments':     return <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} />;
+      case 'activity':     return <ActivityTab taskId={activeId} nameOf={nameOf} />;
+      case 'attachments':  return <AttachmentsTab task={task} refresh={store.refresh} />;
+      case 'subtasks':     return <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={setActiveId} />;
+      case 'dependencies': return <DependenciesTab blockedBy={blockedBy} blocking={blocking} task={task} removeDependency={removeDependency} />;
+      case 'properties':   return <PropertiesTab task={task} nameOf={nameOf} projectName={projectName} deptName={deptName} customFields={customFields} patch={patch} />;
+      default:             return null;
+    }
+  };
 
   return createPortal(
-    <div onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{ position: 'fixed', inset: 0, zIndex: 3500, fontFamily: FONT }}>
-      <aside style={{ position: 'absolute', right: 0, top: 0, height: '100%', width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
+    <div className="nx-tasks-portal" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }} style={{ position: 'fixed', inset: 0, zIndex: 3500, fontFamily: FONT }}>
+      <aside style={{ position: 'absolute', right: 0, top: 0, height: '100%', width: isMobile ? '100%' : width, maxWidth: '100%', display: 'flex', flexDirection: 'column', background: NX.surface, borderLeft: `1px solid ${NX.border}`, boxShadow: '-8px 0 40px rgba(0,0,0,0.18)' }}>
         {/* drag handle */}
-        <div onMouseDown={() => { dragging.current = true; document.body.style.userSelect = 'none'; }} title="Drag to resize" style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: 6, cursor: 'ew-resize', zIndex: 5 }} />
+        {!isMobile && (
+          <div onMouseDown={() => { dragging.current = true; document.body.style.userSelect = 'none'; }} title="Drag to resize" style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: 6, cursor: 'ew-resize', zIndex: 5 }} />
+        )}
 
         {/* header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: `1px solid ${NX.border}`, flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button onClick={() => store.toggleComplete(task)} style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: task.completed ? NX.green : NX.dim }}>
+            {/* On a phone this collapses to its circle-check icon — the label is
+                the widest thing in the header and crowds out the actions. */}
+            <button onClick={() => store.toggleComplete(task)} title={task.completed ? 'Completed' : 'Mark complete'}
+              style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: task.completed ? NX.green : NX.dim }}>
               {task.completed ? <CheckCircle2 size={15} style={{ color: NX.green }} /> : <Circle size={15} />}
-              {task.completed ? 'Completed' : 'Mark complete'}
+              {!isMobile && (task.completed ? 'Completed' : 'Mark complete')}
             </button>
             <span style={{ fontSize: 11, fontWeight: 700, color: NX.faint }}>{task.code}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <MembersMenu task={task} people={people} nameOf={nameOf} patch={patch} />
-            <button onClick={() => setShareOpen(true)} style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.dim }}><Share2 size={14} /> Share</button>
+            <button onClick={() => setShareOpen(true)} title="Share" style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.dim }}><Share2 size={14} /> Share</button>
             <button onClick={() => patch({ likedByIds: liked ? task.likedByIds.filter((e) => e !== myEmail) : [...(task.likedByIds || []), myEmail] })} title={liked ? 'Unlike' : 'Like'} style={{ ...btn('ghost'), padding: 7, color: liked ? NX.blue : NX.faint }}>
               <ThumbsUp size={16} fill={liked ? 'currentColor' : 'none'} />
             </button>
-            <button onClick={() => { navigator.clipboard?.writeText(`${window.location.origin}${window.location.pathname}?task=${task.id}`); }} title="Copy task link" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><Link2 size={16} /></button>
-            <button onClick={toggleExpand} title={expanded ? 'Collapse' : 'Expand'} style={{ ...btn('ghost'), padding: 7, color: NX.faint }}>
-              {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-            </button>
-            <Pop width={210} trigger={(t) => <button onClick={t} title="More actions" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><MoreHorizontal size={16} /></button>}>
+            <button onClick={() => { navigator.clipboard?.writeText(`${window.location.origin}${window.location.pathname}?task=${task.id}`); }} title="Copy Task Link" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><Link2 size={16} /></button>
+            {!isMobile && (
+              <button onClick={toggleExpand} title={expanded ? 'Collapse' : 'Expand'} style={{ ...btn('ghost'), padding: 7, color: NX.faint }}>
+                {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              </button>
+            )}
+            <Pop width={210} trigger={(t) => <button onClick={t} title="More Actions" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><MoreHorizontal size={16} /></button>}>
               {(close) => (
                 <>
-                  {onEdit && <MenuItem icon={<Pencil size={14} />} onClick={() => { onEdit(activeId); close(); }}>Edit task</MenuItem>}
+                  {onEdit && <MenuItem icon={<Pencil size={14} />} onClick={() => { onEdit(activeId); close(); }}>Edit Task</MenuItem>}
                   <MenuItem icon={<Diamond size={14} style={{ color: task.isMilestone ? NX.purple : undefined }} />} onClick={() => { patch({ isMilestone: !task.isMilestone }); close(); }}>
                     {task.isMilestone ? 'Unmark milestone' : 'Mark as milestone'}
                   </MenuItem>
@@ -210,39 +259,51 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
             )}
             <TitleInput key={activeId} value={task.title} completed={task.completed} onCommit={(v) => v.trim() && v !== task.title && patch({ title: v.trim() })} />
           </div>
-          <div className="scroll-tabs" style={{ display: 'flex', gap: 2, borderBottom: `1px solid ${NX.border}`, overflowX: 'auto' }}>
-            {TABS.map(([key, label]) => {
-              const on = key === tab;
-              return (
-                <button key={key} onClick={() => setTab(key)} style={{
-                  display: 'flex', alignItems: 'center', gap: 6, padding: '9px 12px', whiteSpace: 'nowrap',
-                  border: 'none', borderBottom: `2px solid ${on ? NX.primary : 'transparent'}`, background: 'transparent',
-                  cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: FONT, color: on ? NX.ink : NX.dim,
-                }}>
-                  {label}
-                  {counts[key] > 0 && <span style={{ background: NX.hover, borderRadius: 999, padding: '1px 6px', fontSize: 11, color: NX.dim }}>{counts[key]}</span>}
-                </button>
-              );
-            })}
-          </div>
+          {/* Tabs are desktop-only. A phone has no room for seven of them, so
+              the body stacks every section instead (see below). */}
+          {!isMobile && (
+            <div className="scroll-tabs" style={{ display: 'flex', gap: 2, borderBottom: `1px solid ${NX.border}`, overflowX: 'auto' }}>
+              {TABS.map(([key, label]) => {
+                const on = key === tab;
+                return (
+                  <button key={key} onClick={() => setTab(key)} style={{
+                    display: 'flex', alignItems: 'center', gap: 6, padding: '9px 12px', whiteSpace: 'nowrap',
+                    border: 'none', borderBottom: `2px solid ${on ? NX.primary : 'transparent'}`, background: 'transparent',
+                    cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: FONT, color: on ? NX.ink : NX.dim,
+                  }}>
+                    {label}
+                    {counts[key] > 0 && <span style={{ background: NX.hover, borderRadius: 999, padding: '1px 6px', fontSize: 11, color: NX.dim }}>{counts[key]}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
-        {/* body */}
+        {/* body — one tab on desktop; on mobile the sections stack in a single
+            scroll: Overview, Attachments, then Comments/Activity as one block
+            with its own sub-tabs. Subtasks, Dependencies and Properties are
+            desktop-only. */}
         <div className="scroll-tabs" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '4px 18px 24px' }}>
-          {tab === 'overview' && (
-            <OverviewTab
-              task={task} patch={patch} people={people} projectName={projectName} deptName={deptName}
-              blockedBy={blockedBy} depCandidates={depCandidates} addDependency={addDependency} removeDependency={removeDependency}
-              subtasks={subtasks} createTask={createTask} updateTask={updateTask} onOpenSub={setActiveId}
-              nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} refresh={store.refresh}
-            />
-          )}
-          {tab === 'comments' && <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} />}
-          {tab === 'activity' && <ActivityTab taskId={activeId} nameOf={nameOf} />}
-          {tab === 'attachments' && <AttachmentsTab task={task} refresh={store.refresh} />}
-          {tab === 'subtasks' && <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={setActiveId} />}
-          {tab === 'dependencies' && <DependenciesTab blockedBy={blockedBy} blocking={blocking} task={task} removeDependency={removeDependency} />}
-          {tab === 'properties' && <PropertiesTab task={task} nameOf={nameOf} projectName={projectName} deptName={deptName} customFields={customFields} patch={patch} />}
+          {isMobile ? (
+            <>
+              {MOBILE_SECTIONS.map((key) => (
+                <section key={key} style={{ marginBottom: 18 }}>
+                  {key !== 'overview' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '16px 0 10px', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: NX.faint }}>
+                      {Object.fromEntries(TABS)[key]}
+                      {counts[key] > 0 && <span style={{ background: NX.hover, borderRadius: 999, padding: '1px 6px', fontSize: 11, color: NX.dim }}>{counts[key]}</span>}
+                    </div>
+                  )}
+                  {paneFor(key)}
+                </section>
+              ))}
+              <DiscussionPane
+                task={task} taskId={activeId} nameOf={nameOf} myEmail={myEmail}
+                getComments={getComments} addComment={addComment}
+              />
+            </>
+          ) : paneFor(tab)}
         </div>
         {shareOpen && <ShareModal task={task} people={people} nameOf={nameOf} patch={patch} onClose={() => setShareOpen(false)} />}
       </aside>
@@ -289,7 +350,7 @@ function ShareModal({ task, people, nameOf, patch, onClose }) {
     { key: 'restricted', icon: Lock, label: 'Members of this task and connected projects', desc: 'Only invited members and members of connected projects can access.' },
   ];
   return createPortal(
-    <div onMouseDown={(e) => e.target === e.currentTarget && onClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', zIndex: 5000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '9vh 16px', fontFamily: FONT }}>
+    <div className="nx-tasks-portal" onMouseDown={(e) => e.target === e.currentTarget && onClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', zIndex: 5000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '9vh 16px', fontFamily: FONT }}>
       <div style={{ background: NX.surface, borderRadius: 14, width: 520, maxWidth: '100%', boxShadow: '0 24px 60px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 20px', borderBottom: `1px solid ${NX.border}` }}>
           <div style={{ fontSize: 16, fontWeight: 700 }}>Share “{task.title}”</div>
@@ -300,7 +361,7 @@ function ShareModal({ task, people, nameOf, patch, onClose }) {
             <div style={{ fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 8 }}>Who has access</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {OPTS.map((o) => (
-                <button key={o.key} onClick={() => patch({ accessLevel: o.key })} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, textAlign: 'left', padding: 12, borderRadius: 10, border: `1px solid ${level === o.key ? NX.blue : NX.border}`, background: level === o.key ? '#eff5ff' : NX.surface, cursor: 'pointer', fontFamily: FONT }}>
+                <button key={o.key} onClick={() => patch({ accessLevel: o.key })} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, textAlign: 'left', padding: 12, borderRadius: 10, border: `1px solid ${level === o.key ? NX.blue : NX.border}`, background: level === o.key ? 'rgba(37,99,235,0.10)' : NX.surface, cursor: 'pointer', fontFamily: FONT }}>
                   <o.icon size={16} style={{ color: NX.dim, marginTop: 2 }} />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{o.label}</div>
@@ -347,8 +408,46 @@ function TitleInput({ value, completed, onCommit }) {
 
 // ── Overview ────────────────────────────────────────────────────────────────
 function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, depCandidates, addDependency, removeDependency, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh }) {
+  const isMobile = useIsMobile();
+  const { statusMeta, statusOrder } = useTasks();
   const [recStep, setRecStep] = useState('root');
-  const sm = STATUS_META[task.status] || {};
+  // Recurrence end condition ("Ends" — Never / On date / After occurrences).
+  // Local mode so "On date"/"After" stay selected before a value is entered
+  // (an empty until/count is falsy and would otherwise read back as "Never").
+  const [recEndMode, setRecEndMode] = useState('never');
+  useEffect(() => {
+    const r = task.recurrence;
+    setRecEndMode(r?.until ? 'on' : r?.count != null ? 'after' : 'never');
+  }, [task.id]);
+  // Setting any recurrence flips the task to "Recurring"; clearing it reverts a
+  // still-recurring status back to Not Started.
+  const setRecurrence = (rec) => patch({
+    recurrence: rec,
+    status: rec ? 'recurring' : (task.status === 'recurring' ? 'not_started' : task.status),
+  });
+  // Pick a frequency from the popover, carrying any existing end condition over.
+  const pickFreq = (base) => {
+    const cur = task.recurrence || {};
+    const r = { ...base };
+    if (cur.until) r.until = cur.until;
+    if (cur.count != null) r.count = cur.count;
+    setRecEndMode(cur.until ? 'on' : cur.count != null ? 'after' : 'never');
+    setRecurrence(r);
+  };
+  // Replace the end condition on the current recurrence (strips until+count first).
+  const patchRecEnd = (changes) => {
+    const base = { ...(task.recurrence || {}) };
+    delete base.until; delete base.count;
+    setRecurrence({ ...base, ...changes });
+  };
+  const onRecEndMode = (m) => {
+    setRecEndMode(m);
+    if (m === 'never') patchRecEnd({});
+    else if (m === 'on') patchRecEnd(task.recurrence?.until ? { until: task.recurrence.until } : {});
+    else if (m === 'after') patchRecEnd(task.recurrence?.count != null ? { count: task.recurrence.count } : {});
+  };
+  const recSel = { ...inputStyle, width: 'auto', padding: '5px 8px', fontSize: 12, cursor: 'pointer' };
+  const sm = statusMeta[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
   const dept = task.departmentId ? deptName(task.departmentId) : '';
 
@@ -362,7 +461,7 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
 
       <Row label="Status">
         <Pop width={176} trigger={(t) => <button onClick={t} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}><Chip color={sm.color} tint={sm.tint}>{sm.label}</Chip></button>}>
-          {(close) => STATUS_ORDER.map((s) => <MenuItem key={s} onClick={() => { patch({ status: s }); close(); }}>{STATUS_META[s].label}</MenuItem>)}
+          {(close) => statusOrder.map((s) => <MenuItem key={s} onClick={() => { patch({ status: s }); close(); }}>{statusMeta[s]?.label || s}</MenuItem>)}
         </Pop>
       </Row>
 
@@ -372,8 +471,8 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
         </Pop>
       </Row>
 
-      <Row label="Due date">
-        <input type="date" value={task.dueOn || ''} onChange={(e) => patch({ dueOn: e.target.value || '' })} style={{ ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 12 }} />
+      <Row label="Due Date">
+        <DateField value={task.dueOn || ''} onChange={(v) => patch({ dueOn: v || '' })} style={{ ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 12 }} />
       </Row>
 
       <Row label="Project">
@@ -381,7 +480,7 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
         {dept && <Chip color={NX.dim} tint={NX.border2}>{dept}</Chip>}
       </Row>
 
-      <Row label="Blocked by">
+      <Row label="Blocked By">
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
           {blockedBy.map((b) => (
             <span key={b.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${NX.border}`, borderRadius: 999, padding: '3px 10px', fontSize: 12, color: NX.ink }}>
@@ -390,7 +489,7 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
               <button onClick={() => removeDependency(b.id)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={12} /></button>
             </span>
           ))}
-          <Pop width={260} trigger={(t) => <button onClick={t} style={{ ...btn('outline'), padding: '5px 11px', fontSize: 12 }}>Add dependency</button>}>
+          <Pop width={260} trigger={(t) => <button onClick={t} style={{ ...btn('outline'), padding: '5px 11px', fontSize: 12 }}>Add Dependency</button>}>
             {(close) => (depCandidates.length ? depCandidates.map((c) => (
               <MenuItem key={c.id} onClick={() => { addDependency(c); close(); }}>{c.code} · {c.title}</MenuItem>
             )) : <div style={{ padding: 9, fontSize: 12, color: NX.faint }}>No eligible tasks in this project</div>)}
@@ -399,24 +498,48 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
       </Row>
 
       <Row label="Recurrence">
-        <Pop width={200} trigger={(t) => <button onClick={() => { setRecStep('root'); t(); }} style={{ ...btn('ghost'), padding: '5px 8px', fontSize: 12 }}><Repeat size={13} /> {recurrenceLabel(task.recurrence)}</button>}>
-          {(close) => {
-            if (recStep === 'weekly') return (<>
-              <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
-              {DAYS.map((d, i) => <MenuItem key={d} onClick={() => { patch({ recurrence: { freq: 'weekly', dayOfWeek: i } }); close(); }}>{d}</MenuItem>)}
-            </>);
-            if (recStep === 'monthly') return (<>
-              <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
-              {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => <MenuItem key={d} onClick={() => { patch({ recurrence: { freq: 'monthly', dayOfMonth: d } }); close(); }}>Day {d}</MenuItem>)}
-            </>);
-            return (<>
-              <MenuItem onClick={() => { patch({ recurrence: null }); close(); }}>Does not repeat</MenuItem>
-              <MenuItem onClick={() => { patch({ recurrence: { freq: 'daily' } }); close(); }}>Every day</MenuItem>
-              <MenuItem onClick={() => setRecStep('weekly')}>Every week</MenuItem>
-              <MenuItem onClick={() => setRecStep('monthly')}>Every month</MenuItem>
-            </>);
-          }}
-        </Pop>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+          <Pop width={200} trigger={(t) => <button onClick={() => { setRecStep('root'); t(); }} style={{ ...btn('ghost'), padding: '5px 8px', fontSize: 12 }}><Repeat size={13} /> {recurrenceLabel(task.recurrence)}</button>}>
+            {(close) => {
+              if (recStep === 'weekly') return (<>
+                <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
+                {DAYS.map((d, i) => <MenuItem key={d} onClick={() => { pickFreq({ freq: 'weekly', dayOfWeek: i }); close(); }}>{d}</MenuItem>)}
+              </>);
+              if (recStep === 'monthly') return (<>
+                <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
+                {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => <MenuItem key={d} onClick={() => { pickFreq({ freq: 'monthly', dayOfMonth: d }); close(); }}>Day {d}</MenuItem>)}
+              </>);
+              return (<>
+                <MenuItem onClick={() => { setRecEndMode('never'); setRecurrence(null); close(); }}>Does not repeat</MenuItem>
+                <MenuItem onClick={() => { pickFreq({ freq: 'daily' }); close(); }}>Every day</MenuItem>
+                <MenuItem onClick={() => setRecStep('weekly')}>Every week</MenuItem>
+                <MenuItem onClick={() => setRecStep('monthly')}>Every month</MenuItem>
+              </>);
+            }}
+          </Pop>
+          {task.recurrence && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: NX.dim }}>
+              <span style={{ color: NX.faint }}>Ends</span>
+              <select value={recEndMode} onChange={(e) => onRecEndMode(e.target.value)} style={recSel}>
+                <option value="never">Never</option>
+                <option value="on">On date</option>
+                <option value="after">After occurrences</option>
+              </select>
+              {recEndMode === 'on' && (
+                <DateField value={task.recurrence.until || ''} onChange={(v) => patchRecEnd(v ? { until: v } : {})}
+                  placeholder="Pick a date" style={{ ...inputStyle, width: 'auto', padding: '5px 8px', fontSize: 12 }} />
+              )}
+              {recEndMode === 'after' && (
+                <>
+                  <input type="number" min="1" step="1" value={task.recurrence.count ?? ''} placeholder="e.g. 10"
+                    onChange={(e) => patchRecEnd(e.target.value ? { count: Math.max(1, Number(e.target.value)) } : {})}
+                    style={{ ...inputStyle, width: 72, padding: '5px 8px', fontSize: 12 }} />
+                  <span style={{ color: NX.faint }}>times</span>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </Row>
 
       {/* Description */}
@@ -430,7 +553,7 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
       </Section>
 
       {/* Time tracking */}
-      <Section title="Time tracking">
+      <Section title="Time Tracking">
         <TimeTracking task={task} patch={patch} />
       </Section>
 
@@ -439,10 +562,13 @@ function OverviewTab({ task, patch, people, projectName, deptName, blockedBy, de
         <Approval task={task} patch={patch} />
       </Section>
 
-      {/* Add comment */}
-      <Section title="Add comment">
-        <QuickComment task={task} addComment={addComment} />
-      </Section>
+      {/* Add comment — dropped on mobile: the Comments/All-activity block at the
+          bottom of the stacked layout already has a composer. */}
+      {!isMobile && (
+        <Section title="Add Comment">
+          <QuickComment task={task} addComment={addComment} />
+        </Section>
+      )}
 
       {/* Attachments */}
       <Section title="Attachments">
@@ -509,6 +635,34 @@ function Approval({ task, patch }) {
   );
 }
 
+// ── Comments + Activity, as one block (mobile) ───────────────────────────────
+// Mirrors the reference layout: a "Comments | All activity" switcher instead of
+// two separate stacked sections, since they're two views of the same thread.
+function DiscussionPane({ task, taskId, nameOf, myEmail, getComments, addComment }) {
+  const [view, setView] = useState('comments');
+  const tab = (key, label) => {
+    const on = view === key;
+    return (
+      <button onClick={() => setView(key)} style={{
+        border: 'none', background: 'transparent', cursor: 'pointer', padding: '9px 2px',
+        borderBottom: `2px solid ${on ? NX.ink : 'transparent'}`, fontFamily: FONT,
+        fontSize: 14, fontWeight: on ? 700 : 600, color: on ? NX.ink : NX.dim,
+      }}>{label}</button>
+    );
+  };
+  return (
+    <section style={{ borderTop: `1px solid ${NX.border}`, marginTop: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 18, borderBottom: `1px solid ${NX.border}`, marginBottom: 12 }}>
+        {tab('comments', 'Comments')}
+        {tab('activity', 'All activity')}
+      </div>
+      {view === 'comments'
+        ? <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} />
+        : <ActivityTab taskId={taskId} nameOf={nameOf} />}
+    </section>
+  );
+}
+
 // ── Comments ────────────────────────────────────────────────────────────────
 function CommentsTab({ task, nameOf, myEmail, getComments, addComment }) {
   const [comments, setComments] = useState(null);
@@ -541,12 +695,12 @@ function CommentItem({ c, nameOf, mine, onPin, onEdit, onDelete }) {
   const [text, setText] = useState(c.body);
   const [hover, setHover] = useState(false);
   return (
-    <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ display: 'flex', gap: 10, padding: 8, borderRadius: 10, background: c.pinned ? '#fdf6e7' : 'transparent' }}>
+    <div onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ display: 'flex', gap: 10, padding: 8, borderRadius: 10, background: c.pinned ? 'rgba(217,119,6,0.14)' : 'transparent' }}>
       <Avatar email={c.authorId} name={nameOf(c.authorId)} size={26} />
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{nameOf(c.authorId)}</span>
-          <span style={{ fontSize: 11, color: NX.faint }}>{c.createdAt ? new Date(c.createdAt).toLocaleString() : ''}</span>
+          <span style={{ fontSize: 11, color: NX.faint }}>{fmtDateTime(c.createdAt)}</span>
           {c.editedAt && <span style={{ fontSize: 11, fontStyle: 'italic', color: NX.faint }}>(edited)</span>}
           {c.pinned && <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: NX.amber }}>Pinned</span>}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 2, opacity: hover ? 1 : 0, transition: 'opacity 0.12s' }}>
@@ -585,7 +739,7 @@ function ActivityTab({ taskId, nameOf }) {
           <div>
             <span style={{ fontWeight: 600, color: NX.ink }}>{(nameOf(a.actorId) || '').split(' ')[0]}</span>{' '}
             <span style={{ color: NX.dim }}>{a.detail}</span>
-            <div style={{ fontSize: 11, color: NX.faint }}>{a.at ? new Date(a.at).toLocaleString() : ''}</div>
+            <div style={{ fontSize: 11, color: NX.faint }}>{fmtDateTime(a.at)}</div>
           </div>
         </div>
       ))}
@@ -601,9 +755,7 @@ function AttachmentsTab({ task, refresh }) {
   const reload = () => api.getTaskAttachments(task.id).then(setRows).catch(() => setRows([]));
   useEffect(() => { reload(); /* eslint-disable-next-line */ }, [task.id]);
 
-  const onFile = (e) => {
-    const f = e.target.files?.[0]; e.target.value = '';
-    if (!f) return;
+  const sendFile = (f) => {
     const size = `${Math.max(1, Math.round(f.size / 1024))} KB`;
     const kind = f.type.startsWith('image/') ? 'image' : 'doc';
     // Backend AttachmentCreate stores a single `url` (Supabase link, or an inline
@@ -612,12 +764,15 @@ function AttachmentsTab({ task, refresh }) {
     if (f.size <= MAX_INLINE) { const r = new FileReader(); r.onload = () => send(typeof r.result === 'string' ? r.result : undefined); r.onerror = () => send(undefined); r.readAsDataURL(f); }
     else send(undefined);
   };
+  const onFile = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) sendFile(f); };
+  const onPaste = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); files.forEach(sendFile); } };
   const del = async (a) => { await api.deleteTaskAttachment(a.id).catch(() => {}); reload(); refresh?.(); };
 
   return (
-    <div style={{ marginTop: 14 }}>
+    <div onPaste={onPaste} tabIndex={0} style={{ marginTop: 14, outline: 'none' }}>
       <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={onFile} />
       <button onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12, marginBottom: 12 }}><Paperclip size={13} /> Attach file</button>
+      <span style={{ fontSize: 11, color: NX.faint, marginLeft: 8 }}>or press Ctrl+V to paste a screenshot</span>
       {rows === null ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 20 }}>Loading…</div>
         : rows.length === 0 ? <div style={{ color: NX.faint, fontSize: 13, textAlign: 'center', padding: 20 }}>No attachments yet.</div>
           : (
@@ -673,7 +828,7 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
         <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} placeholder="Add subtask"
           style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', fontFamily: FONT, fontSize: 13 }} />
         {dueOn && <span style={{ fontSize: 11, color: NX.faint }}>{fmtDate(dueOn)}</span>}
-        <button onClick={() => dateRef.current?.showPicker?.() ?? dateRef.current?.focus()} title="Due date" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><CalendarDays size={15} /></button>
+        <button onClick={() => dateRef.current?.showPicker?.() ?? dateRef.current?.focus()} title="Due Date" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><CalendarDays size={15} /></button>
         <input ref={dateRef} type="date" value={dueOn} onChange={(e) => setDueOn(e.target.value)} style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }} tabIndex={-1} />
         <div style={{ minWidth: 150 }}>
           <PersonSelect value={assigneeId || null} people={people} onChange={(email) => setAssigneeId(email || '')} placeholder="Assignee" />
@@ -711,7 +866,8 @@ function DependenciesTab({ blockedBy, blocking, task, removeDependency }) {
 
 // ── Properties ──────────────────────────────────────────────────────────────
 function PropertiesTab({ task, nameOf, projectName, deptName, customFields, patch }) {
-  const sm = STATUS_META[task.status] || {};
+  const { statusMeta } = useTasks();
+  const sm = statusMeta[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
   const rows = [
     ['Task ID', <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{task.code}</span>],
@@ -719,9 +875,9 @@ function PropertiesTab({ task, nameOf, projectName, deptName, customFields, patc
     ['Priority', <Chip color={pm.color} tint={pm.tint}>{pm.label}</Chip>],
     ['Assignee', task.assigneeId ? <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Avatar email={task.assigneeId} name={nameOf(task.assigneeId)} size={18} /> {nameOf(task.assigneeId)}</span> : 'Unassigned'],
     ['Project', task.projectId ? projectName(task.projectId) : '—'],
-    ['Department', task.departmentId ? deptName(task.departmentId) : '—'],
-    ['Start date', fmtDate(task.startOn)],
-    ['Due date', fmtDate(task.dueOn)],
+    ['Team', task.departmentId ? deptName(task.departmentId) : '—'],
+    ['Start Date', fmtDate(task.startOn)],
+    ['Due Date', fmtDate(task.dueOn)],
     ['Estimate', task.estimateHours != null ? `${task.estimateHours}h` : '—'],
     ['Actual', task.actualHours != null ? `${task.actualHours}h` : '—'],
     ['Milestone', task.isMilestone ? 'Yes' : 'No'],
@@ -749,7 +905,7 @@ function PropertiesTab({ task, nameOf, projectName, deptName, customFields, patc
 
       {customFields.length > 0 && (
         <div style={{ marginTop: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 8 }}>Custom fields</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 8 }}>Custom Fields</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {customFields.map((f) => (
               <Row key={f.id} label={f.name}>

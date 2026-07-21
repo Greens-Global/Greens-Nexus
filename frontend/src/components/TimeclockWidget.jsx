@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Clock, LogOut, MonitorUp, MonitorX, Loader2 } from 'lucide-react';
+import { Clock, LogOut, MonitorUp, MonitorX, MonitorPause, Loader2 } from 'lucide-react';
 import { api } from '../api';
 import BodModal from './BodModal';
 
@@ -8,10 +8,15 @@ import BodModal from './BodModal';
 // work-session screen capture engine. Capture is consent-per-shift: the user
 // explicitly picks their screen in the browser dialog (Chrome then shows a
 // persistent "sharing" indicator — nothing is covert, matching monitoring-law
-// transparency norms). While sharing, one frame is uploaded every 5 minutes
-// with an idle-seconds reading; it all stops at punch-out or tab close.
+// transparency norms). While sharing, one frame is uploaded per interval with an
+// idle-seconds reading; it all stops at punch-out or tab close.
+//
+// Disclosed-monitoring: the capture control is only offered when the admin
+// monitoring policy has both `enabled` and `trackScreens` on. Cadence follows
+// `intervalMinutes`, and when `randomize` is set each gap is jittered ±25% so the
+// exact capture moment can't be predicted (read from api.timeStatus().monitoring).
 
-const SHOT_EVERY_MS = 5 * 60 * 1000;
+const SHOT_EVERY_MS = 5 * 60 * 1000;   // fallback until policy loads
 
 const fmtHMS = (sec) => {
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
@@ -29,6 +34,13 @@ export default function TimeclockWidget() {
   const lastShot = useRef(0);                       // wall-clock ms of the last frame
   const shotInFlight = useRef(false);
   const lastActive = useRef(Date.now());
+  const gapRef = useRef(SHOT_EVERY_MS);             // base interval from policy (ms)
+  const randomizeRef = useRef(false);              // jitter each gap ±25%?
+  const nextGapRef = useRef(SHOT_EVERY_MS);        // the currently-scheduled gap (jittered)
+  const onBreakRef = useRef(false);                // pause frames while on break
+  const clockedInRef = useRef(false);              // only save frames during a live shift
+  const canCaptureRef = useRef(false);             // monitoring policy allows capture
+  const startRef = useRef(null);                   // latest startCapture, for the global hook
 
   const load = useCallback(() => {
     api.timeStatus().then(setStatus).catch(() => {});
@@ -66,6 +78,21 @@ export default function TimeclockWidget() {
   const onBreak = last?.kind === 'break_start';
   const elapsedSec = last ? Math.max(0, Math.floor((Date.now() - new Date(last.at + 'Z').getTime()) / 1000)) : 0;
 
+  // Disclosed-monitoring policy drives whether capture is offered and its cadence.
+  const mon = status?.monitoring;
+  const canCapture = !!(mon?.enabled && mon?.trackScreens);
+  const intervalMin = Math.max(1, mon?.intervalMinutes || 5);
+  gapRef.current = intervalMin * 60 * 1000;
+  randomizeRef.current = !!mon?.randomize;
+  // Keep the capture loop's refs in sync with the live punch state each render.
+  onBreakRef.current = onBreak;
+  clockedInRef.current = clockedIn;
+  canCaptureRef.current = canCapture;
+  // Next gap until a shot is due — jittered ±25% when the policy randomizes.
+  const nextGap = () => randomizeRef.current
+    ? Math.round(gapRef.current * (0.75 + Math.random() * 0.5))
+    : gapRef.current;
+
   function dropStream(stream) {
     stream.getTracks().forEach(t => t.stop());
     streamsRef.current = streamsRef.current.filter(s => s !== stream);
@@ -76,20 +103,55 @@ export default function TimeclockWidget() {
     [...streamsRef.current].forEach(dropStream);
   }
 
-  // Capture stops the moment the shift ends (or the user revokes sharing).
-  useEffect(() => { if (!clockedIn && capturing) stopCapture(); }, [clockedIn, capturing]);
+  // Capture tears down on the clocked-in → clocked-out TRANSITION (a real
+  // punch-out), not on the static !clockedIn condition — otherwise the stream we
+  // pre-acquire on the punch-in click (while last.kind is still 'out') would be
+  // killed before the punch lands. Policy turning off also stops it immediately.
+  const wasClockedIn = useRef(false);
+  useEffect(() => {
+    if (wasClockedIn.current && !clockedIn && capturing) stopCapture();  // shift ended
+    wasClockedIn.current = clockedIn;
+  }, [clockedIn, capturing]);
+  useEffect(() => { if (!canCapture && capturing) stopCapture(); }, [canCapture, capturing]);
 
-  // Fire a shot only when a full interval has really elapsed (wall-clock guard
+  // Expose the engine globally so the punch-in button (in the Time Clock view)
+  // can start capture from within its own click — the browser only grants screen
+  // sharing on a user gesture, so an effect/state-change can't start it silently.
+  startRef.current = startCapture;
+  useEffect(() => {
+    window.__nexusCapture = {
+      // Resolves true when a screen stream is live OR capture isn't required here
+      // (policy off, or this person is monitoring-exempt); false only when a share
+      // IS required and the employee dismissed the browser's picker. The punch
+      // button awaits this to enforce share-to-clock-in for non-exempt staff.
+      start: async () => {
+        if (streamsRef.current.length) return true;   // already sharing
+        if (!canCaptureRef.current) return true;      // not required for this person
+        await startRef.current?.();
+        return streamsRef.current.length > 0;
+      },
+      stop: stopCapture,
+      required: () => canCaptureRef.current,
+    };
+    return () => { if (window.__nexusCapture) delete window.__nexusCapture; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Fire a shot only when the scheduled gap has really elapsed (wall-clock guard
   // against throttled/coalesced background timers) and none is already running.
+  // Frames pause on break and never save off-shift; the stream stays live across
+  // a break so ending it resumes capture with no second sharing prompt.
   function maybeShot() {
     if (!streamsRef.current.length || shotInFlight.current) return;
-    if (Date.now() - lastShot.current >= SHOT_EVERY_MS) takeShot();
+    if (onBreakRef.current || !clockedInRef.current) return;
+    if (Date.now() - lastShot.current >= nextGapRef.current) takeShot();
   }
 
   async function takeShot() {
     if (shotInFlight.current) return;
     shotInFlight.current = true;
     lastShot.current = Date.now();
+    nextGapRef.current = nextGap();   // schedule the next (possibly jittered) gap
     // Snapshot EVERY shared screen (multi-monitor: one stream per screen)
     try {
     for (let i = 0; i < streamsRef.current.length; i++) {
@@ -128,13 +190,36 @@ export default function TimeclockWidget() {
     } finally { shotInFlight.current = false; }
   }
 
+  function addStream(stream) {
+    streamsRef.current = [...streamsRef.current, stream];
+    stream.getVideoTracks()[0]?.addEventListener('ended', () => dropStream(stream));
+  }
+
   async function startCapture() {
+    if (!canCaptureRef.current) return;   // monitoring policy off — nothing to do
+    // Managed-device path: getAllScreensMedia() grabs EVERY monitor at once with
+    // NO picker — but only when the Nexus origin is allowlisted by the managed-
+    // Chrome policy MultiScreenCaptureAllowedForUrls. On any device without that
+    // policy the API is absent (or throws), so we fall through to the standard
+    // one-screen picker below. This is what makes capture fully automatic on
+    // company devices while staying honest (nothing silent on personal machines).
+    if (typeof navigator.mediaDevices.getAllScreensMedia === 'function') {
+      try {
+        const result = await navigator.mediaDevices.getAllScreensMedia();
+        const streams = Array.isArray(result) ? result : [result];
+        streams.filter(Boolean).forEach(addStream);
+        if (streamsRef.current.length) {
+          setCapturing(streamsRef.current.length);
+          takeShot();
+          return;
+        }
+      } catch { /* not policy-allowlisted here — use the picker */ }
+    }
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: 'monitor', frameRate: 1 }, audio: false,
       });
-      streamsRef.current = [...streamsRef.current, stream];
-      stream.getVideoTracks()[0].addEventListener('ended', () => dropStream(stream));
+      addStream(stream);
       setCapturing(streamsRef.current.length);
       takeShot(); // first frame right away; the wall-clock ticker handles the rest
     } catch { /* user dismissed the picker — stays off */ }
@@ -175,16 +260,28 @@ export default function TimeclockWidget() {
           {onBreak ? 'break' : 'working'}
         </span>
       </button>
-      <button onClick={capturing ? stopCapture : startCapture}
-        title={capturing ? `Screen capture is ON (${capturing} screen${capturing === 1 ? '' : 's'}) — a frame of each is saved every 5 minutes. Click to stop.`
-          : 'Start work-session screen capture (you pick the screen; your browser shows a sharing indicator the whole time)'}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 9px', borderRadius: 999, cursor: 'pointer',
-          border: capturing ? '1.5px solid #b91c1c' : '1.5px solid var(--line)',
-          background: capturing ? 'rgba(220,38,38,0.08)' : 'transparent',
-          color: capturing ? '#b91c1c' : 'var(--muted)', fontSize: 10.5, fontWeight: 800, fontFamily: 'Inter,sans-serif' }}>
-        {capturing ? <MonitorUp size={12} /> : <MonitorX size={12} />} {capturing ? `REC${capturing > 1 ? ` ×${capturing}` : ''}` : 'capture off'}
-      </button>
-      {capturing > 0 && (
+      {/* Disclosed-monitoring: capture control only appears when the policy enables screen tracking. */}
+      {canCapture && (() => {
+        // Three states: paused (on break — stream stays live but no frames save),
+        // recording (clocked in, saving frames), or off. Break must read PAUSED,
+        // not REC, so it's obvious capture stopped for the break.
+        const paused = capturing > 0 && onBreak;
+        const tint = paused ? '#b45309' : capturing ? '#b91c1c' : 'var(--muted)';
+        return (
+        <button onClick={capturing ? stopCapture : startCapture}
+          title={paused ? 'Screen capture is PAUSED for your break — no frames are saved until you end the break. Click to stop capture entirely.'
+            : capturing ? `Screen capture is ON (${capturing} screen${capturing === 1 ? '' : 's'}) — a frame of each is saved every ${intervalMin} minute${intervalMin === 1 ? '' : 's'}${randomizeRef.current ? ' (timing varies)' : ''}. Click to stop.`
+            : 'Start work-session screen capture (you pick the screen; your browser shows a sharing indicator the whole time)'}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 9px', borderRadius: 999, cursor: 'pointer',
+            border: `1.5px solid ${capturing ? tint : 'var(--line)'}`,
+            background: paused ? 'rgba(180,83,9,0.09)' : capturing ? 'rgba(220,38,38,0.08)' : 'transparent',
+            color: tint, fontSize: 10.5, fontWeight: 800, fontFamily: 'Inter,sans-serif' }}>
+          {paused ? <MonitorPause size={12} /> : capturing ? <MonitorUp size={12} /> : <MonitorX size={12} />}
+          {paused ? 'PAUSED' : capturing ? `REC${capturing > 1 ? ` ×${capturing}` : ''}` : 'capture off'}
+        </button>
+        );
+      })()}
+      {canCapture && capturing > 0 && (
         <button onClick={startCapture} title="Also capture another screen (pick your second monitor)"
           style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', cursor: 'pointer',
             border: '1.5px solid var(--line)', background: 'transparent', color: 'var(--muted)', fontSize: 13, fontWeight: 800, fontFamily: 'Inter,sans-serif', padding: 0 }}>

@@ -31,7 +31,7 @@ const TOOL_DEFS = [
   ['ellipse',   Circle,        'Ellipse'],
   ['line',      Minus,         'Line'],
   ['arrow',     MoveUpRight,   'Arrow'],
-  ['image',     ImageIcon,     'Image — insert a PNG or JPG'],
+  ['image',     ImageIcon,     'Image — insert a PNG or JPG, or press Ctrl+V to paste a screenshot'],
   ['whiteout',  Eraser,        'Whiteout — cover content with white'],
   ['redact',    EyeOff,        'Redact — cover content with black (a visual cover, not true removal)'],
 ];
@@ -673,6 +673,29 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
     } catch { toastErr('Could not read that PDF — is it a valid, unencrypted file?'); }
   }
 
+  // Ctrl+V a screenshot → same path as choosing a file with the Image tool.
+  // Window-level like the keyboard shortcuts above (page clicks suppress focus,
+  // so a div onPaste would rarely fire); pastes into an open text edit or any
+  // input stay normal text pastes.
+  useEffect(() => {
+    const onPaste = (e) => {
+      if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+      const list = e.clipboardData?.items || [];
+      for (const it of list) {
+        if (it.type && it.type.startsWith('image/')) {
+          const blob = it.getAsFile();
+          if (blob) {
+            e.preventDefault();
+            pickImage(blob.name ? blob : new File([blob], `paste-${Date.now()}.png`, { type: blob.type || 'image/png' }));
+            return;
+          }
+        }
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Page operations ─────────────────────────────────────────────────────────
   const rotatePage = (pgId, dir) => {
     const snap = takeSnap();
@@ -993,7 +1016,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
           <button className="secondary-btn" onClick={requestClose} disabled={busy} style={{ fontSize: 12.5 }}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={busy || loading}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: busy || loading ? 0.6 : 1 }}>
-            {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={13} />} Save changes
+            {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={13} />} Save Changes
           </button>
         </div>
 
@@ -1078,7 +1101,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
             <button className="secondary-btn" onClick={() => mergeInputRef.current?.click()}
               style={{ width: '100%', fontSize: 11, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '6px 4px' }}
               title="Append another PDF or Word (.docx) file to the end of this one">
-              <Layers size={12} /> Merge file
+              <Layers size={12} /> Merge File
             </button>
           </div>
 
@@ -1164,6 +1187,8 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
         <div style={{ padding: '6px 16px', borderTop: '1px solid var(--line)', background: 'var(--card)', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{hint}</span>
           <div style={{ flex: 1 }} />
+          <span style={{ fontSize: 10.5, color: 'var(--muted)', flexShrink: 0 }}>Ctrl+V pastes a screenshot</span>
+          <span style={{ width: 1, height: 12, background: 'var(--line)', flexShrink: 0 }} />
           <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>Saving bakes every edit into a new PDF — signature fields are placed afterwards.</span>
         </div>
       </div>

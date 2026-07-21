@@ -1,0 +1,1500 @@
+[
+ {
+  "module": "People",
+  "feature": "List & tiles",
+  "title": "People list loads with stat tiles",
+  "precondition": "Signed in with People access",
+  "steps": [
+   "Click 'People' in the left sidebar.",
+   "Wait for the page to finish loading (grey shimmer boxes disappear).",
+   "Look at the four tiles at the top: Total People, Active, Onboarding, Departments."
+  ],
+  "expected": "Tiles show real numbers (no shimmer stuck). The employee list appears below with photo, name, code, title and a coloured status chip on every row.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "People",
+  "feature": "List & tiles",
+  "title": "Search finds a person by name, email, code or job title",
+  "precondition": "At least one employee exists",
+  "steps": [
+   "On the People tab, click into the search box ('Search people…').",
+   "Type the first few letters of someone's name.",
+   "Note the 'X total · Y active · Z shown' counter next to the filters.",
+   "Clear the search with the X in the box."
+  ],
+  "expected": "The list narrows as you type; the 'shown' number matches the rows on screen; clearing the search brings everyone back.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "People",
+  "feature": "List & tiles",
+  "title": "Company filter narrows the list and resets the department filter",
+  "precondition": "Employees exist in at least two companies",
+  "steps": [
+   "Open the company dropdown (says 'All companies') and pick one company.",
+   "Check who is listed now.",
+   "Open the department dropdown next to it.",
+   "Pick a department, then switch the company dropdown to a different company."
+  ],
+  "expected": "Only that company's people are listed. The department dropdown only offers departments actually used in that company. Switching company resets the department filter back to 'All departments'.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "People",
+  "feature": "Add employee",
+  "title": "Create an employee with just a first name",
+  "precondition": "Admin/HR write access",
+  "steps": [
+   "Click 'Add Employee' (top right).",
+   "Type only a first name (e.g. 'Testy').",
+   "Leave every other field empty.",
+   "Click Save."
+  ],
+  "expected": "The employee is created and selected in the list. No error. An employee code (GG-###) is auto-assigned.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "People",
+  "feature": "Add employee",
+  "title": "Department stays locked until you choose a company",
+  "precondition": "At least one company with departments exists (Company setup)",
+  "steps": [
+   "Click 'Add Employee'.",
+   "WITHOUT choosing a company, click the Department dropdown."
+  ],
+  "expected": "The department dropdown is disabled and reads '— pick a company first —'. It only becomes usable after a company is selected, and then lists only that company's departments.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "People",
+  "feature": "Add employee",
+  "title": "KNOWN ISSUE — changing company keeps the old department",
+  "precondition": "Employee saved with Company A + a department",
+  "steps": [
+   "Edit that employee.",
+   "Change the Company dropdown to Company B.",
+   "Look at the Department field."
+  ],
+  "expected": "EXPECTED (correct behaviour): department should clear because it belongs to Company A. CURRENT BUG: the old department stays as '(current)' and can be saved against the wrong company. Log result either way.",
+  "priority": "High",
+  "type": "Bug check"
+ },
+ {
+  "module": "People",
+  "feature": "Add employee",
+  "title": "Contractor fields appear only for contractors",
+  "precondition": "Adding or editing an employee",
+  "steps": [
+   "In the employee form, set Employment type = Contractor.",
+   "Scroll down.",
+   "Now switch Employment type back to Full time."
+  ],
+  "expected": "A 'Contractor engagement' section (scope, SOW, client, dates, rate…) appears when Contractor is chosen and disappears again when switched back.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "People",
+  "feature": "Add employee",
+  "title": "Emails are accepted without checking (log as found)",
+  "precondition": "Adding an employee",
+  "steps": [
+   "Type 'not-an-email' into Work email.",
+   "Click Save."
+  ],
+  "expected": "BUG CHECK: today this saves without complaint (no email format validation). Note whether garbage emails are accepted.",
+  "priority": "Medium",
+  "type": "Bug check"
+ },
+ {
+  "module": "People",
+  "feature": "Add employee",
+  "title": "Assign a job role while creating (admin only)",
+  "precondition": "Admin; at least one job role exists",
+  "steps": [
+   "Click 'Add Employee' as an administrator.",
+   "Fill first name AND a work email.",
+   "In the 'Job role & access' box, pick a role.",
+   "Save."
+  ],
+  "expected": "Toast confirms the person was added AND the job role/access assigned. (If work email was blank, a different toast says to set the role later on the Access tab.)",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "People",
+  "feature": "Detail card",
+  "title": "Tabs show/hide by permission",
+  "precondition": "One admin account, one non-admin, one without hr_comp grant",
+  "steps": [
+   "Open any employee's card as an ADMIN — note the tabs.",
+   "Repeat as a user WITHOUT the compensation grant.",
+   "Repeat as a non-admin."
+  ],
+  "expected": "Admin sees Overview / Pay & Benefits / Compliance / Assets / Documents / Access. Without hr_comp the 'Pay & Benefits' tab is missing. Non-admin never sees the 'Access' tab.",
+  "priority": "High",
+  "type": "Security"
+ },
+ {
+  "module": "People",
+  "feature": "Detail card",
+  "title": "External/guest badge shows on the card",
+  "precondition": "An employee saved with Account type = External or Guest",
+  "steps": [
+   "Open that person's card.",
+   "Look next to their name in the header."
+  ],
+  "expected": "An orange 'External' (or 'Guest') badge appears beside the name. Internal people have no badge.",
+  "priority": "Medium",
+  "type": "UI"
+ },
+ {
+  "module": "People",
+  "feature": "Status change",
+  "title": "Set someone inactive with mailbox delegation",
+  "precondition": "Employee with an M365 account",
+  "steps": [
+   "Open the employee card and click the status chip (e.g. 'Active').",
+   "Choose status 'Inactive', type a reason.",
+   "In the mailbox section pick a colleague to delegate to.",
+   "Click Apply."
+  ],
+  "expected": "Status changes with a toast; a PowerShell snippet + admin links are offered for the mailbox step; the change appears in the recent-changes log with the reason.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "People",
+  "feature": "Status change",
+  "title": "CAUTION — offboarding warns about everything it will do",
+  "precondition": "TEST DATA ONLY — never a real employee",
+  "steps": [
+   "Open a TEST employee's card, click the status chip.",
+   "Choose 'Left' (offboarded).",
+   "Read the options: remove & free licence vs shared mailbox, export-mailbox tick, equipment warning.",
+   "Click Apply ONCE and watch carefully."
+  ],
+  "expected": "BUG CHECK: Apply currently runs sign-in block + licence removal + force-return of all equipment with NO extra confirmation. Verify what happens and log it — we want a confirm step here.",
+  "priority": "High",
+  "type": "Bug check"
+ },
+ {
+  "module": "People",
+  "feature": "Company setup",
+  "title": "Add a company and its departments",
+  "precondition": "Admin/HR write",
+  "steps": [
+   "On the People tab click 'Company setup'.",
+   "Click 'Add Company', give it a name (e.g. 'QA Test Co'), Save.",
+   "Back on the list, click 'Departments' on that company.",
+   "Type 'Estimating' and click Add. Add it AGAIN in lowercase ('estimating').",
+   "Remove one department with its X."
+  ],
+  "expected": "Company is created. 'Estimating' is added once — the duplicate is ignored (case-insensitive). Removing a department leaves existing employees' records untouched (note under the list says so).",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "People",
+  "feature": "Company setup",
+  "title": "Greens Global comes pre-seeded; new companies start empty",
+  "precondition": "Fresh dev data",
+  "steps": [
+   "Open Company setup > Greens (Global) > Departments.",
+   "Now open Departments on any other company you just created."
+  ],
+  "expected": "Greens shows the 9 standard departments including 'Administration' (NOT 'Admin'). The new company's list is empty.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "People",
+  "feature": "Org chart",
+  "title": "Expand, search and spotlight a division",
+  "precondition": "Employees with manager links exist",
+  "steps": [
+   "Open the 'Org Chart' tab.",
+   "Click a person's reports pill (the number under them) to collapse/expand their team.",
+   "Type a name in the search box.",
+   "Click one of the coloured division names in the legend."
+  ],
+  "expected": "Teams collapse/expand. Search centres the chart on the match. Clicking a division dims everyone else (spotlight).",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "People",
+  "feature": "Org chart",
+  "title": "Drag a person to a new manager; loops are rejected",
+  "precondition": "Desktop; at least 3 people in a chain",
+  "steps": [
+   "In the org chart, press and hold a person's card and drag it onto a DIFFERENT manager card.",
+   "Now try to drag a MANAGER onto one of their own reports."
+  ],
+  "expected": "First drag: person's reporting line changes (confirm in their card). Second drag: rejected with a toast (no loops allowed).",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "People",
+  "feature": "Hiring",
+  "title": "Move a candidate through the pipeline to Hired",
+  "precondition": "Hiring tab open",
+  "steps": [
+   "Click 'Add Candidate', enter a first name and role, Save.",
+   "Open the candidate and use the stage buttons to move Applied → Screening → Interview → Offer.",
+   "Click 'Mark Hired'."
+  ],
+  "expected": "Candidate moves across the kanban lanes with a history entry per move. On Hired, an employee record is auto-created with status 'Onboarding' (check the People tab).",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "People",
+  "feature": "Hiring",
+  "title": "Resume upload and interview scheduling give feedback",
+  "precondition": "A candidate exists",
+  "steps": [
+   "Open a candidate, upload a resume PDF.",
+   "Schedule an interview for tomorrow.",
+   "Now try uploading a corrupt/huge file, or disconnect Wi-Fi and retry."
+  ],
+  "expected": "Happy path: resume appears, interview shows. BUG CHECK: failures are currently SILENT (no error toast) — log whether you get any feedback when it fails.",
+  "priority": "Medium",
+  "type": "Bug check"
+ },
+ {
+  "module": "People",
+  "feature": "Leave",
+  "title": "Log leave on behalf and approve it",
+  "precondition": "Leave tab; an employee exists",
+  "steps": [
+   "Click 'Log leave', pick an employee, type Vacation, 2 days, tomorrow → day after, Save.",
+   "Find the pending request and click Approve.",
+   "Look at the 'Who's out' week strip."
+  ],
+  "expected": "Request is created as pending, then approved. The person appears on the week strip on those days with approved styling.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "People",
+  "feature": "Leave",
+  "title": "BUG CHECK — end date before start date is accepted",
+  "precondition": "Leave form open",
+  "steps": [
+   "Create a leave request with From = Friday and To = Monday BEFORE it.",
+   "Save."
+  ],
+  "expected": "EXPECTED: a validation error. CURRENT: it saves without complaint. Log result.",
+  "priority": "Medium",
+  "type": "Bug check"
+ },
+ {
+  "module": "People",
+  "feature": "M365",
+  "title": "Sync from M365 reports what changed",
+  "precondition": "Admin; M365 connected (dev)",
+  "steps": [
+   "On the People tab click 'Sync from M365'.",
+   "Wait for the toast."
+  ],
+  "expected": "Toast summarises created/linked/updated/removed. CAUTION: sync can REMOVE employees without asking — verify the numbers look sane before/after.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "People",
+  "feature": "Roles & Access",
+  "title": "Matrix, duplicate a role, expand a group",
+  "precondition": "Administrator",
+  "steps": [
+   "Open the 'Roles & Access' tab (admins only).",
+   "Matrix: check each pill sits under a module column header.",
+   "Job roles: select a role, click 'Duplicate' — the editor opens pre-filled with the name auto-numbered (e.g. 'HR Administrator 2'). Save.",
+   "Groups: click a group's member count."
+  ],
+  "expected": "Duplicate creates a NEW role (original untouched). Group member count expands to a list of NAMES (never raw emails) with a remove X per person.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "My HR",
+  "feature": "Overview",
+  "title": "My HR loads my own record only",
+  "precondition": "Signed in as an employee with an HR record",
+  "steps": [
+   "Click 'My HR' in the sidebar.",
+   "Check the four tiles: hours, leave this year, documents, tenure.",
+   "Check the profile card shows YOUR name/job/department."
+  ],
+  "expected": "Everything on screen is about you — no other employees visible anywhere.",
+  "priority": "High",
+  "type": "Security"
+ },
+ {
+  "module": "My HR",
+  "feature": "Profile",
+  "title": "I can edit only contact + emergency details",
+  "precondition": "My HR open",
+  "steps": [
+   "Click Edit on the profile card.",
+   "Change your phone and personal email; add an emergency contact.",
+   "Save.",
+   "Confirm name / job title / bank fields are NOT editable here."
+  ],
+  "expected": "Contact + emergency save with confirmation. Everything else is read-only ('goes through Ask HR').",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "My HR",
+  "feature": "Documents",
+  "title": "My documents and paystubs list and search",
+  "precondition": "At least one sealed document / paystub exists for you",
+  "steps": [
+   "Scroll to 'My documents'. If more than 3, use the search box.",
+   "Click one to open it.",
+   "Repeat for 'My paystubs'."
+  ],
+  "expected": "Only your documents appear; search filters; clicking opens the PDF.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "My HR",
+  "feature": "Leave",
+  "title": "Request time off",
+  "precondition": "My HR open",
+  "steps": [
+   "Find 'My leave' and click 'Request time off'.",
+   "Pick a type, tomorrow → day after, add a note, Send.",
+   "Check the request list."
+  ],
+  "expected": "Request appears as Pending. (BUG CHECK: try end-before-start too — it currently saves; log it.)",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "My HR",
+  "feature": "Leave",
+  "title": "BUG CHECK — no way to cancel a pending request",
+  "precondition": "You have a pending time-off request",
+  "steps": [
+   "Look at your pending request in the list.",
+   "Try to find any cancel/withdraw button."
+  ],
+  "expected": "CURRENT GAP: there is no cancel option — a mistaken request can only be rejected by a manager. Log as UX gap.",
+  "priority": "Medium",
+  "type": "Bug check"
+ },
+ {
+  "module": "My HR",
+  "feature": "Ask HR",
+  "title": "Send a request to HR with an attachment",
+  "precondition": "My HR open",
+  "steps": [
+   "In 'Ask HR', pick a type, describe the request, attach a small file.",
+   "Send.",
+   "Check your request history below."
+  ],
+  "expected": "Request appears in your history as open. HR sees it in their Employee Requests panel on the People tab.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "My HR",
+  "feature": "Hours",
+  "title": "My hours chart follows the range picker",
+  "precondition": "You have some time-clock punches",
+  "steps": [
+   "In 'My hours', switch the range (7/14/30 days)."
+  ],
+  "expected": "Bars update to the chosen window; the hours tile matches.",
+  "priority": "Low",
+  "type": "Functional"
+ },
+ {
+  "module": "My HR",
+  "feature": "Errors",
+  "title": "BUG CHECK — failed loads look like empty data",
+  "precondition": "Dev tools: block/fail the documents API (or test offline)",
+  "steps": [
+   "Open My HR with the documents request failing (or airplane-mode after login).",
+   "Look at the 'My documents' section."
+  ],
+  "expected": "CURRENT BUG: a failed load shows 'No documents yet' — identical to genuinely having none. Log it (should show a retry/error).",
+  "priority": "Medium",
+  "type": "Bug check"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Employee home",
+  "title": "Home cards route correctly",
+  "precondition": "Employee (non-manage) view",
+  "steps": [
+   "Open Item Management.",
+   "Click 'Checkout an Item' → should land on Catalog. Go back.",
+   "Click 'Extend an Item' → lands on My Checkouts.",
+   "Managers only: check the 'Manage Items' card appears."
+  ],
+  "expected": "Each card routes to the right tab. (Note: the 'Extend an Item' card actually covers return AND extend — title is misleading; log as minor.)",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Catalog",
+  "title": "Browse, filter and understand availability",
+  "precondition": "Items exist, some checked out",
+  "steps": [
+   "Open Catalog. Type a name in search; try the type and location chips.",
+   "Find an item that is checked out by someone."
+  ],
+  "expected": "Filters narrow the grid. Unavailable items show who has them and 'available in N d' instead of the Add button.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Cart",
+  "title": "Build a cart and submit a request",
+  "precondition": "At least 2 available transient items",
+  "steps": [
+   "Add two items to the cart.",
+   "Open the cart. Set days on the first item, click 'Apply first to all'.",
+   "Pick an approver (required) and type a reason (required).",
+   "Submit."
+  ],
+  "expected": "Cart requires approver + reason before submitting. On success you land on Active Checkouts with the new pending order and a toast.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Cart",
+  "title": "Days are capped at 90",
+  "precondition": "Cart with an item",
+  "steps": [
+   "In the cart try to set 91+ days with the stepper or by typing."
+  ],
+  "expected": "The value clamps to 90 (backend max). Also test the same on an extension request.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Approvals",
+  "title": "Approve a checkout and pick an allocator",
+  "precondition": "Manager; a pending checkout exists",
+  "steps": [
+   "Open Manage → Checkouts, filter 'Pending Approval'.",
+   "Click Approve on a request.",
+   "Pick an allocator (a suggested one may be pre-selected) and confirm."
+  ],
+  "expected": "Status moves to approved/awaiting handover; the requester gets a notification; the list refreshes.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Approvals",
+  "title": "BUG CHECK — rejection reports success even if it failed",
+  "precondition": "Manager; a pending checkout; dev tools handy",
+  "steps": [
+   "Click Reject on a pending checkout, type a reason, confirm.",
+   "Now repeat with the network offline (or the API blocked) and watch the toast."
+  ],
+  "expected": "CURRENT BUG: the toast says 'Checkout rejected.' even when the server call failed, and the modal closes. Verify and log — this is a high-priority fix.",
+  "priority": "High",
+  "type": "Bug check"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Handover",
+  "title": "Allocate with a handover photo",
+  "precondition": "Approved checkout awaiting handover",
+  "steps": [
+   "On the approved order click 'Hand Over' (or Hand Over All).",
+   "Take/upload the handover photo when asked.",
+   "Confirm."
+  ],
+  "expected": "Handover completes; requester is asked to confirm receipt; photo is stored on the checkout.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Receipt & return",
+  "title": "Employee confirms receipt, then returns",
+  "precondition": "You have an item pending receipt",
+  "steps": [
+   "My Items → Active: click 'Confirm Receipt & Upload Photo', add a photo, confirm.",
+   "Later, click 'Return Item', add the return photo, submit."
+  ],
+  "expected": "Receipt moves the item to 'allocated' with a days-left bar. Return completes with a photo and drops off Active into Past.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Extension",
+  "title": "Ask for more time and have it approved",
+  "precondition": "You hold an allocated item",
+  "steps": [
+   "My Items → the item → 'Extend Item'. Pick extra days (≤90), give a reason, submit.",
+   "As the manager, approve the extension inline in Checkouts."
+  ],
+  "expected": "Due date extends after approval; both sides get notifications.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Batch re-request",
+  "title": "BUG CHECK — batch days above 90 fail silently",
+  "precondition": "You have Past checkouts",
+  "steps": [
+   "My Items → Past: tick 2-3 items → 'Request Again (N)'.",
+   "Set one item's days to 100 (the box currently allows up to 365).",
+   "Submit and read the result toast carefully."
+  ],
+  "expected": "CURRENT BUG: the backend rejects >90 days so that item silently fails inside the batch. Log which items succeeded vs failed.",
+  "priority": "High",
+  "type": "Bug check"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Permanent",
+  "title": "Assign an item to a person — the list must be Nexus People",
+  "precondition": "Manager; a permanent item unassigned",
+  "steps": [
+   "Manage → find a permanent item → Assign.",
+   "Open the person dropdown and read the list."
+  ],
+  "expected": "The dropdown lists curated Nexus People (short list, real names) — NOT the ~150-account M365 directory. People without a work email or offboarded must not appear.",
+  "priority": "High",
+  "type": "Regression"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Permanent",
+  "title": "Accept with photo / decline",
+  "precondition": "An assignment is pending your acceptance",
+  "steps": [
+   "My Items → Permanent: click 'Accept & Upload Photo', add photo, accept.",
+   "On another test assignment click Decline."
+  ],
+  "expected": "Accept requires the photo and activates the assignment. BUG CHECK: Decline currently uses the browser's ugly prompt() for the reason — log it.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Permanent",
+  "title": "Report lost / dead and return flows",
+  "precondition": "You hold an active permanent item",
+  "steps": [
+   "Click 'Report Lost' on your item and follow the flow (no photo needed for lost).",
+   "As the manager, open the Assignments queue and accept the return with a disposition."
+  ],
+  "expected": "Lost/dead flows start a return with the right flag; the manager's Accept Return closes it and updates the item status.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Manage CRUD",
+  "title": "Add, edit and delete an item",
+  "precondition": "Manager",
+  "steps": [
+   "Manage → 'Add Item': fill name/type, save.",
+   "Edit the same item: change one field, save.",
+   "Delete it: the dialog asks you to literally type DELETE."
+  ],
+  "expected": "Add/edit reflect immediately; serial (GG-#####) is auto-assigned and cannot be edited. Delete is soft — the item moves to the Recycle Bin for 30 days.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Manage types",
+  "title": "Curated item types list",
+  "precondition": "Manager",
+  "steps": [
+   "Manage → 'Manage Types'.",
+   "Add a type (e.g. 'QA Widget').",
+   "Try deleting a type that's in use, then one with 0 items, then try to delete 'Other'."
+  ],
+  "expected": "Add works. In-use delete asks an inline confirm; zero-count delete is IMMEDIATE (bug — log it); 'Other' cannot be removed.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Import",
+  "title": "CSV import preview matches what actually happens",
+  "precondition": "Manager; a small CSV of items incl. a custom type you created",
+  "steps": [
+   "Manage → Import: choose your CSV.",
+   "Read the preview counts (valid / skipped / unknown type).",
+   "Import and compare the result toast to the preview."
+  ],
+  "expected": "BUG CHECK: the preview may claim your manager-added custom type is 'unknown → saved as Other' even though the import actually keeps it. Log any mismatch between preview and result.",
+  "priority": "Medium",
+  "type": "Bug check"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Photos",
+  "title": "Batch photos + AI photo fill",
+  "precondition": "Manager; items missing photos",
+  "steps": [
+   "Manage → select several items → Batch Photos.",
+   "Try a master image applied to all, then AI Fill for the rest."
+  ],
+  "expected": "Photos apply with progress; AI fill only fills blanks (doesn't replace). NOTE: items flagged 'no photo required' (e.g. keys) should NOT be counted in the red 'missing photo' banner — currently they are; log it.",
+  "priority": "Medium",
+  "type": "Bug check"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Recycle bin",
+  "title": "Restore a deleted item",
+  "precondition": "An item deleted <30 days ago",
+  "steps": [
+   "Manage → Recycle Bin.",
+   "Check the 'purges in N d' badge.",
+   "Restore the item."
+  ],
+  "expected": "Item returns to the list unchanged.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Who has what",
+  "title": "By person and by location",
+  "precondition": "Allocated/assigned items exist",
+  "steps": [
+   "Open 'Who Has What'.",
+   "Switch between By Person and By Location.",
+   "Click an item to open its mini-card and deep-link."
+  ],
+  "expected": "Both views group correctly with $ totals; deep links land on the right queue. NOTE: while data is loading it may flash 'No items are currently allocated' — log if you see the false empty state.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Purchases",
+  "title": "Fulfil a purchase request into Items",
+  "precondition": "A pending purchase request exists",
+  "steps": [
+   "Purchase Requests tab: Approve one (pick the fulfiller).",
+   "Mark Ordered.",
+   "Click 'Received — Add to Items' and complete the pre-filled Add Item form."
+  ],
+  "expected": "Each step advances the status; the final step creates the item AND closes the requisition. BUG CHECK: rejecting a requisition currently shows NO toast — log it.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Audit log",
+  "title": "Plain-English feed + undo",
+  "precondition": "Recent item activity exists",
+  "steps": [
+   "Open Activity Log.",
+   "Read a few entries — they should be sentences, with old → new for edits.",
+   "Find an edit or delete you made and click Undo, confirm inline."
+  ],
+  "expected": "Undo reverses the change (restores the item/fields) and the feed records the reversal.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Item Management",
+  "feature": "Overdue",
+  "title": "Bulk overdue alert",
+  "precondition": "At least one overdue checkout",
+  "steps": [
+   "Checkouts tab → the overdue badge/section → 'Overdue Alert'.",
+   "Untick one person, keep the rest.",
+   "Send."
+  ],
+  "expected": "One email + bell per selected person (not per item). The unticked person gets nothing.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Asset Management",
+  "feature": "Portfolio",
+  "title": "Portfolio loads with tiles, list and map views",
+  "precondition": "Asset Management access",
+  "steps": [
+   "Open Asset Management from the sidebar.",
+   "Wait for the cards to appear.",
+   "Use the view toggle to switch Tiles → List → Map and back."
+  ],
+  "expected": "Cards render in a 4-up grid; List shows sortable columns; Map shows pins. The asset count in the header matches.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Asset Management",
+  "feature": "Portfolio",
+  "title": "Search and filters",
+  "precondition": "Several assets exist",
+  "steps": [
+   "Type part of an asset name in the search box.",
+   "Set Category/Stage/Type/Region filters.",
+   "Click 'Clear Filters'."
+  ],
+  "expected": "Grid narrows; a 'no properties match' message shows when nothing fits; Clear restores everything. NOTE: dropdown counts ignore other active filters — that is currently by design; log only if confusing.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Asset Management",
+  "feature": "Portfolio",
+  "title": "List column widths are draggable and remembered",
+  "precondition": "List view",
+  "steps": [
+   "In List view, drag a column edge to resize it.",
+   "Reload the page and return to List view."
+  ],
+  "expected": "Your column widths survive the reload (saved locally).",
+  "priority": "Low",
+  "type": "UI"
+ },
+ {
+  "module": "Asset Management",
+  "feature": "Add asset",
+  "title": "Add a property via the 2-step wizard",
+  "precondition": "Manage rights",
+  "steps": [
+   "Open Manage → Add Asset.",
+   "Step 1: choose 'Property'.",
+   "Step 2: fill the required fields (marked), add a photo, Save.",
+   "Also try saving with a required field empty."
+  ],
+  "expected": "Missing required fields are called out (currently via a browser alert — log as UX inconsistency). On save the new property appears in the portfolio.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Asset Management",
+  "feature": "Add asset",
+  "title": "Add a vehicle and heavy equipment",
+  "precondition": "Manage rights",
+  "steps": [
+   "Add Asset → choose 'Vehicle', fill fields, save.",
+   "Repeat with 'Heavy Equipment'."
+  ],
+  "expected": "Each class gets its own field set; the detail page later shows vehicle-specific tabs (service, odometer, vdocs).",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Asset Management",
+  "feature": "Add asset",
+  "title": "CSV bulk import per class",
+  "precondition": "Manage rights; template downloaded",
+  "steps": [
+   "Add Asset → Step 1 → download the CSV template for Property.",
+   "Fill 2 rows (one missing the name).",
+   "Import the file."
+  ],
+  "expected": "The named row imports; the row without a name is skipped and reported. Result is currently shown in a browser alert — log as inconsistency.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Asset Management",
+  "feature": "Detail",
+  "title": "Edit the spec sheet; address changes need a reason",
+  "precondition": "A property exists",
+  "steps": [
+   "Open a property → Edit.",
+   "Change a normal field and save (should just save).",
+   "Edit again and change the ADDRESS.",
+   "Try to save."
+  ],
+  "expected": "Changing address/city/state/zip demands a typed reason before saving, and the change lands in the activity log with that reason.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Asset Management",
+  "feature": "Detail",
+  "title": "Flag a field for review and fix it from Manage",
+  "precondition": "A property exists",
+  "steps": [
+   "On the spec sheet, click the little flag next to a field and give a reason.",
+   "Go to Manage → 'Flagged for Review'.",
+   "Find your flag, check the 'current value' box, type a fix and push it."
+  ],
+  "expected": "Flag appears with your reason. BUG CHECK: for top-level fields (address, manager…) the 'current value' box may show BLANK even though the asset has a value — pushing from blank can wipe it. Log carefully.",
+  "priority": "High",
+  "type": "Bug check"
+ },
+ {
+  "module": "Asset Management",
+  "feature": "Linking",
+  "title": "Link parcels into a group",
+  "precondition": "Two related properties",
+  "steps": [
+   "Open a property → Parcel Manager.",
+   "Link the second property under it as Secondary.",
+   "Reorder with the arrows; try the star to change Primary; rename the group."
+  ],
+  "expected": "Group card on the portfolio aggregates stats; the 'Go to' switcher hops between members; unlink restores them as standalone.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Asset Management",
+  "feature": "Records",
+  "title": "Add a maintenance record with a unit selector",
+  "precondition": "A property with tenant units",
+  "steps": [
+   "Open the property → Maintenance tab → quick-add bar or Add.",
+   "Note the 'Unit / Suite' dropdown in the form.",
+   "Save the record."
+  ],
+  "expected": "Record appears in the sortable table; the summary strip updates; unit dropdown only appears for properties that have units.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Asset Management",
+  "feature": "Records",
+  "title": "Deleting a warranty needs a reason",
+  "precondition": "A warranty record exists; manager grant",
+  "steps": [
+   "Warranties tab → edit a record → Delete.",
+   "Try deleting without typing a reason."
+  ],
+  "expected": "Warranty delete demands a typed reason (all other record types delete with just a confirm).",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Asset Management",
+  "feature": "Timeline",
+  "title": "Timeline status change requires a reason",
+  "precondition": "A property with a timeline entry",
+  "steps": [
+   "Timeline tab → click the status of an entry → pick a new status.",
+   "Try to confirm without a reason."
+  ],
+  "expected": "Status change is blocked until a reason is typed; it then appears in the activity log.",
+  "priority": "Low",
+  "type": "Functional"
+ },
+ {
+  "module": "Asset Management",
+  "feature": "Export",
+  "title": "Exports handle blocked pop-ups",
+  "precondition": "Any asset open",
+  "steps": [
+   "Block pop-ups for the site in your browser.",
+   "Try Export → PDF from the breadcrumb, and a table's CSV/PDF export."
+  ],
+  "expected": "BUG CHECK: with pop-ups blocked, nothing happens and no message appears. Log it (needs an 'allow pop-ups' toast).",
+  "priority": "Medium",
+  "type": "Bug check"
+ },
+ {
+  "module": "Asset Management",
+  "feature": "Manage",
+  "title": "Completeness, activity log undo, trash",
+  "precondition": "Several assets with mixed data",
+  "steps": [
+   "Open Manage: read the KPI tiles.",
+   "Data Completeness: check % bars + missing-field chips.",
+   "Activity Log: find an edit → Undo (inline confirm).",
+   "Trash: delete a test asset first, then Recover it; then Purge another test asset."
+  ],
+  "expected": "Undo restores the previous value. Recover brings the asset back; Purge asks an inline 'cannot be undone' confirm and removes it permanently.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Asset Management",
+  "feature": "Privacy",
+  "title": "Mark an asset Private",
+  "precondition": "Two accounts: one owner/exec, one normal",
+  "steps": [
+   "As owner: open an asset → 'Mark Private' in the breadcrumb.",
+   "As a normal user: search for that asset."
+  ],
+  "expected": "Private assets are invisible to non-privileged users everywhere (portfolio, search, critical dates).",
+  "priority": "High",
+  "type": "Security"
+ },
+ {
+  "module": "Asset Management",
+  "feature": "Reminders",
+  "title": "Critical dates banner and bell notifications",
+  "precondition": "An asset with a warranty/registration expiring soon",
+  "steps": [
+   "Set a test warranty to expire in ~2 weeks.",
+   "Reopen Asset Management (triggers the reminder scan).",
+   "Check the Critical Items banner and the bell."
+  ],
+  "expected": "The item appears in the banner window (≤30/≤90) and one bell notification exists for it (not duplicated on every visit).",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Asset Management",
+  "feature": "Offline",
+  "title": "BUG CHECK — edits during sync conflicts",
+  "precondition": "Two browser tabs on the same asset",
+  "steps": [
+   "Open the same asset in two tabs.",
+   "Edit field A in tab 1 and save; within a few seconds edit field B in tab 2 and save.",
+   "Wait ~10 s and check both fields in both tabs."
+  ],
+  "expected": "CURRENT RISK: last writer wins per the sync rule; one edit may silently vanish with only the 'Saved' pill showing. Log exactly what survived — this is a known high-priority UX gap.",
+  "priority": "High",
+  "type": "Bug check"
+ },
+ {
+  "module": "Asset Management",
+  "feature": "Modals",
+  "title": "BUG CHECK — clicking outside a form loses your typing",
+  "precondition": "Add Asset wizard open with data typed",
+  "steps": [
+   "Type several fields into the Add Asset form.",
+   "Click once on the dark area OUTSIDE the modal."
+  ],
+  "expected": "CURRENT BUG: the modal closes instantly and everything typed is lost (no 'discard?' guard). Log it.",
+  "priority": "High",
+  "type": "Bug check"
+ },
+ {
+  "module": "Documents (E-Sign)",
+  "feature": "Templates",
+  "title": "Create a template in the WYSIWYG editor",
+  "precondition": "Documents module access",
+  "steps": [
+   "Open Documents → Templates → New.",
+   "Type a paragraph; insert a merge chip (e.g. employee name) from the merge menu.",
+   "Add a signature block and assign it to signer role 1.",
+   "Add a second signer role. Save."
+  ],
+  "expected": "The paper preview matches what a signer will see; merge chips render as labelled pills; the template appears in the list.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Documents (E-Sign)",
+  "feature": "Templates",
+  "title": "Attach a PDF/Word and place fields",
+  "precondition": "A template open in the editor",
+  "steps": [
+   "Attach a PDF (and separately a .docx — it should convert to PDF in the browser).",
+   "In the placer, drag a signature field onto page 1 for signer 1.",
+   "Save the template."
+  ],
+  "expected": "Both attach; docx converts client-side; fields stick to the page where you dropped them.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Documents (E-Sign)",
+  "feature": "Templates",
+  "title": "BUG CHECK — duplicate loses the Egnyte folder",
+  "precondition": "A template with an Egnyte folder set",
+  "steps": [
+   "Click Duplicate on that template.",
+   "Open the copy and check its Egnyte folder setting."
+  ],
+  "expected": "CURRENT BUG: the duplicate's Egnyte folder is empty (not copied). Log it.",
+  "priority": "Medium",
+  "type": "Bug check"
+ },
+ {
+  "module": "Documents (E-Sign)",
+  "feature": "Templates",
+  "title": "CAUTION — delete has no confirmation",
+  "precondition": "A THROWAWAY test template",
+  "steps": [
+   "Hover the trash icon on a test template.",
+   "Click it ONCE."
+  ],
+  "expected": "CURRENT BUG: the template is deleted immediately — no 'are you sure', no undo. Verify on a throwaway only and log.",
+  "priority": "High",
+  "type": "Bug check"
+ },
+ {
+  "module": "Documents (E-Sign)",
+  "feature": "Templates",
+  "title": "BUG CHECK — clicking outside the editor loses all edits",
+  "precondition": "Template editor open with unsaved changes",
+  "steps": [
+   "Make several edits in the template editor.",
+   "Click the dark backdrop outside the editor once."
+  ],
+  "expected": "CURRENT BUG: editor closes and the edits are gone, no guard. Log it.",
+  "priority": "High",
+  "type": "Bug check"
+ },
+ {
+  "module": "Documents (E-Sign)",
+  "feature": "Send",
+  "title": "Send a template for signature (sequential)",
+  "precondition": "A template with 2 signer roles",
+  "steps": [
+   "Click Send → pick the template → choose the 'About' person/company.",
+   "Recipients: add a teammate (autocomplete) as signer 1 and an external email as signer 2; keep routing 'sequential'.",
+   "Preview: fill any merge inputs; watch amber highlights for unresolved ones.",
+   "Review & send."
+  ],
+  "expected": "Envelope sends; signer 1 gets it first, signer 2 only after 1 signs. NOTE: sending with unresolved merge tokens is currently NOT blocked — if you leave one amber, the final PDF will literally contain {{token}}. Log if you can send with gaps.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Documents (E-Sign)",
+  "feature": "Send",
+  "title": "External signer with an access code",
+  "precondition": "Sending to an outside email",
+  "steps": [
+   "Add an external recipient and set an access code.",
+   "Send, then open the signing link (copy it from the request detail).",
+   "Enter a WRONG code 3+ times, then the right one."
+  ],
+  "expected": "Wrong codes are rejected and audited; too many attempts locks the link; the right code opens the document.",
+  "priority": "High",
+  "type": "Security"
+ },
+ {
+  "module": "Documents (E-Sign)",
+  "feature": "Send",
+  "title": "BUG CHECK — bad emails and past expiry are accepted",
+  "precondition": "Send wizard open",
+  "steps": [
+   "Type 'a@' as a recipient email — does the wizard let you continue?",
+   "Set the expiry date to YESTERDAY and send."
+  ],
+  "expected": "CURRENT BUGS: '@' anywhere passes validation, and a past expiry sends an already-dead envelope. Log both.",
+  "priority": "Medium",
+  "type": "Bug check"
+ },
+ {
+  "module": "Documents (E-Sign)",
+  "feature": "Signing",
+  "title": "Sign as a teammate (guided)",
+  "precondition": "An envelope waiting for you",
+  "steps": [
+   "Open the document from your Inbox.",
+   "Click START — it jumps to your first field.",
+   "Adopt a signature (try Type, then Draw with undo).",
+   "Complete all fields and Finish."
+  ],
+  "expected": "Progress bar tracks your fields; Finish only enables when required fields are done; you get the sealed copy when everyone has signed.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Documents (E-Sign)",
+  "feature": "Signing",
+  "title": "Decline with a reason",
+  "precondition": "An envelope waiting for you",
+  "steps": [
+   "Open the document → Decline.",
+   "Type a reason (also try leaving it empty) and confirm."
+  ],
+  "expected": "Decline ends the envelope and notifies the sender. NOTE: an EMPTY reason is currently allowed — log it.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Documents (E-Sign)",
+  "feature": "Tracking",
+  "title": "Remind, void, and correct a party",
+  "precondition": "A pending envelope you sent",
+  "steps": [
+   "Open the request detail: click Remind.",
+   "Use 'correct party' to fix a signer's email.",
+   "On a THROWAWAY envelope click Void."
+  ],
+  "expected": "Remind re-notifies the current signer. Correcting an email rotates the link + resends. CAUTION/BUG: Void fires with NO confirmation — verify on a throwaway and log.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Documents (E-Sign)",
+  "feature": "Integrity",
+  "title": "Sealed PDF + verify",
+  "precondition": "A completed envelope",
+  "steps": [
+   "Open the completed request → download the sealed PDF.",
+   "Click 'Verify integrity'."
+  ],
+  "expected": "PDF downloads with the certificate page; verify reports the SHA-256 matches. (A tampered file must report invalid.)",
+  "priority": "High",
+  "type": "Security"
+ },
+ {
+  "module": "Documents (E-Sign)",
+  "feature": "PDF editor",
+  "title": "Edit text mode and redaction warning",
+  "precondition": "A PDF attached to a template",
+  "steps": [
+   "Open the PDF in the editor → Edit text → change a line → save.",
+   "Draw a black 'Redact' box over some text and save.",
+   "Open the saved PDF and try to SELECT the text under the black box."
+  ],
+  "expected": "Edited line re-renders (font may differ slightly). CAUTION/BUG: the black box is visual only — the text underneath is still selectable/extractable. Never rely on it for SSNs/salaries. Log.",
+  "priority": "High",
+  "type": "Security"
+ },
+ {
+  "module": "Documents (E-Sign)",
+  "feature": "Inbox",
+  "title": "BUG CHECK — sender shown as a raw email",
+  "precondition": "You have items in your Documents inbox",
+  "steps": [
+   "Open the Documents inbox and read the 'from …' line on an item."
+  ],
+  "expected": "CURRENT BUG: shows the sender's raw email instead of their name. Log it (house rule: names, never raw emails).",
+  "priority": "Low",
+  "type": "Bug check"
+ },
+ {
+  "module": "Time Clock",
+  "feature": "Punch",
+  "title": "Punch in with the BOD gate and location chip",
+  "precondition": "Employee; on/near a work site if possible",
+  "steps": [
+   "Open Time Clock → Clock tab.",
+   "Click 'Punch in' — the start-of-day message box opens.",
+   "Type a short update (or tick 'already sent') and continue.",
+   "Read the small location chip next to the punch."
+  ],
+  "expected": "Punch lands with a toast showing the time + site. Chip reads 'at site' (green) / 'Xm from site — flagged' (amber) / 'approx ±Xm' / 'no location'. Punching out asks for the end-of-day message the same way.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Time Clock",
+  "feature": "Punch",
+  "title": "Location denied is soft — never blocks",
+  "precondition": "Browser location permission DENIED for the site",
+  "steps": [
+   "Deny location for the site in browser settings.",
+   "Punch in."
+  ],
+  "expected": "The punch still succeeds with a 'no location' chip. BUG CHECK: you get no hint that location was BLOCKED vs simply unavailable — log the missing guidance.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Time Clock",
+  "feature": "Break",
+  "title": "Breaks track and warn when over",
+  "precondition": "Clocked in",
+  "steps": [
+   "Click 'Start break' (answer the gate).",
+   "Wait past the allowance (or check with a long test break).",
+   "End the break."
+  ],
+  "expected": "Break time shows in Today; a red 'Break over by N min' warning appears when past the allowance.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Time Clock",
+  "feature": "Timesheet",
+  "title": "Manual and flagged punches are marked",
+  "precondition": "Some punches incl. a manager-adjusted one",
+  "steps": [
+   "Open the Timesheet tab, set range 14 days.",
+   "Expand a day and look at the punch chips."
+  ],
+  "expected": "Manager-adjusted punches show dashed with a ⓜ; out-of-fence ones are amber with ⚠; the legend explains both. (Manager screens use a plain 'M' for the same thing — log the inconsistency.)",
+  "priority": "Medium",
+  "type": "UI"
+ },
+ {
+  "module": "Time Clock",
+  "feature": "Timesheet",
+  "title": "Missed-punch self-correction has a 7-day window",
+  "precondition": "Timesheet open",
+  "steps": [
+   "Use 'Missed a punch?' to submit a correction for 2 days ago.",
+   "Then try one for 10 days ago."
+  ],
+  "expected": "Recent correction is accepted (flagged for manager review); the 10-day-old one is rejected by the server with a clear message.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Time Clock",
+  "feature": "Time off",
+  "title": "Request time off; check the year view",
+  "precondition": "Time off tab",
+  "steps": [
+   "Request 2 days of vacation next week with a note.",
+   "Look at 'Year at a glance'."
+  ],
+  "expected": "Request shows Pending; year view counts approved days by type. GAPS to log: no balance/entitlement shown anywhere, and end-before-start dates are accepted.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Time Clock",
+  "feature": "Manager",
+  "title": "Approve timecards day-by-day and week",
+  "precondition": "Manager; team punches exist",
+  "steps": [
+   "Open the Time admin area → Timecards.",
+   "Expand a person → approve one day, then 'Approve week'.",
+   "Adjust one punch afterwards and re-check the approval."
+  ],
+  "expected": "Approvals stick; after editing a punch the day shows as needing RE-approval (stale detection).",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Time Clock",
+  "feature": "Manager",
+  "title": "BUG CHECK — cancelling the reject prompt still rejects",
+  "precondition": "Manager; a pending time-off request",
+  "steps": [
+   "Click Reject on a pending time-off request.",
+   "When the browser prompt asks for a note, click CANCEL."
+  ],
+  "expected": "CURRENT BUG (high): the request is rejected anyway with an empty reason. Expected: cancel should abort. Verify and log.",
+  "priority": "High",
+  "type": "Bug check"
+ },
+ {
+  "module": "Time Clock",
+  "feature": "Manager",
+  "title": "Punch adjust keeps the original visible",
+  "precondition": "Manager; a punch to edit",
+  "steps": [
+   "Edit a punch time via the pencil.",
+   "Save and re-open the day."
+  ],
+  "expected": "The corrected punch shows as manual/adjusted and the original value is preserved (frozen) in the record.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Time Clock",
+  "feature": "Payroll",
+  "title": "Payroll timecard totals and OT",
+  "precondition": "Employees with >40h weeks",
+  "steps": [
+   "Open Payroll → pick an employee and a biweekly period.",
+   "Check the weekly split: regular vs overtime (1.5x over 40 h/week).",
+   "Set a rate and check the wage totals.",
+   "Click Approve and export CSV."
+  ],
+  "expected": "OT math is right per week. BUG CHECKS: (a) Approve may not stick / not show any approved state — verify against the Timecards tab; (b) CSV click gives no feedback if it fails; (c) with no employees the tab can spin forever. Log all.",
+  "priority": "High",
+  "type": "Bug check"
+ },
+ {
+  "module": "Time Clock",
+  "feature": "Shifts",
+  "title": "Build a weekly schedule",
+  "precondition": "Manager; a shift group with members",
+  "steps": [
+   "Create a shift preset (code, times, colour) and a group.",
+   "In the weekly grid click an empty cell to place a shift; click again to edit/remove.",
+   "Check the day/week hour totals and any 'Requested off' cells."
+  ],
+  "expected": "Shifts place/edit/remove; totals update. CAUTION/BUG: deleting a preset/group fires with no confirm — test on throwaways and log. Also note the grid is mouse-only (no keyboard) and scrolls sideways on phones.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Time Clock",
+  "feature": "Agent",
+  "title": "Desktop agent enroll and revoke",
+  "precondition": "Admin; a test machine",
+  "steps": [
+   "Open the desktop-agent admin: download the installer, enroll a device.",
+   "See the device in the table.",
+   "Click Revoke."
+  ],
+  "expected": "Device shows enrolled; screenshots surface on the person's day view. CAUTION/BUG: Revoke cuts the device instantly with NO confirm — log it.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Time Clock",
+  "feature": "Times",
+  "title": "Time format consistency (log all findings)",
+  "precondition": "Any account",
+  "steps": [
+   "Note the time format (12h vs 24h) on: the Clock tab, the Timesheet, Payroll, and the Shifts grid."
+  ],
+  "expected": "BUG CHECK: today these differ (locale-based on some screens, forced 12h on others). Log each screen's format so we can unify.",
+  "priority": "Low",
+  "type": "Bug check"
+ },
+ {
+  "module": "Dashboards",
+  "feature": "Layout",
+  "title": "Default dashboard loads for a new user",
+  "precondition": "A user with no saved views",
+  "steps": [
+   "Open Dashboard.",
+   "Count the starter widgets (clock, quick actions, KPI tiles, notifications, links)."
+  ],
+  "expected": "The default layout renders without gaps or overlaps; every widget shows data or a sensible empty state.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Dashboards",
+  "feature": "Widgets",
+  "title": "Add a KPI widget with the metric picker",
+  "precondition": "Dashboard open",
+  "steps": [
+   "Click 'Add widget'.",
+   "Pick a KPI tile → choose a metric from the picker (e.g. Open tasks).",
+   "Add it."
+  ],
+  "expected": "The gallery is grouped by category; the new tile lands at the bottom and shows the chosen metric. NOTE: adding with no metric picked currently creates a blank 'Metric / 0' tile — log if you manage it.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Dashboards",
+  "feature": "Widgets",
+  "title": "Drag, resize, remove — watch for overlaps",
+  "precondition": "Edit mode (Customize)",
+  "steps": [
+   "Click Customize.",
+   "Drag a widget by its header onto another widget's position.",
+   "Resize one from its corner handle over a neighbour.",
+   "Click Auto-fit afterwards."
+  ],
+  "expected": "BUG CHECK: drops/resizes can currently OVERLAP other widgets until you press Auto-fit. Log whether overlap happens. Remove (✕) should delete instantly.",
+  "priority": "High",
+  "type": "Bug check"
+ },
+ {
+  "module": "Dashboards",
+  "feature": "Views",
+  "title": "Save, rename, switch, delete views",
+  "precondition": "A customized layout",
+  "steps": [
+   "Customize → change something → Save (name it 'QA test').",
+   "Switch to 'Default layout' then back via the view dropdown.",
+   "Rename the view, set it as default, then delete it."
+  ],
+  "expected": "Each action works and survives a reload; delete asks for confirmation; the unsaved-changes guard prompts when switching away from a dirty layout.",
+  "priority": "High",
+  "type": "Functional"
+ },
+ {
+  "module": "Dashboards",
+  "feature": "Views",
+  "title": "Publish a department view (manager)",
+  "precondition": "Manager account",
+  "steps": [
+   "Build a layout → Save → publish it to your department.",
+   "Sign in as a teammate in that department and open their view dropdown."
+  ],
+  "expected": "The department view appears for teammates under 'Department views'; only the publisher can update/delete it.",
+  "priority": "Medium",
+  "type": "Functional"
+ },
+ {
+  "module": "Dashboards",
+  "feature": "Manager",
+  "title": "Manager Dashboard gating and team numbers",
+  "precondition": "One supervisor+ account, one plain employee",
+  "steps": [
+   "As an employee, try to open Manager Dashboard.",
+   "As a supervisor/manager, open it and read the team KPIs (approvals, attendance)."
+  ],
+  "expected": "The employee gets an access message. The manager sees team-scoped tiles and panels.",
+  "priority": "High",
+  "type": "Security"
+ },
+ {
+  "module": "Dashboards",
+  "feature": "Data",
+  "title": "BUG CHECK — 'Unread notifications' counts everything",
+  "precondition": "A user with read + unread notifications",
+  "steps": [
+   "Add the 'Unread notifications' KPI tile.",
+   "Read all your notifications via the bell.",
+   "Watch the tile."
+  ],
+  "expected": "CURRENT BUG: the number does not drop — it counts ALL notifications, not unread. Log it.",
+  "priority": "Medium",
+  "type": "Bug check"
+ },
+ {
+  "module": "Dashboards",
+  "feature": "Data",
+  "title": "BUG CHECK — sample data shown as live",
+  "precondition": "Manager dashboard",
+  "steps": [
+   "Add the Facilities/Occupancy panel and the Team analytics panels.",
+   "Compare the numbers to reality."
+  ],
+  "expected": "CURRENT BUG (trust): these panels show hardcoded sample data ('Live occupancy…') that never changes. Log which panels are fake so they can be wired or badged 'Sample'.",
+  "priority": "High",
+  "type": "Bug check"
+ },
+ {
+  "module": "Dashboards",
+  "feature": "Data",
+  "title": "Widgets after an approval — stale numbers",
+  "precondition": "A pending requisition + the matching KPI tile",
+  "steps": [
+   "Note the 'to approve' count on the tile.",
+   "Approve the requisition from the approvals panel.",
+   "Watch the tile (without reloading)."
+  ],
+  "expected": "BUG CHECK: the tile currently stays stale until a full page reload. Log it.",
+  "priority": "Medium",
+  "type": "Bug check"
+ },
+ {
+  "module": "Dashboards",
+  "feature": "Notes",
+  "title": "BUG CHECK — notes typed outside edit mode can be lost",
+  "precondition": "A Notes widget on the dashboard",
+  "steps": [
+   "WITHOUT entering Customize, click into the Notes widget and type something.",
+   "Click elsewhere (blur), then navigate to another module and come back."
+  ],
+  "expected": "CURRENT BUG: the note may be gone — typing in view mode marks changes but there is no Save outside edit mode. Log what happens.",
+  "priority": "Medium",
+  "type": "Bug check"
+ },
+ {
+  "module": "Dashboards",
+  "feature": "Mobile",
+  "title": "Phone behaviour is honest",
+  "precondition": "A phone or narrow window (<700px)",
+  "steps": [
+   "Open Dashboard on a phone.",
+   "Try Customize → try to drag or resize."
+  ],
+  "expected": "Widgets stack in one column. BUG CHECK: Customize still shows drag/resize handles that silently do nothing on mobile — log it.",
+  "priority": "Medium",
+  "type": "Bug check"
+ }
+]

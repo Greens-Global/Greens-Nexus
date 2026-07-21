@@ -68,7 +68,7 @@ export function WidgetGallery({ target, can, onAdd, onClose }) {
           <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
             <button className="secondary-btn" onClick={() => setPicking(null)}>Back</button>
             <button className="primary-btn" onClick={() => { onAdd(picking.type, picking.config); onClose(); }}>
-              <Plus size={14} /> Add widget
+              <Plus size={14} /> Add Widget
             </button>
           </div>
         </Shell>
@@ -78,7 +78,7 @@ export function WidgetGallery({ target, can, onAdd, onClose }) {
 
   return (
     <Overlay onClose={onClose}>
-      <Shell title="Add a widget" sub="Click to add — you can move and resize it after" onClose={onClose}>
+      <Shell title="Add a Widget" sub="Click to add — you can move and resize it after" onClose={onClose}>
         {cats.map(cat => (
           <div key={cat} style={{ marginBottom: 18 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>{cat}</div>

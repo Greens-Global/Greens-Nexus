@@ -7,22 +7,40 @@ import { api } from '../api';
 import { supabase } from '../lib/supabase';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
+import { STATUS_META, STATUS_ORDER, NX } from './theme';
 
 const Ctx = createContext(null);
+
+// Merge the four built-in statuses with the workspace's custom statuses so every
+// status surface (dropdowns, chips, board columns, filters, grouping) reflects
+// what's defined in Manage → Custom Statuses. Custom-status ids are stored on
+// tasks as their `status`, so both the lookup map and the ordered list key on id.
+function buildStatusMeta(customStatuses) {
+  const meta = { ...STATUS_META };
+  for (const c of customStatuses || []) {
+    meta[c.id] = { label: c.label, color: c.color || NX.dim, tint: `${c.color || NX.dim}1a` };
+  }
+  return meta;
+}
+function buildStatusOrder(customStatuses) {
+  const custom = [...(customStatuses || [])].sort((a, b) => (a.position || 0) - (b.position || 0));
+  return [...STATUS_ORDER, ...custom.map((c) => c.id)];
+}
 
 // camelCase (frontend) → snake_case (API body). The backend serialises replies
 // back to camelCase, so we only map on the way out.
 const CAMEL_TO_SNAKE = {
   assigneeId: 'assignee_email', followerIds: 'follower_emails', likedByIds: 'liked_by_emails',
   accessLevel: 'access_level', projectId: 'project_id', sectionId: 'section_id',
-  departmentId: 'department_id', parentTaskId: 'parent_task_id', subtaskIds: 'subtask_ids',
+  departmentId: 'department_id', departmentIds: 'department_ids', parentTaskId: 'parent_task_id', subtaskIds: 'subtask_ids',
   blockedByIds: 'blocked_by_ids', blockingIds: 'blocking_ids', dependencyTypes: 'dependency_types',
   customFieldValues: 'custom_field_values', startOn: 'start_on', dueOn: 'due_on',
   estimateHours: 'estimate_hours', actualHours: 'actual_hours', isMilestone: 'is_milestone',
   approvalStatus: 'approval_status', ownerId: 'owner_email', memberIds: 'member_emails',
   portfolioId: 'portfolio_id', projectIds: 'project_ids', targetProjectId: 'target_project_id',
   requesterId: 'requester_email', linkedTaskId: 'linked_task_id', slaDueOn: 'sla_due_on',
-  subtaskTitles: 'subtask_titles',
+  watcherIds: 'watcher_emails', csatRating: 'csat_rating', csatComment: 'csat_comment',
+  taskIds: 'task_ids', subtaskTitles: 'subtask_titles',
 };
 function toBody(patch) {
   const out = {};
@@ -39,6 +57,7 @@ export function TasksProvider({ children }) {
   const [portfolios, setPortfolios] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [tickets, setTickets] = useState([]);
+  const [ticketComponents, setTicketComponents] = useState([]);
   const [savedViews, setSavedViews] = useState([]);
   const [rules, setRules] = useState([]);
   const [templates, setTemplates] = useState([]);
@@ -52,12 +71,13 @@ export function TasksProvider({ children }) {
   const commentCache = useRef({});   // taskId -> comment[]
 
   const loadCore = useCallback(async () => {
-    const [t, p, pf, d, tk, sv, r, tpl, cf, cs, mr, intk, chl] = await Promise.all([
+    const [t, p, pf, d, tk, tc, sv, r, tpl, cf, cs, mr, intk, chl] = await Promise.all([
       api.getTasks().catch(() => []),
       api.getTaskProjects().catch(() => []),
       api.getTaskPortfolios().catch(() => []),
       api.getTaskDepartments().catch(() => []),
       api.getTaskTickets().catch(() => []),
+      api.getTicketComponents().catch(() => []),
       api.getTaskSavedViews().catch(() => []),
       api.getTaskAutomationRules().catch(() => []),
       api.getTaskTemplates().catch(() => []),
@@ -68,7 +88,7 @@ export function TasksProvider({ children }) {
       api.getTaskChangelog().catch(() => []),
     ]);
     setTasks(t || []); setProjects(p || []); setPortfolios(pf || []); setDepartments(d || []);
-    setTickets(tk || []); setSavedViews(sv || []); setRules(r || []); setTemplates(tpl || []);
+    setTickets(tk || []); setTicketComponents(tc || []); setSavedViews(sv || []); setRules(r || []); setTemplates(tpl || []);
     setCustomFields(cf || []); setCustomStatuses(cs || []); setMemberRequests(mr || []);
     setIntakeForms(intk || []); setChangelog(chl || []);
     setLoading(false);
@@ -171,6 +191,13 @@ export function TasksProvider({ children }) {
     createTicket: mk(api.createTaskTicket, setTickets),
     updateTicket: mkUpd(api.updateTaskTicket, setTickets),
     deleteTicket: mkDel(api.deleteTaskTicket, setTickets),
+    createTicketComponent: mk(api.addTicketComponent, setTicketComponents),
+    deleteTicketComponent: mkDel(api.deleteTicketComponent, setTicketComponents),
+    // link/escalate return the updated ticket(s); refresh the whole list so the
+    // inverse link on the other ticket (and any priority bump) is reflected too.
+    addTicketLink: async (id, targetId, type) => { const r = await api.addTicketLink(id, { ticket_id: targetId, type }); setTickets(await api.getTaskTickets().catch(() => [])); return r; },
+    removeTicketLink: async (id, targetId) => { const r = await api.removeTicketLink(id, targetId); setTickets(await api.getTaskTickets().catch(() => [])); return r; },
+    escalateTicket: async (id) => { const r = await api.escalateTicket(id); setTickets((p) => p.map((x) => (x.id === id ? r : x))); return r; },
     createSavedView: mk(api.createTaskSavedView, setSavedViews),
     deleteSavedView: mkDel(api.deleteTaskSavedView, setSavedViews),
     createRule: mk(api.createTaskAutomationRule, setRules),
@@ -207,10 +234,15 @@ export function TasksProvider({ children }) {
     await api.markAllTaskNotificationsRead().catch(() => {});
   }, []);
 
+  // Merged status metadata + order (built-in + custom), recomputed when custom
+  // statuses change — the single source every status surface should read from.
+  const statusMeta = useMemo(() => buildStatusMeta(customStatuses), [customStatuses]);
+  const statusOrder = useMemo(() => buildStatusOrder(customStatuses), [customStatuses]);
+
   const value = {
     loading, myEmail, nameOf,
-    tasks, projects, portfolios, departments, tickets, savedViews, rules, templates,
-    customFields, customStatuses, notifications, memberRequests, intakeForms, changelog,
+    tasks, projects, portfolios, departments, tickets, ticketComponents, savedViews, rules, templates,
+    customFields, customStatuses, statusMeta, statusOrder, notifications, memberRequests, intakeForms, changelog,
     taskById, projectById, portfolioById, deptById, projectName, deptName,
     getComments, addComment, commentCache: commentCache.current,
     createTask, updateTask, deleteTask, bulkUpdate, toggleComplete, setStatus,

@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
   BarChart3, Download, X, CheckCircle2, Flag, ArrowRightLeft, User, Calendar, MessageSquare,
-  Circle, Palette,
+  Circle, Palette, Users, List,
 } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { api } from '../api';
@@ -15,7 +15,9 @@ import {
   STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER, colorForKey,
 } from './theme';
 import { Avatar, EmptyState, Modal } from './components';
-import { taskStats, topLevel } from './lib';
+import { taskStats, topLevel, fmtDateTime } from './lib';
+import TasksWorkspace from './TasksWorkspace';
+import { DeptModal, deptIcon } from './TeamsView';
 
 // ── Small shared bits ─────────────────────────────────────────────────────────
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
@@ -57,12 +59,14 @@ const SWATCHES = [NX.blue, NX.green, NX.amber, NX.red, NX.purple, NX.teal, NX.pi
 
 // ── Sub-tabs registry ─────────────────────────────────────────────────────────
 const SUBTABS = [
-  { key: 'rules', label: 'Automation rules', icon: Zap },
-  { key: 'fields', label: 'Custom fields', icon: ListChecks },
-  { key: 'statuses', label: 'Custom statuses', icon: Palette },
+  { key: 'tasklist', label: 'Task List', icon: List },
+  { key: 'departments', label: 'Teams', icon: Users },
+  { key: 'rules', label: 'Automation Rules', icon: Zap },
+  { key: 'fields', label: 'Custom Fields', icon: ListChecks },
+  { key: 'statuses', label: 'Custom Statuses', icon: Palette },
   { key: 'templates', label: 'Templates', icon: FileText },
-  { key: 'intake', label: 'Intake forms', icon: Inbox },
-  { key: 'activity', label: 'Activity log', icon: ActivityIcon },
+  { key: 'intake', label: 'Intake Forms', icon: Inbox },
+  { key: 'activity', label: 'Activity Log', icon: ActivityIcon },
   { key: 'reporting', label: 'Reporting', icon: BarChart3 },
 ];
 
@@ -88,18 +92,76 @@ export default function ManageView() {
         })}
       </div>
 
-      {/* Body */}
-      <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.surface2, padding: 20 }}>
-        <div style={{ maxWidth: 940, margin: '0 auto' }}>
-          {tab === 'rules' && <RulesTab store={store} />}
-          {tab === 'fields' && <FieldsTab store={store} />}
-          {tab === 'statuses' && <StatusesTab store={store} />}
-          {tab === 'templates' && <TemplatesTab store={store} />}
-          {tab === 'intake' && <IntakeTab store={store} />}
-          {tab === 'activity' && <ActivityTab store={store} />}
-          {tab === 'reporting' && <ReportingTab store={store} />}
+      {/* Body — the Task List is full-bleed (wide, self-scrolling table); the rest
+          keep the centered admin column. */}
+      {tab === 'tasklist' ? (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <TasksWorkspace title="Task List" />
         </div>
-      </div>
+      ) : (
+        <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.surface2, padding: 20 }}>
+          <div style={{ maxWidth: 940, margin: '0 auto' }}>
+            {tab === 'departments' && <DepartmentsTab store={store} />}
+            {tab === 'rules' && <RulesTab store={store} />}
+            {tab === 'fields' && <FieldsTab store={store} />}
+            {tab === 'statuses' && <StatusesTab store={store} />}
+            {tab === 'templates' && <TemplatesTab store={store} />}
+            {tab === 'intake' && <IntakeTab store={store} />}
+            {tab === 'activity' && <ActivityTab store={store} />}
+            {tab === 'reporting' && <ReportingTab store={store} />}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ── 0. Departments — creation lives here (Manage-only); Teams page browses/edits ──
+function DepartmentsTab({ store }) {
+  const { departments, tasks, nameOf, deleteDepartment } = store;
+  const [editing, setEditing] = useState(null); // {} for new, dept object to edit, null closed
+
+  const taskCountByDept = useMemo(() => {
+    const m = {};
+    for (const t of tasks) if (t.departmentId) m[t.departmentId] = (m[t.departmentId] || 0) + 1;
+    return m;
+  }, [tasks]);
+
+  return (
+    <div>
+      <SectionHead title="Teams" hint="Create and manage the teams members are grouped into."
+        action={<button style={btn('primary')} onClick={() => setEditing({})}><Plus size={15} />New Team</button>} />
+
+      {departments.length === 0 ? (
+        <EmptyState icon={Users} title="No Teams Yet" hint="Create a team to group members and their work." />
+      ) : (
+        departments.map((d) => {
+          const Icon = deptIcon(d.icon);
+          const color = d.color || NX.blue;
+          const members = d.memberIds || [];
+          return (
+            <RowCard key={d.id}>
+              <span style={{ ...iconBadge, background: `${color}1a`, color }}><Icon size={16} /></span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: NX.ink }}>{d.name}</div>
+                <div style={{ fontSize: 12, color: NX.faint, marginTop: 1 }}>
+                  {members.length} member{members.length === 1 ? '' : 's'} · {taskCountByDept[d.id] || 0} task{(taskCountByDept[d.id] || 0) === 1 ? '' : 's'}
+                </div>
+              </div>
+              <IconButton icon={Pencil} title="Edit Team" onClick={() => setEditing(d)} />
+            </RowCard>
+          );
+        })
+      )}
+
+      {editing && (
+        <DeptModal
+          dept={editing.id ? editing : null}
+          onClose={() => setEditing(null)}
+          onDelete={editing.id ? () => { if (confirm(`Delete "${editing.name}"? This can't be undone.`)) { deleteDepartment(editing.id); setEditing(null); } } : null}
+        />
+      )}
     </div>
   );
 }
@@ -137,12 +199,12 @@ function RulesTab({ store }) {
   return (
     <div>
       <SectionHead
-        title="Automation rules"
+        title="Automation Rules"
         hint="Trigger → action rules that run automatically across tasks."
-        action={<button style={btn('primary')} onClick={() => setEditing('new')}><Plus size={15} />Add rule</button>}
+        action={<button style={btn('primary')} onClick={() => setEditing('new')}><Plus size={15} />Add Rule</button>}
       />
       {rules.length === 0 ? (
-        <EmptyState icon={Zap} title="No rules yet" hint="Add a rule to automate status, priority and tagging." />
+        <EmptyState icon={Zap} title="No Rules Yet" hint="Add a rule to automate status, priority and tagging." />
       ) : rules.map((r) => (
         <RowCard key={r.id}>
           <span style={{ ...iconBadge, color: NX.amber }}><Zap size={16} /></span>
@@ -153,8 +215,8 @@ function RulesTab({ store }) {
             </div>
           </div>
           <Toggle on={!!r.enabled} onChange={() => updateRule(r.id, { enabled: !r.enabled })} />
-          <IconButton icon={Pencil} title="Edit rule" onClick={() => setEditing(r)} />
-          <IconButton icon={Trash2} title="Delete rule" danger onClick={() => { if (confirm(`Delete rule "${r.name}"?`)) deleteRule(r.id); }} />
+          <IconButton icon={Pencil} title="Edit Rule" onClick={() => setEditing(r)} />
+          <IconButton icon={Trash2} title="Delete Rule" danger onClick={() => { if (confirm(`Delete rule "${r.name}"?`)) deleteRule(r.id); }} />
         </RowCard>
       ))}
       {editing && (
@@ -184,6 +246,7 @@ function Toggle({ on, onChange }) {
 }
 
 function RuleModal({ rule, onClose, onSave }) {
+  const { statusOrder, statusMeta } = useTasks();
   const [name, setName] = useState(rule?.name || '');
   const [enabled, setEnabled] = useState(rule ? !!rule.enabled : true);
   const [trigger, setTrigger] = useState(rule?.trigger?.type || 'status_changed');
@@ -207,7 +270,7 @@ function RuleModal({ rule, onClose, onSave }) {
   };
 
   return (
-    <Modal title={rule ? 'Edit rule' : 'New rule'} onClose={onClose} footer={
+    <Modal title={rule ? 'Edit Rule' : 'New Rule'} onClose={onClose} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
         <button style={btn('primary')} onClick={save}>{rule ? 'Save rule' : 'Add rule'}</button>
@@ -230,8 +293,8 @@ function RuleModal({ rule, onClose, onSave }) {
         {!NO_TRIGGER_VALUE.includes(trigger) && (
           <Field label="Value">
             <select value={triggerValue} onChange={(e) => setTriggerValue(e.target.value)} style={selectStyle}>
-              {(trigger === 'status_changed' ? STATUS_KEYS : PRIORITY_KEYS).map((k) => (
-                <option key={k} value={k}>{(trigger === 'status_changed' ? STATUS_META : PRIORITY_META)[k].label}</option>
+              {(trigger === 'status_changed' ? statusOrder : PRIORITY_KEYS).map((k) => (
+                <option key={k} value={k}>{trigger === 'status_changed' ? (statusMeta[k]?.label || k) : PRIORITY_META[k].label}</option>
               ))}
             </select>
           </Field>
@@ -252,17 +315,17 @@ function RuleModal({ rule, onClose, onSave }) {
                 </select>
               ) : a.type === 'set_status' ? (
                 <select value={a.value} onChange={(e) => setAction(i, { value: e.target.value })} style={{ ...selectStyle, flex: 1 }}>
-                  {STATUS_KEYS.map((s) => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
+                  {statusOrder.map((s) => <option key={s} value={s}>{statusMeta[s]?.label || s}</option>)}
                 </select>
               ) : (
                 <input value={a.value} onChange={(e) => setAction(i, { value: e.target.value })} placeholder="Tag" style={{ ...inputStyle, flex: 1 }} />
               )
             )}
-            <IconButton icon={X} title="Remove action" onClick={() => removeAction(i)} />
+            <IconButton icon={X} title="Remove Action" onClick={() => removeAction(i)} />
           </div>
         ))}
       </div>
-      <button style={{ ...btn('outline'), marginTop: 8 }} onClick={addAction}><Plus size={14} />Add action</button>
+      <button style={{ ...btn('outline'), marginTop: 8 }} onClick={addAction}><Plus size={14} />Add Action</button>
     </Modal>
   );
 }
@@ -273,6 +336,7 @@ const FIELD_TYPES = [
   { value: 'number', label: 'Number' },
   { value: 'date', label: 'Date' },
   { value: 'select', label: 'Select' },
+  { value: 'checkbox', label: 'Checkbox' },
 ];
 
 function FieldsTab({ store }) {
@@ -282,12 +346,12 @@ function FieldsTab({ store }) {
   return (
     <div>
       <SectionHead
-        title="Custom fields"
+        title="Custom Fields"
         hint="Extra fields you can attach to tasks (text, number, date or a select list)."
-        action={<button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New custom field</button>}
+        action={<button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New Custom Field</button>}
       />
       {customFields.length === 0 ? (
-        <EmptyState icon={ListChecks} title="No custom fields" hint="Add a field to capture extra data on tasks." />
+        <EmptyState icon={ListChecks} title="No Custom Fields" hint="Add a field to capture extra data on tasks." />
       ) : customFields.map((f) => (
         <RowCard key={f.id}>
           <span style={{ ...iconBadge, color: NX.blue }}><ListChecks size={16} /></span>
@@ -299,7 +363,7 @@ function FieldsTab({ store }) {
             )}
           </div>
           <span style={chip(NX.dim, NX.border2)}>{FIELD_TYPES.find((t) => t.value === f.type)?.label || f.type}</span>
-          <IconButton icon={Trash2} title="Delete field" danger onClick={() => { if (confirm(`Delete field "${f.name}"?`)) deleteCustomField(f.id); }} />
+          <IconButton icon={Trash2} title="Delete Field" danger onClick={() => { if (confirm(`Delete field "${f.name}"?`)) deleteCustomField(f.id); }} />
         </RowCard>
       ))}
       {adding && <FieldModal onClose={() => setAdding(false)} onSave={async (d) => { await createCustomField(d); setAdding(false); }} />}
@@ -321,10 +385,10 @@ function FieldModal({ onClose, onSave }) {
   };
 
   return (
-    <Modal title="New custom field" onClose={onClose} footer={
+    <Modal title="New Custom Field" onClose={onClose} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
-        <button style={btn('primary')} onClick={save}>Add field</button>
+        <button style={btn('primary')} onClick={save}>Add Field</button>
       </>
     }>
       <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Story points" style={inputStyle} /></Field>
@@ -341,11 +405,11 @@ function FieldModal({ onClose, onSave }) {
             {options.map((o, i) => (
               <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <input value={o} onChange={(e) => setOpt(i, e.target.value)} placeholder={`Option ${i + 1}`} style={{ ...inputStyle, flex: 1 }} />
-                <IconButton icon={X} title="Remove option" onClick={() => setOptions((prev) => prev.filter((_, idx) => idx !== i))} />
+                <IconButton icon={X} title="Remove Option" onClick={() => setOptions((prev) => prev.filter((_, idx) => idx !== i))} />
               </div>
             ))}
           </div>
-          <button style={{ ...btn('outline'), marginTop: 8 }} onClick={() => setOptions((prev) => [...prev, ''])}><Plus size={14} />Add option</button>
+          <button style={{ ...btn('outline'), marginTop: 8 }} onClick={() => setOptions((prev) => [...prev, ''])}><Plus size={14} />Add Option</button>
         </div>
       )}
     </Modal>
@@ -360,17 +424,17 @@ function StatusesTab({ store }) {
   return (
     <div>
       <SectionHead
-        title="Custom statuses"
+        title="Custom Statuses"
         hint="Additional workflow statuses beyond the four built-in ones."
-        action={<button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New status</button>}
+        action={<button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New Status</button>}
       />
       {customStatuses.length === 0 ? (
-        <EmptyState icon={Palette} title="No custom statuses" hint="Add a status to model your own workflow stages." />
+        <EmptyState icon={Palette} title="No Custom Statuses" hint="Add a status to model your own workflow stages." />
       ) : customStatuses.map((s) => (
         <RowCard key={s.id}>
           <span style={{ width: 14, height: 14, borderRadius: '50%', background: s.color || NX.dim, flexShrink: 0, marginLeft: 6 }} />
           <div style={{ flex: 1, fontSize: 13.5, fontWeight: 700 }}>{s.label}</div>
-          <IconButton icon={Trash2} title="Delete status" danger onClick={() => { if (confirm(`Delete status "${s.label}"?`)) deleteCustomStatus(s.id); }} />
+          <IconButton icon={Trash2} title="Delete Status" danger onClick={() => { if (confirm(`Delete status "${s.label}"?`)) deleteCustomStatus(s.id); }} />
         </RowCard>
       ))}
       {adding && <StatusModal onClose={() => setAdding(false)} onSave={async (d) => { await createCustomStatus(d); setAdding(false); }} />}
@@ -384,10 +448,10 @@ function StatusModal({ onClose, onSave }) {
   const save = () => { if (label.trim()) onSave({ label: label.trim(), color }); };
 
   return (
-    <Modal title="New status" width={440} onClose={onClose} footer={
+    <Modal title="New Status" width={440} onClose={onClose} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
-        <button style={btn('primary')} onClick={save}>Add status</button>
+        <button style={btn('primary')} onClick={save}>Add Status</button>
       </>
     }>
       <Field label="Label"><input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Blocked" style={inputStyle} /></Field>
@@ -414,10 +478,10 @@ function TemplatesTab({ store }) {
       <SectionHead
         title="Templates"
         hint="Reusable task blueprints — default fields plus a pre-built subtask list."
-        action={<button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New template</button>}
+        action={<button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New Template</button>}
       />
       {templates.length === 0 ? (
-        <EmptyState icon={FileText} title="No templates" hint="Create a template to spin up recurring work fast." />
+        <EmptyState icon={FileText} title="No Templates" hint="Create a template to spin up recurring work fast." />
       ) : templates.map((t) => (
         <RowCard key={t.id}>
           <span style={{ ...iconBadge, color: NX.purple }}><FileText size={16} /></span>
@@ -426,7 +490,7 @@ function TemplatesTab({ store }) {
             {t.description && <div style={{ fontSize: 12, color: NX.dim, marginTop: 1 }}>{t.description}</div>}
           </div>
           <span style={chip(NX.dim, NX.border2)}>{(t.subtaskTitles || []).length} subtasks</span>
-          <IconButton icon={Trash2} title="Delete template" danger onClick={() => { if (confirm(`Delete template "${t.name}"?`)) deleteTemplate(t.id); }} />
+          <IconButton icon={Trash2} title="Delete Template" danger onClick={() => { if (confirm(`Delete template "${t.name}"?`)) deleteTemplate(t.id); }} />
         </RowCard>
       ))}
       {adding && <TemplateModal onClose={() => setAdding(false)} onSave={async (d) => { await createTemplate(d); setAdding(false); }} />}
@@ -435,6 +499,7 @@ function TemplatesTab({ store }) {
 }
 
 function TemplateModal({ onClose, onSave }) {
+  const { statusOrder, statusMeta } = useTasks();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState('');
@@ -456,10 +521,10 @@ function TemplateModal({ onClose, onSave }) {
   };
 
   return (
-    <Modal title="New template" onClose={onClose} footer={
+    <Modal title="New Template" onClose={onClose} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
-        <button style={btn('primary')} onClick={save}>Add template</button>
+        <button style={btn('primary')} onClick={save}>Add Template</button>
       </>
     }>
       <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. New hire onboarding" style={inputStyle} /></Field>
@@ -474,7 +539,7 @@ function TemplateModal({ onClose, onSave }) {
         <Field label="Default status">
           <select value={status} onChange={(e) => setStatus(e.target.value)} style={selectStyle}>
             <option value="">No default</option>
-            {STATUS_KEYS.map((s) => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
+            {statusOrder.map((s) => <option key={s} value={s}>{statusMeta[s]?.label || s}</option>)}
           </select>
         </Field>
       </div>
@@ -483,11 +548,11 @@ function TemplateModal({ onClose, onSave }) {
         {subtasks.map((s, i) => (
           <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <input value={s} onChange={(e) => setSub(i, e.target.value)} placeholder={`Subtask ${i + 1}`} style={{ ...inputStyle, flex: 1 }} />
-            <IconButton icon={X} title="Remove subtask" onClick={() => setSubtasks((prev) => prev.filter((_, idx) => idx !== i))} />
+            <IconButton icon={X} title="Remove Subtask" onClick={() => setSubtasks((prev) => prev.filter((_, idx) => idx !== i))} />
           </div>
         ))}
       </div>
-      <button style={{ ...btn('outline'), marginTop: 8 }} onClick={() => setSubtasks((prev) => [...prev, ''])}><Plus size={14} />Add subtask</button>
+      <button style={{ ...btn('outline'), marginTop: 8 }} onClick={() => setSubtasks((prev) => [...prev, ''])}><Plus size={14} />Add Subtask</button>
     </Modal>
   );
 }
@@ -502,12 +567,12 @@ function IntakeTab({ store }) {
   return (
     <div>
       <SectionHead
-        title="Intake forms"
+        title="Intake Forms"
         hint="Public request forms that funnel new work into a target project."
-        action={<button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New form</button>}
+        action={<button style={btn('primary')} onClick={() => setAdding(true)}><Plus size={15} />New Form</button>}
       />
       {intakeForms.length === 0 ? (
-        <EmptyState icon={Inbox} title="No intake forms" hint="Create a form to collect structured requests." />
+        <EmptyState icon={Inbox} title="No Intake Forms" hint="Create a form to collect structured requests." />
       ) : intakeForms.map((f) => (
         <RowCard key={f.id}>
           <span style={{ ...iconBadge, color: NX.teal }}><Inbox size={16} /></span>
@@ -518,7 +583,7 @@ function IntakeTab({ store }) {
               {f.targetProjectId ? ` → ${projectName(f.targetProjectId) || 'project'}` : ' · no target project'}
             </div>
           </div>
-          <IconButton icon={Trash2} title="Delete form" danger onClick={() => { if (confirm(`Delete form "${f.title}"?`)) deleteIntakeForm(f.id); }} />
+          <IconButton icon={Trash2} title="Delete Form" danger onClick={() => { if (confirm(`Delete form "${f.title}"?`)) deleteIntakeForm(f.id); }} />
         </RowCard>
       ))}
       {adding && <IntakeModal projects={projects} onClose={() => setAdding(false)} onSave={async (d) => { await createIntakeForm(d); setAdding(false); }} />}
@@ -542,10 +607,10 @@ function IntakeModal({ projects, onClose, onSave }) {
   };
 
   return (
-    <Modal title="New intake form" onClose={onClose} footer={
+    <Modal title="New Intake Form" onClose={onClose} footer={
       <>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
-        <button style={btn('primary')} onClick={save}>Add form</button>
+        <button style={btn('primary')} onClick={save}>Add Form</button>
       </>
     }>
       <Field label="Title"><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. IT support request" style={inputStyle} /></Field>
@@ -563,11 +628,11 @@ function IntakeModal({ projects, onClose, onSave }) {
             <select value={f.type} onChange={(e) => setField(i, { type: e.target.value })} style={{ ...selectStyle, width: 130 }}>
               {INTAKE_FIELD_TYPES.map((t) => <option key={t} value={t}>{t[0].toUpperCase() + t.slice(1)}</option>)}
             </select>
-            <IconButton icon={X} title="Remove field" onClick={() => setFields((prev) => prev.filter((_, idx) => idx !== i))} />
+            <IconButton icon={X} title="Remove Field" onClick={() => setFields((prev) => prev.filter((_, idx) => idx !== i))} />
           </div>
         ))}
       </div>
-      <button style={{ ...btn('outline'), marginTop: 8 }} onClick={() => setFields((prev) => [...prev, { label: '', type: 'text' }])}><Plus size={14} />Add field</button>
+      <button style={{ ...btn('outline'), marginTop: 8 }} onClick={() => setFields((prev) => [...prev, { label: '', type: 'text' }])}><Plus size={14} />Add Field</button>
     </Modal>
   );
 }
@@ -594,17 +659,17 @@ function ActivityTab({ store }) {
 
   return (
     <div>
-      <SectionHead title="Activity log" hint="A running history of everything that happened across tasks and projects." />
+      <SectionHead title="Activity Log" hint="A running history of everything that happened across tasks and projects." />
       {rows === null ? (
         <div style={{ padding: 40, textAlign: 'center', color: NX.faint, fontSize: 13 }}>Loading activity…</div>
       ) : sorted.length === 0 ? (
-        <EmptyState icon={ActivityIcon} title="No activity yet" hint="Actions across the workspace will show up here." />
+        <EmptyState icon={ActivityIcon} title="No Activity Yet" hint="Actions across the workspace will show up here." />
       ) : (
         <div style={{ ...card, padding: 6 }}>
           {sorted.map((e) => {
             const Icon = e.entityKind === 'project' ? FileText : (ACTIVITY_ICON[e.type] || Circle);
             const actor = e.actorId ? nameOf(e.actorId) : 'Someone';
-            const when = e.at ? new Date(e.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+            const when = fmtDateTime(e.at);
             return (
               <div key={e.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 11, padding: '9px 10px', borderRadius: 8 }}>
                 {e.actorId
@@ -677,7 +742,7 @@ function ReportingTab({ store }) {
   const list = useMemo(() => topLevel(tasks), [tasks]);
   const stats = useMemo(() => taskStats(list), [list]);
 
-  const byStatus = STATUS_KEYS.map((s) => ({ label: STATUS_META[s].label, value: list.filter((t) => t.status === s).length, color: STATUS_META[s].color }));
+  const byStatus = store.statusOrder.map((s) => ({ label: store.statusMeta[s]?.label || s, value: list.filter((t) => t.status === s).length, color: store.statusMeta[s]?.color })).filter((d) => d.value > 0);
   const byPriority = PRIORITY_KEYS.map((p) => ({ label: PRIORITY_META[p].label, value: list.filter((t) => t.priority === p).length, color: PRIORITY_META[p].color }));
   const byProject = (projects || []).map((p) => ({ label: p.name, value: list.filter((t) => t.projectId === p.id).length, color: colorForKey(p.id) }));
 
@@ -686,7 +751,7 @@ function ReportingTab({ store }) {
     const rows = list.map((t) => [
       t.code || '',
       t.title || '',
-      STATUS_META[t.status]?.label || t.status || '',
+      store.statusMeta[t.status]?.label || t.status || '',
       PRIORITY_META[t.priority]?.label || t.priority || '',
       t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned',
       t.projectId ? (projectName(t.projectId) || '—') : '—',
@@ -696,10 +761,10 @@ function ReportingTab({ store }) {
   };
 
   const kpis = [
-    { label: 'Completion rate', value: `${stats.pct}%`, color: NX.green },
-    { label: 'In progress', value: stats.inProgress, color: NX.blue },
+    { label: 'Completion Rate', value: `${stats.pct}%`, color: NX.green },
+    { label: 'In Progress', value: stats.inProgress, color: NX.blue },
     { label: 'Overdue', value: stats.overdue, color: NX.red },
-    { label: 'Total tasks', value: stats.total, color: NX.primary },
+    { label: 'Total Tasks', value: stats.total, color: NX.primary },
   ];
 
   return (
@@ -719,10 +784,10 @@ function ReportingTab({ store }) {
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
-        <ReportCard title="Tasks by status"><BarRows data={byStatus} /></ReportCard>
-        <ReportCard title="Tasks by priority"><BarRows data={byPriority} /></ReportCard>
-        <ReportCard title="Tasks by project"><BarRows data={byProject} /></ReportCard>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: 12 }}>
+        <ReportCard title="Tasks by Status"><BarRows data={byStatus} /></ReportCard>
+        <ReportCard title="Tasks by Priority"><BarRows data={byPriority} /></ReportCard>
+        <ReportCard title="Tasks by Project"><BarRows data={byProject} /></ReportCard>
       </div>
     </div>
   );

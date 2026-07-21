@@ -2,11 +2,11 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Clock, LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,
   CheckCircle, Loader2, Plus, X, CalendarDays, Monitor, ChevronDown,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { api } from '../api';
-import DayTimeline, { TimelineLegend } from '../components/DayTimeline';
+import DayTimeline from '../components/DayTimeline';
 import BodModal from '../components/BodModal';
-import DayActivity from '../components/DayActivity';
 
 const PUNCH_CHIP = {
   in:          { bg: 'hsla(var(--color-green),0.1)', fg: 'hsl(var(--color-green))' },
@@ -28,6 +28,23 @@ const KIND_META = {
   break_end:   { label: 'End break',  Icon: Play,   bg: 'var(--pine)', fg: '#fff' },
 };
 const KIND_LABEL = { in: 'In', out: 'Out', break_start: 'Break start', break_end: 'Break end' };
+const CARD_S = { background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12 };
+
+// Timesheet motion (module-scoped, CSS keyframes — reliable regardless of tab focus).
+if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
+  const s = document.createElement('style');
+  s.id = 'ts-anim';
+  s.textContent = `
+    @keyframes tsGrow { from { transform: scaleX(.02); } to { transform: scaleX(1); } }
+    @keyframes tsIn   { from { opacity: .2; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    @keyframes tsPulse{ 0%,100% { opacity: .5; } 50% { opacity: 1; } }
+    .ts-block { transform-origin: left; animation: tsGrow .6s cubic-bezier(.22,1,.36,1) forwards; transition: filter .12s ease; }
+    .ts-block:hover { filter: brightness(1.08); }
+    .ts-day   { animation: tsIn .4s cubic-bezier(.22,1,.36,1) forwards; transition: background .12s ease, box-shadow .12s ease; }
+    .ts-day:hover { background: var(--mist); }
+    .ts-open  { animation: tsPulse 1.6s ease-in-out infinite; }`;
+  document.head.appendChild(s);
+}
 
 // Last-7-calendar-days hours bars (fills from the timesheet data already loaded).
 function WeekBars({ days }) {
@@ -49,6 +66,24 @@ function WeekBars({ days }) {
           <div style={{ width: '70%', maxWidth: 40, height: Math.max(s.min ? 5 : 2, (s.min / max) * 70),
             background: s.min ? 'var(--pine)' : 'var(--mist)', borderRadius: '5px 5px 2px 2px', opacity: 0.9 }} />
           <span style={{ fontSize: 9.5, color: 'var(--muted)' }}>{s.date.toLocaleDateString([], { weekday: 'short' })}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Bars for a full bi-weekly pay period (one per day, from /my-payroll's day list).
+function PeriodBars({ days }) {
+  const series = (days || []).map(d => ({ key: d.date, min: d.workedMin || 0, date: new Date(d.date + 'T12:00:00') }));
+  const max = Math.max(60 * 8, ...series.map(s => s.min));
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 110 }}>
+      {series.map(s => (
+        <div key={s.key} title={`${s.key} — ${Math.floor(s.min / 60)}h ${String(s.min % 60).padStart(2, '0')}m`}
+          style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, minWidth: 0 }}>
+          <div style={{ width: '78%', maxWidth: 26, height: Math.max(s.min ? 4 : 2, (s.min / max) * 74),
+            background: s.min ? 'var(--pine)' : 'var(--mist)', borderRadius: '4px 4px 2px 2px', opacity: 0.9 }} />
+          <span style={{ fontSize: 8.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{s.date.getDate()}</span>
         </div>
       ))}
     </div>
@@ -104,8 +139,14 @@ export default function TimeClock() {
   const [missedOpen, setMissedOpen] = useState(false);
   const [openDays, setOpenDays] = useState({});   // expanded timesheet days
   const [bodMode, setBodMode] = useState(null);   // 'bod' | 'eod' | null — day-message modal
+  // Disclosed-monitoring consent gate (first in-punch of the day). See doPunch/actualPunch.
+  const [monGate, setMonGate] = useState(null);   // { text } | null
+  const [monAgree, setMonAgree] = useState(false);
+  const [monBusy, setMonBusy] = useState(false);
   const [missed, setMissed] = useState({ kind: 'out', at: '', note: '' });
+  const [myReqs, setMyReqs] = useState([]);    // my punch-fix requests + their status
   const [, setTick] = useState(0);             // re-render for the live timer
+  useEffect(() => { api.timeMyPunchRequests().then(setMyReqs).catch(() => {}); }, []);
   const msgTimer = useRef(null);
 
   const toast = (ok, text) => {
@@ -159,8 +200,37 @@ export default function TimeClock() {
       tz_offset_min: new Date().getTimezoneOffset() }).catch(() => {});
   }
 
-  async function actualPunch(kind) {
+  // ── Disclosed-monitoring consent gate ───────────────────────────────────────
+  // On company-owned devices the first in-punch of the day must acknowledge
+  // today's monitoring notice before it's recorded. Open the gate, and on
+  // confirm record consent then retry the punch once (consented=true).
+  function openMonGate(detail) {
+    const m = status?.monitoring || {};
+    setMonAgree(false);
+    setMonGate({ text: detail?.text || m.text || '' });
+  }
+  async function confirmMonitoring() {
+    if (monBusy) return;
+    setMonBusy(true);
+    try {
+      await api.timeMonitoringConsent();
+      setStatus(s => (s?.monitoring ? { ...s, monitoring: { ...s.monitoring, consentRequired: false } } : s));
+      setMonGate(null);
+      setMonBusy(false);
+      actualPunch('in', true);
+    } catch (e) {
+      toast(false, e?.message || 'Could not record your acknowledgment.');
+      setMonBusy(false);
+    }
+  }
+
+  async function actualPunch(kind, consented = false) {
     if (busy) return;
+    // First in-punch of the day: gate on the monitoring notice if consent is owed.
+    if (kind === 'in' && !consented && status?.monitoring?.consentRequired) {
+      openMonGate();
+      return;
+    }
     setBusy(kind);
     const pos = await getPosition();
     try {
@@ -175,20 +245,62 @@ export default function TimeClock() {
       toast(true, `${KIND_META[kind].label} at ${localTime(p.at)}${where}.`);
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed')); // sync the global mini-timer
       load();
-    } catch (e) { toast(false, e?.message || 'Punch failed.'); }
+    } catch (e) {
+      // The backend can also gate the in-punch with a 409 — show the notice,
+      // then retry once after the employee acknowledges (openMonGate → confirm).
+      const needsConsent = e?.detail?.code === 'monitoring_consent_required'
+        || /monitoring_consent_required/i.test(e?.message || '');
+      if (kind === 'in' && !consented && needsConsent) {
+        openMonGate(e?.detail);
+        setBusy('');
+        return;
+      }
+      toast(false, e?.message || 'Punch failed.');
+    }
     setBusy('');
   }
 
+  // Employee's fix requests (add/remove a punch) awaiting approver review.
+  function loadMyRequests() { api.timeMyPunchRequests().then(setMyReqs).catch(() => {}); }
+
   async function submitMissed() {
-    if (!missed.at || !missed.note.trim()) { toast(false, 'Pick the time and add a short note.'); return; }
+    if (!missed.at || !missed.note.trim()) { toast(false, 'Pick the time and add a reason.'); return; }
     try {
       const utc = new Date(missed.at).toISOString().slice(0, 19);
-      await api.timeSelfPunch({ kind: missed.kind, at: utc,
-        tz_offset_min: new Date().getTimezoneOffset(), note: missed.note.trim() });
-      toast(true, 'Missed punch added — it will show as self-corrected for review.');
+      // Goes to your approver — nothing changes on the timesheet until they approve.
+      await api.timePunchRequestCreate({ action: 'add', punch_kind: missed.kind, at: utc,
+        tz_offset_min: new Date().getTimezoneOffset(), reason: missed.note.trim() });
+      toast(true, "Request sent to your approver — you'll be notified when it's reviewed.");
       setMissedOpen(false); setMissed({ kind: 'out', at: '', note: '' });
-      load();
-    } catch (e) { toast(false, e?.message || 'Could not add the punch.'); }
+      loadMyRequests();
+    } catch (e) { toast(false, e?.message || 'Could not send the request.'); }
+  }
+
+  // Open the "Missed a punch?" form pre-filled to ADD the missing clock-out for a
+  // given segment — so the fix is one click from where the gap is shown, instead
+  // of hunting for the form and re-entering the kind/day by hand.
+  function openAddClockOut(seg) {
+    // seg.in is a UTC timestamp (no Z); seed the day/time in LOCAL for the picker.
+    let at = '';
+    if (seg?.in) {
+      const d = new Date(seg.in + 'Z');
+      at = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    }
+    setMissed({ kind: 'out', at, note: '' });
+    setMissedOpen(true);
+    // Bring the form (top of the tab) into view.
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function requestRemovePunch(p) {
+    const reason = window.prompt('Why should this punch be removed? (sent to your approver)');
+    if (reason === null) return;
+    if (!reason.trim()) { toast(false, 'A reason is required.'); return; }
+    try {
+      await api.timePunchRequestCreate({ action: 'remove', target_punch_id: p.id, reason: reason.trim() });
+      toast(true, "Removal request sent to your approver.");
+      loadMyRequests();
+    } catch (e) { toast(false, e?.message || 'Could not send the request.'); }
   }
 
   const last = status?.lastPunch;
@@ -224,6 +336,52 @@ export default function TimeClock() {
   const breakLeftMin = BREAK_ALLOWANCE_MIN - breakUsedMin;
   const weekFlags = Object.values(days).reduce((a, d) => a + d.flags.length, 0);
 
+  // ── Bi-weekly pay period (the timesheet's data) ──────────────────────────────
+  const [payStart, setPayStart] = useState('');   // '' = current period; else a Sunday start
+  const [payData, setPayData]   = useState(null);
+  const [payLoading, setPayLoading] = useState(false);
+  const [payErr, setPayErr]     = useState('');
+  const [payKey, setPayKey]     = useState(0);   // bump to retry
+  const [openDay, setOpenDay]   = useState(null);
+  useEffect(() => {
+    if (tab !== 'timesheet') return;
+    setPayLoading(true); setPayErr('');
+    api.timeMyPayroll(payStart)
+      .then(d => { setPayData(d); setPayErr(''); })
+      .catch(e => { setPayData(null); setPayErr(e?.message || 'Could not load your timesheet. Please try again.'); })
+      .finally(() => setPayLoading(false));
+  }, [tab, payStart, payKey]);
+  // Clock tab shows the CURRENT pay period (independent of any timesheet nav).
+  const [clockPeriod, setClockPeriod] = useState(null);
+  useEffect(() => {
+    if (tab !== 'clock') return;
+    api.timeMyPayroll('').then(setClockPeriod).catch(() => setClockPeriod(null));
+  }, [tab]);
+  function shiftPeriod(dir) {
+    const base = payData?.periodStart || todayKey;
+    const d = new Date(base + 'T12:00:00');
+    d.setDate(d.getDate() + dir * 14);
+    setPayStart(d.toISOString().slice(0, 10));
+    setOpenDay(null);
+  }
+  const isCurrentPeriod = !payData || (payData.periodStart <= todayKey && todayKey <= payData.periodEnd);
+  const payDayMap = Object.fromEntries((payData?.days || []).map(d => [d.date, d]));
+  const payGrid = [];
+  if (payData?.periodStart) {
+    const s = new Date(payData.periodStart + 'T12:00:00');
+    for (let i = 0; i < (payData.periodDays || 14); i++) {
+      const dt = new Date(s); dt.setDate(s.getDate() + i);
+      payGrid.push(dt.toISOString().slice(0, 10));
+    }
+  }
+  const PT = payData?.totals || {};
+  const compActive = PT.activeMin || 0, compIdle = PT.idleMin || 0, compBreak = PT.breakMin || 0;
+  const compTotal = Math.max(1, compActive + compIdle + compBreak);
+  const fmtDay = (ds) => new Date(ds + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  const fmtShort = (ds) => new Date(ds + 'T12:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' });
+  const COMP = [['Active', compActive, 'var(--pine)'], ['Idle', compIdle, '#b45309'], ['Break', compBreak, 'hsl(var(--color-blue))']];
+  const GRID_COLS = '1.4fr 1fr 1fr 0.8fr 1fr 22px';
+
   return (
     <div style={{ maxWidth: 1440, margin: '0 auto', padding: '26px 22px', fontFamily: 'Inter,sans-serif' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
@@ -233,7 +391,7 @@ export default function TimeClock() {
 
       {/* Tabs — one job per screen (the everything-in-one page read as clutter) */}
       <div className="chip-row scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
-        {[['clock', 'Clock'], ['timesheet', 'Timesheet'], ['timeoff', 'Time off']].map(([key, label]) => (
+        {[['clock', 'Clock'], ['timesheet', 'Time Sheet'], ['timeoff', 'Time Off']].map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
             style={{ padding: '7px 16px', borderRadius: 10, border: `1px solid ${tab === key ? 'var(--pine)' : 'var(--line)'}`,
               background: tab === key ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
@@ -292,7 +450,24 @@ export default function TimeClock() {
               {(status.allowed || []).map(kind => {
                 const M = KIND_META[kind];
                 return (
-                  <button key={kind} onClick={() => doPunch(kind)} disabled={!!busy}
+                  <button key={kind} onClick={async () => {
+                      // Screen-share is required to clock in / come back from break
+                      // (except for monitoring-exempt staff). The browser only grants
+                      // sharing on a user gesture, so start it from within this click
+                      // and WAIT: if the person dismisses the picker, block the punch.
+                      // start() resolves true when a stream is live or capture isn't
+                      // required here — so a false means "required but declined".
+                      if (kind === 'in' || kind === 'break_end') {
+                        const ok = await (window.__nexusCapture?.start?.() ?? Promise.resolve(true));
+                        if (!ok) {
+                          toast(false, kind === 'in'
+                            ? 'You need to share a screen to clock in. Choose a screen when your browser asks, then tap again.'
+                            : 'You need to share a screen to end your break. Choose a screen when your browser asks, then tap again.');
+                          return;
+                        }
+                      }
+                      doPunch(kind);
+                    }} disabled={!!busy}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 9, padding: '14px 26px', borderRadius: 12,
                       border: 'none', cursor: busy ? 'default' : 'pointer', fontFamily: 'Inter,sans-serif',
                       fontSize: 15, fontWeight: 800, background: M.bg, color: M.fg, opacity: busy && busy !== kind ? 0.55 : 1 }}>
@@ -323,7 +498,7 @@ export default function TimeClock() {
             </div>
             {todayData.flags.length > 0 && (
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 12, fontSize: 11, fontWeight: 700, color: '#b45309' }}>
-                <AlertTriangle size={11} /> {todayData.flags.length} item{todayData.flags.length === 1 ? '' : 's'} for review — see Timesheet
+                <AlertTriangle size={11} /> {todayData.flags.length} item{todayData.flags.length === 1 ? '' : 's'} for review — see Time Sheet
               </div>
             )}
           </>
@@ -338,20 +513,46 @@ export default function TimeClock() {
         Your location is captured only at the moment you punch, to confirm you're at a work site.
         If location is off or you're away from a site, the punch still counts — it's simply flagged for review.
       </p>
+      {/* Disclosed-monitoring: standing notice on the clock page (full text is acknowledged at the first in-punch). */}
+      {status?.monitoring?.enabled && (
+        <p style={{ margin: '-8px 0 18px', fontSize: 12, color: 'var(--muted)' }}>
+          On this company-owned device, while you're clocked in Nexus may capture periodic screenshots,
+          the apps you have open, and your overall activity level — to verify work time only, never your
+          keystrokes, and it stops when you clock out. You acknowledge the full notice the first time you clock in each day.
+        </p>
+      )}
 
       {/* Fill the fold: week chart, today's screen activity, upcoming time off */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 18 }}>
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '18px 20px' }}>
-          <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 14 }}>This week</div>
-          <WeekBars days={days} />
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, fontSize: 12 }}>
-            <span style={{ color: 'var(--muted)', fontWeight: 600 }}>Total {fmtMin(weekTotal)}</span>
-            <span style={{ color: 'var(--muted)' }}>{dayKeys.length} day{dayKeys.length !== 1 ? 's' : ''} active · {weekBreak}m breaks</span>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 14 }}>
+            <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>This pay period</span>
+            {clockPeriod?.periodStart && (
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                {fmtShort(clockPeriod.periodStart)} – {fmtShort(clockPeriod.periodEnd)}
+              </span>
+            )}
           </div>
-        </div>
-        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '18px 20px' }}>
-          <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Today's screen activity</div>
-          <DayActivity date={todayKey} />
+          {clockPeriod ? (<>
+            <PeriodBars days={clockPeriod.days} />
+            {(() => {
+              const t = clockPeriod.totals || {};
+              const activeDays = (clockPeriod.days || []).filter(d => (d.workedMin || 0) > 0).length;
+              return (
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, fontSize: 12 }}>
+                  <span style={{ color: 'var(--muted)', fontWeight: 600 }}>Total {fmtMin(t.workedMin || 0)}</span>
+                  <span style={{ color: 'var(--muted)' }}>{activeDays} day{activeDays !== 1 ? 's' : ''} worked · {t.breakMin || 0}m breaks</span>
+                </div>
+              );
+            })()}
+            <button className="secondary-btn" style={{ fontSize: 11, padding: '4px 11px', marginTop: 12 }} onClick={() => setTab('timesheet')}>
+              Open timesheet
+            </button>
+          </>) : (
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, height: 110, color: 'var(--muted)' }}>
+              <WeekBars days={days} />
+            </div>
+          )}
         </div>
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '18px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
@@ -377,17 +578,17 @@ export default function TimeClock() {
 
       {/* Timesheet — day list + week summary side panel */}
       {tab === 'timesheet' && (<>
-      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-      <div style={{ flex: '1.9 1 480px', minWidth: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '0 0 8px', flexWrap: 'wrap' }}>
-        <CalendarDays size={15} style={{ color: 'var(--pine)' }} />
-        <select className="form-input" value={tsRange} onChange={e => setTsRange(+e.target.value)}
-          style={{ fontSize: 12.5, fontWeight: 700, padding: '5px 26px 5px 10px', height: 'auto' }}>
-          <option value={7}>Last 7 days</option>
-          <option value={14}>Last 14 days</option>
-          <option value={30}>Last 30 days</option>
-        </select>
-        <TimelineLegend />
+      {/* Pay-period header + navigation (California bi-weekly) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+        <button className="secondary-btn" onClick={() => shiftPeriod(-1)} title="Previous pay period" style={{ padding: '7px 9px', display: 'inline-flex' }}><ChevronLeft size={16} /></button>
+        <div style={{ minWidth: 190 }}>
+          <div style={{ fontSize: 16, fontWeight: 800 }}>
+            {payData ? `${fmtShort(payData.periodStart)} – ${fmtShort(payData.periodEnd)}` : payErr ? 'Unavailable' : 'Loading…'}
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Bi-weekly pay period{isCurrentPeriod ? ' · current' : ''}</div>
+        </div>
+        <button className="secondary-btn" onClick={() => shiftPeriod(1)} disabled={isCurrentPeriod} title="Next pay period"
+          style={{ padding: '7px 9px', display: 'inline-flex', opacity: isCurrentPeriod ? 0.4 : 1, cursor: isCurrentPeriod ? 'default' : 'pointer' }}><ChevronRight size={16} /></button>
         <div style={{ flex: 1 }} />
         <button className="secondary-btn" onClick={() => setMissedOpen(o => !o)}
           style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -406,107 +607,179 @@ export default function TimeClock() {
               onChange={e => setMissed(m => ({ ...m, at: e.target.value }))} style={{ fontSize: 12.5 }} />
             <input className="form-input" placeholder="Why was it missed? (required)" value={missed.note}
               onChange={e => setMissed(m => ({ ...m, note: e.target.value }))} style={{ flex: 1, minWidth: 200, fontSize: 12.5 }} />
-            <button className="primary-btn" onClick={submitMissed} style={{ fontSize: 12.5 }}>Add punch</button>
+            <button className="primary-btn" onClick={submitMissed} style={{ fontSize: 12.5 }}>Send Request</button>
           </div>
           <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--muted)' }}>
-            Self-added punches are marked for manager review. Anything older than 7 days needs a manager.
+            This goes to your approver — nothing changes on your timesheet until they approve it.
           </p>
         </div>
       )}
 
-      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
-        {tsRange !== 7 && rangeDays === null && (
-          <div style={{ padding: '22px 18px', textAlign: 'center' }}>
-            <Loader2 size={18} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} />
-          </div>
-        )}
-        {tsKeys.length === 0 && !(tsRange !== 7 && rangeDays === null) && (
-          <div style={{ padding: '22px 18px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
-            No punches in this range — your days show up here.
-          </div>
-        )}
-        {tsKeys.map(date => {
-          const d = tsDays[date];
-          const isOpen = !!openDays[date];
-          return (
-            <div key={date} style={{ borderBottom: '1px solid var(--line)' }}>
-              <button onClick={() => setOpenDays(o => ({ ...o, [date]: !o[date] }))}
-                style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '12px 18px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'Inter,sans-serif' }}>
-                <span style={{ fontSize: 13, fontWeight: 800, width: 96, flexShrink: 0, color: 'var(--ink)' }}>
-                  {new Date(date + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
-                </span>
-                <DayTimeline punches={d.punches} date={date} />
-                {d.flags.length > 0 && <AlertTriangle size={13} style={{ color: '#b45309', flexShrink: 0 }} />}
-                <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--pine)', width: 66, textAlign: 'right', flexShrink: 0 }}>{fmtMin(d.workedMin)}</span>
-              </button>
-              {isOpen && (
-                <div style={{ padding: '0 18px 14px 126px' }}>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-                  {d.punches.map(p => {
-                    const c = PUNCH_CHIP[p.kind] || PUNCH_CHIP.in;
-                    return (
-                      <span key={p.id} title={`${p.geoStatus}${p.workSiteName ? ' · ' + p.workSiteName : ''}${p.note ? ' · ' + p.note : ''}`}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 12,
-                          background: p.geoStatus === 'out_of_fence' ? 'rgba(180,83,9,0.12)' : c.bg,
-                          color: p.geoStatus === 'out_of_fence' ? '#b45309' : c.fg,
-                          border: p.source !== 'web' ? '1px dashed currentColor' : '1px solid transparent' }}>
-                        {KIND_LABEL[p.kind]} {localTime(p.at)}
-                        {p.geoStatus === 'in_fence' && <MapPin size={10} />}
-                        {p.geoStatus === 'out_of_fence' && <AlertTriangle size={10} />}
-                        {p.source !== 'web' && 'ⓜ'}
-                      </span>
-                    );
-                  })}
-                  {d.breakMin > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: '#b45309', alignSelf: 'center' }}>{d.breakMin}m break</span>}
-                  {d.flags.includes('missing_out') && (
-                    <span style={{ fontSize: 11, fontWeight: 700, color: '#b45309', alignSelf: 'center' }}>· missing punch-out</span>
-                  )}
-                </div>
-                <DayActivity date={date} />
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      </div>
-      <div style={{ flex: '1 1 300px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 20px' }}>
-        <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>
-          {tsRange === 7 ? 'Week summary' : `Last ${tsRange} days`}
+      {/* My pending/decided fix requests, so the employee can track them. */}
+      {myReqs.length > 0 && (
+        <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {myReqs.slice(0, 6).map(r => {
+            const c = r.status === 'approved' ? 'hsl(var(--color-green))'
+              : r.status === 'rejected' ? 'hsl(var(--color-red))' : '#b45309';
+            const when = r.action === 'add' && r.at ? ` at ${localTime(r.at)}` : '';
+            return (
+              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12, padding: '7px 12px', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10 }}>
+                <span style={{ fontWeight: 700, textTransform: 'capitalize', color: c, minWidth: 64 }}>{r.status}</span>
+                <span style={{ color: 'var(--ink)' }}>{r.action === 'add' ? `Add ${KIND_LABEL[r.punchKind] || r.punchKind}${when}` : 'Remove a punch'}</span>
+                {r.reason && <span style={{ color: 'var(--muted)' }}>· {r.reason}</span>}
+                {r.status === 'rejected' && r.decisionNote && <span style={{ color: 'hsl(var(--color-red))' }}>· {r.decisionNote}</span>}
+              </div>
+            );
+          })}
         </div>
-        <div style={{ display: 'grid', gap: 12 }}>
-          {[['Worked', fmtMin(tsTotal), 'var(--pine)'],
-            ['Breaks', `${tsBreak}m`, 'var(--ink)'],
-            ['Days active', String(tsKeys.length), 'var(--ink)'],
-            ['Items for review', String(tsFlags), tsFlags ? '#b45309' : 'var(--muted)']].map(([l, v, c]) => (
-            <div key={l} style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{l}</span>
-              <span style={{ fontSize: 16, fontWeight: 800, color: c }}>{v}</span>
-            </div>
-          ))}
+      )}
+
+      {/* Summary — one composition bar (worked/idle/break) + payroll totals */}
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
+        <div style={{ flex: '2 1 380px', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 20px' }}>
+          <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 14 }}>How this period breaks down</div>
+          <div style={{ display: 'flex', height: 22, borderRadius: 8, overflow: 'hidden', background: 'var(--mist)' }}>
+            {COMP.map(([l, v, c]) => v > 0 ? <div key={l} title={`${l}: ${fmtMin(v)}`} style={{ width: `${(v / compTotal) * 100}%`, background: c }} /> : null)}
+          </div>
+          <div style={{ display: 'flex', gap: 18, marginTop: 12, flexWrap: 'wrap' }}>
+            {COMP.map(([l, v, c]) => (
+              <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: c, flexShrink: 0 }} />
+                <span style={{ color: 'var(--muted)', fontWeight: 600 }}>{l}</span>
+                <span style={{ fontWeight: 800 }}>{fmtMin(v)}</span>
+              </div>
+            ))}
+          </div>
+          {compIdle === 0 && <p style={{ margin: '10px 0 0', fontSize: 11, color: 'var(--muted)' }}>Idle is measured only while screen capture is running.</p>}
         </div>
-        <p style={{ margin: '14px 0 0', fontSize: 11, color: 'var(--muted)', lineHeight: 1.5 }}>
-          Click a day to see every punch. ⓜ marks manual entries, ⚠ marks anything a manager should look at.
-        </p>
+        <div style={{ flex: '1 1 230px', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 20px' }}>
+          <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Payroll</div>
+          <div style={{ display: 'grid', gap: 10 }}>
+            {[['Regular', fmtMin(PT.regMin || 0), 'var(--ink)'],
+              ['Overtime', fmtMin(PT.otMin || 0), PT.otMin ? '#b45309' : 'var(--muted)'],
+              ...(PT.dtMin ? [['Double time', fmtMin(PT.dtMin), '#b91c1c']] : []),
+              ['Total worked', fmtMin(PT.workedMin || 0), 'var(--pine)']].map(([l, v, c]) => (
+              <div key={l} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{l}</span>
+                <span style={{ fontSize: 15, fontWeight: 800, color: c }}>{v}</span>
+              </div>
+            ))}
+            {payData?.rateSet && (
+              <div style={{ borderTop: '1px solid var(--line)', marginTop: 4, paddingTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 700 }}>Est. pay</span>
+                <span style={{ fontSize: 17, fontWeight: 800, color: 'var(--pine)' }}>${(PT.totalPay || 0).toFixed(2)}</span>
+              </div>
+            )}
+          </div>
+          {PT.missingPunches > 0 && <p style={{ margin: '10px 0 0', fontSize: 11, color: '#b45309', fontWeight: 600 }}>{PT.missingPunches} day{PT.missingPunches !== 1 ? 's' : ''} missing a clock-out — fix before payday.</p>}
+        </div>
       </div>
-      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 20px' }}>
-        <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 14 }}>Daily hours</div>
-        <WeekBars days={days} />
-      </div>
-      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 20px' }}>
-        <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Today's screen activity</div>
-        <DayActivity date={todayKey} />
-      </div>
-      </div>
-      </div>
+
+      {/* Pay-period days — a visual timeline per worked day (segments shown inline) */}
+      {payErr && !payData ? (
+        <div style={{ ...CARD_S, padding: '30px 20px', textAlign: 'center' }}>
+          <AlertTriangle size={20} style={{ color: '#b45309', marginBottom: 8 }} />
+          <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 600, marginBottom: 4 }}>Couldn’t load your timesheet</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>{payErr}</div>
+          <button className="primary-btn" onClick={() => setPayKey(k => k + 1)} disabled={payLoading} style={{ fontSize: 12.5 }}>
+            {payLoading ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : 'Try again'}
+          </button>
+        </div>
+      ) : payLoading && !payData ? (
+        <div style={{ padding: 40, textAlign: 'center' }}><Loader2 size={18} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /></div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {(() => {
+            const msOf = (iso) => iso ? new Date(iso + 'Z').getTime() : 0;
+            return payGrid.map(ds => {
+              const d = payDayMap[ds];
+              const segs = d?.segments || [];
+              // Off day — a quiet line so worked days stand out.
+              if (!d || segs.length === 0) return (
+                <div key={ds} style={{ display: 'flex', alignItems: 'center', padding: '6px 16px', fontSize: 12, color: 'var(--muted)' }}>
+                  <span style={{ width: 100, fontWeight: 600 }}>{fmtDay(ds)}</span>
+                  <span style={{ flex: 1 }} /><span style={{ opacity: 0.5 }}>off</span>
+                </div>
+              );
+              // Worked day — timeline card.
+              const missingOut = segs.some(s => (s.flags || []).includes('missing_out'));
+              const firstIn = segs[0].in;
+              const lastOut = missingOut ? '' : segs[segs.length - 1].out;
+              const worked = d.workedMin || 0;
+              const ins = segs.map(s => msOf(s.in));
+              const outs = segs.filter(s => s.out).map(s => msOf(s.out));
+              const t0 = Math.min(...ins), maxIn = Math.max(...ins);
+              let t1 = outs.length ? Math.max(...outs) : maxIn + 3600000;
+              if (segs.some(s => !s.out)) t1 = Math.max(t1, maxIn + 3600000);
+              const span = Math.max(t1 - t0, 1800000);
+              return (
+                <div key={ds} className="ts-day" style={{ ...CARD_S, padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 9, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--ink)', minWidth: 100 }}>{fmtDay(ds)}</span>
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      {localTime(firstIn)} → {missingOut ? <span style={{ color: '#b45309', fontWeight: 700 }}>missing</span>
+                        : lastOut ? localTime(lastOut) : <span style={{ color: 'var(--pine)', fontWeight: 700 }}>still in</span>}
+                      {segs.length > 1 && <span> · {segs.length} sessions</span>}
+                      {d.breakMin > 0 && <span> · {d.breakMin}m break</span>}
+                    </span>
+                    <span style={{ flex: 1 }} />
+                    <span style={{ fontSize: 14, fontWeight: 800, color: 'var(--pine)' }}>{fmtMin(worked)}</span>
+                  </div>
+                  {/* Timeline: each work session is a block placed by time-of-day; gaps are breaks. */}
+                  <div style={{ position: 'relative', height: 24, borderRadius: 7, background: 'var(--mist)', overflow: 'hidden', marginBottom: 9 }}>
+                    {segs.map((s, i) => {
+                      const isOpen = !s.out;
+                      const l = ((msOf(s.in) - t0) / span) * 100;
+                      const w = Math.max(2, (((isOpen ? t1 : msOf(s.out)) - msOf(s.in)) / span) * 100);
+                      return (
+                        <div key={i} className="ts-block" title={`${localTime(s.in)} → ${s.out ? localTime(s.out) : 'missing'} · ${fmtMin(s.workedMin)}`}
+                          style={{ position: 'absolute', left: `${l}%`, width: `${w}%`, top: 3, bottom: 3, borderRadius: 5,
+                            background: isOpen ? 'repeating-linear-gradient(45deg,rgba(180,83,9,.28),rgba(180,83,9,.28) 6px,rgba(180,83,9,.12) 6px,rgba(180,83,9,.12) 12px)' : 'var(--pine)',
+                            border: isOpen ? '1.5px dashed #b45309' : 'none' }} />
+                      );
+                    })}
+                  </div>
+                  {/* Session chips — every clock-in/out visible, with its action inline. */}
+                  <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center' }}>
+                    {segs.map((s, i) => {
+                      const open = !s.out;
+                      return (
+                        <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '4px 9px', borderRadius: 8, fontSize: 11.5, fontWeight: 600,
+                          background: open ? 'rgba(180,83,9,0.1)' : 'var(--mist)', color: open ? '#b45309' : 'var(--ink)' }}>
+                          <span className={open ? 'ts-open' : ''} style={{ width: 7, height: 7, borderRadius: '50%', background: open ? '#b45309' : 'var(--pine)', flexShrink: 0 }} />
+                          {localTime(s.in)} → {s.out ? localTime(s.out) : 'missing'}
+                          <span style={{ color: 'var(--muted)', fontWeight: 500 }}>{fmtMin(s.workedMin)}</span>
+                          {open
+                            ? <button className="primary-btn" onClick={() => openAddClockOut(s)} style={{ fontSize: 10.5, padding: '2px 8px', marginLeft: 2 }}>Add clock-out</button>
+                            : s.inId && <button className="secondary-btn" onClick={() => requestRemovePunch({ id: s.inId })} style={{ fontSize: 10.5, padding: '2px 7px', marginLeft: 2 }}>Remove</button>}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            });
+          })()}
+          {payData && (
+            <div style={{ display: 'flex', alignItems: 'center', padding: '14px 16px', marginTop: 4, borderTop: '2px solid var(--line)' }}>
+              <span style={{ fontSize: 13, fontWeight: 800 }}>Total this period</span>
+              <span style={{ flex: 1 }} />
+              {PT.breakMin > 0 && <span style={{ fontSize: 12, color: 'var(--muted)', marginRight: 16 }}>{PT.breakMin}m break</span>}
+              <span style={{ fontSize: 16, fontWeight: 800, color: 'var(--pine)' }}>{fmtMin(PT.workedMin || 0)}</span>
+            </div>
+          )}
+        </div>
+      )}
+      <p style={{ margin: '12px 2px 0', fontSize: 11, color: 'var(--muted)' }}>
+        Each bar shows your work sessions through the day — a dashed block is a missing clock-out. Overtime is time over 40h in a week (1.5×). Use “Add clock-out” to fix a gap or “Remove” to drop a wrong punch — it goes to your approver, and nothing changes until they approve.
+      </p>
       </>)}
 
       {/* Time off */}
       {tab === 'timeoff' && (<>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 8px' }}>
         <CalendarDays size={15} style={{ color: 'var(--pine)' }} />
-        <span style={{ fontSize: 13.5, fontWeight: 800 }}>Time off</span>
+        <span style={{ fontSize: 13.5, fontWeight: 800 }}>Time Off</span>
       </div>
       <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '14px 16px', marginBottom: 10 }}>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -603,6 +876,40 @@ export default function TimeClock() {
           onClose={() => setBodMode(null)}
           toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />;
       })()}
+
+      {/* Disclosed-monitoring consent gate — real notice the employee reads and
+          acknowledges before the first in-punch is recorded. */}
+      {monGate && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1440, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 540, maxHeight: 'min(90dvh, 680px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+            <div style={{ padding: '15px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Monitor size={18} style={{ color: 'var(--pine)' }} />
+              <div style={{ flex: 1 }}>
+                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>Before You Clock In</h3>
+                <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)' }}>Please read and acknowledge how this device is monitored.</p>
+              </div>
+              <button onClick={() => setMonGate(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+            </div>
+            <div style={{ padding: '16px 22px', overflowY: 'auto', fontSize: 13, color: 'var(--ink)', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
+              {monGate.text || 'This is a company-owned device. While you are clocked in, Greens Nexus records your worked time and may capture periodic screenshots of your work screen, the apps and windows you have open, and your overall activity level. This is used only to verify work time and activity — it never captures your keystrokes, and it stops the moment you clock out.'}
+            </div>
+            <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer', marginBottom: 12 }}>
+                <input type="checkbox" checked={monAgree} onChange={e => setMonAgree(e.target.checked)}
+                  style={{ width: 16, height: 16, accentColor: 'var(--pine)' }} />
+                I understand and agree
+              </label>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button className="secondary-btn" onClick={() => setMonGate(null)}>Cancel</button>
+                <button className="primary-btn" onClick={confirmMonitoring} disabled={!monAgree || monBusy}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {monBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Acknowledge &amp; clock in
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

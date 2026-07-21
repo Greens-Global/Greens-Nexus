@@ -20,6 +20,7 @@ class Task(Base):
     status            = Column(String, default="not_started")  # + custom board-column ids
     priority          = Column(String, default="medium")   # low|medium|high|urgent
     assignee_email    = Column(String, default="", index=True)
+    owner_email       = Column(String, default="", index=True)
     follower_emails   = Column(JSON, default=list)
     liked_by_emails   = Column(JSON, default=list)
     access_level      = Column(String, default="org")      # org|restricted
@@ -241,6 +242,11 @@ class Requisition(Base):
     fulfilled_at      = Column(String, default="")
     fulfillment_note  = Column(String, default="")
     fulfilled_item_id = Column(String, default="")  # items.id once it entered inventory
+    # Who actually raised the request (from the auth token), distinct from
+    # employee_email which is the beneficiary on an on-behalf request. Lets the
+    # log/notifications name the real submitter instead of guessing (Jul 2026).
+    submitted_by_email = Column(String, default="")
+    submitted_by_name  = Column(String, default="")
 
 
 class HardwareAsset(Base):
@@ -276,6 +282,11 @@ class NexusNotification(Base):
 
 
 class InventoryRequest(Base):
+    # LEGACY (P2-1, Jul 2026): the old inventory stack is retired — its router
+    # (routers/inventory_requests.py) and mock seed were removed. No live code
+    # path writes this table anymore; the class is kept only so create_all keeps
+    # the table and historical rows / audit history (resource_type ==
+    # "inventory-requests") stay readable. Retire after data migration.
     __tablename__ = "inventory_requests"
     id                 = Column(String, primary_key=True)
     item_id            = Column(String, nullable=False)
@@ -303,7 +314,11 @@ class InventoryRequest(Base):
 
 
 class InventoryItem(Base):
-    """Master stock record for a requestable inventory item.
+    """LEGACY (P2-1, Jul 2026): master stock record for the retired inventory
+    stack. Its router + mock seed were removed; kept only so create_all keeps
+    the table and any historical rows survive. Retire after data migration.
+
+    Master stock record for a requestable inventory item.
     available_qty is the live source of truth — decremented atomically when a
     request is allocated, incremented when it's returned in good condition
     (or total_qty is reduced instead, when the returned unit is damaged/retired)."""
@@ -344,7 +359,10 @@ class Item(Base):
     op_status         = Column(String, default="")     # operational status (Neil): deployed|in_storage|in_repair|needs_replacement|retired|lost; '' = unset. SEPARATE from lifecycle `status`
     op_status_person_email = Column(String, default="") # person an op_status is declared against (lost/retired) — they get the notification + show on "Who has it"
     op_status_person_name  = Column(String, default="")
-    assigned_to_location = Column(String, default="")  # set when a permanent item is assigned to a PLACE not a person — kept OUT of "Who has it" (Ankush)
+    # DEPRECATED (P2-6, Jul 2026): only ever written as "" now; ItemDetailsPanel
+    # reads item.location instead. Retire (drop column) next release — needs
+    # prod coordination, so the column stays for this release.
+    assigned_to_location = Column(String, default="")  # legacy: permanent-to-a-PLACE marker; no longer populated
     custom_fields     = Column(JSON, default=dict)     # {field_key: value} for admin-defined custom fields — see ItemCustomField
     deleted_at        = Column(String, default="")     # ISO ts; non-empty = soft-deleted (excluded from normal lists, restorable — Ankush)
     deleted_by        = Column(String, default="")     # email of whoever deleted it
@@ -448,6 +466,18 @@ class NexusGroup(Base):
     allowed_modules = Column(String, default="")   # comma-separated "moduleId:level" pairs, e.g. "it:viewer,inventory:full" — level ∈ viewer/editor/full/owner (see auth.MODULE_LEVELS)
     created_by      = Column(String, default="")
     created_at      = Column(String, default="")
+    # Roles & Access redesign (Jul 2026): a "Job Role" is an Access Group flagged
+    # is_job_role=1 that ALSO carries a seniority tier + plain-language description.
+    # A person's primary job role is the single job-role group they belong to;
+    # module access still flows through normal group membership (auth._module_level),
+    # so resolution is unchanged. Plain groups (is_job_role=0) are the additive layer.
+    is_job_role     = Column(Integer, default=0)
+    tier            = Column(String, default="")   # employee/supervisor/manager/administrator/owner — job roles only
+    description     = Column(String, default="")
+    # Members of a group flagged monitoring_exempt=1 are excused from screen-share
+    # monitoring: no capture is offered and clock-in is not gated on sharing a
+    # screen (used for leadership). A person is exempt if ANY of their groups sets it.
+    monitoring_exempt = Column(Integer, default=0)
 
 
 class NexusGroupMember(Base):
@@ -456,6 +486,24 @@ class NexusGroupMember(Base):
     email    = Column(String, primary_key=True)
     added_by = Column(String, default="")
     added_at = Column(String, default="")
+
+
+class NexusAccessScope(Base):
+    """Row-level access scope — narrows WHICH records a person can see within a
+    module they already have (module:level) access to. Used mainly to sandbox
+    external users: a client scoped to one property sees only that property.
+    Semantics (see auth.scoped_ids): a person with ANY scope row for a module is
+    restricted to those scope_ids; a person with none is unrestricted UNLESS they
+    are identity_type='external', who then see nothing (fail-closed least
+    privilege). New table — create_all builds it, no migration line needed."""
+    __tablename__ = "nexus_access_scopes"
+    id         = Column(String, primary_key=True)   # uuid
+    email      = Column(String, nullable=False, index=True)   # the person the scope applies to
+    module_id  = Column(String, nullable=False)     # e.g. 'property-asset'
+    scope_type = Column(String, default="")         # 'property' | 'project' | 'entity'
+    scope_id   = Column(String, nullable=False)     # id of the property/project/entity allowed
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
 
 
 class ApprovalHistory(Base):
@@ -518,6 +566,7 @@ class NexusEmployee(Base):
     created_at      = Column(String, default="")
     updated_at      = Column(String, default="")
     division        = Column(String, default="")               # functional division head-tag; org chart inherits down the tree (Phase 5)
+    identity_type   = Column(String, default="internal")        # internal (MS365 staff) | guest (Entra B2B partner) | external (non-MS365, HR-record only)
 
 
 class HrCandidate(Base):
@@ -868,6 +917,43 @@ class HrEntity(Base):
     created_by         = Column(String, default="")
     created_at         = Column(String, default="")
     updated_at         = Column(String, default="")
+    # Email domains owned by this company (comma-separated, no @) — the M365 sync
+    # imports accounts on these domains and auto-tags them to this company.
+    domains            = Column(String, default="")
+    # Who runs this company operationally (a Nexus person's work email) — the
+    # escalation target when a worker has no reports-to. Distinct from signatory.
+    manager_email      = Column(String, default="")
+
+
+class NexusSetting(Base):
+    """Tiny app-wide key-value store. First use: the HR group manager (the person
+    overseeing ALL companies — escalation above each company's manager). New
+    table — create_all builds it, no migration line needed."""
+    __tablename__ = "nexus_settings"
+    key        = Column(String, primary_key=True)
+    value      = Column(String, default="")
+    updated_by = Column(String, default="")
+    updated_at = Column(String, default="")
+
+
+class HrDepartment(Base):
+    """A department, scoped to one company (HrEntity). Departments are NOT a
+    Nexus-wide hardcoded list — each company owns its own editable set (an IT-dev
+    company has QA, a construction company has Estimating). Greens Global is seeded
+    from the legacy hardcoded list on first read; every other company starts empty.
+    Employees pick a department from their company's list. Deleting one leaves
+    existing employees' department strings untouched (like a removed item type).
+    `parent_id` is unused today but present so departments can become a hierarchy
+    later without a migration — the enterprise norm. New table — create_all builds
+    it, no migration line needed."""
+    __tablename__ = "hr_departments"
+    id         = Column(String, primary_key=True)   # uuid
+    company_id = Column(String, nullable=False)     # HrEntity.id this department belongs to
+    name       = Column(String, nullable=False)     # display value, e.g. "Estimating"
+    parent_id  = Column(String, default="")         # reserved: HrDepartment.id of the parent (hierarchy)
+    sort_order = Column(Integer, default=0)
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
 
 
 class HrWorkSite(Base):
@@ -1166,23 +1252,45 @@ class PayrollRate(Base):
     __tablename__ = "payroll_rates"
     employee_email = Column(String, primary_key=True)
     hourly_rate    = Column(Float, default=0)
+    # Which overtime law applies to THIS employee. 'ca' = California daily
+    # (>8h→1.5×, >12h→2×) + 7th-consecutive-day + weekly >40h; 'federal' = FLSA
+    # weekly >40h only (out-of-state US); 'none' = no US overtime premium
+    # (non-US — their local law is handled outside Nexus). Defaults to 'ca' since
+    # the workforce is California; set explicitly for out-of-state / overseas.
+    overtime_rule  = Column(String, default="ca")
     updated_by     = Column(String, default="")
     updated_at     = Column(String, default="")
 
 
 class AgentActivity(Base):
-    """App/window activity reported by a silent device: per reporting window,
-    seconds spent in each foreground app + an activity % (share of samples where
-    the machine wasn't idle). Powers the app-usage breakdown + activity score."""
+    """One foreground-usage sample from the desktop agent: seconds spent in an app
+    (and, for browsers, the active domain) with the window title and an activity %
+    (share of that window where the user wasn't idle). Powers the Insights
+    dashboard — Top Apps, Top Websites, active-vs-idle, and the activity log."""
     __tablename__ = "agent_activity"
     id             = Column(String, primary_key=True)   # uuid
     employee_email = Column(String, nullable=False, index=True)
     local_date     = Column(String, default="", index=True)
-    at             = Column(String, default="")
-    app            = Column(String, default="")
-    title          = Column(String, default="")
+    at             = Column(String, default="")         # sample end time (UTC ISO)
+    app            = Column(String, default="")         # e.g. "Google Chrome", "Excel"
+    title          = Column(String, default="")         # active window title
+    domain         = Column(String, default="")         # host for browser activity, else ""
+    category       = Column(String, default="")         # productive | neutral | unproductive | "" (from ratings)
     seconds        = Column(Integer, default=0)
-    active_pct     = Column(Integer, default=0)
+    active_pct     = Column(Integer, default=0)         # 0-100, non-idle share of this sample
+
+
+class AppRating(Base):
+    """Company-wide productivity rating for an app or website domain, set by an
+    admin ("Rate Apps & URLs"). Drives the productive/neutral/unproductive split
+    on the Insights dashboard. Keyed by lowercased app-or-domain."""
+    __tablename__ = "app_ratings"
+    key            = Column(String, primary_key=True)   # lowercased app name or domain
+    kind           = Column(String, default="app")      # app | domain
+    label          = Column(String, default="")         # display name
+    rating         = Column(String, default="neutral")  # productive | neutral | unproductive
+    updated_by     = Column(String, default="")
+    updated_at     = Column(String, default="")
 
 
 class TimeOffRequest(Base):
@@ -1337,6 +1445,79 @@ class TrackPing(Base):
     source         = Column(String, default="mobile")
 
 
+class MonitoringPolicy(Base):
+    """Admin-set, server-side policy the desktop agent fetches each heartbeat —
+    replaces the agent's hardcoded interval/toggles so capture cadence and what's
+    collected are controlled centrally and auditable. Single row (id='default').
+    DISCLOSED monitoring: capture only runs while clocked in and after the
+    employee acknowledges it (see MonitoringConsent); this row just governs HOW."""
+    __tablename__ = "monitoring_policy"
+    id               = Column(String, primary_key=True, default="default")
+    enabled          = Column(Integer, default=1)   # master switch; 0 = no capture at all
+    interval_minutes = Column(Integer, default=5)   # base cadence between captures
+    randomize        = Column(Integer, default=1)   # jitter the interval so a shot can't be timed/gamed
+    track_screens    = Column(Integer, default=1)   # screenshots
+    track_windows    = Column(Integer, default=1)   # active foreground window title
+    track_input      = Column(Integer, default=1)   # aggregate active/idle % — NEVER keystroke content
+    updated_by       = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class PunchRequest(Base):
+    """An employee's request to FIX their timesheet — add a missed punch or remove
+    a wrong one — that an approver (HR/manager) must approve or reject before it
+    takes effect. Unlike a self-service backfill (which lands immediately, flagged),
+    this is gated: nothing changes on the timesheet until approved."""
+    __tablename__ = "punch_requests"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    employee_name  = Column(String, default="")
+    action         = Column(String, default="add")      # add | remove
+    punch_kind     = Column(String, default="in")       # add: in|out|break_start|break_end
+    at             = Column(String, default="")          # add: requested punch time (UTC ISO)
+    local_date     = Column(String, default="", index=True)
+    tz_offset_min  = Column(Integer, default=0)
+    target_punch_id= Column(String, default="")          # remove: which punch to void
+    reason         = Column(String, default="")          # employee's justification (required)
+    status         = Column(String, default="pending", index=True)  # pending | approved | rejected
+    decided_by     = Column(String, default="")          # approver email
+    decided_at     = Column(String, default="")
+    decision_note  = Column(String, default="")          # approver's note (esp. on reject)
+    applied_punch_id = Column(String, default="")        # the TimePunch created/voided on approval
+    created_at     = Column(String, default="")
+
+
+class MonitoringConsent(Base):
+    """Per-day record that the employee was shown, and acknowledged, the monitoring
+    notice at clock-in. Enforced server-side: with monitoring enabled, the first
+    in-punch of the day is refused until this exists (mirrors TrackConsent, but
+    per-day rather than standing). This is what makes the monitoring DISCLOSED."""
+    __tablename__ = "monitoring_consent"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    local_date     = Column(String, default="", index=True)
+    text_version   = Column(String, default="")         # which notice wording was acknowledged
+    granted_at     = Column(String, default="")
+    ip             = Column(String, default="")
+    user_agent     = Column(String, default="")
+    created_at     = Column(String, default="")
+
+
+class PolicyAcknowledgment(Base):
+    """One-time (per policy version) acknowledgment of company policies + the
+    employee-monitoring disclosure, shown at sign-in. Records who/when/version/
+    ip/ua so the acceptance is provable. Bumping POLICY_VERSION re-prompts
+    everyone. This is the standing, portal-wide disclosure; MonitoringConsent is
+    the separate per-day clock-in acknowledgment."""
+    __tablename__ = "policy_acknowledgments"
+    id             = Column(String, primary_key=True)   # uuid
+    email          = Column(String, nullable=False, index=True)
+    version        = Column(String, default="", index=True)
+    accepted_at    = Column(String, default="")
+    ip             = Column(String, default="")
+    user_agent     = Column(String, default="")
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # Task Module — supporting tables (ported from task-module export, Jul 2026)
 # All email-keyed; ISO-string timestamps; jsonb for arrays/maps. See Task above.
@@ -1350,7 +1531,8 @@ class TaskProject(Base):
     color         = Column(String, default="")
     owner_email   = Column(String, default="", index=True)
     portfolio_id  = Column(String, default="", index=True)
-    department_id = Column(String, default="", index=True)
+    department_id = Column(String, default="", index=True)   # primary team (first of department_ids)
+    department_ids = Column(JSON, default=list)               # all teams the project belongs to
     status        = Column(String, default="not_started")
     start_on      = Column(String, default="")
     due_on        = Column(String, default="")
@@ -1534,6 +1716,7 @@ class TaskTicket(Base):
     code           = Column(String, default="")
     subject        = Column(String, nullable=False)
     description    = Column(String, default="")
+    type           = Column(String, default="request")   # bug|incident|service_request|task|question|request
     status         = Column(String, default="new")       # new|open|in_progress|on_hold|resolved|closed|reopened
     priority       = Column(String, default="medium")
     requester_email= Column(String, default="", index=True)
@@ -1541,10 +1724,28 @@ class TaskTicket(Base):
     department_id  = Column(String, default="", index=True)
     linked_task_id = Column(String, default="")
     tags           = Column(JSON, default=list)
+    images         = Column(JSON, default=list)   # screenshot data URLs / storage links
+    watcher_emails = Column(JSON, default=list)   # people notified on ticket changes
+    resolution     = Column(String, default="")   # fixed|wont_fix|duplicate|cannot_reproduce|done
+    custom_field_values = Column(JSON, default=dict)  # {customFieldId: value} — reuses the task custom-field defs
+    links          = Column(JSON, default=list)   # [{ticketId, type}] — relates|duplicate|blocks|blocked_by
+    task_ids       = Column(JSON, default=list)   # tasks spawned from / linked to this ticket (one ticket → many tasks)
+    component      = Column(String, default="")   # category/component name (see TaskTicketComponent)
+    csat_rating    = Column(Integer, default=0)   # 1-5 satisfaction rating; 0 = not rated
+    csat_comment   = Column(String, default="")
     sla_due_on     = Column(String, default="")
     resolved_at    = Column(String, default="")
     created_at     = Column(String, default="")
     modified_at    = Column(String, default="")
+
+
+class TaskTicketComponent(Base):
+    """A ticket component / category (e.g. "Billing", "Network"). Small config
+    table managed from Manage; tickets reference one by name."""
+    __tablename__ = "task_ticket_components"
+    id         = Column(String, primary_key=True)
+    name       = Column(String, nullable=False)
+    created_at = Column(String, default="")
 
 
 class TaskChangelogEntry(Base):
@@ -1578,3 +1779,183 @@ class TaskEvent(Base):
     kind           = Column(String, default="")          # created|updated|deleted|comment|...
     affected_email = Column(String, default="")
     created_at     = Column(String, default="")          # set server-side (timestamptz in DB)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Testing module (QA) — dev-only in the UI (env-gated router), but the tables
+# exist everywhere create_all runs. Seeded from qa_seed.json (the Jul-2026 module
+# audit workbook) on first read — same seed-if-empty pattern as item_types.
+# ─────────────────────────────────────────────────────────────────────────────
+class QaTestCase(Base):
+    """One test case in the library. `steps` is a JSON list of plain-English
+    strings a layman can follow. source: seed (workbook) | ai (converted from a
+    bug report) | manual. AI drafts start status='draft' until approved."""
+    __tablename__ = "qa_test_cases"
+    id           = Column(String, primary_key=True)   # uuid
+    module       = Column(String, nullable=False)     # People / Item Management / ...
+    feature      = Column(String, default="")
+    title        = Column(String, nullable=False)
+    precondition = Column(String, default="")
+    steps        = Column(JSON, default=list)         # ["Click …", "Type …"]
+    expected     = Column(String, default="")
+    priority     = Column(String, default="Medium")   # High | Medium | Low
+    case_type    = Column(String, default="Functional")
+    source       = Column(String, default="manual")   # seed | ai | manual
+    status       = Column(String, default="active")   # active | draft | archived
+    flow         = Column(JSON, default=list)         # recorded replayable actions [{view, role, label, hints}]
+    e2e_spec     = Column(String, default="")         # AI-generated Playwright spec (run by CI)
+    created_by   = Column(String, default="")
+    created_at   = Column(String, default="")
+    updated_at   = Column(String, default="")
+
+
+class QaRun(Base):
+    """A named testing session ("Jul 15 regression")."""
+    __tablename__ = "qa_runs"
+    id         = Column(String, primary_key=True)
+    name       = Column(String, nullable=False)
+    status     = Column(String, default="open")       # open | closed
+    created_by = Column(String, default="")
+    created_at = Column(String, default="")
+
+
+class QaResult(Base):
+    """One tester's verdict on one case within one run — upserted as they work.
+    step_state: [{done: bool, shot: url}] parallel to the case's steps (per-step
+    evidence). evidence: {shot: overall screenshot, recording: webm url}."""
+    __tablename__ = "qa_results"
+    id         = Column(String, primary_key=True)
+    run_id     = Column(String, nullable=False, index=True)
+    case_id    = Column(String, nullable=False, index=True)
+    result     = Column(String, default="")           # '' | pass | fail | blocked | skipped
+    failed_step = Column(Integer, default=-1)         # index of the step where it failed (-1 = n/a)
+    step_state = Column(JSON, default=list)
+    notes      = Column(String, default="")
+    evidence   = Column(JSON, default=dict)
+    source     = Column(String, default="human")      # human | automated (Playwright CI)
+    tested_by  = Column(String, default="")
+    tested_at  = Column(String, default="")
+
+
+class QaBugReport(Base):
+    """A free-text bug from a tester + optional recorded step log / recording /
+    screenshots. AI conversion drafts a QaTestCase (converted_case_id)."""
+    __tablename__ = "qa_bug_reports"
+    id                = Column(String, primary_key=True)
+    description       = Column(String, nullable=False)
+    module_hint       = Column(String, default="")
+    case_id           = Column(String, default="")     # set when filed from a failing case
+    run_id            = Column(String, default="")
+    failed_step       = Column(Integer, default=-1)
+    steps_log         = Column(JSON, default=list)     # recorded click log [{t, view, label, role}]
+    recording_url     = Column(String, default="")
+    screenshots       = Column(JSON, default=list)     # [url]
+    status            = Column(String, default="new")  # new | converted | dismissed
+    converted_case_id = Column(String, default="")
+    created_by        = Column(String, default="")
+    created_at        = Column(String, default="")
+
+
+class QaAssignment(Base):
+    """Cases assigned to one person in one run, with a due date. Creating one
+    fires email + bell (server) and a Teams DM (client, assigner's token)."""
+    __tablename__ = "qa_assignments"
+    id             = Column(String, primary_key=True)
+    run_id         = Column(String, nullable=False, index=True)
+    assignee_email = Column(String, nullable=False, index=True)
+    case_ids       = Column(JSON, default=list)
+    due_date       = Column(String, default="")        # ISO date
+    note           = Column(String, default="")
+    assigned_by    = Column(String, default="")
+    created_at     = Column(String, default="")
+# Credential Vault (ported from the standalone credential-vault-dev app — Jul 2026)
+# Company + personal password vault. Secrets are Fernet-encrypted at rest
+# (NEXUS_VAULT_KEY env var; see routers/credvault.py) and are NEVER returned by
+# list endpoints — only by explicit per-item reveal endpoints, every one of
+# which writes a vault_access_logs row (who revealed what, when). Access is
+# gated by the "credvault" module grant. Personal credentials are strictly
+# owner-scoped: no admin bypass.
+# ─────────────────────────────────────────────────────────────────────────────
+class VaultCredential(Base):
+    __tablename__ = "vault_credentials"
+    id                 = Column(String, primary_key=True)
+    name               = Column(String, nullable=False)
+    dept               = Column(String, default="")
+    type               = Column(String, default="Password")   # Password|API key|Access key|Certificate
+    username           = Column(String, default="")
+    url                = Column(String, default="")
+    secret_enc         = Column(String, default="")           # Fernet ciphertext — never in list responses
+    secret_hash        = Column(String, default="")           # sha256 — reuse detection without decrypting
+    tier               = Column(String, default="Standard")   # Standard|High|Critical
+    owner_email        = Column(String, default="", index=True)
+    backup_owner_email = Column(String, default="")
+    strength           = Column(String, default="strong")     # weak|fair|strong (evaluated server-side)
+    breached           = Column(Boolean, default=False)
+    rotation_max       = Column(Integer, default=90)          # days between required rotations
+    custom_expiry      = Column(Boolean, default=False)
+    rotated_at         = Column(String, default="")           # ISO — last password change
+    expires_at         = Column(String, default="")           # ISO date — hard expiry (API keys), optional
+    deleted_at         = Column(String, default="")           # soft delete → Trash tab
+    deleted_by         = Column(String, default="")
+    created_at         = Column(String, default="")
+    created_by         = Column(String, default="")
+
+
+class VaultPersonalCredential(Base):
+    """Private per-user credential — bound to the signed-in MS account email.
+    Owner-only at the API: not readable by admins or anyone else."""
+    __tablename__ = "vault_personal_credentials"
+    id          = Column(String, primary_key=True)
+    owner_email = Column(String, default="", index=True)
+    name        = Column(String, nullable=False)
+    username    = Column(String, default="")
+    type        = Column(String, default="Password")
+    note        = Column(String, default="")
+    secret_enc  = Column(String, default="")
+    strength    = Column(String, default="strong")
+    created_at  = Column(String, default="")
+
+
+class VaultShareRequest(Base):
+    """Pending approval: either a share request routed to the credential's
+    owner (owner_email set) or a Critical-tier reveal request routed to Global
+    Admins (owner_email empty)."""
+    __tablename__ = "vault_share_requests"
+    id                 = Column(String, primary_key=True)
+    cred_id            = Column(String, default="", index=True)
+    requested_by_email = Column(String, default="")
+    shared_to_email    = Column(String, default="")           # recipient of the access
+    owner_email        = Column(String, default="")           # ""=Global Admin approval queue
+    duration_ms        = Column(BigInteger, default=3600000)
+    duration_label     = Column(String, default="1 Hour")
+    status             = Column(String, default="pending")    # pending|approved|denied
+    created_at         = Column(String, default="")
+    decided_at         = Column(String, default="")
+    decided_by         = Column(String, default="")
+
+
+class VaultAccessGrant(Base):
+    """Time-boxed shared access to one credential. The secret itself is never
+    copied here — reveal goes back through the credential + this grant check."""
+    __tablename__ = "vault_access_grants"
+    id         = Column(String, primary_key=True)
+    cred_id    = Column(String, default="", index=True)
+    granted_to = Column(String, default="", index=True)
+    granted_by = Column(String, default="")
+    granted_at = Column(String, default="")                   # ISO
+    expires_at = Column(String, default="")                   # ISO
+
+
+class VaultAccessLog(Base):
+    """Vault audit trail — every reveal/copy/create/edit/remove/share/deny."""
+    __tablename__ = "vault_access_logs"
+    id          = Column(String, primary_key=True)
+    actor_email = Column(String, default="", index=True)
+    actor_name  = Column(String, default="")
+    action      = Column(String, default="")                  # Revealed|Copied|Created|Edited|Removed|Recovered|Imported|Requested|Shared|Denied
+    cred_id     = Column(String, default="")
+    cred_name   = Column(String, default="")
+    dept        = Column(String, default="")
+    detail      = Column(JSON, nullable=True)                 # [{field,from,to}] for edits
+    loc         = Column(String, default="")
+    created_at  = Column(String, default="", index=True)

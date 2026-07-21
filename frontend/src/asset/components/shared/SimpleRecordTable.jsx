@@ -127,7 +127,7 @@ export function SimpleRecordTable({ title, subtitle, rows, cols, query, highligh
                             {value ? (
                               <StatusBadge tone={statusTone(value)}>{value}</StatusBadge>
                             ) : (
-                              <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Set status</span>
+                              <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Set Status</span>
                             )}
                           </button>
                         );

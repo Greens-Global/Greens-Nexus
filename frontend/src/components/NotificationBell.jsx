@@ -7,11 +7,6 @@ import { useMsal }           from '@azure/msal-react';
 import { useRole }           from '../contexts/RoleContext';
 import { api }               from '../api';
 
-// Read "Updates" auto-clear after this long so the panel doesn't pile up with
-// things you've already seen and acted on — "Needs Action" items are exempt
-// since they still require a decision.
-const AUTO_DISMISS_MS = 6000;
-
 // Resolved dynamically from MSAL account — see myName below
 
 // Bodies may carry **bold** markers (names, item lists, totals) — render them
@@ -36,33 +31,34 @@ function timeAgo(iso) {
 }
 
 const TYPE_META = {
-  inv_request:      { icon: Package,      label: 'Inventory Request',    color: 'var(--color-blue)'   },
-  req_pending:      { icon: ShoppingCart, label: 'Purchase Requisition', color: 'var(--color-orange)' },
-  checkout_pending: { icon: ShoppingCart, label: 'Checkout Request',     color: 'var(--color-orange)' },
-  item_returned:    { icon: RotateCcw,    label: 'Item Returned',        color: 'var(--color-green)'  },
-  allocate_request: { icon: Package,      label: 'Allocation Needed',    color: 'var(--color-orange)' },
-  allocated:        { icon: CheckCircle,  label: 'Item Allocated',       color: 'var(--color-green)'  },
-  approved:         { icon: CheckCircle,  label: 'Request Approved',     color: 'var(--color-green)'  },
-  rejected:         { icon: XCircle,      label: 'Request Rejected',     color: 'var(--color-red)'    },
+  inv_request:      { icon: Package,      label: 'Inventory request',    color: 'var(--color-blue)'   },
+  req_pending:      { icon: ShoppingCart, label: 'Purchase requisition', color: 'var(--color-orange)' },
+  checkout_pending: { icon: ShoppingCart, label: 'Checkout request',     color: 'var(--color-orange)' },
+  item_returned:    { icon: RotateCcw,    label: 'Item returned',        color: 'var(--color-green)'  },
+  allocate_request: { icon: Package,      label: 'Allocation needed',    color: 'var(--color-orange)' },
+  allocated:        { icon: CheckCircle,  label: 'Item allocated',       color: 'var(--color-green)'  },
+  approved:         { icon: CheckCircle,  label: 'Request approved',     color: 'var(--color-green)'  },
+  rejected:         { icon: XCircle,      label: 'Request rejected',     color: 'var(--color-red)'    },
+  cancelled:        { icon: XCircle,      label: 'Checkout cancelled',   color: 'var(--color-red)'    },
   custom_alert:     { icon: AlertCircle,  label: 'Alert',                color: 'var(--color-orange)' },
-  extension_pending:  { icon: Clock,        label: 'Extension Request',    color: 'var(--color-blue)'   },
-  extension_resolved: { icon: CheckCircle,  label: 'Extension Update',     color: 'var(--color-green)'  },
-  extension_approved: { icon: CheckCircle,  label: 'Extension Approved',   color: 'var(--color-green)'  },
-  extension_declined: { icon: XCircle,      label: 'Extension Declined',   color: 'var(--color-red)'    },
-  req_update:         { icon: ShoppingCart, label: 'Requisition Update',   color: 'var(--color-blue)'   },
-  req_approved:       { icon: CheckCircle,  label: 'Requisition Approved', color: 'var(--color-green)'  },
-  req_rejected:       { icon: XCircle,      label: 'Requisition Rejected', color: 'var(--color-red)'    },
-  req_fulfill:        { icon: ShoppingCart, label: 'Purchase to Fulfill',  color: 'var(--color-purple)' },
-  perm_assign:        { icon: User,         label: 'Item Assignment',      color: 'var(--color-blue)'   },
-  perm_update:        { icon: CheckCircle,  label: 'Assignment Update',    color: 'var(--color-green)'  },
-  perm_return:        { icon: RotateCcw,    label: 'Assignment Return',    color: 'var(--color-orange)' },
-  kb_review_request:    { icon: Clock,       label: 'SOP Review',           color: 'var(--color-orange)' },
-  kb_approved:          { icon: CheckCircle, label: 'SOP Approved',         color: 'var(--color-green)'  },
-  kb_changes_requested: { icon: AlertCircle, label: 'Changes Requested',    color: 'var(--color-orange)' },
-  kb_comment:           { icon: User,        label: 'SOP Comment',          color: 'var(--color-blue)'   },
-  kb_course_assigned:   { icon: HelpCircle,  label: 'Training Assigned',    color: 'var(--color-blue)'   },
-  kb_course_overdue:    { icon: AlertCircle, label: 'Training Overdue',      color: 'var(--color-red)'    },
-  kb_course_recert:     { icon: RotateCcw,   label: 'Recertification Due',   color: 'var(--color-orange)' },
+  extension_pending:  { icon: Clock,        label: 'Extension request',    color: 'var(--color-blue)'   },
+  extension_resolved: { icon: CheckCircle,  label: 'Extension update',     color: 'var(--color-green)'  },
+  extension_approved: { icon: CheckCircle,  label: 'Extension approved',   color: 'var(--color-green)'  },
+  extension_declined: { icon: XCircle,      label: 'Extension declined',   color: 'var(--color-red)'    },
+  req_update:         { icon: ShoppingCart, label: 'Requisition update',   color: 'var(--color-blue)'   },
+  req_approved:       { icon: CheckCircle,  label: 'Requisition approved', color: 'var(--color-green)'  },
+  req_rejected:       { icon: XCircle,      label: 'Requisition rejected', color: 'var(--color-red)'    },
+  req_fulfill:        { icon: ShoppingCart, label: 'Purchase to fulfill',  color: 'var(--color-purple)' },
+  perm_assign:        { icon: User,         label: 'Item assignment',      color: 'var(--color-blue)'   },
+  perm_update:        { icon: CheckCircle,  label: 'Assignment update',    color: 'var(--color-green)'  },
+  perm_return:        { icon: RotateCcw,    label: 'Assignment return',    color: 'var(--color-orange)' },
+  kb_review_request:    { icon: Clock,       label: 'SOP review',           color: 'var(--color-orange)' },
+  kb_approved:          { icon: CheckCircle, label: 'SOP approved',         color: 'var(--color-green)'  },
+  kb_changes_requested: { icon: AlertCircle, label: 'Changes requested',    color: 'var(--color-orange)' },
+  kb_comment:           { icon: User,        label: 'SOP comment',          color: 'var(--color-blue)'   },
+  kb_course_assigned:   { icon: HelpCircle,  label: 'Training assigned',    color: 'var(--color-blue)'   },
+  kb_course_overdue:    { icon: AlertCircle, label: 'Training overdue',      color: 'var(--color-red)'    },
+  kb_course_recert:     { icon: RotateCcw,   label: 'Recertification due',   color: 'var(--color-orange)' },
 };
 
 // Short stage labels/colors for chips on cards and the lifecycle "trail" strip
@@ -73,7 +69,7 @@ const STAGE_META = {
   checkout_pending: { label: 'Pending',    color: 'var(--color-orange)' },
   approved:         { label: 'Approved',   color: 'var(--color-green)'  },
   allocate_request: { label: 'Allocating', color: 'var(--color-orange)' },
-  allocated:        { label: 'In Use',     color: 'var(--color-green)'  },
+  allocated:        { label: 'In use',     color: 'var(--color-green)'  },
   item_returned:    { label: 'Returned',   color: 'var(--color-blue)'   },
   rejected:         { label: 'Rejected',   color: 'var(--color-red)'    },
 };
@@ -95,9 +91,58 @@ function groupByRequest(list) {
   });
 }
 
+// Where each notification type lives in the app — clicking a bell card (or a
+// toast) marks it read and takes you there. Exported so NotificationToasts can
+// reuse the same map: server notifications write action="" and would otherwise
+// navigate nowhere.
+export function destinationFor(n) {
+  switch (n.type) {
+    case 'allocate_request':
+      // The assigned allocator's handover queue — supervisors land on their
+      // "To Hand Over" tab, managers on the Checkouts queue (both via 'handover').
+      return ['inventory', 'handover'];
+    case 'checkout_pending':
+    case 'extension_pending':
+    case 'item_returned':
+      return ['inventory', 'checkouts'];   // manager work queue
+    case 'approved':
+    case 'rejected':
+    case 'cancelled':
+    case 'allocated':
+    case 'extension_resolved':
+    case 'extension_approved':
+    case 'extension_declined':
+      return ['inventory', 'myitems'];
+    case 'perm_assign':
+      // Permanent assignments live under My Items → Permanent, not Active
+      // Checkouts — MyCheckoutsPanel switches its own tab on this sub.
+      return ['inventory', 'permanent'];
+    case 'perm_update':
+      // Assignment updates (accepted / return confirmed) belong with the
+      // assignment itself under My Items → Permanent — without this case these
+      // cards navigated nowhere.
+      return ['inventory', 'permanent'];
+    case 'perm_return':
+      // Manager verifies/accepts the return under Checkouts → Assignments
+      // (Permanent) → Returns to Accept, not the Temporary checkouts list.
+      return ['inventory', 'assignment-returns'];
+    case 'req_fulfill':
+      return ['inventory', 'purchasereqs'];  // allocator's To Fulfill queue
+    case 'req_pending':
+    case 'req_update':
+    case 'req_approved':
+    case 'req_rejected':
+      // Land on the Requisition Log (status/steps live there), not the blank
+      // New Request form (Jun 16).
+      return ['purchase', 'log'];
+    default:
+      return n.action?.view ? [n.action.view, n.action.sub] : null;
+  }
+}
+
 export default function NotificationBell({ onNavigate }) {
   const { notifications, unreadCount, markRead, markAllRead, dismiss, addNotification, markActioned, pendingApprovalId, clearPendingApproval } = useNotifications();
-  const { approveRequest, rejectRequest, allocateItem, requests: invRequests, requestsLoading: invRequestsLoading, refreshRequests: refreshInvRequests } = useInventory();
+  const { approveRequest, allocateItem, requests: invRequests, requestsLoading: invRequestsLoading, refreshRequests: refreshInvRequests } = useInventory();
   const { approveRequisition, rejectRequisition }   = useRequisitions();
   const { accounts } = useMsal();
   const { can }      = useRole();
@@ -184,7 +229,14 @@ export default function NotificationBell({ onNavigate }) {
   function friendlyActionError(err) {
     if (err?.status === 409) return 'This request was already resolved (likely by someone else) — refresh to see its current status.';
     if (err?.status === 403) return "You don't have permission to do that.";
-    if (err?.status === 400 && err?.detail) return err.detail;
+    // FastAPI 422 sends detail as an array of {loc,msg,type} objects — join the
+    // messages so we never render a bare "[object Object]".
+    if (Array.isArray(err?.detail)) {
+      const msg = err.detail.map(d => (typeof d === 'string' ? d : d?.msg)).filter(Boolean).join('; ');
+      if (msg) return msg;
+    }
+    // Any other 4xx (400/409/etc.) with a plain-string backend detail — surface it.
+    if (typeof err?.detail === 'string' && err.detail) return err.detail;
     return "Couldn't go through — please try again.";
   }
 
@@ -263,131 +315,132 @@ export default function NotificationBell({ onNavigate }) {
 
   // Confirms approval once an allocator has been picked.
   // checkout_pending: backend fires approved + allocate_request notifications automatically.
-  // inv_request (old system): we fire them manually via addNotification.
-  function submitApprove(n) {
+  async function submitApprove(n) {
     const chosen = allocators.find(a => a.email === pickedAllocator);
     if (!chosen) return;
-    const refId       = n.refId       ?? '';
-    const itemName    = n.itemName    ?? 'the item';
-    const requestedBy = n.requestedBy ?? '';
+    const refId = n.refId ?? '';
 
-    // Purchase requisition: approve + assign the fulfiller in one shot
+    // Purchase requisition: approve + assign the fulfiller in one shot.
+    // approveRequisition rejects on failure — await so we only clear on success.
     if (n.type === 'req_pending') {
       setApprovingBusy(true);
       clearActionError(n.id);
-      Promise.resolve(approveRequisition(refId, myName, { email: chosen.email, name: chosen.name }))
-        .then(() => {
-          markActioned(n.id);
-          resolveAndDismiss(n, 'approved');
-          setApprovingId(null);
-          setPickedAllocator('');
-        })
-        .catch(err => setActionError(prev => ({ ...prev, [n.id]: friendlyActionError(err) })))
-        .finally(() => setApprovingBusy(false));
+      try {
+        await approveRequisition(refId, myName, { email: chosen.email, name: chosen.name });
+        markActioned(n.id);
+        resolveAndDismiss(n, 'approved');
+        setApprovingId(null);
+        setPickedAllocator('');
+      } catch (err) {
+        setActionError(prev => ({ ...prev, [n.id]: friendlyActionError(err) }));
+      } finally {
+        setApprovingBusy(false);
+      }
       return;
     }
 
-    // For checkout_pending: ref_id may be an order_id (cart) or single checkout_id.
-    // Find all pending checkouts that share this ref so cart orders all get approved.
-    const targets = (n.type === 'checkout_pending')
-      ? invRequests.filter(c => c.status === 'pending' && (c.orderId === refId || c.id === refId))
-      : null;
-
-    if (n.type === 'checkout_pending' && (!targets || !targets.length)) {
-      setActionError(prev => ({ ...prev, [n.id]: 'Request not found — it may have already been processed. Refresh to see the latest state.' }));
+    // Legacy inv_request notifications are wired to the retired inventory stack —
+    // approveRequest (= updateItemCheckout) would 404 on that id. Degrade
+    // gracefully rather than faking an "Approved ✓" the backend never recorded.
+    if (n.type === 'inv_request') {
+      setActionError(prev => ({ ...prev, [n.id]: 'This request type is no longer actionable here.' }));
       return;
+    }
+
+    // checkout_pending: ref_id may be an order_id (cart) or a single checkout_id.
+    // Find all pending checkouts under this ref so cart orders all get approved.
+    let targets = invRequests.filter(c => c.status === 'pending' && (c.orderId === refId || c.id === refId));
+
+    // P1-9: the realtime notification can arrive before the checkout poll knows
+    // about the new order — don't conclude "already processed" from a stale list.
+    // Refresh once and re-check (mirrors the auto-action effect's grace period).
+    if (!targets.length) {
+      try {
+        const fresh = await api.getItemCheckouts();
+        targets = fresh.filter(c => c.status === 'pending' && (c.orderId === refId || c.id === refId));
+      } catch { /* keep empty targets; fall through to the not-found message */ }
+      refreshInvRequests && refreshInvRequests();
+      if (!targets.length) {
+        setActionError(prev => ({ ...prev, [n.id]: 'Request not found — it may have already been processed. Refresh to see the latest state.' }));
+        return;
+      }
     }
 
     setApprovingBusy(true);
     clearActionError(n.id);
-
-    // Sequential (not Promise.all) so the backend batches the order's
-    // notifications into one instead of racing into per-item duplicates.
-    const approveAll = targets
-      ? (async () => {
-          const results = [];
-          for (const c of targets) {
-            try { results.push({ status: 'fulfilled', value: await approveRequest(c.id, myName, chosen.email, chosen.name) }); }
-            catch (e) { results.push({ status: 'rejected', reason: e }); }
-          }
-          return results;
-        })()
-      : approveRequest(refId, myName, chosen.email, chosen.name).then(r => [{ status: 'fulfilled', value: r }]).catch(e => [{ status: 'rejected', reason: e }]);
-
-    approveAll
-      .then(results => {
-        const anySucceeded = results.some(r => r.status === 'fulfilled');
-        const firstFailure = results.find(r => r.status === 'rejected');
-
-        if (anySucceeded) {
-          markActioned(n.id);
-          resolveAndDismiss(n, 'approved');
-          // Old inventory system: manually push notifications (backend doesn't do it)
-          if (n.type === 'inv_request') {
-            const invReq = invRequests.find(r => r.id === refId);
-            const recipientEmail = n.action?.requestedByEmail ?? invReq?.requestedByEmail ?? '';
-            addNotification({
-              type: 'approved', recipient: recipientEmail || requestedBy,
-              requestedBy, itemName,
-              title: 'Request Approved ✓',
-              body:  `Your request for ${itemName} has been approved by ${myName}. It will be assigned to you by your supervisor shortly.`,
-              action: { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
-            });
-            addNotification({
-              type: 'allocate_request', recipient: chosen.email, refId, itemName, requestedBy,
-              title: 'Allocate an Item',
-              body:  `${myName} approved ${requestedBy}'s request for ${itemName} and assigned it to you to hand over.`,
-              action: { label: 'Allocate Now →', kind: 'allocate' },
-            });
-          }
-          setApprovingId(null);
-          setPickedAllocator('');
-        }
-        if (!anySucceeded && firstFailure) {
-          setActionError(prev => ({ ...prev, [n.id]: friendlyActionError(firstFailure.reason) }));
-        }
-      })
-      .finally(() => setApprovingBusy(false));
+    try {
+      // Sequential (not Promise.all) so the backend batches the order's
+      // notifications into one instead of racing into per-item duplicates.
+      const results = [];
+      for (const c of targets) {
+        try { results.push({ ok: true, value: await approveRequest(c.id, myName, chosen.email, chosen.name) }); }
+        catch (e) { results.push({ ok: false, reason: e }); }
+      }
+      const anySucceeded = results.some(r => r.ok);
+      const firstFailure = results.find(r => !r.ok);
+      if (anySucceeded) {
+        markActioned(n.id);
+        resolveAndDismiss(n, 'approved');
+        setApprovingId(null);
+        setPickedAllocator('');
+      } else if (firstFailure) {
+        setActionError(prev => ({ ...prev, [n.id]: friendlyActionError(firstFailure.reason) }));
+      }
+    } finally {
+      setApprovingBusy(false);
+    }
   }
 
-  function submitReject(n) {
+  async function submitReject(n) {
     if (!rejectReason.trim()) return;
-    const refId       = n.refId       ?? '';
-    const itemName    = n.itemName    ?? 'the item';
-    const requestedBy = n.requestedBy ?? '';
+    const refId  = n.refId ?? '';
+    const reason = rejectReason.trim();
+    clearActionError(n.id);
 
-    if (n.type === 'extension_pending') {
-      api.resolveItemExtension(refId, { action: 'reject', note: rejectReason.trim() })
-        .then(() => refreshInvRequests && refreshInvRequests())
-        .catch(() => {});
-    } else if (n.type === 'checkout_pending') {
-      // For cart orders, ref_id = order_id; find all pending checkouts under it.
-      // Sequential so the backend batches the order's rejection notifications into one.
-      const targets = invRequests.filter(c =>
-        c.status === 'pending' && (c.orderId === refId || c.id === refId)
-      );
-      (async () => {
-        for (const c of (targets.length ? targets : [{ id: refId }])) {
-          try { await api.updateItemCheckout(c.id, { status: 'rejected', resolved_by: myName, reject_reason: rejectReason.trim() }); }
-          catch { /* keep going */ }
+    // Await every path and only mark actioned / dismiss on success — these APIs
+    // and context fns now reject on failure, and the old code always showed
+    // "Rejected — clearing…" even when nothing landed.
+    try {
+      if (n.type === 'extension_pending') {
+        await api.resolveItemExtension(refId, { action: 'reject', note: reason });
+        refreshInvRequests && refreshInvRequests();
+      } else if (n.type === 'checkout_pending') {
+        // For cart orders, ref_id = order_id; find all pending checkouts under it.
+        // Only PATCH real checkout ids — the old fallback of PATCHing the order id
+        // as a checkout id was a guaranteed 404 that still faked "Rejected ✓".
+        const targets = invRequests.filter(c =>
+          c.status === 'pending' && (c.orderId === refId || c.id === refId)
+        );
+        if (!targets.length) {
+          setActionError(prev => ({ ...prev, [n.id]: 'Request not found — it may have already been processed. Refresh to see the latest state.' }));
+          return;
+        }
+        // Sequential so the backend batches the order's rejection notifications into one.
+        const results = [];
+        for (const c of targets) {
+          try { results.push({ ok: true, value: await api.updateItemCheckout(c.id, { status: 'rejected', resolved_by: myName, reject_reason: reason }) }); }
+          catch (e) { results.push({ ok: false, reason: e }); }
         }
         refreshInvRequests && refreshInvRequests();
-      })();
-    } else if (n.type === 'inv_request') {
-      rejectRequest(refId, myName, rejectReason.trim());
-      const invReq = invRequests.find(r => r.id === refId);
-      const recipientEmail = n.action?.requestedByEmail ?? invReq?.requestedByEmail ?? '';
-      addNotification({
-        type: 'rejected', recipient: recipientEmail || requestedBy,
-        requestedBy, itemName,
-        title: 'Request Rejected',
-        body:  `Your request for ${itemName} was not approved. Reason: "${rejectReason.trim()}"`,
-        action: { label: 'View Request →', view: 'inventory', sub: 'my-requests' },
-      });
-    } else if (n.type === 'req_pending') {
-      // Backend notifies the beneficiary with the rejection reason
-      rejectRequisition(refId, myName, rejectReason.trim());
+        if (!results.some(r => r.ok)) {
+          setActionError(prev => ({ ...prev, [n.id]: friendlyActionError(results.find(r => !r.ok)?.reason) }));
+          return;
+        }
+      } else if (n.type === 'inv_request') {
+        // Legacy inventory-request stack is retired — there's no checkout id to
+        // reject here (rejectRequest = updateItemCheckout → 404), so don't fake
+        // success; leave the card actionable with a clear explanation.
+        setActionError(prev => ({ ...prev, [n.id]: 'This request type is no longer actionable here.' }));
+        return;
+      } else if (n.type === 'req_pending') {
+        // rejectRequisition rejects on failure; backend notifies the beneficiary.
+        await rejectRequisition(refId, myName, reason);
+      }
+    } catch (err) {
+      setActionError(prev => ({ ...prev, [n.id]: friendlyActionError(err) }));
+      return;
     }
+
     markActioned(n.id);
     resolveAndDismiss(n, 'rejected');
     setRejectingId(null);
@@ -409,53 +462,11 @@ export default function NotificationBell({ onNavigate }) {
         recipient:   invReq?.requestedByEmail || invReq?.requestedBy || n.requestedBy || '',
         refId,
         itemName:    n.itemName ?? invReq?.itemName ?? 'the item',
-        title:       'Item Allocated ✓',
+        title:       'Item allocated ✓',
         body:        `Your ${n.itemName ?? invReq?.itemName ?? 'item'} has been allocated and is ready for collection. Please pick it up from your supervisor.`,
         action:      { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
       });
     }).catch(() => {}).finally(() => setAllocatingId(null));
-  }
-
-  // Where each notification type lives in the app — clicking a card marks it
-  // read and takes you there. Cards are never auto-dismissed on click; the
-  // header's "Clear all" (or the per-card ×) is the only way to remove them.
-  function destinationFor(n) {
-    switch (n.type) {
-      case 'allocate_request':
-        // The assigned allocator's handover queue — supervisors land on their
-        // "To Hand Over" tab, managers on the Checkouts queue (both via 'handover').
-        return ['inventory', 'handover'];
-      case 'checkout_pending':
-      case 'extension_pending':
-      case 'item_returned':
-        return ['inventory', 'checkouts'];   // manager work queue
-      case 'approved':
-      case 'rejected':
-      case 'allocated':
-      case 'extension_resolved':
-      case 'extension_approved':
-      case 'extension_declined':
-        return ['inventory', 'myitems'];
-      case 'perm_assign':
-        // Permanent assignments live under My Items → Permanent, not Active
-        // Checkouts — MyCheckoutsPanel switches its own tab on this sub.
-        return ['inventory', 'permanent'];
-      case 'perm_return':
-        // Manager verifies/accepts the return under Checkouts → Assignments
-        // (Permanent) → Returns to Accept, not the Temporary checkouts list.
-        return ['inventory', 'assignment-returns'];
-      case 'req_fulfill':
-        return ['inventory', 'purchasereqs'];  // allocator's To Fulfill queue
-      case 'req_pending':
-      case 'req_update':
-      case 'req_approved':
-      case 'req_rejected':
-        // Land on the Requisition Log (status/steps live there), not the blank
-        // New Request form (Jun 16).
-        return ['purchase', 'log'];
-      default:
-        return n.action?.view ? [n.action.view, n.action.sub] : null;
-    }
   }
 
   function handleUpdateClick(n) {
@@ -588,7 +599,7 @@ export default function NotificationBell({ onNavigate }) {
                 style={{ fontSize: 12.5, color: 'hsl(var(--color-blue))', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 10px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600, whiteSpace: 'nowrap' }}
                 onMouseEnter={e => e.currentTarget.style.background='var(--mist)'}
                 onMouseLeave={e => e.currentTarget.style.background='none'}>
-                Mark all read
+                Mark All Read
               </button>
             )}
             {updates.length > 0 && (
@@ -596,7 +607,7 @@ export default function NotificationBell({ onNavigate }) {
                 style={{ fontSize: 12.5, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600 }}
                 onMouseEnter={e => e.currentTarget.style.background='var(--mist)'}
                 onMouseLeave={e => e.currentTarget.style.background='none'}>
-                Clear all
+                Clear All
               </button>
             )}
             <button onClick={() => setOpen(false)} aria-label="Close" title="Close"
@@ -693,7 +704,7 @@ export default function NotificationBell({ onNavigate }) {
                               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
                               <Check size={15} /> {n.type === 'extension_pending' ? 'Approve' : 'Approve All'}
                             </button>
-                            <button onClick={e => { e.stopPropagation(); setRejectingId(n.id); setRejectReason(''); setApprovingId(null); }}
+                            <button onClick={e => { e.stopPropagation(); setRejectingId(n.id); setRejectReason(''); setApprovingId(null); clearActionError(n.id); }}
                               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-red),0.10)', color: 'hsl(var(--color-red))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
                               <X size={15} /> {n.type === 'extension_pending' ? 'Reject' : 'Reject All'}
                             </button>
@@ -738,6 +749,11 @@ export default function NotificationBell({ onNavigate }) {
                           </div>
                         ) : (
                           <div onClick={e => e.stopPropagation()}>
+                            {actionError[n.id] && (
+                              <p style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'hsl(var(--color-red))', background: 'hsla(var(--color-red),0.08)', borderRadius: 8, padding: '8px 12px', margin: '0 0 8px', lineHeight: 1.4 }}>
+                                <AlertCircle size={14} style={{ flexShrink: 0 }} /> {actionError[n.id]}
+                              </p>
+                            )}
                             <input
                               autoFocus
                               className="form-input"

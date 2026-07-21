@@ -8,12 +8,20 @@ async function getAuthHeader(forceRefresh = false) {
   // Without this, acquireTokenSilent fails on first render and the request
   // goes out with no Authorization header, causing a 401.
   await msalReady;
-  const accounts = msalInstance.getAllAccounts();
-  if (!accounts.length) return {};
+  // Prefer the ACTIVE account, not getAllAccounts()[0]: a user signed into more
+  // than one Microsoft account (e.g. work + personal) can have the wrong account
+  // at [0], whose token the backend rejects with 401. Pin the active account once
+  // so every request uses the same identity.
+  let account = msalInstance.getActiveAccount();
+  if (!account) {
+    account = msalInstance.getAllAccounts()[0];
+    if (account) msalInstance.setActiveAccount(account);
+  }
+  if (!account) return {};
   try {
     const result = await msalInstance.acquireTokenSilent({
       ...apiTokenRequest,
-      account: accounts[0],
+      account,
       forceRefresh,
     });
     return { Authorization: `Bearer ${result.idToken}` };
@@ -54,6 +62,60 @@ export function onBackendHealth(fn) {
 }
 export function isBackendDown() { return _backendDown; }
 
+// ── Keep-warm ─────────────────────────────────────────────────────────────────
+// The dev/prod API is Azure App Service, which parks the process after a few
+// idle minutes and then cold-starts (5-15s) on the next request — so the FIRST
+// screen a user opens after any lull feels slow and "glitchy". A cheap /health
+// ping on boot and every few minutes (only while the tab is visible) keeps the
+// process warm through a working session, so navigations stay snappy. This is a
+// mitigation, not a substitute for enabling "Always On" on the App Service —
+// that eliminates cold starts entirely at the infra level.
+let _keepWarmTimer = null;
+function _pingHealth() {
+  // Bare fetch — no auth, no retry, never flips the reconnecting banner; a failed
+  // warm-up ping should be invisible.
+  fetch(`${BASE}/health`, { cache: 'no-store' }).catch(() => {});
+}
+export function startKeepWarm(everyMs = 4 * 60_000) {
+  if (_keepWarmTimer) return;               // idempotent — safe to call once on boot
+  _pingHealth();                            // start waking the backend immediately
+  _keepWarmTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') _pingHealth();
+  }, everyMs);
+  // Returning to a tab that sat idle is exactly when the backend has gone cold —
+  // ping right away so the next click doesn't eat the cold start.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') _pingHealth();
+  });
+}
+
+// FastAPI 422 returns `detail` as an array of {loc, msg, type}. Passing that to
+// new Error() stringifies to "[object Object]", which then surfaces in toasts.
+// Flatten it to a readable "field: message" sentence; pass strings through.
+function _detailToMessage(detail, status) {
+  if (Array.isArray(detail)) {
+    const parts = detail.map(d => {
+      if (typeof d === 'string') return d;
+      const field = Array.isArray(d?.loc) ? d.loc.filter(x => x !== 'body').join('.') : '';
+      const msg = d?.msg || d?.message || '';
+      return field ? `${field}: ${msg}` : msg;
+    }).filter(Boolean);
+    if (parts.length) return parts.join('; ');
+  } else if (typeof detail === 'string' && detail) {
+    return detail;
+  }
+  return `API error ${status}`;
+}
+
+// Only idempotent methods (GET/HEAD) are safe to auto-retry on timeout/5xx.
+// A POST/PATCH/PUT/DELETE that committed server-side but exceeded the 18s abort
+// (Azure cold start) or 5xx'd after committing would otherwise be re-sent —
+// duplicate checkouts/assignments/notifications (P1-10). No method = GET.
+function _isRetryable(options) {
+  const method = (options.method || 'GET').toUpperCase();
+  return method === 'GET' || method === 'HEAD';
+}
+
 async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   const authHeader = await getAuthHeader(tokenRefreshed);
   const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
@@ -77,7 +139,8 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
     }
   } catch (err) {
     // fetch() itself threw — offline, CORS preflight dropped, cold-start, or timeout.
-    if (attempt < MAX_NET_ATTEMPTS) {
+    // Only retry idempotent requests: a mutation may have committed before the abort.
+    if (attempt < MAX_NET_ATTEMPTS && _isRetryable(options)) {
       await new Promise(r => setTimeout(r, 800 * attempt));
       return req(path, options, attempt + 1, tokenRefreshed);
     }
@@ -91,14 +154,15 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   }
   // Exponential backoff for 5xx — 1s, 2s, 4s — total ~7s before giving up.
   // Covers typical Azure cold-start without burning too many attempts on real errors.
-  if (res.status >= 500 && attempt < MAX_5XX_ATTEMPTS) {
+  // Mutations are never retried — a 5xx can arrive after the write committed.
+  if (res.status >= 500 && attempt < MAX_5XX_ATTEMPTS && _isRetryable(options)) {
     await new Promise(r => setTimeout(r, Math.min(1000 * 2 ** (attempt - 1), 4000)));
     return req(path, options, attempt + 1, tokenRefreshed);
   }
   if (!res.ok) {
     let detail;
     try { detail = (await res.json())?.detail; } catch { /* not JSON */ }
-    const err = new Error(detail || `API error ${res.status}`);
+    const err = new Error(_detailToMessage(detail, res.status));
     err.status = res.status;
     err.detail = detail;
     if (res.status >= 500) _setBackendDown(true);
@@ -144,7 +208,8 @@ async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) 
       clearTimeout(tid);
     }
   } catch (err) {
-    if (attempt < MAX_NET_ATTEMPTS) {
+    // Same idempotency rule as req() — don't re-send a mutation that may have run.
+    if (attempt < MAX_NET_ATTEMPTS && _isRetryable(options)) {
       await new Promise(r => setTimeout(r, 800 * attempt));
       return reqBlob(path, options, attempt + 1, tokenRefreshed);
     }
@@ -153,15 +218,16 @@ async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) 
   if (res.status === 401 && !tokenRefreshed) {
     return reqBlob(path, options, attempt, true);
   }
-  if (res.status >= 500 && attempt < MAX_5XX_ATTEMPTS) {
+  if (res.status >= 500 && attempt < MAX_5XX_ATTEMPTS && _isRetryable(options)) {
     await new Promise(r => setTimeout(r, Math.min(1000 * 2 ** (attempt - 1), 4000)));
     return reqBlob(path, options, attempt + 1, tokenRefreshed);
   }
   if (!res.ok) {
     let detail;
     try { detail = (await res.json())?.detail; } catch { /* not JSON */ }
-    const err = new Error(detail || `API error ${res.status}`);
+    const err = new Error(_detailToMessage(detail, res.status));
     err.status = res.status;
+    err.detail = detail;
     throw err;
   }
   const disposition = res.headers.get('content-disposition') || '';
@@ -187,6 +253,7 @@ export const api = {
   getTaskAttachments: (id) => req(`/tasks/${id}/attachments`),
   addTaskAttachment: (id, data) => req(`/tasks/${id}/attachments`, { method: "POST", body: JSON.stringify(data) }),
   deleteTaskAttachment: (aid) => req(`/tasks/attachments/${aid}`, { method: "DELETE" }),
+  ocrImage: (file) => { const fd = new FormData(); fd.append("image", file); return req("/task-ocr", { method: "POST", body: fd, timeoutMs: 60_000 }); },
   getTaskActivity: (id) => req(`/tasks/${id}/activity`),
   getGlobalTaskActivity: () => req("/tasks/activity"),
   // Sections & custom statuses (board columns)
@@ -236,6 +303,20 @@ export const api = {
   createTaskTicket: (data) => req("/task-tickets", { method: "POST", body: JSON.stringify(data) }),
   updateTaskTicket: (id, data) => req(`/task-tickets/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskTicket: (id) => req(`/task-tickets/${id}`, { method: "DELETE" }),
+  getTicketComments: (id) => req(`/task-tickets/${id}/comments`),
+  addTicketComment: (id, data) => req(`/task-tickets/${id}/comments`, { method: "POST", body: JSON.stringify(data) }),
+  deleteTicketComment: (cid) => req(`/task-tickets/comments/${cid}`, { method: "DELETE" }),
+  getTicketAttachments: (id) => req(`/task-tickets/${id}/attachments`),
+  addTicketAttachment: (id, data) => req(`/task-tickets/${id}/attachments`, { method: "POST", body: JSON.stringify(data) }),
+  deleteTicketAttachment: (aid) => req(`/task-tickets/attachments/${aid}`, { method: "DELETE" }),
+  getTicketActivity: (id) => req(`/task-tickets/${id}/activity`),
+  addTicketLink: (id, data) => req(`/task-tickets/${id}/links`, { method: "POST", body: JSON.stringify(data) }),
+  removeTicketLink: (id, targetId) => req(`/task-tickets/${id}/links/${targetId}`, { method: "DELETE" }),
+  escalateTicket: (id) => req(`/task-tickets/${id}/escalate`, { method: "POST" }),
+  // Ticket components / categories
+  getTicketComponents: () => req("/task-ticket-components"),
+  addTicketComponent: (data) => req("/task-ticket-components", { method: "POST", body: JSON.stringify(data) }),
+  deleteTicketComponent: (id) => req(`/task-ticket-components/${id}`, { method: "DELETE" }),
   // Module notification bell
   getTaskNotifications: () => req("/task-notifications"),
   markTaskNotificationRead: (id) => req(`/task-notifications/${id}/read`, { method: "POST" }),
@@ -348,6 +429,41 @@ export const api = {
   removeGroupMember: (id, email)         => req(`/groups/${id}/members/${encodeURIComponent(email)}`, { method: 'DELETE' }),
   assignGroupRole:   (id, role, by)      => req(`/groups/${id}/assign-role`, { method: 'POST', body: JSON.stringify({ role, assigned_by: by }) }),
 
+  // Job Roles (Roles & Access redesign) — a job role is a group template with a tier
+  getJobRoles:       ()                  => req('/jobroles'),
+  createJobRole:     (body)              => req('/jobroles', { method: 'POST', body: JSON.stringify(body) }),
+  updateJobRole:     (id, body)          => req(`/jobroles/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteJobRole:     (id)                => req(`/jobroles/${id}`, { method: 'DELETE' }),
+  assignJobRole:     (id, email)         => req(`/jobroles/${id}/assign`, { method: 'POST', body: JSON.stringify({ email }) }),
+  unassignJobRole:   (id, email)         => req(`/jobroles/${id}/unassign`, { method: 'POST', body: JSON.stringify({ email }) }),
+  getEffectiveAccess:(email)             => req(`/jobroles/effective/${encodeURIComponent(email)}`),
+  // Row-level access scopes (sandbox external users to specific companies)
+  getAccessScopes:   (email)             => req(`/access-scopes/${encodeURIComponent(email)}`),
+  addAccessScope:    (email, body)       => req(`/access-scopes/${encodeURIComponent(email)}`, { method: 'POST', body: JSON.stringify(body) }),
+  deleteAccessScope: (email, scopeId)    => req(`/access-scopes/${encodeURIComponent(email)}/${encodeURIComponent(scopeId)}`, { method: 'DELETE' }),
+
+  // Testing module (QA) — dev-only, endpoints 404 unless NEXUS_QA_MODULE is set
+  qaEnabled:        ()            => cachedGet('/qa/enabled', 300_000),
+  qaCases:          ()            => req('/qa/cases'),
+  qaCreateCase:     (body)        => req('/qa/cases', { method: 'POST', body: JSON.stringify(body) }),
+  qaUpdateCase:     (id, body)    => req(`/qa/cases/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  qaRuns:           ()            => req('/qa/runs'),
+  qaCreateRun:      (name)        => req('/qa/runs', { method: 'POST', body: JSON.stringify({ name }) }),
+  qaDeleteRun:      (runId)       => req(`/qa/runs/${runId}`, { method: 'DELETE' }),
+  qaRunResults:     (runId)       => req(`/qa/runs/${runId}/results`),
+  qaUpsertResult:   (runId, body) => req(`/qa/runs/${runId}/results`, { method: 'POST', body: JSON.stringify(body) }),
+  qaActivity:       ()            => req('/qa/activity'),
+  qaBugs:           ()            => req('/qa/bug-reports'),
+  qaCreateBug:      (body)        => req('/qa/bug-reports', { method: 'POST', body: JSON.stringify(body) }),
+  qaUpdateBug:      (id, body)    => req(`/qa/bug-reports/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  qaConvertBug:     (id)          => req(`/qa/bug-reports/${id}/convert`, { method: 'POST', timeoutMs: 60_000 }),
+  qaAssignments:    (runId = '')  => req(`/qa/assignments${runId ? `?run_id=${runId}` : ''}`),
+  qaAssign:         (body)        => req('/qa/assignments', { method: 'POST', body: JSON.stringify(body) }),
+  qaSaveFlow:       (id, flow)    => req(`/qa/cases/${id}/flow`, { method: 'POST', body: JSON.stringify({ flow }) }),
+  qaGenerateE2e:    (id)          => req(`/qa/cases/${id}/generate-e2e`, { method: 'POST', timeoutMs: 90_000 }),
+  qaExport:         (runId = '')  => reqBlob(`/qa/export${runId ? `?run_id=${runId}` : ''}`, { timeoutMs: 180_000 }),
+  qaImport:         (file, runId = '') => { const fd = new FormData(); fd.append('file', file); return req(`/qa/import${runId ? `?run_id=${runId}` : ''}`, { method: 'POST', body: fd, timeoutMs: 180_000 }); },
+
   // Notifications (cross-device, stored in Supabase)
   pushNotification: (n)             => req('/notifications', { method: 'POST', body: JSON.stringify(n) }),
   getNotifications: ()               => req('/notifications'),
@@ -356,18 +472,13 @@ export const api = {
   deleteNotif:      (id)             => req(`/notifications/${id}`, { method: 'DELETE' }),
   sendAlert:        (data)           => req('/notifications/send-alert', { method: 'POST', body: JSON.stringify(data) }),
 
-  // Inventory Requests (legacy — kept for backward compat with existing data)
-  getInventoryItems:       ()          => req('/inventory-requests/items'),
-  createInventoryItem:     (data)       => req('/inventory-requests/items', { method: 'POST', body: JSON.stringify(data) }),
-  importInventoryItems:    (items)      => req('/inventory-requests/items/import', { method: 'POST', body: JSON.stringify({ items }) }),
-  updateInventoryItem:     (id, data)   => req(`/inventory-requests/items/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  deleteInventoryItem:     (id)         => req(`/inventory-requests/items/${id}`, { method: 'DELETE' }),
-  getInventoryReport:      (params)     => reqBlob(`/inventory-requests/report?${new URLSearchParams(params)}`),
-  getInventoryAuditLog:    (params)     => req(`/inventory-requests/audit-log?${new URLSearchParams(params)}`),
-  getInventoryAllocators:  ()          => req('/inventory-requests/allocators'),
-  getInventoryRequests:    ()          => req('/inventory-requests'),
-  createInventoryRequest:  (data)      => req('/inventory-requests', { method: 'POST', body: JSON.stringify(data) }),
-  updateInventoryRequest:  (id, data)  => req(`/inventory-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  // Inventory Requests (legacy stack being retired — P2-1). The item/request CRUD
+  // wrappers had no remaining callers and were removed; only the allocators list
+  // survives (its backend endpoint is kept and it's still used by NotificationBell
+  // + the dashboard panels).
+  // Legacy /inventory-requests router was retired — the equivalent Nexus-People
+  // allocator list now lives on the items router. Kept the name; repointed the URL.
+  getInventoryAllocators:  ()          => req('/items/allocators'),
 
   // Items — new individual-unit system
   getItems:            (params = {})  => req(`/items?${new URLSearchParams(params)}`),
@@ -395,6 +506,9 @@ export const api = {
   getItemAllocators:   ()             => cachedGet('/items/allocators'),
   getItemApprovers:    ()             => cachedGet('/items/approvers'),
   getRolesDirectory:   ()             => cachedGet('/roles/directory'),
+  // Curated Nexus People (nexus_employees), not the ~150-account M365 GAL — for
+  // assigning items to real Nexus people. Same {email,name} shape.
+  getPeopleDirectory:  ()             => cachedGet('/myhr/directory'),
   autoFillItemPhotos:  (item_ids, replace = false) => req('/items/auto-photos', { method: 'POST', body: JSON.stringify({ item_ids, replace }) }),
   // Permanent assignments
   getAssignments:         ()           => req('/items/assignments'),
@@ -470,7 +584,13 @@ export const api = {
   getEntities:    ()         => req('/hr/entities'),
   createEntity:   (data)     => req('/hr/entities', { method: 'POST', body: JSON.stringify(data) }),
   updateEntity:   (id, data) => req(`/hr/entities/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getGroupManager: ()        => req('/hr/group-manager'),
+  setGroupManager: (email)   => req('/hr/group-manager', { method: 'PUT', body: JSON.stringify({ email }) }),
   deleteEntity:   (id)       => req(`/hr/entities/${id}`, { method: 'DELETE' }),
+  // per-company departments (managed list, not free text)
+  getCompanyDepartments:    (entityId)       => req(`/hr/entities/${entityId}/departments`),
+  addCompanyDepartment:     (entityId, name) => req(`/hr/entities/${entityId}/departments`, { method: 'POST', body: JSON.stringify({ name }) }),
+  deleteCompanyDepartment:  (entityId, deptId) => req(`/hr/entities/${entityId}/departments/${deptId}`, { method: 'DELETE' }),
   getWorkSites:   ()         => req('/hr/work-sites'),
   createWorkSite: (data)     => req('/hr/work-sites', { method: 'POST', body: JSON.stringify(data) }),
   updateWorkSite: (id, data) => req(`/hr/work-sites/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -570,6 +690,19 @@ export const api = {
   timeExportCsv:     (start, end, mode) => reqBlob(`/timeclock/export.csv?start=${start || ''}&end=${end || ''}&mode=${mode || 'summary'}`),
   timeShotUpload:    (form)      => req('/timeclock/screenshot', { method: 'POST', body: form }),
   timeShots:         (date, email) => req(`/timeclock/screenshots?date=${date || ''}&email=${encodeURIComponent(email || '')}`),
+  // Disclosed monitoring: per-shift consent, admin policy, manager-scoped gallery
+  timeMonitoringConsent: () => req('/timeclock/monitoring/consent', { method: 'POST', body: JSON.stringify({ text_version: '', tz_offset_min: new Date().getTimezoneOffset() }) }),
+  timeMonitoringPolicy:  () => req('/timeclock/monitoring/policy'),
+  timeSetMonitoringPolicy: (data) => req('/timeclock/monitoring/policy', { method: 'PUT', body: JSON.stringify(data) }),
+  timeTeamShots:     (date, email) => req(`/timeclock/team-screenshots?date=${date || ''}&email=${encodeURIComponent(email || '')}`),
+  timeMonitoringAlerts: () => req('/timeclock/monitoring/alerts'),
+  // Punch-fix requests: employee asks, approver (HR/manager) approves/rejects
+  timePunchRequestCreate: (data) => req('/timeclock/punch-requests', { method: 'POST', body: JSON.stringify(data) }),
+  timeMyPunchRequests:    () => req('/timeclock/punch-requests/mine'),
+  timePunchRequests:      (status) => req(`/timeclock/punch-requests?status=${status || 'pending'}`),
+  timeDecidePunchRequest: (id, data) => req(`/timeclock/punch-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  // Employee's own bi-weekly pay-period timecard (payroll rows + composition)
+  timeMyPayroll:          (start) => req(`/timeclock/my-payroll?start=${start || ''}`),
   timeOffCreate:     (data)      => req('/timeclock/timeoff', { method: 'POST', body: JSON.stringify(data) }),
   timeOffMine:       ()          => req('/timeclock/timeoff/mine'),
   timeOffList:       (status)    => req(`/timeclock/timeoff?status=${status || ''}`),
@@ -578,9 +711,11 @@ export const api = {
   timeApprovalRevoke: (id)       => req(`/timeclock/approvals/${id}`, { method: 'PATCH' }),
   timeBodRecord:     (data)      => req('/timeclock/bod', { method: 'POST', body: JSON.stringify(data) }),
   timeBodLast:       ()          => req('/timeclock/bod/last'),
-  timeAgentDownloadUrl: (platform) => req(`/timeclock/agent/download-url?platform=${encodeURIComponent(platform)}`),
-  timeAgentUpload:   (platform, formData) => req(`/timeclock/agent/upload?platform=${encodeURIComponent(platform)}`, { method: 'POST', body: formData, timeoutMs: 30 * 60_000 }),
-  timeAgentUploadUrl:(platform) => req(`/timeclock/agent/upload-url?platform=${encodeURIComponent(platform)}`),
+  timeBodTemplate:   (kind)      => req(`/timeclock/bod/template?kind=${kind || 'bod'}`),
+  // Sign-in company-policy & monitoring acknowledgment
+  policyStatus:      ()          => req('/policy/status'),
+  policyAccept:      ()          => req('/policy/accept', { method: 'POST' }),
+  policyMyAcks:      ()          => req('/policy/acknowledgments'),
 
   // ── Customizable dashboards (drag-and-drop widget layouts) ──
   dashViews:      (target)     => req(`/dashboards/views?target=${encodeURIComponent(target)}`),
@@ -608,12 +743,11 @@ export const api = {
   hrSelfRequestAttachToEmployee: (rid, kind) => req(`/hr/requests/${rid}/attach-to-employee`, { method: 'POST', body: JSON.stringify({ kind }) }),
   hrPaystubs:      (eid)   => req(`/hr/employees/${eid}/paystubs`),
   hrPaystubUpload: (eid, form) => req(`/hr/employees/${eid}/paystubs`, { method: 'POST', body: form }),
+  // Device enrollment — shared by field-phone tracking (EnrolPhone). Desktop
+  // agent retired; capture now runs in the browser (Chrome screen sharing).
   timeAgentEnroll:   (data)      => req('/timeclock/agent/enroll', { method: 'POST', body: JSON.stringify(data) }),
   timeAgentDevices:  ()          => req('/timeclock/agent/devices'),
   timeAgentRevoke:   (id)        => req(`/timeclock/agent/devices/${id}`, { method: 'PATCH' }),
-  timeActivity:      (email, start, end) => req(`/timeclock/activity?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
-  timeMyActivity:    (date)      => req(`/timeclock/my-activity?date=${date}`),
-  timeActivityDay:   (email, date) => req(`/timeclock/activity-day?email=${encodeURIComponent(email)}&date=${date}`),
   // Field-worker location tracking (manager/HR views; device pings use X-Agent-Token from the native app, not these)
   trackLive:         ()            => req('/timeclock/track/live'),
   trackPath:         (email, date) => req(`/timeclock/track/path?email=${encodeURIComponent(email)}&date=${date}`),
@@ -634,6 +768,33 @@ export const api = {
   timeSchedDelete:   (id)        => req(`/timeclock/schedule/${id}`, { method: 'DELETE' }),
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
+  // Insights dashboard (Top Apps / Top Websites / activity), from the desktop agent
+  timeInsights:      (email, start, end) => req(`/timeclock/insights?email=${encodeURIComponent(email || '')}&start=${start || ''}&end=${end || ''}&tz=${new Date().getTimezoneOffset()}`),
+  timeRatings:       ()          => req('/timeclock/ratings'),
+  timeSetRating:     (data)      => req('/timeclock/ratings', { method: 'PUT', body: JSON.stringify(data) }),
+
+  // ── Credential Vault (secrets only ever come back from the /reveal endpoints) ──
+  cvCredentials:    ()           => req('/credvault/credentials'),
+  cvCreate:         (body)       => req('/credvault/credentials', { method: 'POST', body: JSON.stringify(body) }),
+  cvUpdate:         (id, body)   => req(`/credvault/credentials/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  cvDelete:         (id)         => req(`/credvault/credentials/${id}`, { method: 'DELETE' }),
+  cvBulkDelete:     (ids)        => req('/credvault/credentials/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+  cvRestore:        (id)         => req(`/credvault/credentials/${id}/restore`, { method: 'POST' }),
+  cvPurge:          (id)         => req(`/credvault/credentials/${id}/permanent`, { method: 'DELETE' }),
+  cvReveal:         (id)         => req(`/credvault/credentials/${id}/reveal`, { method: 'POST' }),
+  cvCopied:         (id)         => req(`/credvault/credentials/${id}/copied`, { method: 'POST' }),
+  cvImport:         (rows)       => req('/credvault/import', { method: 'POST', body: JSON.stringify({ rows }) }),
+  cvShare:          (id, body)   => req(`/credvault/credentials/${id}/share`, { method: 'POST', body: JSON.stringify(body) }),
+  cvRequests:       ()           => req('/credvault/requests'),
+  cvApproveRequest: (id)         => req(`/credvault/requests/${id}/approve`, { method: 'POST' }),
+  cvDenyRequest:    (id)         => req(`/credvault/requests/${id}/deny`, { method: 'POST' }),
+  cvGrants:         ()           => req('/credvault/grants'),
+  cvGrantReveal:    (id)         => req(`/credvault/grants/${id}/reveal`, { method: 'POST' }),
+  cvLogs:           ()           => req('/credvault/logs'),
+  cvPersonal:       ()           => req('/credvault/personal'),
+  cvPersonalCreate: (body)       => req('/credvault/personal', { method: 'POST', body: JSON.stringify(body) }),
+  cvPersonalDelete: (id)         => req(`/credvault/personal/${id}`, { method: 'DELETE' }),
+  cvPersonalReveal: (id)         => req(`/credvault/personal/${id}/reveal`, { method: 'POST' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch —

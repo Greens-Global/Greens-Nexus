@@ -231,14 +231,15 @@ export function RequisitionProvider({ children }) {
       createdAt: now, updatedAt: now,
     };
     setRequisitions(prev => [newReq, ...prev]);
-    api.createRequisition({
+    return api.createRequisition({
       id, employee_name: employeeName, employee_email: ownerEmail,
       employee_dept: employeeDept, item, quantity: Number(quantity),
       reason: reason || '', status: 'pending_manager',
       supervisor_name: DEPT_SUPERVISORS[employeeDept] || 'TBD',
       approver_email: (approverEmail || '').toLowerCase(),  // backend notifies only this manager
-    }).catch(() => setRequisitions(prev => prev.filter(r => r.id !== id)));
-    return newReq;
+    })
+      .then(() => newReq)
+      .catch(err => { setRequisitions(prev => prev.filter(r => r.id !== id)); throw err; });
   };
 
   // allocator = { email, name } — who the manager picked to purchase & fulfill
@@ -277,8 +278,9 @@ export function RequisitionProvider({ children }) {
       ...r, status: 'rejected', managerName, rejectionReason: reason, updatedAt: ts(),
       history: [...r.history, { action: 'Rejected by Manager', by: managerName, role: 'Manager', comment: reason, date: ts() }],
     }));
-    api.rejectRequisition(id, { manager_name: managerName, rejection_reason: reason })
-      .catch(refreshRequisitions);
+    return api.rejectRequisition(id, { manager_name: managerName, rejection_reason: reason })
+      .then(updated => setRequisitions(prev => prev.map(r => r.id !== id ? r : { ...reqFromApi(updated), history: reqFromApi(updated).history })))
+      .catch(err => { refreshRequisitions(); throw err; });
   };
 
   const allocateAsset = (reqId, assetId, supervisorName, expectedReturnDate) => {

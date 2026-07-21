@@ -6,7 +6,9 @@ import { useRef, useState } from 'react';
 import { Plus, X, Paperclip, ListChecks, CircleCheck, Save } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { Modal, PersonSelect, usePeople } from './components';
+import { Modal, PersonSelect, usePeople, DateField } from './components';
+import { ProjectCreateModal } from './ProjectsView';
+import { filesFromPaste } from './lib';
 import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORITY_ORDER } from './theme';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -16,19 +18,26 @@ const MAX_INLINE = 2 * 1024 * 1024;
 
 export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
   const store = useTasks();
-  const { createTask, updateTask, deleteTask, tasks, projects, departments, projectById } = store;
+  const { createTask, updateTask, deleteTask, tasks, projects, departments, projectById, myEmail } = store;
   const people = usePeople();
   const fileRef = useRef(null);
   const editing = taskId ? store.taskById[taskId] : null;
   const isEdit = !!editing;
 
   const [form, setForm] = useState(() => ({
-    title: editing?.title ?? '', description: editing?.description ?? '',
-    assigneeId: editing?.assigneeId ?? defaults.assigneeId ?? null,
-    priority: editing?.priority ?? 'medium', status: editing?.status ?? 'not_started',
+    title: editing?.title ?? defaults.title ?? '', description: editing?.description ?? '',
+    // New tasks default assignee AND owner to the creator; editing keeps whatever
+    // the task has (an unassigned / unowned task must stay that way).
+    assigneeId: editing ? (editing.assigneeId ?? null) : (defaults.assigneeId ?? myEmail ?? null),
+    ownerId: editing ? (editing.ownerId ?? null) : (defaults.ownerId ?? myEmail ?? null),
+    priority: editing?.priority ?? defaults.priority ?? 'medium', status: editing?.status ?? defaults.status ?? 'not_started',
     projectId: editing?.projectId ?? defaults.projectId ?? '', departmentId: editing?.departmentId ?? defaults.departmentId ?? '',
-    dueOn: editing?.dueOn ?? '', estimate: editing?.estimateHours != null ? String(editing.estimateHours) : '',
+    dueOn: editing?.dueOn ?? defaults.dueOn ?? '',
+    estimateHrs: editing?.estimateHours ? String(Math.floor(editing.estimateHours)) : '',
+    estimateMin: editing?.estimateHours && editing.estimateHours % 1 ? String(Math.round((editing.estimateHours % 1) * 60)) : '',
     recurFreq: editing?.recurrence?.freq ?? 'none', recurDow: editing?.recurrence?.dayOfWeek ?? 1, recurDom: editing?.recurrence?.dayOfMonth ?? 1,
+    recurEnd: editing?.recurrence?.until ? 'on' : editing?.recurrence?.count ? 'after' : 'never',
+    recurUntil: editing?.recurrence?.until ?? '', recurCount: editing?.recurrence?.count != null ? String(editing.recurrence.count) : '',
     labels: editing?.tags ?? [],
   }));
   const [labelInput, setLabelInput] = useState('');
@@ -36,19 +45,29 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
   const [subtasks, setSubtasks] = useState(() => editing ? tasks.filter((t) => t.parentTaskId === editing.id).map((t) => ({ id: t.id, title: t.title })) : []);
   const [attachments, setAttachments] = useState([]);   // new files only (File objects)
   const [busy, setBusy] = useState(false);
+  const [creatingProject, setCreatingProject] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const addLabel = () => { const v = labelInput.trim(); if (v && !form.labels.includes(v)) set('labels', [...form.labels, v]); setLabelInput(''); };
   const addSubtask = () => { const v = subtaskInput.trim(); if (v) setSubtasks((s) => [...s, { title: v }]); setSubtaskInput(''); };
   const onFiles = (list) => { if (list) setAttachments((prev) => [...prev, ...Array.from(list)]); };
+  const onPasteFiles = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); onFiles(files); } };
 
   const recurrence = () => {
     if (form.recurFreq === 'none') return null;
     const r = { freq: form.recurFreq, interval: 1 };
     if (form.recurFreq === 'weekly') r.dayOfWeek = Number(form.recurDow);
     if (form.recurFreq === 'monthly') r.dayOfMonth = Number(form.recurDom);
+    if (form.recurEnd === 'on' && form.recurUntil) r.until = form.recurUntil;
+    if (form.recurEnd === 'after' && form.recurCount) r.count = Math.max(1, Number(form.recurCount));
     return r;
   };
+  // Selecting a recurrence flips the task to the "Recurring" status; clearing it
+  // back to "Does not repeat" reverts a still-recurring status to Not Started.
+  const setRecurFreq = (v) => setForm((f) => ({
+    ...f, recurFreq: v,
+    status: v !== 'none' ? 'recurring' : (f.status === 'recurring' ? 'not_started' : f.status),
+  }));
   const uploadAttachment = async (parentId, f) => {
     const size = `${Math.max(1, Math.round(f.size / 1024))} KB`;
     const kind = f.type.startsWith('image/') ? 'image' : 'doc';
@@ -62,9 +81,9 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
     setBusy(true);
     const deptId = form.departmentId || (form.projectId ? projectById(form.projectId)?.departmentId : '') || '';
     const core = {
-      title: form.title.trim(), description: form.description, assigneeId: form.assigneeId || '',
-      priority: form.priority, status: form.status, projectId: form.projectId || '', departmentId: deptId,
-      dueOn: form.dueOn || '', estimateHours: form.estimate ? Number(form.estimate) : null, tags: form.labels, recurrence: recurrence(),
+      title: form.title.trim(), description: form.description, assigneeId: form.assigneeId || '', ownerId: form.ownerId || '',
+      priority: form.priority, status: form.recurFreq !== 'none' ? 'recurring' : form.status, projectId: form.projectId || '', departmentId: deptId,
+      dueOn: form.dueOn || '', estimateHours: (form.estimateHrs || form.estimateMin) ? (Number(form.estimateHrs || 0) + Number(form.estimateMin || 0) / 60) : null, tags: form.labels, recurrence: recurrence(),
     };
     try {
       let parentId = taskId;
@@ -85,11 +104,11 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
 
   const sel = { ...input, cursor: 'pointer' };
   return (
-    <Modal title={isEdit ? 'Edit task' : 'Create task'} width={640} onClose={() => onClose(false)} footer={
+    <Modal title={isEdit ? 'Edit Task' : 'Create a Task'} width={640} onClose={() => onClose(false)} footer={
       <>
         <button style={btn('ghost')} onClick={() => onClose(false)}>Cancel</button>
         <button style={{ ...btn('primary'), opacity: busy || !form.title.trim() ? 0.6 : 1 }} onClick={submit} disabled={busy || !form.title.trim()}>
-          {isEdit ? <><Save size={15} /> Save changes</> : <><Plus size={15} /> Create task</>}
+          {isEdit ? <><Save size={15} /> Save Changes</> : <><Plus size={15} /> Create Task</>}
         </button>
       </>
     }>
@@ -107,9 +126,10 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div style={field}>
             <label style={label}>Project</label>
-            <select value={form.projectId} onChange={(e) => set('projectId', e.target.value)} style={sel}>
+            <select value={form.projectId} onChange={(e) => { if (e.target.value === '__new') setCreatingProject(true); else set('projectId', e.target.value); }} style={sel}>
               <option value="">No project</option>
               {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              <option value="__new">＋ Create new project…</option>
             </select>
           </div>
           <div style={field}>
@@ -117,28 +137,12 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
             <PersonSelect value={form.assigneeId} onChange={(v) => set('assigneeId', v)} people={people} />
           </div>
           <div style={field}>
-            <label style={label}>Priority</label>
-            <select value={form.priority} onChange={(e) => set('priority', e.target.value)} style={sel}>
-              {PRIORITY_ORDER.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
-            </select>
-          </div>
-          <div style={field}>
-            <label style={label}>Status</label>
-            <select value={form.status} onChange={(e) => set('status', e.target.value)} style={sel}>
-              {STATUS_ORDER.map((s) => <option key={s} value={s}>{STATUS_META[s].label}</option>)}
-            </select>
-          </div>
-          <div style={field}>
-            <label style={label}>Due date</label>
-            <input type="date" value={form.dueOn} onChange={(e) => set('dueOn', e.target.value)} style={input} />
-          </div>
-          <div style={field}>
-            <label style={label}>Estimated hours</label>
-            <input type="number" min="0" step="0.5" value={form.estimate} onChange={(e) => set('estimate', e.target.value)} placeholder="0" style={input} />
+            <label style={label}>Due Date</label>
+            <DateField value={form.dueOn} onChange={(v) => set('dueOn', v || '')} placeholder="Pick a date" style={input} />
           </div>
           <div style={field}>
             <label style={label}>Recurrence</label>
-            <select value={form.recurFreq} onChange={(e) => set('recurFreq', e.target.value)} style={sel}>
+            <select value={form.recurFreq} onChange={(e) => setRecurFreq(e.target.value)} style={sel}>
               <option value="none">Does not repeat</option>
               <option value="daily">Every day</option>
               <option value="weekly">Every week</option>
@@ -147,7 +151,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
           </div>
           {form.recurFreq === 'weekly' && (
             <div style={field}>
-              <label style={label}>Day of week</label>
+              <label style={label}>Day of Week</label>
               <select value={form.recurDow} onChange={(e) => set('recurDow', e.target.value)} style={sel}>
                 {DAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
               </select>
@@ -155,12 +159,59 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
           )}
           {form.recurFreq === 'monthly' && (
             <div style={field}>
-              <label style={label}>Day of month</label>
+              <label style={label}>Day of Month</label>
               <select value={form.recurDom} onChange={(e) => set('recurDom', e.target.value)} style={sel}>
                 {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => <option key={d} value={d}>Day {d}</option>)}
               </select>
             </div>
           )}
+          {form.recurFreq !== 'none' && (
+            <div style={field}>
+              <label style={label}>Ends</label>
+              <select value={form.recurEnd} onChange={(e) => set('recurEnd', e.target.value)} style={sel}>
+                <option value="never">Never</option>
+                <option value="on">On date</option>
+                <option value="after">After occurrences</option>
+              </select>
+            </div>
+          )}
+          {form.recurFreq !== 'none' && form.recurEnd === 'on' && (
+            <div style={field}>
+              <label style={label}>End Date</label>
+              <DateField value={form.recurUntil} onChange={(v) => set('recurUntil', v || '')} placeholder="Pick a date" style={input} />
+            </div>
+          )}
+          {form.recurFreq !== 'none' && form.recurEnd === 'after' && (
+            <div style={field}>
+              <label style={label}>Occurrences</label>
+              <input type="number" min="1" step="1" value={form.recurCount} onChange={(e) => set('recurCount', e.target.value)} placeholder="e.g. 10" style={input} />
+            </div>
+          )}
+          <div style={field}>
+            <label style={label}>Priority</label>
+            <select value={form.priority} onChange={(e) => set('priority', e.target.value)} style={sel}>
+              {PRIORITY_ORDER.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
+            </select>
+          </div>
+          <div style={field}>
+            <label style={label}>Status</label>
+            <select value={form.recurFreq !== 'none' ? 'recurring' : form.status} onChange={(e) => set('status', e.target.value)} disabled={form.recurFreq !== 'none'} style={{ ...sel, ...(form.recurFreq !== 'none' ? { opacity: 0.7, cursor: 'not-allowed' } : {}) }}>
+              {store.statusOrder.map((s) => <option key={s} value={s}>{store.statusMeta[s]?.label || s}</option>)}
+            </select>
+            {form.recurFreq !== 'none' && <span style={{ fontSize: 11, color: NX.faint, marginTop: 3 }}>Recurring tasks are always “Recurring”.</span>}
+          </div>
+          <div style={field}>
+            <label style={label}>Estimated Time</label>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input type="number" min="0" step="1" value={form.estimateHrs} onChange={(e) => set('estimateHrs', e.target.value)} placeholder="hrs" style={{ ...input, flex: 1, minWidth: 0 }} />
+              <span style={{ fontWeight: 700, color: '#6b7280' }}>:</span>
+              <input type="number" min="0" max="59" step="5" value={form.estimateMin} onChange={(e) => set('estimateMin', e.target.value)} placeholder="min" style={{ ...input, flex: 1, minWidth: 0 }} />
+            </div>
+          </div>
+          <div style={field}>
+            <label style={label}>Task Owner</label>
+            <PersonSelect value={form.ownerId} onChange={(v) => set('ownerId', v)} people={people} placeholder="No owner" />
+          </div>
         </div>
 
         <div style={field}>
@@ -191,7 +242,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
           </div>
         </div>
 
-        <div style={field}>
+        <div onPaste={onPasteFiles} tabIndex={0} style={{ ...field, outline: 'none' }}>
           <label style={label}>Attachments</label>
           <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
@@ -202,9 +253,13 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
               </span>
             ))}
             <button type="button" onClick={() => fileRef.current?.click()} style={{ ...btn('outline'), fontSize: 12, padding: '6px 10px' }}><Paperclip size={13} /> Attach file</button>
+            <span style={{ fontSize: 11, color: NX.faint }}>or press Ctrl+V to paste a screenshot</span>
           </div>
         </div>
       </div>
+
+      {/* Inline "create a project" — the new project is auto-selected for this task. */}
+      {creatingProject && <ProjectCreateModal onClose={() => setCreatingProject(false)} onCreated={(p) => set('projectId', p.id)} />}
     </Modal>
   );
 }

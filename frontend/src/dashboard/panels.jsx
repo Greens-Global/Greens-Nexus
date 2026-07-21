@@ -79,7 +79,7 @@ export function ApprovalsPanel() {
   const total = pendingManagerCount + pendingInvReqs.length;
 
   return (
-    <Card title="Pending approvals" sub="Purchase requisitions and inventory requests awaiting you"
+    <Card title="Pending Approvals" sub="Purchase requisitions and inventory requests awaiting you"
       action={total > 0 && <span className="status-badge status-pending" style={{ fontSize: '0.78rem' }}>{total} pending</span>}>
 
       {/* Purchase requisitions */}
@@ -404,7 +404,7 @@ export function WhoHasWhatPanel() {
 export function TeamTimePanel() {
   const [tmsg, setTmsg] = useState(null);
   return (
-    <Card title="Team time" sub="Your direct reports' punches, approvals and time off — HR sees the whole company under HR → Time">
+    <Card title="Team Time" sub="Your direct reports' punches, approvals and time off — HR sees the whole company under HR → Time">
       {tmsg && (
         <div style={{ padding: '9px 14px', borderRadius: 10, marginBottom: 12, fontSize: 12.5, fontWeight: 600,
           background: tmsg.ok ? 'hsla(var(--color-green),0.1)' : 'rgba(220,38,38,0.08)',
@@ -508,7 +508,7 @@ export function OccupancyPanel() {
   const totalMrr = FACILITIES.reduce((a, f) => a + f.mrr, 0);
   const avgOcc = Math.round(FACILITIES.reduce((a, f) => a + f.occ, 0) / FACILITIES.length);
   return (
-    <Card title="Occupancy trend" sub="Portfolio average, last 6 months"
+    <Card title="Occupancy Trend" sub="Portfolio average, last 6 months"
       action={<span style={{ fontSize: 12.5, color: 'var(--muted)' }}><strong style={{ color: 'var(--ink)' }}>{avgOcc}%</strong> avg · <strong style={{ color: 'var(--ink)' }}>${(totalMrr / 1000).toFixed(1)}k</strong> MRR</span>}>
       <OccupancyChart />
     </Card>
@@ -546,7 +546,7 @@ export function FacilitiesPanel() {
 export function TasksPanel() {
   return (
     <Card title="Tasks" sub="Across all departments"
-      action={<button className="link-btn" style={{ marginTop: 0 }} onClick={() => navigate('tasks')}>View all →</button>}>
+      action={<button className="link-btn" style={{ marginTop: 0 }} onClick={() => navigate('tasks')}>View All →</button>}>
       <div className="task-list">
         {TASKS.map((t, i) => (
           <div key={i} className="task-row">
@@ -581,7 +581,7 @@ const PROJECTS = [
 export function WorkloadPanel() {
   const workloadColor = (w) => w >= 90 ? 'hsl(var(--color-red))' : w >= 75 ? 'hsl(var(--color-orange))' : 'hsl(var(--color-blue))';
   return (
-    <Card title="Workload by employee" sub="Task distribution and estimated time per employee">
+    <Card title="Workload by Employee" sub="Task distribution and estimated time per employee">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {EMPLOYEES.map(e => (
           <div key={e.name} style={{ border: '1px solid var(--line)', borderRadius: 10, padding: 11, background: 'var(--paper)' }}>
@@ -610,7 +610,7 @@ export function WorkloadPanel() {
 
 export function ProjectsPanel() {
   return (
-    <Card title="Project-wise tasks" sub="Distribution across active job sites">
+    <Card title="Project-wise Tasks" sub="Distribution across active job sites">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {PROJECTS.map(p => (
           <div key={p.name} style={{ border: '1px solid var(--line)', borderRadius: 10, padding: 11, background: 'var(--paper)' }}>
@@ -645,7 +645,7 @@ export function TeamCalendarPanel() {
   const monday = new Date(now);
   monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
   return (
-    <Card title="Team calendar" sub="Onsite shift and safety briefing rosters this week">
+    <Card title="Team Calendar" sub="Onsite shift and safety briefing rosters this week">
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10, textAlign: 'center' }}>
         {WEEK.map((d, i) => {
           const date = new Date(monday); date.setDate(monday.getDate() + i);

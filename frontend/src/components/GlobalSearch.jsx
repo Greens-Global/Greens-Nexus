@@ -6,6 +6,25 @@ import { useRequisitions } from '../contexts/RequisitionContext';
 import { NAV } from './Sidebar';
 import { SUBMENUS } from './MobileMenu';
 
+// Mirror of InventoryManagement's displayStatus + STATUS_META labels, kept local
+// to avoid importing the 8k-line view (and the module→search import cycle). A
+// permanent item nobody holds reads "Unassigned"/"Assigned · Location", never the
+// raw "available" this used to show (P4 status coherence).
+const ITEM_STATUS_LABELS = {
+  available: 'Available',
+  unassigned: 'Unassigned',
+  location_assigned: 'Assigned · Location',
+  checked_out: 'Checked out',
+  permanently_assigned: 'Perm. Assigned',
+  retired: 'Retired',
+};
+function itemStatusLabel(item) {
+  const s = (item.ownershipType === 'permanent' && item.status === 'available')
+    ? ((!item.assignedToEmail && item.location) ? 'location_assigned' : 'unassigned')
+    : item.status;
+  return ITEM_STATUS_LABELS[s] || (s || '').replace(/_/g, ' ');
+}
+
 // ── Global search palette ─────────────────────────────────────────────────────
 // Ctrl/Cmd+K (or the header search button) from anywhere. Searches screens
 // (modules + their sub-tabs, role-gated exactly like the sidebar), inventory
@@ -99,7 +118,7 @@ export default function GlobalSearch({ onNavigate }) {
         out.push({
           type: 'Items', Icon: Package,
           title: i.name,
-          detail: [i.itemType, i.location, i.status?.replace(/_/g, ' ')].filter(Boolean).join(' · '),
+          detail: [i.itemType, i.location, itemStatusLabel(i)].filter(Boolean).join(' · '),
           run: () => go('inventory', can?.('supervisor') ? 'manage' : 'catalog'),
         });
       }

@@ -7,13 +7,16 @@ email-keyed; the serialisers emit the export's runtime shape (assigneeId etc.,
 with email used as the person id) so the ported frontend maps cleanly.
 Reference implementation: routers/items.py.
 """
+import calendar
+from datetime import date, datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Any
 import models
 from database import get_db
-from auth import get_current_user
+from auth import get_current_user, require_manager
 from routers.task_util import (
     now_iso, gen_id, fire_task_event, task_notify, log_activity,
 )
@@ -37,6 +40,7 @@ def task_to_dict(t: models.Task) -> dict:
         "status":           t.status or "not_started",
         "priority":         t.priority or "medium",
         "assigneeId":       _nz(t.assignee_email),
+        "ownerId":          _nz(t.owner_email),
         "followerIds":      t.follower_emails or [],
         "likedByIds":       t.liked_by_emails or [],
         "accessLevel":      t.access_level or "org",
@@ -112,6 +116,7 @@ class TaskCreate(BaseModel):
     status:           Optional[str] = "not_started"
     priority:         Optional[str] = "medium"
     assignee_email:   Optional[str] = ""
+    owner_email:      Optional[str] = ""
     follower_emails:  Optional[list] = None
     liked_by_emails:  Optional[list] = None
     access_level:     Optional[str] = "org"
@@ -142,6 +147,7 @@ class TaskUpdate(BaseModel):
     status:           Optional[str] = None
     priority:         Optional[str] = None
     assignee_email:   Optional[str] = None
+    owner_email:      Optional[str] = None
     follower_emails:  Optional[list] = None
     liked_by_emails:  Optional[list] = None
     access_level:     Optional[str] = None
@@ -177,6 +183,116 @@ def _get_task(db: Session, task_id: str) -> models.Task:
     return t
 
 
+# ── Recurrence: occurrence generation ────────────────────────────────────────
+# recurrence = {freq, interval, dayOfWeek?, dayOfMonth?, until?, count?}
+# dayOfWeek is the frontend index (0=Sunday..6=Saturday); until/count are the
+# end condition. `count` on an instance means "occurrences remaining, this one
+# inclusive" — it is decremented each time the next occurrence is spawned, so a
+# series with count=N produces exactly N tasks.
+def _add_months(d: date, n: int) -> date:
+    m = d.month - 1 + n
+    y = d.year + m // 12
+    m = m % 12 + 1
+    return date(y, m, min(d.day, calendar.monthrange(y, m)[1]))
+
+
+def _next_due(base_iso: str, rec: dict) -> str:
+    """Next due date (YYYY-MM-DD) after `base_iso`, per the recurrence rule."""
+    try:
+        base = datetime.strptime((base_iso or "")[:10], "%Y-%m-%d").date()
+    except ValueError:
+        base = date.today()
+    freq = rec.get("freq")
+    interval = max(1, int(rec.get("interval") or 1))
+    if freq == "weekly":
+        dow = rec.get("dayOfWeek")
+        if dow is None:
+            return (base + timedelta(weeks=interval)).isoformat()
+        target = (int(dow) - 1) % 7          # frontend Sun=0 → Python Mon=0
+        nxt = base + timedelta(days=1)
+        while nxt.weekday() != target:
+            nxt += timedelta(days=1)
+        return (nxt + timedelta(weeks=interval - 1)).isoformat()
+    if freq == "monthly":
+        nxt = _add_months(base, interval)
+        dom = rec.get("dayOfMonth")
+        if dom:
+            day = min(int(dom), calendar.monthrange(nxt.year, nxt.month)[1])
+            nxt = date(nxt.year, nxt.month, day)
+        return nxt.isoformat()
+    # daily (and any unknown freq) → advance whole days
+    return (base + timedelta(days=interval)).isoformat()
+
+
+def _spawn_next_occurrence(db: Session, t: models.Task, user: dict) -> Optional[models.Task]:
+    """When a recurring task is completed, create its next occurrence (unless the
+    end condition — `until` date or `count` — is reached). Returns the new task
+    or None if the series has ended. Top-level tasks only; subtasks don't recur."""
+    rec = t.recurrence
+    if not isinstance(rec, dict) or not rec.get("freq") or t.parent_task_id:
+        return None
+
+    count = rec.get("count")
+    if count is not None and int(count) <= 1:
+        return None  # this was the final occurrence
+
+    base_iso = t.due_on or (t.completed_at or now_iso())[:10]
+    next_due = _next_due(base_iso, rec)
+    until = rec.get("until")
+    if until and next_due > until:
+        return None  # past the series end date
+
+    new_rec = dict(rec)
+    if count is not None:
+        new_rec["count"] = int(count) - 1
+
+    now = now_iso()
+    nid = gen_id()
+    nxt = models.Task(
+        id=nid,
+        code=_next_code(db),
+        title=t.title,
+        description=t.description or "",
+        type=t.type or "task",
+        status="recurring",
+        priority=t.priority or "medium",
+        assignee_email=t.assignee_email or "",
+        owner_email=t.owner_email or "",
+        follower_emails=list(t.follower_emails or []),
+        liked_by_emails=[],
+        access_level=t.access_level or "org",
+        project_id=t.project_id or "",
+        section_id=t.section_id or "",
+        department_id=t.department_id or "",
+        parent_task_id="",
+        subtask_ids=[], blocked_by_ids=[], blocking_ids=[], dependency_types={},
+        tags=list(t.tags or []),
+        custom_field_values=dict(t.custom_field_values or {}),
+        start_on="",
+        due_on=next_due,
+        estimate_hours=t.estimate_hours,
+        actual_hours=None,
+        recurrence=new_rec,
+        is_milestone=bool(t.is_milestone),
+        approval_status="none",
+        completed=False,
+        completed_at="",
+        comment_ids=[], attachment_ids=[], activity_ids=[],
+        created_at=now, modified_at=now, created_by=user["email"],
+    )
+    db.add(nxt)
+    aid = log_activity(db, type="created", actor_email=user["email"], entity_id=nid,
+                       entity_code=nxt.code, entity_title=nxt.title,
+                       detail=f"recurring occurrence generated from {t.code}")
+    nxt.activity_ids = [aid]
+    if nxt.assignee_email and nxt.assignee_email != user["email"].lower():
+        task_notify(db, kind="task_assigned", for_email=nxt.assignee_email,
+                    title="Recurring task due",
+                    body=f"{nxt.code} · {nxt.title} (due {next_due})", task_id=nid,
+                    nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+    return nxt
+
+
 @router.get("")
 def list_tasks(db: Session = Depends(get_db)):
     return [task_to_dict(t) for t in db.query(models.Task).all()]
@@ -195,6 +311,7 @@ def create_task(body: TaskCreate, user: dict = Depends(get_current_user), db: Se
         status=body.status or "not_started",
         priority=body.priority or "medium",
         assignee_email=(body.assignee_email or "").lower(),
+        owner_email=(body.owner_email or "").lower(),
         follower_emails=body.follower_emails or [],
         liked_by_emails=body.liked_by_emails or [],
         access_level=body.access_level or "org",
@@ -233,7 +350,8 @@ def create_task(body: TaskCreate, user: dict = Depends(get_current_user), db: Se
     if t.assignee_email and t.assignee_email != user["email"].lower():
         task_notify(db, kind="task_assigned", for_email=t.assignee_email,
                     title="You were assigned a task",
-                    body=f"{t.code} · {t.title}", task_id=tid)
+                    body=f"{t.code} · {t.title}", task_id=tid,
+                    nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     db.commit()
     db.refresh(t)
     fire_task_event(tid, "created")
@@ -252,7 +370,7 @@ def update_task(task_id: str, upd: TaskUpdate, user: dict = Depends(get_current_
     for field, val in data.items():
         if field == "completed":
             continue  # handled below
-        if field == "assignee_email":
+        if field in ("assignee_email", "owner_email"):
             val = (val or "").lower()
         setattr(t, field, val)
 
@@ -285,16 +403,22 @@ def update_task(task_id: str, upd: TaskUpdate, user: dict = Depends(get_current_
         if new_assignee and new_assignee != user["email"].lower():
             task_notify(db, kind="task_assigned", for_email=new_assignee,
                         title="You were assigned a task",
-                        body=f"{t.code} · {t.title}", task_id=t.id)
+                        body=f"{t.code} · {t.title}", task_id=t.id,
+                        nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     if t.completed and not prev_completed:
         acts.append(log_activity(db, type="completed", actor_email=user["email"],
                                  entity_id=t.id, entity_code=t.code, entity_title=t.title,
                                  detail="completed this task"))
     t.activity_ids = acts
 
+    # Completing a recurring task rolls the series forward to the next occurrence.
+    spawned = _spawn_next_occurrence(db, t, user) if (t.completed and not prev_completed) else None
+
     db.commit()
     db.refresh(t)
     fire_task_event(t.id, "updated")
+    if spawned is not None:
+        fire_task_event(spawned.id, "created")
     return task_to_dict(t)
 
 
@@ -393,7 +517,8 @@ def add_comment(task_id: str, body: CommentCreate, user: dict = Depends(get_curr
     for who in set([(t.assignee_email or "").lower(), *[(e or "").lower() for e in (t.follower_emails or [])]]):
         if who and who != author:
             task_notify(db, kind="task_activity", for_email=who,
-                        title="New comment on a task", body=f"{t.code} · {t.title}", task_id=task_id)
+                        title="New comment on a task", body=f"{t.code} · {t.title}", task_id=task_id,
+                        nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     db.commit()
     db.refresh(c)
     fire_task_event(task_id, "comment")
@@ -453,6 +578,10 @@ def add_attachment(task_id: str, body: AttachmentCreate, user: dict = Depends(ge
                               added_at=now_iso(), added_by=user["email"])
     db.add(a)
     t.attachment_ids = list(t.attachment_ids or []) + [aid]
+    act = log_activity(db, type="attached", actor_email=user["email"], entity_id=task_id,
+                       entity_code=t.code, entity_title=t.title,
+                       detail=f'attached "{a.name}"')
+    t.activity_ids = list(t.activity_ids or []) + [act]
     db.commit()
     db.refresh(a)
     fire_task_event(task_id, "attachment")
@@ -460,13 +589,18 @@ def add_attachment(task_id: str, body: AttachmentCreate, user: dict = Depends(ge
 
 
 @router.delete("/attachments/{attachment_id}", status_code=204)
-def delete_attachment(attachment_id: str, db: Session = Depends(get_db)):
+def delete_attachment(attachment_id: str, user: dict = Depends(get_current_user),
+                      db: Session = Depends(get_db)):
     a = db.query(models.TaskAttachment).filter(models.TaskAttachment.id == attachment_id).first()
     if not a:
         raise HTTPException(404, "Attachment not found")
     t = db.query(models.Task).filter(models.Task.id == a.task_id).first()
     if t:
         t.attachment_ids = [x for x in (t.attachment_ids or []) if x != attachment_id]
+        act = log_activity(db, type="attachment_removed", actor_email=user["email"], entity_id=t.id,
+                           entity_code=t.code, entity_title=t.title,
+                           detail=f'removed attachment "{a.name}"')
+        t.activity_ids = list(t.activity_ids or []) + [act]
     db.delete(a)
     db.commit()
     fire_task_event(a.task_id, "attachment")
@@ -543,7 +677,7 @@ def list_custom_statuses(db: Session = Depends(get_db)):
     return [custom_status_to_dict(s) for s in db.query(models.TaskCustomStatus).all()]
 
 
-@router.post("/meta/custom-statuses", status_code=201)
+@router.post("/meta/custom-statuses", status_code=201, dependencies=[Depends(require_manager)])
 def create_custom_status(body: CustomStatusBody, db: Session = Depends(get_db)):
     s = models.TaskCustomStatus(id=body.id or gen_id(), label=body.label,
                                 color=body.color or "", position=body.position or 0)
@@ -553,7 +687,7 @@ def create_custom_status(body: CustomStatusBody, db: Session = Depends(get_db)):
     return custom_status_to_dict(s)
 
 
-@router.delete("/meta/custom-statuses/{status_id}", status_code=204)
+@router.delete("/meta/custom-statuses/{status_id}", status_code=204, dependencies=[Depends(require_manager)])
 def delete_custom_status(status_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskCustomStatus).filter(models.TaskCustomStatus.id == status_id).delete()
     db.commit()

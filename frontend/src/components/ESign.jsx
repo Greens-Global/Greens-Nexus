@@ -183,12 +183,12 @@ function FieldOptionsModal({ field, onSave, onClose }) {
             </div>
           ))}
           <button className="secondary-btn" onClick={() => setOpts(os => [...os, ''])}
-            style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add option</button>
+            style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add Option</button>
         </div>
         <div style={{ padding: '12px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button className="secondary-btn" onClick={onClose}>Cancel</button>
           <button className="primary-btn" disabled={clean.length < 2} onClick={() => { onSave(clean); onClose(); }}
-            style={{ opacity: clean.length < 2 ? 0.5 : 1 }}>Save options</button>
+            style={{ opacity: clean.length < 2 ? 0.5 : 1 }}>Save Options</button>
         </div>
       </div>
     </div>
@@ -292,7 +292,7 @@ export function SignaturePad({ name = '', onAdopt, onClose }) {
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <PenTool size={17} style={{ color: 'var(--pine)' }} />
           <div style={{ flex: 1 }}>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Adopt your signature</h3>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Adopt Your Signature</h3>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>This becomes your legal signature on this document.</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
@@ -658,7 +658,7 @@ export function SigningDoc({ payload, busy, onSubmit, onDecline }) {
         <div style={{ ...overlayStyle, zIndex: 1400 }} onClick={e => e.target === e.currentTarget && setDeclineOpen(false)}>
           <div style={cardStyle(440)}>
             <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)' }}>
-              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Decline to sign</h3>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Decline to Sign</h3>
             </div>
             <div style={{ padding: '16px 22px' }}>
               <label style={FL}>Reason (shared with the sender)</label>
@@ -1027,7 +1027,7 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
       <div style={cardStyle(820)}>
         <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <FileText size={17} style={{ color: 'var(--pine)' }} />
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{template?.id ? 'Edit template' : 'New template'}</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{template?.id ? 'Edit Template' : 'New Template'}</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
@@ -1072,7 +1072,7 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
             while (used.has(`signer${n}`)) n++;
             return [...rs, { key: `signer${n}`, label: '', order: rs.length + 1 }];
           })}
-            style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add signer role</button>
+            style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add Signer Role</button>
 
           <div style={{ margin: '18px 0 6px', display: 'flex', alignItems: 'baseline', gap: 8 }}>
             <label style={{ ...FL, marginBottom: 0 }}>Document</label>
@@ -1207,7 +1207,7 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
         <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button className="secondary-btn" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={!name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!name.trim() || busy) ? 0.6 : 1 }}>
-            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save template
+            {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={14} />} Save Template
           </button>
         </div>
       </div>
@@ -1423,8 +1423,8 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
 
   // ── Steps + validation ──────────────────────────────────────────────────────
   // PDF envelopes: recipients and fields live on ONE page (Egnyte Sign style).
-  const steps = isPdf ? ['Document', 'Recipients & fields', 'Review & send']
-                      : ['Document', 'Recipients', 'Preview', 'Review & send'];
+  const steps = isPdf ? ['Document', 'Recipients & Fields', 'Review & Send']
+                      : ['Document', 'Recipients', 'Preview', 'Review & Send'];
   const partiesOk = () => signerParties.length > 0 && parties.every(p => p.name.trim() && /@/.test(p.email));
   const stepOk = () => {
     if (step === 0) return source === 'template' ? !!tpl : !!file;
@@ -1687,7 +1687,7 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
             <div style={{ display: 'flex', gap: 8, marginLeft: 38, flexWrap: 'wrap' }}>
               {!tpl && (
                 <button className="secondary-btn" onClick={() => setParties(ps => [...ps, { _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'signer', access_code: '' }])}
-                  style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add signer</button>
+                  style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add Signer</button>
               )}
               <button className="secondary-btn" onClick={() => setParties(ps => [...ps, { _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'cc', access_code: '' }])}
                 style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add CC (copy only)</button>
@@ -1943,7 +1943,7 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
               {req.status === 'pending' && <button className="secondary-btn" disabled={!!busy} onClick={() => act('remind', () => api.remindSign(requestId), r => `Reminded ${r.reminded}.`)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Bell size={12} /> Remind</button>}
               {req.status === 'pending' && <button className="secondary-btn" disabled={!!busy} onClick={() => act('void', () => api.voidSign(requestId), 'Voided.')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'hsl(var(--color-red))' }}><Ban size={12} /> Void</button>}
               {req.hasFinalPdf && <button className="secondary-btn" disabled={!!busy} onClick={download} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={12} /> Sealed PDF</button>}
-              {req.hasFinalPdf && <button className="secondary-btn" disabled={!!busy} onClick={() => act('verify', () => api.verifySign(requestId), r => r.valid ? 'Verified — document untampered.' : '⚠ HASH MISMATCH — document was modified!', r => !r.valid)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><ShieldCheck size={12} /> Verify integrity</button>}
+              {req.hasFinalPdf && <button className="secondary-btn" disabled={!!busy} onClick={() => act('verify', () => api.verifySign(requestId), r => r.valid ? 'Verified — document untampered.' : '⚠ HASH MISMATCH — document was modified!', r => !r.valid)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><ShieldCheck size={12} /> Verify Integrity</button>}
             </div>
 
             <label style={FL}>
@@ -2012,9 +2012,10 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
   );
 }
 
-// ── Main E-Sign tab ───────────────────────────────────────────────────────────
-// Bell/toast deep-links: navSub 'hr-esign' → Inbox, 'hr-esign-requests' → Sent.
-const NAV_TAB = { 'hr-esign': 'inbox', 'hr-esign-requests': 'requests' };
+// ── Main E-Sign tab (lives in the Documents module) ──────────────────────────
+// Bell/toast deep-links: navSub 'documents-esign' → Inbox,
+// 'documents-esign-requests' → Sent.
+const NAV_TAB = { 'documents-esign': 'inbox', 'documents-esign-requests': 'requests' };
 
 export default function ESign({ employees = [], entities = [], prefill = null, navSub = '', onPrefillConsumed, toastOk, toastErr }) {
   const [sub, setSub] = useState(NAV_TAB[navSub] || 'inbox');
@@ -2049,7 +2050,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   useEffect(() => {
     const onNav = (e) => {
       const t = NAV_TAB[e.detail?.sub];
-      if (e.detail?.view === 'hr' && t) switchSub(t);
+      if (e.detail?.view === 'documents' && t) switchSub(t);
     };
     window.addEventListener('nexus:navigate', onNav);
     return () => window.removeEventListener('nexus:navigate', onNav);
@@ -2058,7 +2059,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
   const myTurnCount = (inbox || []).filter(x => x.myTurn).length;
   const tabs = [
     ['inbox', `Inbox${myTurnCount ? ` (${myTurnCount})` : ''}`],
-    ['requests', 'Sent requests'],
+    ['requests', 'Sent Requests'],
     ['templates', 'Templates'],
   ];
 
@@ -2118,7 +2119,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
           ))}
         </div>
         <button className="primary-btn" onClick={() => setSendOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-          <Send size={13} /> Send for signature
+          <Send size={13} /> Send for Signature
         </button>
       </div>
 
@@ -2134,7 +2135,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
             </div>
             {expiryChip(item.expiresOn)}
             {item.myTurn
-              ? <button className="primary-btn" onClick={() => setSignParty(item.partyId)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>Review &amp; sign <ChevronRight size={13} /></button>
+              ? <button className="primary-btn" onClick={() => setSignParty(item.partyId)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>Review &amp; Sign <ChevronRight size={13} /></button>
               : <span style={{ fontSize: 11.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Clock size={12} /> Waiting on others</span>}
           </div>
         ))
@@ -2143,7 +2144,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
       {sub === 'requests' && (
         !requests ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
         : requests.length === 0 ? empty(Send, 'No signature requests yet.',
-            <button className="primary-btn" onClick={() => setSendOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={13} /> Send your first</button>)
+            <button className="primary-btn" onClick={() => setSendOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={13} /> Send Your First</button>)
         : (
           <>
             <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -2203,7 +2204,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
         : (
           <>
             <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-              <button className="secondary-btn" onClick={() => setEditTpl(null)} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> New template</button>
+              <button className="secondary-btn" onClick={() => setEditTpl(null)} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> New Template</button>
               <button className="secondary-btn" disabled={seedBusy} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 onClick={async () => { setSeedBusy(true);
                   try { const r = await api.seedSignTemplates(); toastOk(r.added.length ? `Added: ${r.added.join(', ')}` : 'Starters already present.'); loadTemplates(); }

@@ -10,15 +10,15 @@ const OTHER_ITEM = '__other__';
 const DEPTS = ['Operations','Accounting','IT Support','Real Estate','Marketing','Admin','Construction'];
 
 const STATUS_LABEL = {
-  pending_manager:   'Pending Approval',
+  pending_manager:   'Pending approval',
   rejected:          'Rejected',
   manager_approved:  'Approved',
   ordered:           'Ordered',
   fulfilled:         'Fulfilled',
-  asset_allocated:   'Asset Allocated',
-  return_initiated:  'Return Initiated',
-  returned:          'Returned & Closed',
-  asset_lost:        'Asset Lost',
+  asset_allocated:   'Asset allocated',
+  return_initiated:  'Return initiated',
+  returned:          'Returned & closed',
+  asset_lost:        'Asset lost',
 };
 const STATUS_CLASS = {
   pending_manager:   'status-pending',
@@ -62,12 +62,14 @@ export default function Purchase({ activeSub = null }) {
   const [reason,       setReason]       = useState('');
   const [refLink,      setRefLink]      = useState('');
   const [flash,        setFlash]        = useState(false);
+  const [submitError,  setSubmitError]  = useState('');   // P0-6: shown when the submit actually fails
+  const [submitting,   setSubmitting]   = useState(false);
   const [directory,    setDirectory]    = useState([]);   // company people picker for on-behalf
   const [approvers,    setApprovers]    = useState([]);   // manager list — only the picked one is notified
   const [approverEmail, setApproverEmail] = useState('');
 
   useEffect(() => {
-    api.getRolesDirectory().then(setDirectory).catch(() => {});
+    api.getPeopleDirectory().then(setDirectory).catch(() => {});
     api.getItemApprovers().then(rows => {
       setApprovers(rows);
       const remembered = localStorage.getItem('nexus-approver-email');
@@ -78,33 +80,49 @@ export default function Purchase({ activeSub = null }) {
   const isOther       = item === OTHER_ITEM;
   const resolvedItem  = isOther ? customItem.trim() : item;
   const employeeName  = forSelf ? myName : behalfName.trim();
-  // Match the typed name against the directory so the requisition lands in
-  // THEIR log (employee_email), not the submitter's
-  const behalfMatch   = !forSelf
-    ? directory.find(d => d.name.toLowerCase() === behalfName.trim().toLowerCase())
+  // Match against the directory so the requisition lands in THEIR log
+  // (employee_email), not the submitter's. The datalist inserts "Name — email",
+  // so resolve on that first — this disambiguates duplicate display names by
+  // email (P4). Fall back to a plain name only when it's uniquely a single
+  // person, so a typed-but-not-picked unique name still works.
+  const behalfQuery   = behalfName.trim().toLowerCase();
+  const behalfByName  = directory.filter(d => (d.name || '').toLowerCase() === behalfQuery);
+  const behalfMatch   = !forSelf && behalfQuery
+    ? (directory.find(d => `${d.name} — ${d.email}`.toLowerCase() === behalfQuery)
+       || (behalfByName.length === 1 ? behalfByName[0] : null))
     : null;
   const approver      = approvers.find(a => a.email === approverEmail) || null;
   const canSubmit     = resolvedItem && employeeName && reason.trim() && approver && (forSelf || behalfMatch);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!canSubmit) return;
+    if (!canSubmit || submitting) return;
     // Reference link travels inside the reason so no backend change is needed
     const fullReason = refLink.trim() ? `${reason.trim()}\nReference: ${refLink.trim()}` : reason.trim();
     // Notification is created by the BACKEND (targeted at the picked manager) —
     // employees can't write to the notifications API, so a client-side
     // addNotification here silently 403'd and nobody ever got notified.
-    submitRequisition({
-      employeeName, employeeDept: dept, item: resolvedItem, quantity: qty, reason: fullReason,
-      employeeEmail: forSelf ? '' : behalfMatch?.email || '',
-      approverEmail: approver.email,
-    });
-    localStorage.setItem('nexus-approver-email', approver.email);
-    setItem(''); setCustomItem(''); setQty(1); setDept('Operations'); setReason(''); setRefLink('');
-    setForSelf(true); setBehalfName('');
-    setFlash(true);
-    setTimeout(() => setFlash(false), 3500);
-    setTab('log');
+    setSubmitting(true); setSubmitError('');
+    try {
+      // P0-6: await the real result. submitRequisition now rejects on failure —
+      // only flash success + clear the form + jump to the log once the backend has
+      // actually accepted it. On failure the form (and the typed reason) is kept.
+      await submitRequisition({
+        employeeName, employeeDept: dept, item: resolvedItem, quantity: qty, reason: fullReason,
+        employeeEmail: forSelf ? '' : behalfMatch?.email || '',
+        approverEmail: approver.email,
+      });
+      localStorage.setItem('nexus-approver-email', approver.email);
+      setItem(''); setCustomItem(''); setQty(1); setDept('Operations'); setReason(''); setRefLink('');
+      setForSelf(true); setBehalfName('');
+      setFlash(true);
+      setTimeout(() => setFlash(false), 3500);
+      setTab('log');
+    } catch (err) {
+      setSubmitError(err?.message || 'Could not submit the requisition. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
@@ -169,7 +187,7 @@ export default function Purchase({ activeSub = null }) {
                   background: !forSelf ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
                   color: !forSelf ? 'hsl(var(--color-green))' : 'var(--muted)',
                   fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-                <Users size={14} /> Someone else
+                <Users size={14} /> Someone Else
               </button>
             </div>
             {!forSelf && (
@@ -178,7 +196,9 @@ export default function Purchase({ activeSub = null }) {
                   placeholder="Start typing their name…" list="behalf-people"
                   value={behalfName} onChange={e => setBehalfName(e.target.value)} autoFocus />
                 <datalist id="behalf-people">
-                  {directory.map(d => <option key={d.email} value={d.name} />)}
+                  {/* Value carries the email so duplicate names resolve to the
+                      right account when picked (P4). */}
+                  {directory.map(d => <option key={d.email} value={`${d.name} — ${d.email}`} />)}
                 </datalist>
                 {behalfName.trim() && !behalfMatch && (
                   <p style={{ fontSize:11.5, color:'hsl(var(--color-orange))', margin:'6px 0 0' }}>
@@ -251,9 +271,14 @@ export default function Purchase({ activeSub = null }) {
               placeholder="https://…" value={refLink} onChange={e => setRefLink(e.target.value)} />
           </div>
 
-          <button type="submit" className="primary-btn" disabled={!canSubmit}
-            style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'10px 26px', fontSize:14, opacity: canSubmit ? 1 : 0.5 }}>
-            <Send size={14} /> Submit Requisition
+          {submitError && (
+            <p style={{ color:'hsl(var(--color-red))', fontSize:'0.85rem', fontWeight:600, margin:'0 0 12px' }}>
+              {submitError}
+            </p>
+          )}
+          <button type="submit" className="primary-btn" disabled={!canSubmit || submitting}
+            style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'10px 26px', fontSize:14, opacity: (!canSubmit || submitting) ? 0.5 : 1 }}>
+            <Send size={14} /> {submitting ? 'Submitting…' : 'Submit requisition'}
           </button>
         </form>
       )}
@@ -277,7 +302,7 @@ export default function Purchase({ activeSub = null }) {
                   <tr>
                     <td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '36px 0', fontSize: '0.9rem' }}>
                       <Package size={26} style={{ opacity:.25, display:'block', margin:'0 auto 8px' }} />
-                      No requisitions yet — submit one from the New Request tab.
+                      No requisitions yet — submit one from the New request tab.
                     </td>
                   </tr>
                 )}

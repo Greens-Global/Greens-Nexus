@@ -8,8 +8,14 @@ from sqlalchemy import text
 import models
 from database import engine, DATABASE_URL, SessionLocal
 from routers import timeclock
-from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, inventory_requests, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews
+from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews
+# NOTE: `inventory_requests` router retired Jul 2026 (P2-1) — legacy inventory stack removed.
 from routers import task_projects, task_config  # Task Module (Jul 2026)
+from routers import jobroles  # Roles & Access redesign (Jul 2026)
+from routers import access_scopes  # row-level scopes for external users (Jul 2026)
+from routers import qa  # Testing module — dev-only via NEXUS_QA_MODULE env (Jul 2026)
+from routers import credvault  # Credential Vault (Jul 2026)
+from routers import policy  # Sign-in company-policy & monitoring acknowledgment (Jul 2026)
 from audit import AuditMiddleware
 
 
@@ -22,6 +28,9 @@ def _run_migrations():
         # SQLite has no IF NOT EXISTS for columns; duplicates just error and
         # are swallowed.
         sqlite_migrations = [
+            "ALTER TABLE payroll_rates ADD COLUMN overtime_rule VARCHAR DEFAULT 'ca'",
+            "ALTER TABLE agent_activity ADD COLUMN domain VARCHAR DEFAULT ''",
+            "ALTER TABLE agent_activity ADD COLUMN category VARCHAR DEFAULT ''",
             "ALTER TABLE items ADD COLUMN picture_required BOOLEAN DEFAULT 1",
             "ALTER TABLE items ADD COLUMN asset_value FLOAT DEFAULT 0",
             "UPDATE items SET status = 'available' WHERE ownership_type = 'permanent' AND COALESCE(assigned_to_email, '') = '' AND status = 'permanently_assigned'",
@@ -31,6 +40,8 @@ def _run_migrations():
             "ALTER TABLE requisitions ADD COLUMN fulfilled_at VARCHAR DEFAULT ''",
             "ALTER TABLE requisitions ADD COLUMN fulfillment_note VARCHAR DEFAULT ''",
             "ALTER TABLE requisitions ADD COLUMN fulfilled_item_id VARCHAR DEFAULT ''",
+            "ALTER TABLE requisitions ADD COLUMN submitted_by_email VARCHAR DEFAULT ''",
+            "ALTER TABLE requisitions ADD COLUMN submitted_by_name VARCHAR DEFAULT ''",
             # items: operational status, location-assignment, custom fields, soft-delete (Jun 2026 item-module batch)
             "ALTER TABLE items ADD COLUMN op_status VARCHAR DEFAULT ''",
             "ALTER TABLE items ADD COLUMN assigned_to_location VARCHAR DEFAULT ''",
@@ -80,6 +91,7 @@ def _run_migrations():
             "ALTER TABLE tasks ADD COLUMN description VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN type VARCHAR DEFAULT 'task'",
             "ALTER TABLE tasks ADD COLUMN assignee_email VARCHAR DEFAULT ''",
+            "ALTER TABLE tasks ADD COLUMN owner_email VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN follower_emails JSON DEFAULT '[]'",
             "ALTER TABLE tasks ADD COLUMN liked_by_emails JSON DEFAULT '[]'",
             "ALTER TABLE tasks ADD COLUMN access_level VARCHAR DEFAULT 'org'",
@@ -109,6 +121,65 @@ def _run_migrations():
             "ALTER TABLE tasks ADD COLUMN modified_at VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN created_by VARCHAR DEFAULT ''",
             "ALTER TABLE tasks ADD COLUMN synced_with_asana BOOLEAN DEFAULT 0",
+            # Task Module: bug-report screenshots on tickets
+            "ALTER TABLE task_tickets ADD COLUMN images JSON DEFAULT '[]'",
+            "ALTER TABLE task_tickets ADD COLUMN type VARCHAR DEFAULT 'request'",
+            "ALTER TABLE task_tickets ADD COLUMN resolution VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN watcher_emails JSON DEFAULT '[]'",
+            "ALTER TABLE task_tickets ADD COLUMN custom_field_values JSON DEFAULT '{}'",
+            "ALTER TABLE task_tickets ADD COLUMN links JSON DEFAULT '[]'",
+            "ALTER TABLE task_tickets ADD COLUMN task_ids JSON DEFAULT '[]'",
+            "ALTER TABLE task_tickets ADD COLUMN component VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN csat_rating INTEGER DEFAULT 0",
+            "ALTER TABLE task_tickets ADD COLUMN csat_comment VARCHAR DEFAULT ''",
+            "ALTER TABLE task_projects ADD COLUMN department_ids JSON DEFAULT '[]'",
+            # Roles & Access redesign: job-role templates live on nexus_groups
+            "ALTER TABLE nexus_groups ADD COLUMN is_job_role BOOLEAN DEFAULT 0",
+            "ALTER TABLE nexus_groups ADD COLUMN tier VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN description VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN monitoring_exempt BOOLEAN DEFAULT 0",
+            # Company email domains — drive M365 import + auto company tagging
+            "ALTER TABLE hr_entities ADD COLUMN domains VARCHAR DEFAULT ''",
+            # Company manager (operational head; escalation target)
+            "ALTER TABLE hr_entities ADD COLUMN manager_email VARCHAR DEFAULT ''",
+            # ── Item Module QA (P2-5, Jul 2026): SQLite was missing columns the
+            # Postgres list already carried — a pre-existing local DB 500s on
+            # every items/checkouts SELECT without them. (SQLite ALTER has no
+            # IF NOT EXISTS; a duplicate just errors and is swallowed below.)
+            "ALTER TABLE items ADD COLUMN serial_number VARCHAR DEFAULT ''",
+            "ALTER TABLE items ADD COLUMN assigned_to_email VARCHAR DEFAULT ''",
+            "ALTER TABLE items ADD COLUMN assigned_to_name VARCHAR DEFAULT ''",
+            "ALTER TABLE items ADD COLUMN assigned_at VARCHAR DEFAULT ''",
+            "ALTER TABLE item_checkouts ADD COLUMN order_id VARCHAR DEFAULT ''",
+            "ALTER TABLE item_checkouts ADD COLUMN handover_photo_by VARCHAR DEFAULT ''",
+            "ALTER TABLE item_checkouts ADD COLUMN handover_batch BOOLEAN DEFAULT 0",
+            "ALTER TABLE item_checkouts ADD COLUMN receipt_photo_url VARCHAR DEFAULT ''",
+            "ALTER TABLE item_checkouts ADD COLUMN receipt_photo_name VARCHAR DEFAULT ''",
+            "ALTER TABLE item_checkouts ADD COLUMN handed_over_at VARCHAR DEFAULT ''",
+            "ALTER TABLE item_checkouts ADD COLUMN extension_days INTEGER DEFAULT 0",
+            "ALTER TABLE item_checkouts ADD COLUMN extension_reason VARCHAR DEFAULT ''",
+            "ALTER TABLE item_checkouts ADD COLUMN extension_status VARCHAR DEFAULT ''",
+            "ALTER TABLE item_checkouts ADD COLUMN approver_email VARCHAR DEFAULT ''",
+            "ALTER TABLE item_checkouts ADD COLUMN approver_name VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_notifications ADD COLUMN read_by VARCHAR DEFAULT ''",
+            # serial is the identity + import upsert key — enforce uniqueness
+            # (blanks excluded so legacy/not-yet-serialised rows are fine; also
+            # stops a local import silently creating duplicate serials).
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_items_serial_unique ON items (serial_number) WHERE serial_number <> ''",
+            # ── Item Module hot-path indexes (P2-4) + live-row concurrency guards
+            # (P1-1). SQLite supports partial (WHERE) indexes; a partial-unique
+            # that can't build over pre-existing duplicate live rows errors here
+            # and is swallowed by the per-statement try/except below — never aborts
+            # startup. Statuses match the transient/permanent lifecycles.
+            "CREATE INDEX IF NOT EXISTS ix_checkout_item_status ON item_checkouts (item_id, status)",
+            "CREATE INDEX IF NOT EXISTS ix_checkout_order ON item_checkouts (order_id)",
+            "CREATE INDEX IF NOT EXISTS ix_checkout_requested_by ON item_checkouts (requested_by_email)",
+            "CREATE INDEX IF NOT EXISTS ix_assignment_item_status ON item_assignments (item_id, status)",
+            "CREATE INDEX IF NOT EXISTS ix_assignment_assignee ON item_assignments (assignee_email)",
+            "CREATE INDEX IF NOT EXISTS ix_notif_recipient_actioned ON nexus_notifications (recipient, actioned)",
+            "CREATE INDEX IF NOT EXISTS ix_notif_ref ON nexus_notifications (ref_id)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_checkout_live ON item_checkouts (item_id) WHERE status IN ('pending','approved','pending_receipt','allocated')",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_assignment_live ON item_assignments (item_id) WHERE status IN ('pending_acceptance','active','return_initiated')",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -119,6 +190,9 @@ def _run_migrations():
             conn.commit()
         return
     migrations = [
+        "ALTER TABLE payroll_rates ADD COLUMN IF NOT EXISTS overtime_rule VARCHAR DEFAULT 'ca'",
+        "ALTER TABLE agent_activity ADD COLUMN IF NOT EXISTS domain VARCHAR DEFAULT ''",
+        "ALTER TABLE agent_activity ADD COLUMN IF NOT EXISTS category VARCHAR DEFAULT ''",
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS employee_email VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_notifications ADD COLUMN IF NOT EXISTS read_by VARCHAR DEFAULT ''",
         # inventory_requests: return-flow columns added after initial table creation
@@ -185,6 +259,8 @@ def _run_migrations():
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfilled_at VARCHAR DEFAULT ''",
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfillment_note VARCHAR DEFAULT ''",
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS fulfilled_item_id VARCHAR DEFAULT ''",
+        "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS submitted_by_email VARCHAR DEFAULT ''",
+        "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS submitted_by_name VARCHAR DEFAULT ''",
         # items: operational status column (Neil — deployed/in repair/needs replacement; SEPARATE from lifecycle status)
         "ALTER TABLE items ADD COLUMN IF NOT EXISTS op_status VARCHAR DEFAULT ''",
         # items: permanent assignment to a PLACE not a person — excluded from "Who has it" (Ankush)
@@ -222,6 +298,8 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS status_log JSONB DEFAULT '[]'::jsonb",
         # Org chart Phase 5: functional-division head tag (inherits down the tree)
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS division VARCHAR DEFAULT ''",
+        # External users: identity type (internal MS365 / Entra B2B guest / non-MS365 external)
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS identity_type VARCHAR DEFAULT 'internal'",
         # HR mailbox export: progress total (table itself is created by create_all)
         "ALTER TABLE hr_mailbox_exports ADD COLUMN IF NOT EXISTS total INTEGER DEFAULT 0",
         # E-Sign multi-document packets: PDFs attached to a template, carried on the envelope
@@ -259,6 +337,7 @@ def _run_migrations():
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'task'",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assignee_email TEXT DEFAULT ''",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS owner_email TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS follower_emails JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS liked_by_emails JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS access_level TEXT DEFAULT 'org'",
@@ -288,6 +367,41 @@ def _run_migrations():
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS modified_at TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS created_by TEXT DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS synced_with_asana BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS type TEXT DEFAULT 'request'",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS resolution TEXT DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS watcher_emails JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS custom_field_values JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS links JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS task_ids JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS component TEXT DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS csat_rating INTEGER DEFAULT 0",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS csat_comment TEXT DEFAULT ''",
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS department_ids JSONB DEFAULT '[]'::jsonb",
+        # Roles & Access redesign: job-role templates live on nexus_groups
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS is_job_role BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS tier VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS description VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS monitoring_exempt BOOLEAN DEFAULT FALSE",
+        # Company email domains — drive M365 import + auto company tagging
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS domains VARCHAR DEFAULT ''",
+        # Company manager (operational head; escalation target)
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS manager_email VARCHAR DEFAULT ''",
+        # ── Item Module hot-path indexes (P2-4) + live-row concurrency guards
+        # (P1-1). Postgres supports partial (WHERE) indexes; a partial-unique
+        # that can't build over pre-existing duplicate live rows raises here and
+        # is caught + logged by the per-statement try/except below — it never
+        # aborts the migration run. Statuses match the transient/permanent
+        # lifecycles (item_checkouts / item_assignments).
+        "CREATE INDEX IF NOT EXISTS ix_checkout_item_status ON item_checkouts (item_id, status)",
+        "CREATE INDEX IF NOT EXISTS ix_checkout_order ON item_checkouts (order_id)",
+        "CREATE INDEX IF NOT EXISTS ix_checkout_requested_by ON item_checkouts (requested_by_email)",
+        "CREATE INDEX IF NOT EXISTS ix_assignment_item_status ON item_assignments (item_id, status)",
+        "CREATE INDEX IF NOT EXISTS ix_assignment_assignee ON item_assignments (assignee_email)",
+        "CREATE INDEX IF NOT EXISTS ix_notif_recipient_actioned ON nexus_notifications (recipient, actioned)",
+        "CREATE INDEX IF NOT EXISTS ix_notif_ref ON nexus_notifications (ref_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_checkout_live ON item_checkouts (item_id) WHERE status IN ('pending','approved','pending_receipt','allocated')",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_assignment_live ON item_assignments (item_id) WHERE status IN ('pending_acceptance','active','return_initiated')",
     ]
     with engine.connect() as conn:
         for sql in migrations:
@@ -298,62 +412,10 @@ def _run_migrations():
         conn.commit()
 
 
-# One-time seed for the inventory_items master stock table — mirrors the figures
-# the frontend used to hardcode in InventoryContext.jsx before stock tracking
-# moved server-side. Only runs if the table is empty, so live counts (which get
-# decremented/incremented by the allocate/return flow) are never reset on deploy.
-_SEED_INVENTORY_ITEMS = [
-    ("INV-001", "Laptop (Dell XPS 15)",      "IT Supplies",      "IT",           2,  6),
-    ("INV-002", "Network Switch 24-Port",    "IT Supplies",      "IT",           1,  3),
-    ("INV-003", "HDMI Cable (2m)",           "IT Supplies",      "IT",           6,  10),
-    ("INV-004", "Extension Lead (5m)",       "Electrical",       "IT",           4,  7),
-    ("INV-005", "USB-C Docking Station",     "IT Supplies",      "IT",           3,  5),
-    ("INV-006", "Wireless Mouse & Keyboard", "IT Supplies",      "IT",           8,  12),
-    ("INV-007", "External Monitor 27\"",     "IT Supplies",      "IT",           1,  4),
-    ("INV-008", "UPS Battery Backup",        "Electrical",       "IT",           2,  3),
-    ("INV-009", "Ethernet Cable Box (30m)",  "IT Supplies",      "IT",           5,  8),
-    ("INV-010", "Webcam HD 1080p",           "IT Supplies",      "IT",           0,  4),
-    ("INV-011", "Power Drill (Cordless)",    "Tools",            "Construction", 3,  5),
-    ("INV-012", "Angle Grinder",             "Tools",            "Construction", 2,  4),
-    ("INV-013", "Safety Helmet",             "Safety Equipment", "Construction", 10, 20),
-    ("INV-014", "Hi-Vis Vest",               "Safety Equipment", "Construction", 8,  15),
-    ("INV-015", "Tape Measure (5m)",         "Tools",            "Construction", 7,  10),
-    ("INV-016", "Circular Saw",              "Tools",            "Construction", 1,  3),
-    ("INV-017", "Safety Goggles",            "Safety Equipment", "Construction", 12, 20),
-    ("INV-018", "Ear Protection (Pair)",     "Safety Equipment", "Construction", 15, 25),
-    ("INV-019", "Spirit Level (600mm)",      "Tools",            "Construction", 4,  6),
-    ("INV-020", "Cable Reel (25m)",          "Electrical",       "Construction", 0,  4),
-    ("INV-021", "Office Chair (Ergonomic)",  "Furniture",        "Operations",   3,  8),
-    ("INV-022", "Standing Desk",             "Furniture",        "Operations",   1,  4),
-    ("INV-023", "First Aid Kit",             "Safety Equipment", "Operations",   4,  6),
-    ("INV-024", "Walkie Talkie (Set of 2)",  "Tools",            "Operations",   5,  8),
-    ("INV-025", "Floor Cleaning Machine",    "Tools",            "Operations",   0,  2),
-    ("INV-026", "Storage Cabinet",           "Furniture",        "Operations",   2,  3),
-    ("INV-027", "Handheld Vacuum",           "Tools",            "Operations",   3,  4),
-    ("INV-028", "Printer Paper (Ream)",      "Office Supplies",  "Accounting",   20, 50),
-    ("INV-029", "Stapler",                   "Office Supplies",  "Accounting",   5,  8),
-    ("INV-030", "File Folders (Box of 50)",  "Office Supplies",  "Accounting",   10, 20),
-    ("INV-031", "Financial Calculator",      "Office Supplies",  "Accounting",   3,  6),
-    ("INV-032", "Document Shredder",         "Office Supplies",  "Accounting",   1,  2),
-    ("INV-033", "Binding Machine",           "Office Supplies",  "Accounting",   0,  1),
-    ("INV-034", "Whiteboard + Markers Kit",  "Office Supplies",  "Accounting",   2,  4),
-]
-
-
-def _seed_inventory_items():
-    db = SessionLocal()
-    try:
-        if db.query(models.InventoryItem).count() > 0:
-            return
-        now = datetime.now(timezone.utc).isoformat()
-        for item_id, name, category, dept, available, total in _SEED_INVENTORY_ITEMS:
-            db.add(models.InventoryItem(
-                id=item_id, name=name, category=category, department=dept,
-                total_qty=total, available_qty=available, last_updated=now,
-            ))
-        db.commit()
-    finally:
-        db.close()
+# NOTE (P2-1, Jul 2026): the legacy inventory_items mock seed (~34 rows) was
+# removed with the rest of the retired inventory stack. The InventoryItem model
+# is kept (models.py) so create_all preserves the table + any historical rows,
+# but nothing seeds fake data on fresh DBs anymore.
 
 
 @asynccontextmanager
@@ -381,11 +443,6 @@ async def lifespan(app: FastAPI):
         print("[startup] migrations applied")
     except Exception as e:
         print(f"[startup] migrations skipped: {e}")
-    try:
-        _seed_inventory_items()
-        print("[startup] inventory_items seeded")
-    except Exception as e:
-        print(f"[startup] inventory_items seed skipped: {e}")
     try:
         from auth import _fetch_jwks, SKIP_AUTH
         if not SKIP_AUTH:
@@ -466,9 +523,11 @@ app.include_router(dashboards_router.router)
 app.include_router(requisitions.router)
 app.include_router(roles.router)
 app.include_router(notifications.router)
-app.include_router(inventory_requests.router)
 app.include_router(audit.router)
 app.include_router(groups.router)
+app.include_router(jobroles.router)
+app.include_router(access_scopes.router)
+app.include_router(qa.router)
 app.include_router(items_router.router)
 app.include_router(hr.router)
 app.include_router(knowledge_base.router)
@@ -479,4 +538,6 @@ app.include_router(myhr.router)
 app.include_router(hr_interviews.router)
 app.include_router(task_projects.router)  # Task Module: projects/portfolios/departments
 app.include_router(task_config.router)    # Task Module: views/rules/templates/tickets/notifications/changelog
+app.include_router(credvault.router)      # Credential Vault: encrypted company/personal secrets ("credvault" grant)
+app.include_router(policy.router)         # Sign-in company-policy & monitoring acknowledgment
 

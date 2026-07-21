@@ -23,6 +23,7 @@ def project_to_dict(p: models.TaskProject) -> dict:
         "id": p.id, "name": p.name, "description": p.description or "", "color": _nz(p.color),
         "ownerId": _nz(p.owner_email), "memberIds": p.member_emails or [],
         "portfolioId": _nz(p.portfolio_id), "departmentId": _nz(p.department_id),
+        "departmentIds": p.department_ids or ([p.department_id] if p.department_id else []),
         "status": p.status or "not_started", "startOn": _nz(p.start_on), "dueOn": _nz(p.due_on),
         "archived": bool(p.archived), "activityIds": p.activity_ids or [],
         "createdAt": p.created_at or "", "modifiedAt": p.modified_at or "",
@@ -58,6 +59,7 @@ class ProjectBody(BaseModel):
     member_emails: Optional[list] = None
     portfolio_id: Optional[str] = ""
     department_id: Optional[str] = ""
+    department_ids: Optional[list] = None
     status: Optional[str] = "not_started"
     start_on: Optional[str] = ""
     due_on: Optional[str] = ""
@@ -72,11 +74,14 @@ def list_projects(db: Session = Depends(get_db)):
 @router.post("/task-projects", status_code=201)
 def create_project(body: ProjectBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     now = now_iso()
+    # A project can belong to several teams; department_id stays the primary (first).
+    dept_ids = body.department_ids if body.department_ids is not None else ([body.department_id] if body.department_id else [])
+    dept_ids = [d for d in dept_ids if d]
     p = models.TaskProject(
         id=body.id or gen_id(), name=body.name, description=body.description or "",
         color=body.color or "", owner_email=(body.owner_email or user["email"]).lower(),
         member_emails=body.member_emails or [], portfolio_id=body.portfolio_id or "",
-        department_id=body.department_id or "", status=body.status or "not_started",
+        department_id=(dept_ids[0] if dept_ids else ""), department_ids=dept_ids, status=body.status or "not_started",
         start_on=body.start_on or "", due_on=body.due_on or "", archived=False,
         activity_ids=[], created_at=now, modified_at=now, created_by=user["email"],
     )
@@ -101,6 +106,12 @@ def update_project(project_id: str, body: ProjectBody, db: Session = Depends(get
         if k == "owner_email" and v is not None:
             v = (v or "").lower()
         setattr(p, k, v)
+    # keep the multi-team list and the primary department_id in sync
+    if "department_ids" in data:
+        p.department_ids = [d for d in (p.department_ids or []) if d]
+        p.department_id = p.department_ids[0] if p.department_ids else ""
+    elif "department_id" in data:
+        p.department_ids = [p.department_id] if p.department_id else []
     p.modified_at = now_iso()
     db.commit()
     db.refresh(p)
@@ -258,7 +269,8 @@ def raise_member_request(body: MemberRequestBody, user: dict = Depends(get_curre
     task_notify(db, kind="member_request", for_email="admins",
                 title="Department member request",
                 body=f"{user['email']} requested to {m.kind} {m.user_email} for {dept_name}",
-                department_id=body.department_id, request_id=m.id)
+                department_id=body.department_id, request_id=m.id,
+                nexus_action={"view": "tasks", "sub": "teams", "label": "Review request"})
     db.commit()
     db.refresh(m)
     return member_request_to_dict(m)
@@ -289,7 +301,8 @@ def decide_member_request(request_id: str, body: DecideBody, user: dict = Depend
     task_notify(db, kind=("request_approved" if m.status == "approved" else "request_rejected"),
                 for_email=m.requested_by, title=f"Member request {m.status}",
                 body=f"Your request to {m.kind} {m.user_email} was {m.status}.",
-                department_id=m.department_id, request_id=m.id)
+                department_id=m.department_id, request_id=m.id,
+                nexus_action={"view": "tasks", "sub": "teams", "label": "View team"})
     db.commit()
     db.refresh(m)
     return member_request_to_dict(m)

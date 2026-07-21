@@ -1,48 +1,73 @@
 # Greens Nexus Agent (desktop)
 
-A tray-resident companion to the Nexus time-tracking module. While an employee
-is **clocked in**, it captures **every monitor** every 5 minutes and uploads to
-the same `/timeclock/screenshot` API the web app uses — so the frames land in
-the same storage bucket, `time_screenshots` table, and the admin gallery
-(**avatar → Admin → Screenshots**), indistinguishable from web captures.
+A **headless** background companion to the Nexus Time Clock. While an employee is
+**clocked in**, per the disclosed monitoring policy it records:
 
-## Why a separate app?
+- the **foreground app + window title** every few seconds → the **Activity Log**
+  (`avatar → Admin → Insights / Activity`), and
+- a **screenshot of every monitor** on a server-set cadence → the **Screenshots**
+  gallery,
 
-A web page **cannot** capture the screen without Chrome's persistent "sharing
-your screen" bar — that's a browser privacy guarantee, not something Nexus can
-switch off. A native desktop app using Electron's `desktopCapturer` captures
-silently and sees all displays. That is the *only* way to get background,
-multi-monitor capture, and it is why Hubstaff/Time Doctor ship desktop agents.
+and reports an **active/idle %**. It posts to the same `/timeclock/agent/*` APIs
+the system already exposes, so the data lands in the same tables/galleries the web
+capture uses.
 
-> **Consent is a legal prerequisite, not a technical one.** Silent monitoring
-> carries notice/consent duties (WA, OR, and for India-based staff). Only deploy
-> after employees have been given written notice and you have the consent on
-> file. macOS additionally forces a one-time "Screen Recording" permission
-> prompt the OS shows itself.
+## Disclosure & scope (read this first)
+
+This is a **disclosed, consent-gated** time-and-attendance tracker for
+company-owned devices. It is **not covert**:
+
+- It keeps its **real name** ("Greens Nexus Agent") — it appears in **Task
+  Manager**, the **Startup** list, **Installed Programs**, and writes a plain-text
+  log to `C:\ProgramData\Greens Nexus Agent\agent.log`.
+- It does **nothing** to disguise its process, block Task Manager, or resist being
+  stopped.
+- It records **only while the employee is clocked in and not on break** (enforced
+  server-side on every upload), and collects window titles + screenshots +
+  activity % — **never keystroke content**.
+- Employees are shown the monitoring notice at first clock-in **and sign a written
+  disclosure agreement.** Do not deploy without that consent on file. (macOS also
+  forces its own one-time "Screen Recording" permission prompt.)
+
+## No tray, no window — how it runs
+
+Earlier builds sat in the system tray. This build has **no tray icon and no
+window**: it runs as an auto-start background process in the signed-in user's
+session and registers itself in **Startup** (`app.setLoginItemSettings`) so it
+comes back on every login.
+
+### "Can it be a Windows service?"
+
+A classic **session-0 Windows service cannot see the user's desktop** — Windows
+session isolation means it can neither read the foreground window (`active-win`)
+nor capture the screen (`desktopCapturer`). So the *capturing* part must run in
+the **interactive user session**, which is what this login-start background
+process does. If you want service-grade "always relaunch it": pair this with a
+session-0 watchdog (Windows service or scheduled task) that ensures the user-
+session agent is registered and running — the watchdog supervises, the
+user-session process captures. The agent itself is unchanged either way.
 
 ## How it works
 
-- **Sign-in**: Entra public-client auth-code flow (PKCE) via the system browser.
-  It reuses the **existing Nexus app registration**, so the ID token it obtains
-  has `aud == clientId` and passes the backend's validation with **no backend
-  changes**. The session is cached (encrypted via Electron `safeStorage`) so
-  later launches are silent.
-- **Gating**: it polls `/timeclock/status` every 60s and only captures while the
-  last punch is not `out`. Employees can **Pause capture** from the tray menu.
-- **Capture**: `desktopCapturer.getSources({types:['screen']})` → one JPEG per
-  display (max 1280px, q55) → multipart upload with idle seconds
-  (`powerMonitor.getSystemIdleTime()`) and a `desktop agent · screen N/M` label.
-
-## One-time Entra setup (admin)
-
-On the existing app registration `be6f1e37-83a8-4a29-8b46-96d20beb32f9`:
-
-1. **Authentication → Add a platform → Mobile and desktop applications.**
-2. Add redirect URI **`http://localhost`** (loopback; any port is allowed).
-3. **Allow public client flows → Yes.**
-
-No new secret, no new registration. (Override the IDs with `NEXUS_CLIENT_ID` /
-`NEXUS_TENANT_ID` if you'd rather use a dedicated registration.)
+- **Identity**: a **per-device token** (`X-Agent-Token`), provisioned when you
+  enroll the device (avatar → Admin → devices, or the install command). No
+  Microsoft login, no interactive UI. Token is read from `NEXUS_AGENT_TOKEN`, then
+  `C:\ProgramData\Greens Nexus Agent\device-token.txt` (machine-wide), then the
+  per-user `userData` copy.
+- **Heartbeat** (`POST /timeclock/agent/checkin`, every 60s): reports the machine
+  + active/idle and learns whether to capture **right now** (`capture` — true only
+  while clocked in, not on break, policy enabled) and the current **policy**.
+- **Server-driven policy**: cadence + toggles are **not** hardcoded. Each heartbeat
+  honors `enabled`, `intervalMinutes`, `randomize` (jitter ±25% so a frame can't be
+  timed/gamed), `trackScreens` (screenshots), `trackWindows` (window titles),
+  `trackInput` (activity %). `config.js` values are only fallbacks until the server
+  answers. At shift start the first shot is prompt (not a full interval later).
+- **Activity** (`POST /timeclock/agent/activity`): every heartbeat flushes seconds
+  per foreground app/title + the active %. The server tags each with its admin
+  productivity rating and stores it for the Activity Log / Insights.
+- **Screenshots** (`POST /timeclock/agent/screenshot`): `desktopCapturer` → one
+  JPEG per display (max 1920px, q85) → multipart upload with idle seconds. A `409`
+  (not clocked in / screens disabled by policy) is a benign skip.
 
 ## Run / build
 
@@ -58,25 +83,30 @@ npm run dist:mac          # build the macOS dmg               → dist/
 Point at prod at build time:
 
 ```bash
-NEXUS_API_BASE=https://<prod-api-host> NEXUS_WEB_BASE=https://nexus.greensglobal.com npm run dist:win
+NEXUS_API_BASE=https://<prod-api-host> npm run dist:win
 ```
+
+## Provisioning a device (token)
+
+1. Enroll the device in Nexus to mint a device token (shared with the
+   field-phone tracker — `AgentDevice`).
+2. Drop the token where the agent looks first, machine-wide:
+   `C:\ProgramData\Greens Nexus Agent\device-token.txt` (single line), **or** set
+   the `NEXUS_AGENT_TOKEN` environment variable.
+3. Launch the agent (the installer can do this post-install). It self-heals: if
+   the token appears after launch, the next heartbeat picks it up.
 
 ## Before you ship to staff
 
 - **Code signing**: add a Windows cert (`CSC_LINK`/`win.certificateFile`) and an
-  Apple Developer ID + notarization (`mac`), or installs trip SmartScreen /
-  Gatekeeper.
+  Apple Developer ID + notarization, or installs trip SmartScreen / Gatekeeper.
 - **Icons**: drop `build/icon.ico` (256×256) and `build/icon.icns`, then
   uncomment the `icon:` lines in `electron-builder.yml`.
-- **Auto-update**: set a `publish` feed in `electron-builder.yml` and wire
-  `electron-updater` in `main.js` (left as a documented stub).
 
 ## Config (env vars)
 
 | Var | Default | Meaning |
 |---|---|---|
 | `NEXUS_API_BASE` | dev API host | Nexus backend base URL |
-| `NEXUS_WEB_BASE` | `https://dev.nexus.greensglobal.com` | "Open Time Clock" target |
-| `NEXUS_CLIENT_ID` | Nexus app reg | Entra client id |
-| `NEXUS_TENANT_ID` | Greens tenant | Entra tenant id |
-| `NEXUS_CAPTURE_MS` | `300000` | capture interval (ms) |
+| `NEXUS_AGENT_TOKEN` | — | device token (overrides the file locations) |
+| `NEXUS_CAPTURE_MS` | `300000` | **fallback** capture interval (ms), used only until the server policy is fetched |

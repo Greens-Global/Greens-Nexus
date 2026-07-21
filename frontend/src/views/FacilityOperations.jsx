@@ -31,6 +31,22 @@ const STAFF = [
 
 const pill = (cls, text) => <span className={`status-badge ${cls}`}>{text}</span>;
 
+// Portfolio-wide average review score, shown on the Reputation summary card.
+const AVG_RATING = 4.3;
+
+// Five stars with a fractional-filled last star (e.g. 4.3 -> four full stars
+// and a ~30%-filled fifth). An amber layer is clipped to value/5 over a grey
+// base row, so a partial rating never rounds up to a full star.
+function StarRow({ value, size = 15 }) {
+  const pct = Math.max(0, Math.min(100, (value / 5) * 100));
+  return (
+    <span style={{ position: "relative", display: "inline-block", fontSize: size, letterSpacing: 1, lineHeight: 1 }} aria-hidden="true">
+      <span style={{ color: "var(--line)" }}>★★★★★</span>
+      <span style={{ position: "absolute", inset: 0, overflow: "hidden", width: pct + "%", color: "var(--amber)", whiteSpace: "nowrap" }}>★★★★★</span>
+    </span>
+  );
+}
+
 function FMS() {
   const totalUnits  = FACILITIES.reduce((a, f) => a + f.units, 0);
   const totalRented = FACILITIES.reduce((a, f) => a + f.rented, 0);
@@ -53,8 +69,8 @@ function FMS() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14 }}>
         {[
           { title: "Connection", rows: [["System","Hummingbird"],["Last sync","6 min ago"],["Interval","Every 15 min"],["Status","● Healthy"]] },
-          { title: "Portfolio totals", rows: [["Units", totalUnits.toLocaleString()],["Rented",totalRented.toLocaleString()],["Occupancy",avgOcc+"%"],["MRR","$"+(totalMrr/1000).toFixed(1)+"k"]] },
-          { title: "Sync log", log: ["✓ Occupancy pulled — 5 facilities","✓ Tenant ledger reconciled","✓ 12 move-ins, 4 move-outs","✓ Rate changes applied"] },
+          { title: "Portfolio Totals", rows: [["Units", totalUnits.toLocaleString()],["Rented",totalRented.toLocaleString()],["Occupancy",avgOcc+"%"],["MRR","$"+(totalMrr/1000).toFixed(1)+"k"]] },
+          { title: "Sync Log", log: ["✓ Occupancy pulled — 5 facilities","✓ Tenant ledger reconciled","✓ 12 move-ins, 4 move-outs","✓ Rate changes applied"] },
         ].map(c => (
           <div key={c.title} className="dash-card">
             <div className="dash-card-title" style={{ marginBottom: 12 }}>{c.title}</div>
@@ -70,7 +86,7 @@ function FMS() {
       </div>
 
       <div className="dash-card">
-        <div className="dash-card-title" style={{ marginBottom: 12 }}>Per-facility feed</div>
+        <div className="dash-card-title" style={{ marginBottom: 12 }}>Per-Facility Feed</div>
         <div style={{ overflowX: "auto" }}>
           <table className="req-table stack-table">
             <thead><tr><th>Facility</th><th>Units</th><th>Rented</th><th>Occupancy</th><th>MRR</th><th>Last sync</th></tr></thead>
@@ -113,14 +129,21 @@ function Reputation() {
       </div>
       <div className="kpi-grid">
         {[
-          { label: "Average Rating", value: "4.3 ★" },
+          { label: "Average Rating", rating: AVG_RATING },
           { label: "Response Rate",  value: "68%" },
           { label: "Awaiting Reply", value: pending },
           { label: "This Month",     value: "18" },
         ].map(k => (
           <div key={k.label} className="kpi-card">
             <div className="kpi-label">{k.label}</div>
-            <div className="kpi-value">{k.value}</div>
+            {k.rating != null ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="kpi-value">{k.rating.toFixed(1)}</span>
+                <StarRow value={k.rating} />
+              </div>
+            ) : (
+              <div className="kpi-value">{k.value}</div>
+            )}
           </div>
         ))}
       </div>
@@ -163,7 +186,7 @@ function SiteStaff() {
           <h2>Site Staff & Scheduling</h2>
           <p>Roster and shift coverage by facility</p>
         </div>
-        <button className="primary-btn">+ Add shift</button>
+        <button className="primary-btn">+ Add Shift</button>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
         <div className="dash-card">
@@ -183,7 +206,7 @@ function SiteStaff() {
           </table>
         </div>
         <div className="dash-card">
-          <div className="dash-card-title" style={{ marginBottom: 12 }}>Open shifts</div>
+          <div className="dash-card-title" style={{ marginBottom: 12 }}>Open Shifts</div>
           <div className="task-list">
             <div className="task-row">
               <span className="prio-dot prio-high" />

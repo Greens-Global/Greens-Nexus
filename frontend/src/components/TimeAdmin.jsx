@@ -2,15 +2,15 @@ import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Clock, ChevronDown, ChevronRight, ChevronLeft, MapPin, AlertTriangle, Download,
-  Pencil, Plus, Loader2, X, CheckCircle, Ban,
+  Pencil, Plus, Loader2, X, CheckCircle, Ban, Camera, MoonStar,
 } from 'lucide-react';
 import { api } from '../api';
 import DayTimeline from './DayTimeline';
-import DayActivity from './DayActivity';
 import ShiftsPanel from './ShiftsPanel';
 import ShiftSchedule from './ShiftSchedule';
 import PayrollTimecard from './PayrollTimecard';
 import LiveCrewMap from './LiveCrewMap';
+import TimeInsights from './TimeInsights';
 
 const TYPE_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
 
@@ -62,8 +62,15 @@ function AdminDayRow({ date, email, d, approval, onApprove }) {
         </div>
       )}
       {open && (
-        <div style={{ marginTop: 8, marginLeft: 8 }}>
-          <DayActivity date={date} email={email} />
+        <div style={{ marginTop: 8, marginLeft: 102, display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
+          {(d.punches || []).length === 0 ? (
+            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>No punches this day.</span>
+          ) : (d.punches || []).map((p, i) => (
+            <span key={i} style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              <span style={{ fontWeight: 700, color: 'var(--ink)', textTransform: 'capitalize' }}>{String(p.kind || '').replace(/_/g, ' ')}</span>
+              {' '}{(() => { try { return new Date(p.at + (p.at.endsWith('Z') ? '' : 'Z')).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch { return p.at; } })()}
+            </span>
+          ))}
         </div>
       )}
     </div>
@@ -147,18 +154,61 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     load();
   }
   const [person, setPerson] = useState(null);   // employee drill-down (their time portal)
-  const [personAct, setPersonAct] = useState(null);   // app-usage for that person
   const [shiftMode, setShiftMode] = useState('schedule'); // schedule | presets
 
+  // Disclosed-monitoring: manager-scoped screenshot gallery (team-scoped API).
+  const [shotDate, setShotDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [shotPeople, setShotPeople] = useState(null);
+  const [shotWho, setShotWho] = useState(null);       // {email, name}
+  const [shotFrames, setShotFrames] = useState(null);
   useEffect(() => {
-    if (!person) { setPersonAct(null); return; }
+    if (view !== 'screenshots') return;
+    setShotPeople(null); setShotWho(null); setShotFrames(null);
+    api.timeTeamShots(shotDate).then(r => setShotPeople(r.people || [])).catch(() => setShotPeople([]));
+  }, [view, shotDate]);
+  useEffect(() => {
+    if (!shotWho) { setShotFrames(null); return; }
+    setShotFrames(null);
+    api.timeTeamShots(shotDate, shotWho.email).then(r => setShotFrames(r.shots || [])).catch(() => setShotFrames([]));
+  }, [shotWho, shotDate]);
+
+  // Disclosed-monitoring tamper/coverage alerts — surfaces employees who are
+  // clocked in while their agent has gone quiet (killed/uninstalled/offline), so
+  // evasion is a visible, attributable event rather than a silent success. Polled.
+  const [monAlerts, setMonAlerts] = useState([]);
+  useEffect(() => {
     let live = true;
-    setPersonAct(null);
-    api.timeActivity(person.email, start, end)
-      .then(r => { if (live) setPersonAct(r); })
-      .catch(() => { if (live) setPersonAct({ apps: [], totalSeconds: 0, activePct: 0 }); });
-    return () => { live = false; };
-  }, [person, start, end]);
+    const loadAlerts = () => api.timeMonitoringAlerts()
+      .then(r => { if (live) setMonAlerts(Array.isArray(r?.alerts) ? r.alerts : []); })
+      .catch(() => {});
+    loadAlerts();
+    const t = setInterval(loadAlerts, 60000);
+    return () => { live = false; clearInterval(t); };
+  }, []);
+
+  // Punch-fix requests (employee add/remove) awaiting this approver's decision.
+  const [punchReqs, setPunchReqs] = useState([]);
+  const loadPunchReqs = useCallback(() =>
+    api.timePunchRequests('pending').then(r => setPunchReqs(Array.isArray(r) ? r : [])).catch(() => {}), []);
+  useEffect(() => {
+    loadPunchReqs();
+    const t = setInterval(loadPunchReqs, 60000);
+    return () => clearInterval(t);
+  }, [loadPunchReqs]);
+  async function decidePunchReq(id, status) {
+    let note = '';
+    if (status === 'rejected') {
+      const r = window.prompt('Reason (sent to the employee):');
+      if (r === null) return;   // cancelled
+      note = r;
+    }
+    try {
+      await api.timeDecidePunchRequest(id, { status, note });
+      toastOk(`Request ${status}.`);
+      loadPunchReqs();
+    } catch (e) { toastErr(e?.message || 'Could not update the request.'); }
+  }
+
   async function revokeApproval(id) {
     try { await api.timeApprovalRevoke(id); toastOk('Approval revoked.'); load(); }
     catch (e) { toastErr(e?.message || 'Could not revoke.'); }
@@ -231,10 +281,35 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         ))}
       </div>
 
+      {/* Monitoring tamper/coverage alerts — clocked in but agent quiet. */}
+      {monAlerts.length > 0 && (
+        <div style={{ marginBottom: 16, border: '1px solid hsla(var(--color-red),0.4)', background: 'hsla(var(--color-red),0.06)', borderRadius: 12, padding: '12px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <AlertTriangle size={15} style={{ color: 'hsl(var(--color-red))' }} />
+            <span style={{ fontWeight: 800, fontSize: 13.5 }}>Monitoring Alerts</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+              {monAlerts.length} clocked in with a quiet agent
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {monAlerts.map(a => (
+              <div key={a.email} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12.5 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                  background: a.severity === 'high' ? 'hsl(var(--color-red))' : '#b45309' }} />
+                <strong>{a.name}</strong>
+                <span style={{ fontWeight: 700, color: a.severity === 'high' ? 'hsl(var(--color-red))' : '#b45309' }}>{a.reason}</span>
+                {a.detail && <span style={{ color: 'var(--muted)' }}>{a.detail}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Sub-tabs */}
       <div className="chip-row scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        {[['timecards', 'Timecards'], ['livemap', 'Live map'], ['attendance', 'Attendance'], ['insights', 'Insights'],
-          ['shifts', 'Shifts'], ['payroll', 'Payroll'],
+        {[['timecards', 'Timecards'], ['livemap', 'Live Map'], ['attendance', 'Attendance'], ['insights', 'Insights'],
+          ['requests', `Punch requests${punchReqs.length ? ` (${punchReqs.length})` : ''}`],
+          ['screenshots', 'Screenshots'], ['shifts', 'Shifts'], ['payroll', 'Payroll'],
           ['timeoff', `Time off${pendingCount ? ` (${pendingCount})` : ''}`]].map(([key, label]) => (
           <button key={key} onClick={() => setView(key)}
             style={{ padding: '6px 15px', borderRadius: 10, border: `1px solid ${view === key ? 'var(--pine)' : 'var(--line)'}`,
@@ -434,7 +509,13 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         );
       })()}
 
-      {/* Insights — hours by person + daily team hours, straight off the range */}
+      {/* Insights — activity dashboard (Top Apps / Websites / productivity), then
+          the hours breakdown from the punch data. */}
+      {view === 'insights' && (
+        <div style={{ marginBottom: 18 }}>
+          <TimeInsights start={start} end={end} people={(rows || []).map(r => ({ email: r.email, name: r.name }))} />
+        </div>
+      )}
       {view === 'insights' && (rows === null
         ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
         : (() => {
@@ -506,6 +587,38 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
 
       {view === 'livemap' && <LiveCrewMap toastErr={toastErr} employees={employees} />}
 
+      {/* Punch-fix requests — employee asked to add/remove a punch; approve applies it. */}
+      {view === 'requests' && (
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
+          {punchReqs.length === 0 ? (
+            <div style={{ padding: '24px 18px', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center' }}>
+              No punch-fix requests waiting. When someone asks to add or remove a punch, it shows here for you to approve or reject.
+            </div>
+          ) : punchReqs.map(r => {
+            const kindLabel = { in: 'clock-in', out: 'clock-out', break_start: 'break start', break_end: 'break end' }[r.punchKind] || r.punchKind;
+            return (
+              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 220 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800 }}>{r.employeeName || r.employeeEmail}</div>
+                  <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 2 }}>
+                    {r.action === 'add'
+                      ? `Add a ${kindLabel} punch${r.at ? ` at ${new Date(r.at + 'Z').toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}`
+                      : 'Remove a punch'}
+                  </div>
+                  {r.reason && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>“{r.reason}”</div>}
+                </div>
+                <button className="secondary-btn" onClick={() => decidePunchReq(r.id, 'rejected')}
+                  style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>Reject</button>
+                <button className="primary-btn" onClick={() => decidePunchReq(r.id, 'approved')}
+                  style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <CheckCircle size={13} /> Approve
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Time-off register — requests table, pending rows carry the decisions */}
       {view === 'timeoff' && (
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
@@ -541,6 +654,72 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         </div>
       )}
 
+      {/* Screenshots — disclosed-monitoring, manager-scoped team gallery.
+          Pick a day → team members with captures → their frame grid (signed URLs). */}
+      {view === 'screenshots' && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+            {shotWho && (
+              <button className="secondary-btn" onClick={() => setShotWho(null)}
+                style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px' }}>
+                <ChevronLeft size={13} /> Back
+              </button>
+            )}
+            <Camera size={15} style={{ color: 'var(--pine)' }} />
+            <span style={{ fontSize: 13.5, fontWeight: 800 }}>Screenshots{shotWho ? ` — ${shotWho.name}` : ''}</span>
+            <div style={{ flex: 1 }} />
+            <input className="form-input" type="date" value={shotDate} onChange={e => setShotDate(e.target.value)}
+              style={{ fontSize: 12, width: 150 }} />
+          </div>
+
+          {!shotWho && (
+            shotPeople === null
+              ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+              : shotPeople.length === 0
+                ? <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
+                    No captures on this day. Frames are saved while a team member is clocked in with screen capture on.
+                  </div>
+                : <div style={{ display: 'grid', gap: 8 }}>
+                    {shotPeople.map(p => (
+                      <button key={p.email} onClick={() => setShotWho(p)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12, cursor: 'pointer', textAlign: 'left',
+                          border: '1.5px solid var(--line)', background: 'var(--card)', fontFamily: 'Inter,sans-serif' }}>
+                        <Camera size={15} style={{ color: 'var(--pine)' }} />
+                        <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1 }}>{p.name}</span>
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>{p.count} frame{p.count === 1 ? '' : 's'}</span>
+                      </button>
+                    ))}
+                  </div>
+          )}
+
+          {shotWho && (
+            shotFrames === null
+              ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
+              : shotFrames.length === 0
+                ? <div style={{ padding: '26px 18px', textAlign: 'center', fontSize: 12.5, color: 'var(--muted)' }}>No frames for this person on this day.</div>
+                : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
+                    {shotFrames.map(s => (
+                      <a key={s.id} href={s.url} target="_blank" rel="noopener noreferrer"
+                        style={{ display: 'block', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', textDecoration: 'none', background: 'var(--mist)' }}>
+                        <img src={s.url} alt={`Capture ${localTime(s.at)}`} loading="lazy"
+                          style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', display: 'block' }} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px' }}>
+                          <span style={{ fontSize: 11.5, fontWeight: 800, color: 'var(--ink)' }}>{localTime(s.at)}</span>
+                          <span style={{ fontSize: 10.5, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.activeView}</span>
+                          {s.idleSec >= 300 && (
+                            <span title={`No input for ${Math.round(s.idleSec / 60)} min at capture`}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 800, color: '#b45309' }}>
+                              <MoonStar size={10} /> idle {Math.round(s.idleSec / 60)}m
+                            </span>
+                          )}
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+          )}
+        </div>
+      )}
+
       {/* Person time portal — everything time-related for one employee.
           Portaled to <body>: host cards (Manager Dashboard) have transformed
           ancestors that would otherwise trap position:fixed overlays. */}
@@ -568,7 +747,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                     return (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 800, color: '#b45309', background: 'rgba(180,83,9,0.1)', padding: '4px 11px', borderRadius: 10 }}><AlertTriangle size={12} /> CHANGED SINCE APPROVAL</span>
-                        <button className="primary-btn" onClick={() => approveDays(p.email, dk)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, background: '#b45309' }}><CheckCircle size={12} /> Re-approve week</button>
+                        <button className="primary-btn" onClick={() => approveDays(p.email, dk)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, background: '#b45309' }}><CheckCircle size={12} /> Re-approve Week</button>
                       </span>
                     );
                   }
@@ -613,7 +792,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                   );
                 })()}
                 <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>
-                  Days <span style={{ fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>— click one for the working/idle + app breakdown</span>
+                  Days <span style={{ fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>— click one for its punches</span>
                 </div>
                 {Object.keys(p.days || {}).sort().map(date => (
                   <AdminDayRow key={date} date={date} email={p.email} d={p.days[date]}
@@ -621,33 +800,6 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                     onApprove={() => approveDays(p.email, [date])} />
                 ))}
                 {Object.keys(p.days || {}).length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>No punches in this range.</div>}
-
-                {/* App usage — from the desktop agent's activity tracking */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '18px 0 8px' }}>
-                  <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>App usage</span>
-                  {personAct && personAct.totalSeconds > 0 && (
-                    <span style={{ fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-green))' }}>{personAct.activePct}% active</span>
-                  )}
-                </div>
-                {personAct === null ? (
-                  <div style={{ fontSize: 12, color: 'var(--muted)' }}><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /></div>
-                ) : personAct.totalSeconds === 0 ? (
-                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>No app activity — this person isn’t on the desktop agent (or hasn’t worked in this range).</div>
-                ) : (() => {
-                  const mx = Math.max(1, ...personAct.apps.map(a => a.seconds));
-                  const hm = s => s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m` : `${Math.max(1, Math.round(s / 60))}m`;
-                  return personAct.apps.map(a => (
-                    <div key={a.app} style={{ marginBottom: 8 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
-                        <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 340 }}>{a.app}</span>
-                        <span style={{ fontWeight: 700, color: 'var(--muted)' }}>{hm(a.seconds)}</span>
-                      </div>
-                      <div style={{ height: 7, background: 'var(--mist)', borderRadius: 5, overflow: 'hidden' }}>
-                        <div style={{ width: `${(a.seconds / mx) * 100}%`, height: '100%', background: 'var(--pine)', borderRadius: 5 }} />
-                      </div>
-                    </div>
-                  ));
-                })()}
 
                 <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', margin: '18px 0 8px' }}>Time off</div>
                 {myOff.length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>No requests on record.</div>}
