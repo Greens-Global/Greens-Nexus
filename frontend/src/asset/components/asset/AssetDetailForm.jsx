@@ -137,7 +137,7 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
             </div>
             {onOpenLead && (
               <button className="primary-btn" onClick={() => onOpenLead(asset.parentId)} style={{ flexShrink: 0, padding: '8px 14px', fontSize: '0.8rem' }}>
-                Open assemblage
+                Open Assemblage
               </button>
             )}
           </div>
@@ -148,7 +148,7 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
             {editing && (
               <>
                 <button className="secondary-btn" onClick={cancel}>Cancel</button>
-                <button className="primary-btn" onClick={save}>Save changes</button>
+                <button className="primary-btn" onClick={save}>Save Changes</button>
               </>
             )}
           </div>

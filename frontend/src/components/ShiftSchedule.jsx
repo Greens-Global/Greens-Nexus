@@ -170,7 +170,7 @@ export default function ShiftSchedule({ toastOk, toastErr }) {
                           {off && !items.length && (
                             <div style={{ background: TYPE_TINT[off.type] || TYPE_TINT.other, borderRadius: 6, padding: '6px 8px', height: '100%' }}>
                               <div style={{ fontSize: 11, fontWeight: 700, color: '#9f1239' }}>{off.status === 'approved' ? 'Off' : 'Requested off'}</div>
-                              <div style={{ fontSize: 10, color: '#9f1239' }}>All day</div>
+                              <div style={{ fontSize: 10, color: '#9f1239' }}>All Day</div>
                             </div>
                           )}
                           {items.map(s => (
@@ -230,7 +230,7 @@ function CellModal({ cell, shifts, busy, onSave, onDelete, onClose }) {
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background: 'var(--card)', borderRadius: 14, width: '100%', maxWidth: 420, padding: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-          <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{ex ? 'Edit shift' : 'Add shift'}</span>
+          <span style={{ fontSize: 15, fontWeight: 800, flex: 1 }}>{ex ? 'Edit Shift' : 'Add Shift'}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>

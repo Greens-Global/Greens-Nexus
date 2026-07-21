@@ -60,7 +60,7 @@ export default function TimeTrackingAdmin() {
       <div style={{ border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px', background: 'var(--card)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
           <ShieldCheck size={16} style={{ color: 'hsl(var(--color-green))' }} />
-          <span style={{ fontSize: 13.5, fontWeight: 800 }}>Monitoring policy</span>
+          <span style={{ fontSize: 13.5, fontWeight: 800 }}>Monitoring Policy</span>
         </div>
         <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--muted)', lineHeight: 1.55 }}>
           Sets what Nexus records while people are clocked in. Capture runs in the browser (Chrome screen sharing) —

@@ -464,7 +464,7 @@ export default function NotificationBell({ onNavigate }) {
         itemName:    n.itemName ?? invReq?.itemName ?? 'the item',
         title:       'Item allocated ✓',
         body:        `Your ${n.itemName ?? invReq?.itemName ?? 'item'} has been allocated and is ready for collection. Please pick it up from your supervisor.`,
-        action:      { label: 'Track request →', view: 'inventory', sub: 'my-requests' },
+        action:      { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
       });
     }).catch(() => {}).finally(() => setAllocatingId(null));
   }
@@ -599,7 +599,7 @@ export default function NotificationBell({ onNavigate }) {
                 style={{ fontSize: 12.5, color: 'hsl(var(--color-blue))', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 10px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600, whiteSpace: 'nowrap' }}
                 onMouseEnter={e => e.currentTarget.style.background='var(--mist)'}
                 onMouseLeave={e => e.currentTarget.style.background='none'}>
-                Mark all read
+                Mark All Read
               </button>
             )}
             {updates.length > 0 && (
@@ -607,7 +607,7 @@ export default function NotificationBell({ onNavigate }) {
                 style={{ fontSize: 12.5, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '7px 12px', borderRadius: 8, fontFamily: 'Inter, sans-serif', fontWeight: 600 }}
                 onMouseEnter={e => e.currentTarget.style.background='var(--mist)'}
                 onMouseLeave={e => e.currentTarget.style.background='none'}>
-                Clear all
+                Clear All
               </button>
             )}
             <button onClick={() => setOpen(false)} aria-label="Close" title="Close"
@@ -702,11 +702,11 @@ export default function NotificationBell({ onNavigate }) {
                             </button>
                             <button onClick={e => { e.stopPropagation(); handleAction(n, 'approve'); }}
                               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-green),0.12)', color: 'hsl(var(--color-green))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
-                              <Check size={15} /> {n.type === 'extension_pending' ? 'Approve' : 'Approve all'}
+                              <Check size={15} /> {n.type === 'extension_pending' ? 'Approve' : 'Approve All'}
                             </button>
                             <button onClick={e => { e.stopPropagation(); setRejectingId(n.id); setRejectReason(''); setApprovingId(null); clearActionError(n.id); }}
                               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 9, border: 'none', background: 'hsla(var(--color-red),0.10)', color: 'hsl(var(--color-red))', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
-                              <X size={15} /> {n.type === 'extension_pending' ? 'Reject' : 'Reject all'}
+                              <X size={15} /> {n.type === 'extension_pending' ? 'Reject' : 'Reject All'}
                             </button>
                           </div>
                         ) : isApproving ? (
@@ -737,7 +737,7 @@ export default function NotificationBell({ onNavigate }) {
                                 <div style={{ display: 'flex', gap: 8 }}>
                                   <button onClick={() => submitApprove(n)} disabled={!pickedAllocator || approvingBusy}
                                     style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '9px 0', borderRadius: 8, border: 'none', background: 'hsl(var(--color-green))', color: '#fff', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif', opacity: pickedAllocator && !approvingBusy ? 1 : 0.4 }}>
-                                    {approvingBusy ? <><Loader2 size={14} style={{ animation: 'spin 0.7s linear infinite' }} /> Approving…</> : 'Confirm approval'}
+                                    {approvingBusy ? <><Loader2 size={14} style={{ animation: 'spin 0.7s linear infinite' }} /> Approving…</> : 'Confirm Approval'}
                                   </button>
                                   <button onClick={() => { setApprovingId(null); setPickedAllocator(''); }} disabled={approvingBusy}
                                     style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid var(--line)', background: 'none', color: 'var(--muted)', fontSize: 13.5, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
@@ -766,7 +766,7 @@ export default function NotificationBell({ onNavigate }) {
                             <div style={{ display: 'flex', gap: 8 }}>
                               <button onClick={() => submitReject(n)} disabled={!rejectReason.trim()}
                                 style={{ flex: 1, padding: '9px 0', borderRadius: 8, border: 'none', background: 'hsl(var(--color-red))', color: '#fff', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif', opacity: rejectReason.trim() ? 1 : 0.4 }}>
-                                Confirm reject
+                                Confirm Reject
                               </button>
                               <button onClick={() => { setRejectingId(null); setRejectReason(''); }}
                                 style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid var(--line)', background: 'none', color: 'var(--muted)', fontSize: 13.5, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>

@@ -95,7 +95,7 @@ export function RecordModal({ coll, row, canDelete = true, requireReason = false
         }}
         style={{ backgroundColor: 'hsl(var(--color-red))', borderColor: 'hsl(var(--color-red))' }}
       >
-        Confirm remove
+        Confirm Remove
       </button>
     </>
   ) : (

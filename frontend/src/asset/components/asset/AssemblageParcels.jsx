@@ -63,7 +63,7 @@ export function AssemblageParcels({ lead, all, onOpen }) {
             color: 'var(--text-primary)',
           }}
         >
-          Parcels in this Assemblage
+          Parcels in This Assemblage
         </div>
         <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
           {members.length} parcels · ~{totalAcres.toFixed(1)} ac

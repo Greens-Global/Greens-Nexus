@@ -11,7 +11,7 @@ const DEFAULTS = {
     { i: 'd4', type: 'kpi',           x: 9, y: 0, w: 3, h: 2, config: { metric: 'my_checkouts' } },
     { i: 'd5', type: 'kpi',           x: 6, y: 2, w: 3, h: 2, config: { metric: 'my_assignments' } },
     { i: 'd6', type: 'kpi',           x: 9, y: 2, w: 3, h: 2, config: { metric: 'unread_notifications' } },
-    { i: 'd7', type: 'notifications', x: 0, y: 3, w: 6, h: 4 },
+    { i: 'd7', type: 'notifications', x: 0, y: 3, w: 6, h: 5 },
     { i: 'd8', type: 'links',         x: 6, y: 4, w: 3, h: 4 },
     { i: 'd9', type: 'kpi-bar',       x: 9, y: 4, w: 3, h: 4 },
   ],

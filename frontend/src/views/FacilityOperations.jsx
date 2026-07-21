@@ -69,8 +69,8 @@ function FMS() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14 }}>
         {[
           { title: "Connection", rows: [["System","Hummingbird"],["Last sync","6 min ago"],["Interval","Every 15 min"],["Status","● Healthy"]] },
-          { title: "Portfolio totals", rows: [["Units", totalUnits.toLocaleString()],["Rented",totalRented.toLocaleString()],["Occupancy",avgOcc+"%"],["MRR","$"+(totalMrr/1000).toFixed(1)+"k"]] },
-          { title: "Sync log", log: ["✓ Occupancy pulled — 5 facilities","✓ Tenant ledger reconciled","✓ 12 move-ins, 4 move-outs","✓ Rate changes applied"] },
+          { title: "Portfolio Totals", rows: [["Units", totalUnits.toLocaleString()],["Rented",totalRented.toLocaleString()],["Occupancy",avgOcc+"%"],["MRR","$"+(totalMrr/1000).toFixed(1)+"k"]] },
+          { title: "Sync Log", log: ["✓ Occupancy pulled — 5 facilities","✓ Tenant ledger reconciled","✓ 12 move-ins, 4 move-outs","✓ Rate changes applied"] },
         ].map(c => (
           <div key={c.title} className="dash-card">
             <div className="dash-card-title" style={{ marginBottom: 12 }}>{c.title}</div>
@@ -86,7 +86,7 @@ function FMS() {
       </div>
 
       <div className="dash-card">
-        <div className="dash-card-title" style={{ marginBottom: 12 }}>Per-facility feed</div>
+        <div className="dash-card-title" style={{ marginBottom: 12 }}>Per-Facility Feed</div>
         <div style={{ overflowX: "auto" }}>
           <table className="req-table stack-table">
             <thead><tr><th>Facility</th><th>Units</th><th>Rented</th><th>Occupancy</th><th>MRR</th><th>Last sync</th></tr></thead>
@@ -186,7 +186,7 @@ function SiteStaff() {
           <h2>Site Staff & Scheduling</h2>
           <p>Roster and shift coverage by facility</p>
         </div>
-        <button className="primary-btn">+ Add shift</button>
+        <button className="primary-btn">+ Add Shift</button>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
         <div className="dash-card">
@@ -206,7 +206,7 @@ function SiteStaff() {
           </table>
         </div>
         <div className="dash-card">
-          <div className="dash-card-title" style={{ marginBottom: 12 }}>Open shifts</div>
+          <div className="dash-card-title" style={{ marginBottom: 12 }}>Open Shifts</div>
           <div className="task-list">
             <div className="task-row">
               <span className="prio-dot prio-high" />

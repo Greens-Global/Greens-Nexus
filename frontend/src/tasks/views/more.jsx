@@ -193,7 +193,7 @@ export function WorkloadView({ tasks, nameOf }) {
   return (
     <div style={{ margin: 16, border: `1px solid ${NX.border}`, borderRadius: 14, background: NX.surface, padding: 20, fontFamily: FONT }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: NX.ink }}>Team workload</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: NX.ink }}>Team Workload</div>
         <div style={{ fontSize: 12, color: NX.dim }}>Open task hours vs {CAPACITY}h weekly capacity</div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

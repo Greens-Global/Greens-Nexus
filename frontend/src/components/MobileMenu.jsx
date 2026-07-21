@@ -156,7 +156,7 @@ export default function MobileMenu({ open, onClose, onNavigate, activeView, them
         {/* Dark mode moved to the profile dropdown (avatar, top-right) — Neil */}
         <button className="mobile-menu-row signout"
           onClick={() => instance.logoutRedirect({ account, postLogoutRedirectUri: window.location.origin + window.location.pathname })}>
-          <span>Sign out</span>
+          <span>Sign Out</span>
           <LogOut size={16} />
         </button>
       </div>

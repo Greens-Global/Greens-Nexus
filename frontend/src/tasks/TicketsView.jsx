@@ -791,7 +791,7 @@ function TicketReports({ tickets, nameOf, deptName }) {
     return { total: tickets.length, open: open.length, byStatus, byType, byPriority, byAssignee, byComponent, byTeam, recurring, avgDays, compliance, breaching, atRisk, avgCsat };
   }, [tickets, nameOf, deptName]);
 
-  if (tickets.length === 0) return <EmptyState icon={BarChart3} title="No data" hint="No tickets match your filters." />;
+  if (tickets.length === 0) return <EmptyState icon={BarChart3} title="No Data" hint="No tickets match your filters." />;
 
   const Stat = ({ label: lab, value, color }) => (
     <div style={{ flex: '1 1 130px', borderRadius: 14, border: `1px solid ${NX.border}`, background: NX.surface, padding: '14px 16px' }}>
@@ -803,22 +803,22 @@ function TicketReports({ tickets, nameOf, deptName }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        <Stat label="Total tickets" value={stats.total} />
+        <Stat label="Total Tickets" value={stats.total} />
         <Stat label="Open" value={stats.open} color={NX.blue} />
         <Stat label="SLA breached" value={stats.breaching} color={stats.breaching ? NX.red : NX.ink} />
         <Stat label="Due soon" value={stats.atRisk} color={stats.atRisk ? NX.amber : NX.ink} />
-        <Stat label="Avg resolution" value={stats.avgDays == null ? '—' : `${stats.avgDays.toFixed(1)}d`} />
-        <Stat label="SLA compliance" value={stats.compliance == null ? '—' : `${stats.compliance}%`} color={stats.compliance != null && stats.compliance < 80 ? NX.red : NX.green} />
+        <Stat label="Avg Resolution" value={stats.avgDays == null ? '—' : `${stats.avgDays.toFixed(1)}d`} />
+        <Stat label="SLA Compliance" value={stats.compliance == null ? '—' : `${stats.compliance}%`} color={stats.compliance != null && stats.compliance < 80 ? NX.red : NX.green} />
         <Stat label="Avg CSAT" value={stats.avgCsat == null ? '—' : `${stats.avgCsat.toFixed(1)}★`} color={stats.avgCsat != null && stats.avgCsat >= 4 ? NX.green : NX.ink} />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
-        <Card title="By status"><Donut segments={stats.byStatus} total={stats.byStatus.reduce((s, d) => s + d.value, 0)} /></Card>
-        <Card title="By type"><LightBar data={stats.byType} /></Card>
-        <Card title="By priority"><LightBar data={stats.byPriority} /></Card>
-        <Card title="By component / category"><LightBar data={stats.byComponent} /></Card>
-        <Card title="By team / facility"><LightBar data={stats.byTeam} /></Card>
-        <Card title="Open by assignee"><LightBar data={stats.byAssignee} /></Card>
-        <Card title="Recurring issues (repeat signal)">
+        <Card title="By Status"><Donut segments={stats.byStatus} total={stats.byStatus.reduce((s, d) => s + d.value, 0)} /></Card>
+        <Card title="By Type"><LightBar data={stats.byType} /></Card>
+        <Card title="By Priority"><LightBar data={stats.byPriority} /></Card>
+        <Card title="By Component / Category"><LightBar data={stats.byComponent} /></Card>
+        <Card title="By Team / Facility"><LightBar data={stats.byTeam} /></Card>
+        <Card title="Open by Assignee"><LightBar data={stats.byAssignee} /></Card>
+        <Card title="Recurring Issues (Repeat Signal)">
           {stats.recurring.length === 0
             ? <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 12, color: NX.faint }}>No repeats yet — every subject is unique.</div>
             : (

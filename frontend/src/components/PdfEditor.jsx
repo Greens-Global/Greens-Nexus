@@ -1016,7 +1016,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
           <button className="secondary-btn" onClick={requestClose} disabled={busy} style={{ fontSize: 12.5 }}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={busy || loading}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: busy || loading ? 0.6 : 1 }}>
-            {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={13} />} Save changes
+            {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={13} />} Save Changes
           </button>
         </div>
 
@@ -1101,7 +1101,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
             <button className="secondary-btn" onClick={() => mergeInputRef.current?.click()}
               style={{ width: '100%', fontSize: 11, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '6px 4px' }}
               title="Append another PDF or Word (.docx) file to the end of this one">
-              <Layers size={12} /> Merge file
+              <Layers size={12} /> Merge File
             </button>
           </div>
 

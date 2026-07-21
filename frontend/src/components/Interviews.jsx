@@ -58,7 +58,7 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
 
   return (
     <Overlay onClose={onClose}>
-      <Head title="Interview questionnaires" sub="One per role — the questions you ask in the call; AI fills the answers from the transcript" onClose={onClose} />
+      <Head title="Interview Questionnaires" sub="One per role — the questions you ask in the call; AI fills the answers from the transcript" onClose={onClose} />
       <div style={{ overflowY: 'auto', padding: '14px 22px' }}>
         {editing ? (
           <div>
@@ -146,7 +146,7 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
             <div style={{ flex: 1, minWidth: 160 }}>
               <label style={lbl}>Questionnaire</label>
               <select className="form-input" style={{ width: '100%', fontSize: 12.5 }} value={sched.template_id} onChange={e => setSched(s => ({ ...s, template_id: e.target.value }))}>
-                <option value="">No questionnaire</option>
+                <option value="">No Questionnaire</option>
                 {tpls.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </div>
@@ -197,7 +197,7 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
               {sel.status === 'live' && (
                 <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}
                   onClick={run('done', async () => refreshSel(await api.ivPatch(sel.id, { status: 'completed', answers: sel.answers })), 'Marked completed')}>
-                  <CheckCircle size={13} /> End interview
+                  <CheckCircle size={13} /> End Interview
                 </button>
               )}
               <div style={{ flex: 1 }} />
@@ -209,19 +209,19 @@ export function InterviewPanel({ candidate: c, onClose, toastOk, toastErr }) {
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
                 <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }} disabled={!!busy}
                   onClick={run('pull', async () => { await api.ivPullTranscript(sel.id); refreshSel({ ...sel, hasTranscript: true }); }, 'Transcript pulled from Teams')}>
-                  {busy === 'pull' ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <RefreshCw size={13} />} Pull Teams transcript
+                  {busy === 'pull' ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <RefreshCw size={13} />} Pull Teams Transcript
                 </button>
                 <button className="secondary-btn" style={{ fontSize: 12 }} onClick={() => setShowPaste(p => !p)}>
-                  <FileText size={13} style={{ verticalAlign: 'middle', marginRight: 5 }} />Paste transcript
+                  <FileText size={13} style={{ verticalAlign: 'middle', marginRight: 5 }} />Paste Transcript
                 </button>
                 <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'hsl(var(--color-purple))' }}
                   disabled={!!busy || !(sel.hasTranscript)} title={sel.hasTranscript ? '' : 'Pull or paste a transcript first'}
                   onClick={run('fill', async () => refreshSel(await api.ivAutofill(sel.id)), 'Answers auto-filled from the transcript')}>
-                  {busy === 'fill' ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />} AI auto-fill answers
+                  {busy === 'fill' ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />} AI Auto-fill Answers
                 </button>
                 <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }} disabled={!!busy}
                   onClick={run('cal', async () => refreshSel(await api.ivCalibrate(sel.id)), 'Scored — check the leaderboard')}>
-                  {busy === 'cal' ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Trophy size={13} />} Calibrate score
+                  {busy === 'cal' ? <Loader2 size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Trophy size={13} />} Calibrate Score
                 </button>
               </div>
             )}
@@ -299,11 +299,11 @@ export function LeaderboardModal({ onClose, toastOk, toastErr }) {
 
   return (
     <Overlay onClose={onClose} wide>
-      <Head title="Interview leaderboard" sub="Calibrated scores per role — invite the winner to the offer discussion" onClose={onClose} />
+      <Head title="Interview Leaderboard" sub="Calibrated scores per role — invite the winner to the offer discussion" onClose={onClose} />
       <div style={{ overflowY: 'auto', padding: '14px 22px' }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
           <select className="form-input" style={{ fontSize: 12.5 }} value={tid} onChange={e => setTid(e.target.value)}>
-            <option value="">All roles</option>
+            <option value="">All Roles</option>
             {tpls.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
           {(rows || []).length >= 2 && (
