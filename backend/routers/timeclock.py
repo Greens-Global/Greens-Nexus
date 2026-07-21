@@ -1276,14 +1276,18 @@ def agent_activity(body: ActivityIn, dev: AgentDevice = Depends(get_agent_device
 # ── Insights dashboard: Top Apps / Top Websites / activity (manager + HR) ────
 
 @router.get("/insights")
-def insights(email: str = "", start: str = "", end: str = "",
+def insights(email: str = "", start: str = "", end: str = "", tz: int = 0,
              user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    """Top apps, top websites, active-vs-idle and productivity split over
-    [start,end], for one member or the whole visible team."""
+    """Top apps, top websites, active-vs-idle, productivity split, an hourly
+    activity strip and (team view) a per-member leaderboard over [start,end]. `tz`
+    is the client's getTimezoneOffset() minutes — used to bucket the hourly strip
+    in the viewer's local time."""
     em = (email or "").strip().lower()
     scope = _visible_emails(db, user)
-    empty = {"totalSec": 0, "activeSec": 0, "activePct": 0, "topApps": [], "topSites": [],
-             "byCategory": {"productive": 0, "neutral": 0, "unproductive": 0}, "log": []}
+    empty = {"totalSec": 0, "activeSec": 0, "idleSec": 0, "activePct": 0, "prodPct": 0,
+             "topApps": [], "topSites": [], "byCategory": {"productive": 0, "neutral": 0, "unproductive": 0},
+             "hourly": [{"hour": h, "activeSec": 0, "totalSec": 0} for h in range(24)],
+             "byMember": [], "log": []}
     q = db.query(AgentActivity)
     if em:
         if scope is not None and em not in scope and em != user["email"].lower():
@@ -1299,27 +1303,45 @@ def insights(email: str = "", start: str = "", end: str = "",
     ratings = {r.key: r.rating for r in db.query(AppRating).all()}
     apps, sites = {}, {}
     cats = {"productive": 0, "neutral": 0, "unproductive": 0}
+    hourly = [[0, 0] for _ in range(24)]   # [activeSec, totalSec] per LOCAL hour
+    per_member = {}                         # email -> [total, active, productive]
     total = active = 0
     for r in rows:
         sec = r.seconds or 0
-        total += sec
-        active += int(sec * (r.active_pct or 0) / 100)
+        a = int(sec * (r.active_pct or 0) / 100)
+        total += sec; active += a
         apps[r.app or "Unknown"] = apps.get(r.app or "Unknown", 0) + sec
         if r.domain:
             sites[r.domain] = sites.get(r.domain, 0) + sec
-        cats[r.category if r.category in cats else "neutral"] += sec
+        cat = r.category if r.category in cats else "neutral"
+        cats[cat] += sec
+        t = _parse_iso(r.at)
+        if t is not None:
+            lh = (t - timedelta(minutes=tz)).hour
+            hourly[lh][0] += a; hourly[lh][1] += sec
+        m = per_member.setdefault(r.employee_email, [0, 0, 0])
+        m[0] += sec; m[1] += a
+        if cat == "productive": m[2] += sec
     names = {e.work_email: f"{e.first_name} {e.last_name}".strip() for e in db.query(NexusEmployee).all() if e.work_email}
+    pct = lambda part: round(part * 100 / total) if total else 0
+    by_member = sorted(
+        ({"email": k, "name": names.get(k, k) or k, "totalSec": v[0], "activeSec": v[1],
+          "activePct": round(v[1] * 100 / v[0]) if v[0] else 0,
+          "prodPct": round(v[2] * 100 / v[0]) if v[0] else 0} for k, v in per_member.items()),
+        key=lambda x: -x["totalSec"])
     return {
-        "totalSec": total, "activeSec": active,
-        "activePct": round(active * 100 / total) if total else 0,
-        "topApps": [{"name": a, "seconds": s, "rating": ratings.get(a.lower(), "")}
+        "totalSec": total, "activeSec": active, "idleSec": max(0, total - active),
+        "activePct": pct(active), "prodPct": pct(cats["productive"]),
+        "topApps": [{"name": a, "seconds": s, "pct": pct(s), "rating": ratings.get(a.lower(), "")}
                     for a, s in sorted(apps.items(), key=lambda x: -x[1])[:8]],
-        "topSites": [{"name": d, "seconds": s, "rating": ratings.get(d, "")}
+        "topSites": [{"name": d, "seconds": s, "pct": pct(s), "rating": ratings.get(d, "")}
                      for d, s in sorted(sites.items(), key=lambda x: -x[1])[:8]],
         "byCategory": cats,
+        "hourly": [{"hour": h, "activeSec": hourly[h][0], "totalSec": hourly[h][1]} for h in range(24)],
+        "byMember": by_member if not em else [],
         "log": [{"at": r.at, "name": names.get(r.employee_email, r.employee_email), "app": r.app,
-                 "title": r.title, "domain": r.domain, "seconds": r.seconds, "activePct": r.active_pct}
-                for r in sorted(rows, key=lambda r: r.at, reverse=True)[:60]],
+                 "title": r.title, "domain": r.domain, "seconds": r.seconds, "activePct": r.active_pct,
+                 "category": r.category} for r in sorted(rows, key=lambda r: r.at, reverse=True)[:80]],
     }
 
 
