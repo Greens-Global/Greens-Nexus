@@ -8,12 +8,20 @@ async function getAuthHeader(forceRefresh = false) {
   // Without this, acquireTokenSilent fails on first render and the request
   // goes out with no Authorization header, causing a 401.
   await msalReady;
-  const accounts = msalInstance.getAllAccounts();
-  if (!accounts.length) return {};
+  // Prefer the ACTIVE account, not getAllAccounts()[0]: a user signed into more
+  // than one Microsoft account (e.g. work + personal) can have the wrong account
+  // at [0], whose token the backend rejects with 401. Pin the active account once
+  // so every request uses the same identity.
+  let account = msalInstance.getActiveAccount();
+  if (!account) {
+    account = msalInstance.getAllAccounts()[0];
+    if (account) msalInstance.setActiveAccount(account);
+  }
+  if (!account) return {};
   try {
     const result = await msalInstance.acquireTokenSilent({
       ...apiTokenRequest,
-      account: accounts[0],
+      account,
       forceRefresh,
     });
     return { Authorization: `Bearer ${result.idToken}` };
