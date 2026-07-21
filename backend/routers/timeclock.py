@@ -489,7 +489,11 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
         days = sorted({d for d in body.days if d})
         out = {}
         for day in days:
-            worked = _day_summaries(_live_punches(db, email, day, day)).get(day, {}).get("workedMin", 0)
+            # Fetch through the NEXT day too, so an overnight shift's out-punch is
+            # available to pair with this day's in-punch — otherwise the locked-in
+            # approved minutes would be short by the whole after-midnight portion.
+            _nx = (date.fromisoformat(day) + timedelta(days=1)).isoformat()
+            worked = _day_summaries(_live_punches(db, email, day, _nx)).get(day, {}).get("workedMin", 0)
             old = (db.query(TimeApproval)
                    .filter(TimeApproval.employee_email == email,
                            TimeApproval.period_start == day, TimeApproval.period_end == day,
@@ -520,8 +524,13 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
                         TimeApproval.revoked == 0).first())
     if existing:
         raise HTTPException(409, "Already approved for this period")
-    worked = sum(d["workedMin"] for d in _day_summaries(
-        _live_punches(db, email, body.start, body.end)).values())
+    # Fetch one day past `end` so a shift that starts on the last day and ends
+    # after midnight still pairs; only count days within [start, end] so the
+    # extra day's own shifts don't inflate the total.
+    _end_nx = (date.fromisoformat(body.end) + timedelta(days=1)).isoformat() if body.end else body.end
+    worked = sum(v["workedMin"] for k, v in _day_summaries(
+        _live_punches(db, email, body.start, _end_nx)).items()
+        if not body.end or k <= body.end)
     row = TimeApproval(id=str(uuid.uuid4()), employee_email=email,
                        period_start=body.start, period_end=body.end,
                        worked_min=worked, approved_by=user["email"], approved_at=now,
@@ -947,8 +956,19 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
         if body.punch_kind not in _PR_KINDS:
             raise HTTPException(400, f"punch_kind must be one of {_PR_KINDS}")
         at_utc = (body.at or "").strip()
-        if not at_utc or not _parse_iso(at_utc):
+        _pt = _parse_iso(at_utc) if at_utc else None
+        if not _pt:
             raise HTTPException(400, "Pick the date and time for the punch.")
+        # Bound the requested time: a FUTURE punch becomes the "last punch"
+        # (state = max(at)) and jams clock-in/out until that moment passes; a
+        # very old one is almost certainly an error. (self_manual has the same
+        # guards.)
+        _ptz = _pt if _pt.tzinfo else _pt.replace(tzinfo=timezone.utc)
+        _now_dt = datetime.now(timezone.utc)
+        if _ptz > _now_dt + timedelta(minutes=5):
+            raise HTTPException(400, "You can't request a punch in the future.")
+        if _ptz < _now_dt - timedelta(days=45):
+            raise HTTPException(400, "That date is too far back — ask HR to add it for you.")
         local_date = _local_date(at_utc, body.tz_offset_min or 0)
     else:  # remove
         target_id = (body.target_punch_id or "").strip()
@@ -1020,6 +1040,25 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
     note = (body.note or "").strip()
     if decision == "approved":
         if r.action == "add":
+            # Re-validate the sequence at approval time: inserting this punch must
+            # not create an illegal transition (e.g. two 'in's with no 'out'
+            # between), which would corrupt the FIFO worked-minute pairing. Check
+            # the punch immediately BEFORE and AFTER the requested time.
+            prev = (db.query(TimePunch)
+                    .filter(TimePunch.employee_email == r.employee_email, TimePunch.voided == 0,
+                            TimePunch.at <= r.at).order_by(TimePunch.at.desc()).first())
+            nxt = (db.query(TimePunch)
+                   .filter(TimePunch.employee_email == r.employee_email, TimePunch.voided == 0,
+                           TimePunch.at > r.at).order_by(TimePunch.at.asc()).first())
+            if r.punch_kind not in _allowed_kinds(prev.kind if prev else None):
+                raise HTTPException(409,
+                    f"Approving this would place a '{r.punch_kind}' after a "
+                    f"'{prev.kind if prev else 'clock-out'}', which isn't a valid punch sequence. "
+                    f"Ask the employee to correct the request, or edit the punches directly.")
+            if nxt and nxt.kind not in _allowed_kinds(r.punch_kind):
+                raise HTTPException(409,
+                    f"Approving this '{r.punch_kind}' would make the following '{nxt.kind}' "
+                    f"punch invalid. Edit the punches directly instead.")
             tp = TimePunch(id=str(uuid.uuid4()), employee_email=r.employee_email, kind=r.punch_kind,
                            at=r.at, local_date=r.local_date, tz_offset_min=r.tz_offset_min or 0,
                            geo_status="no_location", source="manual", note=r.reason[:300],
@@ -1672,9 +1711,12 @@ _WEEK_OT_MIN = 40 * 60   # federal weekly overtime threshold; WA/OR follow weekl
 _OT_MULT = 1.5
 
 
-def _monday_str(date_str: str) -> str:
+def _week_start_str(date_str: str) -> str:
+    # SUNDAY of the week — the overtime workweek must be anchored on the same
+    # weekday as the (Sunday→Saturday) pay period, or a Sunday that opens a pay
+    # period gets a fresh 40h bucket and its overtime is underpaid as regular.
     d = datetime.strptime(date_str, "%Y-%m-%d")
-    return (d - timedelta(days=d.weekday())).strftime("%Y-%m-%d")
+    return (d - timedelta(days=(d.weekday() + 1) % 7)).strftime("%Y-%m-%d")
 
 
 # ── Bi-weekly pay period (California: Sunday→Saturday × 2 = 14 days) ───────────
@@ -1697,7 +1739,15 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     totals off the HR-set hourly rate over [start, end]. Exact minutes, no
     rounding. Also aggregates break minutes and (when web capture ran) idle
     minutes so the timesheet can show a worked/break/idle composition bar."""
-    punches = _live_punches(db, em, start, end)
+    # Fetch one day PAST `end` so a shift that starts on the last day and clocks
+    # out after midnight still has its out-punch to pair with — otherwise that
+    # whole overnight shift (in on `end`, out on `end`+1) would be dropped from
+    # this period AND orphaned in the next, and the worker paid $0 for it. Days
+    # after `end` are excluded from the emitted totals below.
+    # (use strptime, not date.fromisoformat: the `for date in …` loop below shadows
+    # the module-level `date` name across this whole function scope)
+    _end_fetch = (datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d") if end else end
+    punches = _live_punches(db, em, start, _end_fetch)
     rate_row = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
     rate = float(rate_row.hourly_rate) if rate_row else 0.0
 
@@ -1763,9 +1813,11 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
         _flush_missing()
 
     for date in sorted(segs_by_day.keys()):
+        if end and date > end:      # the extra fetched day only lends its out-punch
+            continue
         segs = segs_by_day[date]
         day_break = sum(s.pop("_break", 0) for s in segs)
-        mon = _monday_str(date)
+        mon = _week_start_str(date)
         day_reg = day_ot = 0
         for seg in segs:
             cum = weekly_cum.get(mon, 0)

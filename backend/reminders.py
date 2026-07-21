@@ -20,7 +20,7 @@ from datetime import datetime, timezone, timedelta
 
 from database import SessionLocal
 from models import (NexusEmployee, NexusNotification, NexusGroup, NexusGroupMember,
-                    HrCandidate, HrDocument, HrSignRequest, TimePunch)
+                    HrCandidate, HrDocument, HrSignRequest)
 
 _SCAN_HOUR_UTC = 13   # ~6am PT / 6:30pm IST — start of the US workday
 
@@ -151,45 +151,57 @@ def run_daily_scan() -> int:
                                 ref_id=req.id, action={"view": "documents", "sub": "documents-esign"})
 
         # 7. Time & attendance — alert each person's manager the morning after.
-        # The scan runs ~6am PT, so "yesterday" (UTC date - 1) is the workday that
-        # just ended for the US team.
-        from routers.timeclock import _compute_timecard
-        y_dt = datetime.now(timezone.utc).date() - timedelta(days=1)
-        yesterday = y_dt.strftime("%Y-%m-%d")
-        monday = y_dt - timedelta(days=y_dt.weekday())      # Monday-anchored week
-        sunday = monday + timedelta(days=6)
-        tc_act = {"view": "timeclock"}
+        # Runs ~6am PT (_SCAN_HOUR_UTC), so "yesterday" (UTC date - 1) is the workday
+        # that just ended for the US team. SKIP this whole section on off-hour BOOT
+        # runs (Azure restarts on every deploy): at an odd UTC hour "yesterday_utc"
+        # can be a US worker's still-in-progress day and would false-alarm everyone
+        # mid-shift. The HR sections above are date-based and safe at any hour.
+        now_utc = datetime.now(timezone.utc)
+        if _SCAN_HOUR_UTC - 1 <= now_utc.hour <= _SCAN_HOUR_UTC + 2:
+            from routers.timeclock import _compute_timecard, _day_summaries, _live_punches
+            y_dt = now_utc.date() - timedelta(days=1)
+            yesterday = y_dt.strftime("%Y-%m-%d")
+            today = now_utc.date().strftime("%Y-%m-%d")
+            # Sunday-anchored week, to match the (Sunday-anchored) pay period so OT
+            # isn't split at a period boundary.
+            wk_start = y_dt - timedelta(days=(y_dt.weekday() + 1) % 7)
+            wk_end = wk_start + timedelta(days=6)
+            tc_act = {"view": "timeclock"}
 
-        for e in employees:
-            name = f"{e.first_name} {e.last_name}".strip()
-            mgr = (e.manager_email or "").strip().lower()
+            for e in employees:
+                # One employee's bad data must never sink the whole scan (which would
+                # discard every alert already built this morning — single commit below).
+                try:
+                    name = f"{e.first_name} {e.last_name}".strip()
+                    mgr = (e.manager_email or "").strip().lower()
 
-            # 7a. Missed clock-out: clocked in yesterday but never clocked out.
-            punches = (db.query(TimePunch)
-                       .filter(TimePunch.employee_email == e.work_email,
-                               TimePunch.local_date == yesterday,
-                               TimePunch.voided == 0)
-                       .order_by(TimePunch.at.asc()).all())
-            if punches and any(p.kind == "in" for p in punches) and punches[-1].kind != "out":
-                msg = (f"{name} clocked in on {yesterday} but never clocked out — "
-                       f"their time needs a correction before payroll.")
-                ref = f"{e.work_email}:{yesterday}"
-                for r in filter(None, {mgr, (e.work_email or '').lower()}):
-                    sent += _notify(db, "time_missed_out", r, "Missing clock-out", msg,
-                                    ref_id=ref, action=tc_act, requested_by=name)
+                    # 7a. Missed clock-out — pair across midnight (fetch through today)
+                    # so a legit overnight shift that clocked out after midnight is NOT
+                    # falsely flagged; only a genuinely unclosed in flags missing_out.
+                    ysum = _day_summaries(_live_punches(db, e.work_email, yesterday, today)).get(yesterday, {})
+                    if "missing_out" in (ysum.get("flags") or []):
+                        msg = (f"{name} clocked in on {yesterday} but never clocked out — "
+                               f"their time needs a correction before payroll.")
+                        ref = f"{e.work_email}:{yesterday}"
+                        for r in filter(None, {mgr, (e.work_email or '').lower()}):
+                            sent += _notify(db, "time_missed_out", r, "Missing clock-out", msg,
+                                            ref_id=ref, action=tc_act, requested_by=name)
 
-            # 7b. Overtime — over 40h in the current (Monday-anchored) week.
-            # One ping per person per week, to the manager, when OT first appears.
-            if mgr:
-                ot = _compute_timecard(db, e.work_email,
-                                       monday.strftime("%Y-%m-%d"),
-                                       sunday.strftime("%Y-%m-%d"))["totals"]["otMin"]
-                wk_ref = f"{e.work_email}:{monday.strftime('%Y-%m-%d')}"
-                if ot > 0 and not _ever_sent(db, "time_overtime", wk_ref, mgr):
-                    msg = (f"{name} is into overtime this week — {ot // 60}h {ot % 60:02d}m "
-                           f"over 40h so far (week of {monday.strftime('%Y-%m-%d')}).")
-                    sent += _notify(db, "time_overtime", mgr, "Overtime this week", msg,
-                                    ref_id=wk_ref, action=tc_act, requested_by=name)
+                    # 7b. Overtime — over 40h in the current (Sunday-anchored) week.
+                    # One ping per person per week, to the manager, when OT first appears.
+                    if mgr:
+                        ot = _compute_timecard(db, e.work_email,
+                                               wk_start.strftime("%Y-%m-%d"),
+                                               wk_end.strftime("%Y-%m-%d"))["totals"]["otMin"]
+                        wk_ref = f"{e.work_email}:{wk_start.strftime('%Y-%m-%d')}"
+                        if ot > 0 and not _ever_sent(db, "time_overtime", wk_ref, mgr):
+                            msg = (f"{name} is into overtime this week — {ot // 60}h {ot % 60:02d}m "
+                                   f"over 40h so far (week of {wk_start.strftime('%Y-%m-%d')}).")
+                            sent += _notify(db, "time_overtime", mgr, "Overtime this week", msg,
+                                            ref_id=wk_ref, action=tc_act, requested_by=name)
+                except Exception as ex:
+                    print(f"[reminders] time&attendance skipped {e.work_email}: {ex}")
+                    continue
 
         # 8. Field-tracking retention: purge raw location pings past the window
         # (data-minimization guardrail — keep only recent breadcrumbs).
