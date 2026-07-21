@@ -430,7 +430,14 @@ export default function TimeClock() {
               {(status.allowed || []).map(kind => {
                 const M = KIND_META[kind];
                 return (
-                  <button key={kind} onClick={() => doPunch(kind)} disabled={!!busy}
+                  <button key={kind} onClick={() => {
+                      // Start screen capture from within the punch-in click — the
+                      // browser only grants screen sharing on a user gesture, so it
+                      // can't auto-start after the punch resolves. No-op if the
+                      // monitoring policy is off or a stream is already running.
+                      if (kind === 'in') window.__nexusCapture?.start?.();
+                      doPunch(kind);
+                    }} disabled={!!busy}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 9, padding: '14px 26px', borderRadius: 12,
                       border: 'none', cursor: busy ? 'default' : 'pointer', fontFamily: 'Inter,sans-serif',
                       fontSize: 15, fontWeight: 800, background: M.bg, color: M.fg, opacity: busy && busy !== kind ? 0.55 : 1 }}>
@@ -479,10 +486,9 @@ export default function TimeClock() {
       {/* Disclosed-monitoring: standing notice on the clock page (full text is acknowledged at the first in-punch). */}
       {status?.monitoring?.enabled && (
         <p style={{ margin: '-8px 0 18px', fontSize: 12, color: 'var(--muted)' }}>
-          On this company-owned device, while you're clocked in the company's monitoring software may
-          capture periodic screenshots, the apps you have open, and your overall activity level — to verify
-          work time only, never your keystrokes, and it stops when you clock out. You acknowledge the full
-          notice the first time you clock in each day.
+          On this company-owned device, while you're clocked in Nexus may capture periodic screenshots,
+          the apps you have open, and your overall activity level — to verify work time only, never your
+          keystrokes, and it stops when you clock out. You acknowledge the full notice the first time you clock in each day.
         </p>
       )}
 
@@ -815,7 +821,7 @@ export default function TimeClock() {
               <button onClick={() => setMonGate(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
             </div>
             <div style={{ padding: '16px 22px', overflowY: 'auto', fontSize: 13, color: 'var(--ink)', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
-              {monGate.text || 'This is a company-owned device. While you are clocked in, Greens Nexus records your worked time, and the company’s monitoring software may capture periodic screenshots of your work screen, the apps and windows you have open, and your overall activity level. This is used only to verify work time and activity — it never captures your keystrokes, and it stops the moment you clock out.'}
+              {monGate.text || 'This is a company-owned device. While you are clocked in, Greens Nexus records your worked time and may capture periodic screenshots of your work screen, the apps and windows you have open, and your overall activity level. This is used only to verify work time and activity — it never captures your keystrokes, and it stops the moment you clock out.'}
             </div>
             <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer', marginBottom: 12 }}>
