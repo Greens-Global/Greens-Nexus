@@ -677,9 +677,6 @@ export const api = {
   timeBodRecord:     (data)      => req('/timeclock/bod', { method: 'POST', body: JSON.stringify(data) }),
   timeBodLast:       ()          => req('/timeclock/bod/last'),
   timeBodTemplate:   (kind)      => req(`/timeclock/bod/template?kind=${kind || 'bod'}`),
-  timeAgentDownloadUrl: (platform) => req(`/timeclock/agent/download-url?platform=${encodeURIComponent(platform)}`),
-  timeAgentUpload:   (platform, formData) => req(`/timeclock/agent/upload?platform=${encodeURIComponent(platform)}`, { method: 'POST', body: formData, timeoutMs: 30 * 60_000 }),
-  timeAgentUploadUrl:(platform) => req(`/timeclock/agent/upload-url?platform=${encodeURIComponent(platform)}`),
 
   // ── Customizable dashboards (drag-and-drop widget layouts) ──
   dashViews:      (target)     => req(`/dashboards/views?target=${encodeURIComponent(target)}`),
@@ -707,12 +704,11 @@ export const api = {
   hrSelfRequestAttachToEmployee: (rid, kind) => req(`/hr/requests/${rid}/attach-to-employee`, { method: 'POST', body: JSON.stringify({ kind }) }),
   hrPaystubs:      (eid)   => req(`/hr/employees/${eid}/paystubs`),
   hrPaystubUpload: (eid, form) => req(`/hr/employees/${eid}/paystubs`, { method: 'POST', body: form }),
+  // Device enrollment — shared by field-phone tracking (EnrolPhone). Desktop
+  // agent retired; capture now runs in the browser (Chrome screen sharing).
   timeAgentEnroll:   (data)      => req('/timeclock/agent/enroll', { method: 'POST', body: JSON.stringify(data) }),
   timeAgentDevices:  ()          => req('/timeclock/agent/devices'),
   timeAgentRevoke:   (id)        => req(`/timeclock/agent/devices/${id}`, { method: 'PATCH' }),
-  timeActivity:      (email, start, end) => req(`/timeclock/activity?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
-  timeMyActivity:    (date)      => req(`/timeclock/my-activity?date=${date}`),
-  timeActivityDay:   (email, date) => req(`/timeclock/activity-day?email=${encodeURIComponent(email)}&date=${date}`),
   // Field-worker location tracking (manager/HR views; device pings use X-Agent-Token from the native app, not these)
   trackLive:         ()            => req('/timeclock/track/live'),
   trackPath:         (email, date) => req(`/timeclock/track/path?email=${encodeURIComponent(email)}&date=${date}`),

@@ -34,7 +34,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from auth import get_current_user, require_level_or_module, require_administrator
 from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, TimeBod,
-                    AgentDevice, AgentActivity, Shift, ShiftGroup, ShiftGroupMember,
+                    AgentDevice, Shift, ShiftGroup, ShiftGroupMember,
                     ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee,
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
                     PunchRequest)
@@ -1105,105 +1105,10 @@ def agent_revoke(device_id: str, user: dict = Depends(require_administrator), db
     return {"ok": True}
 
 
-class AgentCheckinIn(BaseModel):
-    active: bool = True
-    idle_sec: int = 0
-    device_name: Optional[str] = ""
-    device_user: Optional[str] = ""
-    mac: Optional[str] = ""
-    platform: Optional[str] = ""
-    tz_offset_min: Optional[int] = 0
-
-
-_AGENT_IDLE_OUT_SEC = 600   # 10 min idle → auto punch-out
-
-
-@router.post("/agent/checkin")
-def agent_checkin(body: AgentCheckinIn, dev: AgentDevice = Depends(get_agent_device),
-                  db: Session = Depends(get_db)):
-    """Heartbeat from a silent device. Records who/what the machine is, and
-    auto-manages the punch clock (active → in, idle → out) so hours flow into the
-    same timesheets/approvals as manual punches — every such punch is
-    source='agent' and adjustable. Returns whether the agent should capture now."""
-    email = dev.employee_email
-    now = _now_iso()
-    dev.last_seen_at = now
-    if body.device_name: dev.device_name = body.device_name[:120]
-    if body.device_user: dev.device_user = body.device_user[:120]
-    if body.mac:         dev.mac = body.mac[:40]
-    if body.platform:    dev.platform = body.platform[:20]
-
-    working = bool(body.active) and int(body.idle_sec or 0) < _AGENT_IDLE_OUT_SEC
-    last = (db.query(TimePunch)
-            .filter(TimePunch.employee_email == email, TimePunch.voided == 0)
-            .order_by(TimePunch.at.desc()).first())
-    clocked = bool(last and last.kind != "out")
-    if working and not clocked:
-        db.add(TimePunch(id=str(uuid.uuid4()), employee_email=email, kind="in", at=now[:19],
-                         local_date=_local_date(now, body.tz_offset_min or 0),
-                         tz_offset_min=body.tz_offset_min or 0, geo_status="no_location",
-                         source="agent", created_by="agent", created_at=now))
-        clocked = True
-    elif not working and clocked:
-        db.add(TimePunch(id=str(uuid.uuid4()), employee_email=email, kind="out", at=now[:19],
-                         local_date=_local_date(now, body.tz_offset_min or 0),
-                         tz_offset_min=body.tz_offset_min or 0, geo_status="no_location",
-                         source="agent", created_by="agent", created_at=now))
-        clocked = False
-    db.commit()
-    # Policy travels with the heartbeat so the silent agent uses central cadence/
-    # toggles instead of hardcoded constants. capture also respects the master
-    # switch: never ask the agent to capture when monitoring is disabled.
-    pol = _get_policy(db)
-    return {"capture": bool(working and pol.enabled), "email": email, "policy": _policy_dict(pol)}
-
-
-@router.post("/agent/screenshot")
-def agent_screenshot(request: Request, file: UploadFile = File(...),
-                     idle_sec: int = Form(0), active_view: str = Form(""),
-                     tz_offset_min: int = Form(0),
-                     dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
-    """Frame from a silent device. Identity comes from the token, but the server
-    still enforces the shift boundary and policy — parity with the web /screenshot,
-    so a stale/misbehaving agent can't bank frames outside a clocked-in shift."""
-    email = dev.employee_email
-    if not _clocked_in(db, email):
-        raise HTTPException(409, "Not clocked in — capture stops with the shift.")
-    pol = _get_policy(db)
-    if not (pol.enabled and pol.track_screens):
-        raise HTTPException(409, "Screen capture is disabled by policy.")
-    row = _store_shot(db, email, file.file.read(), idle_sec, active_view, tz_offset_min)
-    return {"ok": True, "id": row.id}
-
-
-class ActivitySeg(BaseModel):
-    app: Optional[str] = ""
-    title: Optional[str] = ""
-    seconds: int = 0
-
-
-class ActivityIn(BaseModel):
-    segments: List[ActivitySeg] = []
-    active_pct: int = 0
-    tz_offset_min: Optional[int] = 0
-
-
-@router.post("/agent/activity")
-def agent_activity(body: ActivityIn, dev: AgentDevice = Depends(get_agent_device),
-                   db: Session = Depends(get_db)):
-    """A reporting window of app usage from a silent device: seconds per
-    foreground app + the window's activity %."""
-    now = _now_iso()
-    ld = _local_date(now, body.tz_offset_min or 0)
-    pct = max(0, min(100, int(body.active_pct or 0)))
-    for s in body.segments[:200]:
-        if not s.seconds or s.seconds <= 0:
-            continue
-        db.add(AgentActivity(id=str(uuid.uuid4()), employee_email=dev.employee_email,
-                             local_date=ld, at=now, app=(s.app or "Unknown")[:120],
-                             title=(s.title or "")[:200], seconds=int(s.seconds), active_pct=pct))
-    db.commit()
-    return {"ok": True}
+# Desktop agent retired (Jul 2026): silent-device heartbeat, screenshot, and
+# app-activity endpoints removed. Screen capture now runs in the browser
+# (Chrome screen sharing → POST /timeclock/screenshot). The AgentDevice / token
+# enrollment below is retained — it is shared with field-phone tracking.
 
 
 # ── Field-worker location tracking (native app, clocked-in only) ─────────────
@@ -1925,88 +1830,10 @@ def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
     return {"ok": True, "rate": row.hourly_rate}
 
 
-def _activity_day_payload(db: Session, email: str, date: str) -> dict:
-    """One day, fully broken down: worked vs active vs idle plus the app/window
-    log the desktop agent recorded. Active = foreground app samples while not
-    idle; idle = punched-in time the agent saw no activity for."""
-    rows = (db.query(AgentActivity)
-            .filter(AgentActivity.employee_email == email, AgentActivity.local_date == date)
-            .order_by(AgentActivity.at).all())
-    apps: dict = {}
-    for r in rows:
-        a = apps.setdefault(r.app or "Unknown", {"seconds": 0, "titles": {}})
-        a["seconds"] += r.seconds or 0
-        t = (r.title or "").strip()
-        if t:
-            a["titles"][t] = a["titles"].get(t, 0) + (r.seconds or 0)
-    day = _day_summaries(_live_punches(db, email, date, date)).get(date, {})
-    worked_min = day.get("workedMin", 0)
-    active_min = int(round(sum(v["seconds"] for v in apps.values()) / 60))
-    idle_min = max(0, worked_min - active_min)
-    return {
-        "date": date, "workedMin": worked_min, "activeMin": min(active_min, worked_min) if worked_min else active_min,
-        "idleMin": idle_min,
-        "activePct": min(100, round(active_min * 100 / worked_min)) if worked_min else 0,
-        "hasAgentData": bool(rows),
-        "apps": sorted(
-            [{"app": k, "seconds": v["seconds"],
-              "titles": sorted([{"title": t, "seconds": s} for t, s in v["titles"].items()],
-                               key=lambda x: -x["seconds"])[:6]}
-             for k, v in apps.items()], key=lambda x: -x["seconds"])[:15],
-        "log": [{"at": r.at, "app": r.app or "Unknown", "title": r.title or "",
-                 "seconds": r.seconds or 0} for r in reversed(rows)][:400],
-    }
-
-
-@router.get("/my-activity")
-def my_activity_day(date: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """The caller's own working/idle breakdown + app log for one day."""
-    if not date:
-        raise HTTPException(400, "date is required (YYYY-MM-DD)")
-    return _activity_day_payload(db, user["email"].lower(), date)
-
-
-@router.get("/activity-day")
-def activity_day(email: str = "", date: str = "", user: dict = Depends(require_team_read),
-                 db: Session = Depends(get_db)):
-    """Team-scoped version for managers/HR — same shape as /my-activity."""
-    email = email.strip().lower()
-    if not (email and date):
-        raise HTTPException(400, "email and date are required")
-    scope = _visible_emails(db, user)
-    if scope is not None and email not in scope:
-        raise HTTPException(403, "Outside your team")
-    return _activity_day_payload(db, email, date)
-
-
-@router.get("/activity")
-def read_activity(email: str = "", start: str = "", end: str = "",
-                  user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    """App-usage breakdown + activity score for one employee over a date range.
-    Scoped like the rest of the team endpoints (managers see only their reports)."""
-    email = email.strip().lower()
-    scope = _visible_emails(db, user)
-    if scope is not None and email not in scope:
-        raise HTTPException(403, "Outside your team")
-    q = db.query(AgentActivity).filter(AgentActivity.employee_email == email)
-    if start:
-        q = q.filter(AgentActivity.local_date >= start)
-    if end:
-        q = q.filter(AgentActivity.local_date <= end)
-    rows = q.all()
-    apps: dict = {}
-    pcts = []
-    for r in rows:
-        apps[r.app or "Unknown"] = apps.get(r.app or "Unknown", 0) + (r.seconds or 0)
-        if r.active_pct:
-            pcts.append(r.active_pct)
-    top = sorted(apps.items(), key=lambda x: -x[1])[:12]
-    return {
-        "email": email,
-        "totalSeconds": sum(apps.values()),
-        "activePct": round(sum(pcts) / len(pcts)) if pcts else 0,
-        "apps": [{"app": a, "seconds": s} for a, s in top],
-    }
+# App/window-activity read endpoints (/my-activity, /activity-day, /activity)
+# removed with the desktop agent — the browser capture records screenshots and an
+# idle signal, not per-app foreground logs. Idle now surfaces in the timesheet
+# composition bar via TimeScreenshot.idle_sec.
 
 
 def _signed_url(path: str) -> str:
@@ -2020,85 +1847,8 @@ def _signed_url(path: str) -> str:
     return ""
 
 
-# ── Desktop agent installers (private bucket, admin-only signed links) ────────
-# Signed builds live in the private 'agent-releases' bucket at a fixed path per
-# platform. Admins upload from the Time Tracking portal; the download link and
-# the silent-install command carry a 7-day signed URL so no login is needed on
-# the target machine and the installer is never world-readable.
-
-_AGENT_BUCKET = "agent-releases"
-_AGENT_KEYS = {
-    "win":   "win/GreensNexusAgent-Setup.exe",
-    "mac":   "mac/GreensNexusAgent.dmg",
-    "linux": "linux/GreensNexusAgent.AppImage",
-}
-_AGENT_LINK_TTL = 7 * 24 * 3600  # 7 days
-
-
-def _agent_signed_url(path: str, ttl: int = _AGENT_LINK_TTL) -> str:
-    try:
-        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_AGENT_BUCKET}/{path}",
-                       headers=_storage_headers(), json={"expiresIn": ttl}, timeout=20)
-        if r.is_success:
-            return f"{_SUPABASE_URL}/storage/v1{r.json().get('signedURL', '')}"
-    except Exception:
-        pass
-    return ""
-
-
-@router.get("/agent/download-url")
-def agent_download_url(platform: str = "win", user: dict = Depends(require_administrator)):
-    """A fresh 7-day signed URL for the platform's installer (empty + exists:false
-    if nothing's been uploaded yet)."""
-    key = _AGENT_KEYS.get(platform)
-    if not key:
-        raise HTTPException(400, "platform must be win, mac or linux")
-    url = _agent_signed_url(key)
-    return {"platform": platform, "exists": bool(url), "url": url, "ttlDays": _AGENT_LINK_TTL // 86400}
-
-
-@router.get("/agent/upload-url")
-def agent_upload_url(platform: str = "win", user: dict = Depends(require_administrator)):
-    """A one-time signed URL the browser PUTs the installer straight to (Supabase
-    Storage), so the big file never streams through this API — no request timeout,
-    no double hop. The client uploads with header x-upsert: true."""
-    key = _AGENT_KEYS.get(platform)
-    if not key:
-        raise HTTPException(400, "platform must be win, mac or linux")
-    try:
-        # x-upsert lets the resulting URL REPLACE an existing installer (without
-        # it Supabase 409s "Duplicate" once a build has been uploaded).
-        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/upload/sign/{_AGENT_BUCKET}/{key}",
-                       headers={**_storage_headers(), "x-upsert": "true"}, timeout=20)
-        if not r.is_success:
-            raise HTTPException(502, f"Could not create upload URL: {r.text[:200]}")
-        signed = r.json().get("url", "")
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(502, f"Could not create upload URL: {str(e)[:200]}")
-    return {"platform": platform, "uploadUrl": f"{_SUPABASE_URL}/storage/v1{signed}", "key": key}
-
-
-@router.post("/agent/upload")
-def agent_upload(platform: str = Form("win"), file: UploadFile = File(...),
-                 user: dict = Depends(require_administrator)):
-    """Legacy: upload through the API (kept for small files / fallback). Prefer
-    /agent/upload-url for large installers."""
-    key = _AGENT_KEYS.get(platform)
-    if not key:
-        raise HTTPException(400, "platform must be win, mac or linux")
-    blob = file.file.read()
-    if not blob:
-        raise HTTPException(400, "Empty file")
-    if len(blob) > 400_000_000:
-        raise HTTPException(400, "Installer larger than 400 MB")
-    up = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_AGENT_BUCKET}/{key}",
-                    headers={**_storage_headers(), "Content-Type": "application/octet-stream", "x-upsert": "true"},
-                    content=blob, timeout=180)
-    if not up.is_success:
-        raise HTTPException(502, f"Upload failed: {up.text[:200]}")
-    return {"ok": True, "platform": platform, "sizeMb": round(len(blob) / 1_000_000, 1)}
+# Desktop-agent installer hosting (/agent/download-url, /agent/upload-url,
+# /agent/upload) removed — there is no desktop installer to host anymore.
 
 
 @router.get("/screenshots")
