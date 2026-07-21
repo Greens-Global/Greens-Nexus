@@ -37,6 +37,10 @@ export default function TimeclockWidget() {
   const gapRef = useRef(SHOT_EVERY_MS);             // base interval from policy (ms)
   const randomizeRef = useRef(false);              // jitter each gap ±25%?
   const nextGapRef = useRef(SHOT_EVERY_MS);        // the currently-scheduled gap (jittered)
+  const onBreakRef = useRef(false);                // pause frames while on break
+  const clockedInRef = useRef(false);              // only save frames during a live shift
+  const canCaptureRef = useRef(false);             // monitoring policy allows capture
+  const startRef = useRef(null);                   // latest startCapture, for the global hook
 
   const load = useCallback(() => {
     api.timeStatus().then(setStatus).catch(() => {});
@@ -80,6 +84,10 @@ export default function TimeclockWidget() {
   const intervalMin = Math.max(1, mon?.intervalMinutes || 5);
   gapRef.current = intervalMin * 60 * 1000;
   randomizeRef.current = !!mon?.randomize;
+  // Keep the capture loop's refs in sync with the live punch state each render.
+  onBreakRef.current = onBreak;
+  clockedInRef.current = clockedIn;
+  canCaptureRef.current = canCapture;
   // Next gap until a shot is due — jittered ±25% when the policy randomizes.
   const nextGap = () => randomizeRef.current
     ? Math.round(gapRef.current * (0.75 + Math.random() * 0.5))
@@ -95,14 +103,37 @@ export default function TimeclockWidget() {
     [...streamsRef.current].forEach(dropStream);
   }
 
-  // Capture stops the moment the shift ends, the policy turns screen tracking
-  // off, or the user revokes sharing.
-  useEffect(() => { if ((!clockedIn || !canCapture) && capturing) stopCapture(); }, [clockedIn, canCapture, capturing]);
+  // Capture tears down on the clocked-in → clocked-out TRANSITION (a real
+  // punch-out), not on the static !clockedIn condition — otherwise the stream we
+  // pre-acquire on the punch-in click (while last.kind is still 'out') would be
+  // killed before the punch lands. Policy turning off also stops it immediately.
+  const wasClockedIn = useRef(false);
+  useEffect(() => {
+    if (wasClockedIn.current && !clockedIn && capturing) stopCapture();  // shift ended
+    wasClockedIn.current = clockedIn;
+  }, [clockedIn, capturing]);
+  useEffect(() => { if (!canCapture && capturing) stopCapture(); }, [canCapture, capturing]);
+
+  // Expose the engine globally so the punch-in button (in the Time Clock view)
+  // can start capture from within its own click — the browser only grants screen
+  // sharing on a user gesture, so an effect/state-change can't start it silently.
+  startRef.current = startCapture;
+  useEffect(() => {
+    window.__nexusCapture = {
+      start: () => { if (!streamsRef.current.length) startRef.current?.(); },
+      stop: stopCapture,
+    };
+    return () => { if (window.__nexusCapture) delete window.__nexusCapture; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Fire a shot only when the scheduled gap has really elapsed (wall-clock guard
   // against throttled/coalesced background timers) and none is already running.
+  // Frames pause on break and never save off-shift; the stream stays live across
+  // a break so ending it resumes capture with no second sharing prompt.
   function maybeShot() {
     if (!streamsRef.current.length || shotInFlight.current) return;
+    if (onBreakRef.current || !clockedInRef.current) return;
     if (Date.now() - lastShot.current >= nextGapRef.current) takeShot();
   }
 
@@ -150,6 +181,7 @@ export default function TimeclockWidget() {
   }
 
   async function startCapture() {
+    if (!canCaptureRef.current) return;   // monitoring policy off — nothing to do
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: 'monitor', frameRate: 1 }, audio: false,

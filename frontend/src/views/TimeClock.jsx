@@ -414,7 +414,14 @@ export default function TimeClock() {
               {(status.allowed || []).map(kind => {
                 const M = KIND_META[kind];
                 return (
-                  <button key={kind} onClick={() => doPunch(kind)} disabled={!!busy}
+                  <button key={kind} onClick={() => {
+                      // Start screen capture from within the punch-in click — the
+                      // browser only grants screen sharing on a user gesture, so it
+                      // can't auto-start after the punch resolves. No-op if the
+                      // monitoring policy is off or a stream is already running.
+                      if (kind === 'in') window.__nexusCapture?.start?.();
+                      doPunch(kind);
+                    }} disabled={!!busy}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 9, padding: '14px 26px', borderRadius: 12,
                       border: 'none', cursor: busy ? 'default' : 'pointer', fontFamily: 'Inter,sans-serif',
                       fontSize: 15, fontWeight: 800, background: M.bg, color: M.fg, opacity: busy && busy !== kind ? 0.55 : 1 }}>
