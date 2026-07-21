@@ -29,6 +29,8 @@ def _run_migrations():
         # are swallowed.
         sqlite_migrations = [
             "ALTER TABLE payroll_rates ADD COLUMN overtime_rule VARCHAR DEFAULT 'ca'",
+            "ALTER TABLE agent_activity ADD COLUMN domain VARCHAR DEFAULT ''",
+            "ALTER TABLE agent_activity ADD COLUMN category VARCHAR DEFAULT ''",
             "ALTER TABLE items ADD COLUMN picture_required BOOLEAN DEFAULT 1",
             "ALTER TABLE items ADD COLUMN asset_value FLOAT DEFAULT 0",
             "UPDATE items SET status = 'available' WHERE ownership_type = 'permanent' AND COALESCE(assigned_to_email, '') = '' AND status = 'permanently_assigned'",

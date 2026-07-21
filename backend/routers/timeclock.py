@@ -37,7 +37,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     AgentDevice, Shift, ShiftGroup, ShiftGroupMember,
                     ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee,
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
-                    PunchRequest)
+                    PunchRequest, AgentActivity, AppRating)
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET
 from routers.esign import _client_meta
 
@@ -1174,10 +1174,184 @@ def agent_revoke(device_id: str, user: dict = Depends(require_administrator), db
     return {"ok": True}
 
 
-# Desktop agent retired (Jul 2026): silent-device heartbeat, screenshot, and
-# app-activity endpoints removed. Screen capture now runs in the browser
-# (Chrome screen sharing → POST /timeclock/screenshot). The AgentDevice / token
-# enrollment below is retained — it is shared with field-phone tracking.
+# ── Desktop agent: heartbeat, screenshot, app/URL activity ───────────────────
+# The Nexus desktop agent authenticates with its device token (get_agent_device)
+# — no employee login. It FOLLOWS the punch clock: captures + tracks only while
+# the person is clocked in and NOT on break (start on in, pause on break, resume
+# on break-end, stop on out). Every gate is enforced here, server-side.
+
+def _punch_state(db: Session, email: str):
+    last = (db.query(TimePunch).filter(TimePunch.employee_email == email, TimePunch.voided == 0)
+            .order_by(TimePunch.at.desc()).first())
+    return bool(last and last.kind != "out"), bool(last and last.kind == "break_start")
+
+
+class AgentCheckinIn(BaseModel):
+    device_name: Optional[str] = ""
+    device_user: Optional[str] = ""
+    mac: Optional[str] = ""
+    platform: Optional[str] = ""
+    tz_offset_min: Optional[int] = 0
+
+
+@router.post("/agent/checkin")
+def agent_checkin(body: AgentCheckinIn, dev: AgentDevice = Depends(get_agent_device),
+                  db: Session = Depends(get_db)):
+    """Heartbeat. Records the machine and tells the agent whether to capture/track
+    right now — true only while clocked in, not on break, and policy-enabled."""
+    dev.last_seen_at = _now_iso()
+    if body.device_name: dev.device_name = body.device_name[:120]
+    if body.device_user: dev.device_user = body.device_user[:120]
+    if body.mac:         dev.mac = body.mac[:40]
+    if body.platform:    dev.platform = body.platform[:20]
+    db.commit()
+    clocked, on_break = _punch_state(db, dev.employee_email)
+    pol = _get_policy(db)
+    live = bool(clocked and not on_break and pol.enabled)
+    return {"email": dev.employee_email, "clockedIn": clocked, "onBreak": on_break,
+            "capture": live, "trackScreens": live and bool(pol.track_screens),
+            "trackApps": live and bool(pol.track_windows),
+            "intervalMin": max(1, int(pol.interval_minutes or 5)), "randomize": bool(pol.randomize)}
+
+
+@router.post("/agent/screenshot")
+def agent_screenshot(request: Request, file: UploadFile = File(...),
+                     idle_sec: int = Form(0), active_view: str = Form(""),
+                     tz_offset_min: int = Form(0),
+                     dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
+    """Screenshot from the desktop agent — identity from the token, re-gated here."""
+    email = dev.employee_email
+    clocked, on_break = _punch_state(db, email)
+    if not clocked or on_break:
+        raise HTTPException(409, "Not on a live shift — capture paused.")
+    pol = _get_policy(db)
+    if not (pol.enabled and pol.track_screens):
+        raise HTTPException(409, "Screen capture is disabled by policy.")
+    row = _store_shot(db, email, file.file.read(), idle_sec, active_view, tz_offset_min)
+    return {"ok": True, "id": row.id}
+
+
+class ActivitySeg(BaseModel):
+    app: Optional[str] = ""
+    title: Optional[str] = ""
+    domain: Optional[str] = ""
+    seconds: int = 0
+
+
+class ActivityIn(BaseModel):
+    segments: List[ActivitySeg] = []
+    active_pct: int = 0
+    tz_offset_min: Optional[int] = 0
+
+
+@router.post("/agent/activity")
+def agent_activity(body: ActivityIn, dev: AgentDevice = Depends(get_agent_device),
+                   db: Session = Depends(get_db)):
+    """App / website usage samples (seconds per foreground app + active domain),
+    tagged with the admin productivity rating. Kept only during a live shift."""
+    email = dev.employee_email
+    clocked, on_break = _punch_state(db, email)
+    if not clocked or on_break:
+        return {"ok": True, "skipped": "not on a live shift"}
+    pol = _get_policy(db)
+    if not (pol.enabled and pol.track_windows):
+        return {"ok": True, "skipped": "app tracking off"}
+    now = _now_iso()
+    ld = _local_date(now, body.tz_offset_min or 0)
+    pct = max(0, min(100, int(body.active_pct or 0)))
+    ratings = {r.key: r.rating for r in db.query(AppRating).all()}
+    for s in body.segments[:300]:
+        if not s.seconds or s.seconds <= 0:
+            continue
+        dom = (s.domain or "").strip().lower()[:120]
+        appn = (s.app or "Unknown")[:120]
+        cat = ratings.get(dom) or ratings.get(appn.lower()) or ""
+        db.add(AgentActivity(id=str(uuid.uuid4()), employee_email=email, local_date=ld, at=now,
+                             app=appn, title=(s.title or "")[:200], domain=dom, category=cat,
+                             seconds=int(s.seconds), active_pct=pct))
+    db.commit()
+    return {"ok": True}
+
+
+# ── Insights dashboard: Top Apps / Top Websites / activity (manager + HR) ────
+
+@router.get("/insights")
+def insights(email: str = "", start: str = "", end: str = "",
+             user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """Top apps, top websites, active-vs-idle and productivity split over
+    [start,end], for one member or the whole visible team."""
+    em = (email or "").strip().lower()
+    scope = _visible_emails(db, user)
+    empty = {"totalSec": 0, "activeSec": 0, "activePct": 0, "topApps": [], "topSites": [],
+             "byCategory": {"productive": 0, "neutral": 0, "unproductive": 0}, "log": []}
+    q = db.query(AgentActivity)
+    if em:
+        if scope is not None and em not in scope and em != user["email"].lower():
+            raise HTTPException(403, "Outside your team")
+        q = q.filter(AgentActivity.employee_email == em)
+    elif scope is not None:
+        if not scope:
+            return empty
+        q = q.filter(AgentActivity.employee_email.in_(scope))
+    if start: q = q.filter(AgentActivity.local_date >= start)
+    if end:   q = q.filter(AgentActivity.local_date <= end)
+    rows = q.all()
+    ratings = {r.key: r.rating for r in db.query(AppRating).all()}
+    apps, sites = {}, {}
+    cats = {"productive": 0, "neutral": 0, "unproductive": 0}
+    total = active = 0
+    for r in rows:
+        sec = r.seconds or 0
+        total += sec
+        active += int(sec * (r.active_pct or 0) / 100)
+        apps[r.app or "Unknown"] = apps.get(r.app or "Unknown", 0) + sec
+        if r.domain:
+            sites[r.domain] = sites.get(r.domain, 0) + sec
+        cats[r.category if r.category in cats else "neutral"] += sec
+    names = {e.work_email: f"{e.first_name} {e.last_name}".strip() for e in db.query(NexusEmployee).all() if e.work_email}
+    return {
+        "totalSec": total, "activeSec": active,
+        "activePct": round(active * 100 / total) if total else 0,
+        "topApps": [{"name": a, "seconds": s, "rating": ratings.get(a.lower(), "")}
+                    for a, s in sorted(apps.items(), key=lambda x: -x[1])[:8]],
+        "topSites": [{"name": d, "seconds": s, "rating": ratings.get(d, "")}
+                     for d, s in sorted(sites.items(), key=lambda x: -x[1])[:8]],
+        "byCategory": cats,
+        "log": [{"at": r.at, "name": names.get(r.employee_email, r.employee_email), "app": r.app,
+                 "title": r.title, "domain": r.domain, "seconds": r.seconds, "activePct": r.active_pct}
+                for r in sorted(rows, key=lambda r: r.at, reverse=True)[:60]],
+    }
+
+
+@router.get("/ratings")
+def list_ratings(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    return [{"key": r.key, "kind": r.kind, "label": r.label or r.key, "rating": r.rating}
+            for r in db.query(AppRating).order_by(AppRating.key).all()]
+
+
+class RatingIn(BaseModel):
+    key: str
+    kind: Optional[str] = "app"
+    label: Optional[str] = ""
+    rating: str = "neutral"
+
+
+@router.put("/ratings")
+def set_rating(body: RatingIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    key = (body.key or "").strip().lower()
+    if not key:
+        raise HTTPException(400, "key is required")
+    row = db.query(AppRating).filter(AppRating.key == key).first()
+    if not row:
+        row = AppRating(key=key)
+        db.add(row)
+    row.kind = body.kind if body.kind in ("app", "domain") else "app"
+    row.label = (body.label or key)[:120]
+    row.rating = body.rating if body.rating in ("productive", "neutral", "unproductive") else "neutral"
+    row.updated_by = user["email"]
+    row.updated_at = _now_iso()
+    db.commit()
+    return {"ok": True, "rating": row.rating}
 
 
 # ── Field-worker location tracking (native app, clocked-in only) ─────────────

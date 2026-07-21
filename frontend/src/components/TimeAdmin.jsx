@@ -10,6 +10,7 @@ import ShiftsPanel from './ShiftsPanel';
 import ShiftSchedule from './ShiftSchedule';
 import PayrollTimecard from './PayrollTimecard';
 import LiveCrewMap from './LiveCrewMap';
+import TimeInsights from './TimeInsights';
 
 const TYPE_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
 
@@ -508,7 +509,13 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         );
       })()}
 
-      {/* Insights — hours by person + daily team hours, straight off the range */}
+      {/* Insights — activity dashboard (Top Apps / Websites / productivity), then
+          the hours breakdown from the punch data. */}
+      {view === 'insights' && (
+        <div style={{ marginBottom: 18 }}>
+          <TimeInsights start={start} end={end} people={(rows || []).map(r => ({ email: r.email, name: r.name }))} />
+        </div>
+      )}
       {view === 'insights' && (rows === null
         ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
         : (() => {

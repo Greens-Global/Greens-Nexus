@@ -768,6 +768,10 @@ export const api = {
   timeSchedDelete:   (id)        => req(`/timeclock/schedule/${id}`, { method: 'DELETE' }),
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
+  // Insights dashboard (Top Apps / Top Websites / activity), from the desktop agent
+  timeInsights:      (email, start, end) => req(`/timeclock/insights?email=${encodeURIComponent(email || '')}&start=${start || ''}&end=${end || ''}`),
+  timeRatings:       ()          => req('/timeclock/ratings'),
+  timeSetRating:     (data)      => req('/timeclock/ratings', { method: 'PUT', body: JSON.stringify(data) }),
 
   // ── Credential Vault (secrets only ever come back from the /reveal endpoints) ──
   cvCredentials:    ()           => req('/credvault/credentials'),

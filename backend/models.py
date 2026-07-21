@@ -1258,9 +1258,35 @@ class PayrollRate(Base):
     updated_at     = Column(String, default="")
 
 
-# AgentActivity (agent_activity table) removed with the desktop agent — the
-# browser capture records screenshots + an idle signal, not per-app foreground
-# logs. Existing rows can stay in the DB; nothing reads them now.
+class AgentActivity(Base):
+    """One foreground-usage sample from the desktop agent: seconds spent in an app
+    (and, for browsers, the active domain) with the window title and an activity %
+    (share of that window where the user wasn't idle). Powers the Insights
+    dashboard — Top Apps, Top Websites, active-vs-idle, and the activity log."""
+    __tablename__ = "agent_activity"
+    id             = Column(String, primary_key=True)   # uuid
+    employee_email = Column(String, nullable=False, index=True)
+    local_date     = Column(String, default="", index=True)
+    at             = Column(String, default="")         # sample end time (UTC ISO)
+    app            = Column(String, default="")         # e.g. "Google Chrome", "Excel"
+    title          = Column(String, default="")         # active window title
+    domain         = Column(String, default="")         # host for browser activity, else ""
+    category       = Column(String, default="")         # productive | neutral | unproductive | "" (from ratings)
+    seconds        = Column(Integer, default=0)
+    active_pct     = Column(Integer, default=0)         # 0-100, non-idle share of this sample
+
+
+class AppRating(Base):
+    """Company-wide productivity rating for an app or website domain, set by an
+    admin ("Rate Apps & URLs"). Drives the productive/neutral/unproductive split
+    on the Insights dashboard. Keyed by lowercased app-or-domain."""
+    __tablename__ = "app_ratings"
+    key            = Column(String, primary_key=True)   # lowercased app name or domain
+    kind           = Column(String, default="app")      # app | domain
+    label          = Column(String, default="")         # display name
+    rating         = Column(String, default="neutral")  # productive | neutral | unproductive
+    updated_by     = Column(String, default="")
+    updated_at     = Column(String, default="")
 
 
 class TimeOffRequest(Base):
