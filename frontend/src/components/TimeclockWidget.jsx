@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Clock, LogOut, MonitorUp, MonitorX, Loader2 } from 'lucide-react';
+import { Clock, LogOut, MonitorUp, MonitorX, MonitorPause, Loader2 } from 'lucide-react';
 import { api } from '../api';
 import BodModal from './BodModal';
 
@@ -251,17 +251,26 @@ export default function TimeclockWidget() {
         </span>
       </button>
       {/* Disclosed-monitoring: capture control only appears when the policy enables screen tracking. */}
-      {canCapture && (
-      <button onClick={capturing ? stopCapture : startCapture}
-        title={capturing ? `Screen capture is ON (${capturing} screen${capturing === 1 ? '' : 's'}) — a frame of each is saved every ${intervalMin} minute${intervalMin === 1 ? '' : 's'}${randomizeRef.current ? ' (timing varies)' : ''}. Click to stop.`
-          : 'Start work-session screen capture (you pick the screen; your browser shows a sharing indicator the whole time)'}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 9px', borderRadius: 999, cursor: 'pointer',
-          border: capturing ? '1.5px solid #b91c1c' : '1.5px solid var(--line)',
-          background: capturing ? 'rgba(220,38,38,0.08)' : 'transparent',
-          color: capturing ? '#b91c1c' : 'var(--muted)', fontSize: 10.5, fontWeight: 800, fontFamily: 'Inter,sans-serif' }}>
-        {capturing ? <MonitorUp size={12} /> : <MonitorX size={12} />} {capturing ? `REC${capturing > 1 ? ` ×${capturing}` : ''}` : 'capture off'}
-      </button>
-      )}
+      {canCapture && (() => {
+        // Three states: paused (on break — stream stays live but no frames save),
+        // recording (clocked in, saving frames), or off. Break must read PAUSED,
+        // not REC, so it's obvious capture stopped for the break.
+        const paused = capturing > 0 && onBreak;
+        const tint = paused ? '#b45309' : capturing ? '#b91c1c' : 'var(--muted)';
+        return (
+        <button onClick={capturing ? stopCapture : startCapture}
+          title={paused ? 'Screen capture is PAUSED for your break — no frames are saved until you end the break. Click to stop capture entirely.'
+            : capturing ? `Screen capture is ON (${capturing} screen${capturing === 1 ? '' : 's'}) — a frame of each is saved every ${intervalMin} minute${intervalMin === 1 ? '' : 's'}${randomizeRef.current ? ' (timing varies)' : ''}. Click to stop.`
+            : 'Start work-session screen capture (you pick the screen; your browser shows a sharing indicator the whole time)'}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 9px', borderRadius: 999, cursor: 'pointer',
+            border: `1.5px solid ${capturing ? tint : 'var(--line)'}`,
+            background: paused ? 'rgba(180,83,9,0.09)' : capturing ? 'rgba(220,38,38,0.08)' : 'transparent',
+            color: tint, fontSize: 10.5, fontWeight: 800, fontFamily: 'Inter,sans-serif' }}>
+          {paused ? <MonitorPause size={12} /> : capturing ? <MonitorUp size={12} /> : <MonitorX size={12} />}
+          {paused ? 'PAUSED' : capturing ? `REC${capturing > 1 ? ` ×${capturing}` : ''}` : 'capture off'}
+        </button>
+        );
+      })()}
       {canCapture && capturing > 0 && (
         <button onClick={startCapture} title="Also capture another screen (pick your second monitor)"
           style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', cursor: 'pointer',
