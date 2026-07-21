@@ -7,7 +7,6 @@ import {
 import { api } from '../api';
 import DayTimeline from '../components/DayTimeline';
 import BodModal from '../components/BodModal';
-import DayActivity from '../components/DayActivity';
 
 const PUNCH_CHIP = {
   in:          { bg: 'hsla(var(--color-green),0.1)', fg: 'hsl(var(--color-green))' },
@@ -455,10 +454,6 @@ export default function TimeClock() {
             <span style={{ color: 'var(--muted)', fontWeight: 600 }}>Total {fmtMin(weekTotal)}</span>
             <span style={{ color: 'var(--muted)' }}>{dayKeys.length} day{dayKeys.length !== 1 ? 's' : ''} active · {weekBreak}m breaks</span>
           </div>
-        </div>
-        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '18px 20px' }}>
-          <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 12 }}>Today's screen activity</div>
-          <DayActivity date={todayKey} />
         </div>
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '18px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>

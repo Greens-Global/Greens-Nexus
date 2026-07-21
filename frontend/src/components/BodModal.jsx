@@ -49,17 +49,26 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   const [loading, setLoading] = useState(true);
   const [ack, setAck] = useState(false);
 
-  // On open: resolve the ONE chat an admin bound to this person's group.
+  // On open: resolve the ONE chat an admin bound to this person's group, and
+  // pre-fill the composer with this person's template (their last BOD/EOD post,
+  // or a starter default) so they only tweak it rather than write from scratch.
   useEffect(() => {
     let live = true;
     (async () => {
-      const my = await api.timeMyChat().catch(() => null);
+      const [my, tpl] = await Promise.all([
+        api.timeMyChat().catch(() => null),
+        M.reasonOnly ? Promise.resolve(null) : api.timeBodTemplate(mode).catch(() => null),
+      ]);
       if (!live) return;
       if (my?.chatId) setBound({ id: my.chatId, name: my.chatName });
+      if (tpl) {
+        setMessage(prev => prev || tpl.message || '');
+        setTasks(prev => prev || tpl.tasks || '');
+      }
       setLoading(false);
     })();
     return () => { live = false; };
-  }, []);
+  }, [mode]);
 
   function buildHtml() {
     if (M.reasonOnly) return `I'm on a break${message.trim() ? ` for ${esc(message.trim())}` : ''}.`;

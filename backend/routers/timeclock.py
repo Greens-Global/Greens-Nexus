@@ -2198,6 +2198,33 @@ def last_bod(user: dict = Depends(get_current_user), db: Session = Depends(get_d
             "channelId": row.channel_id, "channelName": row.channel_name}
 
 
+# Sensible starters used until a person has posted their first BOD/EOD, after
+# which their own last message becomes the template (industry-standard: the app
+# remembers your standup format so you only tweak it each day).
+_BOD_DEFAULTS = {
+    "bod": {"message": "Good morning! Starting my day.",
+            "tasks": ""},
+    "eod": {"message": "Wrapping up for the day — here's what I worked on.",
+            "tasks": ""},
+}
+
+
+@router.get("/bod/template")
+def bod_template(kind: str = "bod", user: dict = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    """Pre-fill text for the BOD/EOD composer: the employee's most recent post
+    of this kind (their evolving personal template), or a starter default."""
+    k = kind if kind in ("bod", "eod") else "bod"
+    row = (db.query(TimeBod)
+           .filter(TimeBod.employee_email == user["email"], TimeBod.kind == k)
+           .order_by(TimeBod.created_at.desc()).first())
+    if row and (row.message or row.tasks):
+        return {"message": row.message or "", "tasks": row.tasks or "",
+                "fromHistory": True}
+    d = _BOD_DEFAULTS.get(k, _BOD_DEFAULTS["bod"])
+    return {"message": d["message"], "tasks": d["tasks"], "fromHistory": False}
+
+
 # ── Time off (leave requests inside the Time module) ─────────────────────────
 
 TIMEOFF_TYPES = ("vacation", "sick", "personal", "unpaid", "other")
