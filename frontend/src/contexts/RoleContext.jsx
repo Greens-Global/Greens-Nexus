@@ -1,7 +1,9 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useMsal } from '@azure/msal-react';
+import { InteractionStatus } from '@azure/msal-browser';
 import { api }     from '../api';
+import { apiTokenRequest } from '../authConfig';
 
 const RoleCtx = createContext(null);
 
@@ -54,13 +56,18 @@ export const ROLES = {
 };
 
 export function RoleProvider({ children }) {
-  const { accounts }    = useMsal();
+  const { instance, accounts, inProgress } = useMsal();
   // E2E builds have no MSAL account — use a placeholder identity so the role
   // still loads from the API (the NEXUS_SKIP_AUTH backend resolves who we are
   // server-side). Without this, headless runs are stuck as 'employee' and the
   // nightly QA specs can never exercise manager/admin surfaces.
   const _e2eEmail       = import.meta.env.VITE_E2E === 'true' ? 'e2e@local' : '';
   const myEmail         = (accounts[0]?.username ?? _e2eEmail).toLowerCase();
+
+  // Live MSAL interaction status, readable inside the async role-fetch callback
+  // (the effect closure would otherwise capture a stale value).
+  const inProgressRef = useRef(inProgress);
+  inProgressRef.current = inProgress;
 
   const [myRole,    setMyRole]    = useState('employee');
   const [allRoles,  setAllRoles]  = useState({});   // { email: role }
@@ -93,7 +100,27 @@ export function RoleProvider({ children }) {
             setLoading(false);
           }
         })
-        .catch(() => {
+        .catch((err) => {
+          // A 401 means the ID token was rejected — the silent (hidden-iframe)
+          // token renewal failed. That iframe depends on third-party cookies, so
+          // when a browser blocks them (or a CSP/extension blocks the frame) it
+          // fails for anyone whose cached token has expired, and every call 401s
+          // → the user is stranded on 'employee' access no matter their real role.
+          // Recover with ONE top-level interactive redirect: it's first-party, so
+          // it isn't subject to the third-party-cookie/frame restrictions the
+          // iframe hit, and it returns with a fresh token. Guarded so it can never
+          // loop (at most once per 5 min) and skipped in E2E / when signed out.
+          if (err?.status === 401 && import.meta.env.VITE_E2E !== 'true'
+              && accounts.length && inProgressRef.current === InteractionStatus.None) {
+            const KEY = 'nexus:reauth-at';
+            const last = Number(sessionStorage.getItem(KEY) || 0);
+            if (Date.now() - last > 5 * 60_000) {
+              sessionStorage.setItem(KEY, String(Date.now()));
+              const account = instance.getActiveAccount() || accounts[0];
+              instance.acquireTokenRedirect({ ...apiTokenRequest, account }).catch(() => {});
+              return;   // page is navigating to Microsoft and back
+            }
+          }
           if (!cancelled && attempt < 3) {
             setTimeout(() => tryFetch(attempt + 1), 1000 * attempt);
           } else if (!cancelled) {

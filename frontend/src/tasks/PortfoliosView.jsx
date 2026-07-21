@@ -312,7 +312,7 @@ function PortfolioDetail({ pf, store, rollup, people, onBack, onNavigate, onEdit
     <div style={{ fontFamily: FONT, color: NX.ink, height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       {/* Header */}
       <div style={{ padding: '12px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <button onClick={onBack} style={{ ...btn('ghost'), alignSelf: 'flex-start', padding: '4px 6px', fontSize: 13, color: NX.dim }}><ArrowLeft size={15} />Back to portfolios</button>
+        <button onClick={onBack} style={{ ...btn('ghost'), alignSelf: 'flex-start', padding: '4px 6px', fontSize: 13, color: NX.dim }}><ArrowLeft size={15} />Back to Portfolios</button>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 42, height: 42, borderRadius: 11, flexShrink: 0, background: `${accent}1a`, color: accent }}><Briefcase size={21} /></span>
           <div style={{ minWidth: 0, flex: 1 }}>

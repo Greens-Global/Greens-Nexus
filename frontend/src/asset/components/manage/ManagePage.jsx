@@ -401,7 +401,7 @@ export function ManagePage({
                   onClick={() => { onPurge(purgeTarget.id); setPurgeTarget(null); }}
                   style={{ fontSize: '0.8rem', backgroundColor: 'hsl(var(--color-red))', borderColor: 'hsl(var(--color-red))' }}
                 >
-                  Delete forever
+                  Delete Forever
                 </button>
               </div>
             </div>

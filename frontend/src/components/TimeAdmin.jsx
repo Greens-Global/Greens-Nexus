@@ -10,6 +10,7 @@ import ShiftsPanel from './ShiftsPanel';
 import ShiftSchedule from './ShiftSchedule';
 import PayrollTimecard from './PayrollTimecard';
 import LiveCrewMap from './LiveCrewMap';
+import TimeInsights from './TimeInsights';
 
 const TYPE_COLOR = { vacation: '#2563eb', sick: '#16a34a', personal: '#8b5cf6', unpaid: '#6b7280', other: '#f59e0b' };
 
@@ -153,7 +154,6 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     load();
   }
   const [person, setPerson] = useState(null);   // employee drill-down (their time portal)
-  const [personAct, setPersonAct] = useState(null);   // app-usage for that person
   const [shiftMode, setShiftMode] = useState('schedule'); // schedule | presets
 
   // Disclosed-monitoring: manager-scoped screenshot gallery (team-scoped API).
@@ -209,15 +209,6 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
     } catch (e) { toastErr(e?.message || 'Could not update the request.'); }
   }
 
-  useEffect(() => {
-    if (!person) { setPersonAct(null); return; }
-    let live = true;
-    setPersonAct(null);
-    api.timeActivity(person.email, start, end)
-      .then(r => { if (live) setPersonAct(r); })
-      .catch(() => { if (live) setPersonAct({ apps: [], totalSeconds: 0, activePct: 0 }); });
-    return () => { live = false; };
-  }, [person, start, end]);
   async function revokeApproval(id) {
     try { await api.timeApprovalRevoke(id); toastOk('Approval revoked.'); load(); }
     catch (e) { toastErr(e?.message || 'Could not revoke.'); }
@@ -295,7 +286,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         <div style={{ marginBottom: 16, border: '1px solid hsla(var(--color-red),0.4)', background: 'hsla(var(--color-red),0.06)', borderRadius: 12, padding: '12px 16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <AlertTriangle size={15} style={{ color: 'hsl(var(--color-red))' }} />
-            <span style={{ fontWeight: 800, fontSize: 13.5 }}>Monitoring alerts</span>
+            <span style={{ fontWeight: 800, fontSize: 13.5 }}>Monitoring Alerts</span>
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>
               {monAlerts.length} clocked in with a quiet agent
             </span>
@@ -316,7 +307,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
 
       {/* Sub-tabs */}
       <div className="chip-row scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        {[['timecards', 'Timecards'], ['livemap', 'Live map'], ['attendance', 'Attendance'], ['insights', 'Insights'],
+        {[['timecards', 'Timecards'], ['livemap', 'Live Map'], ['attendance', 'Attendance'], ['insights', 'Insights'],
           ['requests', `Punch requests${punchReqs.length ? ` (${punchReqs.length})` : ''}`],
           ['screenshots', 'Screenshots'], ['shifts', 'Shifts'], ['payroll', 'Payroll'],
           ['timeoff', `Time off${pendingCount ? ` (${pendingCount})` : ''}`]].map(([key, label]) => (
@@ -518,7 +509,13 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         );
       })()}
 
-      {/* Insights — hours by person + daily team hours, straight off the range */}
+      {/* Insights — activity dashboard (Top Apps / Websites / productivity), then
+          the hours breakdown from the punch data. */}
+      {view === 'insights' && (
+        <div style={{ marginBottom: 18 }}>
+          <TimeInsights start={start} end={end} people={(rows || []).map(r => ({ email: r.email, name: r.name }))} />
+        </div>
+      )}
       {view === 'insights' && (rows === null
         ? <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /></div>
         : (() => {
@@ -750,7 +747,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                     return (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 800, color: '#b45309', background: 'rgba(180,83,9,0.1)', padding: '4px 11px', borderRadius: 10 }}><AlertTriangle size={12} /> CHANGED SINCE APPROVAL</span>
-                        <button className="primary-btn" onClick={() => approveDays(p.email, dk)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, background: '#b45309' }}><CheckCircle size={12} /> Re-approve week</button>
+                        <button className="primary-btn" onClick={() => approveDays(p.email, dk)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, background: '#b45309' }}><CheckCircle size={12} /> Re-approve Week</button>
                       </span>
                     );
                   }
@@ -795,7 +792,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                   );
                 })()}
                 <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>
-                  Days <span style={{ fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>— click one for the working/idle + app breakdown</span>
+                  Days <span style={{ fontWeight: 600, textTransform: 'none', letterSpacing: 0 }}>— click one for its punches</span>
                 </div>
                 {Object.keys(p.days || {}).sort().map(date => (
                   <AdminDayRow key={date} date={date} email={p.email} d={p.days[date]}
@@ -803,33 +800,6 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                     onApprove={() => approveDays(p.email, [date])} />
                 ))}
                 {Object.keys(p.days || {}).length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>No punches in this range.</div>}
-
-                {/* App usage — from the desktop agent's activity tracking */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '18px 0 8px' }}>
-                  <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>App usage</span>
-                  {personAct && personAct.totalSeconds > 0 && (
-                    <span style={{ fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-green))' }}>{personAct.activePct}% active</span>
-                  )}
-                </div>
-                {personAct === null ? (
-                  <div style={{ fontSize: 12, color: 'var(--muted)' }}><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /></div>
-                ) : personAct.totalSeconds === 0 ? (
-                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>No app activity — this person isn’t on the desktop agent (or hasn’t worked in this range).</div>
-                ) : (() => {
-                  const mx = Math.max(1, ...personAct.apps.map(a => a.seconds));
-                  const hm = s => s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m` : `${Math.max(1, Math.round(s / 60))}m`;
-                  return personAct.apps.map(a => (
-                    <div key={a.app} style={{ marginBottom: 8 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
-                        <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 340 }}>{a.app}</span>
-                        <span style={{ fontWeight: 700, color: 'var(--muted)' }}>{hm(a.seconds)}</span>
-                      </div>
-                      <div style={{ height: 7, background: 'var(--mist)', borderRadius: 5, overflow: 'hidden' }}>
-                        <div style={{ width: `${(a.seconds / mx) * 100}%`, height: '100%', background: 'var(--pine)', borderRadius: 5 }} />
-                      </div>
-                    </div>
-                  ));
-                })()}
 
                 <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', margin: '18px 0 8px' }}>Time off</div>
                 {myOff.length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>No requests on record.</div>}

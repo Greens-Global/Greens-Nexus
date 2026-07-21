@@ -108,7 +108,7 @@ export default function PublicSign({ token }) {
       {done === 'signed-final' && (
         <button onClick={download} disabled={busy}
           style={{ marginTop: 18, display: 'inline-flex', alignItems: 'center', gap: 8, background: '#15803d', color: '#fff', border: 'none', borderRadius: 9, padding: '11px 24px', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
-          <Download size={15} /> Download sealed copy
+          <Download size={15} /> Download Sealed Copy
         </button>
       )}
     </div>
@@ -152,7 +152,7 @@ export default function PublicSign({ token }) {
         {payload.status === 'completed' && (
           <button onClick={download} disabled={busy}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: '#15803d', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
-            <Download size={13} /> Sealed copy
+            <Download size={13} /> Sealed Copy
           </button>
         )}
       </div>

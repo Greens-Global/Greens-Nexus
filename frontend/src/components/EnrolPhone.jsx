@@ -110,7 +110,7 @@ export default function EnrolPhone({ employees = [], onClose, toastErr }) {
               {email.trim().toLowerCase()} · {serverUrl.trim().replace(/\/$/, '')}
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 14 }}>
-              <button className="secondary-btn" onClick={() => { setPairing(null); setEmail(''); }} style={{ fontSize: 12 }}>Enrol another</button>
+              <button className="secondary-btn" onClick={() => { setPairing(null); setEmail(''); }} style={{ fontSize: 12 }}>Enrol Another</button>
               <button className="primary-btn" onClick={onClose} style={{ fontSize: 12 }}>Done</button>
             </div>
           </>

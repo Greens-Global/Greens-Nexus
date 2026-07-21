@@ -37,7 +37,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     AgentDevice, Shift, ShiftGroup, ShiftGroupMember,
                     ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee,
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
-                    PunchRequest)
+                    PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember)
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET
 from routers.esign import _client_meta
 
@@ -157,57 +157,72 @@ def _live_punches(db: Session, email: str, start: str = "", end: str = ""):
 
 def _day_summaries(punches: list) -> dict:
     """local_date -> {workedMin, breakMin, firstIn, lastOut, flags, punches}.
-    Exact minutes, no rounding. Unclosed pairs are flagged, never guessed."""
-    days = {}
+    Exact minutes, no rounding. Pairs across the FULL sequence (not per calendar
+    day) so an overnight shift — in one night, out the next morning — counts as one
+    segment on the day it STARTED. Unclosed pairs are flagged, never guessed."""
+    by_day = {}
     for p in punches:
-        days.setdefault(p.local_date, []).append(p)
+        by_day.setdefault(p.local_date, []).append(p)
+
+    worked = {}   # in-day -> raw minutes
+    brk    = {}   # in-day -> break minutes
+    flags  = {}   # local_date -> set (per-punch flags on their own day)
+    first_in = {} # local_date -> first in `at`
+    last_out = {} # local_date -> last out `at`
+
+    def flag(d, f):
+        flags.setdefault(d, set()).add(f)
+
+    open_in = open_in_date = open_break = None
+    open_brk = 0.0
+    for p in punches:  # already ordered by `at`
+        t = _parse_iso(p.at)
+        if t is None:
+            continue
+        d = p.local_date
+        if p.geo_status == "out_of_fence":
+            flag(d, "out_of_fence")
+        if p.source in ("manual", "self_manual"):
+            flag(d, "manual")
+        if p.adjusted_by:
+            flag(d, "adjusted")
+        if p.kind == "in":
+            if open_in is not None:
+                flag(open_in_date, "missing_out")   # prior shift never closed
+            open_in, open_in_date, open_break, open_brk = t, d, None, 0.0
+            if d not in first_in:
+                first_in[d] = p.at
+        elif p.kind == "out":
+            if open_break is not None:              # punching out while on break ends it
+                open_brk += (t - open_break).total_seconds() / 60
+                open_break = None
+            if open_in is None:
+                flag(d, "out_without_in")
+            else:
+                worked[open_in_date] = worked.get(open_in_date, 0.0) + (t - open_in).total_seconds() / 60
+                brk[open_in_date] = brk.get(open_in_date, 0.0) + open_brk
+                open_in = None
+            last_out[d] = p.at
+        elif p.kind == "break_start":
+            if open_break is None and open_in is not None:
+                open_break = t
+        elif p.kind == "break_end":
+            if open_break is not None:
+                open_brk += (t - open_break).total_seconds() / 60
+                open_break = None
+    if open_in is not None:
+        flag(open_in_date, "missing_out")
+        brk[open_in_date] = brk.get(open_in_date, 0.0) + open_brk
+
     out = {}
-    for date, plist in days.items():
-        worked = 0.0
-        brk = 0.0
-        flags = []
-        open_in = None
-        open_break = None
-        first_in = last_out = ""
-        for p in plist:  # already ordered by `at`
-            t = _parse_iso(p.at)
-            if t is None:
-                continue
-            if p.geo_status == "out_of_fence":
-                flags.append("out_of_fence")
-            if p.source in ("manual", "self_manual"):
-                flags.append("manual")
-            if p.adjusted_by:
-                flags.append("adjusted")
-            if p.kind == "in":
-                if open_in is not None:
-                    flags.append("double_in")
-                open_in = t
-                first_in = first_in or p.at
-            elif p.kind == "out":
-                if open_break is not None:  # punching out while on break ends it
-                    brk += (t - open_break).total_seconds() / 60
-                    open_break = None
-                if open_in is None:
-                    flags.append("out_without_in")
-                else:
-                    worked += (t - open_in).total_seconds() / 60
-                    open_in = None
-                last_out = p.at
-            elif p.kind == "break_start":
-                if open_break is None and open_in is not None:
-                    open_break = t
-            elif p.kind == "break_end":
-                if open_break is not None:
-                    brk += (t - open_break).total_seconds() / 60
-                    open_break = None
-        if open_in is not None:
-            flags.append("missing_out")
+    for date, plist in by_day.items():
+        w = worked.get(date, 0.0)
+        b = brk.get(date, 0.0)
         out[date] = {
-            "workedMin": int(round(max(0.0, worked - brk))),
-            "breakMin": int(round(brk)),
-            "firstIn": first_in, "lastOut": last_out,
-            "flags": sorted(set(flags)),
+            "workedMin": int(round(max(0.0, w - b))),
+            "breakMin": int(round(b)),
+            "firstIn": first_in.get(date, ""), "lastOut": last_out.get(date, ""),
+            "flags": sorted(flags.get(date, set())),
             "punches": [_serialize(p) for p in plist],
         }
     return out
@@ -254,12 +269,18 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
         "bodRequired": has_bod is None and has_in is None,
         # Monitoring disclosure: the widget/agent read this to show the notice and
         # know whether to capture. consentRequired drives the clock-in gate.
-        "monitoring": {
+        # Exempt members (leadership) are never captured, gated, or asked to consent.
+        "monitoring": (lambda exempt: {
             **_policy_dict(pol),
-            "consentRequired": bool(pol.enabled) and not _has_monitoring_consent(db, email, local_today),
+            "exempt": exempt,
+            # Exempt people are not captured — force the capture flags off for them
+            # so the widget offers no screen-share and clock-in isn't gated on one.
+            **({"trackScreens": False, "trackWindows": False, "trackInput": False} if exempt else {}),
+            "consentRequired": bool(pol.enabled) and not exempt
+                               and not _has_monitoring_consent(db, email, local_today),
             "textVersion": _MONITORING_TEXT_VERSION,
             "text": _MONITORING_NOTICE,
-        },
+        })(_is_monitoring_exempt(db, email)),
     }
 
 
@@ -281,7 +302,8 @@ def punch(body: PunchIn, request: Request,
     # catches this code, shows the notice, POSTs /monitoring/consent, then retries.
     if body.kind == "in":
         pol = _get_policy(db)
-        if pol.enabled and not _has_monitoring_consent(db, email, _local_date(now, body.tz_offset_min or 0)):
+        if pol.enabled and not _is_monitoring_exempt(db, email) \
+                and not _has_monitoring_consent(db, email, _local_date(now, body.tz_offset_min or 0)):
             raise HTTPException(409, detail={"code": "monitoring_consent_required",
                                              "version": _MONITORING_TEXT_VERSION,
                                              "text": _MONITORING_NOTICE})
@@ -474,7 +496,11 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
         days = sorted({d for d in body.days if d})
         out = {}
         for day in days:
-            worked = _day_summaries(_live_punches(db, email, day, day)).get(day, {}).get("workedMin", 0)
+            # Fetch through the NEXT day too, so an overnight shift's out-punch is
+            # available to pair with this day's in-punch — otherwise the locked-in
+            # approved minutes would be short by the whole after-midnight portion.
+            _nx = (date.fromisoformat(day) + timedelta(days=1)).isoformat()
+            worked = _day_summaries(_live_punches(db, email, day, _nx)).get(day, {}).get("workedMin", 0)
             old = (db.query(TimeApproval)
                    .filter(TimeApproval.employee_email == email,
                            TimeApproval.period_start == day, TimeApproval.period_end == day,
@@ -505,8 +531,13 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
                         TimeApproval.revoked == 0).first())
     if existing:
         raise HTTPException(409, "Already approved for this period")
-    worked = sum(d["workedMin"] for d in _day_summaries(
-        _live_punches(db, email, body.start, body.end)).values())
+    # Fetch one day past `end` so a shift that starts on the last day and ends
+    # after midnight still pairs; only count days within [start, end] so the
+    # extra day's own shifts don't inflate the total.
+    _end_nx = (date.fromisoformat(body.end) + timedelta(days=1)).isoformat() if body.end else body.end
+    worked = sum(v["workedMin"] for k, v in _day_summaries(
+        _live_punches(db, email, body.start, _end_nx)).items()
+        if not body.end or k <= body.end)
     row = TimeApproval(id=str(uuid.uuid4()), employee_email=email,
                        period_start=body.start, period_end=body.end,
                        worked_min=worked, approved_by=user["email"], approved_at=now,
@@ -638,19 +669,34 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                           TimeApproval.period_start >= (start or "0"),
                           TimeApproval.period_end <= (end or "9")).all()}
         w.writerow(["Employee", "Email", "Date", "First In", "Last Out",
-                    "Worked Hours", "Break Minutes", "Flags", "Approved"])
+                    "Worked Hours", "Regular Hours", "OT Hours (1.5x)", "DT Hours (2x)",
+                    "Break Minutes", "Flags", "OT Rule", "Rate $/hr",
+                    "Regular Pay", "OT Pay", "DT Pay", "Total Pay", "Approved"])
         for r in rows:
+            # Use the overtime engine (respects each person's ca/federal/none rule)
+            # for the reg/OT/DT split + pay; first-in/last-out/flags come from the
+            # day summary already loaded.
+            card = _compute_timecard(db, r["email"], start, end)
+            cday = {d["date"]: d for d in card["days"]}
+            T = card["totals"]
+            rate = card["rate"]
             for date in sorted(r["days"]):
                 d = r["days"][date]
+                cd = cday.get(date, {})
                 w.writerow([r["name"], r["email"], date,
                             d["firstIn"][11:16] if d["firstIn"] else "",
                             d["lastOut"][11:16] if d["lastOut"] else "",
-                            f"{d['workedMin'] / 60:.2f}", d["breakMin"],
-                            " ".join(d["flags"]),
+                            f"{cd.get('workedMin', d['workedMin']) / 60:.2f}",
+                            f"{cd.get('regMin', 0) / 60:.2f}", f"{cd.get('otMin', 0) / 60:.2f}",
+                            f"{cd.get('dtMin', 0) / 60:.2f}", d["breakMin"],
+                            " ".join(d["flags"]), "", "", "", "", "",
                             "yes" if (r["email"], date) in day_ok else ""])
             all_days_ok = bool(r["days"]) and all((r["email"], dt) in day_ok for dt in r["days"])
             w.writerow([r["name"], r["email"], "TOTAL", "", "",
-                        f"{r['workedMin'] / 60:.2f}", r["breakMin"], "",
+                        f"{T['workedMin'] / 60:.2f}", f"{T['regMin'] / 60:.2f}",
+                        f"{T['otMin'] / 60:.2f}", f"{T['dtMin'] / 60:.2f}", T["breakMin"], "",
+                        card["overtimeRule"], f"{rate:.2f}",
+                        f"{T['regPay']:.2f}", f"{T['otPay']:.2f}", f"{T['dtPay']:.2f}", f"{T['totalPay']:.2f}",
                         "yes" if (r["email"] in approved or all_days_ok) else "no"])
     buf.seek(0)
     fname = f"timeclock-{mode}-{start or 'all'}-to-{end or 'now'}.csv"
@@ -708,6 +754,17 @@ def _policy_dict(p: MonitoringPolicy) -> dict:
     }
 
 
+def _is_monitoring_exempt(db: Session, email: str) -> bool:
+    """True when the person belongs to any group flagged monitoring_exempt — used
+    for leadership, who clock in without sharing a screen and are not captured."""
+    gids = [m.group_id for m in db.query(NexusGroupMember.group_id)
+            .filter(NexusGroupMember.email == email).all()]
+    if not gids:
+        return False
+    return db.query(NexusGroup.id).filter(
+        NexusGroup.id.in_(gids), NexusGroup.monitoring_exempt == 1).first() is not None
+
+
 def _has_monitoring_consent(db: Session, email: str, local_date: str) -> bool:
     return db.query(MonitoringConsent).filter(
         MonitoringConsent.employee_email == email,
@@ -746,6 +803,8 @@ def upload_screenshot(request: Request, file: UploadFile = File(...),
     pol = _get_policy(db)
     if not (pol.enabled and pol.track_screens):
         raise HTTPException(409, "Screen capture is disabled by policy.")
+    if _is_monitoring_exempt(db, email):
+        raise HTTPException(409, "You are exempt from screen monitoring.")
     row = _store_shot(db, email, file.file.read(), idle_sec, active_view, tz_offset_min)
     return {"ok": True, "id": row.id}
 
@@ -932,8 +991,19 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
         if body.punch_kind not in _PR_KINDS:
             raise HTTPException(400, f"punch_kind must be one of {_PR_KINDS}")
         at_utc = (body.at or "").strip()
-        if not at_utc or not _parse_iso(at_utc):
+        _pt = _parse_iso(at_utc) if at_utc else None
+        if not _pt:
             raise HTTPException(400, "Pick the date and time for the punch.")
+        # Bound the requested time: a FUTURE punch becomes the "last punch"
+        # (state = max(at)) and jams clock-in/out until that moment passes; a
+        # very old one is almost certainly an error. (self_manual has the same
+        # guards.)
+        _ptz = _pt if _pt.tzinfo else _pt.replace(tzinfo=timezone.utc)
+        _now_dt = datetime.now(timezone.utc)
+        if _ptz > _now_dt + timedelta(minutes=5):
+            raise HTTPException(400, "You can't request a punch in the future.")
+        if _ptz < _now_dt - timedelta(days=45):
+            raise HTTPException(400, "That date is too far back — ask HR to add it for you.")
         local_date = _local_date(at_utc, body.tz_offset_min or 0)
     else:  # remove
         target_id = (body.target_punch_id or "").strip()
@@ -1005,6 +1075,25 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
     note = (body.note or "").strip()
     if decision == "approved":
         if r.action == "add":
+            # Re-validate the sequence at approval time: inserting this punch must
+            # not create an illegal transition (e.g. two 'in's with no 'out'
+            # between), which would corrupt the FIFO worked-minute pairing. Check
+            # the punch immediately BEFORE and AFTER the requested time.
+            prev = (db.query(TimePunch)
+                    .filter(TimePunch.employee_email == r.employee_email, TimePunch.voided == 0,
+                            TimePunch.at <= r.at).order_by(TimePunch.at.desc()).first())
+            nxt = (db.query(TimePunch)
+                   .filter(TimePunch.employee_email == r.employee_email, TimePunch.voided == 0,
+                           TimePunch.at > r.at).order_by(TimePunch.at.asc()).first())
+            if r.punch_kind not in _allowed_kinds(prev.kind if prev else None):
+                raise HTTPException(409,
+                    f"Approving this would place a '{r.punch_kind}' after a "
+                    f"'{prev.kind if prev else 'clock-out'}', which isn't a valid punch sequence. "
+                    f"Ask the employee to correct the request, or edit the punches directly.")
+            if nxt and nxt.kind not in _allowed_kinds(r.punch_kind):
+                raise HTTPException(409,
+                    f"Approving this '{r.punch_kind}' would make the following '{nxt.kind}' "
+                    f"punch invalid. Edit the punches directly instead.")
             tp = TimePunch(id=str(uuid.uuid4()), employee_email=r.employee_email, kind=r.punch_kind,
                            at=r.at, local_date=r.local_date, tz_offset_min=r.tz_offset_min or 0,
                            geo_status="no_location", source="manual", note=r.reason[:300],
@@ -1105,10 +1194,211 @@ def agent_revoke(device_id: str, user: dict = Depends(require_administrator), db
     return {"ok": True}
 
 
-# Desktop agent retired (Jul 2026): silent-device heartbeat, screenshot, and
-# app-activity endpoints removed. Screen capture now runs in the browser
-# (Chrome screen sharing → POST /timeclock/screenshot). The AgentDevice / token
-# enrollment below is retained — it is shared with field-phone tracking.
+# ── Desktop agent: heartbeat, screenshot, app/URL activity ───────────────────
+# The Nexus desktop agent authenticates with its device token (get_agent_device)
+# — no employee login. It FOLLOWS the punch clock: captures + tracks only while
+# the person is clocked in and NOT on break (start on in, pause on break, resume
+# on break-end, stop on out). Every gate is enforced here, server-side.
+
+def _punch_state(db: Session, email: str):
+    last = (db.query(TimePunch).filter(TimePunch.employee_email == email, TimePunch.voided == 0)
+            .order_by(TimePunch.at.desc()).first())
+    return bool(last and last.kind != "out"), bool(last and last.kind == "break_start")
+
+
+class AgentCheckinIn(BaseModel):
+    device_name: Optional[str] = ""
+    device_user: Optional[str] = ""
+    mac: Optional[str] = ""
+    platform: Optional[str] = ""
+    tz_offset_min: Optional[int] = 0
+
+
+@router.post("/agent/checkin")
+def agent_checkin(body: AgentCheckinIn, dev: AgentDevice = Depends(get_agent_device),
+                  db: Session = Depends(get_db)):
+    """Heartbeat. Records the machine and tells the agent whether to capture/track
+    right now — true only while clocked in, not on break, and policy-enabled."""
+    dev.last_seen_at = _now_iso()
+    if body.device_name: dev.device_name = body.device_name[:120]
+    if body.device_user: dev.device_user = body.device_user[:120]
+    if body.mac:         dev.mac = body.mac[:40]
+    if body.platform:    dev.platform = body.platform[:20]
+    db.commit()
+    clocked, on_break = _punch_state(db, dev.employee_email)
+    pol = _get_policy(db)
+    live = bool(clocked and not on_break and pol.enabled)
+    return {"email": dev.employee_email, "clockedIn": clocked, "onBreak": on_break,
+            "capture": live,
+            # Full policy object so the agent respects the real toggles + cadence
+            # (applyPolicy reads this). Server still re-gates every upload anyway.
+            "policy": _policy_dict(pol),
+            # Flat mirrors kept for older agent builds.
+            "trackScreens": live and bool(pol.track_screens),
+            "trackApps": live and bool(pol.track_windows),
+            "intervalMin": max(1, int(pol.interval_minutes or 5)), "randomize": bool(pol.randomize)}
+
+
+@router.post("/agent/screenshot")
+def agent_screenshot(request: Request, file: UploadFile = File(...),
+                     idle_sec: int = Form(0), active_view: str = Form(""),
+                     tz_offset_min: int = Form(0),
+                     dev: AgentDevice = Depends(get_agent_device), db: Session = Depends(get_db)):
+    """Screenshot from the desktop agent — identity from the token, re-gated here."""
+    email = dev.employee_email
+    clocked, on_break = _punch_state(db, email)
+    if not clocked or on_break:
+        raise HTTPException(409, "Not on a live shift — capture paused.")
+    pol = _get_policy(db)
+    if not (pol.enabled and pol.track_screens):
+        raise HTTPException(409, "Screen capture is disabled by policy.")
+    row = _store_shot(db, email, file.file.read(), idle_sec, active_view, tz_offset_min)
+    return {"ok": True, "id": row.id}
+
+
+class ActivitySeg(BaseModel):
+    app: Optional[str] = ""
+    title: Optional[str] = ""
+    domain: Optional[str] = ""
+    seconds: int = 0
+
+
+class ActivityIn(BaseModel):
+    segments: List[ActivitySeg] = []
+    active_pct: int = 0
+    tz_offset_min: Optional[int] = 0
+
+
+@router.post("/agent/activity")
+def agent_activity(body: ActivityIn, dev: AgentDevice = Depends(get_agent_device),
+                   db: Session = Depends(get_db)):
+    """App / website usage samples (seconds per foreground app + active domain),
+    tagged with the admin productivity rating. Kept only during a live shift."""
+    email = dev.employee_email
+    clocked, on_break = _punch_state(db, email)
+    if not clocked or on_break:
+        return {"ok": True, "skipped": "not on a live shift"}
+    pol = _get_policy(db)
+    if not (pol.enabled and pol.track_windows):
+        return {"ok": True, "skipped": "app tracking off"}
+    now = _now_iso()
+    ld = _local_date(now, body.tz_offset_min or 0)
+    pct = max(0, min(100, int(body.active_pct or 0)))
+    ratings = {r.key: r.rating for r in db.query(AppRating).all()}
+    for s in body.segments[:300]:
+        if not s.seconds or s.seconds <= 0:
+            continue
+        dom = (s.domain or "").strip().lower()[:120]
+        appn = (s.app or "Unknown")[:120]
+        cat = ratings.get(dom) or ratings.get(appn.lower()) or ""
+        db.add(AgentActivity(id=str(uuid.uuid4()), employee_email=email, local_date=ld, at=now,
+                             app=appn, title=(s.title or "")[:200], domain=dom, category=cat,
+                             seconds=int(s.seconds), active_pct=pct))
+    db.commit()
+    return {"ok": True}
+
+
+# ── Insights dashboard: Top Apps / Top Websites / activity (manager + HR) ────
+
+@router.get("/insights")
+def insights(email: str = "", start: str = "", end: str = "", tz: int = 0,
+             user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """Top apps, top websites, active-vs-idle, productivity split, an hourly
+    activity strip and (team view) a per-member leaderboard over [start,end]. `tz`
+    is the client's getTimezoneOffset() minutes — used to bucket the hourly strip
+    in the viewer's local time."""
+    em = (email or "").strip().lower()
+    scope = _visible_emails(db, user)
+    empty = {"totalSec": 0, "activeSec": 0, "idleSec": 0, "activePct": 0, "prodPct": 0,
+             "topApps": [], "topSites": [], "byCategory": {"productive": 0, "neutral": 0, "unproductive": 0},
+             "hourly": [{"hour": h, "activeSec": 0, "totalSec": 0} for h in range(24)],
+             "byMember": [], "log": []}
+    q = db.query(AgentActivity)
+    if em:
+        if scope is not None and em not in scope and em != user["email"].lower():
+            raise HTTPException(403, "Outside your team")
+        q = q.filter(AgentActivity.employee_email == em)
+    elif scope is not None:
+        if not scope:
+            return empty
+        q = q.filter(AgentActivity.employee_email.in_(scope))
+    if start: q = q.filter(AgentActivity.local_date >= start)
+    if end:   q = q.filter(AgentActivity.local_date <= end)
+    rows = q.all()
+    ratings = {r.key: r.rating for r in db.query(AppRating).all()}
+    apps, sites = {}, {}
+    cats = {"productive": 0, "neutral": 0, "unproductive": 0}
+    hourly = [[0, 0] for _ in range(24)]   # [activeSec, totalSec] per LOCAL hour
+    per_member = {}                         # email -> [total, active, productive]
+    total = active = 0
+    for r in rows:
+        sec = r.seconds or 0
+        a = int(sec * (r.active_pct or 0) / 100)
+        total += sec; active += a
+        apps[r.app or "Unknown"] = apps.get(r.app or "Unknown", 0) + sec
+        if r.domain:
+            sites[r.domain] = sites.get(r.domain, 0) + sec
+        cat = r.category if r.category in cats else "neutral"
+        cats[cat] += sec
+        t = _parse_iso(r.at)
+        if t is not None:
+            lh = (t - timedelta(minutes=tz)).hour
+            hourly[lh][0] += a; hourly[lh][1] += sec
+        m = per_member.setdefault(r.employee_email, [0, 0, 0])
+        m[0] += sec; m[1] += a
+        if cat == "productive": m[2] += sec
+    names = {e.work_email: f"{e.first_name} {e.last_name}".strip() for e in db.query(NexusEmployee).all() if e.work_email}
+    pct = lambda part: round(part * 100 / total) if total else 0
+    by_member = sorted(
+        ({"email": k, "name": names.get(k, k) or k, "totalSec": v[0], "activeSec": v[1],
+          "activePct": round(v[1] * 100 / v[0]) if v[0] else 0,
+          "prodPct": round(v[2] * 100 / v[0]) if v[0] else 0} for k, v in per_member.items()),
+        key=lambda x: -x["totalSec"])
+    return {
+        "totalSec": total, "activeSec": active, "idleSec": max(0, total - active),
+        "activePct": pct(active), "prodPct": pct(cats["productive"]),
+        "topApps": [{"name": a, "seconds": s, "pct": pct(s), "rating": ratings.get(a.lower(), "")}
+                    for a, s in sorted(apps.items(), key=lambda x: -x[1])[:8]],
+        "topSites": [{"name": d, "seconds": s, "pct": pct(s), "rating": ratings.get(d, "")}
+                     for d, s in sorted(sites.items(), key=lambda x: -x[1])[:8]],
+        "byCategory": cats,
+        "hourly": [{"hour": h, "activeSec": hourly[h][0], "totalSec": hourly[h][1]} for h in range(24)],
+        "byMember": by_member if not em else [],
+        "log": [{"at": r.at, "name": names.get(r.employee_email, r.employee_email), "app": r.app,
+                 "title": r.title, "domain": r.domain, "seconds": r.seconds, "activePct": r.active_pct,
+                 "category": r.category} for r in sorted(rows, key=lambda r: r.at, reverse=True)[:80]],
+    }
+
+
+@router.get("/ratings")
+def list_ratings(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    return [{"key": r.key, "kind": r.kind, "label": r.label or r.key, "rating": r.rating}
+            for r in db.query(AppRating).order_by(AppRating.key).all()]
+
+
+class RatingIn(BaseModel):
+    key: str
+    kind: Optional[str] = "app"
+    label: Optional[str] = ""
+    rating: str = "neutral"
+
+
+@router.put("/ratings")
+def set_rating(body: RatingIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    key = (body.key or "").strip().lower()
+    if not key:
+        raise HTTPException(400, "key is required")
+    row = db.query(AppRating).filter(AppRating.key == key).first()
+    if not row:
+        row = AppRating(key=key)
+        db.add(row)
+    row.kind = body.kind if body.kind in ("app", "domain") else "app"
+    row.label = (body.label or key)[:120]
+    row.rating = body.rating if body.rating in ("productive", "neutral", "unproductive") else "neutral"
+    row.updated_by = user["email"]
+    row.updated_at = _now_iso()
+    db.commit()
+    return {"ok": True, "rating": row.rating}
 
 
 # ── Field-worker location tracking (native app, clocked-in only) ─────────────
@@ -1653,13 +1943,65 @@ def delete_scheduled(sched_id: str, user: dict = Depends(require_team_write),
 
 # ── Payroll timecard (manager-editable, per pay period) ───────────────────────
 
-_WEEK_OT_MIN = 40 * 60   # federal weekly overtime threshold; WA/OR follow weekly
+_WEEK_OT_MIN = 40 * 60   # weekly overtime threshold (federal FLSA + CA weekly)
+_DAY_OT_MIN  = 8 * 60    # CA: over 8h/day is overtime
+_DAY_DT_MIN  = 12 * 60   # CA: over 12h/day is double-time
 _OT_MULT = 1.5
+_DT_MULT = 2.0
 
 
-def _monday_str(date_str: str) -> str:
+def _ot_split(day_minutes: list, rule: str) -> list:
+    """Split each day's worked minutes into (regular, ot@1.5x, dt@2x) following
+    the employee's overtime law. `day_minutes` is ONE workweek in order (index 0 =
+    week start, 7 entries Sun→Sat), 0 for days not worked. Anti-pyramiding: every
+    minute is overtime under at most one basis — a minute counted as daily OT is
+    never also counted toward the weekly-40 threshold.
+
+    - 'none'    : no US overtime premium (non-US employees; local law handled off-Nexus)
+    - 'federal' : FLSA weekly only — hours over 40 in the week at 1.5x (out-of-state US)
+    - 'ca'      : California — daily >8h@1.5x / >12h@2x, the 7th CONSECUTIVE worked day
+                  (first 8h@1.5x, beyond 8h@2x), plus weekly >40h of straight time @1.5x
+    """
+    if rule == "none":
+        return [(m, 0, 0) for m in day_minutes]
+
+    if rule != "ca":   # federal / default weekly-only
+        out, straight = [], 0
+        for m in day_minutes:
+            r, o = m, 0
+            if straight + r > _WEEK_OT_MIN:
+                o = min(r, straight + r - _WEEK_OT_MIN); r -= o
+            straight += r
+            out.append((r, o, 0))
+        return out
+
+    # California
+    out, consec, straight = [], 0, 0
+    for m in day_minutes:
+        if m <= 0:
+            consec = 0
+            out.append((0, 0, 0))
+            continue
+        consec += 1
+        if consec == 7:                                  # 7th consecutive worked day
+            out.append((0, min(m, _DAY_OT_MIN), max(0, m - _DAY_OT_MIN)))
+            continue
+        r = min(m, _DAY_OT_MIN)                           # first 8h — straight time
+        o = max(0, min(m, _DAY_DT_MIN) - _DAY_OT_MIN)     # 8–12h @1.5x
+        d = max(0, m - _DAY_DT_MIN)                       # >12h @2x
+        if straight + r > _WEEK_OT_MIN:                   # weekly 40h: overflow straight → 1.5x
+            over = min(r, straight + r - _WEEK_OT_MIN); r -= over; o += over
+        straight += r
+        out.append((r, o, d))
+    return out
+
+
+def _week_start_str(date_str: str) -> str:
+    # SUNDAY of the week — the overtime workweek must be anchored on the same
+    # weekday as the (Sunday→Saturday) pay period, or a Sunday that opens a pay
+    # period gets a fresh 40h bucket and its overtime is underpaid as regular.
     d = datetime.strptime(date_str, "%Y-%m-%d")
-    return (d - timedelta(days=d.weekday())).strftime("%Y-%m-%d")
+    return (d - timedelta(days=(d.weekday() + 1) % 7)).strftime("%Y-%m-%d")
 
 
 # ── Bi-weekly pay period (California: Sunday→Saturday × 2 = 14 days) ───────────
@@ -1682,84 +2024,126 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     totals off the HR-set hourly rate over [start, end]. Exact minutes, no
     rounding. Also aggregates break minutes and (when web capture ran) idle
     minutes so the timesheet can show a worked/break/idle composition bar."""
-    punches = _live_punches(db, em, start, end)
-    byday = {}
-    for p in punches:
-        byday.setdefault(p.local_date, []).append(p)
+    # Fetch one day PAST `end` so a shift that starts on the last day and clocks
+    # out after midnight still has its out-punch to pair with — otherwise that
+    # whole overnight shift (in on `end`, out on `end`+1) would be dropped from
+    # this period AND orphaned in the next, and the worker paid $0 for it. Days
+    # after `end` are excluded from the emitted totals below.
+    # (use strptime, not date.fromisoformat: the `for date in …` loop below shadows
+    # the module-level `date` name across this whole function scope)
+    _end_fetch = (datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d") if end else end
+    punches = _live_punches(db, em, start, _end_fetch)
     rate_row = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
     rate = float(rate_row.hourly_rate) if rate_row else 0.0
+    rule = (getattr(rate_row, "overtime_rule", None) or "ca") if rate_row else "ca"
 
-    weekly_cum, days_out = {}, []
-    total_reg = total_ot = total_break = missing_punches = 0
+    days_out = []
+    total_reg = total_ot = total_dt = total_break = missing_punches = 0
     edited_punches = sum(1 for p in punches if p.adjusted_by)
 
-    for date in sorted(byday.keys()):
-        day_break = 0
-        segs = []
-        open_in = None
-        open_in_at = ""
-        open_in_id = ""
-        open_break = None
-        brk = 0.0
-        sflags = set()
-        for p in byday[date]:
-            t = _parse_iso(p.at)
-            if t is None:
-                continue
-            if p.kind == "in":
-                open_in, open_in_at, open_in_id, brk, sflags = t, p.at, p.id, 0.0, set()
-                if p.geo_status == "out_of_fence":
-                    sflags.add("out_of_fence")
-                if p.source in ("manual", "self_manual"):
-                    sflags.add("manual")
+    # Pair across the FULL ordered punch sequence — NOT bucketed per day — so a
+    # shift that spans midnight (in one night, out the next morning) stays a single
+    # segment. Each finished segment is attributed to the day the shift STARTED
+    # (the in-punch's local_date), which is where a night worker expects their
+    # hours to land.
+    segs_by_day = {}   # local_date -> [segment, ...]
+    open_in = open_in_at = open_in_id = open_in_date = None
+    open_break = None
+    brk = 0.0
+    sflags = set()
+
+    def _flush_missing():
+        # An in that never got an out → record it as a missing_out on its own day.
+        nonlocal missing_punches
+        segs_by_day.setdefault(open_in_date, []).append(
+            {"in": open_in_at, "out": "", "inId": open_in_id, "outId": "",
+             "workedMin": 0, "flags": sorted(sflags | {"missing_out"}), "_break": int(round(brk))})
+        missing_punches += 1
+
+    for p in punches:
+        t = _parse_iso(p.at)
+        if t is None:
+            continue
+        if p.kind == "in":
+            if open_in is not None:      # a new in without an out closes the prior as missing
+                _flush_missing()
+            open_in, open_in_at, open_in_id, open_in_date = t, p.at, p.id, p.local_date
+            open_break, brk, sflags = None, 0.0, set()
+            if p.geo_status == "out_of_fence":
+                sflags.add("out_of_fence")
+            if p.source in ("manual", "self_manual"):
+                sflags.add("manual")
+            if p.adjusted_by:
+                sflags.add("adjusted")
+        elif p.kind == "out":
+            if open_break is not None:
+                brk += (t - open_break).total_seconds() / 60
+                open_break = None
+            if open_in is not None:
                 if p.adjusted_by:
                     sflags.add("adjusted")
-            elif p.kind == "out":
-                if open_break is not None:
-                    brk += (t - open_break).total_seconds() / 60
-                    open_break = None
-                if open_in is not None:
-                    if p.adjusted_by:
-                        sflags.add("adjusted")
-                    mins = int(round((t - open_in).total_seconds() / 60 - brk))
-                    segs.append({"in": open_in_at, "out": p.at, "inId": open_in_id, "outId": p.id,
-                                 "workedMin": max(0, mins), "flags": sorted(sflags)})
-                    day_break += int(round(brk))
-                    open_in = None
-            elif p.kind == "break_start":
-                if open_break is None and open_in is not None:
-                    open_break = t
-            elif p.kind == "break_end":
-                if open_break is not None:
-                    brk += (t - open_break).total_seconds() / 60
-                    open_break = None
-        if open_in is not None:
-            segs.append({"in": open_in_at, "out": "", "inId": open_in_id, "outId": "",
-                         "workedMin": 0, "flags": sorted(sflags | {"missing_out"})})
-            day_break += int(round(brk))
-            missing_punches += 1
+                mins = int(round((t - open_in).total_seconds() / 60 - brk))
+                segs_by_day.setdefault(open_in_date, []).append(
+                    {"in": open_in_at, "out": p.at, "inId": open_in_id, "outId": p.id,
+                     "workedMin": max(0, mins), "flags": sorted(sflags), "_break": int(round(brk))})
+                open_in = None
+            # else: orphan out with no open in — ignored (its in was outside the range)
+        elif p.kind == "break_start":
+            if open_break is None and open_in is not None:
+                open_break = t
+        elif p.kind == "break_end":
+            if open_break is not None:
+                brk += (t - open_break).total_seconds() / 60
+                open_break = None
+    if open_in is not None:
+        _flush_missing()
 
-        mon = _monday_str(date)
-        day_reg = day_ot = 0
+    # Per-day worked totals (from the paired segments), then apply the employee's
+    # overtime law per workweek.
+    day_total, day_break_m, day_segs = {}, {}, {}
+    for d, segs in segs_by_day.items():
+        if end and d > end:      # the extra fetched day only lends its out-punch
+            continue
+        day_total[d] = sum(s["workedMin"] for s in segs)
+        day_break_m[d] = sum(s.pop("_break", 0) for s in segs)
+        day_segs[d] = segs
+
+    # Split each workweek (Sunday-anchored) into reg / ot@1.5x / dt@2x per day.
+    by_week = {}
+    for d in day_total:
+        by_week.setdefault(_week_start_str(d), True)
+    day_split = {}   # date -> (reg, ot, dt)
+    for wk in by_week:
+        wk0 = datetime.strptime(wk, "%Y-%m-%d")
+        seq = [(wk0 + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
+        for sd, split in zip(seq, _ot_split([day_total.get(s, 0) for s in seq], rule)):
+            if sd in day_total:
+                day_split[sd] = split
+
+    for d in sorted(day_total):
+        reg, ot, dt = day_split.get(d, (day_total[d], 0, 0))
+        segs = day_segs[d]
+        # Attribute the day's reg/ot/dt across its segments in worked order so the
+        # per-segment amount stays sensible (overtime accrues on the later hours).
+        rr, oo, dd = reg, ot, dt
         for seg in segs:
-            cum = weekly_cum.get(mon, 0)
-            reg = min(seg["workedMin"], max(0, _WEEK_OT_MIN - cum))
-            ot = seg["workedMin"] - reg
-            weekly_cum[mon] = cum + seg["workedMin"]
-            seg["regMin"], seg["otMin"] = reg, ot
-            seg["amount"] = round(reg / 60 * rate + ot / 60 * rate * _OT_MULT, 2)
-            day_reg += reg
-            day_ot += ot
-        total_reg += day_reg
-        total_ot += day_ot
-        total_break += day_break
-        days_out.append({"date": date, "weekStart": mon, "segments": segs,
-                         "workedMin": day_reg + day_ot, "regMin": day_reg, "otMin": day_ot,
-                         "breakMin": day_break})
+            wm = seg["workedMin"]
+            s_reg = min(wm, rr); rr -= s_reg
+            s_ot = min(wm - s_reg, oo); oo -= s_ot
+            s_dt = min(wm - s_reg - s_ot, dd); dd -= s_dt
+            seg["regMin"], seg["otMin"], seg["dtMin"] = s_reg, s_ot, s_dt
+            seg["amount"] = round(s_reg / 60 * rate + s_ot / 60 * rate * _OT_MULT
+                                  + s_dt / 60 * rate * _DT_MULT, 2)
+        total_reg += reg; total_ot += ot; total_dt += dt
+        total_break += day_break_m[d]
+        days_out.append({"date": d, "weekStart": _week_start_str(d), "segments": segs,
+                         "workedMin": reg + ot + dt, "regMin": reg, "otMin": ot, "dtMin": dt,
+                         "breakMin": day_break_m[d]})
 
     reg_pay = round(total_reg / 60 * rate, 2)
     ot_pay = round(total_ot / 60 * rate * _OT_MULT, 2)
-    worked_min = total_reg + total_ot
+    dt_pay = round(total_dt / 60 * rate * _DT_MULT, 2)
+    worked_min = total_reg + total_ot + total_dt
 
     # Idle estimate for the composition bar (best-effort, from web capture): a
     # frame whose idle-at-capture ≥ 4 min stands in for one capture interval of
@@ -1774,9 +2158,10 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     active_min = max(0, worked_min - idle_min)
 
     return {"email": em, "start": start, "end": end, "rate": rate, "rateSet": rate_row is not None,
-            "days": days_out,
-            "totals": {"regMin": total_reg, "otMin": total_ot, "regPay": reg_pay, "otPay": ot_pay,
-                       "totalPay": round(reg_pay + ot_pay, 2),
+            "overtimeRule": rule, "days": days_out,
+            "totals": {"regMin": total_reg, "otMin": total_ot, "dtMin": total_dt,
+                       "regPay": reg_pay, "otPay": ot_pay, "dtPay": dt_pay,
+                       "totalPay": round(reg_pay + ot_pay + dt_pay, 2),
                        "breakMin": total_break, "workedMin": worked_min,
                        "activeMin": active_min, "idleMin": idle_min,
                        "missingPunches": missing_punches, "editedPunches": edited_punches}}
@@ -1810,6 +2195,7 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
 class RateIn(BaseModel):
     email: str
     hourly_rate: float
+    overtime_rule: Optional[str] = None   # ca | federal | none (unchanged if omitted)
 
 
 @router.put("/payroll/rate")
@@ -1824,10 +2210,12 @@ def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
         row = PayrollRate(employee_email=em)
         db.add(row)
     row.hourly_rate = max(0.0, float(body.hourly_rate or 0))
+    if body.overtime_rule in ("ca", "federal", "none"):
+        row.overtime_rule = body.overtime_rule
     row.updated_by = user["email"]
     row.updated_at = _now_iso()
     db.commit()
-    return {"ok": True, "rate": row.hourly_rate}
+    return {"ok": True, "rate": row.hourly_rate, "overtimeRule": row.overtime_rule or "ca"}
 
 
 # App/window-activity read endpoints (/my-activity, /activity-day, /activity)
@@ -1965,8 +2353,11 @@ def bod_template(kind: str = "bod", user: dict = Depends(get_current_user),
     """Pre-fill text for the BOD/EOD composer: the employee's most recent post
     of this kind (their evolving personal template), or a starter default."""
     k = kind if kind in ("bod", "eod") else "bod"
+    # Exclude the "already sent elsewhere" skip marker — it's a bookkeeping row,
+    # not something to pre-fill back into the composer.
     row = (db.query(TimeBod)
-           .filter(TimeBod.employee_email == user["email"], TimeBod.kind == k)
+           .filter(TimeBod.employee_email == user["email"], TimeBod.kind == k,
+                   TimeBod.message != "(sent outside Nexus)")
            .order_by(TimeBod.created_at.desc()).first())
     if row and (row.message or row.tasks):
         return {"message": row.message or "", "tasks": row.tasks or "",

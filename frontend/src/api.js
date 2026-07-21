@@ -8,12 +8,20 @@ async function getAuthHeader(forceRefresh = false) {
   // Without this, acquireTokenSilent fails on first render and the request
   // goes out with no Authorization header, causing a 401.
   await msalReady;
-  const accounts = msalInstance.getAllAccounts();
-  if (!accounts.length) return {};
+  // Prefer the ACTIVE account, not getAllAccounts()[0]: a user signed into more
+  // than one Microsoft account (e.g. work + personal) can have the wrong account
+  // at [0], whose token the backend rejects with 401. Pin the active account once
+  // so every request uses the same identity.
+  let account = msalInstance.getActiveAccount();
+  if (!account) {
+    account = msalInstance.getAllAccounts()[0];
+    if (account) msalInstance.setActiveAccount(account);
+  }
+  if (!account) return {};
   try {
     const result = await msalInstance.acquireTokenSilent({
       ...apiTokenRequest,
-      account: accounts[0],
+      account,
       forceRefresh,
     });
     return { Authorization: `Bearer ${result.idToken}` };
@@ -53,6 +61,33 @@ export function onBackendHealth(fn) {
   return () => _healthListeners.delete(fn);
 }
 export function isBackendDown() { return _backendDown; }
+
+// ── Keep-warm ─────────────────────────────────────────────────────────────────
+// The dev/prod API is Azure App Service, which parks the process after a few
+// idle minutes and then cold-starts (5-15s) on the next request — so the FIRST
+// screen a user opens after any lull feels slow and "glitchy". A cheap /health
+// ping on boot and every few minutes (only while the tab is visible) keeps the
+// process warm through a working session, so navigations stay snappy. This is a
+// mitigation, not a substitute for enabling "Always On" on the App Service —
+// that eliminates cold starts entirely at the infra level.
+let _keepWarmTimer = null;
+function _pingHealth() {
+  // Bare fetch — no auth, no retry, never flips the reconnecting banner; a failed
+  // warm-up ping should be invisible.
+  fetch(`${BASE}/health`, { cache: 'no-store' }).catch(() => {});
+}
+export function startKeepWarm(everyMs = 4 * 60_000) {
+  if (_keepWarmTimer) return;               // idempotent — safe to call once on boot
+  _pingHealth();                            // start waking the backend immediately
+  _keepWarmTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') _pingHealth();
+  }, everyMs);
+  // Returning to a tab that sat idle is exactly when the backend has gone cold —
+  // ping right away so the next click doesn't eat the cold start.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') _pingHealth();
+  });
+}
 
 // FastAPI 422 returns `detail` as an array of {loc, msg, type}. Passing that to
 // new Error() stringifies to "[object Object]", which then surfaces in toasts.
@@ -677,6 +712,10 @@ export const api = {
   timeBodRecord:     (data)      => req('/timeclock/bod', { method: 'POST', body: JSON.stringify(data) }),
   timeBodLast:       ()          => req('/timeclock/bod/last'),
   timeBodTemplate:   (kind)      => req(`/timeclock/bod/template?kind=${kind || 'bod'}`),
+  // Sign-in company-policy & monitoring acknowledgment
+  policyStatus:      ()          => req('/policy/status'),
+  policyAccept:      ()          => req('/policy/accept', { method: 'POST' }),
+  policyMyAcks:      ()          => req('/policy/acknowledgments'),
 
   // ── Customizable dashboards (drag-and-drop widget layouts) ──
   dashViews:      (target)     => req(`/dashboards/views?target=${encodeURIComponent(target)}`),
@@ -729,6 +768,10 @@ export const api = {
   timeSchedDelete:   (id)        => req(`/timeclock/schedule/${id}`, { method: 'DELETE' }),
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
+  // Insights dashboard (Top Apps / Top Websites / activity), from the desktop agent
+  timeInsights:      (email, start, end) => req(`/timeclock/insights?email=${encodeURIComponent(email || '')}&start=${start || ''}&end=${end || ''}&tz=${new Date().getTimezoneOffset()}`),
+  timeRatings:       ()          => req('/timeclock/ratings'),
+  timeSetRating:     (data)      => req('/timeclock/ratings', { method: 'PUT', body: JSON.stringify(data) }),
 
   // ── Credential Vault (secrets only ever come back from the /reveal endpoints) ──
   cvCredentials:    ()           => req('/credvault/credentials'),

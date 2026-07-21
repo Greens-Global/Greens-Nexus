@@ -252,7 +252,7 @@ export default function Operations({ activeSub, onSubChange }) {
           <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
             <div className="kpi-card card-blue" style={{ cursor: 'default' }}>
               <div className="kpi-card-header">
-                <span className="kpi-title">Storage capacity</span>
+                <span className="kpi-title">Storage Capacity</span>
                 <div className="kpi-icon-container"><Database size={18} /></div>
               </div>
               <div className="kpi-stat" style={{ fontSize: '1.6rem' }}>42.5 GB / 100 GB</div>
@@ -262,7 +262,7 @@ export default function Operations({ activeSub, onSubChange }) {
             </div>
             <div className="kpi-card card-green" style={{ cursor: 'default' }}>
               <div className="kpi-card-header">
-                <span className="kpi-title">Active node connections</span>
+                <span className="kpi-title">Active Node Connections</span>
                 <div className="kpi-icon-container"><Server size={18} /></div>
               </div>
               <div className="kpi-stat" style={{ fontSize: '1.6rem' }}>3 Local Syncs</div>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  Shield, Plus, X, Search, Loader2, Pencil, Trash2, UserPlus, Check, ChevronRight, LayoutGrid, Copy,
+  Shield, Plus, X, Search, Loader2, Pencil, Trash2, UserPlus, Check, ChevronRight, LayoutGrid, Copy, MonitorOff,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
@@ -162,7 +162,7 @@ export default function RolesAccess({ embedded = false }) {
         !jobRoles ? <Spinner /> : (
           <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 18 }} className="ra-grid">
             <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end' }}>
-              <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditing(null)}><Plus size={15} /> New job role</button>
+              <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditing(null)}><Plus size={15} /> New Job Role</button>
             </div>
             <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6, alignSelf: 'start' }}>
               {jobRoles.length === 0 ? <Empty text="No job roles yet." /> : jobRoles.map(r => (
@@ -181,6 +181,12 @@ export default function RolesAccess({ embedded = false }) {
                 <>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
                     <div style={{ flex: 1 }}><h3 style={{ fontSize: 18, fontWeight: 800 }}>{selected.name}</h3></div>
+                    {selected.monitoring_exempt && (
+                      <span title="People in this role clock in without sharing a screen; no screenshots are captured."
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+                          background: 'rgba(37,99,235,0.1)', color: 'hsl(var(--color-blue))' }}>
+                        <MonitorOff size={12} /> Not monitored</span>
+                    )}
                     <TierBadge tier={selected.tier} />
                     <button className="secondary-btn" style={{ padding: '6px 10px' }} onClick={() => setEditing(selected)} title="Edit role"><Pencil size={13} /></button>
                     <button className="secondary-btn" style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
@@ -234,7 +240,7 @@ export default function RolesAccess({ embedded = false }) {
         !groups ? <Spinner /> : (
           <>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-              <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditGroup(null)}><Plus size={15} /> New group</button>
+              <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditGroup(null)}><Plus size={15} /> New Group</button>
             </div>
             <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6 }}>
               {groups.length === 0 ? <Empty text="No additive groups yet. Create one to grant extra access on top of a job role." /> : groups.map(g => {
@@ -304,6 +310,7 @@ function RoleEditor({ role, onClose, onSaved, onErr }) {
   const [tier, setTier] = useState(role?.tier || 'employee');
   const [desc, setDesc] = useState(role?.description || '');
   const [bundle, setBundle] = useState(() => Object.fromEntries((role?.allowed_modules || []).map(g => [g.id, g.level])));
+  const [monExempt, setMonExempt] = useState(!!role?.monitoring_exempt);
   const [busy, setBusy] = useState(false);
 
   const toggle = id => setBundle(b => { const n = { ...b }; if (n[id]) delete n[id]; else n[id] = 'viewer'; return n; });
@@ -312,7 +319,7 @@ function RoleEditor({ role, onClose, onSaved, onErr }) {
   async function save() {
     if (!name.trim()) return onErr('Name is required.');
     setBusy(true);
-    const body = { name: name.trim(), tier, description: desc.trim(), allowed_modules: Object.entries(bundle).map(([id, level]) => ({ id, level })) };
+    const body = { name: name.trim(), tier, description: desc.trim(), monitoring_exempt: monExempt, allowed_modules: Object.entries(bundle).map(([id, level]) => ({ id, level })) };
     try {
       // A seed object with no id (from Duplicate) creates a new role rather than editing the original.
       const saved = role?.id ? await api.updateJobRole(role.id, body) : await api.createJobRole(body);
@@ -355,10 +362,25 @@ function RoleEditor({ role, onClose, onSaved, onErr }) {
             })}
           </div>
         </div>
+        <div style={{ ...sectLabel, marginTop: 4 }}>Time-clock monitoring</div>
+        <button type="button" onClick={() => setMonExempt(v => !v)}
+          style={{ display: 'flex', alignItems: 'flex-start', gap: 11, textAlign: 'left', width: '100%', padding: '11px 13px',
+            border: `1.5px solid ${monExempt ? 'var(--ink)' : 'var(--line)'}`, borderRadius: 10,
+            background: monExempt ? 'var(--mist)' : 'transparent', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+          <span style={{ width: 20, height: 20, borderRadius: 6, flexShrink: 0, marginTop: 1, display: 'grid', placeItems: 'center',
+            border: `1.5px solid ${monExempt ? 'var(--ink)' : 'var(--line-strong,rgba(0,0,0,0.2))'}`, background: monExempt ? 'var(--ink)' : 'transparent', color: 'var(--card)' }}>
+            {monExempt && <Check size={13} />}</span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Exempt from screen-share monitoring</span>
+            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
+              People in this role clock in without sharing a screen, and no screenshots are captured for them. Everyone else must share a screen to clock in. Use for leadership.
+            </span>
+          </span>
+        </button>
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
         <button className="secondary-btn" onClick={onClose}>Cancel</button>
-        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />} Save job role</button>
+        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />} Save Job Role</button>
       </div>
     </Modal>
   );
@@ -412,7 +434,7 @@ function GroupEditor({ group, onClose, onSaved, onErr }) {
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
         <button className="secondary-btn" onClick={onClose}>Cancel</button>
-        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />} Save group</button>
+        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />} Save Group</button>
       </div>
     </Modal>
   );

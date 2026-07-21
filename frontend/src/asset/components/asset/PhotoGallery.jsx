@@ -240,7 +240,7 @@ export function PhotoGallery({ p, n, onSave }) {
           {editing && (
             <div onPaste={handlePaste} tabIndex={0} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap', outline: 'none' }}>
               <label className="secondary-btn" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, margin: 0 }}>
-                <Upload size={14} /> Upload pictures
+                <Upload size={14} /> Upload Pictures
                 <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleUpload} />
               </label>
               <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>or press Ctrl+V to paste a screenshot</span>

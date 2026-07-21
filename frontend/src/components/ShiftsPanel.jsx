@@ -162,7 +162,7 @@ export default function ShiftsPanel({ people = [], toastOk, toastErr }) {
 
       {/* Assign */}
       <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 16 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 800, marginBottom: 10 }}>Assign a shift to a group</div>
+        <div style={{ fontSize: 12.5, fontWeight: 800, marginBottom: 10 }}>Assign a Shift to a Group</div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <select className="form-input" value={assignShift} onChange={e => setAssignShift(e.target.value)} style={{ fontSize: 12.5, minWidth: 160 }}>
             <option value="">— shift —</option>

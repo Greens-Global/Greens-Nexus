@@ -15,6 +15,7 @@ from routers import jobroles  # Roles & Access redesign (Jul 2026)
 from routers import access_scopes  # row-level scopes for external users (Jul 2026)
 from routers import qa  # Testing module — dev-only via NEXUS_QA_MODULE env (Jul 2026)
 from routers import credvault  # Credential Vault (Jul 2026)
+from routers import policy  # Sign-in company-policy & monitoring acknowledgment (Jul 2026)
 from routers import investor_relations  # Investor Relations platform (Jul 2026)
 from audit import AuditMiddleware
 
@@ -28,6 +29,9 @@ def _run_migrations():
         # SQLite has no IF NOT EXISTS for columns; duplicates just error and
         # are swallowed.
         sqlite_migrations = [
+            "ALTER TABLE payroll_rates ADD COLUMN overtime_rule VARCHAR DEFAULT 'ca'",
+            "ALTER TABLE agent_activity ADD COLUMN domain VARCHAR DEFAULT ''",
+            "ALTER TABLE agent_activity ADD COLUMN category VARCHAR DEFAULT ''",
             "ALTER TABLE items ADD COLUMN picture_required BOOLEAN DEFAULT 1",
             "ALTER TABLE items ADD COLUMN asset_value FLOAT DEFAULT 0",
             "UPDATE items SET status = 'available' WHERE ownership_type = 'permanent' AND COALESCE(assigned_to_email, '') = '' AND status = 'permanently_assigned'",
@@ -134,6 +138,7 @@ def _run_migrations():
             "ALTER TABLE nexus_groups ADD COLUMN is_job_role BOOLEAN DEFAULT 0",
             "ALTER TABLE nexus_groups ADD COLUMN tier VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_groups ADD COLUMN description VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_groups ADD COLUMN monitoring_exempt BOOLEAN DEFAULT 0",
             # Company email domains — drive M365 import + auto company tagging
             "ALTER TABLE hr_entities ADD COLUMN domains VARCHAR DEFAULT ''",
             # Company manager (operational head; escalation target)
@@ -200,6 +205,9 @@ def _run_migrations():
             conn.commit()
         return
     migrations = [
+        "ALTER TABLE payroll_rates ADD COLUMN IF NOT EXISTS overtime_rule VARCHAR DEFAULT 'ca'",
+        "ALTER TABLE agent_activity ADD COLUMN IF NOT EXISTS domain VARCHAR DEFAULT ''",
+        "ALTER TABLE agent_activity ADD COLUMN IF NOT EXISTS category VARCHAR DEFAULT ''",
         "ALTER TABLE requisitions ADD COLUMN IF NOT EXISTS employee_email VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_notifications ADD COLUMN IF NOT EXISTS read_by VARCHAR DEFAULT ''",
         # inventory_requests: return-flow columns added after initial table creation
@@ -391,6 +399,7 @@ def _run_migrations():
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS is_job_role BOOLEAN DEFAULT FALSE",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS tier VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS description VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS monitoring_exempt BOOLEAN DEFAULT FALSE",
         # Company email domains — drive M365 import + auto company tagging
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS domains VARCHAR DEFAULT ''",
         # Company manager (operational head; escalation target)
@@ -547,5 +556,6 @@ app.include_router(hr_interviews.router)
 app.include_router(task_projects.router)  # Task Module: projects/portfolios/departments
 app.include_router(task_config.router)    # Task Module: views/rules/templates/tickets/notifications/changelog
 app.include_router(credvault.router)      # Credential Vault: encrypted company/personal secrets ("credvault" grant)
+app.include_router(policy.router)         # Sign-in company-policy & monitoring acknowledgment
 app.include_router(investor_relations.router)  # Investor Relations: funds/investors/commitments/calls/distributions
 
