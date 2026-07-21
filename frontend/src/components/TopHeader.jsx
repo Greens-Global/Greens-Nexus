@@ -281,7 +281,7 @@ export default function TopHeader({ title, theme, onThemeToggle, onMobileToggle,
 
               <div className="hud-divider" />
               <button className="hud-item hud-signout" onClick={handleSignOut}>
-                <LogOut size={14} /> Sign out
+                <LogOut size={14} /> Sign Out
               </button>
             </div>
           )}

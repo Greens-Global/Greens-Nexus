@@ -474,6 +474,10 @@ class NexusGroup(Base):
     is_job_role     = Column(Integer, default=0)
     tier            = Column(String, default="")   # employee/supervisor/manager/administrator/owner — job roles only
     description     = Column(String, default="")
+    # Members of a group flagged monitoring_exempt=1 are excused from screen-share
+    # monitoring: no capture is offered and clock-in is not gated on sharing a
+    # screen (used for leadership). A person is exempt if ANY of their groups sets it.
+    monitoring_exempt = Column(Integer, default=0)
 
 
 class NexusGroupMember(Base):
@@ -1253,23 +1257,45 @@ class PayrollRate(Base):
     __tablename__ = "payroll_rates"
     employee_email = Column(String, primary_key=True)
     hourly_rate    = Column(Float, default=0)
+    # Which overtime law applies to THIS employee. 'ca' = California daily
+    # (>8h→1.5×, >12h→2×) + 7th-consecutive-day + weekly >40h; 'federal' = FLSA
+    # weekly >40h only (out-of-state US); 'none' = no US overtime premium
+    # (non-US — their local law is handled outside Nexus). Defaults to 'ca' since
+    # the workforce is California; set explicitly for out-of-state / overseas.
+    overtime_rule  = Column(String, default="ca")
     updated_by     = Column(String, default="")
     updated_at     = Column(String, default="")
 
 
 class AgentActivity(Base):
-    """App/window activity reported by a silent device: per reporting window,
-    seconds spent in each foreground app + an activity % (share of samples where
-    the machine wasn't idle). Powers the app-usage breakdown + activity score."""
+    """One foreground-usage sample from the desktop agent: seconds spent in an app
+    (and, for browsers, the active domain) with the window title and an activity %
+    (share of that window where the user wasn't idle). Powers the Insights
+    dashboard — Top Apps, Top Websites, active-vs-idle, and the activity log."""
     __tablename__ = "agent_activity"
     id             = Column(String, primary_key=True)   # uuid
     employee_email = Column(String, nullable=False, index=True)
     local_date     = Column(String, default="", index=True)
-    at             = Column(String, default="")
-    app            = Column(String, default="")
-    title          = Column(String, default="")
+    at             = Column(String, default="")         # sample end time (UTC ISO)
+    app            = Column(String, default="")         # e.g. "Google Chrome", "Excel"
+    title          = Column(String, default="")         # active window title
+    domain         = Column(String, default="")         # host for browser activity, else ""
+    category       = Column(String, default="")         # productive | neutral | unproductive | "" (from ratings)
     seconds        = Column(Integer, default=0)
-    active_pct     = Column(Integer, default=0)
+    active_pct     = Column(Integer, default=0)         # 0-100, non-idle share of this sample
+
+
+class AppRating(Base):
+    """Company-wide productivity rating for an app or website domain, set by an
+    admin ("Rate Apps & URLs"). Drives the productive/neutral/unproductive split
+    on the Insights dashboard. Keyed by lowercased app-or-domain."""
+    __tablename__ = "app_ratings"
+    key            = Column(String, primary_key=True)   # lowercased app name or domain
+    kind           = Column(String, default="app")      # app | domain
+    label          = Column(String, default="")         # display name
+    rating         = Column(String, default="neutral")  # productive | neutral | unproductive
+    updated_by     = Column(String, default="")
+    updated_at     = Column(String, default="")
 
 
 class TimeOffRequest(Base):
@@ -1480,6 +1506,21 @@ class MonitoringConsent(Base):
     ip             = Column(String, default="")
     user_agent     = Column(String, default="")
     created_at     = Column(String, default="")
+
+
+class PolicyAcknowledgment(Base):
+    """One-time (per policy version) acknowledgment of company policies + the
+    employee-monitoring disclosure, shown at sign-in. Records who/when/version/
+    ip/ua so the acceptance is provable. Bumping POLICY_VERSION re-prompts
+    everyone. This is the standing, portal-wide disclosure; MonitoringConsent is
+    the separate per-day clock-in acknowledgment."""
+    __tablename__ = "policy_acknowledgments"
+    id             = Column(String, primary_key=True)   # uuid
+    email          = Column(String, nullable=False, index=True)
+    version        = Column(String, default="", index=True)
+    accepted_at    = Column(String, default="")
+    ip             = Column(String, default="")
+    user_agent     = Column(String, default="")
 
 
 # ═════════════════════════════════════════════════════════════════════════════

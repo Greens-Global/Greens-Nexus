@@ -61,6 +61,7 @@ def _serialize(group: NexusGroup, db: Session) -> dict:
         "is_job_role": bool(getattr(group, "is_job_role", False)),
         "tier": getattr(group, "tier", "") or "",
         "description": getattr(group, "description", "") or "",
+        "monitoring_exempt": bool(getattr(group, "monitoring_exempt", False)),
     }
 
 
@@ -93,11 +94,13 @@ class GroupCreate(BaseModel):
     department: Optional[str] = ""
     allowed_modules: Optional[list[ModuleGrant]] = []
     member_emails: Optional[list[str]] = []
+    monitoring_exempt: Optional[bool] = False
 
 class GroupUpdate(BaseModel):
     name: Optional[str] = None
     department: Optional[str] = None
     allowed_modules: Optional[list[ModuleGrant]] = None
+    monitoring_exempt: Optional[bool] = None
 
 class MembersUpdate(BaseModel):
     emails: list[str]
@@ -143,6 +146,7 @@ def create_group(body: GroupCreate, user: dict = Depends(require_administrator),
         name=name,
         department=(body.department or "").strip(),
         allowed_modules=_modules_csv(body.allowed_modules),
+        monitoring_exempt=1 if body.monitoring_exempt else 0,
         created_by=user["email"],
         created_at=now,
     )
@@ -173,6 +177,8 @@ def update_group(group_id: str, body: GroupUpdate, user: dict = Depends(require_
         group.department = body.department.strip()
     if body.allowed_modules is not None:
         group.allowed_modules = _modules_csv(body.allowed_modules)
+    if body.monitoring_exempt is not None:
+        group.monitoring_exempt = 1 if body.monitoring_exempt else 0
 
     db.commit()
     return _serialize(group, db)

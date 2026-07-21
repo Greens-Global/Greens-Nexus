@@ -112,7 +112,7 @@ function actionColor(action) {
 }
 
 const ACTION_CATEGORIES = [
-  { value: '',            label: 'All actions' },
+  { value: '',            label: 'All Actions' },
   { value: 'requisition', label: 'Requisitions' },
   { value: 'inventory',   label: 'Inventory' },
   { value: 'role',        label: 'Roles' },
@@ -120,12 +120,12 @@ const ACTION_CATEGORIES = [
   { value: 'review',      label: 'Reviews' },
   { value: 'asset',       label: 'Assets' },
   { value: 'purchase',    label: 'Purchases' },
-  { value: 'punch',       label: 'Time clock' },
-  { value: 'time off',    label: 'Time off' },
+  { value: 'punch',       label: 'Time Clock' },
+  { value: 'time off',    label: 'Time Off' },
   { value: 'hr',          label: 'HR' },
-  { value: 'sign',        label: 'E-sign' },
+  { value: 'sign',        label: 'E-Sign' },
   { value: 'dashboard',   label: 'Dashboards' },
-  { value: 'group',       label: 'Access groups' },
+  { value: 'group',       label: 'Access Groups' },
   { value: 'employee',    label: 'Employees' },
   { value: 'auth',        label: 'Security (failed access)' },
 ];
@@ -363,7 +363,7 @@ export default function AdminPanel({ open, initialTab = 'audit', onClose }) {
   // People → Roles & Access, and per-person access is set on the employee card.
   const tabs = [
     { id: 'audit',  icon: <Activity size={14} />, label: 'Audit Logs' },
-    { id: 'timetracking', icon: <Clock size={14} />, label: 'Time Tracking' },
+    { id: 'timetracking', icon: <Clock size={14} />, label: 'Monitoring' },
   ];
 
   return (

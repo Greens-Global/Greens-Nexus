@@ -1327,7 +1327,7 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
     return { total: tickets.length, open: open.length, byStatus, byType, byPriority, byAssignee, byDepartment, recurring, avgDays, compliance, breaching, atRisk, avgCsat };
   }, [tickets, nameOf, hrDeptName]);
 
-  if (tickets.length === 0) return <EmptyState icon={BarChart3} title="No data" hint="No tickets match your filters." />;
+  if (tickets.length === 0) return <EmptyState icon={BarChart3} title="No Data" hint="No tickets match your filters." />;
 
   const Stat = ({ label: lab, value, color }) => (
     <div style={{ flex: '1 1 130px', borderRadius: 14, border: `1px solid ${NX.border}`, background: NX.surface, padding: '14px 16px' }}>
@@ -1339,12 +1339,12 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        <Stat label="Total tickets" value={stats.total} />
+        <Stat label="Total Tickets" value={stats.total} />
         <Stat label="Open" value={stats.open} color={NX.blue} />
         <Stat label="SLA breached" value={stats.breaching} color={stats.breaching ? NX.red : NX.ink} />
         <Stat label="Due soon" value={stats.atRisk} color={stats.atRisk ? NX.amber : NX.ink} />
-        <Stat label="Avg resolution" value={stats.avgDays == null ? '—' : `${stats.avgDays.toFixed(1)}d`} />
-        <Stat label="SLA compliance" value={stats.compliance == null ? '—' : `${stats.compliance}%`} color={stats.compliance != null && stats.compliance < 80 ? NX.red : NX.green} />
+        <Stat label="Avg Resolution" value={stats.avgDays == null ? '—' : `${stats.avgDays.toFixed(1)}d`} />
+        <Stat label="SLA Compliance" value={stats.compliance == null ? '—' : `${stats.compliance}%`} color={stats.compliance != null && stats.compliance < 80 ? NX.red : NX.green} />
         <Stat label="Avg CSAT" value={stats.avgCsat == null ? '—' : `${stats.avgCsat.toFixed(1)}★`} color={stats.avgCsat != null && stats.avgCsat >= 4 ? NX.green : NX.ink} />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>

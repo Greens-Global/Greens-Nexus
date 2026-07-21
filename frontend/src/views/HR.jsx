@@ -262,7 +262,7 @@ function EmployeeFormModal({ employee, employees, entities = [], isAdmin = false
                 <div>
                   <label style={FL}>RATE TYPE</label>
                   <select className="form-input" style={{ width: '100%' }} value={(f.contractor || {}).rate_type || 'hourly'} onChange={e => setC('rate_type', e.target.value)}>
-                    <option value="hourly">Hourly</option><option value="fixed_fee">Fixed fee</option><option value="daily">Daily</option><option value="monthly">Monthly retainer</option>
+                    <option value="hourly">Hourly</option><option value="fixed_fee">Fixed Fee</option><option value="daily">Daily</option><option value="monthly">Monthly Retainer</option>
                   </select>
                 </div>
                 <div>
@@ -702,7 +702,7 @@ function PhotoEditorModal({ employee: e, onClose, onSaved, toastOk, toastErr }) 
       onClick={ev => ev.target === ev.currentTarget && !busy && onClose()}>
       <div onPaste={handlePaste} tabIndex={0} style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 380, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', outline: 'none' }}>
         <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Profile photo</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>Profile Photo</h3>
           <button onClick={onClose} disabled={busy} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ padding: 22, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
@@ -959,7 +959,7 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
                         </select>
                         <button className="secondary-btn" style={{ fontSize: 11.5, padding: '4px 10px' }}
                           onClick={() => fileAttachment(r.id)}>
-                          Add to employee documents
+                          Add to Employee Documents
                         </button>
                       </>
                     )}
@@ -1071,7 +1071,7 @@ function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr })
               </div>
             ))}
           <button className="secondary-btn" style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={() => setPick('group')}>
-            <Plus size={13} /> Add group
+            <Plus size={13} /> Add Group
           </button>
         </div>
       </div>
@@ -1125,9 +1125,9 @@ function EmployeeAccess({ email, identityType = 'internal', toastOk, toastErr })
         </div>
       )}
 
-      {pick === 'role' && <AccessPicker title="Choose a job role" items={roles} onClose={() => setPick(null)} onPick={assign}
+      {pick === 'role' && <AccessPicker title="Choose a Job Role" items={roles} onClose={() => setPick(null)} onPick={assign}
         renderItem={jr => (<><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 700, fontSize: 13 }}>{jr.name}</div><div style={{ marginTop: 3 }}><TierBadge tier={jr.tier} /></div></div><span style={{ fontSize: 11, color: 'var(--muted)' }}>{jr.member_count} ppl</span></>)} />}
-      {pick === 'group' && <AccessPicker title="Add a group" items={groups.filter(g => !held.has(g.id))} onClose={() => setPick(null)} onPick={addGroup}
+      {pick === 'group' && <AccessPicker title="Add a Group" items={groups.filter(g => !held.has(g.id))} onClose={() => setPick(null)} onPick={addGroup}
         renderItem={g => (<div style={{ flex: 1 }}><div style={{ fontWeight: 700, fontSize: 13 }}>{g.name}</div><div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>{(g.allowed_modules || []).map(mm => <ModuleLevelPill key={mm.id} moduleId={mm.id} level={mm.level} />)}</div></div>)} />}
       <style>{`@media (max-width:640px){.acc-grid{grid-template-columns:1fr !important}}`}</style>
     </div>
@@ -1172,7 +1172,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
     <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '22px 24px', boxShadow: 'var(--shadow-sm)' }}>
       {isMobile && (
         <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 600, fontFamily: 'Inter,sans-serif', padding: 0, marginBottom: 14 }}>
-          <ChevronLeft size={15} /> All people
+          <ChevronLeft size={15} /> All People
         </button>
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 6, flexWrap: 'wrap' }}>
@@ -1207,7 +1207,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         {!e.m365Id ? (
           <button className="primary-btn" onClick={() => setProvisionOpen(true)}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, background: 'hsl(var(--color-green))' }}>
-            <CheckCircle size={13} /> Provision accounts
+            <CheckCircle size={13} /> Provision Accounts
           </button>
         ) : (
           <>
@@ -1518,7 +1518,7 @@ function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignatu
               {c.resumeUrl ? (
                 <button onClick={viewResume}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-blue))', fontFamily: 'Inter,sans-serif', padding: 0 }}>
-                  View resume
+                  View Resume
                 </button>
               ) : (
                 <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>No resume on file</span>
@@ -1535,14 +1535,14 @@ function CandidateDetailModal({ candidate: c, onClose, onStage, onSendForSignatu
               <button className="primary-btn" onClick={() => onOpenInterviews(c)}
                 title="Teams invite, live questionnaire, AI answer fill and calibrated scoring"
                 style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <CalendarDays size={13} /> Interview room
+                <CalendarDays size={13} /> Interview Room
               </button>
             )}
             {c.email && onSendForSignature && c.stage !== 'rejected' && (
               <button className="secondary-btn" onClick={() => { onSendForSignature(c); onClose(); }}
                 title="Send an offer letter or other document to this candidate via a secure e-sign link (no login needed)"
                 style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <FileText size={13} /> Send for signature
+                <FileText size={13} /> Send for Signature
               </button>
             )}
           </div>
@@ -2247,9 +2247,9 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
       {/* Toolbar: expand controls · full-width search · filters + count (People-tab style) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
         <button className="secondary-btn" style={{ fontSize: 12, flex: '0 0 auto' }}
-          onClick={() => { setCollapsedSet(new Set()); setTimeout(centerView, 60); }}>Expand all</button>
+          onClick={() => { setCollapsedSet(new Set()); setTimeout(centerView, 60); }}>Expand All</button>
         <button className="secondary-btn" style={{ fontSize: 12, flex: '0 0 auto' }}
-          onClick={() => { setCollapsedSet(new Set([...visChildren.keys()])); setTimeout(centerView, 60); }}>Collapse all</button>
+          onClick={() => { setCollapsedSet(new Set([...visChildren.keys()])); setTimeout(centerView, 60); }}>Collapse All</button>
         <div className="search-bar" style={{ flex: '1 1 240px', minWidth: 200 }}>
           <Search size={13} style={{ flexShrink: 0 }} />
           <input placeholder="Search people…" value={orgQ} onChange={ev => setOrgQ(ev.target.value)} />
@@ -2290,7 +2290,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
             );
           })}
           {activeDiv && (
-            <button onClick={() => setActiveDiv('')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--muted)', fontFamily: 'Inter,sans-serif' }}>Clear spotlight</button>
+            <button onClick={() => setActiveDiv('')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--muted)', fontFamily: 'Inter,sans-serif' }}>Clear Spotlight</button>
           )}
           <span style={{ fontSize: 10.5, color: 'var(--muted)', marginLeft: 4 }}>· set a division on the "lead" in their side panel</span>
         </div>
@@ -2599,7 +2599,7 @@ function LeaveTab({ employees, toastOk, toastErr }) {
             view. HR keeps a de-emphasised "log on behalf" for phone-ins and
             staff without portal access. */}
         <button className="secondary-btn" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }} onClick={() => setFormOpen(true)}>
-          <Plus size={13} /> Log on behalf
+          <Plus size={13} /> Log on Behalf
         </button>
       </div>
 
@@ -2808,7 +2808,7 @@ function EntitiesModal({ entities, employees = [], onClose, onChanged, toastOk, 
           <div style={{ width: 34, height: 34, borderRadius: 10, background: 'hsla(var(--color-blue),0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Building2 size={17} color="hsl(var(--color-blue))" />
           </div>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{deptId ? `Departments · ${deptEntity?.name || ''}` : mode ? (mode === 'new' ? 'Add Company' : 'Edit Company') : 'Company setup'}</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{deptId ? `Departments · ${deptEntity?.name || ''}` : mode ? (mode === 'new' ? 'Add Company' : 'Edit Company') : 'Company Setup'}</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
 
@@ -3342,7 +3342,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
                 <button onClick={() => removeBank(i)} style={{ marginTop: 8, background: 'none', border: 'none', color: 'hsl(var(--color-red))', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Trash2 size={12} /> Remove</button>
               </div>
             ))}
-            <button className="secondary-btn" onClick={addBank} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add bank account</button>
+            <button className="secondary-btn" onClick={addBank} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> Add Bank Account</button>
           </div>
         )}
 
@@ -3592,7 +3592,7 @@ export default function HR({ activeSub, onSubChange }) {
             <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
               title="Manage companies & their departments"
               onClick={() => setEntitiesOpen(true)}>
-              <Building2 size={14} /> Company setup
+              <Building2 size={14} /> Company Setup
             </button>
             <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
               title="Manage work sites (for geofenced clock-in)"

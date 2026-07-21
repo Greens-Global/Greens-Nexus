@@ -129,7 +129,7 @@ export function ActivityLog({ logs, query, onOpenProperty, activeId, activeName,
 
         {activeId && (
           <div style={{ display: 'inline-flex', padding: 3, borderRadius: 999, border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-secondary)' }}>
-            {[['this', activeName || 'This property'], ['all', 'All properties']].map(([key, label]) => (
+            {[['this', activeName || 'This Property'], ['all', 'All Properties']].map(([key, label]) => (
               <button
                 key={key}
                 onClick={() => setScope(key)}

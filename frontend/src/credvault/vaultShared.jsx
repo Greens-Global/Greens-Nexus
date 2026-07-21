@@ -375,7 +375,7 @@ export function ReauthModal({ cred, seconds, onClose, onConfirm, maskedPhone }) 
 export function ConfirmModal({ cred, onClose, onConfirm }) {
   return (
     <Modal onClose={onClose}>
-      <ModalHeader icon={<Trash2 size={19} />} tint="rose" title="Remove credential" subtitle="It moves to the trash and can be recovered." />
+      <ModalHeader icon={<Trash2 size={19} />} tint="rose" title="Remove Credential" subtitle="It moves to the trash and can be recovered." />
       <div style={{ ...infoBox, fontSize: 13.5, color: "var(--text-primary)" }}>
         <div style={{ fontWeight: 500 }}>{cred.name}</div>
         <div style={{ color: "var(--text-secondary)" }}>{cred.dept} · {cred.type}</div>
@@ -385,7 +385,7 @@ export function ConfirmModal({ cred, onClose, onConfirm }) {
       </div>
       <div style={rowBetween}>
         <button onClick={onClose} className="cv-btn">Cancel</button>
-        <button onClick={onConfirm} className="cv-btn-dark cv-btn-rose">Remove & notify</button>
+        <button onClick={onConfirm} className="cv-btn-dark cv-btn-rose">Remove & Notify</button>
       </div>
     </Modal>
   );
@@ -434,7 +434,7 @@ export function AddModal({ onClose, onSave, depts, userName, userEmail, people }
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   return (
     <Modal onClose={onClose}>
-      <h3 style={{ fontWeight: 600, fontSize: 17, margin: 0 }}>Add credential</h3>
+      <h3 style={{ fontWeight: 600, fontSize: 17, margin: 0 }}>Add Credential</h3>
       <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "3px 0 0" }}>Stored encrypted. Saving notifies managers + IT.</p>
       <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
         <Field label="Name" required><input value={form.name} onChange={(e) => set("name", e.target.value)} className="cv-ipt" placeholder="e.g. Stripe Dashboard" /></Field>
@@ -469,7 +469,7 @@ export function AddModal({ onClose, onSave, depts, userName, userEmail, people }
       </div>
       <div style={rowBetween}>
         <button onClick={onClose} className="cv-btn">Cancel</button>
-        <button onClick={() => form.name && form.secret && onSave(form)} disabled={!form.name || !form.secret} className="cv-btn-dark">Save & notify</button>
+        <button onClick={() => form.name && form.secret && onSave(form)} disabled={!form.name || !form.secret} className="cv-btn-dark">Save & Notify</button>
       </div>
     </Modal>
   );
@@ -480,7 +480,7 @@ export function EditModal({ cred, onClose, onSave, depts, ownerName, people }) {
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   return (
     <Modal onClose={onClose}>
-      <h3 style={{ fontWeight: 600, fontSize: 17, margin: 0 }}>Edit credential</h3>
+      <h3 style={{ fontWeight: 600, fontSize: 17, margin: 0 }}>Edit Credential</h3>
       <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "3px 0 0" }}>Changes are logged and managers + IT will be notified.</p>
       <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
         <Field label="Name" required><input value={form.name} onChange={(e) => set("name", e.target.value)} className="cv-ipt" /></Field>
@@ -508,7 +508,7 @@ export function EditModal({ cred, onClose, onSave, depts, ownerName, people }) {
       </div>
       <div style={rowBetween}>
         <button onClick={onClose} className="cv-btn">Cancel</button>
-        <button onClick={() => onSave(cred.id, form)} className="cv-btn-dark">Save changes</button>
+        <button onClick={() => onSave(cred.id, form)} className="cv-btn-dark">Save Changes</button>
       </div>
     </Modal>
   );
@@ -540,10 +540,10 @@ export function ImportModal({ onClose, onImport, depts }) {
 
   return (
     <Modal onClose={onClose} wide>
-      <h3 style={{ fontWeight: 600, fontSize: 17, margin: 0, display: "flex", alignItems: "center", gap: 8 }}><Upload size={19} /> Batch import</h3>
+      <h3 style={{ fontWeight: 600, fontSize: 17, margin: 0, display: "flex", alignItems: "center", gap: 8 }}><Upload size={19} /> Batch Import</h3>
       <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "4px 0 0" }}>Bulk-load your existing credentials from a CSV. Download the template first so the columns line up correctly.</p>
       <div style={{ marginTop: 16, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
-        <button onClick={downloadTemplate} className="cv-btn"><Download size={15} /> Download template</button>
+        <button onClick={downloadTemplate} className="cv-btn"><Download size={15} /> Download Template</button>
         <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={onFile} style={{ display: "none" }} />
         <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>columns: name, department, type, username, secret, tier</span>
       </div>
@@ -583,13 +583,13 @@ export function ManagePanel({ onClose, isAdmin, editMode, onToggleEdit }) {
       <div className="cv-root" style={{ position: "relative", width: "100%", maxWidth: 420, background: "var(--bg-primary)", height: "100%", boxShadow: "0 0 60px rgba(0,0,0,.3)", overflowY: "auto" }}>
         <div style={{ position: "sticky", top: 0, background: "var(--bg-card)", borderBottom: "1px solid var(--border-color)", padding: "16px 20px", display: "flex", alignItems: "center", gap: 8, zIndex: 10 }}>
           <Settings size={19} style={{ color: "var(--text-primary)" }} />
-          <h3 style={{ fontWeight: 600, fontSize: 15.5, margin: 0 }}>Manage vault</h3>
+          <h3 style={{ fontWeight: 600, fontSize: 15.5, margin: 0 }}>Manage Vault</h3>
           <button onClick={onClose} style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}><X size={19} /></button>
         </div>
         <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
           <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>{isAdmin ? "Global Admin — changes apply company-wide." : "Changes are scoped to credentials you own."}</p>
           <div className="cv-card" style={{ padding: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, fontWeight: 600, marginBottom: 4 }}><Pencil size={15} style={{ color: "var(--text-secondary)" }} /> Edit credentials</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, fontWeight: 600, marginBottom: 4 }}><Pencil size={15} style={{ color: "var(--text-secondary)" }} /> Edit Credentials</div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "10px 0" }}>
               <div>
                 <div style={{ fontSize: 13.5, fontWeight: 500 }}>Edit mode</div>
@@ -720,7 +720,7 @@ export function PersonalAddModal({ onClose, onSave }) {
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   return (
     <Modal onClose={onClose}>
-      <ModalHeader icon={<Lock size={19} />} tint="indigo" title="Add personal credential" subtitle="Encrypted and private. No one else can see this." />
+      <ModalHeader icon={<Lock size={19} />} tint="indigo" title="Add Personal Credential" subtitle="Encrypted and private. No one else can see this." />
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <Field label="Name" required><input value={form.name} onChange={(e) => set("name", e.target.value)} className="cv-ipt" placeholder="e.g. Personal Gmail, Home WiFi" /></Field>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -758,7 +758,7 @@ export function RequestAccessModal({ cred, userEmail, ownerName, onClose, onSubm
 
   return (
     <Modal onClose={onClose}>
-      <ModalHeader icon={<Share2 size={19} />} tint="violet" title="Share access" subtitle={`${cred.name} · ${cred.dept}`} />
+      <ModalHeader icon={<Share2 size={19} />} tint="violet" title="Share Access" subtitle={`${cred.name} · ${cred.dept}`} />
       <div style={{ marginBottom: 16 }}>
         <span className="cv-label">Share with (email address) <span style={{ color: "var(--cv-rose)" }}>*</span></span>
         <input value={recipientEmail} onChange={(e) => { setRecipientEmail(e.target.value); setEmailError(""); }}
@@ -786,7 +786,7 @@ export function RequestAccessModal({ cred, userEmail, ownerName, onClose, onSubm
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
         <button onClick={onClose} className="cv-btn">Cancel</button>
-        <button onClick={handleSubmit} className="cv-btn-dark cv-btn-violet"><Share2 size={15} /> {isOwner ? "Grant access" : "Send request"}</button>
+        <button onClick={handleSubmit} className="cv-btn-dark cv-btn-violet"><Share2 size={15} /> {isOwner ? "Grant Access" : "Send Request"}</button>
       </div>
     </Modal>
   );
@@ -805,7 +805,7 @@ export function ApproveAccessModal({ request: a, onClose, onConfirm, onDeny, mas
 
   const requestCard = (
     <div style={{ borderRadius: 12, background: "var(--cv-violet-bg)", border: "1px solid var(--cv-violet-line)", padding: "10px 14px", marginBottom: 16 }}>
-      <div style={{ fontSize: 11.5, color: "var(--cv-violet)", marginBottom: 4, fontWeight: 500 }}>Share request</div>
+      <div style={{ fontSize: 11.5, color: "var(--cv-violet)", marginBottom: 4, fontWeight: 500 }}>Share Request</div>
       <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>{a.cred}</div>
       <div style={{ fontSize: 13, color: "var(--text-secondary)", marginTop: 2 }}><span style={{ fontWeight: 500 }}>{a.requestedBy}</span> wants access · {a.dept} · {a.duration}</div>
       {a.sharedToEmail && <div style={{ fontSize: 11.5, color: "var(--cv-violet)", marginTop: 4, fontWeight: 500 }}>Recipient: {a.sharedToEmail}</div>}
@@ -819,7 +819,7 @@ export function ApproveAccessModal({ request: a, onClose, onConfirm, onDeny, mas
 
   if (!method) return (
     <Modal onClose={onClose}>
-      <ModalHeader icon={<Share2 size={19} />} tint="violet" title="Approve access request" subtitle="Two-factor or multi-factor authentication required." />
+      <ModalHeader icon={<Share2 size={19} />} tint="violet" title="Approve Access Request" subtitle="Two-factor or multi-factor authentication required." />
       {requestCard}
       <p style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>Verify your identity to approve:</p>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -867,7 +867,7 @@ export function ApproveAccessModal({ request: a, onClose, onConfirm, onDeny, mas
         {totpError && <div style={{ fontSize: 12, color: "var(--cv-rose)", marginBottom: 8 }}>{totpError}</div>}
         <div style={rowSplit}>
           <button onClick={() => { setMsaSent(false); setTotpInput(""); setTotpError(""); }} className="cv-btn">← Back</button>
-          <button onClick={submitTotp} disabled={totpInput.length !== 6} className="cv-btn-dark cv-btn-violet">Approve access</button>
+          <button onClick={submitTotp} disabled={totpInput.length !== 6} className="cv-btn-dark cv-btn-violet">Approve Access</button>
         </div>
       </>)}
     </Modal>
@@ -895,7 +895,7 @@ export function ApproveAccessModal({ request: a, onClose, onConfirm, onDeny, mas
         </div>
         <div style={rowSplit}>
           <button onClick={() => { setSmsSent(false); setSmsInput(""); }} className="cv-btn">← Back</button>
-          <button onClick={() => onConfirm(a)} disabled={smsInput.length !== 6} className="cv-btn-dark cv-btn-violet">Approve access</button>
+          <button onClick={() => onConfirm(a)} disabled={smsInput.length !== 6} className="cv-btn-dark cv-btn-violet">Approve Access</button>
         </div>
       </>)}
     </Modal>

@@ -38,7 +38,7 @@ export function TimelineStatusModal({ current, onSave, onClose }) {
 
   return (
     <Modal
-      title="Update status"
+      title="Update Status"
       onClose={onClose}
       footer={
         <>

@@ -1034,10 +1034,10 @@ function ReportingTab({ store }) {
   };
 
   const kpis = [
-    { label: 'Completion rate', value: `${stats.pct}%`, color: NX.green },
-    { label: 'In progress', value: stats.inProgress, color: NX.blue },
+    { label: 'Completion Rate', value: `${stats.pct}%`, color: NX.green },
+    { label: 'In Progress', value: stats.inProgress, color: NX.blue },
     { label: 'Overdue', value: stats.overdue, color: NX.red },
-    { label: 'Total tasks', value: stats.total, color: NX.primary },
+    { label: 'Total Tasks', value: stats.total, color: NX.primary },
   ];
 
   return (
@@ -1058,9 +1058,9 @@ function ReportingTab({ store }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: 12 }}>
-        <ReportCard title="Tasks by status"><BarRows data={byStatus} /></ReportCard>
-        <ReportCard title="Tasks by priority"><BarRows data={byPriority} /></ReportCard>
-        <ReportCard title="Tasks by project"><BarRows data={byProject} /></ReportCard>
+        <ReportCard title="Tasks by Status"><BarRows data={byStatus} /></ReportCard>
+        <ReportCard title="Tasks by Priority"><BarRows data={byPriority} /></ReportCard>
+        <ReportCard title="Tasks by Project"><BarRows data={byProject} /></ReportCard>
       </div>
     </div>
   );

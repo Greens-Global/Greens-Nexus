@@ -14,10 +14,11 @@ import TimeclockWidget from "./components/TimeclockWidget";
 import GlobalSearch from "./components/GlobalSearch";
 import PullToRefresh from "./components/PullToRefresh";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
-import { onBackendHealth } from "./api";
+import { onBackendHealth, startKeepWarm } from "./api";
 
 // Always loaded — critical path
 import LoginPage from "./views/LoginPage";
+import PolicyGate from "./components/PolicyGate";
 import Dashboard from "./views/Dashboard";
 
 // Lazy-loaded — only fetched when the user navigates there
@@ -215,6 +216,9 @@ export default function App() {
   const sidebarRef = useRef(null);
 
   useEffect(() => onBackendHealth(setBackendDown), []);
+  // Keep the Azure backend warm through a working session so screens don't eat a
+  // cold start on every open.
+  useEffect(() => { startKeepWarm(); }, []);
 
   // Collapse sidebar when clicking outside it — lets clicks pass through to content.
   // Must listen on 'click', NOT 'mousedown': collapsing on mousedown reflows the
@@ -302,6 +306,7 @@ export default function App() {
   return (
     <>
       <AuthedGate>
+        <PolicyGate>
         <NotificationProvider>
         <RoleProvider>
         <RoleGate>
@@ -382,6 +387,7 @@ export default function App() {
         </RoleGate>
         </RoleProvider>
         </NotificationProvider>
+        </PolicyGate>
       </AuthedGate>
       <UnauthedGate>
         <LoginPage />

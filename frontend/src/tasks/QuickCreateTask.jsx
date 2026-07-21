@@ -137,7 +137,7 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 2 }}>
-          <button onClick={() => onFullDetails(draft())} style={{ ...btn('ghost'), color: NX.blue, fontWeight: 600 }}>Full details</button>
+          <button onClick={() => onFullDetails(draft())} style={{ ...btn('ghost'), color: NX.blue, fontWeight: 600 }}>Full Details</button>
           <button onClick={submit} disabled={!canCreate} style={{ ...btn('primary'), opacity: canCreate ? 1 : 0.55 }}>{busy ? 'Creating…' : 'Create Task'}</button>
         </div>
       </div>

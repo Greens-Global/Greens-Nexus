@@ -34,14 +34,14 @@ const BASE_COLS = [
 // duplicates (e.g. "Dropdown list" appears twice) just map to the same one.
 const TYPE_GROUPS = [
   { label: 'Recommended', types: [
-    { key: 'text', label: 'Text/number', icon: Hash, storage: 'text' },
+    { key: 'text', label: 'Text/Number', icon: Hash, storage: 'text' },
     { key: 'select', label: 'Dropdown List', icon: List, storage: 'select' },
     { key: 'date', label: 'Date', icon: Calendar, storage: 'date' },
     { key: 'checkbox', label: 'Checkbox', icon: CheckSquare, storage: 'checkbox' },
   ] },
   { label: 'Basic', types: [
-    { key: 'text2', label: 'Text/number', icon: Hash, storage: 'text' },
-    { key: 'autonumber', label: 'Auto-number', icon: ListOrdered, storage: 'number' },
+    { key: 'text2', label: 'Text/Number', icon: Hash, storage: 'text' },
+    { key: 'autonumber', label: 'Auto-Number', icon: ListOrdered, storage: 'number' },
   ] },
   { label: 'Planning/Status', types: [
     { key: 'select2', label: 'Dropdown List', icon: List, storage: 'select' },

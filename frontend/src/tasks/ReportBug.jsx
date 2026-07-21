@@ -66,7 +66,7 @@ function ReportBugModal({ onClose }) {
     <Modal title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Bug size={18} style={{ color: NX.red }} /> Report a Bug</span>} width={560} onClose={onClose} footer={
       <>
         <button onClick={onClose} style={btn('outline')}>Cancel</button>
-        <button onClick={submit} disabled={!canSubmit || busy} style={{ ...btn('primary'), opacity: !canSubmit || busy ? 0.55 : 1 }}>Submit bug report</button>
+        <button onClick={submit} disabled={!canSubmit || busy} style={{ ...btn('primary'), opacity: !canSubmit || busy ? 0.55 : 1 }}>Submit Bug Report</button>
       </>
     }>
       <div onPaste={onPaste} tabIndex={0} style={{ display: 'flex', flexDirection: 'column', gap: 14, outline: 'none' }}>

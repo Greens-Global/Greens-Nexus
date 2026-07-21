@@ -1,43 +1,31 @@
 import { msalInstance, msalReady } from './msalInstance';
 import { apiTokenRequest } from './authConfig';
-import { InteractionRequiredAuthError } from '@azure/msal-browser';
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
-
-// When the silent token refresh fails because the session genuinely needs
-// interaction (expired refresh token, or third-party-cookie-blocked silent
-// renewal behind an ad-blocker/VPN), the old code returned no header, so every
-// request 401'd forever and the user sat in a "logged in but nothing works"
-// shell. Instead, re-authenticate via redirect. Guarded so it can't loop:
-// single-flight (_reauthing), throttled across reloads (30s), and never in E2E.
-let _reauthing = false;
-function _shouldReauth(err) {
-  if (import.meta.env.VITE_E2E === 'true' || _reauthing) return false;
-  try { if (Date.now() - Number(sessionStorage.getItem('nexus:reauth-at') || 0) < 30000) return false; } catch { /* ignore */ }
-  return err instanceof InteractionRequiredAuthError
-    || ['interaction_required', 'login_required', 'consent_required'].includes(err?.errorCode);
-}
 
 async function getAuthHeader(forceRefresh = false) {
   // Wait for MSAL to finish loading its cache before asking for a token.
   // Without this, acquireTokenSilent fails on first render and the request
   // goes out with no Authorization header, causing a 401.
   await msalReady;
-  const accounts = msalInstance.getAllAccounts();
-  if (!accounts.length) return {};
+  // Prefer the ACTIVE account, not getAllAccounts()[0]: a user signed into more
+  // than one Microsoft account (e.g. work + personal) can have the wrong account
+  // at [0], whose token the backend rejects with 401. Pin the active account once
+  // so every request uses the same identity.
+  let account = msalInstance.getActiveAccount();
+  if (!account) {
+    account = msalInstance.getAllAccounts()[0];
+    if (account) msalInstance.setActiveAccount(account);
+  }
+  if (!account) return {};
   try {
     const result = await msalInstance.acquireTokenSilent({
       ...apiTokenRequest,
-      account: accounts[0],
+      account,
       forceRefresh,
     });
     return { Authorization: `Bearer ${result.idToken}` };
-  } catch (err) {
-    if (_shouldReauth(err)) {
-      _reauthing = true;
-      try { sessionStorage.setItem('nexus:reauth-at', String(Date.now())); } catch { /* ignore */ }
-      msalInstance.acquireTokenRedirect({ ...apiTokenRequest, account: accounts[0] }).catch(() => {});
-    }
+  } catch {
     return {};
   }
 }
@@ -73,6 +61,33 @@ export function onBackendHealth(fn) {
   return () => _healthListeners.delete(fn);
 }
 export function isBackendDown() { return _backendDown; }
+
+// ── Keep-warm ─────────────────────────────────────────────────────────────────
+// The dev/prod API is Azure App Service, which parks the process after a few
+// idle minutes and then cold-starts (5-15s) on the next request — so the FIRST
+// screen a user opens after any lull feels slow and "glitchy". A cheap /health
+// ping on boot and every few minutes (only while the tab is visible) keeps the
+// process warm through a working session, so navigations stay snappy. This is a
+// mitigation, not a substitute for enabling "Always On" on the App Service —
+// that eliminates cold starts entirely at the infra level.
+let _keepWarmTimer = null;
+function _pingHealth() {
+  // Bare fetch — no auth, no retry, never flips the reconnecting banner; a failed
+  // warm-up ping should be invisible.
+  fetch(`${BASE}/health`, { cache: 'no-store' }).catch(() => {});
+}
+export function startKeepWarm(everyMs = 4 * 60_000) {
+  if (_keepWarmTimer) return;               // idempotent — safe to call once on boot
+  _pingHealth();                            // start waking the backend immediately
+  _keepWarmTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') _pingHealth();
+  }, everyMs);
+  // Returning to a tab that sat idle is exactly when the backend has gone cold —
+  // ping right away so the next click doesn't eat the cold start.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') _pingHealth();
+  });
+}
 
 // FastAPI 422 returns `detail` as an array of {loc, msg, type}. Passing that to
 // new Error() stringifies to "[object Object]", which then surfaces in toasts.
@@ -704,6 +719,8 @@ export const api = {
   timeMyPunchRequests:    () => req('/timeclock/punch-requests/mine'),
   timePunchRequests:      (status) => req(`/timeclock/punch-requests?status=${status || 'pending'}`),
   timeDecidePunchRequest: (id, data) => req(`/timeclock/punch-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  // Employee's own bi-weekly pay-period timecard (payroll rows + composition)
+  timeMyPayroll:          (start) => req(`/timeclock/my-payroll?start=${start || ''}`),
   timeOffCreate:     (data)      => req('/timeclock/timeoff', { method: 'POST', body: JSON.stringify(data) }),
   timeOffMine:       ()          => req('/timeclock/timeoff/mine'),
   timeOffList:       (status)    => req(`/timeclock/timeoff?status=${status || ''}`),
@@ -712,9 +729,11 @@ export const api = {
   timeApprovalRevoke: (id)       => req(`/timeclock/approvals/${id}`, { method: 'PATCH' }),
   timeBodRecord:     (data)      => req('/timeclock/bod', { method: 'POST', body: JSON.stringify(data) }),
   timeBodLast:       ()          => req('/timeclock/bod/last'),
-  timeAgentDownloadUrl: (platform) => req(`/timeclock/agent/download-url?platform=${encodeURIComponent(platform)}`),
-  timeAgentUpload:   (platform, formData) => req(`/timeclock/agent/upload?platform=${encodeURIComponent(platform)}`, { method: 'POST', body: formData, timeoutMs: 30 * 60_000 }),
-  timeAgentUploadUrl:(platform) => req(`/timeclock/agent/upload-url?platform=${encodeURIComponent(platform)}`),
+  timeBodTemplate:   (kind)      => req(`/timeclock/bod/template?kind=${kind || 'bod'}`),
+  // Sign-in company-policy & monitoring acknowledgment
+  policyStatus:      ()          => req('/policy/status'),
+  policyAccept:      ()          => req('/policy/accept', { method: 'POST' }),
+  policyMyAcks:      ()          => req('/policy/acknowledgments'),
 
   // ── Customizable dashboards (drag-and-drop widget layouts) ──
   dashViews:      (target)     => req(`/dashboards/views?target=${encodeURIComponent(target)}`),
@@ -742,12 +761,11 @@ export const api = {
   hrSelfRequestAttachToEmployee: (rid, kind) => req(`/hr/requests/${rid}/attach-to-employee`, { method: 'POST', body: JSON.stringify({ kind }) }),
   hrPaystubs:      (eid)   => req(`/hr/employees/${eid}/paystubs`),
   hrPaystubUpload: (eid, form) => req(`/hr/employees/${eid}/paystubs`, { method: 'POST', body: form }),
+  // Device enrollment — shared by field-phone tracking (EnrolPhone). Desktop
+  // agent retired; capture now runs in the browser (Chrome screen sharing).
   timeAgentEnroll:   (data)      => req('/timeclock/agent/enroll', { method: 'POST', body: JSON.stringify(data) }),
   timeAgentDevices:  ()          => req('/timeclock/agent/devices'),
   timeAgentRevoke:   (id)        => req(`/timeclock/agent/devices/${id}`, { method: 'PATCH' }),
-  timeActivity:      (email, start, end) => req(`/timeclock/activity?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
-  timeMyActivity:    (date)      => req(`/timeclock/my-activity?date=${date}`),
-  timeActivityDay:   (email, date) => req(`/timeclock/activity-day?email=${encodeURIComponent(email)}&date=${date}`),
   // Field-worker location tracking (manager/HR views; device pings use X-Agent-Token from the native app, not these)
   trackLive:         ()            => req('/timeclock/track/live'),
   trackPath:         (email, date) => req(`/timeclock/track/path?email=${encodeURIComponent(email)}&date=${date}`),
@@ -768,6 +786,10 @@ export const api = {
   timeSchedDelete:   (id)        => req(`/timeclock/schedule/${id}`, { method: 'DELETE' }),
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
+  // Insights dashboard (Top Apps / Top Websites / activity), from the desktop agent
+  timeInsights:      (email, start, end) => req(`/timeclock/insights?email=${encodeURIComponent(email || '')}&start=${start || ''}&end=${end || ''}&tz=${new Date().getTimezoneOffset()}`),
+  timeRatings:       ()          => req('/timeclock/ratings'),
+  timeSetRating:     (data)      => req('/timeclock/ratings', { method: 'PUT', body: JSON.stringify(data) }),
 
   // ── Credential Vault (secrets only ever come back from the /reveal endpoints) ──
   cvCredentials:    ()           => req('/credvault/credentials'),

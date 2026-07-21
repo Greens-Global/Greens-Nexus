@@ -60,7 +60,7 @@ export function FieldInput({ f, value, onChange }) {
         {label}
         <div onPaste={handlePaste} tabIndex={0} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', outline: 'none' }}>
           <label className="secondary-btn" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, margin: 0 }}>
-            <Upload size={14} /> {value ? 'Replace file' : 'Upload file'}
+            <Upload size={14} /> {value ? 'Replace File' : 'Upload File'}
             <input
               type="file"
               style={{ display: 'none' }}
@@ -81,7 +81,7 @@ export function FieldInput({ f, value, onChange }) {
               rel="noreferrer"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.82rem', color: 'hsl(var(--color-blue))', fontWeight: 600 }}
             >
-              <FileText size={14} /> View document
+              <FileText size={14} /> View Document
             </a>
           )}
           {value && (

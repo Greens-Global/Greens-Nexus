@@ -511,7 +511,7 @@ export default function MyHR() {
                       <option value="rejected">Rejected</option>
                     </select>
                     <button className="primary-btn" onClick={() => setLoOpen(o => !o)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '6px 12px' }}>
-                      <Plus size={13} /> Request time off
+                      <Plus size={13} /> Request Time Off
                     </button>
                   </span>)}
 
