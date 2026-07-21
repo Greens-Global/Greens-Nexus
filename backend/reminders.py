@@ -20,7 +20,7 @@ from datetime import datetime, timezone, timedelta
 
 from database import SessionLocal
 from models import (NexusEmployee, NexusNotification, NexusGroup, NexusGroupMember,
-                    HrCandidate, HrDocument, HrSignRequest)
+                    HrCandidate, HrDocument, HrSignRequest, TimePunch)
 
 _SCAN_HOUR_UTC = 13   # ~6am PT / 6:30pm IST — start of the US workday
 
@@ -59,6 +59,17 @@ def _notify(db, ntype: str, recipient: str, title: str, body: str, ref_id: str =
         action=json.dumps(action) if action else "", actioned=False, read_by="",
         created_at=_now_iso()))
     return True
+
+
+def _ever_sent(db, ntype: str, ref_id: str, recipient: str) -> bool:
+    """Like _already_sent but across all days — for alerts that should fire at
+    most once ever per ref (e.g. one overtime ping per person per week)."""
+    recipient = (recipient or "").strip().lower()
+    return (db.query(NexusNotification)
+            .filter(NexusNotification.type == ntype,
+                    NexusNotification.ref_id == ref_id,
+                    NexusNotification.recipient == recipient)
+            .first() is not None)
 
 
 def _days_until(date_str: str):
@@ -139,7 +150,48 @@ def run_daily_scan() -> int:
                                 f"\"{req.title}\" is still unsigned and expires in {d} day{'s' if d != 1 else ''}. Send a reminder or extend it.",
                                 ref_id=req.id, action={"view": "documents", "sub": "documents-esign"})
 
-        # 7. Field-tracking retention: purge raw location pings past the window
+        # 7. Time & attendance — alert each person's manager the morning after.
+        # The scan runs ~6am PT, so "yesterday" (UTC date - 1) is the workday that
+        # just ended for the US team.
+        from routers.timeclock import _compute_timecard
+        y_dt = datetime.now(timezone.utc).date() - timedelta(days=1)
+        yesterday = y_dt.strftime("%Y-%m-%d")
+        monday = y_dt - timedelta(days=y_dt.weekday())      # Monday-anchored week
+        sunday = monday + timedelta(days=6)
+        tc_act = {"view": "timeclock"}
+
+        for e in employees:
+            name = f"{e.first_name} {e.last_name}".strip()
+            mgr = (e.manager_email or "").strip().lower()
+
+            # 7a. Missed clock-out: clocked in yesterday but never clocked out.
+            punches = (db.query(TimePunch)
+                       .filter(TimePunch.employee_email == e.work_email,
+                               TimePunch.local_date == yesterday,
+                               TimePunch.voided == 0)
+                       .order_by(TimePunch.at.asc()).all())
+            if punches and any(p.kind == "in" for p in punches) and punches[-1].kind != "out":
+                msg = (f"{name} clocked in on {yesterday} but never clocked out — "
+                       f"their time needs a correction before payroll.")
+                ref = f"{e.work_email}:{yesterday}"
+                for r in filter(None, {mgr, (e.work_email or '').lower()}):
+                    sent += _notify(db, "time_missed_out", r, "Missing clock-out", msg,
+                                    ref_id=ref, action=tc_act, requested_by=name)
+
+            # 7b. Overtime — over 40h in the current (Monday-anchored) week.
+            # One ping per person per week, to the manager, when OT first appears.
+            if mgr:
+                ot = _compute_timecard(db, e.work_email,
+                                       monday.strftime("%Y-%m-%d"),
+                                       sunday.strftime("%Y-%m-%d"))["totals"]["otMin"]
+                wk_ref = f"{e.work_email}:{monday.strftime('%Y-%m-%d')}"
+                if ot > 0 and not _ever_sent(db, "time_overtime", wk_ref, mgr):
+                    msg = (f"{name} is into overtime this week — {ot // 60}h {ot % 60:02d}m "
+                           f"over 40h so far (week of {monday.strftime('%Y-%m-%d')}).")
+                    sent += _notify(db, "time_overtime", mgr, "Overtime this week", msg,
+                                    ref_id=wk_ref, action=tc_act, requested_by=name)
+
+        # 8. Field-tracking retention: purge raw location pings past the window
         # (data-minimization guardrail — keep only recent breadcrumbs).
         from routers.timeclock import purge_old_track_pings
         cut = purge_old_track_pings(db)
