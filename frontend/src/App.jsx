@@ -18,6 +18,7 @@ import { onBackendHealth, startKeepWarm } from "./api";
 
 // Always loaded — critical path
 import LoginPage from "./views/LoginPage";
+import PolicyGate from "./components/PolicyGate";
 import Dashboard from "./views/Dashboard";
 
 // Lazy-loaded — only fetched when the user navigates there
@@ -305,6 +306,7 @@ export default function App() {
   return (
     <>
       <AuthedGate>
+        <PolicyGate>
         <NotificationProvider>
         <RoleProvider>
         <RoleGate>
@@ -385,6 +387,7 @@ export default function App() {
         </RoleGate>
         </RoleProvider>
         </NotificationProvider>
+        </PolicyGate>
       </AuthedGate>
       <UnauthedGate>
         <LoginPage />

@@ -1467,6 +1467,21 @@ class MonitoringConsent(Base):
     created_at     = Column(String, default="")
 
 
+class PolicyAcknowledgment(Base):
+    """One-time (per policy version) acknowledgment of company policies + the
+    employee-monitoring disclosure, shown at sign-in. Records who/when/version/
+    ip/ua so the acceptance is provable. Bumping POLICY_VERSION re-prompts
+    everyone. This is the standing, portal-wide disclosure; MonitoringConsent is
+    the separate per-day clock-in acknowledgment."""
+    __tablename__ = "policy_acknowledgments"
+    id             = Column(String, primary_key=True)   # uuid
+    email          = Column(String, nullable=False, index=True)
+    version        = Column(String, default="", index=True)
+    accepted_at    = Column(String, default="")
+    ip             = Column(String, default="")
+    user_agent     = Column(String, default="")
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # Task Module — supporting tables (ported from task-module export, Jul 2026)
 # All email-keyed; ISO-string timestamps; jsonb for arrays/maps. See Task above.

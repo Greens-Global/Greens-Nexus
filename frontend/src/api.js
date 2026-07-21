@@ -712,6 +712,10 @@ export const api = {
   timeBodRecord:     (data)      => req('/timeclock/bod', { method: 'POST', body: JSON.stringify(data) }),
   timeBodLast:       ()          => req('/timeclock/bod/last'),
   timeBodTemplate:   (kind)      => req(`/timeclock/bod/template?kind=${kind || 'bod'}`),
+  // Sign-in company-policy & monitoring acknowledgment
+  policyStatus:      ()          => req('/policy/status'),
+  policyAccept:      ()          => req('/policy/accept', { method: 'POST' }),
+  policyMyAcks:      ()          => req('/policy/acknowledgments'),
 
   // ── Customizable dashboards (drag-and-drop widget layouts) ──
   dashViews:      (target)     => req(`/dashboards/views?target=${encodeURIComponent(target)}`),
