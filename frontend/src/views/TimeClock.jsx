@@ -259,6 +259,22 @@ export default function TimeClock() {
     } catch (e) { toast(false, e?.message || 'Could not send the request.'); }
   }
 
+  // Open the "Missed a punch?" form pre-filled to ADD the missing clock-out for a
+  // given segment — so the fix is one click from where the gap is shown, instead
+  // of hunting for the form and re-entering the kind/day by hand.
+  function openAddClockOut(seg) {
+    // seg.in is a UTC timestamp (no Z); seed the day/time in LOCAL for the picker.
+    let at = '';
+    if (seg?.in) {
+      const d = new Date(seg.in + 'Z');
+      at = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    }
+    setMissed({ kind: 'out', at, note: '' });
+    setMissedOpen(true);
+    // Bring the form (top of the tab) into view.
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
   async function requestRemovePunch(p) {
     const reason = window.prompt('Why should this punch be removed? (sent to your approver)');
     if (reason === null) return;
@@ -665,7 +681,9 @@ export default function TimeClock() {
                       </span>
                       <span style={{ color: 'var(--muted)' }}>{fmtMin(s.workedMin)}{s.otMin ? ` · ${fmtMin(s.otMin)} OT` : ''}</span>
                       {(s.flags || []).filter(f => f !== 'missing_out').map(f => <span key={f} style={{ fontSize: 10.5, fontWeight: 700, color: '#b45309' }}>{f}</span>)}
-                      {s.inId && <button className="secondary-btn" onClick={() => requestRemovePunch({ id: s.inId })} style={{ fontSize: 11, padding: '2px 9px', marginLeft: 'auto' }}>Request fix</button>}
+                      {s.flags?.includes('missing_out')
+                        ? <button className="primary-btn" onClick={() => openAddClockOut(s)} style={{ fontSize: 11, padding: '3px 11px', marginLeft: 'auto' }}>Add clock-out</button>
+                        : s.inId && <button className="secondary-btn" onClick={() => requestRemovePunch({ id: s.inId })} style={{ fontSize: 11, padding: '2px 9px', marginLeft: 'auto' }}>Remove</button>}
                     </div>
                   ))}
                 </div>
@@ -682,7 +700,7 @@ export default function TimeClock() {
         )}
       </div>
       <p style={{ margin: '12px 2px 0', fontSize: 11, color: 'var(--muted)' }}>
-        Overtime is time over 40h in a week (1.5×). Click a day for its punches; use “Request fix” to add or remove a punch — it goes to your approver.
+        Overtime is time over 40h in a week (1.5×). Click a day to see its punches. To add a missed punch use “Missed a punch?” (or “Add clock-out” on a flagged day); to drop a wrong one use “Remove”. Either way it goes to your approver — nothing changes until they approve.
       </p>
       </>)}
 
