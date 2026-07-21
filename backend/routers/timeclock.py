@@ -1965,8 +1965,11 @@ def bod_template(kind: str = "bod", user: dict = Depends(get_current_user),
     """Pre-fill text for the BOD/EOD composer: the employee's most recent post
     of this kind (their evolving personal template), or a starter default."""
     k = kind if kind in ("bod", "eod") else "bod"
+    # Exclude the "already sent elsewhere" skip marker — it's a bookkeeping row,
+    # not something to pre-fill back into the composer.
     row = (db.query(TimeBod)
-           .filter(TimeBod.employee_email == user["email"], TimeBod.kind == k)
+           .filter(TimeBod.employee_email == user["email"], TimeBod.kind == k,
+                   TimeBod.message != "(sent outside Nexus)")
            .order_by(TimeBod.created_at.desc()).first())
     if row and (row.message or row.tasks):
         return {"message": row.message or "", "tasks": row.tasks or "",
