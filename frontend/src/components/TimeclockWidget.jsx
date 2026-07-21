@@ -180,14 +180,36 @@ export default function TimeclockWidget() {
     } finally { shotInFlight.current = false; }
   }
 
+  function addStream(stream) {
+    streamsRef.current = [...streamsRef.current, stream];
+    stream.getVideoTracks()[0]?.addEventListener('ended', () => dropStream(stream));
+  }
+
   async function startCapture() {
     if (!canCaptureRef.current) return;   // monitoring policy off — nothing to do
+    // Managed-device path: getAllScreensMedia() grabs EVERY monitor at once with
+    // NO picker — but only when the Nexus origin is allowlisted by the managed-
+    // Chrome policy MultiScreenCaptureAllowedForUrls. On any device without that
+    // policy the API is absent (or throws), so we fall through to the standard
+    // one-screen picker below. This is what makes capture fully automatic on
+    // company devices while staying honest (nothing silent on personal machines).
+    if (typeof navigator.mediaDevices.getAllScreensMedia === 'function') {
+      try {
+        const result = await navigator.mediaDevices.getAllScreensMedia();
+        const streams = Array.isArray(result) ? result : [result];
+        streams.filter(Boolean).forEach(addStream);
+        if (streamsRef.current.length) {
+          setCapturing(streamsRef.current.length);
+          takeShot();
+          return;
+        }
+      } catch { /* not policy-allowlisted here — use the picker */ }
+    }
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: 'monitor', frameRate: 1 }, audio: false,
       });
-      streamsRef.current = [...streamsRef.current, stream];
-      stream.getVideoTracks()[0].addEventListener('ended', () => dropStream(stream));
+      addStream(stream);
       setCapturing(streamsRef.current.length);
       takeShot(); // first frame right away; the wall-clock ticker handles the rest
     } catch { /* user dismissed the picker — stays off */ }
