@@ -157,57 +157,72 @@ def _live_punches(db: Session, email: str, start: str = "", end: str = ""):
 
 def _day_summaries(punches: list) -> dict:
     """local_date -> {workedMin, breakMin, firstIn, lastOut, flags, punches}.
-    Exact minutes, no rounding. Unclosed pairs are flagged, never guessed."""
-    days = {}
+    Exact minutes, no rounding. Pairs across the FULL sequence (not per calendar
+    day) so an overnight shift — in one night, out the next morning — counts as one
+    segment on the day it STARTED. Unclosed pairs are flagged, never guessed."""
+    by_day = {}
     for p in punches:
-        days.setdefault(p.local_date, []).append(p)
+        by_day.setdefault(p.local_date, []).append(p)
+
+    worked = {}   # in-day -> raw minutes
+    brk    = {}   # in-day -> break minutes
+    flags  = {}   # local_date -> set (per-punch flags on their own day)
+    first_in = {} # local_date -> first in `at`
+    last_out = {} # local_date -> last out `at`
+
+    def flag(d, f):
+        flags.setdefault(d, set()).add(f)
+
+    open_in = open_in_date = open_break = None
+    open_brk = 0.0
+    for p in punches:  # already ordered by `at`
+        t = _parse_iso(p.at)
+        if t is None:
+            continue
+        d = p.local_date
+        if p.geo_status == "out_of_fence":
+            flag(d, "out_of_fence")
+        if p.source in ("manual", "self_manual"):
+            flag(d, "manual")
+        if p.adjusted_by:
+            flag(d, "adjusted")
+        if p.kind == "in":
+            if open_in is not None:
+                flag(open_in_date, "missing_out")   # prior shift never closed
+            open_in, open_in_date, open_break, open_brk = t, d, None, 0.0
+            if d not in first_in:
+                first_in[d] = p.at
+        elif p.kind == "out":
+            if open_break is not None:              # punching out while on break ends it
+                open_brk += (t - open_break).total_seconds() / 60
+                open_break = None
+            if open_in is None:
+                flag(d, "out_without_in")
+            else:
+                worked[open_in_date] = worked.get(open_in_date, 0.0) + (t - open_in).total_seconds() / 60
+                brk[open_in_date] = brk.get(open_in_date, 0.0) + open_brk
+                open_in = None
+            last_out[d] = p.at
+        elif p.kind == "break_start":
+            if open_break is None and open_in is not None:
+                open_break = t
+        elif p.kind == "break_end":
+            if open_break is not None:
+                open_brk += (t - open_break).total_seconds() / 60
+                open_break = None
+    if open_in is not None:
+        flag(open_in_date, "missing_out")
+        brk[open_in_date] = brk.get(open_in_date, 0.0) + open_brk
+
     out = {}
-    for date, plist in days.items():
-        worked = 0.0
-        brk = 0.0
-        flags = []
-        open_in = None
-        open_break = None
-        first_in = last_out = ""
-        for p in plist:  # already ordered by `at`
-            t = _parse_iso(p.at)
-            if t is None:
-                continue
-            if p.geo_status == "out_of_fence":
-                flags.append("out_of_fence")
-            if p.source in ("manual", "self_manual"):
-                flags.append("manual")
-            if p.adjusted_by:
-                flags.append("adjusted")
-            if p.kind == "in":
-                if open_in is not None:
-                    flags.append("double_in")
-                open_in = t
-                first_in = first_in or p.at
-            elif p.kind == "out":
-                if open_break is not None:  # punching out while on break ends it
-                    brk += (t - open_break).total_seconds() / 60
-                    open_break = None
-                if open_in is None:
-                    flags.append("out_without_in")
-                else:
-                    worked += (t - open_in).total_seconds() / 60
-                    open_in = None
-                last_out = p.at
-            elif p.kind == "break_start":
-                if open_break is None and open_in is not None:
-                    open_break = t
-            elif p.kind == "break_end":
-                if open_break is not None:
-                    brk += (t - open_break).total_seconds() / 60
-                    open_break = None
-        if open_in is not None:
-            flags.append("missing_out")
+    for date, plist in by_day.items():
+        w = worked.get(date, 0.0)
+        b = brk.get(date, 0.0)
         out[date] = {
-            "workedMin": int(round(max(0.0, worked - brk))),
-            "breakMin": int(round(brk)),
-            "firstIn": first_in, "lastOut": last_out,
-            "flags": sorted(set(flags)),
+            "workedMin": int(round(max(0.0, w - b))),
+            "breakMin": int(round(b)),
+            "firstIn": first_in.get(date, ""), "lastOut": last_out.get(date, ""),
+            "flags": sorted(flags.get(date, set())),
             "punches": [_serialize(p) for p in plist],
         }
     return out
@@ -1683,9 +1698,6 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     rounding. Also aggregates break minutes and (when web capture ran) idle
     minutes so the timesheet can show a worked/break/idle composition bar."""
     punches = _live_punches(db, em, start, end)
-    byday = {}
-    for p in punches:
-        byday.setdefault(p.local_date, []).append(p)
     rate_row = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
     rate = float(rate_row.hourly_rate) if rate_row else 0.0
 
@@ -1693,52 +1705,66 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     total_reg = total_ot = total_break = missing_punches = 0
     edited_punches = sum(1 for p in punches if p.adjusted_by)
 
-    for date in sorted(byday.keys()):
-        day_break = 0
-        segs = []
-        open_in = None
-        open_in_at = ""
-        open_in_id = ""
-        open_break = None
-        brk = 0.0
-        sflags = set()
-        for p in byday[date]:
-            t = _parse_iso(p.at)
-            if t is None:
-                continue
-            if p.kind == "in":
-                open_in, open_in_at, open_in_id, brk, sflags = t, p.at, p.id, 0.0, set()
-                if p.geo_status == "out_of_fence":
-                    sflags.add("out_of_fence")
-                if p.source in ("manual", "self_manual"):
-                    sflags.add("manual")
+    # Pair across the FULL ordered punch sequence — NOT bucketed per day — so a
+    # shift that spans midnight (in one night, out the next morning) stays a single
+    # segment. Each finished segment is attributed to the day the shift STARTED
+    # (the in-punch's local_date), which is where a night worker expects their
+    # hours to land.
+    segs_by_day = {}   # local_date -> [segment, ...]
+    open_in = open_in_at = open_in_id = open_in_date = None
+    open_break = None
+    brk = 0.0
+    sflags = set()
+
+    def _flush_missing():
+        # An in that never got an out → record it as a missing_out on its own day.
+        nonlocal missing_punches
+        segs_by_day.setdefault(open_in_date, []).append(
+            {"in": open_in_at, "out": "", "inId": open_in_id, "outId": "",
+             "workedMin": 0, "flags": sorted(sflags | {"missing_out"}), "_break": int(round(brk))})
+        missing_punches += 1
+
+    for p in punches:
+        t = _parse_iso(p.at)
+        if t is None:
+            continue
+        if p.kind == "in":
+            if open_in is not None:      # a new in without an out closes the prior as missing
+                _flush_missing()
+            open_in, open_in_at, open_in_id, open_in_date = t, p.at, p.id, p.local_date
+            open_break, brk, sflags = None, 0.0, set()
+            if p.geo_status == "out_of_fence":
+                sflags.add("out_of_fence")
+            if p.source in ("manual", "self_manual"):
+                sflags.add("manual")
+            if p.adjusted_by:
+                sflags.add("adjusted")
+        elif p.kind == "out":
+            if open_break is not None:
+                brk += (t - open_break).total_seconds() / 60
+                open_break = None
+            if open_in is not None:
                 if p.adjusted_by:
                     sflags.add("adjusted")
-            elif p.kind == "out":
-                if open_break is not None:
-                    brk += (t - open_break).total_seconds() / 60
-                    open_break = None
-                if open_in is not None:
-                    if p.adjusted_by:
-                        sflags.add("adjusted")
-                    mins = int(round((t - open_in).total_seconds() / 60 - brk))
-                    segs.append({"in": open_in_at, "out": p.at, "inId": open_in_id, "outId": p.id,
-                                 "workedMin": max(0, mins), "flags": sorted(sflags)})
-                    day_break += int(round(brk))
-                    open_in = None
-            elif p.kind == "break_start":
-                if open_break is None and open_in is not None:
-                    open_break = t
-            elif p.kind == "break_end":
-                if open_break is not None:
-                    brk += (t - open_break).total_seconds() / 60
-                    open_break = None
-        if open_in is not None:
-            segs.append({"in": open_in_at, "out": "", "inId": open_in_id, "outId": "",
-                         "workedMin": 0, "flags": sorted(sflags | {"missing_out"})})
-            day_break += int(round(brk))
-            missing_punches += 1
+                mins = int(round((t - open_in).total_seconds() / 60 - brk))
+                segs_by_day.setdefault(open_in_date, []).append(
+                    {"in": open_in_at, "out": p.at, "inId": open_in_id, "outId": p.id,
+                     "workedMin": max(0, mins), "flags": sorted(sflags), "_break": int(round(brk))})
+                open_in = None
+            # else: orphan out with no open in — ignored (its in was outside the range)
+        elif p.kind == "break_start":
+            if open_break is None and open_in is not None:
+                open_break = t
+        elif p.kind == "break_end":
+            if open_break is not None:
+                brk += (t - open_break).total_seconds() / 60
+                open_break = None
+    if open_in is not None:
+        _flush_missing()
 
+    for date in sorted(segs_by_day.keys()):
+        segs = segs_by_day[date]
+        day_break = sum(s.pop("_break", 0) for s in segs)
         mon = _monday_str(date)
         day_reg = day_ot = 0
         for seg in segs:
