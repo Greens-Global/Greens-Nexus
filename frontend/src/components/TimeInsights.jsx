@@ -372,20 +372,43 @@ export default function TimeInsights({ start, end, people = [] }) {
         </div>
       )}
 
-      {/* Activity log */}
+      {/* Activity log — a chronological timeline of foreground app/window, each
+          tagged productive/neutral/unproductive, with its duration. */}
       <div className="ti-fade" style={CARD}>
-        <div style={H}><Users size={13} /> Activity log</div>
-        <div style={{ maxHeight: 340, overflowY: 'auto', margin: '0 -6px' }}>
+        <div style={{ ...H, marginBottom: 6 }}><Activity size={13} /> Activity log</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap' }}>
+          {Object.entries(RATE).map(([k, v]) => (
+            <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: v.c }} /> {v.label}
+            </span>
+          ))}
+          <span style={{ marginLeft: 'auto', fontWeight: 700 }}>{data.log.length} events</span>
+        </div>
+        <div style={{ maxHeight: 460, overflowY: 'auto', margin: '0 -4px', paddingLeft: 2 }}>
           {data.log.map((l, i) => {
             const R = rateOf(l.category);
+            const label = l.domain || l.title || l.app;
+            const isLast = i === data.log.length - 1;
             return (
-              <div key={i} className="ti-row" style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '7px 6px', fontSize: 12 }}>
-                <span style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, background: R.c, flexShrink: 0 }} />
-                <span style={{ color: 'var(--muted)', width: 44, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{localTime(l.at)}</span>
-                {isTeam && <span style={{ fontWeight: 700, color: 'var(--ink)', width: 110, flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.name}</span>}
-                <span style={{ fontWeight: 700, color: 'var(--ink)', flexShrink: 0 }}>{l.app}</span>
-                <span style={{ color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={l.title}>{l.domain || l.title}</span>
-                <span style={{ color: R.c, fontWeight: 700, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{fmtDur(l.seconds)}</span>
+              <div key={i} className="ti-row" style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '9px 8px', fontSize: 12.5 }}>
+                <span style={{ color: 'var(--muted)', width: 46, flexShrink: 0, fontVariantNumeric: 'tabular-nums', paddingTop: 8 }}>{localTime(l.at)}</span>
+                {/* timeline rail with a category-coloured node */}
+                <span style={{ position: 'relative', width: 12, flexShrink: 0, alignSelf: 'stretch' }}>
+                  <span style={{ position: 'absolute', left: 5, top: 0, bottom: isLast ? '50%' : -9, width: 2, background: 'var(--line)' }} />
+                  <span style={{ position: 'absolute', left: 0, top: 8, width: 12, height: 12, borderRadius: '50%', background: R.c, boxShadow: '0 0 0 3px var(--card)' }} />
+                </span>
+                {/* app letter-avatar */}
+                <span style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 800,
+                  color: `hsl(${hueOf(l.app)},55%,32%)`, background: `hsl(${hueOf(l.app)},70%,93%)` }}>{initials(l.app)}</span>
+                <span style={{ flex: 1, minWidth: 0, paddingTop: 1 }}>
+                  <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                    {isTeam && <span style={{ fontWeight: 700, color: 'var(--pine)' }}>{l.name}</span>}
+                    <span style={{ fontWeight: 800, color: 'var(--ink)' }}>{l.app}</span>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, color: R.c }}>{R.label}</span>
+                  </span>
+                  <span style={{ display: 'block', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }} title={l.title}>{label}</span>
+                </span>
+                <span style={{ color: R.c, fontWeight: 800, flexShrink: 0, fontVariantNumeric: 'tabular-nums', paddingTop: 6 }}>{fmtDur(l.seconds)}</span>
               </div>
             );
           })}

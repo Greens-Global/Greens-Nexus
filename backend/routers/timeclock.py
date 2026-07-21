@@ -1229,7 +1229,12 @@ def agent_checkin(body: AgentCheckinIn, dev: AgentDevice = Depends(get_agent_dev
     pol = _get_policy(db)
     live = bool(clocked and not on_break and pol.enabled)
     return {"email": dev.employee_email, "clockedIn": clocked, "onBreak": on_break,
-            "capture": live, "trackScreens": live and bool(pol.track_screens),
+            "capture": live,
+            # Full policy object so the agent respects the real toggles + cadence
+            # (applyPolicy reads this). Server still re-gates every upload anyway.
+            "policy": _policy_dict(pol),
+            # Flat mirrors kept for older agent builds.
+            "trackScreens": live and bool(pol.track_screens),
             "trackApps": live and bool(pol.track_windows),
             "intervalMin": max(1, int(pol.interval_minutes or 5)), "randomize": bool(pol.randomize)}
 
