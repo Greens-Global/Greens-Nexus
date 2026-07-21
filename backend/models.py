@@ -1908,3 +1908,159 @@ class VaultAccessLog(Base):
     detail      = Column(JSON, nullable=True)                 # [{field,from,to}] for edits
     loc         = Column(String, default="")
     created_at  = Column(String, default="", index=True)
+
+
+# ── Investor Relations (Jul 2026) ────────────────────────────────────────────
+# GP-side capital-management platform for single-purpose-LLC deals and small
+# syndications (not blind-pool PE funds): one deal per property/project, a
+# small member roster, commitments, capital calls, distributions, computed
+# capital accounts, a document data room, and an investor-updates feed. Rows
+# relate by string ids only (no ORM relationships), matching the rest of this
+# file. "Fund" below is the internal/DB name for a deal — kept for schema
+# stability; UI copy calls it "Deal".
+
+class IrFund(Base):
+    __tablename__ = "ir_funds"
+    id                    = Column(String, primary_key=True)
+    name                  = Column(String, nullable=False)
+    entity_name           = Column(String, default="")   # the single-purpose LLC's legal name
+    strategy              = Column(String, default="")
+    property_name         = Column(String, default="")   # free text — deliberately NOT a FK into the separate Asset Management module
+    # Optional soft link to Asset Management's PropertyAsset.id (Ankush's
+    # module — property_assets.py/PropertyAsset.jsx) for a "view this
+    # property's operational record" cross-reference. Deliberately just an id
+    # string, not a FK: the two modules stay independent, and a stale/deleted
+    # property id just makes the link disappear rather than erroring anything.
+    property_asset_id     = Column(String, default="")
+    status                = Column(String, default="raising")  # raising|active|exited
+    target_raise          = Column(Float, default=0)
+    minimum_investment    = Column(Float, default=0)
+    preferred_return_pct  = Column(Float, default=8.0)
+    gp_promote_pct        = Column(Float, default=20.0)
+    target_irr_pct        = Column(Float, default=0)
+    target_multiple       = Column(Float, default=0)
+    hold_period_years     = Column(Float, default=0)
+    inception_date        = Column(String, default="")   # ISO yyyy-mm-dd
+    close_date            = Column(String, default="")
+    exit_date             = Column(String, default="")
+    fund_manager_email    = Column(String, default="")
+    description           = Column(String, default="")
+    thesis                = Column(String, default="")
+    created_by            = Column(String, default="")
+    created_at            = Column(String, default="")
+    updated_at            = Column(String, default="")
+
+
+class IrInvestor(Base):
+    __tablename__ = "ir_investors"
+    id                        = Column(String, primary_key=True)
+    display_name              = Column(String, nullable=False)
+    entity_type                = Column(String, default="individual")  # individual|llc|trust|ira|corporation|partnership
+    email                      = Column(String, default="", index=True)
+    phone                      = Column(String, default="")
+    address                    = Column(String, default="")
+    accredited_status          = Column(String, default="unverified")  # unverified|self_certified|verified
+    kyc_status                 = Column(String, default="pending")     # pending|in_review|cleared|flagged
+    tax_id_on_file             = Column(Boolean, default=False)
+    relationship_owner_email   = Column(String, default="")
+    notes                      = Column(String, default="")
+    status                     = Column(String, default="active")      # active|inactive|prospect
+    created_by                 = Column(String, default="")
+    created_at                 = Column(String, default="")
+    updated_at                 = Column(String, default="")
+
+
+class IrCommitment(Base):
+    __tablename__ = "ir_commitments"
+    id                 = Column(String, primary_key=True)
+    fund_id            = Column(String, nullable=False, index=True)
+    investor_id        = Column(String, nullable=False, index=True)
+    commitment_amount  = Column(Float, default=0)
+    units              = Column(Float, default=0)
+    subscription_date  = Column(String, default="")
+    status             = Column(String, default="pending")   # pending|active|closed|withdrawn
+    signed_doc_url     = Column(String, default="")
+    signed_doc_name    = Column(String, default="")
+    created_by         = Column(String, default="")
+    created_at         = Column(String, default="")
+    updated_at         = Column(String, default="")
+
+
+class IrCapitalCall(Base):
+    __tablename__ = "ir_capital_calls"
+    id            = Column(String, primary_key=True)
+    fund_id       = Column(String, nullable=False, index=True)
+    call_number   = Column(Integer, default=1)
+    title         = Column(String, default="")
+    purpose       = Column(String, default="")
+    total_amount  = Column(Float, default=0)
+    notice_date   = Column(String, default="")
+    due_date      = Column(String, default="")
+    status        = Column(String, default="draft")  # draft|issued|closed
+    created_by    = Column(String, default="")
+    created_at    = Column(String, default="")
+    updated_at    = Column(String, default="")
+
+
+class IrCapitalCallAllocation(Base):
+    __tablename__ = "ir_capital_call_allocations"
+    id            = Column(String, primary_key=True)
+    call_id       = Column(String, nullable=False, index=True)
+    fund_id       = Column(String, nullable=False, index=True)
+    investor_id   = Column(String, nullable=False, index=True)
+    commitment_id = Column(String, default="")
+    amount        = Column(Float, default=0)
+    status        = Column(String, default="pending")  # pending|paid|overdue|waived
+    paid_date     = Column(String, default="")
+    paid_amount   = Column(Float, default=0)
+
+
+class IrDistribution(Base):
+    __tablename__ = "ir_distributions"
+    id                   = Column(String, primary_key=True)
+    fund_id              = Column(String, nullable=False, index=True)
+    distribution_number  = Column(Integer, default=1)
+    title                = Column(String, default="")
+    distribution_type    = Column(String, default="return_of_capital")  # return_of_capital|preferred_return|profit_split|mixed
+    total_amount         = Column(Float, default=0)
+    distribution_date    = Column(String, default="")
+    status               = Column(String, default="draft")  # draft|issued|paid
+    created_by           = Column(String, default="")
+    created_at           = Column(String, default="")
+    updated_at           = Column(String, default="")
+
+
+class IrDistributionAllocation(Base):
+    __tablename__ = "ir_distribution_allocations"
+    id              = Column(String, primary_key=True)
+    distribution_id = Column(String, nullable=False, index=True)
+    fund_id         = Column(String, nullable=False, index=True)
+    investor_id     = Column(String, nullable=False, index=True)
+    commitment_id   = Column(String, default="")
+    amount          = Column(Float, default=0)
+    status          = Column(String, default="pending")  # pending|paid
+    paid_date       = Column(String, default="")
+
+
+class IrDocument(Base):
+    __tablename__ = "ir_documents"
+    id            = Column(String, primary_key=True)
+    fund_id       = Column(String, default="", index=True)   # '' = platform-wide
+    investor_id   = Column(String, default="", index=True)   # '' = fund-wide, visible to all of that fund's investors
+    category      = Column(String, default="other")  # subscription_agreement|k1|ppm|quarterly_report|capital_call_notice|distribution_notice|other
+    title         = Column(String, nullable=False)
+    file_url      = Column(String, default="")
+    file_name     = Column(String, default="")
+    uploaded_by   = Column(String, default="")
+    created_at    = Column(String, default="")
+
+
+class IrUpdate(Base):
+    __tablename__ = "ir_updates"
+    id          = Column(String, primary_key=True)
+    fund_id     = Column(String, default="", index=True)  # '' = platform-wide update
+    title       = Column(String, nullable=False)
+    body        = Column(String, default="")
+    pinned      = Column(Boolean, default=False)
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")

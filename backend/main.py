@@ -15,6 +15,7 @@ from routers import jobroles  # Roles & Access redesign (Jul 2026)
 from routers import access_scopes  # row-level scopes for external users (Jul 2026)
 from routers import qa  # Testing module — dev-only via NEXUS_QA_MODULE env (Jul 2026)
 from routers import credvault  # Credential Vault (Jul 2026)
+from routers import investor_relations  # Investor Relations platform (Jul 2026)
 from audit import AuditMiddleware
 
 
@@ -175,6 +176,20 @@ def _run_migrations():
             "CREATE INDEX IF NOT EXISTS ix_notif_ref ON nexus_notifications (ref_id)",
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_checkout_live ON item_checkouts (item_id) WHERE status IN ('pending','approved','pending_receipt','allocated')",
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_assignment_live ON item_assignments (item_id) WHERE status IN ('pending_acceptance','active','return_initiated')",
+            # ── HR Section A/B (nexus_employees): SQLite was missing columns the
+            # Postgres list already carried — a pre-existing local DB 500s on
+            # every nexus_employees SELECT without them (same class of bug as
+            # the Item Module fix above).
+            "ALTER TABLE nexus_employees ADD COLUMN company VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN contractor JSON DEFAULT '{}'",
+            "ALTER TABLE nexus_employees ADD COLUMN personal JSON DEFAULT '{}'",
+            "ALTER TABLE nexus_employees ADD COLUMN compensation JSON DEFAULT '{}'",
+            "ALTER TABLE nexus_employees ADD COLUMN bank JSON DEFAULT '[]'",
+            "ALTER TABLE nexus_employees ADD COLUMN compliance JSON DEFAULT '{}'",
+            "ALTER TABLE nexus_employees ADD COLUMN status_log JSON DEFAULT '[]'",
+            "ALTER TABLE nexus_employees ADD COLUMN division VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN identity_type VARCHAR DEFAULT 'internal'",
+            "ALTER TABLE ir_funds ADD COLUMN property_asset_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -292,6 +307,8 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS division VARCHAR DEFAULT ''",
         # External users: identity type (internal MS365 / Entra B2B guest / non-MS365 external)
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS identity_type VARCHAR DEFAULT 'internal'",
+        # Investor Relations: optional soft link to an Asset Management PropertyAsset.id
+        "ALTER TABLE ir_funds ADD COLUMN IF NOT EXISTS property_asset_id VARCHAR DEFAULT ''",
         # HR mailbox export: progress total (table itself is created by create_all)
         "ALTER TABLE hr_mailbox_exports ADD COLUMN IF NOT EXISTS total INTEGER DEFAULT 0",
         # E-Sign multi-document packets: PDFs attached to a template, carried on the envelope
@@ -530,4 +547,5 @@ app.include_router(hr_interviews.router)
 app.include_router(task_projects.router)  # Task Module: projects/portfolios/departments
 app.include_router(task_config.router)    # Task Module: views/rules/templates/tickets/notifications/changelog
 app.include_router(credvault.router)      # Credential Vault: encrypted company/personal secrets ("credvault" grant)
+app.include_router(investor_relations.router)  # Investor Relations: funds/investors/commitments/calls/distributions
 
