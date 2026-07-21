@@ -206,10 +206,10 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
           </div>
           <div style={{ minWidth: 200, fontSize: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--muted)' }}>
-              <span>Missing punches</span><span style={{ fontWeight: 700, color: T.missingPunches ? '#b91c1c' : 'var(--ink)' }}>{T.missingPunches}</span>
+              <span>Missing Punches</span><span style={{ fontWeight: 700, color: T.missingPunches ? '#b91c1c' : 'var(--ink)' }}>{T.missingPunches}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--muted)' }}>
-              <span>Edited punches</span><span style={{ fontWeight: 700 }}>{T.editedPunches}</span>
+              <span>Edited Punches</span><span style={{ fontWeight: 700 }}>{T.editedPunches}</span>
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <button className="secondary-btn" onClick={() => api.timeExportCsv(start, end, 'punches')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
@@ -275,7 +275,7 @@ function PunchEditModal({ day, email, busy, setBusy, onDone, onClose, toastOk, t
           <label style={{ fontSize: 11, color: 'var(--muted)' }}>Clock out<input type="datetime-local" className="form-input" value={outAt} onChange={e => setOutAt(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' }}>
-          {seg?.outId && <button onClick={removeOut} disabled={busy} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Void out-punch</button>}
+          {seg?.outId && <button onClick={removeOut} disabled={busy} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Void Out-Punch</button>}
           <div style={{ flex: 1 }} />
           <button className="secondary-btn" onClick={onClose}>Cancel</button>
           <button className="primary-btn" onClick={save} disabled={busy}>{busy ? '…' : 'Save'}</button>

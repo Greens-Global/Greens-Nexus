@@ -156,7 +156,7 @@ h1,h2,h3,h4,h5,h6,
 
 /* â”€â”€ Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .sidebar {
-  width: 264px;
+  width: 200px;
   background: var(--sidebar);
   border-right: 1px solid var(--line);
   display: flex;
@@ -195,7 +195,7 @@ h1,h2,h3,h4,h5,h6,
 .sidebar-collapse-btn {
   position: fixed;
   top: calc(50vh - 22px);
-  left: calc(var(--sw, 264px) - 9px);
+  left: calc(var(--sw, 200px) - 9px);
   width: 18px;
   height: 44px;
   border-radius: 9px;
@@ -222,7 +222,7 @@ h1,h2,h3,h4,h5,h6,
 }
 .sidebar-collapse-btn svg { width: 11px; height: 11px; }
 .sidebar.collapsed { --sw: 60px; }
-.sidebar:not(.collapsed) { --sw: 264px; }
+.sidebar:not(.collapsed) { --sw: 200px; }
 
 .sidebar-header {
   display: flex;
@@ -283,6 +283,7 @@ h1,h2,h3,h4,h5,h6,
   user-select: none;
   list-style: none;
 }
+.nav-item span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nav-item:hover { background: var(--sidebar-hover-bg); color: var(--nav-text-hover); }
 .nav-item.active { background: var(--sidebar-active-bg); color: var(--sidebar-active-text); }
 .nav-item.active:not(.has-submenu) svg { color: var(--sidebar-active-text); }
@@ -375,7 +376,7 @@ h1,h2,h3,h4,h5,h6,
 
 /* â”€â”€ Main content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .main-content {
-  flex: 1; min-width: 0; margin-left: 264px;
+  flex: 1; min-width: 0; margin-left: 200px;
   display: flex; flex-direction: column; min-height: 100vh;
   transition: margin-left 0.26s cubic-bezier(.16,1,.3,1);
 }

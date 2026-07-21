@@ -606,7 +606,7 @@ export default function App() {
 
       {!active && view !== 'manage' && pulse && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
-          <h1 style={{ fontSize: '1.5rem', fontFamily: "'Plus Jakarta Sans', sans-serif", letterSpacing: '-0.02em', margin: 0 }}>Asset Management</h1>
+          <h1 style={{ fontSize: 20, fontWeight: 700, fontFamily: "'Inter', sans-serif", letterSpacing: '-0.03em', color: 'var(--ink)', margin: 0 }}>Asset Management</h1>
           <span style={{ marginLeft: 'auto', fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
             {loading && !visibleProperties.length ? '…' : `${pulse.assets}${pulse.assets === 1 ? ' Asset' : ' Assets'}`}
           </span>
@@ -674,9 +674,9 @@ export default function App() {
             <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 6 }}>Unsaved changes</div>
             <div style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 18 }}>You have unsaved changes on this asset. Save them before you leave?</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-              <button className="primary-btn" onClick={() => { editGuard.save?.(); setLeaveAsk(false); const go = pendingNav; setPendingNav(null); go ? go() : (setActiveId(null), setView('portfolio')); }} style={{ width: '100%', padding: 12, fontSize: '0.9rem' }}>Save & leave</button>
-              <button className="secondary-btn" onClick={() => { editGuard.cancel?.(); setLeaveAsk(false); const go = pendingNav; setPendingNav(null); go ? go() : (setActiveId(null), setView('portfolio')); }} style={{ width: '100%', padding: 12, fontSize: '0.9rem' }}>Discard & leave</button>
-              <button onClick={() => { setLeaveAsk(false); setPendingNav(null); }} style={{ width: '100%', padding: 10, background: 'none', border: 'none', color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.86rem', cursor: 'pointer' }}>Keep editing</button>
+              <button className="primary-btn" onClick={() => { editGuard.save?.(); setLeaveAsk(false); const go = pendingNav; setPendingNav(null); go ? go() : (setActiveId(null), setView('portfolio')); }} style={{ width: '100%', padding: 12, fontSize: '0.9rem' }}>Save & Leave</button>
+              <button className="secondary-btn" onClick={() => { editGuard.cancel?.(); setLeaveAsk(false); const go = pendingNav; setPendingNav(null); go ? go() : (setActiveId(null), setView('portfolio')); }} style={{ width: '100%', padding: 12, fontSize: '0.9rem' }}>Discard & Leave</button>
+              <button onClick={() => { setLeaveAsk(false); setPendingNav(null); }} style={{ width: '100%', padding: 10, background: 'none', border: 'none', color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.86rem', cursor: 'pointer' }}>Keep Editing</button>
             </div>
           </div>
         </div>

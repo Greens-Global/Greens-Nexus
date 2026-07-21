@@ -289,7 +289,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
         <div style={{ marginBottom: 16, border: '1px solid hsla(var(--color-red),0.4)', background: 'hsla(var(--color-red),0.06)', borderRadius: 12, padding: '12px 16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <AlertTriangle size={15} style={{ color: 'hsl(var(--color-red))' }} />
-            <span style={{ fontWeight: 800, fontSize: 13.5 }}>Monitoring alerts</span>
+            <span style={{ fontWeight: 800, fontSize: 13.5 }}>Monitoring Alerts</span>
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>
               {monAlerts.length} clocked in with a quiet agent
             </span>
@@ -310,7 +310,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
 
       {/* Sub-tabs */}
       <div className="chip-row scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        {[['timecards', 'Timecards'], ['livemap', 'Live map'], ['attendance', 'Attendance'], ['insights', 'Insights'],
+        {[['timecards', 'Timecards'], ['livemap', 'Live Map'], ['attendance', 'Attendance'], ['insights', 'Insights'],
           ['requests', `Punch requests${punchReqs.length ? ` (${punchReqs.length})` : ''}`],
           ['screenshots', 'Screenshots'], ['shifts', 'Shifts'], ['payroll', 'Payroll'],
           ['timeoff', `Time off${pendingCount ? ` (${pendingCount})` : ''}`]].map(([key, label]) => (
@@ -744,7 +744,7 @@ export default function TimeAdmin({ employees = [], toastOk, toastErr }) {
                     return (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 800, color: '#b45309', background: 'rgba(180,83,9,0.1)', padding: '4px 11px', borderRadius: 10 }}><AlertTriangle size={12} /> CHANGED SINCE APPROVAL</span>
-                        <button className="primary-btn" onClick={() => approveDays(p.email, dk)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, background: '#b45309' }}><CheckCircle size={12} /> Re-approve week</button>
+                        <button className="primary-btn" onClick={() => approveDays(p.email, dk)} style={{ fontSize: 11.5, display: 'inline-flex', alignItems: 'center', gap: 5, background: '#b45309' }}><CheckCircle size={12} /> Re-approve Week</button>
                       </span>
                     );
                   }

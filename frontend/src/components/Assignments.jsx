@@ -280,21 +280,21 @@ export function MyPermanentPanel({ assignments, userEmail, refresh, toast }) {
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10, flexWrap: 'wrap' }}>
                 <button onClick={() => setModal({ kind: 'return', a, reason: 'dead' })}
                   className="secondary-btn" style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>
-                  <AlertCircle size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />Report dead
+                  <AlertCircle size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />Report Dead
                 </button>
                 <button onClick={() => setModal({ kind: 'return', a, reason: 'lost' })}
                   className="secondary-btn" style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>
-                  Report lost
+                  Report Lost
                 </button>
                 <button className="primary-btn" style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => setModal({ kind: 'return', a, reason: 'normal' })}>
-                  <RotateCcw size={13} /> Return item
+                  <RotateCcw size={13} /> Return Item
                 </button>
               </div>
             )}
             {a.status === 'return_initiated' && (
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
                 {a.returnReason === 'reassign' && !a.returnPhotoUrl
-                  ? <>This item is being reassigned to <strong title={a.nextAssigneeEmail || ''}>{a.nextAssigneeName || emailToName(a.nextAssigneeEmail)}</strong> — please return it: <button className="primary-btn" style={{ fontSize: 12, marginLeft: 8 }} onClick={() => setModal({ kind: 'return', a, reason: 'reassign' })}><Camera size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />Return with photo</button></>
+                  ? <>This item is being reassigned to <strong title={a.nextAssigneeEmail || ''}>{a.nextAssigneeName || emailToName(a.nextAssigneeEmail)}</strong> — please return it: <button className="primary-btn" style={{ fontSize: 12, marginLeft: 8 }} onClick={() => setModal({ kind: 'return', a, reason: 'reassign' })}><Camera size={12} style={{ verticalAlign: '-2px', marginRight: 4 }} />Return With Photo</button></>
                   : 'Waiting for a supervisor to accept the return.'}
               </div>
             )}
@@ -559,7 +559,7 @@ function CancelAssignmentBody({ a, onClose, onDone, toast, onBusy }) {
   }
   return (
     <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
-      <button className="secondary-btn" onClick={onClose} disabled={busy}>Keep assigned</button>
+      <button className="secondary-btn" onClick={onClose} disabled={busy}>Keep Assigned</button>
       <button onClick={go} disabled={busy}
         style={{ background: 'hsl(var(--color-red))', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: 'Inter,sans-serif', opacity: busy ? 0.7 : 1 }}>
         {busy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <XCircle size={13} />}

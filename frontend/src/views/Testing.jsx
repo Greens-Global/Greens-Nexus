@@ -267,7 +267,7 @@ function CaseRunner({ caseObj, runId, existing, onSaved, onFileBug, onClose, toa
               });
             }}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 'auto' }}>
-            <CircleDot size={13} style={{ color: 'hsl(var(--color-red))' }} /> Record flow
+            <CircleDot size={13} style={{ color: 'hsl(var(--color-red))' }} /> Record Flow
           </button>
           {(caseObj.flow || []).length > 0 && (
             <button className="secondary-btn" disabled={busy} title="Auto-replay the recorded flow (pauses where you must type or pick)"
@@ -351,7 +351,7 @@ function AssignModal({ runId, cases, resultsByCase, onClose, onDone, toastOk, to
   }
 
   return (
-    <Modal title="Assign test cases" onClose={onClose}>
+    <Modal title="Assign Test Cases" onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div>
           <label style={FL}>Assign to</label>
@@ -609,9 +609,9 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
                 {recMenu && <div onClick={() => setRecMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 15 }} />}
                 {recMenu && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 20, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.18)', padding: 6, width: 236 }}>
-                    <RecOption Icon={Video} title="Video + voice + steps" sub="Screen recording, narrate the bug aloud — it transcribes into its own box" onClick={() => beginRecording('video-voice')} />
-                    <RecOption Icon={Video} title="Video + steps" sub="Screen recording, no microphone" onClick={() => beginRecording('video')} />
-                    <RecOption Icon={ListChecks} title="Steps only" sub="Just log what you click, no recording" onClick={() => beginRecording('steps')} />
+                    <RecOption Icon={Video} title="Video + Voice + Steps" sub="Screen recording, narrate the bug aloud — it transcribes into its own box" onClick={() => beginRecording('video-voice')} />
+                    <RecOption Icon={Video} title="Video + Steps" sub="Screen recording, no microphone" onClick={() => beginRecording('video')} />
+                    <RecOption Icon={ListChecks} title="Steps Only" sub="Just log what you click, no recording" onClick={() => beginRecording('steps')} />
                   </div>
                 )}
               </div>
@@ -721,7 +721,7 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
                       </button>
                     )}
                     <button className="secondary-btn" onClick={() => api.qaUpdateBug(b.id, { status: 'fixed' }).then(load)} title="Mark this bug fixed — it stays until a tester verifies it"
-                      style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}><Check size={12} /> Mark fixed</button>
+                      style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}><Check size={12} /> Mark Fixed</button>
                     <button onClick={() => api.qaUpdateBug(b.id, { status: 'dismissed' }).then(load)} title="Dismiss — not a bug / won't fix" aria-label="Dismiss report"
                       style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4 }}><X size={14} /></button>
                   </>
@@ -897,11 +897,11 @@ export default function Testing() {
                 {runs.length === 0 && <option value="">— create a run to start —</option>}
                 {runs.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
               </select>
-              <button className="secondary-btn" onClick={() => setNewRunOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> New run</button>
+              <button className="secondary-btn" onClick={() => setNewRunOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> New Run</button>
               {canEdit && runId && (
                 <button className="secondary-btn" onClick={deleteRun} title="Delete this run and its recorded results — the test cases are kept"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--danger, #dc2626)' }}>
-                  <Trash2 size={14} /> Delete run
+                  <Trash2 size={14} /> Delete Run
                 </button>
               )}
               <button className="secondary-btn" onClick={doExport} disabled={!!ioBusy} title="Download an Excel of every case + this run's status + screenshots — and the import template"
@@ -917,7 +917,7 @@ export default function Testing() {
               <input ref={importRef} type="file" accept=".xlsx" style={{ display: 'none' }}
                 onChange={e => { doImport(e.target.files[0]); e.target.value = ''; }} />
               <div style={{ flex: 1 }} />
-              {canEdit && runId && <button className="primary-btn" onClick={() => setAssignOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}><UserPlus size={14} /> Assign cases</button>}
+              {canEdit && runId && <button className="primary-btn" onClick={() => setAssignOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}><UserPlus size={14} /> Assign Cases</button>}
             </div>
 
             {myAssigned.ids.size > 0 && (
@@ -983,7 +983,7 @@ export default function Testing() {
                 <option value="All">All sources</option><option value="seed">Seeded (audit)</option><option value="ai">AI converted</option><option value="manual">Manual</option>
               </select>
               <div style={{ flex: 1 }} />
-              {canEdit && <button className="primary-btn" onClick={() => setEditor(null)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> New test case</button>}
+              {canEdit && <button className="primary-btn" onClick={() => setEditor(null)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> New Test Case</button>}
             </div>
             <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6 }}>
               {cases.filter(c => (libFilter.module === 'All' || c.module === libFilter.module) && (libFilter.source === 'All' || c.source === libFilter.source)).map(c => (
@@ -1058,7 +1058,7 @@ export default function Testing() {
           }} />
       )}
       {newRunOpen && (
-        <Modal title="New test run" onClose={() => setNewRunOpen(false)}>
+        <Modal title="New Test Run" onClose={() => setNewRunOpen(false)}>
           <label style={FL}>Run name</label>
           <input value={newRunName} onChange={e => setNewRunName(e.target.value)} onKeyDown={e => e.key === 'Enter' && createRun()}
             placeholder="e.g. Jul 15 regression" style={inputStyle} autoFocus />

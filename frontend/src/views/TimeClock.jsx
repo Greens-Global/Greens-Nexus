@@ -294,7 +294,7 @@ export default function TimeClock() {
 
       {/* Tabs — one job per screen (the everything-in-one page read as clutter) */}
       <div className="chip-row scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
-        {[['clock', 'Clock'], ['timesheet', 'Timesheet'], ['timeoff', 'Time off']].map(([key, label]) => (
+        {[['clock', 'Clock'], ['timesheet', 'Time Sheet'], ['timeoff', 'Time Off']].map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
             style={{ padding: '7px 16px', borderRadius: 10, border: `1px solid ${tab === key ? 'var(--pine)' : 'var(--line)'}`,
               background: tab === key ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
@@ -384,7 +384,7 @@ export default function TimeClock() {
             </div>
             {todayData.flags.length > 0 && (
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 12, fontSize: 11, fontWeight: 700, color: '#b45309' }}>
-                <AlertTriangle size={11} /> {todayData.flags.length} item{todayData.flags.length === 1 ? '' : 's'} for review — see Timesheet
+                <AlertTriangle size={11} /> {todayData.flags.length} item{todayData.flags.length === 1 ? '' : 's'} for review — see Time Sheet
               </div>
             )}
           </>
@@ -474,7 +474,7 @@ export default function TimeClock() {
               onChange={e => setMissed(m => ({ ...m, at: e.target.value }))} style={{ fontSize: 12.5 }} />
             <input className="form-input" placeholder="Why was it missed? (required)" value={missed.note}
               onChange={e => setMissed(m => ({ ...m, note: e.target.value }))} style={{ flex: 1, minWidth: 200, fontSize: 12.5 }} />
-            <button className="primary-btn" onClick={submitMissed} style={{ fontSize: 12.5 }}>Send request</button>
+            <button className="primary-btn" onClick={submitMissed} style={{ fontSize: 12.5 }}>Send Request</button>
           </div>
           <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--muted)' }}>
             This goes to your approver — nothing changes on your timesheet until they approve it.
@@ -621,7 +621,7 @@ export default function TimeClock() {
       {tab === 'timeoff' && (<>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 8px' }}>
         <CalendarDays size={15} style={{ color: 'var(--pine)' }} />
-        <span style={{ fontSize: 13.5, fontWeight: 800 }}>Time off</span>
+        <span style={{ fontSize: 13.5, fontWeight: 800 }}>Time Off</span>
       </div>
       <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '14px 16px', marginBottom: 10 }}>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -727,7 +727,7 @@ export default function TimeClock() {
             <div style={{ padding: '15px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
               <Monitor size={18} style={{ color: 'var(--pine)' }} />
               <div style={{ flex: 1 }}>
-                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>Before you clock in</h3>
+                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>Before You Clock In</h3>
                 <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)' }}>Please read and acknowledge how this device is monitored.</p>
               </div>
               <button onClick={() => setMonGate(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>

@@ -42,7 +42,7 @@ export const RECORD_TYPES = {
       { k: 'notes', label: 'Notes', type: 'textarea', full: true },
     ],
     // Quick-add config (single-input fast entry bar): the field it fills, extra defaults, placeholder + button text.
-    quickAdd: { k: 'description', extra: { status: 'Completed' }, placeholder: 'Quick add a maintenance note — e.g. Replaced HVAC filter', button: 'Add note' },
+    quickAdd: { k: 'description', extra: { status: 'Completed' }, placeholder: 'Quick add a maintenance note — e.g. Replaced HVAC filter', button: 'Add Note' },
     cols: [
       { label: 'Date', mono: (r) => r.date ? formatDate(r.date) : '—' },
       { label: 'Work', main: (r) => r.system || r.description || '—', sub: (r) => r.system ? (r.description || r.vendor) : r.vendor },
@@ -77,7 +77,7 @@ export const RECORD_TYPES = {
       { k: 'docFile', label: 'Invoice / Receipt (Upload)', type: 'file', nameKey: 'docFileName', full: true },
       { k: 'notes', label: 'Notes', type: 'textarea', full: true },
     ],
-    quickAdd: { k: 'type', extra: {}, placeholder: 'Quick add a service — e.g. Oil change, brake job', button: 'Add service' },
+    quickAdd: { k: 'type', extra: {}, placeholder: 'Quick add a service — e.g. Oil change, brake job', button: 'Add Service' },
     cols: [
       { label: 'Date', mono: (r) => r.date ? formatDate(r.date) : '—' },
       { label: 'Service', main: (r) => r.type || '—', sub: (r) => {

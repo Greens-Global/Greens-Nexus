@@ -144,8 +144,8 @@ export default function Purchase({ activeSub = null }) {
       {/* Tabs */}
       <div className="scroll-tabs" style={{ display:'flex', gap:0, margin:'8px 0 24px', borderBottom:'1px solid var(--line)' }}>
         {[
-          { id:'new', label:'New request',     Icon: Send          },
-          { id:'log', label:'Requisition log', Icon: ClipboardList, badge: requisitions.length || null },
+          { id:'new', label:'New Request',     Icon: Send          },
+          { id:'log', label:'Requisition Log', Icon: ClipboardList, badge: requisitions.length || null },
         ].map(({ id, label, Icon, badge }) => (
           <button key={id} onClick={() => setTab(id)}
             style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 18px', background:'none', border:'none',
@@ -187,7 +187,7 @@ export default function Purchase({ activeSub = null }) {
                   background: !forSelf ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
                   color: !forSelf ? 'hsl(var(--color-green))' : 'var(--muted)',
                   fontWeight:700, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif' }}>
-                <Users size={14} /> Someone else
+                <Users size={14} /> Someone Else
               </button>
             </div>
             {!forSelf && (

@@ -457,8 +457,8 @@ export default function CredentialVaultApp() {
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderBottom: "1px solid var(--border-color)" }}>
               <span style={{ fontSize: 13.5, fontWeight: 600 }}>Notifications {unread > 0 && <span style={{ marginLeft: 4, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 999, background: "var(--cv-rose-bg)", color: "var(--cv-rose)", fontSize: 11, fontWeight: 700, padding: "1px 6px" }}>{unread}</span>}</span>
               <div style={{ display: "flex", gap: 8 }}>
-                {unread > 0 && <button onClick={markAllRead} style={{ background: "none", border: "none", fontSize: 11.5, color: "var(--text-muted)", cursor: "pointer" }}>Mark all read</button>}
-                {notifications.length > 0 && <button onClick={clearNotifs} style={{ background: "none", border: "none", fontSize: 11.5, color: "var(--text-muted)", cursor: "pointer" }}>Clear all</button>}
+                {unread > 0 && <button onClick={markAllRead} style={{ background: "none", border: "none", fontSize: 11.5, color: "var(--text-muted)", cursor: "pointer" }}>Mark All Read</button>}
+                {notifications.length > 0 && <button onClick={clearNotifs} style={{ background: "none", border: "none", fontSize: 11.5, color: "var(--text-muted)", cursor: "pointer" }}>Clear All</button>}
               </div>
             </div>
             {notifications.filter((n) => n.type === "rotation").length > 0 && (<>
@@ -531,7 +531,7 @@ export default function CredentialVaultApp() {
             Approvals {approvals.length > 0 && <span style={{ marginLeft: 2, display: "inline-flex", height: 18, minWidth: 18, alignItems: "center", justifyContent: "center", borderRadius: 999, background: "var(--cv-rose)", padding: "0 5px", fontSize: 11, fontWeight: 600, color: "#fff" }}>{approvals.length}</span>}
           </TabBtn>
         )}
-        <TabBtn active={tab === "log"} onClick={() => setTab("log")}>Activity log</TabBtn>
+        <TabBtn active={tab === "log"} onClick={() => setTab("log")}>Activity Log</TabBtn>
         <TabBtn active={tab === "trash"} onClick={() => setTab("trash")}>
           Trash {trash.length > 0 && <span style={{ marginLeft: 2, display: "inline-flex", height: 18, minWidth: 18, alignItems: "center", justifyContent: "center", borderRadius: 999, background: "var(--text-muted)", padding: "0 5px", fontSize: 11, fontWeight: 600, color: "var(--bg-card)" }}>{trash.length}</span>}
         </TabBtn>
@@ -655,7 +655,7 @@ export default function CredentialVaultApp() {
                 <div className="cv-md-only" style={{ borderBottom: "1px solid var(--border-color)", fontSize: 11, fontWeight: 600, letterSpacing: ".05em", color: "var(--text-muted)", gridTemplateColumns: colWidths.map((w) => `${w}fr`).join(" ") }}>
                   <div style={{ position: "relative", display: "flex", alignItems: "center", padding: "10px 16px" }}>
                     {editMode && (() => { const mc = visibleCreds.filter(canModify); const allSel = mc.length > 0 && mc.every((c) => selectedIds.has(c.id)); const someSel = mc.some((c) => selectedIds.has(c.id)); return mc.length > 0 ? <input type="checkbox" ref={(el) => { if (el) el.indeterminate = someSel && !allSel; }} checked={allSel} onChange={() => setSelectedIds(allSel ? new Set() : new Set(mc.map((c) => c.id)))} style={{ marginRight: 8, height: 15, width: 15, accentColor: "var(--text-primary)", cursor: "pointer" }} /> : null; })()}
-                    <button onClick={() => setSort((s) => s.col === "name" ? { col: "name", dir: s.dir === "asc" ? "desc" : "asc" } : { col: "name", dir: "asc" })} style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", color: "inherit", font: "inherit", cursor: "pointer" }}>Credential name <span style={{ fontWeight: 400 }}>{sort.col === "name" ? (sort.dir === "asc" ? "↑" : "↓") : "↑↓"}</span></button>
+                    <button onClick={() => setSort((s) => s.col === "name" ? { col: "name", dir: s.dir === "asc" ? "desc" : "asc" } : { col: "name", dir: "asc" })} style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", color: "inherit", font: "inherit", cursor: "pointer" }}>Credential Name <span style={{ fontWeight: 400 }}>{sort.col === "name" ? (sort.dir === "asc" ? "↑" : "↓") : "↑↓"}</span></button>
                     <ResizeHandle colIndex={0} colWidths={colWidths} setColWidths={setColWidths} />
                   </div>
                   <div style={{ position: "relative", padding: "10px 16px", display: "flex", alignItems: "center" }}>
@@ -790,9 +790,9 @@ export default function CredentialVaultApp() {
             {personalCreds.length === 0 && (
               <div style={{ borderRadius: 16, border: "1px dashed var(--cv-indigo-line)", background: "var(--cv-indigo-bg)", padding: 40, textAlign: "center" }}>
                 <div style={{ height: 48, width: 48, borderRadius: 16, background: "var(--cv-indigo-bg)", border: "1px solid var(--cv-indigo-line)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px" }}><Lock size={22} style={{ color: "var(--cv-indigo)" }} /></div>
-                <div style={{ fontWeight: 600, fontSize: 14.5 }}>No personal credentials yet</div>
+                <div style={{ fontWeight: 600, fontSize: 14.5 }}>No Personal Credentials Yet</div>
                 <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>Add passwords that are completely private — not visible to admins or your team.</div>
-                <button onClick={() => setShowPersonalAdd(true)} className="cv-btn-dark cv-btn-indigo" style={{ marginTop: 16 }}><Plus size={15} /> Add credential</button>
+                <button onClick={() => setShowPersonalAdd(true)} className="cv-btn-dark cv-btn-indigo" style={{ marginTop: 16 }}><Plus size={15} /> Add Credential</button>
               </div>
             )}
 
@@ -853,7 +853,7 @@ export default function CredentialVaultApp() {
         <div className="cv-card" style={{ marginTop: 16, overflow: "hidden" }}>
           <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--border-color)", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <History size={15} style={{ color: "var(--text-secondary)", flexShrink: 0 }} />
-            <span style={{ fontWeight: 600, fontSize: 13.5 }}>Activity log</span>
+            <span style={{ fontWeight: 600, fontSize: 13.5 }}>Activity Log</span>
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "var(--text-secondary)" }}>
                 <span>From</span>
@@ -976,7 +976,7 @@ export default function CredentialVaultApp() {
       {showImport && <ImportModal onClose={() => setShowImport(false)} onImport={importCredentials} depts={depts} />}
       {showManage && <ManagePanel onClose={() => setShowManage(false)} isAdmin={isAdmin} editMode={editMode} onToggleEdit={() => { setEditMode((v) => !v); setSelectedIds(new Set()); }} />}
       {showPersonalAuth && <PersonalVaultAuthModal userEmail={myEmail} onClose={() => setShowPersonalAuth(false)} onUnlock={unlockPersonalVault} isFirstTime={!personalActivated} maskedPhone={maskedPhone} />}
-      {sharedRevealFor && <PersonalVaultAuthModal userEmail={myEmail} onClose={() => setSharedRevealFor(null)} onUnlock={() => revealGrant(sharedRevealFor)} isFirstTime={false} title="Verify identity" subtitle={`Authenticate to view the shared password for "${sharedRevealFor.credName}".`} confirmLabel="Reveal password" maskedPhone={maskedPhone} />}
+      {sharedRevealFor && <PersonalVaultAuthModal userEmail={myEmail} onClose={() => setSharedRevealFor(null)} onUnlock={() => revealGrant(sharedRevealFor)} isFirstTime={false} title="Verify Identity" subtitle={`Authenticate to view the shared password for "${sharedRevealFor.credName}".`} confirmLabel="Reveal Password" maskedPhone={maskedPhone} />}
       {showPersonalAdd && <PersonalAddModal onClose={() => setShowPersonalAdd(false)} onSave={addPersonalCredential} />}
       {requestingAccessFor && <RequestAccessModal cred={requestingAccessFor} userEmail={myEmail} ownerName={nameOf(requestingAccessFor.owner)} onClose={() => setRequestingAccessFor(null)} onSubmit={requestAccess} />}
       {approvingRequest && <ApproveAccessModal request={approvingRequest} onClose={() => setApprovingRequest(null)} onConfirm={confirmGrant} onDeny={(a) => { decideRequest(a, "deny"); setApprovingRequest(null); }} maskedPhone={maskedPhone} />}

@@ -86,7 +86,7 @@ const HELP_PAGES = [
       'The right panel: “For You” shows anything waiting on your sign-off, plus Pinned and Popular documents. Press the panel button (top-right of the list) to hide it and give the list full width.',
       'Open a document by clicking its row or tile.',
     ] },
-  { key: 'document', label: 'Reading a document', title: 'Reading, sharing & signing a document',
+  { key: 'document', label: 'Reading a Document', title: 'Reading, sharing & signing a document',
     intro: 'The document view shows the full, approved procedure plus everything you can do with it.',
     steps: [
       'Read top to bottom — purpose, scope, steps, safety, and references. Use the Language bar to switch to a translated version where available.',
@@ -96,7 +96,7 @@ const HELP_PAGES = [
       'Revision history (right side) lists every version; “Compare versions” highlights exactly what changed.',
       'If you own the draft, Edit reopens it; managers see Review/Approve and Archive here.',
     ] },
-  { key: 'create', label: 'Creating an SOP', title: 'Creating & editing an SOP',
+  { key: 'create', label: 'Creating an SOP', title: 'Creating & Editing an SOP',
     intro: 'Anyone can start a draft. It’s a guided form, and Claude can do most of the heavy lifting.',
     steps: [
       'Click New SOP. Give it a clear, searchable Document title.',
@@ -122,7 +122,7 @@ const HELP_PAGES = [
       'Activity Log: every change across the library; click an entry to open the document, or jump straight to the version diff when one exists.',
       'Use New SOP / New Course from here, or open Training Courses to author and assign training.',
     ] },
-  { key: 'learn', label: 'Taking training', title: 'Learn — taking a course',
+  { key: 'learn', label: 'Taking Training', title: 'Learn — taking a course',
     intro: 'Your training. Assigned courses appear at the top as Required training with due dates.',
     steps: [
       'Open a course to see “What You’ll Learn”, then work through each lesson — your progress saves as you go.',
@@ -131,7 +131,7 @@ const HELP_PAGES = [
       'Pass and you get a printable Certificate of Completion (Print / Save PDF) — and your manager is notified automatically.',
       'Required training shows a due date and flags anything overdue, so nothing slips.',
     ] },
-  { key: 'authoring', label: 'Building a course', title: 'Building & assigning a course (managers)',
+  { key: 'authoring', label: 'Building a Course', title: 'Building & assigning a course (managers)',
     intro: 'From Manage → Training Courses. Claude can generate a whole course from your material.',
     steps: [
       'Click New Course, then paste or upload source material and press Generate course — Claude writes the objectives, lessons, and a quiz with explanations.',
@@ -140,7 +140,7 @@ const HELP_PAGES = [
       'Assign: on any course, Assign opens a people picker and an optional due date — each assignee is notified and the course appears in their Required training.',
       'Report: each course’s Report shows every attempt — who took it, scores, and exactly which questions were missed (with explanations) for follow-up.',
     ] },
-  { key: 'roles', label: 'Roles & access', title: 'Who can do what',
+  { key: 'roles', label: 'Roles & Access', title: 'Who can do what',
     intro: 'Access follows your Nexus role.',
     steps: [
       'Everyone can browse, search, read, take training, pin favorites, start a document draft, and e-sign.',
@@ -1102,7 +1102,7 @@ export default function SOP({ activeSub, onSubChange }) {
             </div>
             {canEdit(d) && <button className="secondary-btn" onClick={() => openEdit(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Edit3 size={14} /> Edit</button>}
             {(d.status === 'draft' || d.status === 'changes_requested') && (d.owner_email === myEmail || isManager) && (
-              <button className="primary-btn" disabled={busy} onClick={() => submitDoc(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Send size={14} /> Submit for review</button>
+              <button className="primary-btn" disabled={busy} onClick={() => submitDoc(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Send size={14} /> Submit for Review</button>
             )}
             {canReview(d) && <button className="primary-btn" onClick={() => { setReviewDoc(d); setReviewNote(''); }} style={{ backgroundColor: 'hsl(var(--color-green))', display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><CheckSquare size={14} /> Review</button>}
             {d.status === 'approved' && isManager && <button className="secondary-btn" onClick={() => archiveDoc(d)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}><Archive size={14} /> Archive</button>}
@@ -1199,7 +1199,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 <span style={{ flex: '0 0 auto', width: 32, height: 32, borderRadius: '50%', background: 'var(--text-primary)', color: 'var(--bg-card)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.72rem' }}>{initials(myName)}</span>
                 <textarea className="form-input" value={commentText} onChange={e => setCommentText(e.target.value)} placeholder="Add a comment…" style={{ flex: 1, minHeight: 46, resize: 'vertical' }} />
               </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}><button className="primary-btn" onClick={postComment} style={{ height: 34, fontSize: '0.82rem' }}>Post comment</button></div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}><button className="primary-btn" onClick={postComment} style={{ height: 34, fontSize: '0.82rem' }}>Post Comment</button></div>
             </div>
           </div>
 
@@ -1221,7 +1221,7 @@ export default function SOP({ activeSub, onSubChange }) {
                   : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', fontWeight: 700, color: 'hsl(145,55%,30%)', background: 'hsla(145,63%,42%,0.14)', borderRadius: 999, padding: '4px 10px' }}><CheckSquare size={13} /> Verified</span>}
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 8 }}>{d.verified_at ? `Last verified ${fmtDate(d.verified_at)}${d.verified_by ? ` by ${prettyName(d.verified_by)}` : ''}.` : 'Not yet verified.'}</div>
                 <div style={{ fontSize: '0.78rem', color: d.is_stale ? 'hsl(32,80%,38%)' : 'var(--text-muted)', marginTop: 3 }}>Every {d.review_every_months} mo · next due {fmtDate(d.next_review)}.</div>
-                {isManager && <button className={d.is_stale ? 'primary-btn' : 'secondary-btn'} onClick={verifyDoc} style={{ marginTop: 10, width: '100%', height: 32, fontSize: '0.8rem' }}>Mark verified today</button>}
+                {isManager && <button className={d.is_stale ? 'primary-btn' : 'secondary-btn'} onClick={verifyDoc} style={{ marginTop: 10, width: '100%', height: 32, fontSize: '0.8rem' }}>Mark Verified Today</button>}
               </div>
             )}
 
@@ -1271,7 +1271,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 </div>
               )}
               {snapshots.length >= 2 && (
-                <button className="secondary-btn" onClick={() => setDiff({ from: snapshots.length - 2, to: snapshots.length - 1 })} style={{ marginTop: 12, width: '100%', height: 34, fontSize: '0.8rem' }}>Compare versions</button>
+                <button className="secondary-btn" onClick={() => setDiff({ from: snapshots.length - 2, to: snapshots.length - 1 })} style={{ marginTop: 12, width: '100%', height: 34, fontSize: '0.8rem' }}>Compare Versions</button>
               )}
             </div>
           </div>
@@ -1285,7 +1285,7 @@ export default function SOP({ activeSub, onSubChange }) {
           return (
             <div className="modal-overlay" style={{ display: 'flex' }} onClick={e => { if (e.target === e.currentTarget) setDiff(null); }}>
               <div className="modal-content" style={{ maxWidth: 660 }}>
-                <div className="modal-header"><h3>Version history &amp; diff</h3><button className="close-btn" onClick={() => setDiff(null)}><X size={18} /></button></div>
+                <div className="modal-header"><h3>Version History &amp; Diff</h3><button className="close-btn" onClick={() => setDiff(null)}><X size={18} /></button></div>
                 <div style={{ maxHeight: '66vh', overflow: 'auto', padding: '4px 2px' }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
                     <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Compare</span>
@@ -1316,7 +1316,7 @@ export default function SOP({ activeSub, onSubChange }) {
         {signOpen && (
           <div className="modal-overlay" style={{ display: 'flex' }}>
             <div className="modal-content">
-              <div className="modal-header"><h3>Acknowledge &amp; sign off</h3><button className="close-btn" onClick={() => setSignOpen(false)}><X size={18} /></button></div>
+              <div className="modal-header"><h3>Acknowledge &amp; Sign Off</h3><button className="close-btn" onClick={() => setSignOpen(false)}><X size={18} /></button></div>
               <div style={{ padding: '4px 0' }}>
                 <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 14, fontSize: '0.85rem', color: 'var(--text-primary)', lineHeight: 1.6, marginBottom: 14 }}>
                   I, <b>{myName}</b>, confirm that I have read and understood <b>{d.title}</b> ({d.doc_code}, version {d.version}), and I agree to follow it in my role.
@@ -1380,7 +1380,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 <div key={s._id} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 11 }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
                     <select className="form-select" value={s.kind} onChange={e => updSection(c._id, s._id, { kind: e.target.value })} style={{ width: 140, flex: '0 0 auto' }}>
-                      <option value="text">Text section</option>
+                      <option value="text">Text Section</option>
                       <option value="sop">Linked SOP</option>
                     </select>
                     <input className="form-input" value={s.title} placeholder="Section title" onChange={e => updSection(c._id, s._id, { title: e.target.value })} style={{ flex: 1 }} />
@@ -1394,12 +1394,12 @@ export default function SOP({ activeSub, onSubChange }) {
               ))}
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              <button className="secondary-btn" onClick={() => addSection(c._id, 'text')} style={{ height: 32, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={13} /> Text section</button>
-              <button className="secondary-btn" onClick={() => addSection(c._id, 'sop')} style={{ height: 32, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={13} /> SOP section</button>
+              <button className="secondary-btn" onClick={() => addSection(c._id, 'text')} style={{ height: 32, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={13} /> Text Section</button>
+              <button className="secondary-btn" onClick={() => addSection(c._id, 'sop')} style={{ height: 32, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={13} /> SOP Section</button>
             </div>
           </div>
         ))}
-        <button className="secondary-btn" onClick={addChapter} style={{ height: 34, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add chapter</button>
+        <button className="secondary-btn" onClick={addChapter} style={{ height: 34, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={14} /> Add Chapter</button>
       </div>
     );
     const listEditor = (field, label, placeholder, hint) => section(label, hint, (<>
@@ -1445,7 +1445,7 @@ export default function SOP({ activeSub, onSubChange }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', border: '1px solid hsla(266,70%,60%,0.4)', background: 'hsla(266,70%,60%,0.06)', borderRadius: 12, padding: '12px 16px', marginBottom: 18 }}>
             <Sparkles size={18} style={{ color: 'hsl(266,72%,56%)', flex: '0 0 auto' }} />
             <div style={{ flex: 1, minWidth: 180, fontSize: '0.84rem', color: 'var(--text-primary)' }}>Claude formatted this draft. Review what changed or preview it before you publish.</div>
-            {aiReview && <button className="secondary-btn" onClick={() => setAiReview(p => ({ ...p, open: true, tab: 'changes' }))} style={{ height: 34, fontSize: '0.8rem', flex: '0 0 auto' }}>Review changes</button>}
+            {aiReview && <button className="secondary-btn" onClick={() => setAiReview(p => ({ ...p, open: true, tab: 'changes' }))} style={{ height: 34, fontSize: '0.8rem', flex: '0 0 auto' }}>Review Changes</button>}
             <button className="secondary-btn" onClick={() => setPreviewOpen(true)} style={{ height: 34, fontSize: '0.8rem', flex: '0 0 auto' }}>Preview</button>
             <button className="secondary-btn" disabled={aiBusy} onClick={runAiFormat} style={{ height: 34, fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: 5, flex: '0 0 auto' }}>{aiBusy ? <Loader size={13} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Sparkles size={13} />} Re-run AI</button>
           </div>
@@ -1562,12 +1562,12 @@ export default function SOP({ activeSub, onSubChange }) {
                   <button className="secondary-btn" onClick={() => delItem('procedure', i)} style={{ width: 42, height: 42, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><Trash2 size={16} /></button>
                 </div>
                 <textarea className="form-input" value={s.detail || ''} placeholder="Optional detail / note for this step…" onChange={e => updItem('procedure', i, { ...s, detail: e.target.value })} style={{ marginTop: 10, marginLeft: 40, width: 'calc(100% - 40px)', minHeight: 46, resize: 'vertical', fontSize: '0.88rem', lineHeight: 1.55, padding: '10px 14px' }} />
-                {s.image && <div style={{ marginTop: 10, marginLeft: 40, display: 'flex', alignItems: 'center', gap: 10 }}><img src={signedImgs[s.image] || s.image} alt="step" style={{ height: 60, borderRadius: 8, border: '1px solid var(--border-color)' }} /><button className="secondary-btn" onClick={() => updItem('procedure', i, { ...s, image: '' })} style={{ height: 32, fontSize: '0.8rem' }}>Remove picture</button></div>}
+                {s.image && <div style={{ marginTop: 10, marginLeft: 40, display: 'flex', alignItems: 'center', gap: 10 }}><img src={signedImgs[s.image] || s.image} alt="step" style={{ height: 60, borderRadius: 8, border: '1px solid var(--border-color)' }} /><button className="secondary-btn" onClick={() => updItem('procedure', i, { ...s, image: '' })} style={{ height: 32, fontSize: '0.8rem' }}>Remove Picture</button></div>}
               </div>
             ))}
             {draft.body.procedure.length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>No steps yet.</p>}
           </div>
-          <button className="secondary-btn" onClick={() => addItem('procedure', { text: '', detail: '' })} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add step</button>
+          <button className="secondary-btn" onClick={() => addItem('procedure', { text: '', detail: '' })} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add Step</button>
         </>))}
 
         {listEditor('safety', 'Safety & Compliance', 'e.g. Never enter a unit alone if…', 'Risks to watch for and any rules, regulations, or policies that must be followed.')}
@@ -1592,8 +1592,8 @@ export default function SOP({ activeSub, onSubChange }) {
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', paddingTop: 8, borderTop: '1px solid var(--border-color)', marginTop: 8 }}>
           <button className="secondary-btn" onClick={backToList}>Cancel</button>
           <button className="secondary-btn" onClick={() => setPreviewOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 'auto' }}><Eye size={14} /> Preview</button>
-          <button className="secondary-btn" disabled={busy} onClick={() => save(false)}>Save draft</button>
-          <button className="secondary-btn" disabled={busy} onClick={() => save(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={14} /> Save &amp; submit for review</button>
+          <button className="secondary-btn" disabled={busy} onClick={() => save(false)}>Save Draft</button>
+          <button className="secondary-btn" disabled={busy} onClick={() => save(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Send size={14} /> Save &amp; Submit for Review</button>
           {isManager && <button className="primary-btn" disabled={busy} onClick={saveAndPublish} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><CheckSquare size={14} /> Save &amp; publish</button>}
         </div>
 
@@ -1609,7 +1609,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 22px', borderBottom: '1px solid var(--border-color)', flexWrap: 'wrap' }}>
                   <Sparkles size={20} style={{ color: 'hsl(266,72%,56%)', flex: '0 0 auto' }} />
                   <div style={{ flex: 1, minWidth: 160 }}>
-                    <h3 style={{ margin: 0 }}>Review AI changes</h3>
+                    <h3 style={{ margin: 0 }}>Review AI Changes</h3>
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Green is added, red struck-through is removed. Already applied to your draft — revert if it's not right.</div>
                   </div>
                   <div style={{ display: 'inline-flex', background: 'var(--bg-secondary)', borderRadius: 9, padding: 3, flex: '0 0 auto' }}>
@@ -1638,8 +1638,8 @@ export default function SOP({ activeSub, onSubChange }) {
                   )}
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '14px 22px', borderTop: '1px solid var(--border-color)' }}>
-                  <button className="secondary-btn" onClick={revertAi} style={{ color: 'hsl(0,70%,45%)' }}>Revert to original</button>
-                  <button className="primary-btn" onClick={close}>Keep changes</button>
+                  <button className="secondary-btn" onClick={revertAi} style={{ color: 'hsl(0,70%,45%)' }}>Revert to Original</button>
+                  <button className="primary-btn" onClick={close}>Keep Changes</button>
                 </div>
               </div>
             </div>
@@ -1685,7 +1685,7 @@ export default function SOP({ activeSub, onSubChange }) {
             </div>
           </div>
           <div className="modal-footer">
-            <button className="secondary-btn" disabled={busy} onClick={() => doReview('request_changes')} style={{ color: 'hsl(0,70%,45%)' }}>Request changes</button>
+            <button className="secondary-btn" disabled={busy} onClick={() => doReview('request_changes')} style={{ color: 'hsl(0,70%,45%)' }}>Request Changes</button>
             <button className="primary-btn" disabled={busy} onClick={() => doReview('approve')} style={{ backgroundColor: 'hsl(var(--color-green))' }}>Approve &amp; publish</button>
           </div>
         </div>
@@ -2427,7 +2427,7 @@ export default function SOP({ activeSub, onSubChange }) {
                   ))}
                 </div>
               ))}
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}><button className="secondary-btn" onClick={() => setPlayer(p => ({ ...p, mode: 'lesson' }))} style={{ height: 34 }}>Back to lessons</button><button className="primary-btn" onClick={submitQuiz} style={{ height: 34 }}>Submit quiz</button></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}><button className="secondary-btn" onClick={() => setPlayer(p => ({ ...p, mode: 'lesson' }))} style={{ height: 34 }}>Back to Lessons</button><button className="primary-btn" onClick={submitQuiz} style={{ height: 34 }}>Submit Quiz</button></div>
             </div>
           );
         } else {
@@ -2439,8 +2439,8 @@ export default function SOP({ activeSub, onSubChange }) {
                 <p style={{ color: 'var(--text-secondary)', margin: 0 }}>You scored <b>{player.lastScore}%</b>.</p>
                 <div style={{ marginTop: 16, display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
                   {player.lastPassed
-                    ? <><button className="primary-btn" onClick={() => setCertOpen(true)} style={{ height: 34, display: 'inline-flex', alignItems: 'center', gap: 6 }}><GraduationCap size={15} /> View certificate</button><button className="secondary-btn" onClick={() => { setLmsMode('list'); api.getKbCourses().then(setLmsCourses).catch(() => {}); }} style={{ height: 34 }}>Back to Learn</button></>
-                    : <><button className="primary-btn" onClick={() => setPlayer(p => ({ ...p, mode: 'quiz', answers: {} }))} style={{ height: 34 }}>Retake quiz</button><button className="secondary-btn" onClick={() => setPlayer(p => ({ ...p, mode: 'lesson' }))} style={{ height: 34 }}>Review lessons</button></>}
+                    ? <><button className="primary-btn" onClick={() => setCertOpen(true)} style={{ height: 34, display: 'inline-flex', alignItems: 'center', gap: 6 }}><GraduationCap size={15} /> View Certificate</button><button className="secondary-btn" onClick={() => { setLmsMode('list'); api.getKbCourses().then(setLmsCourses).catch(() => {}); }} style={{ height: 34 }}>Back to Learn</button></>
+                    : <><button className="primary-btn" onClick={() => setPlayer(p => ({ ...p, mode: 'quiz', answers: {} }))} style={{ height: 34 }}>Retake Quiz</button><button className="secondary-btn" onClick={() => setPlayer(p => ({ ...p, mode: 'lesson' }))} style={{ height: 34 }}>Review Lessons</button></>}
                 </div>
               </div>
               {hasQuiz && player.results && (
@@ -2606,7 +2606,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 ))}
                 {(d.overview || []).length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>No objectives yet.</p>}
               </div>
-              <button className="secondary-btn" onClick={cdAddObjective} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add objective</button>
+              <button className="secondary-btn" onClick={cdAddObjective} style={{ marginTop: 12, height: 36, fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add Objective</button>
             </>))}
 
             {csection('Lessons', 'Break the material into focused lessons — plain readings or links to an existing SOP.', (<>
@@ -2651,13 +2651,13 @@ export default function SOP({ activeSub, onSubChange }) {
                 ))}
                 {d.quiz.questions.length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>No questions yet.</p>}
               </div>
-              <button className="secondary-btn" onClick={cdAddQ} style={{ height: 36, fontSize: '0.82rem', marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add question</button>
+              <button className="secondary-btn" onClick={cdAddQ} style={{ height: 36, fontSize: '0.82rem', marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={14} /> Add Question</button>
             </>))}
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', paddingTop: 8, borderTop: '1px solid var(--border-color)', marginTop: 8 }}>
               <button className="secondary-btn" onClick={() => { setCourseDraft(null); setLmsMode('list'); }}>Cancel</button>
               <button className="secondary-btn" onClick={() => setCoursePreview(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 'auto' }}><Eye size={14} /> Preview</button>
-              <button className="secondary-btn" onClick={() => saveCourse(false)}>Save draft</button>
+              <button className="secondary-btn" onClick={() => saveCourse(false)}>Save Draft</button>
               <button className="primary-btn" onClick={() => saveCourse(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><CheckSquare size={14} /> Publish</button>
             </div>
 

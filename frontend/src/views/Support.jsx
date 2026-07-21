@@ -1,7 +1,7 @@
 import { FileText, Monitor, Users, BookOpen, ArrowUpRight } from "lucide-react";
 
 const OPTIONS = [
-  { icon: FileText, title: "Submit a ticket",    desc: "Report an issue or request help from any department." },
+  { icon: FileText, title: "Submit a Ticket",    desc: "Report an issue or request help from any department." },
   { icon: Monitor,  title: "IT Help Desk",       desc: "Hardware, access, software, and network support." },
   { icon: Users,    title: "Contact Directory",  desc: "Find the right person across Greens Global." },
   { icon: BookOpen, title: "FAQ & Guides",       desc: "Common how-tos and Nexus walkthroughs." },
@@ -34,7 +34,7 @@ export default function Support() {
       </div>
 
       <div className="dash-card">
-        <div className="dash-card-title" style={{ marginBottom: 14 }}>My open tickets</div>
+        <div className="dash-card-title" style={{ marginBottom: 14 }}>My Open Tickets</div>
         <table className="req-table stack-table">
           <thead><tr><th>Ticket</th><th>Subject</th><th>Dept</th><th>Status</th><th>Updated</th></tr></thead>
           <tbody>

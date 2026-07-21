@@ -296,7 +296,7 @@ const labelStyle = { display: 'block', fontSize: 12.5, fontWeight: 600, color: N
 const DETAIL_TABS = [
   { key: 'overview', label: 'Overview' },
   { key: 'members', label: 'Members' },
-  { key: 'work', label: 'All work' },
+  { key: 'work', label: 'All Work' },
   { key: 'calendar', label: 'Calendar' },
 ];
 

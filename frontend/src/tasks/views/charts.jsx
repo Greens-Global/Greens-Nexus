@@ -259,7 +259,7 @@ function AddChartModal({ tasks, store, initial, onClose, onSave }) {
     <div onMouseDown={(e) => e.target === e.currentTarget && onClose()} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(17,24,39,0.45)', padding: 16, fontFamily: FONT }}>
       <div style={{ display: 'flex', flexDirection: 'column', height: '88vh', width: '100%', maxWidth: 1000, overflow: 'hidden', borderRadius: 16, border: `1px solid ${NX.border}`, background: NX.surface, boxShadow: '0 24px 60px rgba(0,0,0,0.28)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 20px', borderBottom: `1px solid ${NX.border}`, flexShrink: 0 }}>
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{initial ? 'Edit chart' : 'Add chart'}</h2>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{initial ? 'Edit Chart' : 'Add Chart'}</h2>
           <button onClick={onClose} style={{ ...btn('ghost'), padding: 6 }}><X size={18} /></button>
         </div>
         <div style={{ display: 'flex', minHeight: 0, flex: 1, flexWrap: 'wrap' }}>

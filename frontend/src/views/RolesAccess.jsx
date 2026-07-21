@@ -162,7 +162,7 @@ export default function RolesAccess({ embedded = false }) {
         !jobRoles ? <Spinner /> : (
           <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 18 }} className="ra-grid">
             <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end' }}>
-              <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditing(null)}><Plus size={15} /> New job role</button>
+              <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditing(null)}><Plus size={15} /> New Job Role</button>
             </div>
             <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6, alignSelf: 'start' }}>
               {jobRoles.length === 0 ? <Empty text="No job roles yet." /> : jobRoles.map(r => (
@@ -234,7 +234,7 @@ export default function RolesAccess({ embedded = false }) {
         !groups ? <Spinner /> : (
           <>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-              <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditGroup(null)}><Plus size={15} /> New group</button>
+              <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }} onClick={() => setEditGroup(null)}><Plus size={15} /> New Group</button>
             </div>
             <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6 }}>
               {groups.length === 0 ? <Empty text="No additive groups yet. Create one to grant extra access on top of a job role." /> : groups.map(g => {
@@ -358,7 +358,7 @@ function RoleEditor({ role, onClose, onSaved, onErr }) {
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
         <button className="secondary-btn" onClick={onClose}>Cancel</button>
-        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />} Save job role</button>
+        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />} Save Job Role</button>
       </div>
     </Modal>
   );
@@ -412,7 +412,7 @@ function GroupEditor({ group, onClose, onSaved, onErr }) {
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
         <button className="secondary-btn" onClick={onClose}>Cancel</button>
-        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />} Save group</button>
+        <button className="primary-btn" disabled={busy} onClick={save} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{busy && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />} Save Group</button>
       </div>
     </Modal>
   );

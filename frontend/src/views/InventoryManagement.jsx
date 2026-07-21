@@ -435,7 +435,7 @@ function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
       {/* Wide enough that no label or select option ever truncates (e.g.
           "Temporary (check-out/return)" was getting cut off at 500px) */}
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:620, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', margin:'auto' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:20 }}>Add item</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:20 }}>Add Item</h3>
 
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
           <div>
@@ -552,7 +552,7 @@ function AddItemModal({ onClose, onSave, initial = {}, types = ITEM_TYPES }) {
           <button className="primary-btn" disabled={!name.trim() || (!photoUrl && !skipPhoto) || !department.trim() || !location.trim() || saving}
             style={{ display:'inline-flex', alignItems:'center', gap:7, minWidth:120, justifyContent:'center' }}
             onClick={submit}>
-            {saving ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Saving…</> : <><Plus size={14} /> Add item</>}
+            {saving ? <><Loader2 size={14} style={{ animation:'spin 1s linear infinite' }} /> Saving…</> : <><Plus size={14} /> Add Item</>}
           </button>
         </div>
       </div>
@@ -649,7 +649,7 @@ function EditItemModal({ item, onClose, onSave, types = ITEM_TYPES }) {
       {/* Wide enough that no label or select option ever truncates (e.g.
           "Temporary (check-out/return)" was getting cut off at 500px) */}
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:620, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', margin:'auto' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:20 }}>Edit item</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:20 }}>Edit Item</h3>
 
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
           <div>
@@ -782,7 +782,7 @@ function DeleteItemModal({ item, onClose, onConfirm }) {
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:400, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:8 }}>Delete item?</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:8 }}>Delete Item?</h3>
         <p style={{ fontSize:13.5, color:'var(--muted)', marginBottom:16 }}>
           Remove <strong>{item.name}</strong>? It moves to the recycle bin and can be restored later. Deleting fails if the item has an active checkout.
         </p>
@@ -983,7 +983,7 @@ function ImportItemsModal({ onClose, onImport, customFields = [] }) {
         ) : (
           <>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
-              <h3 style={{ fontSize:16, fontWeight:700 }}>Import items from CSV or Excel</h3>
+              <h3 style={{ fontSize:16, fontWeight:700 }}>Import Items From CSV or Excel</h3>
               <button onClick={() => downloadImportTemplate(customFields)} className="secondary-btn" style={{ fontSize:12, padding:'5px 12px', display:'inline-flex', alignItems:'center', gap:5 }}>
                 <Download size={13} /> Template
               </button>
@@ -1103,7 +1103,7 @@ function ReportModal({ onClose, checkouts, initial }) {
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom: (initial?.dept && initial.dept !== 'All') || (initial?.itemType && initial.itemType !== 'All') ? 6 : 16 }}>Export report</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom: (initial?.dept && initial.dept !== 'All') || (initial?.itemType && initial.itemType !== 'All') ? 6 : 16 }}>Export Report</h3>
         {((initial?.dept && initial.dept !== 'All') || (initial?.itemType && initial.itemType !== 'All')) && (
           <p style={{ fontSize:12, color:'var(--muted)', marginBottom:16 }}>Pre-filled from your current filters — adjust below, then export as PDF or Excel.</p>
         )}
@@ -1193,7 +1193,7 @@ function ReturnModal({ checkout, onClose, onSubmit, photoOptional = false }) {
       onClick={e => e.target === e.currentTarget && !submitting && onClose()}>
       <div tabIndex={0} style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:420, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', outline:'none' }}
         onPaste={e => { const f = imageFromPaste(e); if (f) { e.preventDefault(); handleFile(f); } }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Return item</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Return Item</h3>
         <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:20 }}>
           Returning <strong>{checkout.itemName}</strong>. {photoOptional ? 'A photo is optional for this item.' : 'A photo of the item is required.'}
         </p>
@@ -1276,7 +1276,7 @@ function ExtendRequestModal({ checkout, onClose, onSubmit }) {
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:400, boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Request an extension</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Request an Extension</h3>
         <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:20 }}>
           Ask for more time with <strong>{checkout.itemName}</strong>. A manager will review your request.
         </p>
@@ -1620,7 +1620,7 @@ function AuditHistoryModal({ item, onClose, onOpenItem }) {
       <div style={{ background:'var(--card)', borderRadius:16, width:'100%', maxWidth:560, maxHeight:'88vh', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)' }}>
         <div style={{ padding:'18px 22px 14px', borderBottom:'1px solid var(--line)', display:'flex', alignItems:'flex-start', justifyContent:'space-between', flexShrink:0 }}>
           <div style={{ minWidth:0 }}>
-            <h3 style={{ margin:0, fontSize:16, fontWeight:700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name || 'Item history'}</h3>
+            <h3 style={{ margin:0, fontSize:16, fontWeight:700, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name || 'Item History'}</h3>
             <p style={{ margin:'3px 0 0', fontSize:12.5, color:'var(--muted)' }}>Full activity timeline — newest at the bottom</p>
           </div>
           <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4, flexShrink:0 }}><X size={18} /></button>
@@ -1666,7 +1666,7 @@ function AuditHistoryModal({ item, onClose, onOpenItem }) {
         </div>
         <div style={{ padding:'12px 22px', borderTop:'1px solid var(--line)', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
           {onOpenItem
-            ? <button className="secondary-btn" onClick={() => { onOpenItem(item); onClose(); }} style={{ display:'inline-flex', alignItems:'center', gap:6 }}><Pencil size={14} /> Open &amp; edit this item</button>
+            ? <button className="secondary-btn" onClick={() => { onOpenItem(item); onClose(); }} style={{ display:'inline-flex', alignItems:'center', gap:6 }}><Pencil size={14} /> Open &amp; Edit This Item</button>
             : <span />}
           <button className="secondary-btn" onClick={onClose}>Done</button>
         </div>
@@ -2204,7 +2204,7 @@ function CartDrawer({ open, cart, onClose, onRemove, onSubmit, submitting, onDay
                   <label style={{ ...FL, marginBottom:0 }}>HOW MANY DAYS IS IT NEEDED?</label>
                   <button onClick={() => applyDaysToAll(cart[0]?.days ?? 1)}
                     style={{ fontSize:11, color:'hsl(var(--color-blue))', background:'none', border:'none', cursor:'pointer', padding:'2px 6px', fontFamily:'Inter,sans-serif' }}>
-                    Apply first to all
+                    Apply First to All
                   </button>
                 </div>
                 <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:20 }}>
@@ -2384,7 +2384,7 @@ function BatchReRequestModal({ checkouts, onClose, onSubmit }) {
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:14, padding:28, width:'100%', maxWidth:440, boxShadow:'0 20px 60px rgba(0,0,0,0.3)', maxHeight:'85vh', overflowY:'auto' }}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Request again</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Request Again</h3>
         <p style={{ fontSize:12.5, color:'var(--muted)', marginBottom:16 }}>
           {checkouts.length} item{checkouts.length !== 1 ? 's' : ''} from your past checkouts will go in as one new request. Days are pre-filled from last time — adjust any of them below before submitting.
         </p>
@@ -2609,8 +2609,8 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
   const segmentTabs = (
     <div className="chip-row" style={{ display:'flex', gap:8, marginBottom:16 }}>
       {[
-        { key:'active', label:'Active checkouts', Icon: Clock,   count: active.length    },
-        { key:'past',   label:'Past checkouts',   Icon: History, count: completed.length },
+        { key:'active', label:'Active Checkouts', Icon: Clock,   count: active.length    },
+        { key:'past',   label:'Past Checkouts',   Icon: History, count: completed.length },
         { key:'permanent', label:'Permanent', Icon: User, count: liveAssignCount },
       ].map(({ key, label, Icon, count }) => {
         const sel = panelTab === key;
@@ -2749,7 +2749,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
                 {cancellableItems.length > 1 && !showBatchReceipt && !showBatchReturn && cancelAllKey !== groupKey && (
                   <button className="secondary-btn" onClick={() => setCancelAllKey(groupKey)}
                     style={{ marginLeft:'auto', fontSize:11.5, padding:'4px 12px', color:'hsl(var(--color-red))', display:'inline-flex', alignItems:'center', gap:4 }}>
-                    <XCircle size={11} /> Cancel all
+                    <XCircle size={11} /> Cancel All
                   </button>
                 )}
                 {cancelAllKey === groupKey && (
@@ -2838,7 +2838,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
                         {onReRequest && (
                           <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
                             onClick={() => { setReRequestId(c.id); setReRequestReason(''); }}>
-                            <RotateCcw size={12} /> Request again
+                            <RotateCcw size={12} /> Request Again
                           </button>
                         )}
                       </div>
@@ -2848,13 +2848,13 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
                     {c.status === 'allocated' && onRequestExtension && c.extensionStatus !== 'pending' && (
                       <button className="secondary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5, color:'hsl(var(--color-blue))' }}
                         onClick={() => setExtendingCo(c)}>
-                        <Clock size={13} /> Extend item
+                        <Clock size={13} /> Extend Item
                       </button>
                     )}
                     {c.status === 'allocated' && (
                       <button className="primary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:5 }}
                         onClick={() => onReturn(c)}>
-                        <RotateCcw size={13} /> Return item
+                        <RotateCcw size={13} /> Return Item
                       </button>
                     )}
                     {c.status === 'pending_receipt' && onConfirmReceipt && (
@@ -3530,13 +3530,13 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
             </button>
           );
           const topCards = [
-            { Icon:ShoppingCart,  colorVar:'color-green',  title:'Check out an item',      sub:'Browse available equipment and raise a checkout request.',                                                                          go:() => { setMode('catalog'); setTab('catalog'); },   badge:null },
+            { Icon:ShoppingCart,  colorVar:'color-green',  title:'Check Out an Item',      sub:'Browse available equipment and raise a checkout request.',                                                                          go:() => { setMode('catalog'); setTab('catalog'); },   badge:null },
             // Covers BOTH return and extend, so the title says so (UX-030).
-            { Icon:RotateCcw,     colorVar:'color-blue',   title:'Return or extend', sub:activeCheckouts.length > 0 ? `${activeCheckouts.length} item${activeCheckouts.length!==1?'s':''} currently checked out.` : 'Return equipment you have, or ask for more time.', go:() => { setMode('catalog'); setTab('checkouts'); }, badge:activeCheckouts.length||null },
+            { Icon:RotateCcw,     colorVar:'color-blue',   title:'Return or Extend', sub:activeCheckouts.length > 0 ? `${activeCheckouts.length} item${activeCheckouts.length!==1?'s':''} currently checked out.` : 'Return equipment you have, or ask for more time.', go:() => { setMode('catalog'); setTab('checkouts'); }, badge:activeCheckouts.length||null },
             // Managers get a Manage card right on the home screen (Neil: no way in from here).
-            ...(showManage && onEnterManage ? [{ Icon:Box, colorVar:'color-purple', title:'Manage items', sub:'Add, edit, assign, import, types and the activity log — the full management tools.', go:onEnterManage, badge:null }] : []),
+            ...(showManage && onEnterManage ? [{ Icon:Box, colorVar:'color-purple', title:'Manage Items', sub:'Add, edit, assign, import, types and the activity log — the full management tools.', go:onEnterManage, badge:null }] : []),
           ];
-          const purchaseCard = { Icon:ClipboardList, colorVar:'color-orange', title:'Purchase request', sub:'Need something not in the catalog? Submit a formal purchase request.', go:() => window.dispatchEvent(new CustomEvent('nexus:navigate',{detail:{view:'purchase'}})), badge:null };
+          const purchaseCard = { Icon:ClipboardList, colorVar:'color-orange', title:'Purchase Request', sub:'Need something not in the catalog? Submit a formal purchase request.', go:() => window.dispatchEvent(new CustomEvent('nexus:navigate',{detail:{view:'purchase'}})), badge:null };
           // All actions in one responsive grid so every card is the same size
           // (Purchase request used to sit in its own 380px row, which read as
           // a shrunken odd-one-out next to the full-width top cards).
@@ -3550,7 +3550,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
           <div style={{ padding:'14px 18px', borderRadius:12, border:'1px solid hsla(var(--color-green),0.3)', background:'hsla(var(--color-green),0.06)', display:'flex', alignItems:'center', gap:12, maxWidth:520, marginTop:24 }}>
             <ShoppingCart size={16} color="hsl(var(--color-green))" style={{ flexShrink:0 }} />
             <span style={{ fontSize:13, fontWeight:600, color:'var(--ink)', flex:1 }}>{cart.length} item{cart.length!==1?'s':''} waiting in your cart</span>
-            <button className="primary-btn" onClick={() => setCartOpen(true)} style={{ fontSize:12, padding:'6px 14px', flexShrink:0 }}>View cart</button>
+            <button className="primary-btn" onClick={() => setCartOpen(true)} style={{ fontSize:12, padding:'6px 14px', flexShrink:0 }}>View Cart</button>
           </div>
         )}
         <CartDrawer open={cartOpen} cart={cart} items={items} onClose={() => setCartOpen(false)} onRemove={removeFromCart} onSubmit={handleSubmitCart} submitting={submitting} onDaysChange={handleDaysChange} showApprover />
@@ -3571,7 +3571,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
           style={{ display:'inline-flex', alignItems:'center', gap:6, background:'none', border:'none', cursor:'pointer', color:'var(--muted)', fontSize:13, fontFamily:'Inter,sans-serif', padding:'4px 0', transition:'color 0.15s' }}
           onMouseEnter={e => e.currentTarget.style.color='var(--ink)'}
           onMouseLeave={e => e.currentTarget.style.color='var(--muted)'}>
-          <ArrowLeft size={14} /> Back to home
+          <ArrowLeft size={14} /> Back to Home
         </button>
         <button onClick={() => setCartOpen(true)}
           className="header-cart"
@@ -3584,9 +3584,9 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
       {/* Tab strip — scrolls horizontally on phones */}
       <div className="scroll-tabs" style={{ display:'flex', alignItems:'center', borderBottom:'2px solid var(--line)', marginBottom:24 }}>
         {[
-          { id:'catalog',   label:'Browse catalog', Icon: Package,       badge: null },
-          { id:'checkouts', label:'My checkouts',   Icon: ClipboardList, badge: activeCheckouts.length || null },
-          ...(isAllocator ? [{ id:'handover', label:'To hand over', Icon: Camera, badge: myAllocations.length || null }] : []),
+          { id:'catalog',   label:'Browse Catalog', Icon: Package,       badge: null },
+          { id:'checkouts', label:'My Checkouts',   Icon: ClipboardList, badge: activeCheckouts.length || null },
+          ...(isAllocator ? [{ id:'handover', label:'To Hand Over', Icon: Camera, badge: myAllocations.length || null }] : []),
         ].map(({ id, label, Icon, badge }) => (
           <button key={id} onClick={() => setTab(id)}
             style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 18px', background:'none', border:'none',
@@ -3757,7 +3757,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
               <div style={{ fontWeight:600, fontSize:15, marginBottom:6 }}>No checkouts yet</div>
               <div style={{ fontSize:13, marginBottom:20 }}>Browse the catalog to check out equipment.</div>
               <button className="primary-btn" onClick={() => setTab('catalog')} style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
-                <Package size={14} /> Browse catalog
+                <Package size={14} /> Browse Catalog
               </button>
             </div>
           ) : (
@@ -3823,7 +3823,7 @@ const EmployeeView = memo(function EmployeeView({ items, checkouts, activeSub, u
                     <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
                       <span style={{ display:'inline-flex', alignItems:'center', gap:3, padding:'2px 8px', borderRadius:20, fontSize:10.5, fontWeight:800, background:'hsla(var(--color-blue),0.12)', color:'hsl(var(--color-blue))' }}>Awaiting Handover</span>
                       <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, background:'hsl(var(--color-orange))' }} onClick={() => setAllocatingCo(co)}>
-                        <Camera size={12} /> Hand over
+                        <Camera size={12} /> Hand Over
                       </button>
                     </div>
                   </div>
@@ -4059,7 +4059,7 @@ const BATCH_FIELDS = [
   { key: 'ownership_type', label: 'Ownership',  options: ['transient', 'permanent'] },
   { key: 'location',       label: 'Location' },
   { key: 'op_status',      label: 'Status',     options: OP_STATUSES },
-  { key: 'asset_value',    label: 'Asset value ($)' },
+  { key: 'asset_value',    label: 'Asset Value ($)' },
 ];
 
 // Shared Fields/Photos toggle that sits at the top of the unified Batch modal
@@ -4166,7 +4166,7 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
         <div style={{ marginTop:14, paddingTop:14, borderTop:'1px solid var(--line)', flexShrink:0 }}>
           <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', userSelect:'none' }}>
             <input type="checkbox" checked={assignOn} onChange={() => setAssignOn(v => !v)} style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
-            <span style={{ fontSize:12.5, fontWeight:700, color: assignOn ? 'var(--ink)' : 'var(--muted)' }}>Assign these items</span>
+            <span style={{ fontSize:12.5, fontWeight:700, color: assignOn ? 'var(--ink)' : 'var(--muted)' }}>Assign These Items</span>
           </label>
           {assignOn && (
             <div style={{ display:'flex', flexDirection:'column', gap:9, marginTop:10 }}>
@@ -4702,7 +4702,7 @@ function ManageTypesModal({ types, counts = {}, onClose, onChanged, toast }) {
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:1200, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }} onClick={e => e.target === e.currentTarget && onClose()}>
       <div style={{ background:'var(--card)', borderRadius:16, padding:'22px 26px 20px', width:'100%', maxWidth:440, boxShadow:'var(--shadow-lg)', maxHeight:'min(85dvh,640px)', display:'flex', flexDirection:'column' }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
-          <h3 style={{ margin:0, fontSize:16, fontWeight:700, display:'inline-flex', alignItems:'center', gap:7 }}><Tag size={16} /> Manage item types</h3>
+          <h3 style={{ margin:0, fontSize:16, fontWeight:700, display:'inline-flex', alignItems:'center', gap:7 }}><Tag size={16} /> Manage Item Types</h3>
           <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--muted)', display:'flex', padding:4 }}><X size={18} /></button>
         </div>
         <p style={{ margin:'0 0 14px', fontSize:12.5, color:'var(--muted)' }}>
@@ -5033,7 +5033,7 @@ function SendAlertModal({ onClose, toast }) {
               <Megaphone size={18} color="hsl(var(--color-orange))" />
             </div>
             <div>
-              <h3 style={{ margin:0, fontSize:15, fontWeight:700 }}>Send alert</h3>
+              <h3 style={{ margin:0, fontSize:15, fontWeight:700 }}>Send Alert</h3>
               <p style={{ margin:0, fontSize:12, color:'var(--muted)' }}>Bell notification + email to selected users</p>
             </div>
           </div>
@@ -5649,7 +5649,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
           admin extras collected under Manage ▾ so the bar never wraps into soup. */}
       <div style={{ display:'flex', gap:10, marginBottom:16, flexWrap:'wrap', alignItems:'center' }}>
         <button className="primary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onAdd}>
-          <Plus size={14} /> Add item
+          <Plus size={14} /> Add Item
         </button>
         <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7 }} onClick={onImport}>
           <UploadCloud size={14} /> Import CSV
@@ -5702,9 +5702,9 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
                 <div style={{ position:'fixed', inset:0, zIndex:40 }} onClick={() => setManageMenu(false)} />
                 <div style={{ position:'absolute', top:'calc(100% + 6px)', left:0, zIndex:41, background:'var(--card)', border:'1px solid var(--line)', borderRadius:10, boxShadow:'var(--shadow-lg)', minWidth:210, overflow:'hidden', padding:5 }}>
                   {[
-                    onManageTypes        && { icon: Tag,         label: 'Manage types',      onClick: onManageTypes },
-                    onManageCustomFields && { icon: Plus,        label: 'Add custom field',  onClick: onManageCustomFields },
-                    canDelete && onShowDeleted && { icon: Trash2, label: 'Deleted items',    onClick: onShowDeleted },
+                    onManageTypes        && { icon: Tag,         label: 'Manage Types',      onClick: onManageTypes },
+                    onManageCustomFields && { icon: Plus,        label: 'Add Custom Field',  onClick: onManageCustomFields },
+                    canDelete && onShowDeleted && { icon: Trash2, label: 'Deleted Items',    onClick: onShowDeleted },
                   ].filter(Boolean).map(({ icon: MIcon, label, onClick }) => (
                     <button key={label} onClick={() => { setManageMenu(false); onClick(); }}
                       style={{ display:'flex', alignItems:'center', gap:8, width:'100%', textAlign:'left', background:'none', border:'none', cursor:'pointer', padding:'9px 11px', borderRadius:7, fontFamily:'Inter,sans-serif', fontSize:13, fontWeight:600, color:'var(--ink)' }}
@@ -6032,8 +6032,8 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
               {/* Neil: no icons here (misleading), and "Employee" → "Requester" —
                   everyone is technically an employee */}
               {[
-                { id:'you',      title:'Photos by you',       sub:'You upload now — individual items or a batch shot.' },
-                { id:'employee', title:'Photos by requester', sub:'Requester confirms receipt and uploads on their side.' },
+                { id:'you',      title:'Photos by You',       sub:'You upload now — individual items or a batch shot.' },
+                { id:'employee', title:'Photos by Requester', sub:'Requester confirms receipt and uploads on their side.' },
               ].map(opt => (
                 <button key={opt.id} onClick={() => opt.id === 'you' ? setStep(isMulti ? 'mode' : 'upload') || setPhotoMode('batch') : setStep('employee')}
                   style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:6, padding:'14px 16px', borderRadius:12, border:'1.5px solid var(--line)', background:'var(--mist)', cursor:'pointer', textAlign:'left', fontFamily:'Inter,sans-serif', transition:'border-color .15s, box-shadow .15s' }}
@@ -6053,14 +6053,14 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
         {/* Step: individual or batch (only for multi-item orders) */}
         {step === 'mode' && (
           <>
-            <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Photo style</h3>
+            <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Photo Style</h3>
             <p style={{ fontSize:13, color:'var(--muted)', marginBottom:20 }}>
               Handing over <strong>{coItems.length} items</strong> to <strong>{first.requestedBy}</strong>.
             </p>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
               {[
-                { id:'individual', title:'Individual photos', sub:'One photo per item — best for high-value assets.' },
-                { id:'batch',      title:'Batch photo',       sub:'One photo of all items together — quick for groups.' },
+                { id:'individual', title:'Individual Photos', sub:'One photo per item — best for high-value assets.' },
+                { id:'batch',      title:'Batch Photo',       sub:'One photo of all items together — quick for groups.' },
               ].map(opt => (
                 <button key={opt.id} onClick={() => { setPhotoMode(opt.id); setStep('upload'); }}
                   style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:6, padding:'14px 16px', borderRadius:12, border:'1.5px solid var(--line)', background:'var(--mist)', cursor:'pointer', textAlign:'left', fontFamily:'Inter,sans-serif', transition:'border-color .15s' }}
@@ -6083,7 +6083,7 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
           <>
             <h3 style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>
               {/* Single-item handover must not read "Batch Photo" (Neil) */}
-              {!isMulti ? 'Handover photo' : photoMode === 'batch' ? 'Batch photo' : 'Individual photos'}
+              {!isMulti ? 'Handover Photo' : photoMode === 'batch' ? 'Batch Photo' : 'Individual Photos'}
             </h3>
             <p style={{ fontSize:13, color:'var(--muted)', marginBottom:16 }}>
               {photoMode === 'batch'
@@ -6113,7 +6113,7 @@ function AllocateModal({ checkout, checkouts: checkoutBatch, onClose, onConfirm,
         {/* Step: employee-photo confirmation */}
         {step === 'employee' && (
           <>
-            <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Confirm handover</h3>
+            <h3 style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>Confirm Handover</h3>
             <div style={{ background:'hsla(var(--color-blue),0.07)', border:'1px solid hsla(var(--color-blue),0.2)', borderRadius:10, padding:'14px 16px', marginBottom:20 }}>
               <div style={{ fontWeight:600, fontSize:13.5, marginBottom:4 }}>
                 {isMulti ? `${coItems.length} items` : first.itemName} → {first.requestedBy}
@@ -6203,7 +6203,7 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
       style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
       onClick={e => e.target === e.currentTarget && !uploading && onClose()}>
       <div style={CARD}>
-        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>Confirm receipt</h3>
+        <h3 style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>Confirm Receipt</h3>
         <p style={{ fontSize:13, color:'var(--muted)', marginBottom:16 }}>
           {isMulti
             ? `${first.assignedAllocatorName || 'Your allocator'} has handed over ${coItems.length} items to you.`
@@ -6215,8 +6215,8 @@ function ReceiptConfirmModal({ checkout, checkouts: checkoutBatch, onClose, onCo
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:20 }}>
               {/* No emoji icons here — matches AllocateModal (Neil rejected them). */}
               {[
-                { id:'individual', title:'Individual photos', sub:'One photo per item.' },
-                { id:'batch',      title:'Batch photo',       sub:'One photo of all items together.' },
+                { id:'individual', title:'Individual Photos', sub:'One photo per item.' },
+                { id:'batch',      title:'Batch Photo',       sub:'One photo of all items together.' },
               ].map(opt => (
                 <button key={opt.id} onClick={() => { setPhotoMode(opt.id); setStep('upload'); }}
                   style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:6, padding:'14px 16px', borderRadius:12, border:'1.5px solid var(--line)', background:'var(--mist)', cursor:'pointer', textAlign:'left', fontFamily:'Inter,sans-serif', transition:'border-color .15s' }}
@@ -6357,7 +6357,7 @@ function ApproveCheckoutModal({ checkout, checkouts: checkoutBatch, onClose, onC
             {currentUserEmail && (
               <button onClick={() => setPickedEmail(currentUserEmail)}
                 style={{ fontSize:11.5, color:'hsl(var(--color-blue))', background:'none', border:'none', cursor:'pointer', fontFamily:'Inter,sans-serif', padding:'2px 6px' }}>
-                Assign to me
+                Assign to Me
               </button>
             )}
           </div>
@@ -6775,7 +6775,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
             force return now lives only at the individual order/item level below. */}
         {onSendAlert && (
           <button className="secondary-btn" style={{ display:'inline-flex', alignItems:'center', gap:7, color:'hsl(var(--color-orange))', flexShrink:0 }} onClick={onSendAlert}>
-            <Megaphone size={14} /> Send alert
+            <Megaphone size={14} /> Send Alert
           </button>
         )}
       </div>
@@ -6832,7 +6832,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
                       <>
                         <button className="secondary-btn" onClick={() => setRejectingOrder(pendingItems)}
                           style={{ fontSize:12, color:'hsl(var(--color-red))', display:'inline-flex', alignItems:'center', gap:5 }}>
-                          <XCircle size={12} /> Reject all
+                          <XCircle size={12} /> Reject All
                         </button>
                         <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, padding:'6px 14px' }}
                           onClick={() => setApprovingOrder(pendingItems)}>
@@ -6848,7 +6848,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
                         </button>
                         <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, padding:'6px 14px', background:'hsl(var(--color-orange))' }}
                           onClick={() => setAllocatingOrder(approvedItems)}>
-                          <Camera size={12} /> Hand over all ({approvedItems.length})
+                          <Camera size={12} /> Hand Over all ({approvedItems.length})
                         </button>
                       </>
                     )}
@@ -6946,13 +6946,13 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
                             <button className="secondary-btn" onClick={() => setForceReturnCo(co)}
                               title="Check the item back in yourself — for when the holder can't or won't return it in the app"
                               style={{ fontSize:12, color:'hsl(var(--color-orange))', display:'inline-flex', alignItems:'center', gap:4 }}>
-                              <RotateCcw size={12} /> Force return
+                              <RotateCcw size={12} /> Force Return
                             </button>
                           )}
                           {co.status === 'approved' && (isMyAlloc || isManager) && (
                             <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:4, background:'hsl(var(--color-orange))', padding:'6px 12px' }}
                               onClick={() => setAllocatingCo(co)}>
-                              <Camera size={12} /> Hand over
+                              <Camera size={12} /> Hand Over
                             </button>
                           )}
                           {isCompleted && statusFilter === 'active' && (
@@ -7220,13 +7220,13 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
               {r.status === 'manager_approved' && (
                 <button className="secondary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
                   onClick={() => { setOrderingId(r.id); setOrderNote(''); }}>
-                  <Send size={12} /> Mark ordered
+                  <Send size={12} /> Mark Ordered
                 </button>
               )}
               <button className="secondary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5, color:'var(--muted)' }}
                 title="For consumables that don't belong in the items list — a note is required"
                 onClick={() => { setNoInvId(r.id); setNoInvNote(''); }}>
-                <CheckCircle size={12} /> Fulfill without adding
+                <CheckCircle size={12} /> Fulfill Without Adding
               </button>
               <button className="primary-btn" style={{ fontSize:12, display:'inline-flex', alignItems:'center', gap:5 }}
                 title="Item received — add it to the items catalog (and optionally assign it to the requester)"
@@ -7247,7 +7247,7 @@ const PurchaseRequestsTab = memo(function PurchaseRequestsTab({ userEmail, userN
       <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:14 }}>
         <button className="primary-btn" style={{ fontSize:12.5, display:'inline-flex', alignItems:'center', gap:6, padding:'7px 16px' }}
           onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view:'purchase', sub:'new' } }))}>
-          <Plus size={13} /> New purchase request
+          <Plus size={13} /> New Purchase Request
         </button>
       </div>
       {pending.length > 0 && (
@@ -8146,13 +8146,13 @@ export default function InventoryManagement({ activeSub }) {
       {/* Tab strip — desktop only; on phones the bottom action bar replaces it */}
       <div className="scroll-tabs im-tabs" style={{ display:'flex', gap:0, marginBottom:20, borderBottom:'1px solid var(--line)' }}>
         {[
-          { id:'myitems',      label:'My items',          Icon: User,         badge: myActiveCount          },
+          { id:'myitems',      label:'My Items',          Icon: User,         badge: myActiveCount          },
           { id:'catalog',      label:'Catalog',           Icon: Package                                     },
           { id:'manage',       label:'Manage',            Icon: ClipboardList                               },
           { id:'checkouts',    label:'Checkouts',         Icon: ShoppingCart, badge: pendingCount + approvedCount },
-          { id:'whohasit',     label:'Who has what',      Icon: Users                                       },
-          { id:'purchasereqs', label:'Purchase requests', Icon: FileText                                    },
-          { id:'audit',        label:'Activity log',      Icon: History                                     },
+          { id:'whohasit',     label:'Who Has What',      Icon: Users                                       },
+          { id:'purchasereqs', label:'Purchase Requests', Icon: FileText                                    },
+          { id:'audit',        label:'Activity Log',      Icon: History                                     },
         ].map(({ id, label, Icon, badge }) => (
           <button key={id} onClick={() => setMainTab(id)}
             style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 16px', background:'none', border:'none', borderBottom: mainTab === id ? '2px solid var(--pine)' : '2px solid transparent', color: mainTab === id ? 'var(--ink)' : 'var(--muted)', fontWeight: mainTab === id ? 700 : 600, fontSize:13, cursor:'pointer', fontFamily:'Inter,sans-serif', marginBottom:-1, whiteSpace:'nowrap', flexShrink:0 }}>
@@ -8221,8 +8221,8 @@ export default function InventoryManagement({ activeSub }) {
                 { label:'Assigned · location',    value: deptItems.filter(i => displayStatus(i) === 'location_assigned').length, color:'card-blue' },
                 { label:'Assigned · person',      value: deptItems.filter(i => i.status === 'permanently_assigned').length, color:'card-blue' },
                 { label:'Checked out', value: deptItems.filter(i => i.status === 'checked_out').length,  color:'card-orange' },
-                { label:'Total items', value: deptItems.length,                                          color:'card-blue'   },
-                { label:'Items value', value: fmtMoney(deptItems.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },
+                { label:'Total Items', value: deptItems.length,                                          color:'card-blue'   },
+                { label:'Items Value', value: fmtMoney(deptItems.reduce((s, i) => s + (Number(i.assetValue) || 0), 0)), color:'card-blue' },
               ].map(({ label, value, color }) => (
                 <div key={label} className={`kpi-card ${color}`} style={{ padding:'8px 11px' }}>
                   <div className="kpi-label" style={{ fontSize:10.5 }}>{label}</div>

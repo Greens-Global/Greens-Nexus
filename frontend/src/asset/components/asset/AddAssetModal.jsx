@@ -253,7 +253,7 @@ export function AddAssetModal({ row, properties, onSave, onDelete, onClose }) {
             {isAdding && step === 1 ? 'Back' : 'Cancel'}
           </button>
           <button className="primary-btn" onClick={isAdding && step === 0 ? () => setStep(1) : save}>
-            {isAdding && step === 0 ? 'Continue' : row ? 'Save' : 'Create asset'}
+            {isAdding && step === 0 ? 'Continue' : row ? 'Save' : 'Create Asset'}
           </button>
         </>
       }
@@ -406,7 +406,7 @@ export function AddAssetModal({ row, properties, onSave, onDelete, onClose }) {
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" className="secondary-btn" onClick={downloadTemplate} style={{ fontSize: '0.8rem', padding: '7px 13px' }}>
-              Download CSV template
+              Download CSV Template
             </button>
             <button type="button" className="secondary-btn" onClick={() => importInputRef.current && importInputRef.current.click()} style={{ fontSize: '0.8rem', padding: '7px 13px' }}>
               Import CSV
@@ -463,7 +463,7 @@ export function AddAssetModal({ row, properties, onSave, onDelete, onClose }) {
             )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
               <button className="secondary-btn" onClick={() => imageInputRef.current?.click()} style={{ fontSize: '0.78rem', padding: '7px 14px' }}>
-                {values.image ? 'Change image' : 'Upload image'}
+                {values.image ? 'Change Image' : 'Upload Image'}
               </button>
               {values.image && (
                 <button className="secondary-btn" onClick={() => setField('image', '')} style={{ fontSize: '0.78rem', padding: '7px 14px', color: 'hsl(var(--color-red))' }}>
