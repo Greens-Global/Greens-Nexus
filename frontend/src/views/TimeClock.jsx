@@ -323,14 +323,17 @@ export default function TimeClock() {
   const [payStart, setPayStart] = useState('');   // '' = current period; else a Sunday start
   const [payData, setPayData]   = useState(null);
   const [payLoading, setPayLoading] = useState(false);
+  const [payErr, setPayErr]     = useState('');
+  const [payKey, setPayKey]     = useState(0);   // bump to retry
   const [openDay, setOpenDay]   = useState(null);
   useEffect(() => {
     if (tab !== 'timesheet') return;
-    setPayLoading(true);
+    setPayLoading(true); setPayErr('');
     api.timeMyPayroll(payStart)
-      .then(setPayData).catch(() => setPayData(null))
+      .then(d => { setPayData(d); setPayErr(''); })
+      .catch(e => { setPayData(null); setPayErr(e?.message || 'Could not load your timesheet. Please try again.'); })
       .finally(() => setPayLoading(false));
-  }, [tab, payStart]);
+  }, [tab, payStart, payKey]);
   // Clock tab shows the CURRENT pay period (independent of any timesheet nav).
   const [clockPeriod, setClockPeriod] = useState(null);
   useEffect(() => {
@@ -553,7 +556,7 @@ export default function TimeClock() {
         <button className="secondary-btn" onClick={() => shiftPeriod(-1)} title="Previous pay period" style={{ padding: '7px 9px', display: 'inline-flex' }}><ChevronLeft size={16} /></button>
         <div style={{ minWidth: 190 }}>
           <div style={{ fontSize: 16, fontWeight: 800 }}>
-            {payData ? `${fmtShort(payData.periodStart)} – ${fmtShort(payData.periodEnd)}` : 'Loading…'}
+            {payData ? `${fmtShort(payData.periodStart)} – ${fmtShort(payData.periodEnd)}` : payErr ? 'Unavailable' : 'Loading…'}
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Bi-weekly pay period{isCurrentPeriod ? ' · current' : ''}</div>
         </div>
@@ -650,7 +653,16 @@ export default function TimeClock() {
         <div style={{ display: 'grid', gridTemplateColumns: GRID_COLS, gap: 8, padding: '10px 16px', borderBottom: '1px solid var(--line)', fontSize: 10.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>
           <span>Day</span><span>Clock in</span><span>Clock out</span><span>Break</span><span style={{ textAlign: 'right' }}>Worked</span><span />
         </div>
-        {payLoading && !payData ? (
+        {payErr && !payData ? (
+          <div style={{ padding: '30px 20px', textAlign: 'center' }}>
+            <AlertTriangle size={20} style={{ color: '#b45309', marginBottom: 8 }} />
+            <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 600, marginBottom: 4 }}>Couldn’t load your timesheet</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>{payErr}</div>
+            <button className="primary-btn" onClick={() => setPayKey(k => k + 1)} disabled={payLoading} style={{ fontSize: 12.5 }}>
+              {payLoading ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : 'Try again'}
+            </button>
+          </div>
+        ) : payLoading && !payData ? (
           <div style={{ padding: 26, textAlign: 'center' }}><Loader2 size={18} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /></div>
         ) : payGrid.map(ds => {
           const d = payDayMap[ds];
