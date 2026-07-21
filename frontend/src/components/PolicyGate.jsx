@@ -24,7 +24,7 @@ const POLICY_SECTIONS = [
   { h: 'Acceptable use',
     p: 'Nexus and the devices you use to access it are company property, provided for work. Use them in line with Greens Global’s policies. Do not share your access or use the portal for anything unlawful.' },
   { h: 'Employee monitoring (please read)',
-    p: 'On company-managed devices, while you are clocked in, Nexus may capture periodic screenshots of your work screen(s), record which applications and window titles are active, and measure your overall activity level. This is to verify worked time and support performance review. It does NOT capture your keystrokes, and it stops when you clock out. Capture never runs on a personal device unless you explicitly share your screen.' },
+    p: 'On company-managed devices, while you are clocked in, the company’s monitoring software may capture periodic screenshots of your work screen(s), record which applications and window titles are active, and measure your overall activity level. This is to verify worked time and support performance review. It does NOT capture your keystrokes, and it stops when you clock out. It runs only on company-managed devices, not your personal machine.' },
   { h: 'How the data is used',
     p: 'Monitoring data is visible to your manager and HR for time-verification, performance, and payroll purposes, and is retained per company policy. It is not sold or shared outside the company.' },
   { h: 'Your acknowledgment',
