@@ -208,6 +208,14 @@ def _run_migrations():
             # projects backfill to 'org' (everyone already saw everything) —
             # only newly-created projects default to 'restricted' (create_project).
             "ALTER TABLE task_projects ADD COLUMN access_level VARCHAR DEFAULT 'org'",
+            # Ticket triage routing: who assigns a department's incoming tickets
+            "ALTER TABLE hr_departments ADD COLUMN lead_email VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_departments ADD COLUMN backup_email VARCHAR DEFAULT ''",
+            # Ticket approval gate (service/change/access requests)
+            "ALTER TABLE task_tickets ADD COLUMN approval_status VARCHAR DEFAULT 'none'",
+            "ALTER TABLE task_tickets ADD COLUMN approver_email VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN approval_note VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN approval_decided_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:

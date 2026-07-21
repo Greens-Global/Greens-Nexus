@@ -208,26 +208,25 @@ def import_project(asana, nexus, project_gid, state, email_map, args):
 
     # 1) project (only look up its Asana team — an extra API call — if we're
     # actually about to create it; already-imported projects keep whatever
-    # department they were assigned on first import or by hand since).
+    # team they were assigned on first import or by hand since).
     if project_gid in state["projects"]:
         nexus_pid = state["projects"][project_gid]
         print(f"  project already imported → {nexus_pid}")
     else:
-        dept_id = ""
-        if not args.no_teams and proj.get("team"):
-            dept_id = _ensure_department(asana, nexus, proj["team"], state, email_map, args)
         if args.dry_run:
             nexus_pid = f"DRY-{project_gid}"
-            print(f"  [dry-run] would create project '{pname}'" + (f" under team {proj['team'].get('name')}" if dept_id else ""))
+            print(f"  [dry-run] would create project '{pname}'"
+                  + (f" with team {proj['team'].get('name')}" if (not args.no_teams and proj.get("team")) else ""))
         else:
-            body = {"name": pname, "description": proj.get("notes") or ""}
-            if dept_id:
-                body["department_id"] = dept_id
-            created = nexus.post("/task-projects", body)
+            created = nexus.post("/task-projects", {"name": pname, "description": proj.get("notes") or ""})
             nexus_pid = created["id"]
             state["projects"][project_gid] = nexus_pid
             save_state(state)
             print(f"  created project → {nexus_pid}")
+        # Team creation needs the Nexus project id (Teams are project-scoped) —
+        # only possible once the project above actually exists.
+        if not args.no_teams and proj.get("team"):
+            _ensure_department(asana, nexus, proj["team"], nexus_pid, state, email_map, args)
 
     # 2) top-level tasks (subtasks fetched per-task below)
     tasks = asana.get(f"/projects/{project_gid}/tasks", opt_fields=TASK_OPT_FIELDS)
@@ -240,23 +239,27 @@ def import_project(asana, nexus, project_gid, state, email_map, args):
           f"{counts['skipped']} tasks already present")
 
 
-def _ensure_department(asana, nexus, team, state, email_map, args):
+def _ensure_department(asana, nexus, team, nexus_pid, state, email_map, args):
     """Map an Asana team (compact {gid, name} from the project's `team` field) to
-    a Nexus department ("Team" in the UI), creating it once and reusing it on
-    reruns via state["teams"]. Pulls the team's members in too."""
+    a Nexus Team (TaskTeam) scoped to `nexus_pid`. TaskTeam became project-scoped
+    in the Jul 2026 redesign (one Team belongs to exactly one project), so the
+    same Asana team used across several Asana projects now needs one Nexus Team
+    row per project — state is keyed by (team_gid, nexus_pid), not just team_gid.
+    Pulls the team's members in too."""
     team_gid = team.get("gid")
     if not team_gid:
         return ""
-    if team_gid in state["teams"]:
-        return state["teams"][team_gid]
+    key = f"{team_gid}:{nexus_pid}"
+    if key in state["teams"]:
+        return state["teams"][key]
     name = team.get("name") or f"Asana Team {team_gid}"
     members = asana.get(f"/teams/{team_gid}/users", opt_fields="name,email")
     member_emails = sorted({resolve_member_email(m, email_map) for m in members} - {""})
     if args.dry_run:
         print(f"  [dry-run] would create team '{name}' ({len(member_emails)} members)")
         return f"DRY-{team_gid}"
-    dept = nexus.post("/task-departments", {"name": name, "member_emails": member_emails})
-    state["teams"][team_gid] = dept["id"]
+    dept = nexus.post("/task-teams", {"name": name, "project_id": nexus_pid, "member_emails": member_emails})
+    state["teams"][key] = dept["id"]
     save_state(state)
     print(f"  created team → {name} ({len(member_emails)} members)")
     return dept["id"]
