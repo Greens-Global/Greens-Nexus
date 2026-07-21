@@ -451,11 +451,14 @@ export default function TimeClock() {
                 const M = KIND_META[kind];
                 return (
                   <button key={kind} onClick={() => {
-                      // Start screen capture from within the punch-in click — the
-                      // browser only grants screen sharing on a user gesture, so it
-                      // can't auto-start after the punch resolves. No-op if the
-                      // monitoring policy is off or a stream is already running.
-                      if (kind === 'in') window.__nexusCapture?.start?.();
+                      // Start screen capture from within the punch-in / end-break
+                      // click — the browser only grants screen sharing on a user
+                      // gesture, so it can't auto-start after the punch resolves.
+                      // No-op if the monitoring policy is off or a stream is still
+                      // running (the usual case: the stream survives the break and
+                      // capture just un-pauses). Only re-acquires — with a picker —
+                      // when the stream was torn down during the break.
+                      if (kind === 'in' || kind === 'break_end') window.__nexusCapture?.start?.();
                       doPunch(kind);
                     }} disabled={!!busy}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 9, padding: '14px 26px', borderRadius: 12,
