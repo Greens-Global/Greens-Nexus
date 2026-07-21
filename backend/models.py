@@ -1248,6 +1248,12 @@ class PayrollRate(Base):
     __tablename__ = "payroll_rates"
     employee_email = Column(String, primary_key=True)
     hourly_rate    = Column(Float, default=0)
+    # Which overtime law applies to THIS employee. 'ca' = California daily
+    # (>8h→1.5×, >12h→2×) + 7th-consecutive-day + weekly >40h; 'federal' = FLSA
+    # weekly >40h only (out-of-state US); 'none' = no US overtime premium
+    # (non-US — their local law is handled outside Nexus). Defaults to 'ca' since
+    # the workforce is California; set explicitly for out-of-state / overseas.
+    overtime_rule  = Column(String, default="ca")
     updated_by     = Column(String, default="")
     updated_at     = Column(String, default="")
 

@@ -29,6 +29,7 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
   const [pStart, setPStart] = useState(() => periodStartFor(new Date()));
   const [data, setData] = useState(null);
   const [rateInput, setRateInput] = useState('');
+  const [ruleInput, setRuleInput] = useState('ca');   // ca | federal | none
   const [editDay, setEditDay] = useState(null);   // { date, seg? }
   const [busy, setBusy] = useState(false);
 
@@ -49,7 +50,7 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
   const load = useCallback(() => {
     if (!email) return;
     setData(null);
-    api.timePayroll(email, start, end).then(d => { setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); })
+    api.timePayroll(email, start, end).then(d => { setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca'); })
       .catch(e => { setData(null); toastErr?.(e?.message || 'Could not load the timecard.'); });
   }, [email, start, end, toastErr]);
   useEffect(load, [load]);
@@ -64,7 +65,7 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
 
   async function saveRate() {
     setBusy(true);
-    try { await api.timePayrollRate({ email, hourly_rate: parseFloat(rateInput) || 0 }); toastOk?.('Pay rate saved.'); load(); }
+    try { await api.timePayrollRate({ email, hourly_rate: parseFloat(rateInput) || 0, overtime_rule: ruleInput }); toastOk?.('Pay rate saved.'); load(); }
     catch (e) { toastErr?.(e?.message || 'Could not save rate.'); }
     setBusy(false);
   }
@@ -112,6 +113,14 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
         </div>
         <div style={{ flex: 1 }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>OT rule</span>
+          <select className="form-input" value={ruleInput} onChange={e => setRuleInput(e.target.value)}
+            title="California = daily >8h/>12h + 7th-day + weekly 40h. Federal = weekly 40h only (out-of-state US). None = no US overtime (non-US)."
+            style={{ width: 128, fontSize: 12.5 }}>
+            <option value="ca">California</option>
+            <option value="federal">Federal (US)</option>
+            <option value="none">None (non-US)</option>
+          </select>
           <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>Rate $/hr</span>
           <input type="number" min="0" step="0.01" className="form-input" value={rateInput} placeholder="0.00"
             onChange={e => setRateInput(e.target.value)} style={{ width: 90, fontSize: 13 }} />
@@ -192,17 +201,22 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
       {T && (
         <div style={{ marginTop: 14, display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
           <div style={{ flex: 1, minWidth: 260, border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
-            {[
-              [`Regular hours at ${money(rate)}/hr`, hhmm(T.regMin), money(T.regPay)],
-              [`Overtime hours at ${money(rate * 1.5)}/hr`, hhmm(T.otMin), money(T.otPay)],
-              ['Totals', hhmm(T.regMin + T.otMin), money(T.totalPay)],
-            ].map(([lbl, hrs, amt], i) => (
-              <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 70px 100px', gap: 8, padding: '8px 12px', borderTop: i ? '1px solid var(--line)' : 'none', background: i === 2 ? 'var(--bg)' : 'transparent', fontWeight: i === 2 ? 800 : 500, fontSize: 12.5 }}>
-                <span style={{ color: i === 2 ? 'var(--ink)' : 'var(--muted)' }}>{lbl}</span>
-                <span style={{ textAlign: 'right' }}>{hrs}</span>
-                <span style={{ textAlign: 'right' }}>{amt}</span>
-              </div>
-            ))}
+            {(() => {
+              const rows = [
+                [`Regular hours at ${money(rate)}/hr`, hhmm(T.regMin), money(T.regPay)],
+                [`Overtime hours at ${money(rate * 1.5)}/hr`, hhmm(T.otMin), money(T.otPay)],
+                ...(T.dtMin ? [[`Double-time hours at ${money(rate * 2)}/hr`, hhmm(T.dtMin), money(T.dtPay)]] : []),
+                ['Totals', hhmm(T.regMin + T.otMin + (T.dtMin || 0)), money(T.totalPay)],
+              ];
+              const last = rows.length - 1;
+              return rows.map(([lbl, hrs, amt], i) => (
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 70px 100px', gap: 8, padding: '8px 12px', borderTop: i ? '1px solid var(--line)' : 'none', background: i === last ? 'var(--bg)' : 'transparent', fontWeight: i === last ? 800 : 500, fontSize: 12.5 }}>
+                  <span style={{ color: i === last ? 'var(--ink)' : 'var(--muted)' }}>{lbl}</span>
+                  <span style={{ textAlign: 'right' }}>{hrs}</span>
+                  <span style={{ textAlign: 'right' }}>{amt}</span>
+                </div>
+              ));
+            })()}
           </div>
           <div style={{ minWidth: 200, fontSize: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--muted)' }}>
@@ -220,7 +234,9 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
       )}
       {T && (
         <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 12, fontStyle: 'italic' }}>
-          Overtime is calculated at over 40 hours per week (federal / WA / OR). Corrections keep the original punch on record.
+          Overtime rule: {ruleInput === 'ca' ? 'California — over 8h/day (1.5×), over 12h/day (2×), the 7th consecutive day, and over 40h/week'
+            : ruleInput === 'federal' ? 'Federal — over 40 hours per week (1.5×)'
+            : 'None — no US overtime premium applied'}. Set per employee above. Corrections keep the original punch on record.
         </p>
       )}
 

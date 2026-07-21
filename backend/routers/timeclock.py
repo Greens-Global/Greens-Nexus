@@ -1707,8 +1707,57 @@ def delete_scheduled(sched_id: str, user: dict = Depends(require_team_write),
 
 # ── Payroll timecard (manager-editable, per pay period) ───────────────────────
 
-_WEEK_OT_MIN = 40 * 60   # federal weekly overtime threshold; WA/OR follow weekly
+_WEEK_OT_MIN = 40 * 60   # weekly overtime threshold (federal FLSA + CA weekly)
+_DAY_OT_MIN  = 8 * 60    # CA: over 8h/day is overtime
+_DAY_DT_MIN  = 12 * 60   # CA: over 12h/day is double-time
 _OT_MULT = 1.5
+_DT_MULT = 2.0
+
+
+def _ot_split(day_minutes: list, rule: str) -> list:
+    """Split each day's worked minutes into (regular, ot@1.5x, dt@2x) following
+    the employee's overtime law. `day_minutes` is ONE workweek in order (index 0 =
+    week start, 7 entries Sun→Sat), 0 for days not worked. Anti-pyramiding: every
+    minute is overtime under at most one basis — a minute counted as daily OT is
+    never also counted toward the weekly-40 threshold.
+
+    - 'none'    : no US overtime premium (non-US employees; local law handled off-Nexus)
+    - 'federal' : FLSA weekly only — hours over 40 in the week at 1.5x (out-of-state US)
+    - 'ca'      : California — daily >8h@1.5x / >12h@2x, the 7th CONSECUTIVE worked day
+                  (first 8h@1.5x, beyond 8h@2x), plus weekly >40h of straight time @1.5x
+    """
+    if rule == "none":
+        return [(m, 0, 0) for m in day_minutes]
+
+    if rule != "ca":   # federal / default weekly-only
+        out, straight = [], 0
+        for m in day_minutes:
+            r, o = m, 0
+            if straight + r > _WEEK_OT_MIN:
+                o = min(r, straight + r - _WEEK_OT_MIN); r -= o
+            straight += r
+            out.append((r, o, 0))
+        return out
+
+    # California
+    out, consec, straight = [], 0, 0
+    for m in day_minutes:
+        if m <= 0:
+            consec = 0
+            out.append((0, 0, 0))
+            continue
+        consec += 1
+        if consec == 7:                                  # 7th consecutive worked day
+            out.append((0, min(m, _DAY_OT_MIN), max(0, m - _DAY_OT_MIN)))
+            continue
+        r = min(m, _DAY_OT_MIN)                           # first 8h — straight time
+        o = max(0, min(m, _DAY_DT_MIN) - _DAY_OT_MIN)     # 8–12h @1.5x
+        d = max(0, m - _DAY_DT_MIN)                       # >12h @2x
+        if straight + r > _WEEK_OT_MIN:                   # weekly 40h: overflow straight → 1.5x
+            over = min(r, straight + r - _WEEK_OT_MIN); r -= over; o += over
+        straight += r
+        out.append((r, o, d))
+    return out
 
 
 def _week_start_str(date_str: str) -> str:
@@ -1750,9 +1799,10 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     punches = _live_punches(db, em, start, _end_fetch)
     rate_row = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
     rate = float(rate_row.hourly_rate) if rate_row else 0.0
+    rule = (getattr(rate_row, "overtime_rule", None) or "ca") if rate_row else "ca"
 
-    weekly_cum, days_out = {}, []
-    total_reg = total_ot = total_break = missing_punches = 0
+    days_out = []
+    total_reg = total_ot = total_dt = total_break = missing_punches = 0
     edited_punches = sum(1 for p in punches if p.adjusted_by)
 
     # Pair across the FULL ordered punch sequence — NOT bucketed per day — so a
@@ -1812,32 +1862,52 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     if open_in is not None:
         _flush_missing()
 
-    for date in sorted(segs_by_day.keys()):
-        if end and date > end:      # the extra fetched day only lends its out-punch
+    # Per-day worked totals (from the paired segments), then apply the employee's
+    # overtime law per workweek.
+    day_total, day_break_m, day_segs = {}, {}, {}
+    for d, segs in segs_by_day.items():
+        if end and d > end:      # the extra fetched day only lends its out-punch
             continue
-        segs = segs_by_day[date]
-        day_break = sum(s.pop("_break", 0) for s in segs)
-        mon = _week_start_str(date)
-        day_reg = day_ot = 0
+        day_total[d] = sum(s["workedMin"] for s in segs)
+        day_break_m[d] = sum(s.pop("_break", 0) for s in segs)
+        day_segs[d] = segs
+
+    # Split each workweek (Sunday-anchored) into reg / ot@1.5x / dt@2x per day.
+    by_week = {}
+    for d in day_total:
+        by_week.setdefault(_week_start_str(d), True)
+    day_split = {}   # date -> (reg, ot, dt)
+    for wk in by_week:
+        wk0 = datetime.strptime(wk, "%Y-%m-%d")
+        seq = [(wk0 + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
+        for sd, split in zip(seq, _ot_split([day_total.get(s, 0) for s in seq], rule)):
+            if sd in day_total:
+                day_split[sd] = split
+
+    for d in sorted(day_total):
+        reg, ot, dt = day_split.get(d, (day_total[d], 0, 0))
+        segs = day_segs[d]
+        # Attribute the day's reg/ot/dt across its segments in worked order so the
+        # per-segment amount stays sensible (overtime accrues on the later hours).
+        rr, oo, dd = reg, ot, dt
         for seg in segs:
-            cum = weekly_cum.get(mon, 0)
-            reg = min(seg["workedMin"], max(0, _WEEK_OT_MIN - cum))
-            ot = seg["workedMin"] - reg
-            weekly_cum[mon] = cum + seg["workedMin"]
-            seg["regMin"], seg["otMin"] = reg, ot
-            seg["amount"] = round(reg / 60 * rate + ot / 60 * rate * _OT_MULT, 2)
-            day_reg += reg
-            day_ot += ot
-        total_reg += day_reg
-        total_ot += day_ot
-        total_break += day_break
-        days_out.append({"date": date, "weekStart": mon, "segments": segs,
-                         "workedMin": day_reg + day_ot, "regMin": day_reg, "otMin": day_ot,
-                         "breakMin": day_break})
+            wm = seg["workedMin"]
+            s_reg = min(wm, rr); rr -= s_reg
+            s_ot = min(wm - s_reg, oo); oo -= s_ot
+            s_dt = min(wm - s_reg - s_ot, dd); dd -= s_dt
+            seg["regMin"], seg["otMin"], seg["dtMin"] = s_reg, s_ot, s_dt
+            seg["amount"] = round(s_reg / 60 * rate + s_ot / 60 * rate * _OT_MULT
+                                  + s_dt / 60 * rate * _DT_MULT, 2)
+        total_reg += reg; total_ot += ot; total_dt += dt
+        total_break += day_break_m[d]
+        days_out.append({"date": d, "weekStart": _week_start_str(d), "segments": segs,
+                         "workedMin": reg + ot + dt, "regMin": reg, "otMin": ot, "dtMin": dt,
+                         "breakMin": day_break_m[d]})
 
     reg_pay = round(total_reg / 60 * rate, 2)
     ot_pay = round(total_ot / 60 * rate * _OT_MULT, 2)
-    worked_min = total_reg + total_ot
+    dt_pay = round(total_dt / 60 * rate * _DT_MULT, 2)
+    worked_min = total_reg + total_ot + total_dt
 
     # Idle estimate for the composition bar (best-effort, from web capture): a
     # frame whose idle-at-capture ≥ 4 min stands in for one capture interval of
@@ -1852,9 +1922,10 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     active_min = max(0, worked_min - idle_min)
 
     return {"email": em, "start": start, "end": end, "rate": rate, "rateSet": rate_row is not None,
-            "days": days_out,
-            "totals": {"regMin": total_reg, "otMin": total_ot, "regPay": reg_pay, "otPay": ot_pay,
-                       "totalPay": round(reg_pay + ot_pay, 2),
+            "overtimeRule": rule, "days": days_out,
+            "totals": {"regMin": total_reg, "otMin": total_ot, "dtMin": total_dt,
+                       "regPay": reg_pay, "otPay": ot_pay, "dtPay": dt_pay,
+                       "totalPay": round(reg_pay + ot_pay + dt_pay, 2),
                        "breakMin": total_break, "workedMin": worked_min,
                        "activeMin": active_min, "idleMin": idle_min,
                        "missingPunches": missing_punches, "editedPunches": edited_punches}}
@@ -1888,6 +1959,7 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
 class RateIn(BaseModel):
     email: str
     hourly_rate: float
+    overtime_rule: Optional[str] = None   # ca | federal | none (unchanged if omitted)
 
 
 @router.put("/payroll/rate")
@@ -1902,10 +1974,12 @@ def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
         row = PayrollRate(employee_email=em)
         db.add(row)
     row.hourly_rate = max(0.0, float(body.hourly_rate or 0))
+    if body.overtime_rule in ("ca", "federal", "none"):
+        row.overtime_rule = body.overtime_rule
     row.updated_by = user["email"]
     row.updated_at = _now_iso()
     db.commit()
-    return {"ok": True, "rate": row.hourly_rate}
+    return {"ok": True, "rate": row.hourly_rate, "overtimeRule": row.overtime_rule or "ca"}
 
 
 # App/window-activity read endpoints (/my-activity, /activity-day, /activity)

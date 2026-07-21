@@ -627,6 +627,7 @@ export default function TimeClock() {
           <div style={{ display: 'grid', gap: 10 }}>
             {[['Regular', fmtMin(PT.regMin || 0), 'var(--ink)'],
               ['Overtime', fmtMin(PT.otMin || 0), PT.otMin ? '#b45309' : 'var(--muted)'],
+              ...(PT.dtMin ? [['Double time', fmtMin(PT.dtMin), '#b91c1c']] : []),
               ['Total worked', fmtMin(PT.workedMin || 0), 'var(--pine)']].map(([l, v, c]) => (
               <div key={l} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>{l}</span>
