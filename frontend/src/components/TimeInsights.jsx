@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Monitor, Globe, Activity, Clock, Zap, Loader2, TrendingUp, ChevronDown, Coffee, Users, Trophy } from 'lucide-react';
+import { Monitor, Globe, Activity, Clock, Zap, Loader2, TrendingUp, ChevronDown, Coffee, Users, Trophy, SlidersHorizontal, X } from 'lucide-react';
 import { api } from '../api';
 
 // ── Time Insights — workforce activity analytics ──────────────────────────────
@@ -152,10 +152,85 @@ function ItemRow({ name, seconds, pct, max, rating, isSite }) {
   );
 }
 
+// ── Rate apps & URLs ──────────────────────────────────────────────────────────
+// Managers tag apps/domains productive / neutral / unproductive; the ratings drive
+// the ring, the composition bar and the pills across the dashboard.
+function RatingsModal({ seed, onClose, onChanged }) {
+  const [ratings, setRatings] = useState({});   // key -> rating
+  const [items, setItems] = useState(seed);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.timeRatings().then(rs => {
+      const m = {}; rs.forEach(r => { m[r.key] = r.rating; });
+      setRatings(m);
+      const known = new Set(seed.map(i => i.key));
+      const extra = rs.filter(r => !known.has(r.key)).map(r => ({ key: r.key, kind: r.kind, label: r.label || r.key }));
+      setItems([...seed, ...extra]);
+    }).catch(() => {}).finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function setRate(item, rating) {
+    setRatings(m => ({ ...m, [item.key]: rating }));
+    try { await api.timeSetRating({ key: item.key, kind: item.kind, label: item.label, rating }); onChanged?.(); } catch {}
+  }
+
+  const apps = items.filter(i => i.kind === 'app');
+  const sites = items.filter(i => i.kind === 'domain');
+  const Group = ({ title, icon: Icon, list }) => list.length === 0 ? null : (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ ...H, marginBottom: 8 }}><Icon size={12} /> {title}</div>
+      {list.map(it => {
+        const cur = ratings[it.key] || 'neutral';
+        return (
+          <div key={it.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0' }}>
+            <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.label}</span>
+            <div style={{ display: 'inline-flex', border: '1px solid var(--line)', borderRadius: 8, overflow: 'hidden' }}>
+              {['productive', 'neutral', 'unproductive'].map(rk => {
+                const on = cur === rk; const R = rateOf(rk);
+                return (
+                  <button key={rk} onClick={() => setRate(it, rk)} title={R.label}
+                    style={{ border: 'none', cursor: 'pointer', padding: '5px 11px', fontSize: 11, fontWeight: 800, fontFamily: 'Inter,sans-serif',
+                      background: on ? R.c : 'transparent', color: on ? '#fff' : 'var(--muted)' }}>{R.label[0]}</button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  return (
+    <div onClick={e => e.target === e.currentTarget && onClose()}
+      style={{ position: 'fixed', inset: 0, zIndex: 1500, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18, fontFamily: 'Inter,sans-serif' }}>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, width: '100%', maxWidth: 520, maxHeight: '86vh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' }}>
+        <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <SlidersHorizontal size={17} style={{ color: 'var(--pine)' }} />
+          <div style={{ flex: 1 }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>Rate apps &amp; websites</h3>
+            <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)' }}>Sets the productive / neutral / unproductive split across the dashboard.</p>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: '16px 22px', overflowY: 'auto' }}>
+          {loading ? <div style={{ padding: 24, textAlign: 'center' }}><Loader2 size={18} style={{ animation: 'spin 0.8s linear infinite', color: 'var(--muted)' }} /></div>
+            : (apps.length + sites.length === 0)
+              ? <div style={{ fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: 20 }}>No apps or websites tracked yet — they'll appear here once activity comes in.</div>
+              : <><Group title="Applications" icon={Monitor} list={apps} /><Group title="Websites" icon={Globe} list={sites} /></>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function TimeInsights({ start, end, people = [] }) {
   const [email, setEmail] = useState('');
   const [data, setData] = useState(null);
   const [err, setErr] = useState('');
+  const [rateOpen, setRateOpen] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     setData(null); setErr('');
@@ -164,7 +239,14 @@ export default function TimeInsights({ start, end, people = [] }) {
       .then(d => { if (live) setData(d); })
       .catch(e => { if (live) setErr(e?.message || 'Could not load insights'); });
     return () => { live = false; };
-  }, [email, start, end]);
+  }, [email, start, end, reloadKey]);
+
+  const rateSeed = useMemo(() => {
+    const seen = new Map();
+    (data?.topApps || []).forEach(a => seen.set(a.name.toLowerCase(), { key: a.name.toLowerCase(), kind: 'app', label: a.name }));
+    (data?.topSites || []).forEach(s => seen.set(s.name, { key: s.name, kind: 'domain', label: s.name }));
+    return [...seen.values()];
+  }, [data]);
 
   const maxApp = useMemo(() => Math.max(1, ...(data?.topApps || []).map(a => a.seconds)), [data]);
   const maxSite = useMemo(() => Math.max(1, ...(data?.topSites || []).map(a => a.seconds)), [data]);
@@ -174,6 +256,8 @@ export default function TimeInsights({ start, end, people = [] }) {
   const isTeam = !email;
 
   const selector = (
+    <>
+    {rateOpen && <RatingsModal seed={rateSeed} onClose={() => setRateOpen(false)} onChanged={() => setReloadKey(k => k + 1)} />}
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
       <div style={{ position: 'relative' }}>
         <select value={email} onChange={e => setEmail(e.target.value)} className="form-input"
@@ -183,8 +267,13 @@ export default function TimeInsights({ start, end, people = [] }) {
         </select>
         <ChevronDown size={14} style={{ position: 'absolute', right: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
       </div>
-      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Captured by the Nexus desktop agent while clocked in.</span>
+      <span style={{ flex: 1, fontSize: 11.5, color: 'var(--muted)', minWidth: 120 }}>Captured by the Nexus desktop agent while clocked in.</span>
+      <button className="secondary-btn" onClick={() => setRateOpen(true)}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+        <SlidersHorizontal size={13} /> Rate apps &amp; URLs
+      </button>
     </div>
+    </>
   );
 
   if (err) return <div>{selector}<div style={{ ...CARD, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>{err}</div></div>;
