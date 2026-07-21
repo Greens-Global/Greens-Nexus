@@ -1,8 +1,10 @@
 import { useState, useEffect, lazy } from 'react';
+import { useMsal } from '@azure/msal-react';
 import {
   ArrowRight, ListTodo, Package, ShieldCheck, Bell, Clock, StickyNote,
   BarChart3, Layers, Zap, Users, ClipboardCheck, CalendarClock, ExternalLink, Boxes, X,
   ClipboardList, HandCoins, TrendingUp, Building2, FolderKanban, CalendarDays, Timer,
+  CheckCheck, Trash2,
 } from 'lucide-react';
 
 // Heavy panels (ported from the old Overview / Team Analytics screens) load
@@ -199,15 +201,45 @@ function QuickActionsWidget() {
   );
 }
 
+// Rough importance ranking by notification type — mirrors the color coding
+// used elsewhere (red = needs attention now, orange = action needed, blue =
+// informational, green = resolved/FYI). Unknown types default to "informational"
+// rather than sinking to the bottom, since new types show up before this map does.
+const NOTIF_IMPORTANCE = {
+  overdue: 3, kb_course_overdue: 3, rejected: 3, cancelled: 3, extension_declined: 3, req_rejected: 3, custom_alert: 3,
+  inv_request: 2, req_pending: 2, checkout_pending: 2, allocate_request: 2, extension_pending: 2, req_fulfill: 2,
+  kb_review_request: 2, perm_return: 2, kb_changes_requested: 2, kb_course_recert: 2,
+  perm_assign: 1, kb_comment: 1, kb_course_assigned: 1, req_update: 1,
+  approved: 0, allocated: 0, item_returned: 0, extension_resolved: 0, extension_approved: 0,
+  req_approved: 0, perm_update: 0, kb_approved: 0,
+};
+const importanceOf = (n) => NOTIF_IMPORTANCE[n.type] ?? 1;
+
 function NotificationsWidget({ notifications, markRead, markAllRead, dismiss, clearAll }) {
-  const list = (notifications || []).slice(0, 12);
+  // Unread first, then most-important type, then most recent — so the thing
+  // that most needs your attention is always at the top of the list.
+  const sorted = [...(notifications || [])].sort((a, b) => {
+    if (!!a.read !== !!b.read) return a.read ? 1 : -1;
+    const diff = importanceOf(b) - importanceOf(a);
+    if (diff) return diff;
+    return new Date(b.timestamp) - new Date(a.timestamp);
+  });
+  const list = sorted.slice(0, 12);
   const unread = (notifications || []).filter(n => !n.read).length;
   return (
     <DashCard title="Notifications" sub={unread ? `${unread} unread` : 'All caught up'}
       action={list.length > 0 ? (
         <span style={{ display: 'inline-flex', gap: 12 }}>
-          {unread > 0 && markAllRead && <button onClick={markAllRead} className="link-btn" style={{ marginTop: 0 }}>Mark all read</button>}
-          {clearAll && <button onClick={clearAll} className="link-btn" style={{ marginTop: 0, color: 'hsl(var(--color-red))' }}>Clear all</button>}
+          {unread > 0 && markAllRead && (
+            <button onClick={markAllRead} className="link-btn" style={{ marginTop: 0 }}>
+              <CheckCheck size={13} /> Mark All Read
+            </button>
+          )}
+          {clearAll && (
+            <button onClick={clearAll} className="link-btn" style={{ marginTop: 0, color: 'hsl(var(--color-red))' }}>
+              <Trash2 size={13} /> Clear All
+            </button>
+          )}
         </span>
       ) : <Bell size={15} style={{ color: 'var(--muted)' }} />}>
       {list.length === 0 ? (
@@ -255,10 +287,14 @@ function NotesWidget({ config, updateConfig }) {
 }
 
 function ClockWidget() {
+  const { accounts } = useMsal();
   const [now, setNow] = useState(new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000 * 20); return () => clearInterval(t); }, []);
   const hh = now.getHours();
-  const greet = hh < 12 ? 'Good morning' : hh < 17 ? 'Good afternoon' : 'Good evening';
+  const greetWord = hh < 12 ? 'Good Morning' : hh < 17 ? 'Good Afternoon' : 'Good Evening';
+  const displayName = accounts[0]?.name ?? accounts[0]?.username ?? '';
+  const firstName = displayName.split(' ')[0];
+  const greet = firstName ? `${greetWord}, ${firstName}` : greetWord;
   return (
     <div className="dash-card" onClick={() => navigate('timeclock')}
       style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 4, cursor: 'pointer' }}>

@@ -1,5 +1,5 @@
 import { useState, Suspense } from 'react';
-import { LayoutGrid, Plus, Save, Pencil, MoreHorizontal, Star, Share2, Trash2, Copy, X, Wand2 } from 'lucide-react';
+import { LayoutGrid, Plus, Save, Pencil, MoreHorizontal, Star, Share2, Trash2, Copy, X, Wand2, SlidersHorizontal } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useDashboards } from './useDashboards';
@@ -144,13 +144,28 @@ export default function CustomDashboard({ target }) {
     (d.activeView?.scope === 'department' && d.canPublish &&
      (d.activeView?.createdBy || '').toLowerCase() === (myEmail || '').toLowerCase());
 
-  const menuItems = [
-    { label: 'Save as New View', icon: Copy, on: saveAsNew },
-    ...(canRename ? [{ label: 'Rename View', icon: Pencil, on: rename }] : []),
-    ...(isOwnPersonal ? [{ label: 'Set as My Default', icon: Star, on: makeDefault }] : []),
-    ...(d.canPublish ? [{ label: 'Publish to Department', icon: Share2, on: publish }] : []),
-    ...(canDelete ? [{ label: 'Delete View', icon: Trash2, on: del, danger: true }] : []),
-  ];
+  // The "…" menu is the ONLY home for view-level actions (no duplicate toolbar
+  // buttons). Sections: manage this view / make a copy of this layout / delete.
+  const menuSections = [
+    [
+      ...(canRename ? [{ label: 'Rename View', icon: Pencil, on: rename }] : []),
+      ...(isOwnPersonal ? [{ label: 'Set as My Default', icon: Star, on: makeDefault }] : []),
+    ],
+    [
+      { label: 'Save as New View', icon: Copy, on: saveAsNew },
+      ...(d.canPublish ? [{ label: 'Publish to Department', icon: Share2, on: publish }] : []),
+    ],
+    [
+      ...(canDelete ? [{ label: 'Delete View', icon: Trash2, on: del, danger: true }] : []),
+    ],
+  ].filter(s => s.length > 0);
+
+  // Menu header caption: what the actions below apply to.
+  const scopeCaption = !d.activeView
+    ? 'Built-in layout'
+    : d.activeView.scope === 'department'
+      ? `${d.activeView.department || 'Department'} · shared view`
+      : `Personal view${d.activeView.isDefault ? ' · default' : ''}`;
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -185,17 +200,6 @@ export default function CustomDashboard({ target }) {
           )}
           <option value="__new__">＋ New View…</option>
         </select>
-        {d.activeView && canRename && (
-          <button className="secondary-btn" style={{ ...btn, padding: '6px 9px' }} onClick={rename} title="Rename this view">
-            <Pencil size={13} />
-          </button>
-        )}
-        {d.activeView && canDelete && (
-          <button className="secondary-btn" style={{ ...btn, padding: '6px 9px', color: 'hsl(var(--color-red))' }} onClick={del} title="Delete this view">
-            <Trash2 size={13} />
-          </button>
-        )}
-
         <div style={{ flex: 1 }} />
 
         {d.editing ? (
@@ -206,19 +210,29 @@ export default function CustomDashboard({ target }) {
             <button className="secondary-btn" style={btn} onClick={guardedDone}><X size={14} /> Done</button>
           </>
         ) : (
-          <button className="secondary-btn" style={btn} onClick={() => d.setEditing(true)}><Pencil size={14} /> Customize</button>
+          <button className="secondary-btn" style={btn} onClick={() => d.setEditing(true)}><SlidersHorizontal size={14} /> Customize</button>
         )}
-        {/* View actions (rename, default, delete, publish) live outside edit mode
-            too — renaming a view shouldn't require entering Customize. */}
+        {/* The single home for view-level actions (rename, default, publish,
+            delete). Lives outside edit mode too — renaming a view shouldn't
+            require entering Customize — and stays available while editing so
+            you can fork the on-screen layout with "Save as New View". */}
         <div style={{ position: 'relative' }}>
           <button className="secondary-btn" style={{ ...btn, padding: '6px 9px' }} onClick={() => setMenu(m => !m)} title="View options"><MoreHorizontal size={15} /></button>
           {menu && (
-            <div onMouseLeave={() => setMenu(false)} style={{ position: 'absolute', right: 0, top: 40, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6, zIndex: 50, minWidth: 210 }}>
-              {menuItems.map((m, i) => (
-                <button key={i} onClick={m.on} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', fontFamily: 'Inter,sans-serif', color: m.danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-                  <m.icon size={14} /> {m.label}
-                </button>
+            <div onMouseLeave={() => setMenu(false)} style={{ position: 'absolute', right: 0, top: 40, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 6, zIndex: 50, minWidth: 220 }}>
+              <div style={{ padding: '6px 10px 9px', borderBottom: '1px solid var(--line)', marginBottom: 5 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.activeView?.name || 'Default Layout'}</div>
+                <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 2 }}>{scopeCaption}</div>
+              </div>
+              {menuSections.map((section, si) => (
+                <div key={si} style={si > 0 ? { borderTop: '1px solid var(--line)', marginTop: 5, paddingTop: 5 } : undefined}>
+                  {section.map((m, i) => (
+                    <button key={i} onClick={m.on} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '8px 10px', border: 'none', background: 'none', borderRadius: 7, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', fontFamily: 'Inter,sans-serif', color: m.danger ? 'hsl(var(--color-red))' : 'var(--ink)' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'var(--mist)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                      <m.icon size={14} /> {m.label}
+                    </button>
+                  ))}
+                </div>
               ))}
             </div>
           )}
