@@ -1904,24 +1904,24 @@ export default function SOP({ activeSub, onSubChange }) {
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--border-color)', paddingBottom: 1 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--line)', paddingBottom: 1 }}>
         {Object.entries(TAB_LABELS).map(([key, label]) => (
-          <button key={key} onClick={() => switchTab(key)} style={{ background: 'none', border: 'none', padding: '10px 18px', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '0.95rem', cursor: 'pointer', color: sub === key ? 'var(--text-primary)' : 'var(--text-secondary)', position: 'relative' }}>
+          <button key={key} onClick={() => switchTab(key)} style={{ background: 'none', border: 'none', padding: '10px 18px', fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: 13.5, cursor: 'pointer', color: sub === key ? 'var(--ink)' : 'var(--muted)', position: 'relative', whiteSpace: 'nowrap', flexShrink: 0 }}>
             {label}
-            {sub === key && <span style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: 'var(--text-primary)', borderRadius: '4px 4px 0 0' }} />}
+            {sub === key && <span style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: 'var(--ink)', borderRadius: '4px 4px 0 0' }} />}
           </button>
         ))}
         <div style={{ marginLeft: 'auto', alignSelf: 'center', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           {isManager && (() => {
             const active = ['manage', 'matrix', 'insights', 'signoffs', 'tasks'].includes(sub);
             return (
-              <button onClick={() => switchTab('manage')} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 14px', borderRadius: 9, border: '1px solid', borderColor: active ? 'var(--text-primary)' : 'var(--border-color)', background: active ? 'var(--text-primary)' : 'var(--bg-card)', color: active ? 'var(--bg-card)' : 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}>
+              <button onClick={() => switchTab('manage')} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 14px', borderRadius: 9, border: '1px solid', borderColor: active ? 'var(--ink)' : 'var(--line)', background: active ? 'var(--ink)' : 'var(--card)', color: active ? 'var(--card)' : 'var(--muted)', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}>
                 <Settings size={15} /> Manage
-                {taskCount > 0 && <span style={{ minWidth: 18, textAlign: 'center', backgroundColor: active ? 'var(--bg-card)' : 'hsl(var(--color-blue))', color: active ? 'var(--text-primary)' : '#fff', borderRadius: 999, padding: '1px 6px', fontSize: '0.7rem', fontWeight: 700 }}>{taskCount}</span>}
+                {taskCount > 0 && <span style={{ minWidth: 18, textAlign: 'center', backgroundColor: active ? 'var(--card)' : 'hsl(var(--color-blue))', color: active ? 'var(--ink)' : '#fff', borderRadius: 999, padding: '1px 6px', fontSize: '0.7rem', fontWeight: 700 }}>{taskCount}</span>}
               </button>
             );
           })()}
-          <button onClick={() => openHelp(sub === 'tasks' ? 'tasks' : ['manage', 'matrix', 'insights', 'signoffs'].includes(sub) ? 'manage' : sub === 'lms' ? (lmsManage ? 'authoring' : 'learn') : 'playbook')} title="Help for this page" aria-label="Help" style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><HelpCircle size={17} /></button>
+          <button onClick={() => openHelp(sub === 'tasks' ? 'tasks' : ['manage', 'matrix', 'insights', 'signoffs'].includes(sub) ? 'manage' : sub === 'lms' ? (lmsManage ? 'authoring' : 'learn') : 'playbook')} title="Help for this page" aria-label="Help" style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--muted)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><HelpCircle size={17} /></button>
         </div>
       </div>
       {helpModal()}
