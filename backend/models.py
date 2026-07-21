@@ -1252,19 +1252,9 @@ class PayrollRate(Base):
     updated_at     = Column(String, default="")
 
 
-class AgentActivity(Base):
-    """App/window activity reported by a silent device: per reporting window,
-    seconds spent in each foreground app + an activity % (share of samples where
-    the machine wasn't idle). Powers the app-usage breakdown + activity score."""
-    __tablename__ = "agent_activity"
-    id             = Column(String, primary_key=True)   # uuid
-    employee_email = Column(String, nullable=False, index=True)
-    local_date     = Column(String, default="", index=True)
-    at             = Column(String, default="")
-    app            = Column(String, default="")
-    title          = Column(String, default="")
-    seconds        = Column(Integer, default=0)
-    active_pct     = Column(Integer, default=0)
+# AgentActivity (agent_activity table) removed with the desktop agent — the
+# browser capture records screenshots + an idle signal, not per-app foreground
+# logs. Existing rows can stay in the DB; nothing reads them now.
 
 
 class TimeOffRequest(Base):

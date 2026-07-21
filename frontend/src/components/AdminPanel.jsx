@@ -363,7 +363,7 @@ export default function AdminPanel({ open, initialTab = 'audit', onClose }) {
   // People → Roles & Access, and per-person access is set on the employee card.
   const tabs = [
     { id: 'audit',  icon: <Activity size={14} />, label: 'Audit Logs' },
-    { id: 'timetracking', icon: <Clock size={14} />, label: 'Time Tracking' },
+    { id: 'timetracking', icon: <Clock size={14} />, label: 'Monitoring' },
   ];
 
   return (

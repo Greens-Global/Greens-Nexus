@@ -7,11 +7,6 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
-    <!-- Boot watchdog — rescues the "white screen after a deploy" case (a stale
-         cached index.html pointing at deleted /assets hashes → 404 → blank page).
-         Loaded from a stable path so a stale index can still fetch it, and kept
-         external (not inline) so the strict CSP allows it. -->
-    <script src="/boot.js"></script>
   </head>
   <body>
     <div id="root"></div>

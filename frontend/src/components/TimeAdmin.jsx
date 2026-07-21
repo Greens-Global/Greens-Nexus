@@ -6,7 +6,6 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import DayTimeline from './DayTimeline';
-import DayActivity from './DayActivity';
 import ShiftsPanel from './ShiftsPanel';
 import ShiftSchedule from './ShiftSchedule';
 import PayrollTimecard from './PayrollTimecard';
@@ -62,8 +61,15 @@ function AdminDayRow({ date, email, d, approval, onApprove }) {
         </div>
       )}
       {open && (
-        <div style={{ marginTop: 8, marginLeft: 8 }}>
-          <DayActivity date={date} email={email} />
+        <div style={{ marginTop: 8, marginLeft: 102, display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
+          {(d.punches || []).length === 0 ? (
+            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>No punches this day.</span>
+          ) : (d.punches || []).map((p, i) => (
+            <span key={i} style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              <span style={{ fontWeight: 700, color: 'var(--ink)', textTransform: 'capitalize' }}>{String(p.kind || '').replace(/_/g, ' ')}</span>
+              {' '}{(() => { try { return new Date(p.at + (p.at.endsWith('Z') ? '' : 'Z')).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch { return p.at; } })()}
+            </span>
+          ))}
         </div>
       )}
     </div>
