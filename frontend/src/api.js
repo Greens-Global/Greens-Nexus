@@ -828,6 +828,48 @@ export const api = {
   cvPersonalCreate: (body)       => req('/credvault/personal', { method: 'POST', body: JSON.stringify(body) }),
   cvPersonalDelete: (id)         => req(`/credvault/personal/${id}`, { method: 'DELETE' }),
   cvPersonalReveal: (id)         => req(`/credvault/personal/${id}/reveal`, { method: 'POST' }),
+
+  // ── Investor Relations (GP capital management: funds, LPs, calls, distributions) ──
+  // List endpoints drop empty/undefined params so filters never send "undefined".
+  getIrDashboard:  ()          => req("/investor-relations/dashboard"),
+  getIrFunds:      ()          => req("/investor-relations/funds"),
+  createIrFund:    (data)      => req("/investor-relations/funds", { method: "POST", body: JSON.stringify(data) }),
+  updateIrFund:    (id, data)  => req(`/investor-relations/funds/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteIrFund:    (id)        => req(`/investor-relations/funds/${id}`, { method: "DELETE" }),
+  getIrInvestors:      ()          => req("/investor-relations/investors"),
+  createIrInvestor:    (data)      => req("/investor-relations/investors", { method: "POST", body: JSON.stringify(data) }),
+  updateIrInvestor:    (id, data)  => req(`/investor-relations/investors/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteIrInvestor:    (id)        => req(`/investor-relations/investors/${id}`, { method: "DELETE" }),
+  getIrCommitments:    (params = {}) => req(`/investor-relations/commitments?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")))}`),
+  createIrCommitment:  (data)      => req("/investor-relations/commitments", { method: "POST", body: JSON.stringify(data) }),
+  updateIrCommitment:  (id, data)  => req(`/investor-relations/commitments/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteIrCommitment:  (id)        => req(`/investor-relations/commitments/${id}`, { method: "DELETE" }),
+  getIrCapitalCalls:       (params = {}) => req(`/investor-relations/capital-calls?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")))}`),
+  createIrCapitalCall:     (data)      => req("/investor-relations/capital-calls", { method: "POST", body: JSON.stringify(data) }),
+  updateIrCapitalCall:     (id, data)  => req(`/investor-relations/capital-calls/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  getIrCapitalCallAllocations:    (callId)     => req(`/investor-relations/capital-calls/${callId}/allocations`),
+  updateIrCapitalCallAllocation:  (id, data)   => req(`/investor-relations/capital-call-allocations/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  getIrDistributions:      (params = {}) => req(`/investor-relations/distributions?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")))}`),
+  createIrDistribution:    (data)      => req("/investor-relations/distributions", { method: "POST", body: JSON.stringify(data) }),
+  updateIrDistribution:    (id, data)  => req(`/investor-relations/distributions/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  getIrDistributionAllocations:   (distId)     => req(`/investor-relations/distributions/${distId}/allocations`),
+  updateIrDistributionAllocation: (id, data)   => req(`/investor-relations/distribution-allocations/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  getIrCapitalAccounts:       (params = {}) => req(`/investor-relations/capital-accounts?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")))}`),
+  getIrCapitalAccountDetail:  (investorId, fundId) => req(`/investor-relations/capital-accounts/${investorId}/${fundId}`),
+  getIrDocuments:    (params = {}) => req(`/investor-relations/documents?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")))}`),
+  createIrDocument:  (data)      => req("/investor-relations/documents", { method: "POST", body: JSON.stringify(data) }),
+  deleteIrDocument:  (id)        => req(`/investor-relations/documents/${id}`, { method: "DELETE" }),
+  getIrUpdates:    (params = {}) => req(`/investor-relations/updates?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")))}`),
+  createIrUpdate:  (data)      => req("/investor-relations/updates", { method: "POST", body: JSON.stringify(data) }),
+  updateIrUpdate:  (id, data)  => req(`/investor-relations/updates/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteIrUpdate:  (id)        => req(`/investor-relations/updates/${id}`, { method: "DELETE" }),
+  seedIrDemoData:  ()          => req("/investor-relations/seed-demo-data", { method: "POST" }),
+  // Investor portal — GP-side grant/revoke of deal-scoped access, plus the
+  // read-only endpoints a granted external investor calls (scoped server-side).
+  grantIrPortalAccess:  (investorId, fundId) => req("/investor-relations/portal-access/grant", { method: "POST", body: JSON.stringify({ investorId, fundId }) }),
+  revokeIrPortalAccess: (investorId, fundId) => req(`/investor-relations/portal-access/${investorId}/${fundId}`, { method: "DELETE" }),
+  getIrPortalMyDeals:   ()       => req("/investor-relations/portal/my-deals"),
+  getIrPortalDeal:      (fundId) => req(`/investor-relations/portal/deals/${fundId}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch —

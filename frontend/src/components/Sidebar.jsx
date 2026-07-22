@@ -13,6 +13,7 @@ import {
   HelpCircle, Store, Calendar, MessageSquare, Package, Clock, Contact,
   FlaskConical,
   KeyRound,
+  Briefcase, FileSignature, ArrowDownToLine, ArrowUpFromLine,
 } from "lucide-react";
 
 // Exported: MobileMenu mirrors this exact order/grouping on phones
@@ -86,8 +87,15 @@ export const NAV = [
   {
     view: "investor-relations", label: "Investor Relations", icon: Landmark, minRole: 'supervisor',
     sub: [
-      { subview: "investor-dashboard", label: "Investor Dashboard", icon: BarChart3 },
-      { subview: "investor-reports",   label: "Reports",            icon: FileSpreadsheet },
+      { subview: "investor-dashboard",     label: "Dashboard",        icon: BarChart3 },
+      { subview: "investor-funds",         label: "Deals",            icon: Briefcase },
+      { subview: "investor-investors",     label: "Investors",        icon: Users },
+      { subview: "investor-commitments",   label: "Commitments",      icon: FileSignature },
+      { subview: "investor-capital-calls", label: "Capital Calls",    icon: ArrowDownToLine },
+      { subview: "investor-distributions", label: "Distributions",    icon: ArrowUpFromLine },
+      { subview: "investor-reports",       label: "Capital Accounts", icon: FileSpreadsheet },
+      { subview: "investor-documents",     label: "Documents",        icon: Files },
+      { subview: "investor-updates",       label: "Updates",          icon: Megaphone },
     ],
   },
   {

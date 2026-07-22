@@ -79,8 +79,18 @@ export function RoleProvider({ children }) {
   // populated for all users — otherwise group-granted sidebar items never appear.
   // Role fetch retries up to 3× with backoff; groups fail silently.
   useEffect(() => {
-    if (!myEmail) { setLoading(false); return; }
     let cancelled = false;
+    if (!myEmail) {
+      // MSAL (and the dev-login bypass) start with an empty accounts[] on the
+      // very first render — msal-react only populates it after
+      // handleRedirectPromise() resolves (see msalInstance.js). Do not drop
+      // straight to the employee default and mark loading done: that flashes
+      // "Access Restricted" on every gated view on a hard reload/deep link,
+      // right up until the real account/role arrives a moment later. Give it
+      // a bounded window before treating this as genuinely signed out.
+      const t = setTimeout(() => { if (!cancelled) setLoading(false); }, 2500);
+      return () => { cancelled = true; clearTimeout(t); };
+    }
 
     const tryFetch = (attempt = 1) => {
       api.getMyRole()

@@ -17,6 +17,7 @@ from routers import access_scopes  # row-level scopes for external users (Jul 20
 from routers import qa  # Testing module — dev-only via NEXUS_QA_MODULE env (Jul 2026)
 from routers import credvault  # Credential Vault (Jul 2026)
 from routers import policy  # Sign-in company-policy & monitoring acknowledgment (Jul 2026)
+from routers import investor_relations  # Investor Relations platform (Jul 2026)
 from audit import AuditMiddleware
 
 
@@ -215,6 +216,20 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN approver_email VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN approval_note VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN approval_decided_at VARCHAR DEFAULT ''",
+            # ── HR Section A/B (nexus_employees): SQLite was missing columns the
+            # Postgres list already carried — a pre-existing local DB 500s on
+            # every nexus_employees SELECT without them (same class of bug as
+            # the Item Module fix above).
+            "ALTER TABLE nexus_employees ADD COLUMN company VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN contractor JSON DEFAULT '{}'",
+            "ALTER TABLE nexus_employees ADD COLUMN personal JSON DEFAULT '{}'",
+            "ALTER TABLE nexus_employees ADD COLUMN compensation JSON DEFAULT '{}'",
+            "ALTER TABLE nexus_employees ADD COLUMN bank JSON DEFAULT '[]'",
+            "ALTER TABLE nexus_employees ADD COLUMN compliance JSON DEFAULT '{}'",
+            "ALTER TABLE nexus_employees ADD COLUMN status_log JSON DEFAULT '[]'",
+            "ALTER TABLE nexus_employees ADD COLUMN division VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN identity_type VARCHAR DEFAULT 'internal'",
+            "ALTER TABLE ir_funds ADD COLUMN property_asset_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -335,6 +350,8 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS division VARCHAR DEFAULT ''",
         # External users: identity type (internal MS365 / Entra B2B guest / non-MS365 external)
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS identity_type VARCHAR DEFAULT 'internal'",
+        # Investor Relations: optional soft link to an Asset Management PropertyAsset.id
+        "ALTER TABLE ir_funds ADD COLUMN IF NOT EXISTS property_asset_id VARCHAR DEFAULT ''",
         # HR mailbox export: progress total (table itself is created by create_all)
         "ALTER TABLE hr_mailbox_exports ADD COLUMN IF NOT EXISTS total INTEGER DEFAULT 0",
         # Ticket triage routing: who assigns a department's incoming tickets
@@ -619,4 +636,5 @@ app.include_router(tickets_router.router) # Ticket Module: tickets, conversation
 app.include_router(credvault.router)      # Credential Vault: encrypted company/personal secrets ("credvault" grant)
 app.include_router(asana_webhook.router)  # Asana two-way sync: public webhook receiver (verified by HMAC)
 app.include_router(policy.router)         # Sign-in company-policy & monitoring acknowledgment
+app.include_router(investor_relations.router)  # Investor Relations: funds/investors/commitments/calls/distributions
 

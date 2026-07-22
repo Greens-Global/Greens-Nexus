@@ -19,7 +19,7 @@ from models import NexusAccessScope
 
 router = APIRouter(prefix="/access-scopes", tags=["Access Scopes"])
 
-_SCOPE_TYPES = ("property", "project", "entity")
+_SCOPE_TYPES = ("property", "project", "entity", "fund")
 
 
 def _serialize(s: NexusAccessScope) -> dict:

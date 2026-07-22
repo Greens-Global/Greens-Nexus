@@ -76,12 +76,17 @@ const VIEW_MIN_ROLES = {
   'credvault':          'supervisor',
 };
 
-// E2E mode (Playwright CI only — VITE_E2E is never set on real builds): skip the
-// MSAL login gates entirely so headless tests can drive the app against a local
-// NEXUS_SKIP_AUTH backend. Everything else behaves normally.
-const _E2E = import.meta.env.VITE_E2E === 'true';
-const AuthedGate  = _E2E ? ({ children }) => children : AuthenticatedTemplate;
-const UnauthedGate = _E2E ? () => null : UnauthenticatedTemplate;
+// E2E mode (Playwright CI only — VITE_E2E is never set on real builds) and the
+// local dev-login bypass (VITE_DEV_SKIP_AUTH, see msalInstance.js) both skip the
+// MSAL login gates entirely: AuthenticatedTemplate/UnauthenticatedTemplate gate
+// on MSAL's own `inProgress` interaction state from handleRedirectPromise(),
+// which the dev bypass never drives to resolved (no real redirect ever happens),
+// so both templates would render nothing forever instead of picking up the
+// synthetic dev account. Everything else behaves normally.
+const _SKIP_MSAL_GATE = import.meta.env.VITE_E2E === 'true'
+  || (import.meta.env.DEV && import.meta.env.VITE_DEV_SKIP_AUTH === 'true');
+const AuthedGate  = _SKIP_MSAL_GATE ? ({ children }) => children : AuthenticatedTemplate;
+const UnauthedGate = _SKIP_MSAL_GATE ? () => null : UnauthenticatedTemplate;
 
 // Waits for role to load so the UI never flashes with wrong access level
 function RoleGate({ children }) {
