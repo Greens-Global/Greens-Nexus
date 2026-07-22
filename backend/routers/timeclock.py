@@ -215,14 +215,14 @@ def _day_summaries(punches: list) -> dict:
         brk[open_in_date] = brk.get(open_in_date, 0.0) + open_brk
 
     out = {}
-    for date, plist in by_day.items():
-        w = worked.get(date, 0.0)
-        b = brk.get(date, 0.0)
-        out[date] = {
+    for d, plist in by_day.items():
+        w = worked.get(d, 0.0)
+        b = brk.get(d, 0.0)
+        out[d] = {
             "workedMin": int(round(max(0.0, w - b))),
             "breakMin": int(round(b)),
-            "firstIn": first_in.get(date, ""), "lastOut": last_out.get(date, ""),
-            "flags": sorted(flags.get(date, set())),
+            "firstIn": first_in.get(d, ""), "lastOut": last_out.get(d, ""),
+            "flags": sorted(flags.get(d, set())),
             "punches": [_serialize(p) for p in plist],
         }
     return out
@@ -1348,7 +1348,7 @@ def insights(email: str = "", start: str = "", end: str = "", tz: int = 0,
         m[0] += sec; m[1] += a
         if cat == "productive": m[2] += sec
     names = {e.work_email: f"{e.first_name} {e.last_name}".strip() for e in db.query(NexusEmployee).all() if e.work_email}
-    pct = lambda part: round(part * 100 / total) if total else 0
+    def pct(part): return round(part * 100 / total) if total else 0
     by_member = sorted(
         ({"email": k, "name": names.get(k, k) or k, "totalSec": v[0], "activeSec": v[1],
           "activePct": round(v[1] * 100 / v[0]) if v[0] else 0,

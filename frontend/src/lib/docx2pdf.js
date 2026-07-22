@@ -10,10 +10,12 @@ const PAGE_W = 612, PAGE_H = 792, MARGIN = 56;
 const USABLE = PAGE_W - MARGIN * 2;
 
 // pdf-lib standard fonts are WinAnsi-only — swap smart punctuation, drop the rest.
+/* eslint-disable no-irregular-whitespace, no-control-regex -- winAnsi deliberately normalizes a literal NBSP and matches the full Latin-1 byte range */
 const winAnsi = (s) => String(s)
   .replace(/[‘’‚]/g, "'").replace(/[“”„]/g, '"')
   .replace(/[–—]/g, '-').replace(/…/g, '...').replace(/ /g, ' ')
   .replace(/[^\x00-\xFF]/g, '?');
+/* eslint-enable no-irregular-whitespace, no-control-regex */
 
 export const isDocx = (fl) => !!fl && (/\.docx$/i.test(fl.name || '')
   || fl.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');

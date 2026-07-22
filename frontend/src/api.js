@@ -48,12 +48,27 @@ const AI_TIMEOUT_MS = 120_000;
 // every module showing its own error independently.
 let _backendDown = false;
 let _downCount   = 0;
+let _pendingDown = null;          // grace-period timer before the banner is shown
 const _healthListeners = new Set();
-function _setBackendDown(down) {
-  if (down === _backendDown) return;
+const DOWN_GRACE_MS = 3500;       // must stay unreachable this long before we alarm
+function _emitHealth(down) {
   _backendDown = down;
   _downCount   = down ? _downCount + 1 : 0;
   _healthListeners.forEach(fn => fn(down));
+}
+function _setBackendDown(down) {
+  if (down) {
+    // Debounce the DOWN transition. Azure cold-starts (5–15s) make a request fail
+    // and then recover seconds later; flashing an alarming red banner for a blip
+    // that self-heals is worse than the blip. Only show "reconnecting" if we're
+    // STILL failing after a grace period — a success in the meantime cancels it.
+    if (_backendDown || _pendingDown) return;
+    _pendingDown = setTimeout(() => { _pendingDown = null; _emitHealth(true); }, DOWN_GRACE_MS);
+    return;
+  }
+  // Recovered: cancel any pending alarm and hide the banner immediately.
+  if (_pendingDown) { clearTimeout(_pendingDown); _pendingDown = null; }
+  if (_backendDown) _emitHealth(false);
 }
 export function onBackendHealth(fn) {
   _healthListeners.add(fn);

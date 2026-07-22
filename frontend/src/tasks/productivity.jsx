@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/refs -- the dropdown measures its trigger's DOM rect during render to clamp/flip the panel within the viewport (mobile); a safe intentional ref read the React-Compiler rule flags */
 // Task Module — productivity bar: Filters, Sort, Saved views, Templates, Intake.
 // Ported from the export's productivity/* (FilterSortGroupBar, SavedViewsMenu,
 // TemplatePicker, IntakeFormModal) into one inline-styled component wired to the

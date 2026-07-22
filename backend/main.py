@@ -1,12 +1,11 @@
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy import text
 import models
-from database import engine, DATABASE_URL, SessionLocal
+from database import engine, DATABASE_URL
 from routers import timeclock
 from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews
 # NOTE: `inventory_requests` router retired Jul 2026 (P2-1) — legacy inventory stack removed.
@@ -134,10 +133,10 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN csat_comment VARCHAR DEFAULT ''",
             "ALTER TABLE task_projects ADD COLUMN department_ids JSON DEFAULT '[]'",
             # Roles & Access redesign: job-role templates live on nexus_groups
-            "ALTER TABLE nexus_groups ADD COLUMN is_job_role BOOLEAN DEFAULT 0",
+            "ALTER TABLE nexus_groups ADD COLUMN is_job_role INTEGER DEFAULT 0",
             "ALTER TABLE nexus_groups ADD COLUMN tier VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_groups ADD COLUMN description VARCHAR DEFAULT ''",
-            "ALTER TABLE nexus_groups ADD COLUMN monitoring_exempt BOOLEAN DEFAULT 0",
+            "ALTER TABLE nexus_groups ADD COLUMN monitoring_exempt INTEGER DEFAULT 0",
             # Company email domains — drive M365 import + auto company tagging
             "ALTER TABLE hr_entities ADD COLUMN domains VARCHAR DEFAULT ''",
             # Company manager (operational head; escalation target)
@@ -379,10 +378,10 @@ def _run_migrations():
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS csat_comment TEXT DEFAULT ''",
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS department_ids JSONB DEFAULT '[]'::jsonb",
         # Roles & Access redesign: job-role templates live on nexus_groups
-        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS is_job_role BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS is_job_role INTEGER DEFAULT 0",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS tier VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS description VARCHAR DEFAULT ''",
-        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS monitoring_exempt BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS monitoring_exempt INTEGER DEFAULT 0",
         # Company email domains — drive M365 import + auto company tagging
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS domains VARCHAR DEFAULT ''",
         # Company manager (operational head; escalation target)

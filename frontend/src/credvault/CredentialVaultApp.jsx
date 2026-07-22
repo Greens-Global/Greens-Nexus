@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/refs -- renders a live auto-lock countdown from a last-activity ref (ticked by state); a safe intentional ref read the React-Compiler rule flags */
 /* Credential Vault — main module screen. 1:1 functional port of the standalone
    credential-vault-dev app onto the Nexus backend: company vault (reveal/copy/
    share/approvals/trash/import), strictly-private personal vault, and a full

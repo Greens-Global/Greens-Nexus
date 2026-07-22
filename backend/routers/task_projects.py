@@ -9,7 +9,7 @@ from typing import Optional
 import models
 from database import get_db
 from auth import get_current_user
-from routers.task_util import now_iso, gen_id, task_notify, admin_emails
+from routers.task_util import now_iso, gen_id, task_notify
 
 router = APIRouter(tags=["Tasks"], dependencies=[Depends(get_current_user)])
 

@@ -187,8 +187,9 @@ const getDefaultSub = view => DEFAULT_SUBS[view] ?? null;
 
 export default function App() {
   // Public e-sign page (/sign/{token}) renders OUTSIDE the MSAL gate — external
-  // signers have no login; the URL token is the credential. The pathname never
-  // changes within a page load, so this early return keeps hook order stable.
+  // signers have no login; the URL token is the credential. Routing lives in this
+  // thin shell so the hook-bearing app body (MainApp) always calls its hooks
+  // unconditionally — the sign page mounts a different tree entirely.
   if (parsePath().view === 'sign') {
     const token = window.location.pathname.split('/').filter(Boolean)[1] || '';
     return (
@@ -197,6 +198,10 @@ export default function App() {
       </Suspense>
     );
   }
+  return <MainApp />;
+}
+
+function MainApp() {
   const [activeView,       setActiveView]       = useState(() => parsePath().view);
   const [activeSub,        setActiveSub]        = useState(() => { const p = parsePath(); return p.sub ?? getDefaultSub(p.view); });
   const [theme,            setTheme]            = useState(() => localStorage.getItem("gg-theme") || "light");

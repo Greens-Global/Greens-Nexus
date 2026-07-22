@@ -23,7 +23,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
-from auth import get_current_user, require_module_grant
+from auth import require_module_grant
 from models import PropertyAsset, PropertyRecord, PropertyActivityLog, NexusNotification
 
 router = APIRouter(tags=["Asset Management"])
