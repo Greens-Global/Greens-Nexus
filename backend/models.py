@@ -1111,6 +1111,7 @@ class TimePunch(Base):
     adjusted_at    = Column(String, default="")
     adjust_note    = Column(String, default="")
     voided         = Column(Integer, default=0)         # 1 = excluded from totals, kept for audit
+    category       = Column(String, default="")         # job-costing / cost-code tag on the in-punch (SwipeClock "Category")
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
 

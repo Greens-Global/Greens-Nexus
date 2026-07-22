@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle, MapPin } from 'lucide-react';
 import { api } from '../api';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
+import { useRole } from '../contexts/RoleContext';
 
 // ── Payroll timecard (SwipeClock-style, manager-editable) ─────────────────────
 // One employee, one pay period (biweekly). In/out segments per day with manager
@@ -53,6 +54,9 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
   const [editDay, setEditDay] = useState(null);   // { date, seg? }
   const [busy, setBusy] = useState(false);
   const [stepLocked, setStepLocked] = useState(false);   // payroll $ needs a fresh step-up
+  const [exceptions, setExceptions] = useState([]);      // per-employee missing/exception counts (sidebar)
+  const { can } = useRole();
+  const isAdmin = can('administrator');
 
   const start = isoDate(pStart);
   const end = isoDate(pStart.getTime() + 13 * DAY);
@@ -67,6 +71,10 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
     }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Per-employee missing/exception counts for the sidebar (re-loads per period).
+  useEffect(() => {
+    api.timeTeamExceptions(start, end).then(r => setExceptions(r || [])).catch(() => setExceptions([]));
+  }, [start, end]);
 
   const load = useCallback(() => {
     if (!email) return;
@@ -127,12 +135,34 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
 
   const dow = (ds) => new Date(ds + 'T00:00').toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' });
 
+  const exByEmail = Object.fromEntries(exceptions.map(e => [e.email, e]));
+  const sidebar = (exceptions.length ? exceptions : people.map(p => ({ ...p, missing: 0, exceptions: 0 })));
+
   return (
-    <div style={{ fontFamily: 'Inter,sans-serif' }}>
+    <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', fontFamily: 'Inter,sans-serif' }}>
+      {/* Employee sidebar — who has missing punches / exceptions this period */}
+      <div style={{ width: 210, flexShrink: 0, border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden', maxHeight: 620, overflowY: 'auto' }} className="pr-sidebar">
+        <div style={{ padding: '8px 12px', background: 'var(--bg)', fontSize: 10.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', display: 'flex' }}>
+          <span style={{ flex: 1 }}>Employee</span><span title="Missing punches">M</span><span style={{ width: 22, textAlign: 'right' }} title="Exceptions">E</span>
+        </div>
+        {sidebar.map(p => {
+          const sel = p.email === email;
+          return (
+            <button key={p.email} onClick={() => setEmail(p.email)}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left', padding: '8px 12px', border: 'none', borderTop: '1px solid var(--line)', cursor: 'pointer', fontFamily: 'Inter,sans-serif', fontSize: 12.5, background: sel ? 'var(--mist)' : 'transparent', fontWeight: sel ? 700 : 500, color: 'var(--ink)' }}>
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+              <span style={{ width: 16, textAlign: 'center', color: '#b91c1c', fontWeight: 800 }}>{p.missing || ''}</span>
+              <span style={{ width: 22, textAlign: 'right', color: '#b45309', fontWeight: 800 }}>{p.exceptions || ''}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
       {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-        <select className="form-input" value={email} onChange={e => setEmail(e.target.value)} style={{ fontSize: 13, minWidth: 200, fontWeight: 700 }}>
-          {people.map(p => <option key={p.email} value={p.email}>{p.name}</option>)}
+        <select className="form-input" value={email} onChange={e => setEmail(e.target.value)} style={{ fontSize: 13, minWidth: 180, fontWeight: 700 }} title="Also selectable from the sidebar">
+          {people.map(p => <option key={p.email} value={p.email}>{p.name}{exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}</option>)}
         </select>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <button className="icon-btn" onClick={() => shift(-1)} style={{ padding: 6 }}><ChevronLeft size={16} /></button>
@@ -140,6 +170,17 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
           <button className="icon-btn" onClick={() => shift(1)} style={{ padding: 6 }}><ChevronRight size={16} /></button>
         </div>
         <div style={{ flex: 1 }} />
+        {isAdmin && data?.autoLunch && (
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--muted)', fontWeight: 700, cursor: 'pointer' }}
+            title={`Auto-deduct ${data.autoLunch.deductMin}m lunch from any segment over ${Math.round(data.autoLunch.afterMin / 60)}h with no recorded break. Applies to everyone.`}>
+            <input type="checkbox" checked={!!data.autoLunch.enabled}
+              onChange={async e => {
+                try { await api.timeAutoLunchSet({ enabled: e.target.checked, afterMin: data.autoLunch.afterMin, deductMin: data.autoLunch.deductMin }); toastOk?.(`Auto-lunch ${e.target.checked ? 'enabled' : 'disabled'}.`); load(); }
+                catch (err) { toastErr?.(err?.message || 'Could not update auto-lunch.'); }
+              }} />
+            Auto-lunch
+          </label>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 700 }}>OT rule</span>
           <select className="form-input" value={ruleInput} onChange={e => setRuleInput(e.target.value)}
@@ -182,6 +223,8 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
                 <th style={{ ...th, textAlign: 'left' }}>In</th>
                 <th style={{ ...th, textAlign: 'left' }}>Out</th>
                 <th style={{ ...th, textAlign: 'left' }}>Loc</th>
+                <th style={{ ...th, textAlign: 'left' }}>Category</th>
+                <th style={th}>Deducted</th>
                 <th style={th}>Hours</th>
                 <th style={th}>Hrs/day</th>
                 <th style={th}>Non-OT</th>
@@ -193,7 +236,7 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
             <tbody>
               {rows.map((r, i) => r.type === 'wk' ? (
                 <tr key={i} style={{ background: 'hsla(var(--color-green),0.05)' }}>
-                  <td colSpan={10} style={{ ...td, textAlign: 'center', fontWeight: 800, color: 'var(--pine)', fontSize: 12 }}>
+                  <td colSpan={12} style={{ ...td, textAlign: 'center', fontWeight: 800, color: 'var(--pine)', fontSize: 12 }}>
                     Total hours for week of {new Date(r.week + 'T00:00').toLocaleDateString([], { month: 'numeric', day: 'numeric' })}: {hhmm(weekTotals[r.week]?.min || 0)}
                   </td>
                 </tr>
@@ -207,6 +250,8 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
                     {r.seg ? (r.seg.out ? t12(r.seg.out) : 'Missing') : '—'}
                   </td>
                   <td style={{ ...td, textAlign: 'left' }}><LocCell seg={r.seg} /></td>
+                  <td style={{ ...td, textAlign: 'left', color: r.seg?.category ? 'var(--ink)' : 'var(--muted)' }}>{r.seg?.category || '—'}</td>
+                  <td style={{ ...td, color: r.seg?.deductedMin ? '#b45309' : 'var(--muted)' }}>{r.seg?.deductedMin ? `−${r.seg.deductedMin}m` : '—'}</td>
                   <td style={td}>{r.seg ? hhmm(r.seg.workedMin) : '—'}</td>
                   <td style={{ ...td, fontWeight: 700 }}>{r.first && byDate[r.ds] ? hhmm(byDate[r.ds].workedMin) : ''}</td>
                   <td style={td}>{r.seg?.regMin ? hhmm(r.seg.regMin) : '—'}</td>
@@ -225,7 +270,8 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
             {T && (
               <tfoot>
                 <tr style={{ background: 'var(--bg)', fontWeight: 800 }}>
-                  <td colSpan={4} style={{ ...td, textAlign: 'left' }}>Totals</td>
+                  <td colSpan={5} style={{ ...td, textAlign: 'left' }}>Totals</td>
+                  <td style={{ ...td, color: T.deductedMin ? '#b45309' : 'var(--muted)' }}>{T.deductedMin ? `−${T.deductedMin}m` : '—'}</td>
                   <td style={td}>{hhmm(T.regMin + T.otMin)}</td>
                   <td style={td}>{hhmm(T.regMin + T.otMin + (T.dtMin || 0))}</td>
                   <td style={td}>{hhmm(T.regMin)}</td>
@@ -260,6 +306,18 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
               ));
             })()}
           </div>
+          {(data?.byCategory || []).length > 1 && (
+            <div style={{ minWidth: 240, border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
+              <div style={{ padding: '7px 12px', background: 'var(--bg)', fontSize: 11, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)' }}>By category (job costing)</div>
+              {data.byCategory.map((c, i) => (
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 70px 90px', gap: 8, padding: '7px 12px', borderTop: '1px solid var(--line)', fontSize: 12.5 }}>
+                  <span style={{ color: c.category === 'Uncategorised' ? 'var(--muted)' : 'var(--ink)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.category}</span>
+                  <span style={{ textAlign: 'right' }}>{hhmm(c.workedMin)}</span>
+                  <span style={{ textAlign: 'right', fontWeight: 700 }}>{money(c.pay)}</span>
+                </div>
+              ))}
+            </div>
+          )}
           <div style={{ minWidth: 200, fontSize: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--muted)' }}>
               <span>Missing Punches</span><span style={{ fontWeight: 700, color: T.missingPunches ? '#b91c1c' : 'var(--ink)' }}>{T.missingPunches}</span>
@@ -267,6 +325,11 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--muted)' }}>
               <span>Edited Punches</span><span style={{ fontWeight: 700 }}>{T.editedPunches}</span>
             </div>
+            {T.deductedMin > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', color: 'var(--muted)' }}>
+                <span>Auto-lunch deducted</span><span style={{ fontWeight: 700, color: '#b45309' }}>−{T.deductedMin}m</span>
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <button className="secondary-btn" onClick={async () => { const up = await ensureStepUp(); if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; } api.timeExportCsv(start, end, 'punches'); }} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
               <button className="primary-btn" onClick={approve} disabled={busy} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><CheckCircle size={13} /> Approve</button>
@@ -301,20 +364,23 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
 
       {editDay && (
         <PunchEditModal day={editDay} email={email} busy={busy} setBusy={setBusy}
+          categories={(data?.byCategory || []).map(c => c.category).filter(c => c && c !== 'Uncategorised')}
           onDone={() => { setEditDay(null); load(); }} onClose={() => setEditDay(null)}
           toastOk={toastOk} toastErr={toastErr} />
       )}
-      <style>{`.pr-row:hover { background: var(--bg); }`}</style>
+      <style>{`.pr-row:hover { background: var(--bg); } .pr-sidebar button:hover { background: var(--bg); }`}</style>
+      </div>
     </div>
   );
 }
 
-function PunchEditModal({ day, email, busy, setBusy, onDone, onClose, toastOk, toastErr }) {
+function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, onClose, toastOk, toastErr }) {
   const seg = day.seg;
   const [inAt, setInAt] = useState(seg?.in ? utcToInput(seg.in) : `${day.date}T09:00`);
   const [outAt, setOutAt] = useState(seg?.out ? utcToInput(seg.out) : `${day.date}T17:00`);
   const [sites, setSites] = useState([]);
   const [siteId, setSiteId] = useState(seg?.workSiteId || '');
+  const [cat, setCat] = useState(seg?.category || '');
   const tz = new Date().getTimezoneOffset();
   useEffect(() => { api.getWorkSites().then(s => setSites(s || [])).catch(() => setSites([])); }, []);
 
@@ -326,6 +392,8 @@ function PunchEditModal({ day, email, busy, setBusy, onDone, onClose, toastOk, t
         if (utcToInput(seg.in) !== inAt) await api.timeAdjustPunch(seg.inId, { at: inputToUtc(inAt) });
         // Reassign location (work site) on the in-punch if it changed.
         if (siteId !== (seg.workSiteId || '')) await api.timeAdjustPunch(seg.inId, { work_site_id: siteId });
+        // Job-costing category on the in-punch.
+        if (cat !== (seg.category || '')) await api.timeAdjustPunch(seg.inId, { category: cat });
       } else {
         await api.timeAddPunch({ employee_email: email, kind: 'in', at: inputToUtc(inAt), tz_offset_min: tz, note: 'payroll edit' });
       }
@@ -363,6 +431,13 @@ function PunchEditModal({ day, email, busy, setBusy, onDone, onClose, toastOk, t
                 {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
               <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>Reassigning marks the punch as on-site at the chosen location.</span>
+            </label>
+          )}
+          {seg?.inId && (
+            <label style={{ fontSize: 11, color: 'var(--muted)' }}>Category (job / cost code)
+              <input list="pr-cats" className="form-input" value={cat} onChange={e => setCat(e.target.value)}
+                placeholder="e.g. Operations-GS" style={{ width: '100%', fontSize: 13 }} />
+              <datalist id="pr-cats">{categories.map(c => <option key={c} value={c} />)}</datalist>
             </label>
           )}
         </div>
