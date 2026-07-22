@@ -22,11 +22,12 @@ import hmac
 import io
 import json
 import os
+import pathlib
 import re
 import secrets
 import uuid
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, Header
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, Header, Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
@@ -40,11 +41,120 @@ from models import (HrSignTemplate, HrSignRequest, HrSignParty, HrSignEvent,
 # service key, same bell. hr.py owns those constants; do not duplicate them.
 from routers.hr import (require_hr_read, require_hr_write, require_hr_delete,
                         _storage_headers, _graph_token, _hr_notify,
-                        _SUPABASE_URL, _DOC_BUCKET)
+                        _SUPABASE_URL, _DOC_BUCKET, _SUPABASE_SERVICE_KEY)
 
 router = APIRouter(prefix="/esign", tags=["esign"])
 
 _APP_URL = os.getenv("NEXUS_APP_URL", "https://dev.nexus.greensglobal.com")
+
+# ── Local-dev storage fallback (E-Sign only) ──────────────────────────────────
+# Every real deployment (Azure) always has SUPABASE_URL/SUPABASE_SERVICE_KEY
+# set, so this branch never executes outside a local machine missing those two
+# env vars — it self-disables the moment real credentials exist, same category
+# as the NEXUS_SKIP_AUTH local-only bypass this codebase already has elsewhere.
+# Scoped deliberately to e-sign's own storage calls only (not hr.py's HR
+# document uploads, which are untouched) — see the E-Sign compliance plan.
+_LOCAL_STORAGE_ROOT = pathlib.Path("Generated File")
+
+
+def _storage_configured() -> bool:
+    return bool(_SUPABASE_URL and _SUPABASE_SERVICE_KEY)
+
+
+def _local_storage_path(bucket: str, path: str) -> pathlib.Path:
+    """Resolves a bucket+path to a file under Generated File/, rejecting any
+    attempt to escape that directory (defense in depth — `path` values are
+    normally server-generated, e.g. f"esign/{req.id}/final.pdf", but the local
+    file-serving endpoint below accepts `path` from the URL, so this check is
+    load-bearing there, not just decorative)."""
+    root = (_LOCAL_STORAGE_ROOT / bucket).resolve()
+    candidate = (root / path).resolve()
+    if not candidate.is_relative_to(root):
+        raise HTTPException(400, "Invalid path")
+    return candidate
+
+
+class _StorageResult:
+    """Minimal stand-in for the bits of an httpx.Response the 9 call sites in
+    this file actually use (.is_success/.text/.content/.json()) — lets the
+    Supabase and local-file code paths share the exact same call-site shape
+    below, so each site's existing error-handling needed almost no changes."""
+    def __init__(self, is_success: bool, content: bytes = b"", text: str = "", json_data=None):
+        self.is_success = is_success
+        self.content = content
+        self.text = text
+        self._json = json_data or {}
+
+    def json(self):
+        return self._json
+
+
+def _storage_put(bucket: str, path: str, content: bytes, content_type: str, upsert: bool = False) -> _StorageResult:
+    if _storage_configured():
+        headers = {**_storage_headers(), "Content-Type": content_type}
+        if upsert:
+            headers["x-upsert"] = "true"
+        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{bucket}/{path}",
+                       headers=headers, content=content, timeout=60)
+        return _StorageResult(r.is_success, content=r.content, text=r.text)
+    # Local filesystem writes are inherently upsert (always overwrite) — no
+    # separate flag needed for this branch.
+    p = _local_storage_path(bucket, path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(content)
+    return _StorageResult(True)
+
+
+def _storage_fetch(bucket: str, path: str, timeout: int = 60) -> _StorageResult:
+    if _storage_configured():
+        r = httpx.get(f"{_SUPABASE_URL}/storage/v1/object/{bucket}/{path}",
+                      headers=_storage_headers(), timeout=timeout)
+        return _StorageResult(r.is_success, content=r.content, text=r.text)
+    p = _local_storage_path(bucket, path)
+    if not p.exists():
+        return _StorageResult(False, text="Local file not found")
+    return _StorageResult(True, content=p.read_bytes())
+
+
+def _storage_signed_url(bucket: str, path: str, expires_in: int = 300) -> _StorageResult:
+    if _storage_configured():
+        r = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{bucket}/{path}",
+                       headers=_storage_headers(), json={"expiresIn": expires_in}, timeout=20)
+        if not r.is_success:
+            return _StorageResult(False, text=r.text)
+        return _StorageResult(True, json_data={
+            "url": f"{_SUPABASE_URL}/storage/v1{r.json()['signedURL']}", "expiresIn": expires_in})
+    p = _local_storage_path(bucket, path)
+    if not p.exists():
+        return _StorageResult(False, text="Local file not found")
+    # _APP_URL is the FRONTEND's origin (used for /sign, /verify links) and
+    # defaults to the production domain when NEXUS_APP_URL isn't set locally
+    # — using it here would produce an unreachable link. This is the BACKEND
+    # API's own origin instead, matching this project's documented local-dev
+    # convention (CLAUDE.md: "frontend talks to localhost:8000 by default").
+    # Override with NEXUS_LOCAL_API_URL if the backend runs on a different port.
+    api_base = os.getenv("NEXUS_LOCAL_API_URL", "http://localhost:8000")
+    return _StorageResult(True, json_data={
+        "url": f"{api_base}/esign/local-file/{bucket}/{path}", "expiresIn": expires_in})
+
+
+@router.get("/local-file/{bucket}/{path:path}")
+def local_file(bucket: str, path: str):
+    """Serves files from Generated File/ — the local-dev stand-in for a
+    Supabase signed URL (see _storage_signed_url above). Immediately 404s if
+    real storage IS configured, so this can never become a live path in any
+    environment that has actual credentials — not just "unused," structurally
+    unreachable. No auth (matches a Supabase signed URL's own bearer-in-URL
+    posture) but strictly sandboxed to Generated File/ via _local_storage_path,
+    which rejects any path that would resolve outside it."""
+    if _storage_configured():
+        raise HTTPException(404, "Not found")
+    p = _local_storage_path(bucket, path)
+    if not p.exists():
+        raise HTTPException(404, "Not found")
+    media_type = "application/pdf" if p.suffix.lower() == ".pdf" else "application/octet-stream"
+    return Response(content=p.read_bytes(), media_type=media_type)
+
 
 _TEMPLATE_KINDS = ("offer", "nda", "direct_deposit", "handbook_ack", "w9",
                    "contractor_agreement", "sow", "custom")
@@ -97,11 +207,60 @@ def _client_meta(request: Optional[Request]) -> tuple:
     return ip, request.headers.get("user-agent", "")[:300]
 
 
+def _event_hash(prev_hash: str, request_id: str, type: str, detail: str,
+                ip: str, user_agent: str, at: str, seq: int) -> str:
+    """Each event commits to the entire history before it for this envelope —
+    editing, deleting, or reordering a row breaks the chain from that point
+    forward, detectably. Genesis link (the first event) chains to the
+    envelope's own id rather than an empty string, so two different
+    envelopes' first events never hash identically even with the same
+    type/detail/timestamp."""
+    payload = f"{prev_hash}|{request_id}|{type}|{detail[:500]}|{ip}|{user_agent}|{at}|{seq}"
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
 def _log(db: Session, request_id: str, type: str, detail: str = "",
          party_id: str = "", ip: str = "", user_agent: str = "") -> None:
+    # autoflush=False (this codebase's own established gotcha — see _finalize's
+    # own comment on the same issue) means a _log() call later in the SAME
+    # request wouldn't see an earlier, uncommitted _log() call's row here,
+    # silently breaking the hash chain (two events computing the same "prior"
+    # state instead of actually chaining). The explicit flush at the end of
+    # this function makes every _log() call see all of its own request's
+    # prior events, regardless of call count before the eventual commit.
+    prev = (db.query(HrSignEvent.event_hash, HrSignEvent.seq)
+            .filter(HrSignEvent.request_id == request_id)
+            .order_by(HrSignEvent.seq.desc()).first())
+    seq = (prev.seq if prev else 0) + 1
+    prev_hash = prev.event_hash if prev and prev.event_hash else request_id
+    at = _now_iso()
+    detail = detail[:500]
     db.add(HrSignEvent(id=str(uuid.uuid4()), request_id=request_id, party_id=party_id,
-                       type=type, detail=detail[:500], ip=ip, user_agent=user_agent,
-                       at=_now_iso()))
+                       type=type, detail=detail, ip=ip, user_agent=user_agent, at=at,
+                       seq=seq, event_hash=_event_hash(prev_hash, request_id, type, detail,
+                                                        ip, user_agent, at, seq)))
+    db.flush()
+
+
+def _verify_chain(events: List[HrSignEvent]) -> dict:
+    """Tamper-evidence check for the audit trail itself (distinct from the
+    final-PDF byte hash in verify_final): replays the hash chain over the
+    stored rows and confirms every event_hash matches what _log() would have
+    computed. Events created before this feature shipped have seq=0/no hash —
+    reported as "chain not available", never as a false pass or fail."""
+    if not events:
+        return {"chainAvailable": False, "valid": None, "eventCount": 0}
+    if events[0].seq == 0 and not events[0].event_hash:
+        return {"chainAvailable": False, "valid": None, "eventCount": len(events)}
+    ordered = sorted(events, key=lambda e: e.seq)
+    prev_hash = ordered[0].request_id
+    for e in ordered:
+        expected = _event_hash(prev_hash, e.request_id, e.type, e.detail or "",
+                               e.ip or "", e.user_agent or "", e.at, e.seq)
+        if expected != e.event_hash:
+            return {"chainAvailable": True, "valid": False, "eventCount": len(events)}
+        prev_hash = e.event_hash
+    return {"chainAvailable": True, "valid": True, "eventCount": len(events)}
 
 
 # ── Serializers (camelCase, matching the hr.py idiom) ─────────────────────────
@@ -552,9 +711,7 @@ def upload_template_attachment(file: UploadFile = File(...), user: dict = Depend
         raise HTTPException(400, "This PDF can't be processed — it may be corrupt or password-protected.")
     safe = re.sub(r"[^a-zA-Z0-9._-]", "_", file.filename or "document.pdf")
     path = f"esign/templates/{uuid.uuid4()}-{safe}"
-    up = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
-                    headers={**_storage_headers(), "Content-Type": "application/pdf"},
-                    content=blob, timeout=60)
+    up = _storage_put(_DOC_BUCKET, path, blob, "application/pdf")
     if not up.is_success:
         raise HTTPException(502, f"Storage upload failed: {up.text[:200]}")
     return {"name": (file.filename or "document.pdf"), "path": path, "pages": pages, "fields": []}
@@ -565,11 +722,10 @@ def template_attachment_url(path: str, user: dict = Depends(require_hr_read)):
     """Short-lived signed URL to render an attached PDF in the field placer."""
     if not path.startswith("esign/"):
         raise HTTPException(400, "Invalid attachment path")
-    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{path}",
-                      headers=_storage_headers(), json={"expiresIn": 300}, timeout=20)
+    resp = _storage_signed_url(_DOC_BUCKET, path)
     if not resp.is_success:
         raise HTTPException(502, "Could not create the preview link")
-    return {"url": f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}", "expiresIn": 300}
+    return resp.json()
 
 
 # ── Create + send an envelope ─────────────────────────────────────────────────
@@ -744,9 +900,7 @@ def send_pdf_request(request: Request, file: UploadFile = File(...), payload: st
     routing = _validate_routing(data.get("routing", "sequential"))
 
     path = f"esign/{uuid.uuid4()}/source.pdf"
-    up = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
-                    headers={**_storage_headers(), "Content-Type": "application/pdf"},
-                    content=blob, timeout=60)
+    up = _storage_put(_DOC_BUCKET, path, blob, "application/pdf")
     if not up.is_success:
         raise HTTPException(502, f"Storage upload failed: {up.text[:200]}")
     ip, ua = _client_meta(request)
@@ -911,27 +1065,46 @@ def download_final(rid: str, user: dict = Depends(require_hr_read), db: Session 
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     if not req or not req.final_pdf_path:
         raise HTTPException(404, "No completed document")
-    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{req.final_pdf_path}",
-                      headers=_storage_headers(), json={"expiresIn": 300}, timeout=20)
+    resp = _storage_signed_url(_DOC_BUCKET, req.final_pdf_path)
     if not resp.is_success:
         raise HTTPException(502, "Could not create download link")
     _log(db, rid, "downloaded", f"by {user['email']}")
     db.commit()
-    return {"url": f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}", "expiresIn": 300}
+    return resp.json()
 
 
-@router.get("/requests/{rid}/verify")
-def verify_final(rid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
-    """Tamper check: re-hash the stored final PDF and compare with the sealed hash."""
-    req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
-    if not req or not req.final_pdf_path:
-        raise HTTPException(404, "No completed document")
-    resp = httpx.get(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{req.final_pdf_path}",
-                     headers=_storage_headers(), timeout=60)
+def _check_final_integrity(req: HrSignRequest) -> dict:
+    """Live re-hash of the stored final PDF vs. the sealed hash — shared by the
+    internal /verify endpoint and the public /verify/{token} page so the two
+    never drift out of sync with each other."""
+    resp = _storage_fetch(_DOC_BUCKET, req.final_pdf_path)
     if not resp.is_success:
         raise HTTPException(502, "Could not fetch the stored document")
     actual = hashlib.sha256(resp.content).hexdigest()
     return {"valid": actual == req.final_sha256, "expected": req.final_sha256, "actual": actual}
+
+
+@router.get("/requests/{rid}/verify")
+def verify_final(rid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """Tamper check: re-hash the stored final PDF and compare with the sealed
+    hash, plus the audit-trail hash-chain status. Also lazily backfills
+    verify_token for envelopes completed before the QR/public-verify feature
+    shipped, so every completed envelope ends up with a working /verify/{token}
+    link to share — even though only newly-sealed PDFs get the QR printed on
+    the certificate page itself (an already-sealed PDF can't be edited to add
+    one without invalidating its own hash)."""
+    req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
+    if not req or not req.final_pdf_path:
+        raise HTTPException(404, "No completed document")
+    integrity = _check_final_integrity(req)
+    events = (db.query(HrSignEvent).filter(HrSignEvent.request_id == rid)
+              .order_by(HrSignEvent.seq).all())
+    chain = _verify_chain(events)
+    if not req.verify_token:
+        req.verify_token = secrets.token_urlsafe(24)
+        db.commit()
+    return {**integrity, "chainValid": chain["valid"], "chainAvailable": chain["chainAvailable"],
+            "eventCount": chain["eventCount"], "verifyToken": req.verify_token}
 
 
 # ── My signatures (any logged-in employee) ────────────────────────────────────
@@ -969,9 +1142,8 @@ def _render_payload(db: Session, req: HrSignRequest, party: HrSignParty) -> dict
                "consentText": _CONSENT_TEXT, "consentVersion": _CONSENT_VERSION,
                "expiresOn": req.expires_on}
     def sign_url(path):
-        resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{path}",
-                          headers=_storage_headers(), json={"expiresIn": 300}, timeout=20)
-        return f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}" if resp.is_success else ""
+        resp = _storage_signed_url(_DOC_BUCKET, path)
+        return resp.json().get("url", "") if resp.is_success else ""
 
     if req.source == "template":
         payload["body"] = req.body_snapshot or []
@@ -1264,15 +1436,49 @@ def public_download(token: str, request: Request, code: str = "",
         raise HTTPException(403, "Wrong access code")
     if req.status != "completed" or not req.final_pdf_path:
         raise HTTPException(409, "This document is not completed yet")
-    resp = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{req.final_pdf_path}",
-                      headers=_storage_headers(), json={"expiresIn": 300}, timeout=20)
+    resp = _storage_signed_url(_DOC_BUCKET, req.final_pdf_path)
     if not resp.is_success:
         raise HTTPException(502, "Could not create download link")
     ip, ua = _client_meta(request)
     _log(db, req.id, "downloaded", f"by {party.name} (public link)", party_id=party.id,
          ip=ip, user_agent=ua)
     db.commit()
-    return {"url": f"{_SUPABASE_URL}/storage/v1{resp.json()['signedURL']}", "expiresIn": 300}
+    return resp.json()
+
+
+@router.get("/public/verify/{verify_token}")
+def public_verify(verify_token: str, db: Session = Depends(get_db)):
+    """Public, unauthenticated certificate verification — what the QR code on
+    the Certificate of Completion links to. Anyone holding a copy of the
+    document (an auditor, opposing counsel, the other party) can confirm it's
+    unaltered and see the signer timeline WITHOUT a Nexus login — same posture
+    as DocuSign/Adobe Sign's own public certificate-ID lookups.
+
+    Deliberately redacted vs. the internal certificate/verify: no emails, IP
+    addresses, user-agents, or raw event log — only what's needed to prove
+    "this exact document was signed, by these named people, on these dates,
+    and hasn't been altered since." Full detail stays behind require_hr_read
+    (verify_final above) and the certificate pages sealed into the PDF itself
+    (which only ever reaches parties to the agreement, not the general public
+    a scanned QR code reaches)."""
+    req = db.query(HrSignRequest).filter(HrSignRequest.verify_token == verify_token).first()
+    if not req or req.status != "completed" or not req.final_pdf_path:
+        raise HTTPException(404, "Verification record not found")
+    integrity = _check_final_integrity(req)
+    events = (db.query(HrSignEvent).filter(HrSignEvent.request_id == req.id)
+              .order_by(HrSignEvent.seq).all())
+    chain = _verify_chain(events)
+    signers = [p for p in _parties(db, req.id) if (p.party_role or "signer") == "signer"]
+    return {
+        "title": req.title,
+        "completedAt": req.completed_at,
+        "envelopeIdShort": req.id[:8],
+        "signers": [{"name": p.name, "signedAt": p.signed_at}
+                    for p in sorted(signers, key=lambda x: x.ordinal)],
+        "documentIntegrity": {"valid": integrity["valid"]},
+        "auditChain": {"valid": chain["valid"], "eventCount": chain["eventCount"],
+                       "chainAvailable": chain["chainAvailable"]},
+    }
 
 
 # ── Finalize: sealed PDF + Certificate of Completion ──────────────────────────
@@ -1454,6 +1660,26 @@ def _stamp_pdf(source: bytes, fields: list, parties: List[HrSignParty]) -> bytes
     return out.getvalue()
 
 
+def _certificate_qr_flowable(req: HrSignRequest):
+    """QR image linking to the public, unauthenticated /verify/{token} page —
+    generated in-memory (never touches disk), same idiom as every other
+    generated-bytes helper in this codebase. Returns None (caller skips the QR
+    block entirely) when there's no verify_token yet, which should not happen
+    in practice since _finalize() always sets one before calling
+    _certificate_pdf(), but this stays defensive rather than crashing
+    certificate generation over a missing QR."""
+    if not req.verify_token:
+        return None
+    import qrcode
+    from reportlab.platypus import Image as RLImage
+    from reportlab.lib.units import mm
+    img = qrcode.make(f"{_APP_URL}/verify/{req.verify_token}")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    return RLImage(buf, width=22 * mm, height=22 * mm)
+
+
 def _certificate_pdf(req: HrSignRequest, parties: List[HrSignParty],
                      events: List[HrSignEvent], content_sha: str) -> bytes:
     """The Certificate of Completion — signer identity, consent, IP/UA, timeline,
@@ -1500,6 +1726,15 @@ def _certificate_pdf(req: HrSignRequest, parties: List[HrSignParty],
     signers = [p for p in parties if (p.party_role or "signer") == "signer"]
     ccs = [p for p in parties if (p.party_role or "signer") == "cc"]
     n_signed = sum(1 for p in signers if p.status == "signed")
+    chain = _verify_chain(events)
+    if chain["chainAvailable"]:
+        chain_line = (f"Audit trail hash chain: {'✓ verified' if chain['valid'] else '⚠ BROKEN'} "
+                      f"across {chain['eventCount']} events. Each recorded action cryptographically "
+                      f"commits to every action before it — editing, deleting, or reordering an "
+                      f"event afterward is detectable.")
+    else:
+        chain_line = "Audit trail hash chain: not available (this envelope predates the hash-chain feature)."
+
     flow = [Paragraph("GREENS NEXUS · ELECTRONIC SIGNATURE", brand),
             Paragraph("Certificate of Completion", ParagraphStyle("tc", parent=title, alignment=1)),
             Paragraph(f"{escape(req.title)}", ParagraphStyle("st", parent=sub, fontSize=10,
@@ -1511,9 +1746,23 @@ def _certificate_pdf(req: HrSignRequest, parties: List[HrSignParty],
             Paragraph("Document integrity", h),
             Paragraph(f"SHA-256 of the signed content pages:", small),
             Paragraph(f"<font face='Courier' size='8'>{content_sha}</font>", small),
-            Paragraph("Any modification to the signed pages after completion changes this hash. "
-                      "Verify anytime under Documents → E-Sign → Verify integrity.", tiny),
-            Paragraph("Signers", h)]
+            Paragraph("Any modification to the signed pages after completion changes this hash.", tiny),
+            Paragraph(escape(chain_line), tiny)]
+
+    qr_flowable = _certificate_qr_flowable(req)
+    if qr_flowable is not None:
+        qr_table = Table([[qr_flowable,
+                           Paragraph("Scan to verify this certificate online — confirms document "
+                                    "integrity and the signer timeline without requiring a Nexus "
+                                    f"login.<br/><font face='Courier' size='7'>{_APP_URL}/verify/"
+                                    f"{req.verify_token}</font>", small)]],
+                         colWidths=[24 * mm, 158 * mm])
+        qr_table.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                                      ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
+        flow.append(Spacer(1, 2 * mm))
+        flow.append(qr_table)
+
+    flow.append(Paragraph("Signers", h))
 
     rows = [[PH("#"), PH("Signer"), PH("Consented"), PH("Viewed"), PH("Signed"), PH("IP address")]]
     for p in sorted(signers, key=lambda x: x.ordinal):
@@ -1591,8 +1840,7 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
     parties = _parties(db, req.id)
 
     def fetch(path):
-        src = httpx.get(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
-                        headers=_storage_headers(), timeout=60)
+        src = _storage_fetch(_DOC_BUCKET, path)
         if not src.is_success:
             raise HTTPException(502, f"Could not fetch {path} to finalize")
         return src.content
@@ -1625,7 +1873,9 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
     # the very signature that triggered completion.
     db.flush()
     events = (db.query(HrSignEvent).filter(HrSignEvent.request_id == req.id)
-              .order_by(HrSignEvent.at).all())
+              .order_by(HrSignEvent.seq).all())
+    if not req.verify_token:
+        req.verify_token = secrets.token_urlsafe(24)
     cert = _certificate_pdf(req, parties, events, content_sha)
 
     # Merge content + certificate into the sealed final document
@@ -1639,10 +1889,7 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
     final = out.getvalue()
 
     path = f"esign/{req.id}/final.pdf"
-    up = httpx.post(f"{_SUPABASE_URL}/storage/v1/object/{_DOC_BUCKET}/{path}",
-                    headers={**_storage_headers(), "Content-Type": "application/pdf",
-                             "x-upsert": "true"},
-                    content=final, timeout=60)
+    up = _storage_put(_DOC_BUCKET, path, final, "application/pdf", upsert=True)
     if not up.is_success:
         raise HTTPException(502, f"Could not store the final document: {up.text[:200]}")
     req.final_pdf_path = path

@@ -1039,6 +1039,7 @@ class HrSignRequest(Base):
     final_sha256     = Column(String, default="")         # tamper-evidence hash of final bytes
     routing          = Column(String, default="sequential")  # sequential (ordered) | parallel (everyone at once)
     egnyte_folder    = Column(String, default="")         # frozen from the template at send; sealed PDF is copied here
+    verify_token     = Column(String, default="")         # public, unauthenticated /verify/{token} credential — set at completion
 
 
 class HrSignParty(Base):
@@ -1078,6 +1079,104 @@ class HrSignEvent(Base):
     ip          = Column(String, default="")
     user_agent  = Column(String, default="")
     at          = Column(String, default="")
+    seq         = Column(Integer, default=0)          # tamper-evident hash chain (added later): 1,2,3... per request_id
+    event_hash  = Column(String, default="")          # sha256(prev_hash|request_id|type|detail|ip|user_agent|at|seq) — 0/'' on pre-upgrade rows
+
+
+# ── Documents (DMS) — Phase 1 ──────────────────────────────────────────────────
+# Sits next to (not inside) the e-sign envelope tables above: a Document only
+# becomes an HrSignRequest at the moment the user sends it for signature (export
+# to PDF, hand to the existing esign.py PDF-send path). New tables — create_all
+# builds them, no migration line needed. New tables — create_all builds them.
+class DocFolder(Base):
+    __tablename__ = "doc_folders"
+    id          = Column(String, primary_key=True)   # uuid
+    name        = Column(String, nullable=False)
+    key         = Column(String, default="")         # hr|finance|legal|sales|operations|personal|archived|'' (custom)
+    is_system   = Column(Boolean, default=False)      # seeded folder — not user-deletable
+    owner_email = Column(String, default="")         # set for the per-user Personal folder
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+
+
+class DocLetterhead(Base):
+    __tablename__ = "doc_letterheads"
+    id          = Column(String, primary_key=True)   # uuid
+    name        = Column(String, nullable=False)
+    logo_path   = Column(String, default="")         # storage path in the private docs bucket
+    header_json = Column(JSON, default=dict)
+    footer_json = Column(JSON, default=dict)
+    address     = Column(String, default="")
+    is_default  = Column(Boolean, default=False)
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+
+
+class DocTemplate(Base):
+    __tablename__ = "doc_templates"
+    id                  = Column(String, primary_key=True)   # uuid
+    name                = Column(String, nullable=False)
+    category            = Column(String, default="general")  # letterhead|hr|legal|finance|operations|sales|engineering|general
+    tags                = Column(JSON, default=list)
+    content             = Column(JSON, default=dict)          # rich-doc content (Document Builder, Phase 2+)
+    requires_letterhead = Column(Boolean, default=False)
+    letterhead_id       = Column(String, default="")
+    merge_overrides     = Column(JSON, default=dict)          # default {{token}} values + custom variables (Phase 12) — seeded onto any Document created from this template
+    status              = Column(String, default="active")    # active|archived
+    version             = Column(Integer, default=1)
+    created_by          = Column(String, default="")
+    created_at          = Column(String, default="")
+    updated_by          = Column(String, default="")
+    updated_at          = Column(String, default="")
+
+
+class Document(Base):
+    __tablename__ = "documents"
+    id               = Column(String, primary_key=True)   # uuid
+    title            = Column(String, nullable=False)
+    folder_id        = Column(String, default="")
+    template_id      = Column(String, default="")
+    content          = Column(JSON, default=dict)          # rich-doc content (Document Builder, Phase 2+)
+    letterhead_id    = Column(String, default="")
+    status           = Column(String, default="draft")     # draft|final|archived
+    employee_id      = Column(String, default="")          # merge-field subject (Phase 4), NexusEmployee.id
+    entity_id        = Column(String, default="")          # merge-field company (Phase 4), HrEntity.id
+    merge_overrides  = Column(JSON, default=dict)           # manual {{token}} values + custom variables (Phase 11) — wins over employee/entity resolution
+    owner_email      = Column(String, default="")
+    tags             = Column(JSON, default=list)
+    current_version  = Column(Integer, default=1)
+    sign_request_id  = Column(String, default="")          # set once sent for signature (HrSignRequest.id)
+    created_by       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_by       = Column(String, default="")
+    updated_at       = Column(String, default="")
+    archived_at      = Column(String, default="")
+
+
+class DocumentVersion(Base):
+    """One row per saved edit — recorded from Phase 1 on so version history is
+    real data before the browsing UI (later phase) exists."""
+    __tablename__ = "doc_versions"
+    id          = Column(String, primary_key=True)   # uuid
+    document_id = Column(String, nullable=False)
+    version_no  = Column(Integer, default=1)
+    content     = Column(JSON, default=dict)
+    edited_by   = Column(String, default="")
+    edited_at   = Column(String, default="")
+    note        = Column(String, default="")
+
+
+class DocTemplateVersion(Base):
+    """Same shape as DocumentVersion (Phase 7 gap closure) — templates only got
+    a bare version counter in Phase 3; this gives them real browsable history."""
+    __tablename__ = "doc_template_versions"
+    id          = Column(String, primary_key=True)   # uuid
+    template_id = Column(String, nullable=False)
+    version_no  = Column(Integer, default=1)
+    content     = Column(JSON, default=dict)
+    edited_by   = Column(String, default="")
+    edited_at   = Column(String, default="")
+    note        = Column(String, default="")
 
 
 # ── Time tracking (SwipeClock replacement) ────────────────────────────────────

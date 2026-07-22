@@ -1228,7 +1228,7 @@ function TemplateEditorModal({ template, entities, onClose, onSaved, toastOk, to
 function SendWizard({ templates, employees, entities, prefill, onClose, onSent, toastOk, toastErr }) {
   const [boxRef, boxH] = useFillHeight();
   const [step, setStep] = useState(0);
-  const [source, setSource] = useState(prefill ? 'template' : '');
+  const [source, setSource] = useState(prefill?.source === 'pdf' ? 'pdf' : (prefill ? 'template' : ''));
   const [templateId, setTemplateId] = useState('');
   const [file, setFile] = useState(null);
   const [dragOver, setDragOver] = useState(false);
@@ -1320,6 +1320,11 @@ function SendWizard({ templates, employees, entities, prefill, onClose, onSent, 
       ? ps.map(p => p._rk ? p : { party_role: 'signer', access_code: '', ...p, _rk: newRk() })
       : [{ _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'signer', access_code: '' }]);
   }
+
+  // Documents module handoff (Phase 5): a Document Builder export lands here
+  // as a synthetic File on prefill.file — feed it through the exact same
+  // pickFile() path a real file-picker selection would take.
+  useEffect(() => { if (prefill?.file) pickFile(prefill.file); }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const setParty = (i, k, v) => setParties(ps => ps.map((p, j) => j === i ? { ...p, [k]: v } : p));
   const movParty = (i, dir) => setParties(ps => {
@@ -1943,7 +1948,12 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
               {req.status === 'pending' && <button className="secondary-btn" disabled={!!busy} onClick={() => act('remind', () => api.remindSign(requestId), r => `Reminded ${r.reminded}.`)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Bell size={12} /> Remind</button>}
               {req.status === 'pending' && <button className="secondary-btn" disabled={!!busy} onClick={() => act('void', () => api.voidSign(requestId), 'Voided.')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'hsl(var(--color-red))' }}><Ban size={12} /> Void</button>}
               {req.hasFinalPdf && <button className="secondary-btn" disabled={!!busy} onClick={download} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={12} /> Sealed PDF</button>}
-              {req.hasFinalPdf && <button className="secondary-btn" disabled={!!busy} onClick={() => act('verify', () => api.verifySign(requestId), r => r.valid ? 'Verified — document untampered.' : '⚠ HASH MISMATCH — document was modified!', r => !r.valid)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><ShieldCheck size={12} /> Verify Integrity</button>}
+              {req.hasFinalPdf && <button className="secondary-btn" disabled={!!busy} onClick={() => act('verify', () => api.verifySign(requestId), r => {
+                const doc = r.valid ? 'Document untampered' : '⚠ HASH MISMATCH — document was modified!';
+                const chain = !r.chainAvailable ? 'audit chain unavailable (pre-dates this feature)'
+                  : r.chainValid ? `audit chain verified across ${r.eventCount} events` : '⚠ AUDIT CHAIN BROKEN';
+                return `${doc} · ${chain}.`;
+              }, r => !r.valid || (r.chainAvailable && !r.chainValid))} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><ShieldCheck size={12} /> Verify Integrity</button>}
             </div>
 
             <label style={FL}>
@@ -2017,7 +2027,7 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
 // 'documents-esign-requests' → Sent.
 const NAV_TAB = { 'documents-esign': 'inbox', 'documents-esign-requests': 'requests' };
 
-export default function ESign({ employees = [], entities = [], prefill = null, navSub = '', onPrefillConsumed, toastOk, toastErr }) {
+export default function ESign({ employees = [], entities = [], prefill = null, navSub = '', onPrefillConsumed, onSentRequest, toastOk, toastErr }) {
   const [sub, setSub] = useState(NAV_TAB[navSub] || 'inbox');
   const [inbox, setInbox] = useState(null);
   const [requests, setRequests] = useState(null);
@@ -2104,7 +2114,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
     <SendWizard templates={templates || []} employees={employees} entities={entities}
       prefill={prefill} toastOk={toastOk} toastErr={toastErr}
       onClose={() => { setSendOpen(false); onPrefillConsumed?.(); }}
-      onSent={() => { loadRequests(); loadInbox(); }} />
+      onSent={(sent) => { loadRequests(); loadInbox(); onSentRequest?.(sent); }} />
   );
 
   return (

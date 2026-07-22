@@ -42,6 +42,7 @@ const ManagerDashboard    = lazy(() => import("./views/ManagerDashboard"));
 const Support             = lazy(() => import("./views/Support"));
 const Placeholder         = lazy(() => import("./views/Placeholder"));
 const PublicSign          = lazy(() => import("./views/PublicSign"));
+const PublicVerify        = lazy(() => import("./views/PublicVerify"));
 const TimeClock           = lazy(() => import("./views/TimeClock"));
 const MyHR                = lazy(() => import("./views/MyHR"));
 const Testing             = lazy(() => import("./views/Testing"));
@@ -194,6 +195,17 @@ export default function App() {
     return (
       <Suspense fallback={<div style={{ minHeight: '100dvh' }} />}>
         <PublicSign token={token} />
+      </Suspense>
+    );
+  }
+  // Public certificate verification (/verify/{token}) — same reasoning as
+  // /sign/{token} above: outside the MSAL gate, since anyone scanning a QR
+  // code off a printed/emailed document has no Nexus login.
+  if (parsePath().view === 'verify') {
+    const token = window.location.pathname.split('/').filter(Boolean)[1] || '';
+    return (
+      <Suspense fallback={<div style={{ minHeight: '100dvh' }} />}>
+        <PublicVerify token={token} />
       </Suspense>
     );
   }
