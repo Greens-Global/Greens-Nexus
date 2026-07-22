@@ -50,15 +50,20 @@ export default function TimeclockWidget() {
     load();
     const onChange = () => load();
     window.addEventListener('nexus:timeclock-changed', onChange);
-    const poll = setInterval(load, 120000);
+    // Poll fairly often so a punch/break on ANOTHER device reflects in this
+    // widget's timer without a manual refresh (server holds the punch state).
+    const poll = setInterval(load, 25000);
     const sec = setInterval(() => setTick(t => t + 1), 1000);
     // Wall-clock scheduler: a frequent tick that fires a shot only once the full
     // interval has actually elapsed. Browsers throttle/freeze background-tab
     // timers, so a plain 5-min setInterval silently stops firing once the tab is
     // hidden — this catches up as soon as any tick lands or the tab refocuses.
     const due = setInterval(maybeShot, 20000);
-    const onVis = () => { if (document.visibilityState === 'visible') maybeShot(); };
+    // On refocus: re-sync the punch state (a break on another device) AND catch
+    // up a due screenshot.
+    const onVis = () => { if (document.visibilityState === 'visible') { load(); maybeShot(); } };
     document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', onVis);
     const bump = () => { lastActive.current = Date.now(); };
     window.addEventListener('pointermove', bump);
     window.addEventListener('keydown', bump);
@@ -67,6 +72,7 @@ export default function TimeclockWidget() {
       window.removeEventListener('pointermove', bump);
       window.removeEventListener('keydown', bump);
       document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('focus', onVis);
       clearInterval(poll); clearInterval(sec); clearInterval(due);
       stopCapture();
     };
