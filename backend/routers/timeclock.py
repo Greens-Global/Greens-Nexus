@@ -19,6 +19,7 @@ Design decisions are research-backed (Jul 2026 deep-research pass):
 import csv
 import hashlib
 import io
+import json
 import math
 import secrets
 import uuid
@@ -37,9 +38,11 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     AgentDevice, Shift, ShiftGroup, ShiftGroupMember,
                     ShiftAssignment, ScheduledShift, PayrollRate, HrWorkSite, NexusEmployee,
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
-                    PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember)
+                    PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
+                    NexusSetting)
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET
 from routers.esign import _client_meta
+from routers.stepup import require_stepup
 
 router = APIRouter(prefix="/timeclock", tags=["timeclock"])
 
@@ -215,14 +218,14 @@ def _day_summaries(punches: list) -> dict:
         brk[open_in_date] = brk.get(open_in_date, 0.0) + open_brk
 
     out = {}
-    for date, plist in by_day.items():
-        w = worked.get(date, 0.0)
-        b = brk.get(date, 0.0)
-        out[date] = {
+    for d, plist in by_day.items():
+        w = worked.get(d, 0.0)
+        b = brk.get(d, 0.0)
+        out[d] = {
             "workedMin": int(round(max(0.0, w - b))),
             "breakMin": int(round(b)),
-            "firstIn": first_in.get(date, ""), "lastOut": last_out.get(date, ""),
-            "flags": sorted(flags.get(date, set())),
+            "firstIn": first_in.get(d, ""), "lastOut": last_out.get(d, ""),
+            "flags": sorted(flags.get(d, set())),
             "punches": [_serialize(p) for p in plist],
         }
     return out
@@ -568,6 +571,8 @@ class PunchAdjust(BaseModel):
     note: Optional[str] = None
     void: Optional[bool] = None
     adjust_note: Optional[str] = ""
+    work_site_id: Optional[str] = None   # reassign the punch's location (curated work site); "" clears it
+    category: Optional[str] = None       # job-costing / cost-code tag on the punch
 
 
 @router.patch("/punches/{punch_id}")
@@ -587,6 +592,20 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
             row.original_at = row.at
         row.at = body.at[:19]
         row.local_date = _local_date(row.at, row.tz_offset_min or 0)
+    if body.work_site_id is not None:
+        # Reassign the punch's location to a curated work site (manager correction).
+        wsid = body.work_site_id.strip()
+        if not wsid:
+            row.work_site_id, row.work_site_name, row.geo_status = "", "", "no_location"
+        else:
+            site = db.query(HrWorkSite).filter(HrWorkSite.id == wsid).first()
+            if not site:
+                raise HTTPException(404, "Work site not found")
+            # A manager asserting the site counts as on-site (in_fence), distance 0.
+            row.work_site_id, row.work_site_name = site.id, site.name or ""
+            row.geo_status, row.distance_m = "in_fence", 0
+    if body.category is not None:
+        row.category = body.category.strip()[:80]
     if body.note is not None:
         row.note = body.note.strip()[:300]
     if body.void is not None:
@@ -631,9 +650,11 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
 
 @router.get("/export.csv")
 def export_csv(start: str = "", end: str = "", mode: str = "summary",
-               user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    """Payroll export file, SwipeClock-style: Summary Totals (one row per
-    employee-day) or All Punch Details. Exact times, no rounding."""
+               user: dict = Depends(require_team_read),
+               _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
+    """Payroll export file (incl. $ pay columns) — requires a fresh step-up MFA
+    (require_stepup). Summary Totals (one row per employee-day) or All Punch
+    Details. Exact times, no rounding."""
     buf = io.StringIO()
     w = csv.writer(buf)
     scope = _visible_emails(db, user)
@@ -1348,7 +1369,7 @@ def insights(email: str = "", start: str = "", end: str = "", tz: int = 0,
         m[0] += sec; m[1] += a
         if cat == "productive": m[2] += sec
     names = {e.work_email: f"{e.first_name} {e.last_name}".strip() for e in db.query(NexusEmployee).all() if e.work_email}
-    pct = lambda part: round(part * 100 / total) if total else 0
+    def pct(part): return round(part * 100 / total) if total else 0
     by_member = sorted(
         ({"email": k, "name": names.get(k, k) or k, "totalSec": v[0], "activeSec": v[1],
           "activePct": round(v[1] * 100 / v[0]) if v[0] else 0,
@@ -2019,6 +2040,73 @@ def _pay_period(date_str: str):
     return start.isoformat(), (start + timedelta(days=_PAYPERIOD_DAYS - 1)).isoformat()
 
 
+_AUTOLUNCH_KEY = "timeclock_autolunch"
+_AUTOLUNCH_DEFAULT = {"enabled": False, "afterMin": 360, "deductMin": 30}
+
+
+def _autolunch_cfg(db: Session) -> dict:
+    """Auto-lunch deduction rule: deduct `deductMin` from a worked segment that ran
+    at least `afterMin` with NO recorded break (the person forgot to clock lunch).
+    Off by default so it never silently changes pay until an admin enables it."""
+    row = db.query(NexusSetting).filter(NexusSetting.key == _AUTOLUNCH_KEY).first()
+    cfg = dict(_AUTOLUNCH_DEFAULT)
+    if row and row.value:
+        try:
+            cfg.update({k: v for k, v in json.loads(row.value).items() if k in cfg})
+        except (ValueError, TypeError):
+            pass
+    cfg["enabled"] = bool(cfg.get("enabled"))
+    cfg["afterMin"] = max(0, int(cfg.get("afterMin") or 0))
+    cfg["deductMin"] = max(0, int(cfg.get("deductMin") or 0))
+    return cfg
+
+
+@router.get("/payroll/autolunch")
+def get_autolunch(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    return _autolunch_cfg(db)
+
+
+class AutoLunchIn(BaseModel):
+    enabled: bool = False
+    afterMin: int = 360
+    deductMin: int = 30
+
+
+@router.put("/payroll/autolunch")
+def set_autolunch(body: AutoLunchIn, user: dict = Depends(require_administrator),
+                  db: Session = Depends(get_db)):
+    cfg = {"enabled": bool(body.enabled), "afterMin": max(0, int(body.afterMin)),
+           "deductMin": max(0, int(body.deductMin))}
+    row = db.query(NexusSetting).filter(NexusSetting.key == _AUTOLUNCH_KEY).first()
+    if not row:
+        row = NexusSetting(key=_AUTOLUNCH_KEY)
+        db.add(row)
+    row.value = json.dumps(cfg)
+    row.updated_by = user["email"]
+    db.commit()
+    return cfg
+
+
+@router.get("/team-exceptions")
+def team_exceptions(start: str = "", end: str = "",
+                    user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """Per-employee missing-punch + exception counts over [start,end] for the
+    manager's visible team — powers the timecard's employee sidebar (M/E flags)."""
+    rows = _team_rows(db, start, end, only_emails=_visible_emails(db, user))
+    out = []
+    for r in rows:
+        missing = exc = 0
+        for d in (r.get("days") or {}).values():
+            for f in d.get("flags", []):
+                if f == "missing_out":
+                    missing += 1
+                elif f in ("out_of_fence", "adjusted"):
+                    exc += 1
+        out.append({"email": r["email"], "name": r["name"], "workedMin": r["workedMin"],
+                    "missing": missing, "exceptions": exc})
+    return sorted(out, key=lambda x: (-(x["missing"] + x["exceptions"]), x["name"]))
+
+
 def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     """Per-day in/out segments, weekly overtime split (>40h at 1.5x), and wage
     totals off the HR-set hourly rate over [start, end]. Exact minutes, no
@@ -2036,6 +2124,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     rate_row = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
     rate = float(rate_row.hourly_rate) if rate_row else 0.0
     rule = (getattr(rate_row, "overtime_rule", None) or "ca") if rate_row else "ca"
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == em).first()
+    dept = (emp.department if emp else "") or ""
 
     days_out = []
     total_reg = total_ot = total_dt = total_break = missing_punches = 0
@@ -2048,6 +2138,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     # hours to land.
     segs_by_day = {}   # local_date -> [segment, ...]
     open_in = open_in_at = open_in_id = open_in_date = None
+    open_in_site = open_in_geo = open_in_site_id = open_in_cat = None
     open_break = None
     brk = 0.0
     sflags = set()
@@ -2057,7 +2148,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
         nonlocal missing_punches
         segs_by_day.setdefault(open_in_date, []).append(
             {"in": open_in_at, "out": "", "inId": open_in_id, "outId": "",
-             "workedMin": 0, "flags": sorted(sflags | {"missing_out"}), "_break": int(round(brk))})
+             "workedMin": 0, "flags": sorted(sflags | {"missing_out"}), "_break": int(round(brk)),
+             "workSite": open_in_site or "", "workSiteId": open_in_site_id or "", "geo": open_in_geo or "", "category": open_in_cat or ""})
         missing_punches += 1
 
     for p in punches:
@@ -2068,6 +2160,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
             if open_in is not None:      # a new in without an out closes the prior as missing
                 _flush_missing()
             open_in, open_in_at, open_in_id, open_in_date = t, p.at, p.id, p.local_date
+            open_in_site, open_in_geo, open_in_site_id = (p.work_site_name or ""), (p.geo_status or ""), (p.work_site_id or "")
+            open_in_cat = getattr(p, "category", "") or ""
             open_break, brk, sflags = None, 0.0, set()
             if p.geo_status == "out_of_fence":
                 sflags.add("out_of_fence")
@@ -2085,7 +2179,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
                 mins = int(round((t - open_in).total_seconds() / 60 - brk))
                 segs_by_day.setdefault(open_in_date, []).append(
                     {"in": open_in_at, "out": p.at, "inId": open_in_id, "outId": p.id,
-                     "workedMin": max(0, mins), "flags": sorted(sflags), "_break": int(round(brk))})
+                     "workedMin": max(0, mins), "flags": sorted(sflags), "_break": int(round(brk)),
+                     "workSite": open_in_site or "", "workSiteId": open_in_site_id or "", "geo": open_in_geo or "", "category": open_in_cat or ""})
                 open_in = None
             # else: orphan out with no open in — ignored (its in was outside the range)
         elif p.kind == "break_start":
@@ -2097,6 +2192,20 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
                 open_break = None
     if open_in is not None:
         _flush_missing()
+
+    # Auto-lunch: deduct a lunch from a long segment that recorded no break, before
+    # any totals/overtime are computed (so the deduction flows through to pay).
+    al = _autolunch_cfg(db)
+    total_deducted = 0
+    for segs in segs_by_day.values():
+        for s in segs:
+            ded = 0
+            if al["enabled"] and al["deductMin"] and s.get("out") and \
+               s["workedMin"] >= al["afterMin"] and int(s.get("_break", 0)) == 0:
+                ded = min(al["deductMin"], s["workedMin"])
+                s["workedMin"] -= ded
+                total_deducted += ded
+            s["deductedMin"] = ded
 
     # Per-day worked totals (from the paired segments), then apply the employee's
     # overtime law per workweek.
@@ -2157,20 +2266,35 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     idle_min = min(worked_min, idle_frames * interval_min)
     active_min = max(0, worked_min - idle_min)
 
+    # Job-costing subtotals — worked minutes + wage per category (SwipeClock cost
+    # accounting). Uncategorised segments group under "Uncategorised".
+    cat_agg = {}
+    for d in days_out:
+        for s in d["segments"]:
+            c = (s.get("category") or "").strip() or "Uncategorised"
+            a = cat_agg.setdefault(c, {"category": c, "workedMin": 0, "pay": 0.0})
+            a["workedMin"] += s.get("workedMin", 0)
+            a["pay"] = round(a["pay"] + (s.get("amount") or 0), 2)
+    by_category = sorted(cat_agg.values(), key=lambda x: -x["workedMin"])
+
     return {"email": em, "start": start, "end": end, "rate": rate, "rateSet": rate_row is not None,
-            "overtimeRule": rule, "days": days_out,
+            "dept": dept, "overtimeRule": rule, "days": days_out,
+            "autoLunch": {"enabled": al["enabled"], "afterMin": al["afterMin"], "deductMin": al["deductMin"]},
+            "byCategory": by_category,
             "totals": {"regMin": total_reg, "otMin": total_ot, "dtMin": total_dt,
                        "regPay": reg_pay, "otPay": ot_pay, "dtPay": dt_pay,
                        "totalPay": round(reg_pay + ot_pay + dt_pay, 2),
-                       "breakMin": total_break, "workedMin": worked_min,
+                       "breakMin": total_break, "workedMin": worked_min, "deductedMin": total_deducted,
                        "activeMin": active_min, "idleMin": idle_min,
                        "missingPunches": missing_punches, "editedPunches": edited_punches}}
 
 
 @router.get("/payroll")
 def payroll_timecard(email: str, start: str, end: str,
-                     user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    """Manager timecard for one employee over [start, end] — see _compute_timecard."""
+                     user: dict = Depends(require_team_read),
+                     _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
+    """Manager timecard (incl. $ pay) for one employee — requires a fresh step-up
+    MFA (require_stepup). See _compute_timecard."""
     em = email.strip().lower()
     scope = _visible_emails(db, user)
     if scope is not None and em not in scope:
@@ -2200,7 +2324,7 @@ class RateIn(BaseModel):
 
 @router.put("/payroll/rate")
 def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
-                     db: Session = Depends(get_db)):
+                     _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     em = body.email.strip().lower()
     scope = _visible_emails(db, user)
     if scope is not None and em not in scope:

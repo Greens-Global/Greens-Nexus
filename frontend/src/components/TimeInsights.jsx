@@ -173,7 +173,7 @@ function RatingsModal({ seed, onClose, onChanged }) {
 
   async function setRate(item, rating) {
     setRatings(m => ({ ...m, [item.key]: rating }));
-    try { await api.timeSetRating({ key: item.key, kind: item.kind, label: item.label, rating }); onChanged?.(); } catch {}
+    try { await api.timeSetRating({ key: item.key, kind: item.kind, label: item.label, rating }); onChanged?.(); } catch { /* optimistic — the rating already shows locally */ }
   }
 
   const apps = items.filter(i => i.kind === 'app');

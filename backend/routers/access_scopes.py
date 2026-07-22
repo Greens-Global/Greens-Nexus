@@ -8,7 +8,6 @@ behind the scope picker on a person's Access tab.
 """
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -20,7 +19,7 @@ from models import NexusAccessScope
 
 router = APIRouter(prefix="/access-scopes", tags=["Access Scopes"])
 
-_SCOPE_TYPES = ("property", "project", "entity")
+_SCOPE_TYPES = ("property", "project", "entity", "fund")
 
 
 def _serialize(s: NexusAccessScope) -> dict:

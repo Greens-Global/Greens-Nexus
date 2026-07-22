@@ -1710,9 +1710,9 @@ def _certificate_pdf(req: HrSignRequest, parties: List[HrSignParty],
     head = ParagraphStyle("hd", parent=styles["Normal"], fontSize=7.5, leading=9,
                           fontName="Helvetica-Bold", textColor=INK)
 
-    ts = lambda v: escape((v or "")[:19].replace("T", "  "))          # '2026-07-04  06:39:17'
+    def ts(v): return escape((v or "")[:19].replace("T", "  "))       # '2026-07-04  06:39:17'
     P, PM, PH = (lambda s: Paragraph(s, cell)), (lambda s: Paragraph(s, cellm)), (lambda s: Paragraph(s, head))
-    grid = lambda: TableStyle([
+    def grid(): return TableStyle([
         ("GRID", (0, 0), (-1, -1), 0.4, LINE),
         ("BACKGROUND", (0, 0), (-1, 0), MIST),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#fbfcfd")]),

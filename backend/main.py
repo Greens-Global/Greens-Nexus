@@ -1,12 +1,11 @@
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy import text
 import models
-from database import engine, DATABASE_URL, SessionLocal
+from database import engine, DATABASE_URL
 from routers import timeclock
 from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews
 # NOTE: `inventory_requests` router retired Jul 2026 (P2-1) — legacy inventory stack removed.
@@ -19,6 +18,8 @@ from routers import qa  # Testing module — dev-only via NEXUS_QA_MODULE env (J
 from routers import credvault  # Credential Vault (Jul 2026)
 from routers import policy  # Sign-in company-policy & monitoring acknowledgment (Jul 2026)
 from routers import documents as documents_router  # Documents DMS Phase 1 (Jul 2026)
+from routers import investor_relations  # Investor Relations platform (Jul 2026)
+from routers import stepup  # Step-up MFA for sensitive data (vault/payroll/HR) (Jul 2026)
 from audit import AuditMiddleware
 
 
@@ -82,6 +83,7 @@ def _run_migrations():
             "ALTER TABLE hr_sign_events ADD COLUMN event_hash VARCHAR DEFAULT ''",
             "ALTER TABLE hr_sign_requests ADD COLUMN verify_token VARCHAR DEFAULT ''",
             "ALTER TABLE time_bod ADD COLUMN kind VARCHAR DEFAULT 'bod'",
+            "ALTER TABLE time_punches ADD COLUMN category VARCHAR DEFAULT ''",
             "ALTER TABLE shifts ADD COLUMN code VARCHAR DEFAULT ''",
             "ALTER TABLE shift_groups ADD COLUMN teams_chat_id VARCHAR DEFAULT ''",
             "ALTER TABLE shift_groups ADD COLUMN teams_chat_name VARCHAR DEFAULT ''",
@@ -146,10 +148,10 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN hr_department_id VARCHAR DEFAULT ''",
             "ALTER TABLE task_projects ADD COLUMN department_ids JSON DEFAULT '[]'",
             # Roles & Access redesign: job-role templates live on nexus_groups
-            "ALTER TABLE nexus_groups ADD COLUMN is_job_role BOOLEAN DEFAULT 0",
+            "ALTER TABLE nexus_groups ADD COLUMN is_job_role INTEGER DEFAULT 0",
             "ALTER TABLE nexus_groups ADD COLUMN tier VARCHAR DEFAULT ''",
             "ALTER TABLE nexus_groups ADD COLUMN description VARCHAR DEFAULT ''",
-            "ALTER TABLE nexus_groups ADD COLUMN monitoring_exempt BOOLEAN DEFAULT 0",
+            "ALTER TABLE nexus_groups ADD COLUMN monitoring_exempt INTEGER DEFAULT 0",
             # Company email domains — drive M365 import + auto company tagging
             "ALTER TABLE hr_entities ADD COLUMN domains VARCHAR DEFAULT ''",
             # Company manager (operational head; escalation target)
@@ -228,6 +230,20 @@ def _run_migrations():
             "ALTER TABLE documents ADD COLUMN merge_overrides JSON DEFAULT '{}'",
             # Documents (DMS) Phase 12: same override/custom-variable support on templates
             "ALTER TABLE doc_templates ADD COLUMN merge_overrides JSON DEFAULT '{}'",
+            # ── HR Section A/B (nexus_employees): SQLite was missing columns the
+            # Postgres list already carried — a pre-existing local DB 500s on
+            # every nexus_employees SELECT without them (same class of bug as
+            # the Item Module fix above).
+            "ALTER TABLE nexus_employees ADD COLUMN company VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN contractor JSON DEFAULT '{}'",
+            "ALTER TABLE nexus_employees ADD COLUMN personal JSON DEFAULT '{}'",
+            "ALTER TABLE nexus_employees ADD COLUMN compensation JSON DEFAULT '{}'",
+            "ALTER TABLE nexus_employees ADD COLUMN bank JSON DEFAULT '[]'",
+            "ALTER TABLE nexus_employees ADD COLUMN compliance JSON DEFAULT '{}'",
+            "ALTER TABLE nexus_employees ADD COLUMN status_log JSON DEFAULT '[]'",
+            "ALTER TABLE nexus_employees ADD COLUMN division VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN identity_type VARCHAR DEFAULT 'internal'",
+            "ALTER TABLE ir_funds ADD COLUMN property_asset_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -348,6 +364,8 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS division VARCHAR DEFAULT ''",
         # External users: identity type (internal MS365 / Entra B2B guest / non-MS365 external)
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS identity_type VARCHAR DEFAULT 'internal'",
+        # Investor Relations: optional soft link to an Asset Management PropertyAsset.id
+        "ALTER TABLE ir_funds ADD COLUMN IF NOT EXISTS property_asset_id VARCHAR DEFAULT ''",
         # HR mailbox export: progress total (table itself is created by create_all)
         "ALTER TABLE hr_mailbox_exports ADD COLUMN IF NOT EXISTS total INTEGER DEFAULT 0",
         # Ticket triage routing: who assigns a department's incoming tickets
@@ -373,6 +391,7 @@ def _run_migrations():
         "ALTER TABLE hr_sign_events ADD COLUMN IF NOT EXISTS event_hash TEXT DEFAULT ''",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS verify_token TEXT DEFAULT ''",
         "ALTER TABLE time_bod ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'bod'",
+        "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS category VARCHAR DEFAULT ''",
         "ALTER TABLE shifts ADD COLUMN IF NOT EXISTS code TEXT DEFAULT ''",
         "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS teams_chat_id TEXT DEFAULT ''",
         "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS teams_chat_name TEXT DEFAULT ''",
@@ -444,10 +463,10 @@ def _run_migrations():
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS hr_department_id TEXT DEFAULT ''",
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS department_ids JSONB DEFAULT '[]'::jsonb",
         # Roles & Access redesign: job-role templates live on nexus_groups
-        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS is_job_role BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS is_job_role INTEGER DEFAULT 0",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS tier VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS description VARCHAR DEFAULT ''",
-        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS monitoring_exempt BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS monitoring_exempt INTEGER DEFAULT 0",
         # Company email domains — drive M365 import + auto company tagging
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS domains VARCHAR DEFAULT ''",
         # Company manager (operational head; escalation target)
@@ -642,4 +661,6 @@ app.include_router(tickets_router.router) # Ticket Module: tickets, conversation
 app.include_router(credvault.router)      # Credential Vault: encrypted company/personal secrets ("credvault" grant)
 app.include_router(asana_webhook.router)  # Asana two-way sync: public webhook receiver (verified by HMAC)
 app.include_router(policy.router)         # Sign-in company-policy & monitoring acknowledgment
+app.include_router(investor_relations.router)  # Investor Relations: funds/investors/commitments/calls/distributions
+app.include_router(stepup.router)         # Step-up MFA for sensitive data (vault reveals / payroll / confidential HR)
 

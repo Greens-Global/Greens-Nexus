@@ -24,3 +24,16 @@ export const loginRequest = {
 export const apiTokenRequest = {
   scopes: ["openid", "profile", "email"],
 };
+
+export const clientId = "be6f1e37-83a8-4a29-8b46-96d20beb32f9";
+
+// ── Step-up re-auth request (Entra Free — no Conditional Access needed) ────────
+// Forces a FRESH interactive Microsoft sign-in for the sensitive action. If the
+// tenant enforces MFA (Security Defaults or per-user MFA — both free), that
+// re-login includes the Authenticator/SMS challenge. The resulting ID token
+// carries a fresh `auth_time`, which the backend (/stepup/verify) checks to prove
+// the re-auth just happened. prompt:"login" is what forces the re-authentication.
+export const stepUpReauthRequest = {
+  scopes: ["openid", "profile", "email"],
+  prompt: "login",
+};

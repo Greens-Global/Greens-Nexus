@@ -56,12 +56,12 @@ STARTER_ROLES = [
 
 
 def _seed_if_empty(db: Session):
-    if db.query(NexusGroup).filter(NexusGroup.is_job_role == True).count() > 0:  # noqa: E712
+    if db.query(NexusGroup).filter(NexusGroup.is_job_role == 1).count() > 0:  # noqa: E712
         return
     now = _ts()
     stamp = now[:10].replace("-", "")
     for i, (name, tier, desc, mods) in enumerate(STARTER_ROLES):
-        db.add(NexusGroup(id=f"JR{stamp}seed{i:02d}", name=name, is_job_role=True,
+        db.add(NexusGroup(id=f"JR{stamp}seed{i:02d}", name=name, is_job_role=1,
                           tier=tier, description=desc, allowed_modules=mods,
                           created_by="system", created_at=now))
     db.commit()
@@ -126,7 +126,7 @@ def _guard_can_assign_tier(user: dict, tier: str):
 @router.get("")
 def list_job_roles(user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
     _seed_if_empty(db)
-    roles = db.query(NexusGroup).filter(NexusGroup.is_job_role == True).order_by(NexusGroup.name).all()  # noqa: E712
+    roles = db.query(NexusGroup).filter(NexusGroup.is_job_role == 1).order_by(NexusGroup.name).all()  # noqa: E712
     return [_serialize(r, db) for r in roles]
 
 
@@ -142,7 +142,7 @@ def create_job_role(body: JobRoleBody, user: dict = Depends(require_administrato
     jr = NexusGroup(
         id=f"JR{now.replace('-', '').replace(':', '').replace('.', '')[:17]}",
         name=name,
-        is_job_role=True,
+        is_job_role=1,
         tier=tier,
         description=(body.description or "").strip(),
         allowed_modules=_modules_csv(body.allowed_modules),
@@ -157,7 +157,7 @@ def create_job_role(body: JobRoleBody, user: dict = Depends(require_administrato
 
 @router.put("/{jr_id}")
 def update_job_role(jr_id: str, body: JobRoleUpdate, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
-    jr = db.query(NexusGroup).filter(NexusGroup.id == jr_id, NexusGroup.is_job_role == True).first()  # noqa: E712
+    jr = db.query(NexusGroup).filter(NexusGroup.id == jr_id, NexusGroup.is_job_role == 1).first()  # noqa: E712
     if not jr:
         raise HTTPException(status_code=404, detail="Job role not found")
 
@@ -200,7 +200,7 @@ def update_job_role(jr_id: str, body: JobRoleUpdate, user: dict = Depends(requir
 
 @router.delete("/{jr_id}")
 def delete_job_role(jr_id: str, user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
-    jr = db.query(NexusGroup).filter(NexusGroup.id == jr_id, NexusGroup.is_job_role == True).first()  # noqa: E712
+    jr = db.query(NexusGroup).filter(NexusGroup.id == jr_id, NexusGroup.is_job_role == 1).first()  # noqa: E712
     if not jr:
         raise HTTPException(status_code=404, detail="Job role not found")
     members = _member_emails(db, jr_id)
@@ -215,7 +215,7 @@ def delete_job_role(jr_id: str, user: dict = Depends(require_administrator), db:
 def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Set a person's primary job role: enforce single-membership across job-role
     groups, add them to this one, and set their tier from the role."""
-    jr = db.query(NexusGroup).filter(NexusGroup.id == jr_id, NexusGroup.is_job_role == True).first()  # noqa: E712
+    jr = db.query(NexusGroup).filter(NexusGroup.id == jr_id, NexusGroup.is_job_role == 1).first()  # noqa: E712
     if not jr:
         raise HTTPException(status_code=404, detail="Job role not found")
 
@@ -231,7 +231,7 @@ def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_curre
     now = _ts()
     # single primary: drop membership in every OTHER job-role group
     other_ids = [g.id for g in db.query(NexusGroup.id).filter(
-        NexusGroup.is_job_role == True, NexusGroup.id != jr_id).all()]  # noqa: E712
+        NexusGroup.is_job_role == 1, NexusGroup.id != jr_id).all()]  # noqa: E712
     if other_ids:
         db.query(NexusGroupMember).filter(
             NexusGroupMember.email == email,
@@ -259,7 +259,7 @@ def unassign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_cur
     """Remove a person from a job role. Since a job role is their single primary
     role, this also resets their tier to employee (a lingering tier would keep
     them over-privileged). Their additive groups are untouched."""
-    jr = db.query(NexusGroup).filter(NexusGroup.id == jr_id, NexusGroup.is_job_role == True).first()  # noqa: E712
+    jr = db.query(NexusGroup).filter(NexusGroup.id == jr_id, NexusGroup.is_job_role == 1).first()  # noqa: E712
     if not jr:
         raise HTTPException(status_code=404, detail="Job role not found")
     email = body.email.lower().strip()

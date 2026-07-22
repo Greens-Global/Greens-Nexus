@@ -48,12 +48,27 @@ const AI_TIMEOUT_MS = 120_000;
 // every module showing its own error independently.
 let _backendDown = false;
 let _downCount   = 0;
+let _pendingDown = null;          // grace-period timer before the banner is shown
 const _healthListeners = new Set();
-function _setBackendDown(down) {
-  if (down === _backendDown) return;
+const DOWN_GRACE_MS = 3500;       // must stay unreachable this long before we alarm
+function _emitHealth(down) {
   _backendDown = down;
   _downCount   = down ? _downCount + 1 : 0;
   _healthListeners.forEach(fn => fn(down));
+}
+function _setBackendDown(down) {
+  if (down) {
+    // Debounce the DOWN transition. Azure cold-starts (5–15s) make a request fail
+    // and then recover seconds later; flashing an alarming red banner for a blip
+    // that self-heals is worse than the blip. Only show "reconnecting" if we're
+    // STILL failing after a grace period — a success in the meantime cancels it.
+    if (_backendDown || _pendingDown) return;
+    _pendingDown = setTimeout(() => { _pendingDown = null; _emitHealth(true); }, DOWN_GRACE_MS);
+    return;
+  }
+  // Recovered: cancel any pending alarm and hide the banner immediately.
+  if (_pendingDown) { clearTimeout(_pendingDown); _pendingDown = null; }
+  if (_backendDown) _emitHealth(false);
 }
 export function onBackendHealth(fn) {
   _healthListeners.add(fn);
@@ -786,6 +801,9 @@ export const api = {
   timeSchedDelete:   (id)        => req(`/timeclock/schedule/${id}`, { method: 'DELETE' }),
   timePayroll:       (email, start, end) => req(`/timeclock/payroll?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timePayrollRate:   (data)      => req('/timeclock/payroll/rate', { method: 'PUT', body: JSON.stringify(data) }),
+  timeAutoLunchGet:  ()          => req('/timeclock/payroll/autolunch'),
+  timeAutoLunchSet:  (data)      => req('/timeclock/payroll/autolunch', { method: 'PUT', body: JSON.stringify(data) }),
+  timeTeamExceptions:(start, end) => req(`/timeclock/team-exceptions?start=${start || ''}&end=${end || ''}`),
   // Insights dashboard (Top Apps / Top Websites / activity), from the desktop agent
   timeInsights:      (email, start, end) => req(`/timeclock/insights?email=${encodeURIComponent(email || '')}&start=${start || ''}&end=${end || ''}&tz=${new Date().getTimezoneOffset()}`),
   timeRatings:       ()          => req('/timeclock/ratings'),
@@ -855,6 +873,52 @@ export const api = {
   // ── Documents (DMS) — Import from Egnyte ──
   egnyteBrowse:    (path = '') => req(`/documents/egnyte/browse?path=${encodeURIComponent(path)}`),
   egnyteFetchFile: (path)      => reqBlob(`/documents/egnyte/file?path=${encodeURIComponent(path)}`),
+  // ── Step-up MFA (fresh verification before sensitive data) ──
+  stepupConfig:  ()      => req('/stepup/config'),
+  stepupStatus:  ()      => req('/stepup/status'),
+  stepupVerify:  (token) => req('/stepup/verify', { method: 'POST', body: JSON.stringify({ token: token || '' }) }),
+
+  // ── Investor Relations (GP capital management: funds, LPs, calls, distributions) ──
+  // List endpoints drop empty/undefined params so filters never send "undefined".
+  getIrDashboard:  ()          => req("/investor-relations/dashboard"),
+  getIrFunds:      ()          => req("/investor-relations/funds"),
+  createIrFund:    (data)      => req("/investor-relations/funds", { method: "POST", body: JSON.stringify(data) }),
+  updateIrFund:    (id, data)  => req(`/investor-relations/funds/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteIrFund:    (id)        => req(`/investor-relations/funds/${id}`, { method: "DELETE" }),
+  getIrInvestors:      ()          => req("/investor-relations/investors"),
+  createIrInvestor:    (data)      => req("/investor-relations/investors", { method: "POST", body: JSON.stringify(data) }),
+  updateIrInvestor:    (id, data)  => req(`/investor-relations/investors/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteIrInvestor:    (id)        => req(`/investor-relations/investors/${id}`, { method: "DELETE" }),
+  getIrCommitments:    (params = {}) => req(`/investor-relations/commitments?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")))}`),
+  createIrCommitment:  (data)      => req("/investor-relations/commitments", { method: "POST", body: JSON.stringify(data) }),
+  updateIrCommitment:  (id, data)  => req(`/investor-relations/commitments/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteIrCommitment:  (id)        => req(`/investor-relations/commitments/${id}`, { method: "DELETE" }),
+  getIrCapitalCalls:       (params = {}) => req(`/investor-relations/capital-calls?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")))}`),
+  createIrCapitalCall:     (data)      => req("/investor-relations/capital-calls", { method: "POST", body: JSON.stringify(data) }),
+  updateIrCapitalCall:     (id, data)  => req(`/investor-relations/capital-calls/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  getIrCapitalCallAllocations:    (callId)     => req(`/investor-relations/capital-calls/${callId}/allocations`),
+  updateIrCapitalCallAllocation:  (id, data)   => req(`/investor-relations/capital-call-allocations/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  getIrDistributions:      (params = {}) => req(`/investor-relations/distributions?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")))}`),
+  createIrDistribution:    (data)      => req("/investor-relations/distributions", { method: "POST", body: JSON.stringify(data) }),
+  updateIrDistribution:    (id, data)  => req(`/investor-relations/distributions/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  getIrDistributionAllocations:   (distId)     => req(`/investor-relations/distributions/${distId}/allocations`),
+  updateIrDistributionAllocation: (id, data)   => req(`/investor-relations/distribution-allocations/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  getIrCapitalAccounts:       (params = {}) => req(`/investor-relations/capital-accounts?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")))}`),
+  getIrCapitalAccountDetail:  (investorId, fundId) => req(`/investor-relations/capital-accounts/${investorId}/${fundId}`),
+  getIrDocuments:    (params = {}) => req(`/investor-relations/documents?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")))}`),
+  createIrDocument:  (data)      => req("/investor-relations/documents", { method: "POST", body: JSON.stringify(data) }),
+  deleteIrDocument:  (id)        => req(`/investor-relations/documents/${id}`, { method: "DELETE" }),
+  getIrUpdates:    (params = {}) => req(`/investor-relations/updates?${new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")))}`),
+  createIrUpdate:  (data)      => req("/investor-relations/updates", { method: "POST", body: JSON.stringify(data) }),
+  updateIrUpdate:  (id, data)  => req(`/investor-relations/updates/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteIrUpdate:  (id)        => req(`/investor-relations/updates/${id}`, { method: "DELETE" }),
+  seedIrDemoData:  ()          => req("/investor-relations/seed-demo-data", { method: "POST" }),
+  // Investor portal — GP-side grant/revoke of deal-scoped access, plus the
+  // read-only endpoints a granted external investor calls (scoped server-side).
+  grantIrPortalAccess:  (investorId, fundId) => req("/investor-relations/portal-access/grant", { method: "POST", body: JSON.stringify({ investorId, fundId }) }),
+  revokeIrPortalAccess: (investorId, fundId) => req(`/investor-relations/portal-access/${investorId}/${fundId}`, { method: "DELETE" }),
+  getIrPortalMyDeals:   ()       => req("/investor-relations/portal/my-deals"),
+  getIrPortalDeal:      (fundId) => req(`/investor-relations/portal/deals/${fundId}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch —

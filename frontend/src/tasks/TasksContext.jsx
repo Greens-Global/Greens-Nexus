@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/refs -- the context value intentionally exposes a stable comment-cache ref's current map; a deliberate ref read the React-Compiler rule flags */
 // Task Module — data layer. Replaces the export's React-Query + Zustand +
 // NexusTaskStore with a single Nexus-style context: loads from the FastAPI
 // backend, applies optimistic updates, and refetches on a task_events realtime

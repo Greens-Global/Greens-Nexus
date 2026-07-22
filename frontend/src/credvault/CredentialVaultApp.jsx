@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/refs -- renders a live auto-lock countdown from a last-activity ref (ticked by state); a safe intentional ref read the React-Compiler rule flags */
 /* Credential Vault — main module screen. 1:1 functional port of the standalone
    credential-vault-dev app onto the Nexus backend: company vault (reveal/copy/
    share/approvals/trash/import), strictly-private personal vault, and a full
@@ -12,14 +13,15 @@ import {
   ExternalLink, Share2,
 } from "lucide-react";
 import { api } from "../api";
+import { ensureStepUp } from "../stepup/StepUp";
 import { useRole } from "../contexts/RoleContext";
 import { useNameResolver } from "../lib/useNameResolver";
 import {
   DEFAULT_DEPTS, TYPES, SETTINGS, iconFor, tierStyle, actionStyle, agoLabel,
   Dot, Empty, Dropdown, Modal, StatPill, ViewBtn, Select, ResizeHandle,
   SecretControls, TeamsIcon, MsLogo,
-  ReauthModal, ConfirmModal, AddModal, EditModal, ImportModal, ManagePanel,
-  PersonalVaultAuthModal, PersonalAddModal, RequestAccessModal, ApproveAccessModal,
+  ConfirmModal, AddModal, EditModal, ImportModal, ManagePanel,
+  PersonalAddModal, RequestAccessModal, ApproveAccessModal,
 } from "./vaultShared";
 import "./credvault.css";
 
@@ -75,19 +77,16 @@ export default function CredentialVaultApp() {
   const [notifications, setNotifications] = useState([]);
   const [revealed, setRevealed] = useState({});            // { id: { until, secret } }
   const [revealedGrants, setRevealedGrants] = useState({}); // { grantId: secret }
-  const [sharedRevealFor, setSharedRevealFor] = useState(null);
   const [requestingAccessFor, setRequestingAccessFor] = useState(null);
   const [approvingRequest, setApprovingRequest] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
   const [copiedUser, setCopiedUser] = useState(null);
-  const [reauthFor, setReauthFor] = useState(null);
   const [confirmDel, setConfirmDel] = useState(null);
   const [highlightedId, setHighlightedId] = useState(null);
   const [logFrom, setLogFrom] = useState("");
   const [logTo, setLogTo] = useState("");
   const [vaultMode, setVaultMode] = useState("company");
   const [personalVaultUnlocked, setPersonalVaultUnlocked] = useState(false);
-  const [showPersonalAuth, setShowPersonalAuth] = useState(false);
   const [showPersonalAdd, setShowPersonalAdd] = useState(false);
   const [personalRevealed, setPersonalRevealed] = useState({}); // { id: { until, secret } }
   const [personalCopiedId, setPersonalCopiedId] = useState(null);
@@ -263,25 +262,15 @@ export default function CredentialVaultApp() {
 
   // ── Actions (server-backed) ───────────────────────────────────────────────
   async function requestReveal(c) {
-    const st = credState(c);
-    if (st.lockedForRole) {
-      try {
-        const res = await api.cvReveal(c.id);
-        if (res.approvalRequired) { flash("Access request sent to a Global Admin.", "info"); refresh().catch(() => {}); return; }
-        setRevealed((r) => ({ ...r, [c.id]: { until: Date.now() + SETTINGS.revealSeconds * 1000, secret: res.secret } }));
-      } catch (e) { flash(e.message || "Could not request access.", "info"); }
-      return;
-    }
-    setReauthFor(c);
-  }
-  async function confirmReauth() {
-    const c = reauthFor;
-    setReauthFor(null);
+    // Real, server-enforced step-up MFA before any secret is decrypted. One
+    // verification unlocks a short window (covers a burst of reveals).
+    const up = await ensureStepUp();
+    if (!up.ok) { if (!up.cancelled) flash("Identity check didn’t complete — nothing was revealed.", "info"); return; }
     try {
       const res = await api.cvReveal(c.id);
       if (res.approvalRequired) { flash("Access request sent to a Global Admin.", "info"); refresh().catch(() => {}); return; }
       setRevealed((r) => ({ ...r, [c.id]: { until: Date.now() + SETTINGS.revealSeconds * 1000, secret: res.secret } }));
-      flash(`Identity confirmed via Microsoft Authenticator. Unmasked for ${SETTINGS.revealSeconds}s.`);
+      flash(`Identity confirmed. Unmasked for ${SETTINGS.revealSeconds}s.`);
       api.cvLogs().then(setLog).catch(() => {});
     } catch (e) { flash(e.message || "Reveal failed.", "info"); }
   }
@@ -367,24 +356,29 @@ export default function CredentialVaultApp() {
     } catch (e) { flash(e.message || "Could not approve the request.", "info"); }
   }
   async function revealGrant(g) {
+    const up = await ensureStepUp();
+    if (!up.ok) { if (!up.cancelled) flash("Identity check didn’t complete.", "info"); return; }
     try {
       const res = await api.cvGrantReveal(g.id);
       setRevealedGrants((prev) => ({ ...prev, [g.id]: res.secret }));
-      setSharedRevealFor(null);
       flash("Identity verified. Shared password is now visible.");
-    } catch (e) { setSharedRevealFor(null); flash(e.message || "Reveal failed.", "info"); }
+    } catch (e) { flash(e.message || "Reveal failed.", "info"); }
   }
 
   // Personal vault
-  function handlePersonalVaultToggle() {
+  async function handlePersonalVaultToggle() {
     if (vaultMode === "personal" && personalVaultUnlocked) { setVaultMode("company"); return; }
-    if (!personalVaultUnlocked) { setShowPersonalAuth(true); return; }
+    if (!personalVaultUnlocked) {
+      const up = await ensureStepUp();
+      if (!up.ok) { if (!up.cancelled) flash("Identity check didn’t complete.", "info"); return; }
+      unlockPersonalVault();
+      return;
+    }
     setVaultMode("personal");
   }
   function unlockPersonalVault() {
     setPersonalVaultUnlocked(true);
     setVaultMode("personal");
-    setShowPersonalAuth(false);
     flash(personalActivated ? "Personal Vault unlocked." : "Personal Vault activated. Encrypted and private — not accessible to anyone else.");
   }
   function lockPersonalVault() {
@@ -409,6 +403,8 @@ export default function CredentialVaultApp() {
     } catch (e) { flash(e.message || "Could not delete.", "info"); }
   }
   async function revealPersonal(c) {
+    const up = await ensureStepUp();
+    if (!up.ok) { if (!up.cancelled) flash("Identity check didn’t complete.", "info"); return; }
     try {
       const res = await api.cvPersonalReveal(c.id);
       setPersonalRevealed((r) => ({ ...r, [c.id]: { until: Date.now() + SETTINGS.revealSeconds * 1000, secret: res.secret } }));
@@ -634,7 +630,7 @@ export default function CredentialVaultApp() {
                         {secret || "••••••••"}
                       </div>
                       {!secret
-                        ? <button onClick={() => setSharedRevealFor(g)} className="cv-iconbtn cv-hover-violet" title="Verify identity to reveal"><Eye size={14} style={{ color: "var(--cv-violet)" }} /></button>
+                        ? <button onClick={() => revealGrant(g)} className="cv-iconbtn cv-hover-violet" title="Verify identity to reveal"><Eye size={14} style={{ color: "var(--cv-violet)" }} /></button>
                         : <button onClick={() => { try { navigator.clipboard.writeText(secret); } catch { /* blocked */ } flash("Copied to clipboard."); }} className="cv-iconbtn cv-hover-violet" title="Copy"><Copy size={14} style={{ color: "var(--cv-violet)" }} /></button>}
                       <div className="cv-mono" style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, fontWeight: 600, color: "var(--cv-violet)", background: "var(--bg-card)", border: "1px solid var(--cv-violet-line)", borderRadius: 8, padding: "6px 10px", minWidth: 72, justifyContent: "center" }}>
                         <Clock size={12} style={{ flexShrink: 0 }} />{timeLeft}
@@ -969,14 +965,14 @@ export default function CredentialVaultApp() {
       )}
 
       {/* ── Modals ── */}
-      {reauthFor && <ReauthModal cred={reauthFor} seconds={SETTINGS.revealSeconds} onClose={() => setReauthFor(null)} onConfirm={confirmReauth} maskedPhone={maskedPhone} />}
+      {/* Secret reveals + personal-vault unlock now use real Entra step-up MFA
+          (ensureStepUp) at the action point — the old client-side re-auth modals
+          were removed as they enforced nothing server-side. */}
       {confirmDel && <ConfirmModal cred={confirmDel} onClose={() => setConfirmDel(null)} onConfirm={() => deleteCredential(confirmDel)} />}
       {showAdd && <AddModal onClose={() => setShowAdd(false)} onSave={addCredential} depts={depts} userName={nameOf(myEmail)} userEmail={myEmail} people={people} />}
       {editingCred && <EditModal cred={editingCred} onClose={() => setEditingCred(null)} onSave={updateCredential} depts={depts} ownerName={nameOf(editingCred.owner || myEmail)} people={people} />}
       {showImport && <ImportModal onClose={() => setShowImport(false)} onImport={importCredentials} depts={depts} />}
       {showManage && <ManagePanel onClose={() => setShowManage(false)} isAdmin={isAdmin} editMode={editMode} onToggleEdit={() => { setEditMode((v) => !v); setSelectedIds(new Set()); }} />}
-      {showPersonalAuth && <PersonalVaultAuthModal userEmail={myEmail} onClose={() => setShowPersonalAuth(false)} onUnlock={unlockPersonalVault} isFirstTime={!personalActivated} maskedPhone={maskedPhone} />}
-      {sharedRevealFor && <PersonalVaultAuthModal userEmail={myEmail} onClose={() => setSharedRevealFor(null)} onUnlock={() => revealGrant(sharedRevealFor)} isFirstTime={false} title="Verify Identity" subtitle={`Authenticate to view the shared password for "${sharedRevealFor.credName}".`} confirmLabel="Reveal Password" maskedPhone={maskedPhone} />}
       {showPersonalAdd && <PersonalAddModal onClose={() => setShowPersonalAdd(false)} onSave={addPersonalCredential} />}
       {requestingAccessFor && <RequestAccessModal cred={requestingAccessFor} userEmail={myEmail} ownerName={nameOf(requestingAccessFor.owner)} onClose={() => setRequestingAccessFor(null)} onSubmit={requestAccess} />}
       {approvingRequest && <ApproveAccessModal request={approvingRequest} onClose={() => setApprovingRequest(null)} onConfirm={confirmGrant} onDeny={(a) => { decideRequest(a, "deny"); setApprovingRequest(null); }} maskedPhone={maskedPhone} />}

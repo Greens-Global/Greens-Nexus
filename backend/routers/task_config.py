@@ -14,7 +14,7 @@ import httpx
 import models
 from database import get_db
 from auth import get_current_user, require_level, require_manager
-from routers.task_util import now_iso, gen_id, fire_task_event, log_activity, task_notify
+from routers.task_util import now_iso, gen_id
 
 router = APIRouter(tags=["Tasks"], dependencies=[Depends(get_current_user)])
 

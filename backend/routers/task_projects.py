@@ -14,7 +14,7 @@ from typing import Optional
 import models
 from database import get_db
 from auth import get_current_user
-from routers.task_util import now_iso, gen_id, task_notify, admin_emails, is_manager, visible_project_ids
+from routers.task_util import now_iso, gen_id, task_notify, is_manager, visible_project_ids
 from routers.hr import _ensure_departments
 
 router = APIRouter(tags=["Tasks"], dependencies=[Depends(get_current_user)])
