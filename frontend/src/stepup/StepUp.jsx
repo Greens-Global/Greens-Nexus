@@ -16,7 +16,7 @@
 import { useState, useEffect } from 'react';
 import { ShieldCheck, Loader2, X } from 'lucide-react';
 import { msalInstance } from '../msalInstance';
-import { stepUpRequest } from '../authConfig';
+import { stepUpReauthRequest } from '../authConfig';
 import { api } from '../api';
 
 let _inFlight = null;   // dedupe concurrent challenges into one popup
@@ -35,14 +35,14 @@ async function _run() {
   const cfg = await api.stepupConfig().catch(() => null);
   if (!cfg || !cfg.enforced) return { ok: true, enforced: false };
 
-  // 3) Enforced → run the real Entra challenge.
+  // 3) Enforced → force a fresh Microsoft re-login and verify it server-side.
   emit({ phase: 'start' });
   try {
     const account = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
     const result = await msalInstance.acquireTokenPopup({
-      ...stepUpRequest(cfg.acr, cfg.scope), account,
+      ...stepUpReauthRequest, account,
     });
-    await api.stepupVerify(result.accessToken);
+    await api.stepupVerify(result.idToken);
     emit({ phase: 'end', ok: true });
     return { ok: true };
   } catch (e) {
@@ -89,7 +89,7 @@ export function StepUpNeeded({ label, onVerified }) {
       </div>
       <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--ink)', marginBottom: 6 }}>Verify your identity</div>
       <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, marginBottom: 18 }}>
-        {label || 'This is sensitive information.'} Confirm it’s you to continue — a Microsoft Authenticator push, or the SMS code.
+        {label || 'This is sensitive information.'} Re-confirm your Microsoft sign-in to continue (with Authenticator / SMS if prompted).
       </div>
       {err && <div style={{ fontSize: 12, color: 'hsl(var(--color-red))', marginBottom: 12 }}>{err}</div>}
       <button className="primary-btn" onClick={verify} disabled={busy}
@@ -148,10 +148,10 @@ export function StepUpOverlay() {
             </div>
             <div style={{ fontSize: 15.5, fontWeight: 800, color: 'var(--ink)', marginBottom: 6 }}>Confirming it’s you</div>
             <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.5, marginBottom: 16 }}>
-              Approve the Microsoft prompt — a push in <strong>Microsoft Authenticator</strong>, or the code we texted you.
+              Re-confirm your <strong>Microsoft sign-in</strong> in the window that opened — and approve the Authenticator / SMS prompt if asked.
             </div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 12 }}>
-              <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Waiting for approval…
+              <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Waiting for sign-in…
             </div>
           </>
         )}

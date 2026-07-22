@@ -27,20 +27,13 @@ export const apiTokenRequest = {
 
 export const clientId = "be6f1e37-83a8-4a29-8b46-96d20beb32f9";
 
-// ── Step-up MFA request builder ───────────────────────────────────────────────
-// Requests an ACCESS token for our API scope WITH a claims challenge for an Entra
-// "authentication context" (the `acr` value, e.g. "c1"). A Conditional Access
-// policy bound to that context forces a FRESH MFA — the live Microsoft
-// Authenticator push, or SMS if the user registered it. The returned access
-// token carries the `acrs` claim proving the context was satisfied; the backend
-// (/stepup/verify) validates it. Scope + acr come from GET /stepup/config so
-// Entra settings can change without a frontend rebuild (these are only fallbacks).
-export const DEFAULT_STEPUP_SCOPE = `api://${clientId}/access_as_user`;
-export function stepUpRequest(acr, scope) {
-  return {
-    scopes: [scope || DEFAULT_STEPUP_SCOPE],
-    claims: JSON.stringify({ access_token: { acrs: { essential: true, values: [acr] } } }),
-    // Force the interactive challenge for THIS action, not a cached token.
-    prompt: "",
-  };
-}
+// ── Step-up re-auth request (Entra Free — no Conditional Access needed) ────────
+// Forces a FRESH interactive Microsoft sign-in for the sensitive action. If the
+// tenant enforces MFA (Security Defaults or per-user MFA — both free), that
+// re-login includes the Authenticator/SMS challenge. The resulting ID token
+// carries a fresh `auth_time`, which the backend (/stepup/verify) checks to prove
+// the re-auth just happened. prompt:"login" is what forces the re-authentication.
+export const stepUpReauthRequest = {
+  scopes: ["openid", "profile", "email"],
+  prompt: "login",
+};
