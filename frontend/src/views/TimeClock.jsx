@@ -164,6 +164,25 @@ export default function TimeClock() {
     const t = setInterval(() => setTick(x => x + 1), 1000); // live stopwatch
     return () => clearInterval(t);
   }, []);
+  // Cross-device sync: punch state lives on the server, so a break/punch on ANY
+  // of your devices must show up here without a manual refresh. Re-fetch on a
+  // short poll, and — for the common "I just switched to this device" case —
+  // instantly when the tab regains focus/visibility. Same-device punches fire
+  // nexus:timeclock-changed locally.
+  useEffect(() => {
+    const poll = setInterval(load, 20000);
+    const onVis = () => { if (document.visibilityState === 'visible') load(); };
+    const onChange = () => load();
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', onVis);
+    window.addEventListener('nexus:timeclock-changed', onChange);
+    return () => {
+      clearInterval(poll);
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('focus', onVis);
+      window.removeEventListener('nexus:timeclock-changed', onChange);
+    };
+  }, [load]);
 
   const [timeoff, setTimeoff] = useState(null);
   const [toForm, setToForm] = useState({ type: 'vacation', start: '', end: '', note: '' });
