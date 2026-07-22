@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/refs -- the org-chart canvas reads container/zoom refs during render for pan-zoom fit-to-view; safe intentional reads the React-Compiler rule flags */
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal } from '../components/Interviews';
 import {

@@ -1,12 +1,11 @@
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from sqlalchemy import text
 import models
-from database import engine, DATABASE_URL, SessionLocal
+from database import engine, DATABASE_URL
 from routers import timeclock
 from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews
 # NOTE: `inventory_requests` router retired Jul 2026 (P2-1) — legacy inventory stack removed.

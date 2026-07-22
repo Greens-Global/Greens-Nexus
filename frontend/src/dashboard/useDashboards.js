@@ -86,7 +86,7 @@ export function useDashboards(target) {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const layoutRef = useRef(layout);
-  layoutRef.current = layout;
+  useEffect(() => { layoutRef.current = layout; }, [layout]);
 
   const applyView = useCallback((view) => {
     // clampToLimits normalizes layouts saved before per-widget size caps existed

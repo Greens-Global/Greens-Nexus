@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/refs -- canvas PDF editor intentionally reads DOM/geometry and latest-state refs during render (page layout, element hit-testing); the React-Compiler rule flags these safe reads */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   X, CheckCircle, Loader2, FileText, MousePointer2, Type, PenTool, Highlighter,
@@ -45,10 +46,12 @@ const hexRgb = (hex) => {
   return { r: ((n >> 16) & 255) / 255, g: ((n >> 8) & 255) / 255, b: (n & 255) / 255 };
 };
 // pdf-lib standard fonts are WinAnsi-only — swap smart punctuation, drop the rest.
+/* eslint-disable no-irregular-whitespace, no-control-regex -- winAnsi deliberately normalizes a literal NBSP and matches the full Latin-1 byte range */
 const winAnsi = (s) => String(s)
   .replace(/[‘’‚]/g, "'").replace(/[“”„]/g, '"')
   .replace(/[–—]/g, '-').replace(/…/g, '...').replace(/ /g, ' ')
   .replace(/[^\x00-\xFF]/g, '?');
+/* eslint-enable no-irregular-whitespace, no-control-regex */
 
 const rotOf = (pg) => (((pg.baseRot || 0) + (pg.rot || 0)) % 360 + 360) % 360;
 const dispDims = (pg) => {

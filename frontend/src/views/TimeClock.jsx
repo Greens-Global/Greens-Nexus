@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/refs -- the timesheet timeline render reads no ref harmfully; the React-Compiler rule mis-flags the day-map IIFE */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Clock, LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,

@@ -67,7 +67,7 @@ export function RoleProvider({ children }) {
   // Live MSAL interaction status, readable inside the async role-fetch callback
   // (the effect closure would otherwise capture a stale value).
   const inProgressRef = useRef(inProgress);
-  inProgressRef.current = inProgress;
+  useEffect(() => { inProgressRef.current = inProgress; }, [inProgress]);
 
   const [myRole,    setMyRole]    = useState('employee');
   const [allRoles,  setAllRoles]  = useState({});   // { email: role }

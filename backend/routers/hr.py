@@ -572,8 +572,7 @@ def decide_leave(lid: str, body: LeaveDecision, user: dict = Depends(require_hr_
 
 import os
 import secrets
-import httpx
-from fastapi import UploadFile, File, Form
+from fastapi import UploadFile, File
 from models import HrDocument, HrProvisionRun, HrProvisionStep
 
 _SUPABASE_URL         = os.getenv("SUPABASE_URL", "")
