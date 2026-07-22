@@ -26,7 +26,7 @@ class Task(Base):
     access_level      = Column(String, default="org")      # org|restricted
     project_id        = Column(String, default="", index=True)
     section_id        = Column(String, default="")
-    department_id     = Column(String, default="", index=True)
+    team_id           = Column(String, default="", index=True)  # TaskTeam within this task's project
     parent_task_id    = Column(String, default="", index=True)
     subtask_ids       = Column(JSON, default=list)
     blocked_by_ids    = Column(JSON, default=list)
@@ -952,6 +952,11 @@ class HrDepartment(Base):
     name       = Column(String, nullable=False)     # display value, e.g. "Estimating"
     parent_id  = Column(String, default="")         # reserved: HrDepartment.id of the parent (hierarchy)
     sort_order = Column(Integer, default=0)
+    # Ticket triage: a ticket raised against this department is left unassigned and
+    # the lead is notified to assign it to an employee. backup_email is notified
+    # alongside the lead so leave/departures don't strand a department's intake.
+    lead_email   = Column(String, default="")
+    backup_email = Column(String, default="")
     created_by = Column(String, default="")
     created_at = Column(String, default="")
 
@@ -1531,8 +1536,20 @@ class TaskProject(Base):
     color         = Column(String, default="")
     owner_email   = Column(String, default="", index=True)
     portfolio_id  = Column(String, default="", index=True)
-    department_id = Column(String, default="", index=True)   # primary team (first of department_ids)
-    department_ids = Column(JSON, default=list)               # all teams the project belongs to
+    # Real People-module department (HrDepartment.id — no DB FK; same
+    # hr_department_id naming TaskTicket already uses for this exact concept,
+    # kept distinct from a task-scoped "department_id" on purpose). Auto-
+    # resolved from the creating user's own employee record at creation time
+    # (see create_project) rather than manually picked — hr_department_name is
+    # a display snapshot taken at that same moment.
+    hr_department_id   = Column(String, default="", index=True)
+    hr_department_name = Column(String, default="")
+    # Visibility (mirrors Task.access_level, org|restricted). DB default is
+    # "org" so a bare ADD COLUMN backfills existing projects as visible to
+    # everyone (today's de-facto behavior) rather than silently locking
+    # collaborators out; create_project applies a stricter "restricted"
+    # default for newly-created rows instead (see that endpoint).
+    access_level  = Column(String, default="org")
     status        = Column(String, default="not_started")
     start_on      = Column(String, default="")
     due_on        = Column(String, default="")
@@ -1559,10 +1576,14 @@ class TaskPortfolio(Base):
     created_by  = Column(String, default="")
 
 
-class TaskDepartment(Base):
-    """A team/department; members can access all of its projects."""
-    __tablename__ = "task_departments"
+class TaskTeam(Base):
+    """A named group (e.g. "IT Team", "QA Team") — not a cross-project
+    department. A team can exist standalone (project_id="") or be assigned to
+    a project (from the project's own Teams picker, at creation or later);
+    `project_id` is at most ONE project at a time, no DB constraint."""
+    __tablename__ = "task_teams"
     id            = Column(String, primary_key=True)
+    project_id    = Column(String, default="", index=True)
     name          = Column(String, nullable=False)
     color         = Column(String, default="")
     icon          = Column(String, default="")           # key from the department icon registry
@@ -1598,6 +1619,7 @@ class TaskComment(Base):
     created_at   = Column(String, default="")
     edited_at    = Column(String, default="")
     pinned       = Column(Boolean, default=False)
+    internal     = Column(Boolean, default=False)   # ticket notes only: agent-visible, not shared with the requester
 
 
 class TaskAttachment(Base):
@@ -1637,6 +1659,7 @@ class TaskSavedView(Base):
     filters     = Column(JSON, default=dict)
     sort        = Column(JSON, default=dict)
     group       = Column(String, default="none")
+    scope       = Column(String, default="task")         # task|ticket — which module the view belongs to
     created_at  = Column(String, default="")
 
 
@@ -1721,18 +1744,29 @@ class TaskTicket(Base):
     priority       = Column(String, default="medium")
     requester_email= Column(String, default="", index=True)
     assignee_email = Column(String, default="", index=True)
-    department_id  = Column(String, default="", index=True)
+    department_id  = Column(String, default="", index=True)   # task department ("Team")
+    company_id     = Column(String, default="", index=True)   # HrEntity.id — company from the People module
+    hr_department_id = Column(String, default="", index=True) # HrDepartment.id — department from the People module
     linked_task_id = Column(String, default="")
     tags           = Column(JSON, default=list)
     images         = Column(JSON, default=list)   # screenshot data URLs / storage links
     watcher_emails = Column(JSON, default=list)   # people notified on ticket changes
     resolution     = Column(String, default="")   # fixed|wont_fix|duplicate|cannot_reproduce|done
     custom_field_values = Column(JSON, default=dict)  # {customFieldId: value} — reuses the task custom-field defs
+    type_fields    = Column(JSON, default=dict)   # {fieldKey: value} — per-type intake fields (bug/incident/… specific)
     links          = Column(JSON, default=list)   # [{ticketId, type}] — relates|duplicate|blocks|blocked_by
     task_ids       = Column(JSON, default=list)   # tasks spawned from / linked to this ticket (one ticket → many tasks)
     component      = Column(String, default="")   # category/component name (see TaskTicketComponent)
     csat_rating    = Column(Integer, default=0)   # 1-5 satisfaction rating; 0 = not rated
     csat_comment   = Column(String, default="")
+    # Approval gate. Types that name an approver at intake (service_request,
+    # change_request, access_request) park here first: the approver is notified,
+    # and only on approval does the ticket reach the department lead for triage.
+    # "none" = this ticket never needed approval.
+    approval_status   = Column(String, default="none")   # none|pending|approved|rejected
+    approver_email    = Column(String, default="", index=True)
+    approval_note     = Column(String, default="")       # the approver's reason, esp. on reject
+    approval_decided_at = Column(String, default="")
     sla_due_on     = Column(String, default="")
     resolved_at    = Column(String, default="")
     created_at     = Column(String, default="")
@@ -1779,6 +1813,63 @@ class TaskEvent(Base):
     kind           = Column(String, default="")          # created|updated|deleted|comment|...
     affected_email = Column(String, default="")
     created_at     = Column(String, default="")          # set server-side (timestamptz in DB)
+
+
+# ── Asana two-way sync (new tables — create_all builds them, no migration) ────
+class AsanaSyncConfig(Base):
+    """Single-row config for the Nexus <-> Asana sync (id fixed to 'singleton')."""
+    __tablename__ = "asana_sync_config"
+    id                  = Column(String, primary_key=True, default="singleton")
+    enabled             = Column(Boolean, default=False)
+    token               = Column(String, default="")     # Asana service PAT (write scope)
+    workspace_gid       = Column(String, default="")
+    default_project_gid = Column(String, default="")     # Asana project unmapped tasks push to
+    last_pull_at        = Column(String, default="")      # ISO watermark for inbound polling
+    updated_at          = Column(String, default="")
+
+
+class AsanaProjectMap(Base):
+    """Maps a Nexus project to an Asana project so tasks route to the right board."""
+    __tablename__ = "asana_project_map"
+    id                = Column(String, primary_key=True)
+    nexus_project_id  = Column(String, default="", index=True)
+    asana_project_gid = Column(String, default="", index=True)
+    created_at        = Column(String, default="")
+
+
+class AsanaTaskLink(Base):
+    """Links a Nexus task to its Asana counterpart. `last_hash` is a digest of the
+    synced fields at the last sync — comparing against it prevents echo loops
+    (a change that originated from a sync won't be pushed back)."""
+    __tablename__ = "asana_task_links"
+    id             = Column(String, primary_key=True)
+    nexus_task_id  = Column(String, default="", index=True)
+    asana_gid      = Column(String, default="", index=True)
+    last_hash      = Column(String, default="")
+    last_synced_at = Column(String, default="")
+
+
+class AsanaCommentLink(Base):
+    """Links a synced comment to its Asana story, so re-syncs don't duplicate it
+    (dedup works both directions)."""
+    __tablename__ = "asana_comment_links"
+    id               = Column(String, primary_key=True)
+    nexus_comment_id = Column(String, default="", index=True)
+    asana_story_gid  = Column(String, default="", index=True)
+    created_at       = Column(String, default="")
+
+
+class AsanaWebhook(Base):
+    """A registered Asana webhook (one per mapped project). `x_hook_secret` is the
+    handshake secret used to verify inbound event signatures. A row with an empty
+    asana_webhook_gid is a pending handshake awaiting its register call to finish."""
+    __tablename__ = "asana_webhooks"
+    id               = Column(String, primary_key=True)
+    resource_gid     = Column(String, default="", index=True)   # Asana project gid
+    asana_webhook_gid = Column(String, default="", index=True)
+    x_hook_secret    = Column(String, default="")
+    target           = Column(String, default="")
+    created_at       = Column(String, default="")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1959,3 +2050,159 @@ class VaultAccessLog(Base):
     detail      = Column(JSON, nullable=True)                 # [{field,from,to}] for edits
     loc         = Column(String, default="")
     created_at  = Column(String, default="", index=True)
+
+
+# ── Investor Relations (Jul 2026) ────────────────────────────────────────────
+# GP-side capital-management platform for single-purpose-LLC deals and small
+# syndications (not blind-pool PE funds): one deal per property/project, a
+# small member roster, commitments, capital calls, distributions, computed
+# capital accounts, a document data room, and an investor-updates feed. Rows
+# relate by string ids only (no ORM relationships), matching the rest of this
+# file. "Fund" below is the internal/DB name for a deal — kept for schema
+# stability; UI copy calls it "Deal".
+
+class IrFund(Base):
+    __tablename__ = "ir_funds"
+    id                    = Column(String, primary_key=True)
+    name                  = Column(String, nullable=False)
+    entity_name           = Column(String, default="")   # the single-purpose LLC's legal name
+    strategy              = Column(String, default="")
+    property_name         = Column(String, default="")   # free text — deliberately NOT a FK into the separate Asset Management module
+    # Optional soft link to Asset Management's PropertyAsset.id (Ankush's
+    # module — property_assets.py/PropertyAsset.jsx) for a "view this
+    # property's operational record" cross-reference. Deliberately just an id
+    # string, not a FK: the two modules stay independent, and a stale/deleted
+    # property id just makes the link disappear rather than erroring anything.
+    property_asset_id     = Column(String, default="")
+    status                = Column(String, default="raising")  # raising|active|exited
+    target_raise          = Column(Float, default=0)
+    minimum_investment    = Column(Float, default=0)
+    preferred_return_pct  = Column(Float, default=8.0)
+    gp_promote_pct        = Column(Float, default=20.0)
+    target_irr_pct        = Column(Float, default=0)
+    target_multiple       = Column(Float, default=0)
+    hold_period_years     = Column(Float, default=0)
+    inception_date        = Column(String, default="")   # ISO yyyy-mm-dd
+    close_date            = Column(String, default="")
+    exit_date             = Column(String, default="")
+    fund_manager_email    = Column(String, default="")
+    description           = Column(String, default="")
+    thesis                = Column(String, default="")
+    created_by            = Column(String, default="")
+    created_at            = Column(String, default="")
+    updated_at            = Column(String, default="")
+
+
+class IrInvestor(Base):
+    __tablename__ = "ir_investors"
+    id                        = Column(String, primary_key=True)
+    display_name              = Column(String, nullable=False)
+    entity_type                = Column(String, default="individual")  # individual|llc|trust|ira|corporation|partnership
+    email                      = Column(String, default="", index=True)
+    phone                      = Column(String, default="")
+    address                    = Column(String, default="")
+    accredited_status          = Column(String, default="unverified")  # unverified|self_certified|verified
+    kyc_status                 = Column(String, default="pending")     # pending|in_review|cleared|flagged
+    tax_id_on_file             = Column(Boolean, default=False)
+    relationship_owner_email   = Column(String, default="")
+    notes                      = Column(String, default="")
+    status                     = Column(String, default="active")      # active|inactive|prospect
+    created_by                 = Column(String, default="")
+    created_at                 = Column(String, default="")
+    updated_at                 = Column(String, default="")
+
+
+class IrCommitment(Base):
+    __tablename__ = "ir_commitments"
+    id                 = Column(String, primary_key=True)
+    fund_id            = Column(String, nullable=False, index=True)
+    investor_id        = Column(String, nullable=False, index=True)
+    commitment_amount  = Column(Float, default=0)
+    units              = Column(Float, default=0)
+    subscription_date  = Column(String, default="")
+    status             = Column(String, default="pending")   # pending|active|closed|withdrawn
+    signed_doc_url     = Column(String, default="")
+    signed_doc_name    = Column(String, default="")
+    created_by         = Column(String, default="")
+    created_at         = Column(String, default="")
+    updated_at         = Column(String, default="")
+
+
+class IrCapitalCall(Base):
+    __tablename__ = "ir_capital_calls"
+    id            = Column(String, primary_key=True)
+    fund_id       = Column(String, nullable=False, index=True)
+    call_number   = Column(Integer, default=1)
+    title         = Column(String, default="")
+    purpose       = Column(String, default="")
+    total_amount  = Column(Float, default=0)
+    notice_date   = Column(String, default="")
+    due_date      = Column(String, default="")
+    status        = Column(String, default="draft")  # draft|issued|closed
+    created_by    = Column(String, default="")
+    created_at    = Column(String, default="")
+    updated_at    = Column(String, default="")
+
+
+class IrCapitalCallAllocation(Base):
+    __tablename__ = "ir_capital_call_allocations"
+    id            = Column(String, primary_key=True)
+    call_id       = Column(String, nullable=False, index=True)
+    fund_id       = Column(String, nullable=False, index=True)
+    investor_id   = Column(String, nullable=False, index=True)
+    commitment_id = Column(String, default="")
+    amount        = Column(Float, default=0)
+    status        = Column(String, default="pending")  # pending|paid|overdue|waived
+    paid_date     = Column(String, default="")
+    paid_amount   = Column(Float, default=0)
+
+
+class IrDistribution(Base):
+    __tablename__ = "ir_distributions"
+    id                   = Column(String, primary_key=True)
+    fund_id              = Column(String, nullable=False, index=True)
+    distribution_number  = Column(Integer, default=1)
+    title                = Column(String, default="")
+    distribution_type    = Column(String, default="return_of_capital")  # return_of_capital|preferred_return|profit_split|mixed
+    total_amount         = Column(Float, default=0)
+    distribution_date    = Column(String, default="")
+    status               = Column(String, default="draft")  # draft|issued|paid
+    created_by           = Column(String, default="")
+    created_at           = Column(String, default="")
+    updated_at           = Column(String, default="")
+
+
+class IrDistributionAllocation(Base):
+    __tablename__ = "ir_distribution_allocations"
+    id              = Column(String, primary_key=True)
+    distribution_id = Column(String, nullable=False, index=True)
+    fund_id         = Column(String, nullable=False, index=True)
+    investor_id     = Column(String, nullable=False, index=True)
+    commitment_id   = Column(String, default="")
+    amount          = Column(Float, default=0)
+    status          = Column(String, default="pending")  # pending|paid
+    paid_date       = Column(String, default="")
+
+
+class IrDocument(Base):
+    __tablename__ = "ir_documents"
+    id            = Column(String, primary_key=True)
+    fund_id       = Column(String, default="", index=True)   # '' = platform-wide
+    investor_id   = Column(String, default="", index=True)   # '' = fund-wide, visible to all of that fund's investors
+    category      = Column(String, default="other")  # subscription_agreement|k1|ppm|quarterly_report|capital_call_notice|distribution_notice|other
+    title         = Column(String, nullable=False)
+    file_url      = Column(String, default="")
+    file_name     = Column(String, default="")
+    uploaded_by   = Column(String, default="")
+    created_at    = Column(String, default="")
+
+
+class IrUpdate(Base):
+    __tablename__ = "ir_updates"
+    id          = Column(String, primary_key=True)
+    fund_id     = Column(String, default="", index=True)  # '' = platform-wide update
+    title       = Column(String, nullable=False)
+    body        = Column(String, default="")
+    pinned      = Column(Boolean, default=False)
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")

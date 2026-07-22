@@ -167,7 +167,7 @@ export function CalendarView({ tasks, onOpen, onCreate }) {
 export function DashboardView({ tasks, stats: pre, store, scopeKey = 'workspace' }) {
   const stats = (pre && pre.total != null) ? pre : taskStats(tasks);
   const byStatus = store.statusOrder.map((s) => ({ label: store.statusMeta[s]?.label || s, value: tasks.filter((t) => t.status === s).length, color: store.statusMeta[s]?.color })).filter((d) => d.value > 0);
-  const byDept = (store.departments || []).map((d) => ({ label: d.name, value: tasks.filter((t) => t.departmentId === d.id).length, color: d.color || NX.blue })).filter((d) => d.value > 0);
+  const byTeam = (store.teams || []).map((d) => ({ label: d.name, value: tasks.filter((t) => t.teamId === d.id).length, color: d.color || NX.blue })).filter((d) => d.value > 0);
 
   const byAssignee = useMemo(() => {
     const seen = new Map();
@@ -198,7 +198,7 @@ export function DashboardView({ tasks, stats: pre, store, scopeKey = 'workspace'
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: 16 }}>
         <Card title="Tasks by Status"><LightBar data={byStatus} /></Card>
         <Card title="Completion Status"><Donut total={stats.total} segments={[{ label: 'Completed', value: stats.completed, color: NX.green }, { label: 'Incomplete', value: stats.total - stats.completed, color: NX.purple }]} /></Card>
-        <Card title="Tasks by Team"><LightBar data={byDept} /></Card>
+        <Card title="Tasks by Team"><LightBar data={byTeam} /></Card>
         <Card title="Tasks by Assignee"><LightBar data={byAssignee} /></Card>
       </div>
 

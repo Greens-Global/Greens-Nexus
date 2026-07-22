@@ -10,11 +10,14 @@ from routers import timeclock
 from routers import tasks, purchases, reviews, marketing, sop, assets, accounting, operations, unifi, dashboard, requisitions, roles, notifications, audit, groups, items as items_router, hr, knowledge_base, help as help_router, property_assets, esign, dashboards as dashboards_router, myhr, hr_interviews
 # NOTE: `inventory_requests` router retired Jul 2026 (P2-1) — legacy inventory stack removed.
 from routers import task_projects, task_config  # Task Module (Jul 2026)
+from routers import tickets as tickets_router    # Ticket Module — split out of task_config (Jul 2026)
+from routers import asana_webhook  # Asana two-way sync — public webhook receiver
 from routers import jobroles  # Roles & Access redesign (Jul 2026)
 from routers import access_scopes  # row-level scopes for external users (Jul 2026)
 from routers import qa  # Testing module — dev-only via NEXUS_QA_MODULE env (Jul 2026)
 from routers import credvault  # Credential Vault (Jul 2026)
 from routers import policy  # Sign-in company-policy & monitoring acknowledgment (Jul 2026)
+from routers import investor_relations  # Investor Relations platform (Jul 2026)
 from audit import AuditMiddleware
 
 
@@ -126,11 +129,16 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN resolution VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN watcher_emails JSON DEFAULT '[]'",
             "ALTER TABLE task_tickets ADD COLUMN custom_field_values JSON DEFAULT '{}'",
+            "ALTER TABLE task_tickets ADD COLUMN type_fields JSON DEFAULT '{}'",
             "ALTER TABLE task_tickets ADD COLUMN links JSON DEFAULT '[]'",
             "ALTER TABLE task_tickets ADD COLUMN task_ids JSON DEFAULT '[]'",
             "ALTER TABLE task_tickets ADD COLUMN component VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN csat_rating INTEGER DEFAULT 0",
             "ALTER TABLE task_tickets ADD COLUMN csat_comment VARCHAR DEFAULT ''",
+            "ALTER TABLE task_comments ADD COLUMN internal BOOLEAN DEFAULT 0",
+            "ALTER TABLE task_saved_views ADD COLUMN scope VARCHAR DEFAULT 'task'",
+            "ALTER TABLE task_tickets ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN hr_department_id VARCHAR DEFAULT ''",
             "ALTER TABLE task_projects ADD COLUMN department_ids JSON DEFAULT '[]'",
             # Roles & Access redesign: job-role templates live on nexus_groups
             "ALTER TABLE nexus_groups ADD COLUMN is_job_role INTEGER DEFAULT 0",
@@ -179,6 +187,49 @@ def _run_migrations():
             "CREATE INDEX IF NOT EXISTS ix_notif_ref ON nexus_notifications (ref_id)",
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_checkout_live ON item_checkouts (item_id) WHERE status IN ('pending','approved','pending_receipt','allocated')",
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_assignment_live ON item_assignments (item_id) WHERE status IN ('pending_acceptance','active','return_initiated')",
+            # Task Module: "Team" becomes project-scoped (IT Team/QA Team/... WITHIN
+            # a project) instead of a flat cross-project list; a project's org
+            # classifier is now the real People-module department (Jul 2026).
+            # task_teams is a NEW table name, so create_all (which runs before this
+            # function) already creates it empty before we get here — a plain
+            # RENAME would then fail every time (target already exists) and
+            # silently strand the real rows in task_departments forever. Copy
+            # instead: INSERT OR IGNORE no-ops on rerun (id is the PK), and the
+            # DROP only succeeds once the copy has landed everything.
+            "INSERT OR IGNORE INTO task_teams (id, project_id, name, color, icon, member_emails, created_at) "
+            "SELECT id, '', name, color, icon, member_emails, created_at FROM task_departments",
+            "DROP TABLE IF EXISTS task_departments",
+            "ALTER TABLE tasks DROP COLUMN department_id",
+            "ALTER TABLE tasks ADD COLUMN team_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_projects DROP COLUMN department_ids",
+            "ALTER TABLE task_projects ADD COLUMN hr_department_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_projects ADD COLUMN hr_department_name VARCHAR DEFAULT ''",
+            # Project visibility (Jul 2026): mirrors Task.access_level. Existing
+            # projects backfill to 'org' (everyone already saw everything) —
+            # only newly-created projects default to 'restricted' (create_project).
+            "ALTER TABLE task_projects ADD COLUMN access_level VARCHAR DEFAULT 'org'",
+            # Ticket triage routing: who assigns a department's incoming tickets
+            "ALTER TABLE hr_departments ADD COLUMN lead_email VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_departments ADD COLUMN backup_email VARCHAR DEFAULT ''",
+            # Ticket approval gate (service/change/access requests)
+            "ALTER TABLE task_tickets ADD COLUMN approval_status VARCHAR DEFAULT 'none'",
+            "ALTER TABLE task_tickets ADD COLUMN approver_email VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN approval_note VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN approval_decided_at VARCHAR DEFAULT ''",
+            # ── HR Section A/B (nexus_employees): SQLite was missing columns the
+            # Postgres list already carried — a pre-existing local DB 500s on
+            # every nexus_employees SELECT without them (same class of bug as
+            # the Item Module fix above).
+            "ALTER TABLE nexus_employees ADD COLUMN company VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN contractor JSON DEFAULT '{}'",
+            "ALTER TABLE nexus_employees ADD COLUMN personal JSON DEFAULT '{}'",
+            "ALTER TABLE nexus_employees ADD COLUMN compensation JSON DEFAULT '{}'",
+            "ALTER TABLE nexus_employees ADD COLUMN bank JSON DEFAULT '[]'",
+            "ALTER TABLE nexus_employees ADD COLUMN compliance JSON DEFAULT '{}'",
+            "ALTER TABLE nexus_employees ADD COLUMN status_log JSON DEFAULT '[]'",
+            "ALTER TABLE nexus_employees ADD COLUMN division VARCHAR DEFAULT ''",
+            "ALTER TABLE nexus_employees ADD COLUMN identity_type VARCHAR DEFAULT 'internal'",
+            "ALTER TABLE ir_funds ADD COLUMN property_asset_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -299,8 +350,18 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS division VARCHAR DEFAULT ''",
         # External users: identity type (internal MS365 / Entra B2B guest / non-MS365 external)
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS identity_type VARCHAR DEFAULT 'internal'",
+        # Investor Relations: optional soft link to an Asset Management PropertyAsset.id
+        "ALTER TABLE ir_funds ADD COLUMN IF NOT EXISTS property_asset_id VARCHAR DEFAULT ''",
         # HR mailbox export: progress total (table itself is created by create_all)
         "ALTER TABLE hr_mailbox_exports ADD COLUMN IF NOT EXISTS total INTEGER DEFAULT 0",
+        # Ticket triage routing: who assigns a department's incoming tickets
+        "ALTER TABLE hr_departments ADD COLUMN IF NOT EXISTS lead_email VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_departments ADD COLUMN IF NOT EXISTS backup_email VARCHAR DEFAULT ''",
+        # Ticket approval gate (service/change/access requests)
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS approval_status VARCHAR DEFAULT 'none'",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS approver_email VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS approval_note VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS approval_decided_at VARCHAR DEFAULT ''",
         # E-Sign multi-document packets: PDFs attached to a template, carried on the envelope
         "ALTER TABLE hr_sign_templates ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS documents JSONB DEFAULT '[]'::jsonb",
@@ -371,11 +432,16 @@ def _run_migrations():
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS resolution TEXT DEFAULT ''",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS watcher_emails JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS custom_field_values JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS type_fields JSONB DEFAULT '{}'::jsonb",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS links JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS task_ids JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS component TEXT DEFAULT ''",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS csat_rating INTEGER DEFAULT 0",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS csat_comment TEXT DEFAULT ''",
+        "ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS internal BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE task_saved_views ADD COLUMN IF NOT EXISTS scope TEXT DEFAULT 'task'",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS company_id TEXT DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS hr_department_id TEXT DEFAULT ''",
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS department_ids JSONB DEFAULT '[]'::jsonb",
         # Roles & Access redesign: job-role templates live on nexus_groups
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS is_job_role INTEGER DEFAULT 0",
@@ -401,6 +467,28 @@ def _run_migrations():
         "CREATE INDEX IF NOT EXISTS ix_notif_ref ON nexus_notifications (ref_id)",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_checkout_live ON item_checkouts (item_id) WHERE status IN ('pending','approved','pending_receipt','allocated')",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_assignment_live ON item_assignments (item_id) WHERE status IN ('pending_acceptance','active','return_initiated')",
+        # Task Module: "Team" becomes project-scoped (IT Team/QA Team/... WITHIN
+        # a project) instead of a flat cross-project list; a project's org
+        # classifier is now the real People-module department (Jul 2026).
+        # task_teams is a NEW table name, so create_all (which runs before this
+        # function) already creates it empty before we get here — a plain
+        # RENAME would then fail every time (target already exists) and
+        # silently strand the real rows in task_departments forever. Copy
+        # instead: ON CONFLICT DO NOTHING no-ops on rerun (id is the PK), and
+        # the DROP only succeeds once the copy has landed everything.
+        "INSERT INTO task_teams (id, project_id, name, color, icon, member_emails, created_at) "
+        "SELECT id, '', name, color, icon, member_emails, created_at FROM task_departments "
+        "ON CONFLICT (id) DO NOTHING",
+        "DROP TABLE IF EXISTS task_departments",
+        "ALTER TABLE tasks DROP COLUMN IF EXISTS department_id",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS team_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_projects DROP COLUMN IF EXISTS department_ids",
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS hr_department_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS hr_department_name VARCHAR DEFAULT ''",
+        # Project visibility (Jul 2026): mirrors Task.access_level. Existing
+        # projects backfill to 'org' (everyone already saw everything) — only
+        # newly-created projects default to 'restricted' (create_project).
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS access_level VARCHAR DEFAULT 'org'",
     ]
     with engine.connect() as conn:
         for sql in migrations:
@@ -466,6 +554,13 @@ async def lifespan(app: FastAPI):
         print("[startup] daily reminders scheduled")
     except Exception as e:
         print(f"[startup] reminders skipped: {e}")
+    # Asana sync fallback poll (webhooks handle real-time; this is the safety net).
+    try:
+        from asana_sync import start_auto_pull, is_sync_worker
+        start_auto_pull()
+        print(f"[startup] asana auto-pull {'scheduled' if is_sync_worker() else 'skipped (not the sync worker)'}")
+    except Exception as e:
+        print(f"[startup] asana auto-pull skipped: {e}")
     yield
 
 
@@ -536,7 +631,10 @@ app.include_router(timeclock.router)
 app.include_router(myhr.router)
 app.include_router(hr_interviews.router)
 app.include_router(task_projects.router)  # Task Module: projects/portfolios/departments
-app.include_router(task_config.router)    # Task Module: views/rules/templates/tickets/notifications/changelog
+app.include_router(task_config.router)    # Task Module: views/rules/templates/notifications/changelog
+app.include_router(tickets_router.router) # Ticket Module: tickets, conversation, components, links, escalation
 app.include_router(credvault.router)      # Credential Vault: encrypted company/personal secrets ("credvault" grant)
+app.include_router(asana_webhook.router)  # Asana two-way sync: public webhook receiver (verified by HMAC)
 app.include_router(policy.router)         # Sign-in company-policy & monitoring acknowledgment
+app.include_router(investor_relations.router)  # Investor Relations: funds/investors/commitments/calls/distributions
 

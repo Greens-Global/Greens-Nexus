@@ -1,10 +1,76 @@
-export default function InvestorRelations() {
+import { ArrowDownToLine, ArrowUpFromLine, Briefcase, FileSignature, FileSpreadsheet, Files, LayoutDashboard, Megaphone, Users } from 'lucide-react';
+import { useRole } from '../contexts/RoleContext';
+import InvestorPortal from '../investor/InvestorPortal';
+import DashboardTab from '../investor/DashboardTab';
+import FundsTab from '../investor/FundsTab';
+import InvestorsTab from '../investor/InvestorsTab';
+import CommitmentsTab from '../investor/CommitmentsTab';
+import CapitalCallsTab from '../investor/CapitalCallsTab';
+import DistributionsTab from '../investor/DistributionsTab';
+import CapitalAccountsTab from '../investor/CapitalAccountsTab';
+import DocumentsTab from '../investor/DocumentsTab';
+import UpdatesTab from '../investor/UpdatesTab';
+
+// GP-side capital management: funds, LPs, commitments, capital calls,
+// distributions, capital-account statements, documents, and updates.
+// Tab keys are wired into App.jsx routing / the sidebar — do not rename.
+const TABS = [
+  { key: 'investor-dashboard',     label: 'Dashboard',        Icon: LayoutDashboard },
+  { key: 'investor-funds',         label: 'Deals',            Icon: Briefcase },
+  { key: 'investor-investors',     label: 'Investors',        Icon: Users },
+  { key: 'investor-commitments',   label: 'Commitments',      Icon: FileSignature },
+  { key: 'investor-capital-calls', label: 'Capital Calls',    Icon: ArrowDownToLine },
+  { key: 'investor-distributions', label: 'Distributions',    Icon: ArrowUpFromLine },
+  { key: 'investor-reports',       label: 'Capital Accounts', Icon: FileSpreadsheet },
+  { key: 'investor-documents',     label: 'Documents',        Icon: Files },
+  { key: 'investor-updates',       label: 'Updates',          Icon: Megaphone },
+];
+
+export default function InvestorRelations({ activeSub, onSubChange }) {
+  // supervisor+ = GP staff → the full 9-tab admin platform. Anyone else only
+  // reached this view via the "Investor" group's viewer grant (external portal
+  // accounts) → the read-only, deal-scoped portal instead. The backend applies
+  // the same line (see _my_visible_fund_ids in routers/investor_relations.py),
+  // so this branch is presentation only — never the security boundary.
+  const { can } = useRole();
+  const isStaff = can('supervisor');
+  const sub = activeSub || 'investor-dashboard';
+
   return (
-    <div className="view-header">
-      <div className="view-title-group">
-        <h2>Investor Relations</h2>
-        <p>Coming soon — this page is being built out.</p>
+    <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
+      <div className="view-header">
+        <div className="view-title-group">
+          <h2>Investor Relations</h2>
+          <p>{isStaff
+            ? 'Raise, call, distribute, and report — the GP-side capital platform'
+            : 'Your investments with Greens Global — statements, documents, and updates'}</p>
+        </div>
       </div>
+
+      {!isStaff ? <InvestorPortal /> : (
+        <>
+          {/* Tabs — standard app-wide strip (Inter 13.5, ink/muted, underline) */}
+          <div className="scroll-tabs" style={{ display: 'flex', gap: 8, marginBottom: 24, borderBottom: '1px solid var(--line)', paddingBottom: 1 }}>
+            {TABS.map(({ key, label, Icon }) => (
+              <button key={key} onClick={() => onSubChange(key)}
+                style={{ background: 'none', border: 'none', padding: '10px 18px', fontFamily: 'Inter, sans-serif', fontWeight: 600, fontSize: 13.5, cursor: 'pointer', color: sub === key ? 'var(--ink)' : 'var(--muted)', position: 'relative', transition: 'color 0.15s', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                <Icon size={17} /> {label}
+                {sub === key && <span style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2.5, backgroundColor: 'var(--ink)', borderRadius: '4px 4px 0 0' }} />}
+              </button>
+            ))}
+          </div>
+
+          {sub === 'investor-dashboard'     && <DashboardTab onOpenTab={onSubChange} />}
+          {sub === 'investor-funds'         && <FundsTab />}
+          {sub === 'investor-investors'     && <InvestorsTab />}
+          {sub === 'investor-commitments'   && <CommitmentsTab />}
+          {sub === 'investor-capital-calls' && <CapitalCallsTab />}
+          {sub === 'investor-distributions' && <DistributionsTab />}
+          {sub === 'investor-reports'       && <CapitalAccountsTab />}
+          {sub === 'investor-documents'     && <DocumentsTab />}
+          {sub === 'investor-updates'       && <UpdatesTab />}
+        </>
+      )}
     </div>
   );
 }

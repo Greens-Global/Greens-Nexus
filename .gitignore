@@ -52,3 +52,4 @@ e2e/results.json
 e2e/tests/generated/
 backend/qa_local.db
 backend/e2e.db
+backend/asana_import_state.json

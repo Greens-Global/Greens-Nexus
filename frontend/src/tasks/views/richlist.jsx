@@ -1,6 +1,6 @@
 // Task Module — rich project List view (ported 1:1 from the export's
 // NexusTaskListView). Spreadsheet-style grid: Actions · Task · Assignee ·
-// Project · Due · Estimate · Actual · Priority · Status · Department · +Column,
+// Project · Due · Estimate · Actual · Priority · Status · Team · +Column,
 // with inline pill-menu editing, per-row action icons, select-all, collapsible
 // groups, and add/remove custom-field columns — all wired to the TasksContext.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
@@ -12,6 +12,7 @@ import {
 import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults } from '../lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey } from '../theme';
 import { Avatar, useClickOutside, DateField } from '../components';
+import { emailToName } from '../../lib/utils';
 
 const BASE_COLS = [
   { key: 'checkbox', label: '', width: 28 },
@@ -24,7 +25,7 @@ const BASE_COLS = [
   { key: 'actual', label: 'Actual', width: 86 },
   { key: 'priority', label: 'Priority', width: 96, center: true },
   { key: 'status', label: 'Status', width: 116, center: true },
-  { key: 'department', label: 'Team', width: 126, center: true },
+  { key: 'team', label: 'Team', width: 126, center: true },
 ];
 
 // Type picker for "+ Column" — matches the export's AddColumnMenu grid exactly
@@ -142,7 +143,7 @@ function AssigneeCell({ value, people, onSelect }) {
   const ref = useRef(null);
   const panelRef = useRef(null);
   useClickOutside([ref, panelRef], () => { setOpen(false); setQ(''); }, open);
-  const name = value ? (people.find((p) => p.email === value)?.name || value) : null;
+  const name = value ? (people.find((p) => p.email === value)?.name || emailToName(value)) : null;
   const pick = (em) => { onSelect(em); setOpen(false); setQ(''); };
   const filtered = q ? people.filter((p) => (p.name + p.email).toLowerCase().includes(q.toLowerCase())) : people;
   return (
@@ -192,7 +193,7 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
   const editCell = { minWidth: 0, padding: '3px 6px' };
   const pm = PRIORITY_META[t.priority] || { label: t.priority, color: NX.dim, tint: NX.border2 };
   const sm = store.statusMeta[t.status] || { label: t.status, color: NX.dim, tint: NX.border2 };
-  const dept = t.departmentId ? store.deptById(t.departmentId) : null;
+  const team = t.teamId ? store.teamById(t.teamId) : null;
   const estH = t.estimateHours ? Math.floor(t.estimateHours) : '';
   const estM = t.estimateHours && t.estimateHours % 1 ? Math.round((t.estimateHours % 1) * 60) : '';
   const setEst = (h, m) => store.updateTask(t.id, { estimateHours: (h || m) ? (Number(h || 0) + Number(m || 0) / 60) : null });
@@ -249,14 +250,14 @@ function TaskRow({ t, cols, customFields = [], template, store, people, selected
             options={store.statusOrder.map((s) => ({ key: s, label: store.statusMeta[s]?.label || s, color: store.statusMeta[s]?.color }))}
             onSelect={(k) => store.setStatus(t.id, k)} />
         </div>
-        {/* department */}
+        {/* team — scoped to this task's own project, since a team lives inside one project */}
         <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
           <PillSelect center
-            label={dept ? dept.name : '—'} color={dept ? dept.color : NX.faint} tint={dept ? `${dept.color}1a` : 'transparent'}
-            icon={dept ? <span style={{ width: 8, height: 8, borderRadius: '50%', background: dept.color, flexShrink: 0 }} /> : null}
-            currentKey={t.departmentId || ''}
-            options={[{ key: '', label: 'No team', color: NX.faint }, ...store.departments.map((d) => ({ key: d.id, label: d.name, color: d.color }))]}
-            onSelect={(k) => store.updateTask(t.id, { departmentId: k || null })} />
+            label={team ? team.name : '—'} color={team ? team.color : NX.faint} tint={team ? `${team.color}1a` : 'transparent'}
+            icon={team ? <span style={{ width: 8, height: 8, borderRadius: '50%', background: team.color, flexShrink: 0 }} /> : null}
+            currentKey={t.teamId || ''}
+            options={[{ key: '', label: 'No team', color: NX.faint }, ...store.teams.filter((tm) => tm.projectId === t.projectId).map((tm) => ({ key: tm.id, label: tm.name, color: tm.color }))]}
+            onSelect={(k) => store.updateTask(t.id, { teamId: k || null })} />
         </div>
         {/* custom fields */}
         {customFields.map((f) => (
@@ -425,7 +426,7 @@ function AddTaskInline({ store, defaults, lockedProjectId }) {
     store.createTask({
       title: t, type: 'task',
       status: defaults.status || 'not_started', priority: defaults.priority || 'medium',
-      projectId: defaults.projectId || lockedProjectId || '', departmentId: defaults.departmentId || '',
+      projectId: defaults.projectId || lockedProjectId || '', teamId: defaults.teamId || '',
       dueOn: defaults.dueOn || '', assigneeId: defaults.assigneeId || '',
     }).catch(() => {});
     setTitle('');
@@ -479,7 +480,7 @@ export default function RichListView({ visible, group, ctx, store, people, selec
   }
 
   return (
-    <div style={{ margin: 16, minHeight: 'calc(100% - 32px)', border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, overflowX: 'auto' }}>
+    <div className="nx-list-scroll" style={{ margin: 16, minHeight: 'calc(100% - 32px)', border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface }}>
       <div style={{ minWidth: 'fit-content' }}>
         {/* header */}
         <div style={{ display: 'grid', gridTemplateColumns: template, alignItems: 'center', gap: 12, padding: '8px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: NX.faint }}>
