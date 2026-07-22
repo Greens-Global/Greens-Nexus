@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle, MapPin } from 'lucide-react';
 import { api } from '../api';
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 
@@ -22,6 +22,25 @@ function periodStartFor(date) {
   mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));       // Monday of this week
   const idx = Math.floor((mon.getTime() - ANCHOR) / (14 * DAY));
   return new Date(ANCHOR + idx * 14 * DAY);
+}
+
+// Location cell — the punch's work site + an at-site/off-site pin (SwipeClock "Loc").
+function LocCell({ seg }) {
+  if (!seg) return <span style={{ color: 'var(--muted)' }}>—</span>;
+  const geo = seg.geo || '';
+  const site = seg.workSite || '';
+  if (!site && geo !== 'out_of_fence') return <span style={{ color: 'var(--muted)' }}>—</span>;
+  const color = geo === 'in_fence' ? 'hsl(var(--color-green))'
+    : geo === 'out_of_fence' ? '#b45309' : 'var(--muted)';
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }}
+      title={geo === 'out_of_fence' ? `${site || 'nearest site'} — off-site when punched` : site}>
+      <MapPin size={12} style={{ color, flexShrink: 0 }} />
+      <span style={{ color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
+        {site || 'Off-site'}{geo === 'out_of_fence' && site ? ' ⚠' : ''}
+      </span>
+    </span>
+  );
 }
 
 export default function PayrollTimecard({ toastOk, toastErr }) {
@@ -137,6 +156,13 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
         </div>
       </div>
 
+      {!stepLocked && data && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
+          {data.dept && <span><strong style={{ color: 'var(--ink)' }}>Department:</strong> {data.dept}</span>}
+          <span><strong style={{ color: 'var(--ink)' }}>Pay rate:</strong> {money(rate)}/hr</span>
+          <span><strong style={{ color: 'var(--ink)' }}>OT rule:</strong> {ruleInput === 'ca' ? 'California' : ruleInput === 'federal' ? 'Federal' : 'None'}</span>
+        </div>
+      )}
       {!stepLocked && !data?.rateSet && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#b45309', marginBottom: 10 }}>
           <AlertTriangle size={13} /> No pay rate set for this employee — wages show $0 until you set one.
@@ -155,17 +181,19 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
                 <th style={{ ...th, textAlign: 'left' }}>Date</th>
                 <th style={{ ...th, textAlign: 'left' }}>In</th>
                 <th style={{ ...th, textAlign: 'left' }}>Out</th>
+                <th style={{ ...th, textAlign: 'left' }}>Loc</th>
                 <th style={th}>Hours</th>
+                <th style={th}>Hrs/day</th>
                 <th style={th}>Non-OT</th>
                 <th style={th}>OT</th>
-                <th style={th}>Amount</th>
+                <th style={th}>Wage</th>
                 <th style={{ ...th, width: 40 }}></th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => r.type === 'wk' ? (
                 <tr key={i} style={{ background: 'hsla(var(--color-green),0.05)' }}>
-                  <td colSpan={8} style={{ ...td, textAlign: 'center', fontWeight: 800, color: 'var(--pine)', fontSize: 12 }}>
+                  <td colSpan={10} style={{ ...td, textAlign: 'center', fontWeight: 800, color: 'var(--pine)', fontSize: 12 }}>
                     Total hours for week of {new Date(r.week + 'T00:00').toLocaleDateString([], { month: 'numeric', day: 'numeric' })}: {hhmm(weekTotals[r.week]?.min || 0)}
                   </td>
                 </tr>
@@ -178,7 +206,9 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
                   <td style={{ ...td, textAlign: 'left', color: r.seg && !r.seg.out ? '#b91c1c' : 'var(--ink)', fontWeight: r.seg && !r.seg.out ? 700 : 400 }}>
                     {r.seg ? (r.seg.out ? t12(r.seg.out) : 'Missing') : '—'}
                   </td>
+                  <td style={{ ...td, textAlign: 'left' }}><LocCell seg={r.seg} /></td>
                   <td style={td}>{r.seg ? hhmm(r.seg.workedMin) : '—'}</td>
+                  <td style={{ ...td, fontWeight: 700 }}>{r.first && byDate[r.ds] ? hhmm(byDate[r.ds].workedMin) : ''}</td>
                   <td style={td}>{r.seg?.regMin ? hhmm(r.seg.regMin) : '—'}</td>
                   <td style={{ ...td, color: r.seg?.otMin ? '#b45309' : 'var(--muted)', fontWeight: r.seg?.otMin ? 700 : 400 }}>{r.seg?.otMin ? hhmm(r.seg.otMin) : '—'}</td>
                   <td style={{ ...td, fontWeight: 700 }}>{r.seg ? money(r.seg.amount) : '—'}</td>
@@ -195,8 +225,9 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
             {T && (
               <tfoot>
                 <tr style={{ background: 'var(--bg)', fontWeight: 800 }}>
-                  <td colSpan={3} style={{ ...td, textAlign: 'left' }}>Totals</td>
+                  <td colSpan={4} style={{ ...td, textAlign: 'left' }}>Totals</td>
                   <td style={td}>{hhmm(T.regMin + T.otMin)}</td>
+                  <td style={td}>{hhmm(T.regMin + T.otMin + (T.dtMin || 0))}</td>
                   <td style={td}>{hhmm(T.regMin)}</td>
                   <td style={td}>{hhmm(T.otMin)}</td>
                   <td style={td}>{money(T.totalPay)}</td>
@@ -251,6 +282,23 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
         </p>
       )}
 
+      {/* Signature / attestation — mirrors the payroll timecard sign-off line. */}
+      {T && (
+        <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
+          <p style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 14 }}>
+            By approving this time card, I agree I have reviewed it and that the hours stated are accurate and correct.
+          </p>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ borderBottom: '1.5px solid var(--ink)', minWidth: 240, paddingBottom: 3 }}>
+              <span style={{ fontSize: 14, fontWeight: 700, fontFamily: 'Georgia, serif', fontStyle: 'italic' }}>
+                {(people.find(p => p.email === email)?.name) || email}
+              </span>
+            </div>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>Signature (Approve to sign off) · {label}</span>
+          </div>
+        </div>
+      )}
+
       {editDay && (
         <PunchEditModal day={editDay} email={email} busy={busy} setBusy={setBusy}
           onDone={() => { setEditDay(null); load(); }} onClose={() => setEditDay(null)}
@@ -265,14 +313,22 @@ function PunchEditModal({ day, email, busy, setBusy, onDone, onClose, toastOk, t
   const seg = day.seg;
   const [inAt, setInAt] = useState(seg?.in ? utcToInput(seg.in) : `${day.date}T09:00`);
   const [outAt, setOutAt] = useState(seg?.out ? utcToInput(seg.out) : `${day.date}T17:00`);
+  const [sites, setSites] = useState([]);
+  const [siteId, setSiteId] = useState(seg?.workSiteId || '');
   const tz = new Date().getTimezoneOffset();
+  useEffect(() => { api.getWorkSites().then(s => setSites(s || [])).catch(() => setSites([])); }, []);
 
   async function save() {
     setBusy(true);
     try {
       // Edit existing in-punch, or add one
-      if (seg?.inId) { if (utcToInput(seg.in) !== inAt) await api.timeAdjustPunch(seg.inId, { at: inputToUtc(inAt) }); }
-      else await api.timeAddPunch({ employee_email: email, kind: 'in', at: inputToUtc(inAt), tz_offset_min: tz, note: 'payroll edit' });
+      if (seg?.inId) {
+        if (utcToInput(seg.in) !== inAt) await api.timeAdjustPunch(seg.inId, { at: inputToUtc(inAt) });
+        // Reassign location (work site) on the in-punch if it changed.
+        if (siteId !== (seg.workSiteId || '')) await api.timeAdjustPunch(seg.inId, { work_site_id: siteId });
+      } else {
+        await api.timeAddPunch({ employee_email: email, kind: 'in', at: inputToUtc(inAt), tz_offset_min: tz, note: 'payroll edit' });
+      }
       // Edit existing out-punch, or add one
       if (seg?.outId) { if (utcToInput(seg.out) !== outAt) await api.timeAdjustPunch(seg.outId, { at: inputToUtc(outAt) }); }
       else await api.timeAddPunch({ employee_email: email, kind: 'out', at: inputToUtc(outAt), tz_offset_min: tz, note: 'payroll edit' });
@@ -300,6 +356,15 @@ function PunchEditModal({ day, email, busy, setBusy, onDone, onClose, toastOk, t
         <div style={{ display: 'grid', gap: 12 }}>
           <label style={{ fontSize: 11, color: 'var(--muted)' }}>Clock in<input type="datetime-local" className="form-input" value={inAt} onChange={e => setInAt(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
           <label style={{ fontSize: 11, color: 'var(--muted)' }}>Clock out<input type="datetime-local" className="form-input" value={outAt} onChange={e => setOutAt(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
+          {seg?.inId && (
+            <label style={{ fontSize: 11, color: 'var(--muted)' }}>Location (work site)
+              <select className="form-input" value={siteId} onChange={e => setSiteId(e.target.value)} style={{ width: '100%', fontSize: 13 }}>
+                <option value="">— No location —</option>
+                {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>Reassigning marks the punch as on-site at the chosen location.</span>
+            </label>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 16, alignItems: 'center' }}>
           {seg?.outId && <button onClick={removeOut} disabled={busy} style={{ background: 'none', border: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Void Out-Punch</button>}

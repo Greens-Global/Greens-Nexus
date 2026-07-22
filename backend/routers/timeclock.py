@@ -569,6 +569,7 @@ class PunchAdjust(BaseModel):
     note: Optional[str] = None
     void: Optional[bool] = None
     adjust_note: Optional[str] = ""
+    work_site_id: Optional[str] = None   # reassign the punch's location (curated work site); "" clears it
 
 
 @router.patch("/punches/{punch_id}")
@@ -588,6 +589,18 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
             row.original_at = row.at
         row.at = body.at[:19]
         row.local_date = _local_date(row.at, row.tz_offset_min or 0)
+    if body.work_site_id is not None:
+        # Reassign the punch's location to a curated work site (manager correction).
+        wsid = body.work_site_id.strip()
+        if not wsid:
+            row.work_site_id, row.work_site_name, row.geo_status = "", "", "no_location"
+        else:
+            site = db.query(HrWorkSite).filter(HrWorkSite.id == wsid).first()
+            if not site:
+                raise HTTPException(404, "Work site not found")
+            # A manager asserting the site counts as on-site (in_fence), distance 0.
+            row.work_site_id, row.work_site_name = site.id, site.name or ""
+            row.geo_status, row.distance_m = "in_fence", 0
     if body.note is not None:
         row.note = body.note.strip()[:300]
     if body.void is not None:
@@ -2039,6 +2052,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     rate_row = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
     rate = float(rate_row.hourly_rate) if rate_row else 0.0
     rule = (getattr(rate_row, "overtime_rule", None) or "ca") if rate_row else "ca"
+    emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == em).first()
+    dept = (emp.department if emp else "") or ""
 
     days_out = []
     total_reg = total_ot = total_dt = total_break = missing_punches = 0
@@ -2051,6 +2066,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     # hours to land.
     segs_by_day = {}   # local_date -> [segment, ...]
     open_in = open_in_at = open_in_id = open_in_date = None
+    open_in_site = open_in_geo = open_in_site_id = None
     open_break = None
     brk = 0.0
     sflags = set()
@@ -2060,7 +2076,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
         nonlocal missing_punches
         segs_by_day.setdefault(open_in_date, []).append(
             {"in": open_in_at, "out": "", "inId": open_in_id, "outId": "",
-             "workedMin": 0, "flags": sorted(sflags | {"missing_out"}), "_break": int(round(brk))})
+             "workedMin": 0, "flags": sorted(sflags | {"missing_out"}), "_break": int(round(brk)),
+             "workSite": open_in_site or "", "workSiteId": open_in_site_id or "", "geo": open_in_geo or ""})
         missing_punches += 1
 
     for p in punches:
@@ -2071,6 +2088,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
             if open_in is not None:      # a new in without an out closes the prior as missing
                 _flush_missing()
             open_in, open_in_at, open_in_id, open_in_date = t, p.at, p.id, p.local_date
+            open_in_site, open_in_geo, open_in_site_id = (p.work_site_name or ""), (p.geo_status or ""), (p.work_site_id or "")
             open_break, brk, sflags = None, 0.0, set()
             if p.geo_status == "out_of_fence":
                 sflags.add("out_of_fence")
@@ -2088,7 +2106,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
                 mins = int(round((t - open_in).total_seconds() / 60 - brk))
                 segs_by_day.setdefault(open_in_date, []).append(
                     {"in": open_in_at, "out": p.at, "inId": open_in_id, "outId": p.id,
-                     "workedMin": max(0, mins), "flags": sorted(sflags), "_break": int(round(brk))})
+                     "workedMin": max(0, mins), "flags": sorted(sflags), "_break": int(round(brk)),
+                     "workSite": open_in_site or "", "workSiteId": open_in_site_id or "", "geo": open_in_geo or ""})
                 open_in = None
             # else: orphan out with no open in — ignored (its in was outside the range)
         elif p.kind == "break_start":
@@ -2161,7 +2180,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
     active_min = max(0, worked_min - idle_min)
 
     return {"email": em, "start": start, "end": end, "rate": rate, "rateSet": rate_row is not None,
-            "overtimeRule": rule, "days": days_out,
+            "dept": dept, "overtimeRule": rule, "days": days_out,
             "totals": {"regMin": total_reg, "otMin": total_ot, "dtMin": total_dt,
                        "regPay": reg_pay, "otPay": ot_pay, "dtPay": dt_pay,
                        "totalPay": round(reg_pay + ot_pay + dt_pay, 2),
