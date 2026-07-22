@@ -10,6 +10,7 @@ import { BottomSheet } from './MobileTaskBar';
 import { useTasks } from './TasksContext';
 import { Modal, PersonSelect, usePeople, useIsMobile, DateField } from './components';
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
+import { emailToName } from '../lib/utils';
 
 const SORT_OPTIONS = [
   { key: 'manual', label: 'Manual' }, { key: 'dueOn', label: 'Due Date' },
@@ -66,9 +67,30 @@ const capWord = (s = '') => s.replace(/^\w/, (c) => c.toUpperCase());
 const groupHead = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, marginBottom: 6 };
 const pill = (on, color, tint) => ({ borderRadius: 999, padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none', background: on ? color : tint, color: on ? '#fff' : color });
 
+// Chips for the currently-selected ids in a multi-select list, shown above the
+// search box so picks stay visible without scrolling through the full list.
+function SelectedChips({ items, onRemove }) {
+  if (items.length === 0) return null;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 6 }}>
+      {items.map((it) => (
+        <span key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 999, padding: '2px 4px 2px 9px', fontSize: 11.5, fontWeight: 600, background: NX.border2, color: NX.ink }}>
+          {it.label}
+          <button onClick={() => onRemove(it.id)} title="Remove" style={{ display: 'flex', alignItems: 'center', border: 'none', background: 'none', cursor: 'pointer', color: NX.faint, padding: 2 }}><X size={11} /></button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // ── Category bodies — shared by the desktop popovers and the mobile drill-in sheet ──
 function FiltersBody({ filters, setFilters, people, projects, lockedProjectId, statusOrder = STATUS_ORDER, statusMeta = STATUS_META }) {
   const activeFilterCount = filters.assigneeIds.length + filters.statuses.length + filters.priorities.length + (lockedProjectId ? 0 : filters.projectIds.length);
+  const [assigneeQuery, setAssigneeQuery] = useState('');
+  const [projectQuery, setProjectQuery] = useState('');
+  const searchInput = { ...inputStyle, padding: '6px 9px', fontSize: 12.5, marginBottom: 6 };
+  const shownPeople = people.filter((u) => u.name.toLowerCase().includes(assigneeQuery.toLowerCase()));
+  const shownProjects = projects.filter((p) => p.name.toLowerCase().includes(projectQuery.toLowerCase()));
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div>
@@ -85,27 +107,37 @@ function FiltersBody({ filters, setFilters, people, projects, lockedProjectId, s
       </div>
       <div>
         <div style={groupHead}>Assignee</div>
-        <div style={{ maxHeight: 200, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
-          {people.map((u) => (
+        <SelectedChips
+          items={filters.assigneeIds.map((id) => ({ id, label: people.find((u) => u.email === id)?.name || emailToName(id) }))}
+          onRemove={(id) => setFilters({ ...filters, assigneeIds: toggle(filters.assigneeIds, id) })}
+        />
+        <input value={assigneeQuery} onChange={(e) => setAssigneeQuery(e.target.value)} placeholder="Search people…" style={searchInput} />
+        <div style={{ maxHeight: 108, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
+          {shownPeople.map((u) => (
             <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 9px', fontSize: 13, cursor: 'pointer' }}>
               <input type="checkbox" checked={filters.assigneeIds.includes(u.email)} onChange={() => setFilters({ ...filters, assigneeIds: toggle(filters.assigneeIds, u.email) })} />
               {u.name}
             </label>
           ))}
-          {people.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>No people</div>}
+          {shownPeople.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{people.length === 0 ? 'No people' : 'No matches'}</div>}
         </div>
       </div>
       {!lockedProjectId && (
         <div>
           <div style={groupHead}>Project</div>
-          <div style={{ maxHeight: 160, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
-            {projects.map((p) => (
+          <SelectedChips
+            items={filters.projectIds.map((id) => ({ id, label: projects.find((p) => p.id === id)?.name || id }))}
+            onRemove={(id) => setFilters({ ...filters, projectIds: toggle(filters.projectIds, id) })}
+          />
+          <input value={projectQuery} onChange={(e) => setProjectQuery(e.target.value)} placeholder="Search projects…" style={searchInput} />
+          <div style={{ maxHeight: 108, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
+            {shownProjects.map((p) => (
               <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 9px', fontSize: 13, cursor: 'pointer' }}>
                 <input type="checkbox" checked={filters.projectIds.includes(p.id)} onChange={() => setFilters({ ...filters, projectIds: toggle(filters.projectIds, p.id) })} />
                 {p.name}
               </label>
             ))}
-            {projects.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>No projects</div>}
+            {shownProjects.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{projects.length === 0 ? 'No projects' : 'No matches'}</div>}
           </div>
         </div>
       )}

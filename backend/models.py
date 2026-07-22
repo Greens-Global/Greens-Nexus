@@ -26,7 +26,7 @@ class Task(Base):
     access_level      = Column(String, default="org")      # org|restricted
     project_id        = Column(String, default="", index=True)
     section_id        = Column(String, default="")
-    department_id     = Column(String, default="", index=True)
+    team_id           = Column(String, default="", index=True)  # TaskTeam within this task's project
     parent_task_id    = Column(String, default="", index=True)
     subtask_ids       = Column(JSON, default=list)
     blocked_by_ids    = Column(JSON, default=list)
@@ -952,6 +952,11 @@ class HrDepartment(Base):
     name       = Column(String, nullable=False)     # display value, e.g. "Estimating"
     parent_id  = Column(String, default="")         # reserved: HrDepartment.id of the parent (hierarchy)
     sort_order = Column(Integer, default=0)
+    # Ticket triage: a ticket raised against this department is left unassigned and
+    # the lead is notified to assign it to an employee. backup_email is notified
+    # alongside the lead so leave/departures don't strand a department's intake.
+    lead_email   = Column(String, default="")
+    backup_email = Column(String, default="")
     created_by = Column(String, default="")
     created_at = Column(String, default="")
 
@@ -1531,8 +1536,20 @@ class TaskProject(Base):
     color         = Column(String, default="")
     owner_email   = Column(String, default="", index=True)
     portfolio_id  = Column(String, default="", index=True)
-    department_id = Column(String, default="", index=True)   # primary team (first of department_ids)
-    department_ids = Column(JSON, default=list)               # all teams the project belongs to
+    # Real People-module department (HrDepartment.id — no DB FK; same
+    # hr_department_id naming TaskTicket already uses for this exact concept,
+    # kept distinct from a task-scoped "department_id" on purpose). Auto-
+    # resolved from the creating user's own employee record at creation time
+    # (see create_project) rather than manually picked — hr_department_name is
+    # a display snapshot taken at that same moment.
+    hr_department_id   = Column(String, default="", index=True)
+    hr_department_name = Column(String, default="")
+    # Visibility (mirrors Task.access_level, org|restricted). DB default is
+    # "org" so a bare ADD COLUMN backfills existing projects as visible to
+    # everyone (today's de-facto behavior) rather than silently locking
+    # collaborators out; create_project applies a stricter "restricted"
+    # default for newly-created rows instead (see that endpoint).
+    access_level  = Column(String, default="org")
     status        = Column(String, default="not_started")
     start_on      = Column(String, default="")
     due_on        = Column(String, default="")
@@ -1559,10 +1576,14 @@ class TaskPortfolio(Base):
     created_by  = Column(String, default="")
 
 
-class TaskDepartment(Base):
-    """A team/department; members can access all of its projects."""
-    __tablename__ = "task_departments"
+class TaskTeam(Base):
+    """A named group (e.g. "IT Team", "QA Team") — not a cross-project
+    department. A team can exist standalone (project_id="") or be assigned to
+    a project (from the project's own Teams picker, at creation or later);
+    `project_id` is at most ONE project at a time, no DB constraint."""
+    __tablename__ = "task_teams"
     id            = Column(String, primary_key=True)
+    project_id    = Column(String, default="", index=True)
     name          = Column(String, nullable=False)
     color         = Column(String, default="")
     icon          = Column(String, default="")           # key from the department icon registry
@@ -1598,6 +1619,7 @@ class TaskComment(Base):
     created_at   = Column(String, default="")
     edited_at    = Column(String, default="")
     pinned       = Column(Boolean, default=False)
+    internal     = Column(Boolean, default=False)   # ticket notes only: agent-visible, not shared with the requester
 
 
 class TaskAttachment(Base):
@@ -1637,6 +1659,7 @@ class TaskSavedView(Base):
     filters     = Column(JSON, default=dict)
     sort        = Column(JSON, default=dict)
     group       = Column(String, default="none")
+    scope       = Column(String, default="task")         # task|ticket — which module the view belongs to
     created_at  = Column(String, default="")
 
 
@@ -1721,18 +1744,29 @@ class TaskTicket(Base):
     priority       = Column(String, default="medium")
     requester_email= Column(String, default="", index=True)
     assignee_email = Column(String, default="", index=True)
-    department_id  = Column(String, default="", index=True)
+    department_id  = Column(String, default="", index=True)   # task department ("Team")
+    company_id     = Column(String, default="", index=True)   # HrEntity.id — company from the People module
+    hr_department_id = Column(String, default="", index=True) # HrDepartment.id — department from the People module
     linked_task_id = Column(String, default="")
     tags           = Column(JSON, default=list)
     images         = Column(JSON, default=list)   # screenshot data URLs / storage links
     watcher_emails = Column(JSON, default=list)   # people notified on ticket changes
     resolution     = Column(String, default="")   # fixed|wont_fix|duplicate|cannot_reproduce|done
     custom_field_values = Column(JSON, default=dict)  # {customFieldId: value} — reuses the task custom-field defs
+    type_fields    = Column(JSON, default=dict)   # {fieldKey: value} — per-type intake fields (bug/incident/… specific)
     links          = Column(JSON, default=list)   # [{ticketId, type}] — relates|duplicate|blocks|blocked_by
     task_ids       = Column(JSON, default=list)   # tasks spawned from / linked to this ticket (one ticket → many tasks)
     component      = Column(String, default="")   # category/component name (see TaskTicketComponent)
     csat_rating    = Column(Integer, default=0)   # 1-5 satisfaction rating; 0 = not rated
     csat_comment   = Column(String, default="")
+    # Approval gate. Types that name an approver at intake (service_request,
+    # change_request, access_request) park here first: the approver is notified,
+    # and only on approval does the ticket reach the department lead for triage.
+    # "none" = this ticket never needed approval.
+    approval_status   = Column(String, default="none")   # none|pending|approved|rejected
+    approver_email    = Column(String, default="", index=True)
+    approval_note     = Column(String, default="")       # the approver's reason, esp. on reject
+    approval_decided_at = Column(String, default="")
     sla_due_on     = Column(String, default="")
     resolved_at    = Column(String, default="")
     created_at     = Column(String, default="")
@@ -1779,6 +1813,63 @@ class TaskEvent(Base):
     kind           = Column(String, default="")          # created|updated|deleted|comment|...
     affected_email = Column(String, default="")
     created_at     = Column(String, default="")          # set server-side (timestamptz in DB)
+
+
+# ── Asana two-way sync (new tables — create_all builds them, no migration) ────
+class AsanaSyncConfig(Base):
+    """Single-row config for the Nexus <-> Asana sync (id fixed to 'singleton')."""
+    __tablename__ = "asana_sync_config"
+    id                  = Column(String, primary_key=True, default="singleton")
+    enabled             = Column(Boolean, default=False)
+    token               = Column(String, default="")     # Asana service PAT (write scope)
+    workspace_gid       = Column(String, default="")
+    default_project_gid = Column(String, default="")     # Asana project unmapped tasks push to
+    last_pull_at        = Column(String, default="")      # ISO watermark for inbound polling
+    updated_at          = Column(String, default="")
+
+
+class AsanaProjectMap(Base):
+    """Maps a Nexus project to an Asana project so tasks route to the right board."""
+    __tablename__ = "asana_project_map"
+    id                = Column(String, primary_key=True)
+    nexus_project_id  = Column(String, default="", index=True)
+    asana_project_gid = Column(String, default="", index=True)
+    created_at        = Column(String, default="")
+
+
+class AsanaTaskLink(Base):
+    """Links a Nexus task to its Asana counterpart. `last_hash` is a digest of the
+    synced fields at the last sync — comparing against it prevents echo loops
+    (a change that originated from a sync won't be pushed back)."""
+    __tablename__ = "asana_task_links"
+    id             = Column(String, primary_key=True)
+    nexus_task_id  = Column(String, default="", index=True)
+    asana_gid      = Column(String, default="", index=True)
+    last_hash      = Column(String, default="")
+    last_synced_at = Column(String, default="")
+
+
+class AsanaCommentLink(Base):
+    """Links a synced comment to its Asana story, so re-syncs don't duplicate it
+    (dedup works both directions)."""
+    __tablename__ = "asana_comment_links"
+    id               = Column(String, primary_key=True)
+    nexus_comment_id = Column(String, default="", index=True)
+    asana_story_gid  = Column(String, default="", index=True)
+    created_at       = Column(String, default="")
+
+
+class AsanaWebhook(Base):
+    """A registered Asana webhook (one per mapped project). `x_hook_secret` is the
+    handshake secret used to verify inbound event signatures. A row with an empty
+    asana_webhook_gid is a pending handshake awaiting its register call to finish."""
+    __tablename__ = "asana_webhooks"
+    id               = Column(String, primary_key=True)
+    resource_gid     = Column(String, default="", index=True)   # Asana project gid
+    asana_webhook_gid = Column(String, default="", index=True)
+    x_hook_secret    = Column(String, default="")
+    target           = Column(String, default="")
+    created_at       = Column(String, default="")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

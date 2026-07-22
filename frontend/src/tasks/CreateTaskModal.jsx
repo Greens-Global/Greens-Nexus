@@ -3,10 +3,10 @@
 // Due date, Estimated hours, Recurrence, Labels, Subtasks, Attachments — wired
 // to the TasksContext (subtasks + attachments created after the parent).
 import { useRef, useState } from 'react';
-import { Plus, X, Paperclip, ListChecks, CircleCheck, Save } from 'lucide-react';
+import { Plus, X, Paperclip, ListChecks, CircleCheck, Save, Image as ImageIcon, ScanText, Camera, ImagePlus } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { Modal, PersonSelect, usePeople, DateField } from './components';
+import { Modal, PersonSelect, usePeople, DateField, useIsMobile } from './components';
 import { ProjectCreateModal } from './ProjectsView';
 import { filesFromPaste } from './lib';
 import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORITY_ORDER } from './theme';
@@ -16,9 +16,9 @@ const label = { fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5, d
 const field = { marginBottom: 0 };
 const MAX_INLINE = 2 * 1024 * 1024;
 
-export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
+export default function CreateTaskModal({ onClose, defaults = {}, taskId, lockedProjectId = '' }) {
   const store = useTasks();
-  const { createTask, updateTask, deleteTask, tasks, projects, departments, projectById, myEmail } = store;
+  const { createTask, updateTask, deleteTask, tasks, projects, teams, myEmail } = store;
   const people = usePeople();
   const fileRef = useRef(null);
   const editing = taskId ? store.taskById[taskId] : null;
@@ -31,7 +31,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
     assigneeId: editing ? (editing.assigneeId ?? null) : (defaults.assigneeId ?? myEmail ?? null),
     ownerId: editing ? (editing.ownerId ?? null) : (defaults.ownerId ?? myEmail ?? null),
     priority: editing?.priority ?? defaults.priority ?? 'medium', status: editing?.status ?? defaults.status ?? 'not_started',
-    projectId: editing?.projectId ?? defaults.projectId ?? '', departmentId: editing?.departmentId ?? defaults.departmentId ?? '',
+    projectId: editing?.projectId ?? defaults.projectId ?? '', teamId: editing?.teamId ?? defaults.teamId ?? '',
     dueOn: editing?.dueOn ?? defaults.dueOn ?? '',
     estimateHrs: editing?.estimateHours ? String(Math.floor(editing.estimateHours)) : '',
     estimateMin: editing?.estimateHours && editing.estimateHours % 1 ? String(Math.round((editing.estimateHours % 1) * 60)) : '',
@@ -52,6 +52,29 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
   const addSubtask = () => { const v = subtaskInput.trim(); if (v) setSubtasks((s) => [...s, { title: v }]); setSubtaskInput(''); };
   const onFiles = (list) => { if (list) setAttachments((prev) => [...prev, ...Array.from(list)]); };
   const onPasteFiles = (e) => { const files = filesFromPaste(e); if (files.length) { e.preventDefault(); onFiles(files); } };
+
+  // Mobile capture shortcuts in the footer — photo / attach / scan, mirroring the
+  // quick-create sheet so the same three actions are one tap away on a phone
+  // instead of buried at the bottom of a long scrolling form.
+  const isMobile = useIsMobile();
+  const camRef = useRef(null);
+  const libRef = useRef(null);
+  const scanRef = useRef(null);
+  const [photoMenu, setPhotoMenu] = useState(false);
+  const [ocrBusy, setOcrBusy] = useState(false);
+
+  // ABC scanner → capture a photo, OCR it server-side, append the text to the title.
+  const onScan = async (e) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f) return;
+    setOcrBusy(true);
+    try {
+      const { text } = await api.ocrImage(f);
+      if (text && text.trim()) set('title', (form.title ? `${form.title} ` : '') + text.trim().replace(/\s+/g, ' '));
+      else alert('No text found in the image.');
+    } catch { alert("Couldn't extract text from the image."); }
+    finally { setOcrBusy(false); }
+  };
 
   const recurrence = () => {
     if (form.recurFreq === 'none') return null;
@@ -79,10 +102,9 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
   const submit = async () => {
     if (!form.title.trim() || busy) return;
     setBusy(true);
-    const deptId = form.departmentId || (form.projectId ? projectById(form.projectId)?.departmentId : '') || '';
     const core = {
       title: form.title.trim(), description: form.description, assigneeId: form.assigneeId || '', ownerId: form.ownerId || '',
-      priority: form.priority, status: form.recurFreq !== 'none' ? 'recurring' : form.status, projectId: form.projectId || '', departmentId: deptId,
+      priority: form.priority, status: form.recurFreq !== 'none' ? 'recurring' : form.status, projectId: form.projectId || '', teamId: form.teamId || '',
       dueOn: form.dueOn || '', estimateHours: (form.estimateHrs || form.estimateMin) ? (Number(form.estimateHrs || 0) + Number(form.estimateMin || 0) / 60) : null, tags: form.labels, recurrence: recurrence(),
     };
     try {
@@ -96,7 +118,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
         const created = await createTask(core);
         parentId = created.id;
       }
-      for (const s of subtasks.filter((s) => !s.id)) await createTask({ title: s.title, parentTaskId: parentId, projectId: form.projectId || '', departmentId: deptId, status: 'not_started', priority: 'medium', type: 'task' }).catch(() => {});
+      for (const s of subtasks.filter((s) => !s.id)) await createTask({ title: s.title, parentTaskId: parentId, projectId: form.projectId || '', teamId: form.teamId || '', status: 'not_started', priority: 'medium', type: 'task' }).catch(() => {});
       for (const f of attachments) await uploadAttachment(parentId, f);
       onClose(true);
     } catch (e) { alert(`Could not save task: ${e.message || e}`); setBusy(false); }
@@ -106,6 +128,33 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
   return (
     <Modal title={isEdit ? 'Edit Task' : 'Create a Task'} width={640} onClose={() => onClose(false)} footer={
       <>
+        {/* Phone only — desktop already has the Attachments field in view without
+            scrolling, and a camera/scan shortcut is meaningless with a mouse. */}
+        {isMobile && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginRight: 'auto', position: 'relative' }}>
+            <button type="button" title="Add photo" aria-label="Add photo" onClick={() => setPhotoMenu((v) => !v)}
+              style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><ImageIcon size={20} /></button>
+            <button type="button" title="Attach file" aria-label="Attach file" onClick={() => fileRef.current?.click()}
+              style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><Paperclip size={20} /></button>
+            <button type="button" title="Scan text" aria-label="Scan text" disabled={ocrBusy} onClick={() => scanRef.current?.click()}
+              style={{ ...btn('ghost'), padding: 7, color: NX.dim, opacity: ocrBusy ? 0.5 : 1 }}><ScanText size={20} /></button>
+            {ocrBusy && <span style={{ fontSize: 12, color: NX.faint }}>Scanning…</span>}
+            {attachments.length > 0 && (
+              <span style={{ fontSize: 12, color: NX.faint, marginLeft: 2 }}>{attachments.length}</span>
+            )}
+            {photoMenu && (
+              /* Opens upward — the footer is pinned to the bottom of the modal. */
+              <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 6, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 10px 28px rgba(0,0,0,0.18)', zIndex: 10, padding: 4, minWidth: 180 }}>
+                <button type="button" onClick={() => { setPhotoMenu(false); camRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><Camera size={16} /> Take photo</button>
+                <button type="button" onClick={() => { setPhotoMenu(false); libRef.current?.click(); }} style={{ ...btn('ghost'), width: '100%', justifyContent: 'flex-start', gap: 8 }}><ImagePlus size={16} /> Choose from device</button>
+              </div>
+            )}
+            {/* capture="environment" opens the rear camera on a phone. */}
+            <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
+            <input ref={libRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
+            <input ref={scanRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={onScan} />
+          </div>
+        )}
         <button style={btn('ghost')} onClick={() => onClose(false)}>Cancel</button>
         <button style={{ ...btn('primary'), opacity: busy || !form.title.trim() ? 0.6 : 1 }} onClick={submit} disabled={busy || !form.title.trim()}>
           {isEdit ? <><Save size={15} /> Save Changes</> : <><Plus size={15} /> Create Task</>}
@@ -124,14 +173,27 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId }) {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <div style={field}>
-            <label style={label}>Project</label>
-            <select value={form.projectId} onChange={(e) => { if (e.target.value === '__new') setCreatingProject(true); else set('projectId', e.target.value); }} style={sel}>
-              <option value="">No project</option>
-              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              <option value="__new">＋ Create new project…</option>
-            </select>
-          </div>
+          {/* Already scoped to a project (opened from inside one) — no need to
+              show/change Project or Team here. */}
+          {!lockedProjectId && (
+            <>
+              <div style={field}>
+                <label style={label}>Project</label>
+                <select value={form.projectId} onChange={(e) => { if (e.target.value === '__new') setCreatingProject(true); else setForm((f) => ({ ...f, projectId: e.target.value, teamId: '' })); }} style={sel}>
+                  <option value="">No project</option>
+                  {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  <option value="__new">＋ Create new project…</option>
+                </select>
+              </div>
+              <div style={field}>
+                <label style={label}>Team</label>
+                <select value={form.teamId} onChange={(e) => set('teamId', e.target.value)} disabled={!form.projectId} style={{ ...sel, ...(!form.projectId ? { opacity: 0.6, cursor: 'not-allowed' } : {}) }}>
+                  <option value="">{form.projectId ? 'No team' : 'Pick a project first'}</option>
+                  {teams.filter((t) => t.projectId === form.projectId).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </div>
+            </>
+          )}
           <div style={field}>
             <label style={label}>Assignee</label>
             <PersonSelect value={form.assigneeId} onChange={(v) => set('assigneeId', v)} people={people} />

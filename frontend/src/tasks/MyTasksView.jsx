@@ -111,7 +111,7 @@ function AddTaskRow({ people, projects, onAdd, defaults = {} }) {
       title: title.trim(), followerIds,
       dueOn: dueOn || defaults.dueOn || null,
       projectId: projectId || defaults.projectId || null,
-      status: defaults.status, priority: defaults.priority, departmentId: defaults.departmentId,
+      status: defaults.status, priority: defaults.priority, teamId: defaults.teamId,
     });
     reset();
   };
@@ -172,12 +172,12 @@ export default function MyTasksView() {
     [tasks, filters, sort, myEmail],
   );
   const allMine = useMemo(() => tasks.filter((t) => !t.parentTaskId && matchesFilter(t, filter)), [tasks, filters, myEmail]);
-  const ctx = { nameOf, projectName: store.projectName, deptName: store.deptName };
-  const groups = useMemo(() => groupTasks(mine, group, ctx), [mine, group, nameOf, store.projectName, store.deptName]);
+  const ctx = { nameOf, projectName: store.projectName, teamName: store.teamName };
+  const groups = useMemo(() => groupTasks(mine, group, ctx), [mine, group, nameOf, store.projectName, store.teamName]);
   const boardTasks = useMemo(() => sortTasks(allMine, sort), [allMine, sort]);
 
-  const addTask = ({ title, dueOn, followerIds, projectId, status, priority, departmentId }) =>
-    createTask({ title, assigneeId: myEmail, status: status || 'not_started', priority: priority || 'medium', type: 'task', dueOn: dueOn || '', followerIds, projectId: projectId || '', departmentId: departmentId || '' }).catch(() => {});
+  const addTask = ({ title, dueOn, followerIds, projectId, status, priority, teamId }) =>
+    createTask({ title, assigneeId: myEmail, status: status || 'not_started', priority: priority || 'medium', type: 'task', dueOn: dueOn || '', followerIds, projectId: projectId || '', teamId: teamId || '' }).catch(() => {});
 
 
   return (
@@ -218,7 +218,7 @@ export default function MyTasksView() {
       {/* Body */}
       <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: view === 'list' ? 16 : 0, paddingBottom: isMobile ? 88 : undefined }}>
         {view === 'list' ? (
-          <div style={{ border: `1px solid ${NX.border}`, borderRadius: 12, overflow: 'hidden', background: NX.surface }}>
+          <div className={isMobile ? 'nx-edge-card' : undefined} style={{ border: `1px solid ${NX.border}`, borderRadius: 12, overflow: 'hidden', background: NX.surface }}>
             {/* Fixed-width columns (Due date/Collaborators/Projects/Visibility) don't
                 shrink below their content size — scroll horizontally on narrow
                 viewports instead of getting clipped by the card's rounded corners. */}

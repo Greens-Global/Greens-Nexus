@@ -642,6 +642,11 @@ h1,h2,h3,h4,h5,h6,
    it. Strip padding and give it a definite height (100vh minus the 56px
    .top-header) so height:100% cascades correctly through the module. */
 .viewport-flush { padding: 0; overflow: hidden; display: flex; flex-direction: column; height: calc(100vh - 56px); }
+/* Two classes (0,2,0) so this wins over every single-class `.viewport { padding: … }`
+   rule regardless of source order — there are seven of them across the responsive
+   blocks, and the flush variant (task/ticket module) must keep zero padding at all
+   widths so its cards can run edge to edge on phones. */
+.viewport.viewport-flush { padding: 0; }
 
 /* â”€â”€ Buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .primary-btn, .btn-primary {
@@ -1382,6 +1387,16 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
    native bar (Windows Chrome always paints it otherwise). */
 .scroll-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; }
 .scroll-tabs::-webkit-scrollbar { display: none; height: 0; }
+
+/* Task list table (richlist.jsx): on mobile this scrolls itself horizontally,
+   same as before. On desktop its own overflow-x is turned off so the wide
+   table overflows into the viewport-bounded `.nx-scroll` ancestor instead —
+   that one has a fixed height, so its scrollbar sits at a constant spot
+   instead of trailing the (possibly very tall) table's real bottom edge. */
+.nx-list-scroll { overflow-x: auto; }
+@media (min-width: 641px) {
+  .nx-list-scroll { overflow-x: visible; }
+}
 
 /* Task Module themed scrollbars — theme-aware (light/dark) via --nx-* tokens.
    color-scheme (set on :root per theme) already darkens native/unstyled bars;
@@ -2382,13 +2397,25 @@ button, [role="button"], select { touch-action: manipulation; }
   .nx-module-tabs { padding: 0 6px !important; gap: 0 !important; }
   .nx-module-tab { padding: 9px 8px !important; font-size: 12px !important; gap: 5px !important; }
 
-  /* Cards run edge to edge instead of floating in a wide gutter. */
-  .nx-page { padding: 10px !important; }
+  /* Cards run edge to edge instead of floating in a gutter. Horizontal padding
+     goes to 0 so a card spans the full viewport width; vertical padding stays so
+     the first card doesn't collide with the header and the last clears the
+     floating mobile bar. */
+  .nx-page { padding: 10px 0 !important; }
   .nx-card-grid { gap: 10px !important; }
 
-  /* Page bodies across the module (My Tasks, Projects, Portfolios, Teams,
-     Changelog): shrink the 16-24px gutter so content cards use the full width. */
-  .nx-gutter { padding: 8px !important; }
+  /* Page bodies across both modules (My Tasks, Projects, Portfolios, Teams,
+     Changelog, Tickets). */
+  .nx-gutter { padding: 8px 0 !important; }
+
+  /* A full-width card has nothing to round against, so square the corners and
+     drop the side borders — it reads as a native list rather than a card that
+     happens to be clipped by the viewport. Opt in with .nx-edge-card. */
+  .nx-edge-card {
+    border-radius: 0 !important;
+    border-left: none !important;
+    border-right: none !important;
+  }
 }
 
 /* Very narrow phones (≤430px): drop the module-tab icons so Home / My Tasks /

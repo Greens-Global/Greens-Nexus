@@ -349,8 +349,7 @@ function PortfolioDetail({ pf, store, rollup, people, onBack, onNavigate, onEdit
             {rows.map((p) => {
               const idx = ids.indexOf(p.id);
               const pr = rollup([p.id]);
-              const dept = store.deptById?.(p.departmentId);
-              const deptColor = dept?.color || NX.blue;
+              const deptColor = p.color || NX.blue;
               return (
                 <div key={p.id} style={{ ...card, padding: 13, display: 'flex', alignItems: 'center', gap: 12 }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 34, height: 34, borderRadius: 9, flexShrink: 0, background: `${deptColor}1a`, color: deptColor }}><FolderKanban size={16} /></span>

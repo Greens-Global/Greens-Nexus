@@ -3,7 +3,7 @@
 // project. Ported from the export's ProjectsPage/ProjectOverview into the Nexus
 // inline-style idiom.
 import { useMemo, useState } from 'react';
-import { Plus, Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive } from 'lucide-react';
+import { Plus, Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive, Globe, Lock } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { taskStats } from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
@@ -12,14 +12,19 @@ import TasksWorkspace from './TasksWorkspace';
 
 const EMPTY_FORM = {
   name: '', description: '', color: NX.blue, ownerId: null,
-  departmentIds: [], portfolioId: '', status: 'not_started',
+  portfolioId: '', accessLevel: 'restricted', status: 'not_started',
   startOn: '', dueOn: '', archived: false,
 };
+
+const VISIBILITY_OPTS = [
+  { key: 'org', icon: Globe, label: 'Nexus Global', desc: 'Any organization member can find and access this project.' },
+  { key: 'restricted', icon: Lock, label: 'Collaborators only', desc: 'Only the owner, its teams’ members, and task assignees can access.' },
+];
 
 export default function ProjectsView({ onNavigate }) {
   const isMobile = useIsMobile();
   const store = useTasks();
-  const { projects, portfolios, departments, tasks, deptName, nameOf, portfolioById,
+  const { projects, portfolios, tasks, nameOf, portfolioById,
     createProject, updateProject, deleteProject } = store;
   const people = usePeople();
 
@@ -33,14 +38,14 @@ export default function ProjectsView({ onNavigate }) {
     const q = search.trim().toLowerCase();
     return projects
       .filter((p) => showArchived || !p.archived)
-      .filter((p) => !q || p.name.toLowerCase().includes(q) || deptName(p.departmentId).toLowerCase().includes(q))
+      .filter((p) => !q || p.name.toLowerCase().includes(q) || (p.hrDepartmentName || '').toLowerCase().includes(q))
       .map((p) => {
         const own = tasks.filter((t) => t.projectId === p.id);
         return { project: p, stats: taskStats(own) };
       })
       .sort((a, b) => Number(a.project.archived) - Number(b.project.archived)
         || a.project.name.localeCompare(b.project.name));
-  }, [projects, tasks, search, showArchived, deptName]);
+  }, [projects, tasks, search, showArchived]);
 
   const openProject = openId ? projects.find((p) => p.id === openId) : null;
 
@@ -54,7 +59,8 @@ export default function ProjectsView({ onNavigate }) {
   const startCreate = () => setEditing({ ...EMPTY_FORM });
   const startEdit = (p) => setEditing({
     id: p.id, name: p.name || '', description: p.description || '', color: p.color || NX.blue,
-    ownerId: p.ownerId || null, departmentIds: p.departmentIds?.length ? p.departmentIds : (p.departmentId ? [p.departmentId] : []), portfolioId: p.portfolioId || '',
+    ownerId: p.ownerId || null, hrDepartmentName: p.hrDepartmentName || '', portfolioId: p.portfolioId || '',
+    accessLevel: p.accessLevel || 'restricted',
     status: p.status || 'not_started', startOn: p.startOn || '', dueOn: p.dueOn || '', archived: !!p.archived,
   });
 
@@ -117,11 +123,7 @@ export default function ProjectsView({ onNavigate }) {
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 14.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                      {(p.departmentIds?.length ? p.departmentIds : (p.departmentId ? [p.departmentId] : [])).map((did) => {
-                        const dn = deptName(did); if (!dn) return null;
-                        const c = store.deptById?.(did)?.color || dcolor;
-                        return <span key={did} style={chip(c, `${c}1a`)}>{dn}</span>;
-                      })}
+                      {p.hrDepartmentName && <span style={chip(dcolor, `${dcolor}1a`)}>{p.hrDepartmentName}</span>}
                       {p.archived && <span style={chip(NX.faint, NX.border2)}><Archive size={11} />Archived</span>}
                     </div>
                   </div>
@@ -172,17 +174,9 @@ export default function ProjectsView({ onNavigate }) {
           form={editing}
           setForm={setEditing}
           people={people}
-          departments={departments}
           portfolios={portfolios}
           onClose={() => setEditing(null)}
-          onSave={async () => {
-            const { id, ...data } = editing;
-            try {
-              if (id) await updateProject(id, data);
-              else await createProject(data);
-              setEditing(null);
-            } catch { window.alert('Could not save the project.'); }
-          }}
+          onSaved={() => setEditing(null)}
         />
       )}
     </div>
@@ -190,10 +184,41 @@ export default function ProjectsView({ onNavigate }) {
 }
 
 // ── Add / Edit modal ─────────────────────────────────────────────────────────
-function ProjectModal({ form, setForm, people, departments, portfolios, onClose, onSave }) {
+// Owns the full save flow (project fields + team assignment diffs), since
+// applying team assignments needs the project's id, which for a new project
+// only exists after createProject resolves. Callers just get an onSaved(project)
+// callback for their own post-save action (close, navigate, etc).
+function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
+  const { teams, createProject, updateProject, updateTeam } = useTasks();
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
   const label = { fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 5, display: 'block' };
   const valid = form.name.trim().length > 0;
+  const [saving, setSaving] = useState(false);
+
+  // Teams currently assigned to this project (none yet for a brand-new one),
+  // staged locally until Save so create and edit behave the same way.
+  const [teamIds, setTeamIds] = useState(() => teams.filter((t) => t.projectId === form.id).map((t) => t.id));
+  const toggleTeam = (id) => setTeamIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+
+  const save = async () => {
+    if (!valid || saving) return;
+    setSaving(true);
+    try {
+      const { id, ...data } = form;
+      const project = id ? await updateProject(id, data) : await createProject(data);
+      const wasAssigned = teams.filter((t) => t.projectId === (id || project.id)).map((t) => t.id);
+      const toAssign = teamIds.filter((tid) => !wasAssigned.includes(tid));
+      const toUnassign = wasAssigned.filter((tid) => !teamIds.includes(tid));
+      await Promise.all([
+        ...toAssign.map((tid) => updateTeam(tid, { project_id: project.id }).catch(() => {})),
+        ...toUnassign.map((tid) => updateTeam(tid, { project_id: '' }).catch(() => {})),
+      ]);
+      onSaved(project);
+    } catch {
+      setSaving(false);
+      window.alert('Could not save the project.');
+    }
+  };
 
   return (
     <Modal
@@ -201,7 +226,7 @@ function ProjectModal({ form, setForm, people, departments, portfolios, onClose,
       onClose={onClose}
       footer={<>
         <button style={btn('ghost')} onClick={onClose}>Cancel</button>
-        <button style={{ ...btn('primary'), opacity: valid ? 1 : 0.5, pointerEvents: valid ? 'auto' : 'none' }} onClick={onSave}>{form.id ? 'Save Changes' : 'Create Project'}</button>
+        <button style={{ ...btn('primary'), opacity: valid && !saving ? 1 : 0.5, pointerEvents: valid && !saving ? 'auto' : 'none' }} onClick={save}>{form.id ? 'Save Changes' : 'Create Project'}</button>
       </>}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -222,21 +247,14 @@ function ProjectModal({ form, setForm, people, departments, portfolios, onClose,
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
-            <label style={label}>Teams</label>
-            {departments.length === 0 ? (
-              <div style={{ fontSize: 12.5, color: NX.faint }}>No teams yet.</div>
+            <label style={label}>Department</label>
+            {form.id ? (
+              <div style={{ fontSize: 13, color: form.hrDepartmentName ? NX.ink : NX.faint, padding: '8px 0' }}>
+                {form.hrDepartmentName || 'None — auto-populated from the creator’s People-module profile'}
+              </div>
             ) : (
-              <div style={{ maxHeight: 160, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {departments.map((d) => {
-                  const on = (form.departmentIds || []).includes(d.id);
-                  return (
-                    <label key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={on} onChange={() => set({ departmentIds: on ? form.departmentIds.filter((x) => x !== d.id) : [...(form.departmentIds || []), d.id] })} style={{ cursor: 'pointer' }} />
-                      <span style={{ width: 9, height: 9, borderRadius: '50%', background: d.color || NX.purple, flexShrink: 0 }} />
-                      {d.name}
-                    </label>
-                  );
-                })}
+              <div style={{ fontSize: 12.5, color: NX.faint, padding: '8px 0' }}>
+                Auto-populated from your own People-module profile once created.
               </div>
             )}
           </div>
@@ -246,6 +264,43 @@ function ProjectModal({ form, setForm, people, departments, portfolios, onClose,
               <option value="">None</option>
               {portfolios.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
+          </div>
+        </div>
+
+        <div>
+          <label style={label}>Teams</label>
+          {teams.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: NX.faint }}>No teams yet — create one from the Manage tab, then assign it here.</div>
+          ) : (
+            <div style={{ maxHeight: 160, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8, padding: 8, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {teams.map((t) => {
+                const on = teamIds.includes(t.id);
+                const elsewhere = t.projectId && t.projectId !== form.id;
+                return (
+                  <label key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 6px', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={on} onChange={() => toggleTeam(t.id)} style={{ cursor: 'pointer' }} />
+                    <span style={{ width: 9, height: 9, borderRadius: '50%', background: t.color || NX.purple, flexShrink: 0 }} />
+                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+                    {elsewhere && <span style={{ fontSize: 11, color: NX.faint, flexShrink: 0 }}>currently elsewhere</span>}
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <label style={label}>Who can access</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {VISIBILITY_OPTS.map((o) => (
+              <button key={o.key} type="button" onClick={() => set({ accessLevel: o.key })} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, textAlign: 'left', padding: 10, borderRadius: 10, border: `1px solid ${form.accessLevel === o.key ? NX.blue : NX.border}`, background: form.accessLevel === o.key ? 'rgba(37,99,235,0.10)' : NX.surface, cursor: 'pointer', fontFamily: FONT }}>
+                <o.icon size={15} style={{ color: NX.dim, marginTop: 2, flexShrink: 0 }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{o.label}</div>
+                  <div style={{ fontSize: 11.5, color: NX.dim, marginTop: 1 }}>{o.desc}</div>
+                </div>
+              </button>
+            ))}
           </div>
         </div>
 
@@ -261,18 +316,14 @@ function ProjectModal({ form, setForm, people, departments, portfolios, onClose,
 // Self-contained "create a project" modal that reuses the full ProjectModal form,
 // so the navbar + Create menu matches the Projects tab exactly.
 export function ProjectCreateModal({ onClose, onCreated, defaults }) {
-  const { departments, portfolios, createProject } = useTasks();
+  const { portfolios } = useTasks();
   const people = usePeople();
   const [form, setForm] = useState(() => ({ ...EMPTY_FORM, ...(defaults || {}) }));
   return (
     <ProjectModal
-      form={form} setForm={setForm} people={people} departments={departments} portfolios={portfolios}
+      form={form} setForm={setForm} people={people} portfolios={portfolios}
       onClose={onClose}
-      onSave={async () => {
-        const { id, ...data } = form;
-        try { const p = await createProject(data); onCreated && onCreated(p); onClose(); }
-        catch { window.alert('Could not save the project.'); }
-      }}
+      onSaved={(p) => { onCreated && onCreated(p); onClose(); }}
     />
   );
 }
