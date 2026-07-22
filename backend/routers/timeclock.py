@@ -40,6 +40,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember)
 from routers.hr import _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET
 from routers.esign import _client_meta
+from routers.stepup import require_stepup
 
 router = APIRouter(prefix="/timeclock", tags=["timeclock"])
 
@@ -631,9 +632,11 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
 
 @router.get("/export.csv")
 def export_csv(start: str = "", end: str = "", mode: str = "summary",
-               user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    """Payroll export file, SwipeClock-style: Summary Totals (one row per
-    employee-day) or All Punch Details. Exact times, no rounding."""
+               user: dict = Depends(require_team_read),
+               _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
+    """Payroll export file (incl. $ pay columns) — requires a fresh step-up MFA
+    (require_stepup). Summary Totals (one row per employee-day) or All Punch
+    Details. Exact times, no rounding."""
     buf = io.StringIO()
     w = csv.writer(buf)
     scope = _visible_emails(db, user)
@@ -2169,8 +2172,10 @@ def _compute_timecard(db: Session, em: str, start: str, end: str) -> dict:
 
 @router.get("/payroll")
 def payroll_timecard(email: str, start: str, end: str,
-                     user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
-    """Manager timecard for one employee over [start, end] — see _compute_timecard."""
+                     user: dict = Depends(require_team_read),
+                     _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
+    """Manager timecard (incl. $ pay) for one employee — requires a fresh step-up
+    MFA (require_stepup). See _compute_timecard."""
     em = email.strip().lower()
     scope = _visible_emails(db, user)
     if scope is not None and em not in scope:
@@ -2200,7 +2205,7 @@ class RateIn(BaseModel):
 
 @router.put("/payroll/rate")
 def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
-                     db: Session = Depends(get_db)):
+                     _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     em = body.email.strip().lower()
     scope = _visible_emails(db, user)
     if scope is not None and em not in scope:

@@ -18,6 +18,7 @@ from routers import qa  # Testing module — dev-only via NEXUS_QA_MODULE env (J
 from routers import credvault  # Credential Vault (Jul 2026)
 from routers import policy  # Sign-in company-policy & monitoring acknowledgment (Jul 2026)
 from routers import investor_relations  # Investor Relations platform (Jul 2026)
+from routers import stepup  # Step-up MFA for sensitive data (vault/payroll/HR) (Jul 2026)
 from audit import AuditMiddleware
 
 
@@ -637,4 +638,5 @@ app.include_router(credvault.router)      # Credential Vault: encrypted company/
 app.include_router(asana_webhook.router)  # Asana two-way sync: public webhook receiver (verified by HMAC)
 app.include_router(policy.router)         # Sign-in company-policy & monitoring acknowledgment
 app.include_router(investor_relations.router)  # Investor Relations: funds/investors/commitments/calls/distributions
+app.include_router(stepup.router)         # Step-up MFA for sensitive data (vault reveals / payroll / confidential HR)
 

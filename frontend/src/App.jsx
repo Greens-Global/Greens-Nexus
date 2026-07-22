@@ -11,6 +11,7 @@ import TopHeader from "./components/TopHeader";
 import AdminPanel from "./components/AdminPanel";
 import NotificationToasts from "./components/NotificationToasts";
 import TimeclockWidget from "./components/TimeclockWidget";
+import { StepUpOverlay } from "./stepup/StepUp";
 import GlobalSearch from "./components/GlobalSearch";
 import PullToRefresh from "./components/PullToRefresh";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
@@ -323,6 +324,7 @@ function MainApp() {
         <RequisitionProvider>
         <InventoryProvider>
         <NotificationToasts onNavigate={navigate} />
+        <StepUpOverlay />
         <TimeclockWidget />
         <GlobalSearch onNavigate={navigate} />
         <PullToRefresh />

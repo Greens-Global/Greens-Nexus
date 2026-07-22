@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Pencil, Plus, X, Loader2, CheckCircle, Download, AlertTriangle } from 'lucide-react';
 import { api } from '../api';
+import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 
 // ── Payroll timecard (SwipeClock-style, manager-editable) ─────────────────────
 // One employee, one pay period (biweekly). In/out segments per day with manager
@@ -32,6 +33,7 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
   const [ruleInput, setRuleInput] = useState('ca');   // ca | federal | none
   const [editDay, setEditDay] = useState(null);   // { date, seg? }
   const [busy, setBusy] = useState(false);
+  const [stepLocked, setStepLocked] = useState(false);   // payroll $ needs a fresh step-up
 
   const start = isoDate(pStart);
   const end = isoDate(pStart.getTime() + 13 * DAY);
@@ -50,8 +52,13 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
   const load = useCallback(() => {
     if (!email) return;
     setData(null);
-    api.timePayroll(email, start, end).then(d => { setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca'); })
-      .catch(e => { setData(null); toastErr?.(e?.message || 'Could not load the timecard.'); });
+    api.timePayroll(email, start, end).then(d => { setStepLocked(false); setData(d); setRateInput(d.rateSet ? String(d.rate) : ''); setRuleInput(d.overtimeRule || 'ca'); })
+      .catch(e => {
+        // Payroll shows $ — the backend requires a fresh step-up MFA. Show the
+        // Verify gate (a gesture) rather than popping a challenge on mount.
+        if (isStepUpRequired(e)) { setStepLocked(true); return; }
+        setData(null); toastErr?.(e?.message || 'Could not load the timecard.');
+      });
   }, [email, start, end, toastErr]);
   useEffect(load, [load]);
 
@@ -64,6 +71,8 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
   const rate = data?.rate || 0;
 
   async function saveRate() {
+    const up = await ensureStepUp();
+    if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; }
     setBusy(true);
     try { await api.timePayrollRate({ email, hourly_rate: parseFloat(rateInput) || 0, overtime_rule: ruleInput }); toastOk?.('Pay rate saved.'); load(); }
     catch (e) { toastErr?.(e?.message || 'Could not save rate.'); }
@@ -128,13 +137,15 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
         </div>
       </div>
 
-      {!data?.rateSet && (
+      {!stepLocked && !data?.rateSet && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#b45309', marginBottom: 10 }}>
           <AlertTriangle size={13} /> No pay rate set for this employee — wages show $0 until you set one.
         </div>
       )}
 
-      {data === null ? (
+      {stepLocked ? (
+        <StepUpNeeded label="Payroll shows employees’ pay figures." onVerified={load} />
+      ) : data === null ? (
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /></div>
       ) : (
         <div style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 12 }}>
@@ -226,7 +237,7 @@ export default function PayrollTimecard({ toastOk, toastErr }) {
               <span>Edited Punches</span><span style={{ fontWeight: 700 }}>{T.editedPunches}</span>
             </div>
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              <button className="secondary-btn" onClick={() => api.timeExportCsv(start, end, 'punches')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
+              <button className="secondary-btn" onClick={async () => { const up = await ensureStepUp(); if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; } api.timeExportCsv(start, end, 'punches'); }} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
               <button className="primary-btn" onClick={approve} disabled={busy} style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><CheckCircle size={13} /> Approve</button>
             </div>
           </div>

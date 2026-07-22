@@ -2052,6 +2052,25 @@ class VaultAccessLog(Base):
     created_at  = Column(String, default="", index=True)
 
 
+class StepUpSession(Base):
+    """A short-lived proof that the user completed a FRESH Entra MFA (step-up)
+    for the sensitive-data action they're about to take. Created by
+    /stepup/verify after validating an Entra access token that carries the
+    configured authentication-context claim (acrs); consumed by the
+    require_stepup dependency guarding vault reveals + payroll + confidential HR.
+    One session unlocks a short burst so users aren't re-prompted per item.
+    The row IS the audit trail (who stepped up, when, how, from where)."""
+    __tablename__ = "stepup_sessions"
+    id          = Column(String, primary_key=True)            # uuid
+    email       = Column(String, default="", index=True)
+    method      = Column(String, default="")                  # authenticator|sms|mfa|dev — from the token's amr, best-effort
+    acr         = Column(String, default="")                  # the authentication-context value satisfied (e.g. c1)
+    granted_at  = Column(String, default="")
+    expires_at  = Column(String, default="", index=True)
+    ip          = Column(String, default="")
+    user_agent  = Column(String, default="")
+
+
 # ── Investor Relations (Jul 2026) ────────────────────────────────────────────
 # GP-side capital-management platform for single-purpose-LLC deals and small
 # syndications (not blind-pool PE funds): one deal per property/project, a

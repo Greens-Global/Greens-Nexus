@@ -829,6 +829,11 @@ export const api = {
   cvPersonalDelete: (id)         => req(`/credvault/personal/${id}`, { method: 'DELETE' }),
   cvPersonalReveal: (id)         => req(`/credvault/personal/${id}/reveal`, { method: 'POST' }),
 
+  // ── Step-up MFA (fresh verification before sensitive data) ──
+  stepupConfig:  ()      => req('/stepup/config'),
+  stepupStatus:  ()      => req('/stepup/status'),
+  stepupVerify:  (token) => req('/stepup/verify', { method: 'POST', body: JSON.stringify({ token: token || '' }) }),
+
   // ── Investor Relations (GP capital management: funds, LPs, calls, distributions) ──
   // List endpoints drop empty/undefined params so filters never send "undefined".
   getIrDashboard:  ()          => req("/investor-relations/dashboard"),

@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 import models
 from database import get_db
 from auth import get_current_user, require_module_grant, _module_level, _MODULE_LEVEL_RANK
+from routers.stepup import require_stepup
 
 router = APIRouter(
     prefix="/credvault",
@@ -384,9 +385,11 @@ def purge_credential(cred_id: str, user: dict = Depends(get_current_user), db: S
 
 
 @router.post("/credentials/{cred_id}/reveal")
-def reveal_credential(cred_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def reveal_credential(cred_id: str, user: dict = Depends(get_current_user),
+                      _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     """The ONLY way a company secret leaves the server (besides grant reveal).
-    Critical tier + non-admin → creates an approval request instead."""
+    Requires a fresh step-up MFA (require_stepup). Critical tier + non-admin →
+    creates an approval request instead."""
     c = _get_cred(cred_id, db)
     if c.deleted_at:
         raise HTTPException(400, "Credential is in the trash")
@@ -598,7 +601,8 @@ def list_grants(user: dict = Depends(get_current_user), db: Session = Depends(ge
 
 
 @router.post("/grants/{grant_id}/reveal")
-def reveal_grant(grant_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def reveal_grant(grant_id: str, user: dict = Depends(get_current_user),
+                 _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     g = db.get(models.VaultAccessGrant, grant_id)
     if not g or g.granted_to != user["email"]:
         raise HTTPException(404, "Grant not found")
@@ -678,8 +682,12 @@ def delete_personal(pid: str, user: dict = Depends(get_current_user), db: Sessio
 
 
 @router.post("/personal/{pid}/reveal")
-def reveal_personal(pid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def reveal_personal(pid: str, user: dict = Depends(get_current_user),
+                    _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     row = db.get(models.VaultPersonalCredential, pid)
     if not row or row.owner_email != user["email"]:
         raise HTTPException(404, "Not found")
+    # Personal reveals were previously unaudited — record them like company reveals.
+    _log(db, user, "Revealed", row.name, "Personal", pid)
+    db.commit()
     return {"secret": _dec(row.secret_enc)}
