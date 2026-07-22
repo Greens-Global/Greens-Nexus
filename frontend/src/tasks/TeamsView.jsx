@@ -12,7 +12,7 @@ import {
   Headphones, HeartPulse,
 } from 'lucide-react';
 import { NX, FONT, btn, input as inputStyle, STATUS_META } from './theme';
-import { Avatar, EmptyState, Modal, usePeople, PersonSelect } from './components';
+import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile } from './components';
 import { useTasks } from './TasksContext';
 import { topLevel } from './lib';
 import { CalendarView } from './views/extras';
@@ -212,6 +212,10 @@ export function TeamModal({ team, onClose, onDelete }) {
   const [projectId, setProjectId] = useState(team?.projectId || '');
   const [color, setColor] = useState(team?.color || DEPT_COLORS[0]);
   const [icon, setIcon] = useState(team?.icon || 'building');
+  // See ProjectsView.jsx's ProjectModal for why: autoFocus on the first field
+  // of a vh-sized Modal + mobile Chrome's keyboard-open scroll behavior can
+  // scroll fields below it out of view.
+  const isMobile = useIsMobile();
   const [members, setMembers] = useState(team?.memberIds || []);
   const [saving, setSaving] = useState(false);
 
@@ -256,7 +260,7 @@ export function TeamModal({ team, onClose, onDelete }) {
     >
       {/* Name */}
       <label style={labelStyle}>Name</label>
-      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. QA Team" autoFocus style={inputStyle} />
+      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. QA Team" autoFocus={!isMobile} style={inputStyle} />
 
       {/* Project — optional; a team can stand alone or be assigned to a project
           (here, or later from that project's own Teams picker). */}

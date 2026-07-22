@@ -1,7 +1,7 @@
 // Task Module — shared UI atoms (inline-styled to match the export's light theme).
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Check, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip, STATUS_META } from './theme';
 import { fmtDate } from './lib';
@@ -30,6 +30,21 @@ export function StatusChip({ status }) {
 export function PriorityChip({ priority }) {
   const { label, ...s } = priorityChip(priority);
   return <span style={s}>{label}</span>;
+}
+
+// Single floating "+" action, styled like the create segment of MobileTaskBar
+// (bottom-center pill), for mobile pages that only need one action — no
+// filter/view segments. Replaces an inline header "+" so it stays reachable
+// one-thumb while scrolled, matching the Task pages' mobile pattern.
+export function MobileFab({ onClick, title = 'Create' }) {
+  return (
+    <button onClick={onClick} title={title} aria-label={title} style={{
+      position: 'fixed', left: '50%', bottom: 18, transform: 'translateX(-50%)',
+      width: 58, height: 52, borderRadius: 16, border: `1px solid ${NX.border}`,
+      background: NX.primary, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      boxShadow: '0 10px 30px rgba(0,0,0,0.22)', zIndex: 2500, cursor: 'pointer', fontFamily: FONT,
+    }}><Plus size={22} /></button>
+  );
 }
 
 export function EmptyState({ icon: Icon, title, hint }) {

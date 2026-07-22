@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Plus, ListChecks, Ticket, FolderKanban, Briefcase } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { NX, FONT, btn, input as inputStyle } from './theme';
-import { Modal } from './components';
+import { Modal, useIsMobile } from './components';
 import CreateTaskModal from './CreateTaskModal';
 import { CreateTicketModal } from '../tickets/TicketsView';
 import { ProjectCreateModal } from './ProjectsView';
@@ -42,6 +42,10 @@ export default function CreateMenu({ onNavigate, fab = false, taskDefaults = {} 
   const [deptProjectId, setDeptProjectId] = useState('');
   const [deptBusy, setDeptBusy] = useState(false);
   const deptCanSubmit = deptName.trim() && !deptBusy;
+  // See ProjectsView.jsx's ProjectModal for why: autoFocus on the first field
+  // of a vh-sized Modal + mobile Chrome's keyboard-open scroll behavior can
+  // scroll fields below it out of view.
+  const isMobile = useIsMobile();
   const submitDept = async () => {
     if (!deptCanSubmit) return;
     setDeptBusy(true);
@@ -115,7 +119,7 @@ export default function CreateMenu({ onNavigate, fab = false, taskDefaults = {} 
         }>
           <div style={field}>
             <label style={label}>Name</label>
-            <input autoFocus value={deptName} onChange={(e) => setDeptName(e.target.value)} placeholder="Team name" style={inputStyle}
+            <input autoFocus={!isMobile} value={deptName} onChange={(e) => setDeptName(e.target.value)} placeholder="Team name" style={inputStyle}
               onKeyDown={(e) => e.key === 'Enter' && submitDept()} />
           </div>
           <div style={field}>
