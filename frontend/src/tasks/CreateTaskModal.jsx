@@ -8,6 +8,7 @@ import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { Modal, PersonSelect, usePeople, DateField, useIsMobile } from './components';
 import { ProjectCreateModal } from './ProjectsView';
+import { CustomFieldInput } from './TaskDetailDrawer';
 import { filesFromPaste } from './lib';
 import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORITY_ORDER } from './theme';
 
@@ -18,7 +19,7 @@ const MAX_INLINE = 2 * 1024 * 1024;
 
 export default function CreateTaskModal({ onClose, defaults = {}, taskId, lockedProjectId = '' }) {
   const store = useTasks();
-  const { createTask, updateTask, deleteTask, tasks, projects, teams, myEmail } = store;
+  const { createTask, updateTask, deleteTask, tasks, projects, teams, myEmail, customFields = [] } = store;
   const people = usePeople();
   const fileRef = useRef(null);
   const editing = taskId ? store.taskById[taskId] : null;
@@ -39,6 +40,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     recurEnd: editing?.recurrence?.until ? 'on' : editing?.recurrence?.count ? 'after' : 'never',
     recurUntil: editing?.recurrence?.until ?? '', recurCount: editing?.recurrence?.count != null ? String(editing.recurrence.count) : '',
     labels: editing?.tags ?? [],
+    customFieldValues: editing?.customFieldValues ?? {},
   }));
   const [labelInput, setLabelInput] = useState('');
   const [subtaskInput, setSubtaskInput] = useState('');
@@ -106,6 +108,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
       title: form.title.trim(), description: form.description, assigneeId: form.assigneeId || '', ownerId: form.ownerId || '',
       priority: form.priority, status: form.recurFreq !== 'none' ? 'recurring' : form.status, projectId: form.projectId || '', teamId: form.teamId || '',
       dueOn: form.dueOn || '', estimateHours: (form.estimateHrs || form.estimateMin) ? (Number(form.estimateHrs || 0) + Number(form.estimateMin || 0) / 60) : null, tags: form.labels, recurrence: recurrence(),
+      customFieldValues: form.customFieldValues,
     };
     try {
       let parentId = taskId;
@@ -287,6 +290,20 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
             <input value={labelInput} onChange={(e) => setLabelInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addLabel(); } }} placeholder="Add label + Enter" style={{ ...input, width: 160, padding: '5px 9px', fontSize: 13 }} />
           </div>
         </div>
+
+        {customFields.length > 0 && (
+          <div style={field}>
+            <label style={label}>Custom Fields</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {customFields.map((f) => (
+                <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ width: 120, flexShrink: 0, fontSize: 13, color: NX.dim }}>{f.name}</span>
+                  <CustomFieldInput field={f} value={form.customFieldValues[f.id]} onChange={(v) => set('customFieldValues', { ...form.customFieldValues, [f.id]: v })} />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div style={field}>
           <label style={label}>Subtasks</label>
