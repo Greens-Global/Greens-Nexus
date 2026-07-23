@@ -246,6 +246,20 @@ export default function TicketsView() {
   const [openId, setOpenId] = useState(null);
   const [selected, setSelected] = useState(() => new Set());
 
+  // Deep-link support — the Outlook notification emails link to
+  // "?ticket=<id>" (see backend/ticket_mail_templates.py's _ticket_url). Open
+  // that ticket once on mount, then strip the param so a later refresh
+  // doesn't reopen it.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tid = params.get('ticket');
+    if (!tid) return;
+    setOpenId(tid);
+    params.delete('ticket');
+    const rest = params.toString();
+    window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''));
+  }, []);
+
   // Saved views — snapshot the current filter set + grouping + view kind.
   const applyTicketView = (v) => {
     const f = v.filters || {};
@@ -861,6 +875,13 @@ function TicketDrawer({ ticketId, onClose }) {
 
   const patch = (p) => updateTicket(t.id, p).catch((e) => alert(`Could not update ticket: ${e.message || e}`));
   const escalate = () => escalateTicket(t.id).catch((e) => alert(`Could not escalate: ${e.message || e}`));
+  // Same "ask a reason" pattern as the approval-reject flow — the Outlook
+  // reopened-ticket email includes it, so the assignee/dept lead knows why.
+  const reopen = () => {
+    const reason = window.prompt('Why are you reopening this ticket?');
+    if (reason === null) return;
+    patch({ status: 'reopened', reopen_reason: reason.trim() });
+  };
   // ticket → many tasks: union of the spawned list + the legacy single linkedTaskId
   const taskIds = [...(t.taskIds || []), ...(t.linkedTaskId && !(t.taskIds || []).includes(t.linkedTaskId) ? [t.linkedTaskId] : [])];
   const spawnTask = async () => {
@@ -890,9 +911,17 @@ function TicketDrawer({ ticketId, onClose }) {
         {t.priority !== 'urgent' && !CLOSED_STATES.includes(t.status) && (
           <button style={{ ...btn('outline'), color: NX.amber }} onClick={escalate} title="Bump priority and alert the assignee, watchers and managers"><ArrowUp size={14} /> Escalate</button>
         )}
-        {!CLOSED_STATES.includes(t.status)
-          ? <button style={{ ...btn('outline'), color: NX.green }} onClick={() => patch({ status: 'resolved', resolution: t.resolution || 'fixed' })}><CheckCircle2 size={14} /> Mark Resolved</button>
-          : <button style={btn('outline')} onClick={() => patch({ status: 'reopened' })}>Reopen</button>}
+        {!CLOSED_STATES.includes(t.status) ? (
+          <button style={{ ...btn('outline'), color: NX.green }} onClick={() => patch({ status: 'resolved', resolution: t.resolution || 'fixed' })}><CheckCircle2 size={14} /> Mark Resolved</button>
+        ) : (
+          <>
+            {t.status === 'resolved' && (
+              <button style={{ ...btn('outline'), color: NX.green }} onClick={() => patch({ status: 'closed' })}
+                title="Close this ticket now instead of waiting for it to auto-close"><CheckCircle2 size={14} /> Confirm Resolution</button>
+            )}
+            <button style={btn('outline')} onClick={reopen}>Reopen</button>
+          </>
+        )}
         <button style={btn('primary')} onClick={onClose}>Done</button>
       </>
     }>

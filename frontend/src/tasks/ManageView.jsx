@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Zap, Plus, Trash2, Pencil, ListChecks, FileText, Inbox, Activity as ActivityIcon,
   BarChart3, Download, X, CheckCircle2, Flag, ArrowRightLeft, User, Calendar, MessageSquare,
-  Circle, Palette, Users, List,
+  Circle, Palette, Users, List, Mail,
 } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { api } from '../api';
@@ -18,6 +18,7 @@ import { Avatar, EmptyState, Modal } from './components';
 import { taskStats, topLevel, fmtDateTime } from './lib';
 import TasksWorkspace from './TasksWorkspace';
 import { TeamModal, deptIcon } from './TeamsView';
+import TicketNotifySettings from '../tickets/TicketNotifySettings';
 
 // ── Small shared bits ─────────────────────────────────────────────────────────
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
@@ -67,6 +68,7 @@ const SUBTABS = [
   { key: 'statuses', label: 'Custom Statuses', icon: Palette },
   { key: 'templates', label: 'Templates', icon: FileText },
   { key: 'intake', label: 'Intake Forms', icon: Inbox },
+  { key: 'ticketNotify', label: 'Ticket Notifications', icon: Mail },
   { key: 'activity', label: 'Activity Log', icon: ActivityIcon },
   { key: 'reporting', label: 'Reporting', icon: BarChart3 },
 ];
@@ -109,6 +111,7 @@ export default function ManageView() {
             {tab === 'statuses' && <StatusesTab store={store} />}
             {tab === 'templates' && <TemplatesTab store={store} />}
             {tab === 'intake' && <IntakeTab store={store} />}
+            {tab === 'ticketNotify' && <TicketNotifySettings />}
             {tab === 'activity' && <ActivityTab store={store} />}
             {tab === 'reporting' && <ReportingTab store={store} />}
           </div>

@@ -1774,6 +1774,34 @@ class TaskTicket(Base):
     modified_at    = Column(String, default="")
 
 
+class TicketEmailLog(Base):
+    """One attempted Outlook notification for a ticket event (Ticket
+    Notification Workflow, Jul 2026). One row per (ticket, event, recipient) —
+    the durable record a background retry loop scans, and what an admin's
+    delivery-log view reads. `idempotency_key` is
+    f"{ticket_id}:{event_type}:{event_version}:{recipient}" — checked before
+    sending so the same event never emails the same person twice, including
+    across a mid-send server restart (see ticket_notify.py)."""
+    __tablename__ = "ticket_email_log"
+    id                   = Column(String, primary_key=True)
+    ticket_id            = Column(String, default="", index=True)
+    ticket_code          = Column(String, default="")     # denormalised so the log reads after a ticket is deleted
+    event_type           = Column(String, default="")     # created|assigned|updated|resolved|reopened
+    event_version        = Column(Integer, default=0)     # bumps when the same event_type fires again on this ticket
+    idempotency_key       = Column(String, default="", index=True, unique=True)
+    recipient            = Column(String, default="")
+    recipient_role       = Column(String, default="")     # requester|dept_head|assignee|ticket_admin
+    subject              = Column(String, default="")
+    status               = Column(String, default="pending")   # pending|sent|failed|retrying
+    graph_message_id     = Column(String, default="")
+    conversation_id      = Column(String, default="")
+    internet_message_id  = Column(String, default="")
+    attempts             = Column(Integer, default=0)
+    error                = Column(String, default="")
+    created_at           = Column(String, default="")
+    updated_at           = Column(String, default="")
+
+
 class TaskTicketComponent(Base):
     """A ticket component / category (e.g. "Billing", "Network"). Small config
     table managed from Manage; tickets reference one by name."""

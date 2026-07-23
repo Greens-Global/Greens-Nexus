@@ -11,15 +11,16 @@ department's lead when an unassigned ticket arrives.
 Ticket conversation/attachments/activity deliberately reuse the task comment and
 attachment tables, keyed by ticket id — same storage, separate router.
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Any
 
 import models
 from database import get_db
-from auth import get_current_user
+from auth import get_current_user, require_manager
 from routers.task_util import now_iso, gen_id, log_activity, task_notify
+from ticket_notify import notify_ticket_event, get_settings as get_notify_settings, save_settings as save_notify_settings
 
 router = APIRouter(tags=["Tickets"], dependencies=[Depends(get_current_user)])
 
@@ -181,6 +182,9 @@ class TicketUpdate(BaseModel):
     csat_comment: Optional[str] = None
     sla_due_on: Optional[str] = None
     resolved_at: Optional[str] = None
+    # Not a ticket column — used only to build the "Reopened" notification's
+    # "Reason" line and its activity-log entry, then discarded.
+    reopen_reason: Optional[str] = None
 
 
 def _next_ticket_code(db: Session) -> str:
@@ -215,7 +219,8 @@ def list_tickets(db: Session = Depends(get_db)):
 
 
 @router.post("/task-tickets", status_code=201)
-def create_ticket(body: TicketBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
+                  user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     now = now_iso()
     t = models.TaskTicket(
         id=body.id or gen_id(), code=body.code or _next_ticket_code(db), subject=body.subject,
@@ -258,17 +263,20 @@ def create_ticket(body: TicketBody, user: dict = Depends(get_current_user), db: 
                     title="We received your ticket", body=f"{t.code} · {t.subject}", nexus_action=tk_action)
     db.commit()
     db.refresh(t)
+    background_tasks.add_task(notify_ticket_event, t.id, "created", user["email"])
     return ticket_to_dict(t)
 
 
 @router.patch("/task-tickets/{ticket_id}")
-def update_ticket(ticket_id: str, body: TicketUpdate, user: dict = Depends(get_current_user),
-                  db: Session = Depends(get_db)):
+def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: BackgroundTasks,
+                  user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id).first()
     if not t:
         raise HTTPException(404, "Ticket not found")
     data = body.model_dump(exclude_unset=True)
+    reopen_reason = data.pop("reopen_reason", "") or ""   # not a column — see TicketUpdate
     prev_status, prev_assignee, prev_priority = t.status, (t.assignee_email or ""), t.priority
+    prev_due = t.sla_due_on
     for k, v in data.items():
         if k in ("assignee_email",) and v is not None:
             v = (v or "").lower()
@@ -284,7 +292,9 @@ def update_ticket(ticket_id: str, body: TicketUpdate, user: dict = Depends(get_c
         log_activity(db, type=kind, actor_email=user["email"], entity_kind="ticket",
                      entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail=detail)
     tk_action = {"view": "tasks", "sub": "tickets", "label": "View ticket"}
-    if "status" in data and t.status != prev_status:
+    status_changed = "status" in data and t.status != prev_status
+    assignee_changed = "assignee_email" in data and (t.assignee_email or "") != prev_assignee
+    if status_changed:
         _log("status_changed", f"changed status to {t.status}")
         if t.status in ("resolved", "closed") and t.requester_email and t.requester_email != user["email"].lower():
             task_notify(db, kind="ticket_resolved", for_email=t.requester_email,
@@ -293,7 +303,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, user: dict = Depends(get_c
             # keep watchers (and requester/assignee) in the loop on any status move
             _notify_participants(db, t, user["email"], kind="ticket_status",
                                  title=f"Ticket moved to {t.status}", body=f"{t.code} · {t.subject}")
-    if "assignee_email" in data and (t.assignee_email or "") != prev_assignee:
+    if assignee_changed:
         _log("assigned", f"assigned to {t.assignee_email or 'nobody'}")
         if t.assignee_email and t.assignee_email != user["email"].lower():
             task_notify(db, kind="ticket_assigned", for_email=t.assignee_email,
@@ -304,6 +314,29 @@ def update_ticket(ticket_id: str, body: TicketUpdate, user: dict = Depends(get_c
     t.modified_at = now_iso()
     db.commit()
     db.refresh(t)
+
+    # ── Outlook notifications (best-effort, after commit — see ticket_notify.py) ──
+    actor = user["email"]
+    if assignee_changed and t.assignee_email:
+        # Reassignment uses the "assigned" flow exclusively — spec lists reassignment
+        # under both "assigned" (§2) and generic "update" (§3) triggers, but firing
+        # both would double-email the same change; §2's is the richer one.
+        background_tasks.add_task(notify_ticket_event, t.id, "assigned", actor)
+    elif status_changed and t.status == "reopened":
+        background_tasks.add_task(notify_ticket_event, t.id, "reopened", actor, reopen_reason=reopen_reason)
+    elif status_changed and t.status in ("resolved", "closed") and prev_status not in ("resolved", "closed"):
+        background_tasks.add_task(notify_ticket_event, t.id, "resolved", actor)
+    elif status_changed:
+        background_tasks.add_task(notify_ticket_event, t.id, "updated", actor,
+                                   prev_status=prev_status, update_kind=f"Status changed to {t.status}")
+    elif "priority" in data and t.priority != prev_priority:
+        background_tasks.add_task(notify_ticket_event, t.id, "updated", actor,
+                                   update_kind=f"Priority changed to {t.priority}")
+    elif "sla_due_on" in data and t.sla_due_on != prev_due:
+        background_tasks.add_task(notify_ticket_event, t.id, "updated", actor, update_kind="Due date changed")
+    elif "resolution" in data or "description" in data or "type" in data or "hr_department_id" in data:
+        background_tasks.add_task(notify_ticket_event, t.id, "updated", actor, update_kind="Ticket details updated")
+
     return ticket_to_dict(t)
 
 
@@ -358,7 +391,8 @@ def list_ticket_comments(ticket_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/task-tickets/{ticket_id}/comments", status_code=201)
-def add_ticket_comment(ticket_id: str, body: TicketCommentBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks: BackgroundTasks,
+                       user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _ticket_or_404(db, ticket_id)
     internal = bool(body.internal)
     c = models.TaskComment(id=gen_id(), task_id=ticket_id, author_email=user["email"], body=body.body or "",
@@ -374,6 +408,9 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, user: dict = Dep
                          exclude={(t.requester_email or "").lower()} if internal else None)
     db.commit()
     db.refresh(c)
+    if not internal and get_notify_settings(db).get("commentsTrigger", True):
+        background_tasks.add_task(notify_ticket_event, t.id, "updated", user["email"],
+                                   update_kind="New comment added", latest_comment=(body.body or "")[:280])
     return _tcomment(c)
 
 
@@ -390,7 +427,8 @@ def list_ticket_attachments(ticket_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/task-tickets/{ticket_id}/attachments", status_code=201)
-def add_ticket_attachment(ticket_id: str, body: TicketAttachmentBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def add_ticket_attachment(ticket_id: str, body: TicketAttachmentBody, background_tasks: BackgroundTasks,
+                          user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _ticket_or_404(db, ticket_id)
     a = models.TaskAttachment(id=gen_id(), task_id=ticket_id, name=body.name, size=body.size or "",
                               kind=body.kind or "other", url=body.url or "", added_at=now_iso(), added_by=user["email"])
@@ -399,6 +437,9 @@ def add_ticket_attachment(ticket_id: str, body: TicketAttachmentBody, user: dict
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail=f'attached "{a.name}"')
     db.commit()
     db.refresh(a)
+    if get_notify_settings(db).get("attachmentsTrigger", True):
+        background_tasks.add_task(notify_ticket_event, t.id, "updated", user["email"],
+                                   update_kind=f'Attachment added: "{a.name}"')
     return _tattachment(a)
 
 
@@ -568,7 +609,8 @@ _PRIORITY_LADDER = ["low", "medium", "high", "urgent"]
 
 
 @router.post("/task-tickets/{ticket_id}/escalate")
-def escalate_ticket(ticket_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def escalate_ticket(ticket_id: str, background_tasks: BackgroundTasks,
+                    user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _ticket_or_404(db, ticket_id)
     idx = _PRIORITY_LADDER.index(t.priority) if t.priority in _PRIORITY_LADDER else 1
     new_p = _PRIORITY_LADDER[min(idx + 1, len(_PRIORITY_LADDER) - 1)]
@@ -583,5 +625,36 @@ def escalate_ticket(ticket_id: str, user: dict = Depends(get_current_user), db: 
                 nexus_action={"view": "tasks", "sub": "tickets", "label": "View ticket"})
     db.commit()
     db.refresh(t)
+    background_tasks.add_task(notify_ticket_event, t.id, "updated", user["email"],
+                               update_kind=f"Escalated to {new_p} priority")
     return ticket_to_dict(t)
+
+
+# ── Notification settings + delivery log (admin) ──────────────────────────────
+@router.get("/task-tickets/notify/settings")
+def get_ticket_notify_settings(user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    return get_notify_settings(db)
+
+
+@router.put("/task-tickets/notify/settings")
+def put_ticket_notify_settings(patch: dict, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    return save_notify_settings(db, patch, user["email"])
+
+
+@router.get("/task-tickets/notify/log")
+def get_ticket_notify_log(ticket_id: str = "", status: str = "", limit: int = 200,
+                          user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    q = db.query(models.TicketEmailLog)
+    if ticket_id:
+        q = q.filter(models.TicketEmailLog.ticket_id == ticket_id)
+    if status:
+        q = q.filter(models.TicketEmailLog.status == status)
+    rows = q.order_by(models.TicketEmailLog.created_at.desc()).limit(min(limit, 500)).all()
+    return [{
+        "id": r.id, "ticketId": r.ticket_id, "ticketCode": r.ticket_code, "eventType": r.event_type,
+        "eventVersion": r.event_version, "recipient": r.recipient, "recipientRole": r.recipient_role,
+        "subject": r.subject, "status": r.status, "graphMessageId": r.graph_message_id,
+        "conversationId": r.conversation_id, "attempts": r.attempts, "error": r.error,
+        "createdAt": r.created_at, "updatedAt": r.updated_at,
+    } for r in rows]
 
