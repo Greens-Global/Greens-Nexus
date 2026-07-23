@@ -261,6 +261,29 @@ def create_ticket(body: TicketBody, user: dict = Depends(get_current_user), db: 
     return ticket_to_dict(t)
 
 
+# Fields left open to whoever is just working a ticket (the assignee, or
+# anyone else without ownership of it) — enough to triage, reassign and close
+# it out, not to rewrite what it is or who it's for. Everyone else (the
+# requester, the ticket's department lead/backup, or a manager+) gets the
+# full field set. Mirrors the drawer's field gating in TicketsView.jsx —
+# keep the two in step.
+_WORKING_FIELDS = {"type", "status", "priority", "assignee_email", "hr_department_id", "resolution"}
+
+
+def _ticket_edit_scope(db: Session, t: models.TaskTicket, user: dict) -> set | None:
+    """None = unrestricted. A set = the only TicketUpdate keys this caller may send."""
+    email = user["email"].lower()
+    if user.get("level", 1) >= 3:                                    # manager+
+        return None
+    if (t.requester_email or "").lower() == email:                   # who raised it
+        return None
+    if t.hr_department_id:
+        dept = db.query(models.HrDepartment).filter(models.HrDepartment.id == t.hr_department_id).first()
+        if dept and email in {(dept.lead_email or "").lower(), (dept.backup_email or "").lower()}:
+            return None                                              # routes/owns this queue
+    return _WORKING_FIELDS
+
+
 @router.patch("/task-tickets/{ticket_id}")
 def update_ticket(ticket_id: str, body: TicketUpdate, user: dict = Depends(get_current_user),
                   db: Session = Depends(get_db)):
@@ -268,6 +291,11 @@ def update_ticket(ticket_id: str, body: TicketUpdate, user: dict = Depends(get_c
     if not t:
         raise HTTPException(404, "Ticket not found")
     data = body.model_dump(exclude_unset=True)
+    scope = _ticket_edit_scope(db, t, user)
+    if scope is not None:
+        blocked = sorted(set(data.keys()) - scope)
+        if blocked:
+            raise HTTPException(403, f"You can only update {', '.join(sorted(scope))} on a ticket you're not the requester/owner of — not: {', '.join(blocked)}")
     prev_status, prev_assignee, prev_priority = t.status, (t.assignee_email or ""), t.priority
     for k, v in data.items():
         if k in ("assignee_email",) and v is not None:
@@ -308,7 +336,10 @@ def update_ticket(ticket_id: str, body: TicketUpdate, user: dict = Depends(get_c
 
 
 @router.delete("/task-tickets/{ticket_id}", status_code=204)
-def delete_ticket(ticket_id: str, db: Session = Depends(get_db)):
+def delete_ticket(ticket_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    t = _ticket_or_404(db, ticket_id)
+    if _ticket_edit_scope(db, t, user) is not None:
+        raise HTTPException(403, "Only the requester, the ticket's department lead, or a manager can delete a ticket")
     # clean up the ticket's conversation / attachments / activity too
     db.query(models.TaskComment).filter(models.TaskComment.task_id == ticket_id).delete()
     db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == ticket_id).delete()

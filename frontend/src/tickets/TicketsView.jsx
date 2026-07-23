@@ -6,9 +6,10 @@
 // Ticket statuses get their own colour map here (STATUS_META in tasks/theme.js
 // is for tasks, not tickets). Inline-styled to match the rest of the app.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Ticket, Plus, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus } from 'lucide-react';
+import { Ticket, Plus, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from '../tasks/TasksContext';
+import { useRole } from '../contexts/RoleContext';
 import { filesFromPaste } from '../tasks/lib';
 import { NX, FONT, chip, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from '../tasks/theme';
 import { Avatar, PriorityChip, EmptyState, Modal, PersonSelect, usePeople, DateField, useIsMobile, useClickOutside } from '../tasks/components';
@@ -17,7 +18,7 @@ import { Card, LightBar, Donut } from '../tasks/views/charts';
 import {
   fmtDate, today, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TYPE_FIELDS,
   TICKET_RESOLUTION, LINK_TYPES, TICKET_STATUS_META, TICKET_STATUS_ORDER, CLOSED_STATES,
-  SLA_TARGET_HOURS, SLA_META, slaState, slaDueFromPriority, isBlankFieldValue,
+  SLA_TARGET_HOURS, SLA_META, slaState, slaDueFromPriority, isBlankFieldValue, toEmailList,
   label, field, resolutionLabel, linkTypeLabel, APPROVAL_META,
 } from './ticketMeta';
 import {
@@ -30,6 +31,53 @@ const TICKET_VIEW_TABS = [
   { key: 'board', label: 'Board', icon: Columns3 },
   { key: 'reports', label: 'Reports', icon: BarChart3 },
 ];
+
+// Desktop list-view column layout — the single source of truth for widths,
+// labels and sort keys, shared by the header (labels + drag handles + sort
+// arrows) and every row (fixed-width cells). `sort` pulls the comparable value
+// off a ticket; `ctx` ({ nameOf, companyName }) is threaded in from TicketsView
+// for the lookup-backed columns.
+const TICKET_COLUMNS = [
+  { key: 'title', label: 'Title', defaultWidth: 260, minWidth: 160, sort: (t) => (t.subject || '').toLowerCase() },
+  { key: 'company', label: 'Company', defaultWidth: 130, minWidth: 90, sort: (t, ctx) => (ctx.companyName(t.companyId) || '').toLowerCase() },
+  { key: 'state', label: 'State', defaultWidth: 150, minWidth: 110, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
+  { key: 'priority', label: 'Priority', defaultWidth: 150, minWidth: 110, sort: (t) => PRIORITY_ORDER.indexOf(t.priority) },
+  { key: 'due', label: 'Due Date', defaultWidth: 110, minWidth: 80, sort: (t) => t.slaDueOn || '' },
+  { key: 'requester', label: 'Requester', defaultWidth: 150, minWidth: 100, sort: (t, ctx) => (ctx.nameOf(t.requesterId) || '').toLowerCase() },
+  { key: 'assignee', label: 'Assigned To', defaultWidth: 150, minWidth: 100, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
+  { key: 'created', label: 'Created Date', defaultWidth: 110, minWidth: 80, sort: (t) => t.createdAt || '' },
+];
+const TICKET_COL_WIDTHS_KEY = 'nx-ticket-col-widths';
+const defaultTicketColWidths = () => Object.fromEntries(TICKET_COLUMNS.map((c) => [c.key, c.defaultWidth]));
+
+// Export — same client-side CSV pattern as the task module's own report export
+// (tasks/ManageView.jsx downloadCSV): a BOM'd CSV blob opens cleanly in Excel,
+// no server round-trip or xlsx binary needed.
+function csvEscape(v) {
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
+  const headers = ['Code', 'Title', 'Type', 'Company', 'Department', 'State', 'Priority', 'Due Date', 'Requester', 'Assigned To', 'Created Date', 'Resolved At', 'Description'];
+  const body = rows.map((t) => [
+    t.code || '', t.subject || '', TICKET_TYPE_META[t.type]?.label || t.type || '',
+    companyName(t.companyId) || '', hrDeptName(t.hrDepartmentId) || '',
+    TICKET_STATUS_META[t.status]?.label || t.status || '', PRIORITY_META[t.priority]?.label || t.priority || '',
+    t.slaDueOn ? fmtDate(t.slaDueOn) : '', t.requesterId ? (nameOf(t.requesterId) || t.requesterId) : '',
+    t.assigneeId ? (nameOf(t.assigneeId) || t.assigneeId) : '', t.createdAt ? fmtDate(t.createdAt) : '',
+    t.resolvedAt ? fmtDate(t.resolvedAt) : '', t.description || '',
+  ]);
+  const lines = [headers, ...body].map((r) => r.map(csvEscape).join(','));
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `tickets-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 // Every filter the desktop toolbar shows, stacked into the mobile bar's sheet.
 // Changes apply immediately — the sheet is a view onto the same state, so there
@@ -213,6 +261,10 @@ export default function TicketsView() {
   // consumer today.
   const [hrDepts, setHrDepts] = useState([]);
   useEffect(() => { api.getTicketDepartments().then(setHrDepts).catch(() => setHrDepts([])); }, []);
+  // Companies — same lookup pattern as hrDepts, for the Company column/export.
+  const [companies, setCompanies] = useState([]);
+  useEffect(() => { api.getTicketCompanies().then(setCompanies).catch(() => setCompanies([])); }, []);
+  const companyName = (id) => companies.find((c) => c.id === id)?.name || '';
   const myDeptIds = useMemo(() => {
     const me = (myEmail || '').toLowerCase();
     // Guard the empty case: without it, "" matches every department whose lead is
@@ -245,6 +297,39 @@ export default function TicketsView() {
   const [creating, setCreating] = useState(false);
   const [openId, setOpenId] = useState(null);
   const [selected, setSelected] = useState(() => new Set());
+
+  // Column widths (list view) — persisted so a resize survives a reload.
+  const [colWidths, setColWidths] = useState(() => {
+    try { return { ...defaultTicketColWidths(), ...JSON.parse(localStorage.getItem(TICKET_COL_WIDTHS_KEY) || '{}') }; }
+    catch { return defaultTicketColWidths(); }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(TICKET_COL_WIDTHS_KEY, JSON.stringify(colWidths)); } catch { /* storage unavailable */ }
+  }, [colWidths]);
+  // Drag-to-resize: tracked outside React state (mousemove fires fast) and only
+  // committed to colWidths per-frame; cleans up its own listeners on mouseup.
+  const startColResize = (e, key, minWidth) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = colWidths[key];
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = 'none';
+    const onMove = (ev) => {
+      const next = Math.max(minWidth, startWidth + (ev.clientX - startX));
+      setColWidths((prev) => ({ ...prev, [key]: next }));
+    };
+    const onUp = () => {
+      document.body.style.userSelect = prevUserSelect;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  // Column sort — click a header to sort by it, click again to flip direction.
+  const [sort, setSort] = useState({ key: 'created', dir: 'desc' });
+  const onSort = (key) => setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
 
   // Saved views — snapshot the current filter set + grouping + view kind.
   const applyTicketView = (v) => {
@@ -289,9 +374,23 @@ export default function TicketsView() {
     });
   }, [tickets, scope, myEmail, search, statusFilter, priorityFilter, typeFilter, slaFilter, nameOf, myDeptIds, hrDeptFilter, approvalCount]);
 
+  // List-view sort — applied before grouping so it holds within each bucket too.
+  const sortedVisible = useMemo(() => {
+    const col = TICKET_COLUMNS.find((c) => c.key === sort.key);
+    if (!col) return visible;
+    const ctx = { nameOf, companyName };
+    const dir = sort.dir === 'asc' ? 1 : -1;
+    return [...visible].sort((a, b) => {
+      const av = col.sort(a, ctx); const bv = col.sort(b, ctx);
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
+  }, [visible, sort, nameOf, companies]);
+
   // Grouped sections for the list view.
   const groups = useMemo(() => {
-    if (groupBy === 'none') return [{ key: 'all', label: '', rows: visible }];
+    if (groupBy === 'none') return [{ key: 'all', label: '', rows: sortedVisible }];
     const buckets = new Map();
     const keyOf = (t) => (groupBy === 'status' ? t.status
       : groupBy === 'priority' ? t.priority
@@ -303,17 +402,25 @@ export default function TicketsView() {
       : groupBy === 'type' ? (TICKET_TYPE_META[k]?.label || k)
       : groupBy === 'assignee' ? (k ? nameOf(k) || k : 'Unassigned')
       : '');
-    for (const t of visible) { const k = keyOf(t); if (!buckets.has(k)) buckets.set(k, { key: k || '—', label: labelOf(k), rows: [] }); buckets.get(k).rows.push(t); }
+    for (const t of sortedVisible) { const k = keyOf(t); if (!buckets.has(k)) buckets.set(k, { key: k || '—', label: labelOf(k), rows: [] }); buckets.get(k).rows.push(t); }
     return [...buckets.values()];
-  }, [visible, groupBy, nameOf]);
+  }, [sortedVisible, groupBy, nameOf]);
 
-  const selStyle = { ...inputStyle, width: 'auto', cursor: 'pointer' };
+  // Compact controls for the floating bulk-action pill — smaller than the
+  // standard form idiom so a handful of them fit in one tight row.
+  const compactSelStyle = { ...inputStyle, width: 'auto', cursor: 'pointer', appearance: 'auto', color: NX.ink, fontSize: 12.5, padding: '5px 8px', borderRadius: 8 };
+  const compactBtnStyle = { ...btn('ghost'), color: '#fff', background: 'rgba(255,255,255,0.14)', fontSize: 12.5, padding: '5px 9px', gap: 5 };
   const toggleBtn = (on) => ({ ...btn('ghost'), padding: '6px 10px', borderRadius: 7, gap: 6, background: on ? NX.surface : 'transparent', color: on ? NX.ink : NX.dim, boxShadow: on ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' });
 
   // Bulk selection (list view only). Selection is cleared when it no longer matches.
   const toggleSel = (id) => setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const clearSel = () => setSelected(new Set());
   const selIds = [...selected].filter((id) => visible.some((t) => t.id === id));
+  // Select-all — scoped to the currently filtered/sorted queue, not the whole table.
+  const allVisibleIds = visible.map((t) => t.id);
+  const allSelected = allVisibleIds.length > 0 && allVisibleIds.every((id) => selected.has(id));
+  const someSelected = !allSelected && allVisibleIds.some((id) => selected.has(id));
+  const toggleSelectAll = () => setSelected(allSelected ? new Set() : new Set(allVisibleIds));
   const bulkPatch = async (patch) => { await Promise.all(selIds.map((id) => updateTicket(id, patch).catch(() => {}))); clearSel(); };
   const bulkDelete = async () => {
     if (!window.confirm(`Delete ${selIds.length} ticket${selIds.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
@@ -321,7 +428,7 @@ export default function TicketsView() {
   };
 
   return (
-    <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
+    <div style={{ fontFamily: FONT, color: NX.ink, display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', position: 'relative' }}>
       {/* Header — two rows, matching the task module: title + primary action, then
           a bordered tab strip with the toolbar on its right. On phones the tabs,
           filters and New Ticket move into the floating MobileTaskBar. */}
@@ -336,7 +443,15 @@ export default function TicketsView() {
             <button key={k} onClick={() => setScope(k)} style={{ ...toggleBtn(scope === k), whiteSpace: 'nowrap' }}>{lab}</button>
           ))}
         </div>
-        {!isMobile && <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => setCreating(true)}><Plus size={15} /> New Ticket</button>}
+        {!isMobile && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
+            <span style={{ fontSize: 12.5, color: NX.dim, fontWeight: 600 }}>{visible.length} ticket{visible.length === 1 ? '' : 's'}</span>
+            <button style={btn('outline')} onClick={() => downloadTicketsCsv(tickets, nameOf, companyName, hrDeptName)} title="Export every ticket to a CSV/Excel file">
+              <Download size={15} /> Export
+            </button>
+            <button style={btn('primary')} onClick={() => setCreating(true)}><Plus size={15} /> New Ticket</button>
+          </div>
+        )}
       </div>
 
       {!isMobile && (
@@ -373,11 +488,6 @@ export default function TicketsView() {
         </div>
       )}
 
-      {/* Frozen column header — a non-scrolling sibling of the body below, so it
-          stays put while the queue scrolls. List view only, and only once
-          there's something to head. */}
-      {!isMobile && view === 'list' && visible.length > 0 && <TicketListHeader />}
-
       {/* Body. paddingBottom clears the floating mobile bar (matches My Tasks). */}
       <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, padding: view === 'board' ? 12 : 16, paddingBottom: isMobile ? 88 : undefined }}>
         {view === 'reports' ? (
@@ -386,44 +496,77 @@ export default function TicketsView() {
           <TicketBoard tickets={visible} nameOf={nameOf} onOpen={setOpenId} onMove={(id, status) => updateTicket(id, { status }).catch(() => {})} />
         ) : visible.length === 0 ? (
           <EmptyState icon={Ticket} title="No Tickets" hint={tickets.length ? 'No tickets match your filters.' : 'Raise a ticket to get started.'} />
-        ) : (
+        ) : isMobile ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: groupBy === 'none' ? 0 : 14 }}>
             {groups.map((g) => (
-              <div key={g.key} className={isMobile ? 'nx-edge-card' : undefined} style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, overflow: 'hidden' }}>
+              <div key={g.key} className="nx-edge-card" style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, overflow: 'hidden' }}>
                 {groupBy !== 'none' && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px', background: NX.surface2, borderBottom: `1px solid ${NX.border2}`, fontSize: 13, fontWeight: 700 }}>
                     {g.label} <span style={{ color: NX.faint, fontWeight: 400 }}>{g.rows.length}</span>
                   </div>
                 )}
                 {g.rows.map((t) => (
-                  <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} onOpen={() => setOpenId(t.id)}
-                    checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} />
+                  <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName} onOpen={() => setOpenId(t.id)}
+                    checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} colWidths={colWidths} />
                 ))}
               </div>
             ))}
+          </div>
+        ) : (
+          // Desktop — copies the task module's RichListView structure exactly:
+          // one bordered/rounded shell, wrapped in .nx-list-scroll (the same class
+          // Tasks uses) so a wide/resized table scrolls horizontally as a single
+          // block — header and rows are plain sibling content, not separately
+          // scrolled regions, so there's no way for them to drift out of sync.
+          <div className="nx-list-scroll" style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface }}>
+            <div style={{ minWidth: 'fit-content' }}>
+              <TicketListHeader colWidths={colWidths} onResize={startColResize} sort={sort} onSort={onSort}
+                allSelected={allSelected} someSelected={someSelected} onToggleSelectAll={toggleSelectAll} hideRequester={scope === 'mine'} />
+              {groups.map((g) => (
+                <div key={g.key}>
+                  {groupBy !== 'none' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px', background: NX.surface2, borderBottom: `1px solid ${NX.border2}`, fontSize: 13, fontWeight: 700 }}>
+                      {g.label} <span style={{ color: NX.faint, fontWeight: 400 }}>{g.rows.length}</span>
+                    </div>
+                  )}
+                  {g.rows.map((t) => (
+                    <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName} onOpen={() => setOpenId(t.id)}
+                      checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} colWidths={colWidths} hideRequester={scope === 'mine'} />
+                  ))}
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
 
       {view === 'list' && selIds.length > 0 && (
-        <div style={{ position: 'sticky', bottom: 0, zIndex: 5, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 16px', background: NX.ink, color: '#fff', borderTop: `1px solid ${NX.border}`, boxShadow: '0 -4px 16px rgba(0,0,0,0.14)' }}>
-          <span style={{ fontSize: 13, fontWeight: 700 }}>{selIds.length} selected</span>
-          <select defaultValue="" onChange={(e) => { if (e.target.value) bulkPatch({ status: e.target.value }); e.target.value = ''; }} style={{ ...selStyle, color: NX.ink }}>
+        // Floating pill, centered at the bottom of the panel — doesn't push the
+        // list's layout (position:absolute against the panel's position:relative
+        // above) and stays compact instead of stretching edge to edge.
+        <div style={{
+          position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 5,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, flexWrap: 'wrap',
+          maxWidth: 'calc(100% - 32px)', padding: '7px 10px', borderRadius: 12,
+          background: NX.ink, color: '#fff', boxShadow: '0 10px 28px rgba(0,0,0,0.28)',
+        }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap', padding: '0 2px' }}>{selIds.length} selected</span>
+          <select defaultValue="" onChange={(e) => { if (e.target.value) bulkPatch({ status: e.target.value }); e.target.value = ''; }} style={compactSelStyle}>
             <option value="">Set status…</option>
             {TICKET_STATUS_ORDER.map((s) => <option key={s} value={s}>{TICKET_STATUS_META[s].label}</option>)}
           </select>
-          <select defaultValue="" onChange={(e) => { if (e.target.value) bulkPatch({ priority: e.target.value }); e.target.value = ''; }} style={{ ...selStyle, color: NX.ink }}>
+          <select defaultValue="" onChange={(e) => { if (e.target.value) bulkPatch({ priority: e.target.value }); e.target.value = ''; }} style={compactSelStyle}>
             <option value="">Set priority…</option>
             {PRIORITY_ORDER.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
           </select>
-          <select defaultValue="" onChange={(e) => { bulkPatch({ assigneeId: e.target.value }); e.target.value = ''; }} style={{ ...selStyle, color: NX.ink, maxWidth: 200 }}>
+          <select defaultValue="" onChange={(e) => { bulkPatch({ assigneeId: e.target.value }); e.target.value = ''; }} style={{ ...compactSelStyle, maxWidth: 140 }}>
             <option value="" disabled>Assign to…</option>
             <option value="">Unassign</option>
             {people.map((p) => <option key={p.email} value={p.email}>{p.name || p.email}</option>)}
           </select>
-          <button style={{ ...btn('ghost'), color: '#fff', background: 'rgba(255,255,255,0.14)' }} onClick={() => bulkPatch({ status: 'resolved', resolution: 'fixed' })}><CheckCircle2 size={14} /> Resolve</button>
-          <button style={{ ...btn('ghost'), color: '#fff', background: 'rgba(255,255,255,0.14)' }} onClick={bulkDelete}><Trash2 size={14} /> Delete</button>
-          <button style={{ ...btn('ghost'), color: '#fff', marginLeft: 'auto' }} onClick={clearSel}><X size={14} /> Clear</button>
+          <button style={compactBtnStyle} onClick={() => bulkPatch({ status: 'resolved', resolution: 'fixed' })}><CheckCircle2 size={13} /> Resolve</button>
+          <button style={compactBtnStyle} onClick={bulkDelete}><Trash2 size={13} /> Delete</button>
+          <button style={{ ...compactBtnStyle, background: 'transparent', padding: 6 }} onClick={clearSel} title="Clear selection"><X size={14} /></button>
         </div>
       )}
 
@@ -446,37 +589,60 @@ export default function TicketsView() {
       )}
 
       {creating && <CreateTicketModal onClose={() => setCreating(false)} />}
-      {openId && <TicketDrawer ticketId={openId} onClose={() => setOpenId(null)} />}
+      {openId && <TicketDrawer ticketId={openId} onClose={() => setOpenId(null)} myDeptIds={myDeptIds} />}
     </div>
   );
 }
 
-// Column header for the desktop list view. Cell widths mirror TicketRow's
-// desktop cells 1:1 so labels sit above the right data — keep the two in step.
-// Rendered as a sibling above the scrollable body (not inside it), so it never
-// scrolls out of view while the queue does.
-function TicketListHeader() {
-  const cell = { fontSize: 11, fontWeight: 700, color: NX.faint, textTransform: 'uppercase', letterSpacing: '0.04em' };
+// Column header for the desktop list view — driven by TICKET_COLUMNS so widths,
+// labels and sort keys stay in one place. Each cell is click-to-sort and carries
+// a drag handle on its trailing edge to resize; widths live in TicketsView state
+// so TicketRow's cells stay in lockstep. Renders as a normal sibling of the row
+// groups inside the shared .nx-list-scroll shell — scrolls vertically and
+// horizontally with the rows, same as the task module's list header.
+function TicketListHeader({ colWidths, onResize, sort, onSort, allSelected, someSelected, onToggleSelectAll, hideRequester }) {
+  // Checkbox "indeterminate" (some but not all selected) isn't settable via a
+  // JSX prop — it's a DOM-only flag, so it's applied imperatively via a ref.
+  const selectAllRef = useRef(null);
+  useEffect(() => { if (selectAllRef.current) selectAllRef.current.indeterminate = !!someSelected; }, [someSelected]);
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 14, padding: '9px 16px',
-      background: NX.surface2, borderTop: `1px solid ${NX.border}`, borderBottom: `1px solid ${NX.border}`,
+      display: 'flex', alignItems: 'stretch', gap: 14, padding: '9px 16px', flexShrink: 0,
+      background: NX.surface2, borderBottom: `1px solid ${NX.border}`,
     }}>
-      <span style={{ width: 15, flexShrink: 0 }} />
+      <div style={{ width: 15, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <input ref={selectAllRef} type="checkbox" checked={!!allSelected} onChange={onToggleSelectAll}
+          title={allSelected ? 'Deselect all' : 'Select all'} style={{ cursor: 'pointer', width: 15, height: 15, margin: 0, accentColor: NX.blue }} />
+      </div>
       <span style={{ width: 16, flexShrink: 0 }} />
-      <span style={{ ...cell, flex: '1 1 240px', minWidth: 0 }}>Title</span>
-      <span style={{ ...cell, minWidth: 150 }}>State</span>
-      <span style={{ ...cell, minWidth: 150 }}>Priority</span>
-      <span style={{ ...cell, minWidth: 92 }}>Due Date</span>
-      <span style={{ ...cell, flex: '0 1 150px', minWidth: 0 }}>Requester</span>
-      <span style={{ ...cell, flex: '0 1 150px', minWidth: 0 }}>Assigned To</span>
-      <span style={{ ...cell, minWidth: 92 }}>Created Date</span>
+      {TICKET_COLUMNS.filter((col) => !(hideRequester && col.key === 'requester')).map((col) => {
+        const active = sort.key === col.key;
+        const SortIcon = active ? (sort.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
+        return (
+          <div key={col.key} style={{ position: 'relative', flex: `0 0 ${colWidths[col.key]}px`, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
+            <button onClick={() => onSort(col.key)} title={`Sort by ${col.label}`} style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 4, background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+              fontFamily: FONT, fontSize: 11, fontWeight: 700, color: NX.ink,
+              textTransform: 'uppercase', letterSpacing: '0.04em', textAlign: 'left', minWidth: 0,
+            }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col.label}</span>
+              <SortIcon size={11} style={{ flexShrink: 0, opacity: active ? 1 : 0.4 }} />
+            </button>
+            {/* Wide invisible strip (14px) so the grip is easy to grab; the thin
+                center line is the only visible trace. */}
+            <div onMouseDown={(e) => onResize(e, col.key, col.minWidth)} title="Drag to resize"
+              style={{ position: 'absolute', top: 0, bottom: 0, right: -14, width: 14, cursor: 'col-resize', zIndex: 1 }}>
+              <span style={{ position: 'absolute', left: 6, top: '15%', bottom: '15%', width: 1, background: NX.border }} />
+            </div>
+          </div>
+        );
+      })}
       <span style={{ width: 16, flexShrink: 0 }} />
     </div>
   );
 }
 
-function TicketRow({ t, nameOf, hrDeptName, onOpen, checked, onToggle }) {
+function TicketRow({ t, nameOf, hrDeptName, companyName, onOpen, checked, onToggle, colWidths, hideRequester }) {
   const isMobile = useIsMobile();
   const overdue = t.slaDueOn && t.slaDueOn < today() && !CLOSED_STATES.includes(t.status);
   // The HR department is what routed this ticket, so it belongs on the row.
@@ -528,10 +694,17 @@ function TicketRow({ t, nameOf, hrDeptName, onOpen, checked, onToggle }) {
     }}
       onMouseEnter={(e) => { if (!checked) e.currentTarget.style.background = NX.surface2; }}
       onMouseLeave={(e) => { if (!checked) e.currentTarget.style.background = NX.surface; }}>
-      <input type="checkbox" checked={!!checked} onChange={onToggle} onClick={(e) => e.stopPropagation()}
-        title="Select" style={{ cursor: 'pointer', width: 15, height: 15, flexShrink: 0, accentColor: NX.blue }} />
-      <TicketTypeIcon type={t.type} size={16} />
-      <div style={{ minWidth: 0, flex: '1 1 240px' }}>
+      {/* Fixed-size wrappers (not just a sized input/icon) so native form-control
+          margins can't drift this cell's box out of step with the header's plain
+          spacer — that mismatch was throwing every column after it out of line. */}
+      <div style={{ width: 15, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <input type="checkbox" checked={!!checked} onChange={onToggle} onClick={(e) => e.stopPropagation()}
+          title="Select" style={{ cursor: 'pointer', width: 15, height: 15, margin: 0, accentColor: NX.blue }} />
+      </div>
+      <div style={{ width: 16, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <TicketTypeIcon type={t.type} size={16} />
+      </div>
+      <div style={{ minWidth: 0, flex: `0 0 ${colWidths.title}px`, textAlign: 'left' }}>
         <div style={{ fontSize: 14, fontWeight: 500, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {t.subject}
           {t.linkedTaskId && <Link2 size={13} style={{ color: NX.faint, marginLeft: 6, verticalAlign: 'middle' }} />}
@@ -540,29 +713,34 @@ function TicketRow({ t, nameOf, hrDeptName, onOpen, checked, onToggle }) {
           {t.code || '—'}{hrDept ? ` · ${hrDept}` : ''}
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 150 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', flex: `0 0 ${colWidths.company}px`, minWidth: 0 }} title={companyName(t.companyId) || ''}>
+        <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{companyName(t.companyId) || '—'}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, flex: `0 0 ${colWidths.state}px`, minWidth: 0 }}>
         <TicketStatusChip status={t.status} />
         {/* Only shows while pending — an approved request looks like any other. */}
         {t.approvalStatus === 'pending' && <ApprovalChip ticket={t} />}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 150 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, flex: `0 0 ${colWidths.priority}px`, minWidth: 0 }}>
         <PriorityChip priority={t.priority} />
         <SlaBadge t={t} />
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 92 }}>
-        <Clock size={12} style={{ color: overdue ? NX.red : NX.faint }} />
-        <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 700 : 400 }}>{t.slaDueOn ? fmtDate(t.slaDueOn) : '—'}</span>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 5, flex: `0 0 ${colWidths.due}px`, minWidth: 0 }}>
+        <Clock size={12} style={{ color: overdue ? NX.red : NX.faint, flexShrink: 0 }} />
+        <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 700 : 400, textAlign: 'left' }}>{t.slaDueOn ? fmtDate(t.slaDueOn) : '—'}</span>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: '0 1 150px' }} title={`Requester: ${nameOf(t.requesterId) || 'Unknown'}`}>
-        {t.requesterId ? <Avatar email={t.requesterId} name={nameOf(t.requesterId)} size={22} /> : <span style={{ width: 22 }} />}
-        <span style={{ fontSize: 12.5, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.requesterId ? nameOf(t.requesterId) : '—'}</span>
+      {!hideRequester && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, minWidth: 0, flex: `0 0 ${colWidths.requester}px` }} title={`Requester: ${nameOf(t.requesterId) || 'Unknown'}`}>
+          {t.requesterId ? <Avatar email={t.requesterId} name={nameOf(t.requesterId)} size={22} /> : <span style={{ width: 22, flexShrink: 0 }} />}
+          <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.requesterId ? nameOf(t.requesterId) : '—'}</span>
+        </div>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 6, minWidth: 0, flex: `0 0 ${colWidths.assignee}px` }} title={`Assignee: ${t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned'}`}>
+        {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={22} /> : <span style={{ width: 22, flexShrink: 0 }} />}
+        <span style={{ fontSize: 12.5, color: t.assigneeId ? NX.dim : NX.faint, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned'}</span>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: '0 1 150px' }} title={`Assignee: ${t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned'}`}>
-        {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={22} /> : <span style={{ width: 22 }} />}
-        <span style={{ fontSize: 12.5, color: t.assigneeId ? NX.dim : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned'}</span>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', minWidth: 92 }} title={t.createdAt ? `Created ${fmtDate(t.createdAt)}` : ''}>
-        <span style={{ fontSize: 12, color: NX.dim }}>{t.createdAt ? fmtDate(t.createdAt) : '—'}</span>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', flex: `0 0 ${colWidths.created}px`, minWidth: 0 }} title={t.createdAt ? `Created ${fmtDate(t.createdAt)}` : ''}>
+        <span style={{ fontSize: 12, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.createdAt ? fmtDate(t.createdAt) : '—'}</span>
       </div>
       {t.resolvedAt
         ? <CheckCircle2 size={16} style={{ color: NX.green, flexShrink: 0 }} title={`Resolved ${fmtDate(t.resolvedAt)}`} />
@@ -877,7 +1055,25 @@ export function CreateTicketModal({ onClose }) {
 }
 
 // ── Edit drawer (modal) ───────────────────────────────────────────────────────
-function TicketDrawer({ ticketId, onClose }) {
+// Plain-text rendering of a type-field or custom-field value, for actors who
+// can see it but (per the drawer's field gating below) can't edit it.
+function readOnlyFieldValue(f, value, nameOf) {
+  if (f.type === 'person') return value ? (nameOf(value) || value) : '—';
+  if (f.type === 'multiperson') {
+    const ids = toEmailList(value);
+    return ids.length ? ids.map((e) => nameOf(e) || e).join(', ') : '—';
+  }
+  if (f.type === 'checklist') {
+    const items = Array.isArray(value) ? value : [];
+    return items.length ? items.map((it) => `${it.done ? '✓' : '○'} ${it.label}`).join('  ·  ') : '—';
+  }
+  if (Array.isArray(value)) return value.length ? value.join(', ') : '—';
+  if (value === '' || value == null) return '—';
+  if (f.type === 'date') return fmtDate(value);
+  return String(value);
+}
+
+function TicketDrawer({ ticketId, onClose, myDeptIds }) {
   const { tickets, tasks, projects = [], customFields = [],
     addTicketLink, removeTicketLink, escalateTicket, createTask, myEmail, nameOf, updateTicket, deleteTicket,
     refresh } = useTasks();
@@ -886,6 +1082,7 @@ function TicketDrawer({ ticketId, onClose }) {
   const onDecided = () => refresh?.();
   const people = usePeople();
   const isMobile = useIsMobile();
+  const { myLevel } = useRole();
   const [tab, setTab] = useState('conversation');
   const [companies, setCompanies] = useState([]);
   const [allDepts, setAllDepts] = useState([]);
@@ -895,6 +1092,16 @@ function TicketDrawer({ ticketId, onClose }) {
   }, []);
   const t = tickets.find((x) => x.id === ticketId);
   if (!t) return null;
+
+  // Someone just working the ticket (the assignee, or anyone with no other
+  // relationship to it) can triage/reassign/close it out but can't rewrite what
+  // it is or who it's for — that stays with whoever raised it, the department
+  // that owns the queue, or a manager+. Mirrors _ticket_edit_scope in
+  // backend/routers/tickets.py, which enforces the same split server-side (this
+  // is UI convenience, not the security boundary — that's the backend check).
+  const isRequester = (t.requesterId || '').toLowerCase() === (myEmail || '').toLowerCase();
+  const isDeptOwner = t.hrDepartmentId ? (myDeptIds || new Set()).has(t.hrDepartmentId) : false;
+  const fullAccess = myLevel >= 3 || isRequester || isDeptOwner;
 
   const patch = (p) => updateTicket(t.id, p).catch((e) => alert(`Could not update ticket: ${e.message || e}`));
   const escalate = () => escalateTicket(t.id).catch((e) => alert(`Could not escalate: ${e.message || e}`));
@@ -923,7 +1130,9 @@ function TicketDrawer({ ticketId, onClose }) {
   return (
     <Modal title={t.code || 'Ticket'} onClose={onClose} width={620} footer={
       <>
-        <button style={{ ...btn('outline'), color: NX.red, borderColor: NX.border, marginRight: 'auto' }} onClick={remove}><Trash2 size={14} /> Delete</button>
+        {fullAccess && (
+          <button style={{ ...btn('outline'), color: NX.red, borderColor: NX.border, marginRight: 'auto' }} onClick={remove}><Trash2 size={14} /> Delete</button>
+        )}
         {t.priority !== 'urgent' && !CLOSED_STATES.includes(t.status) && (
           <button style={{ ...btn('outline'), color: NX.amber }} onClick={escalate} title="Bump priority and alert the assignee, watchers and managers"><ArrowUp size={14} /> Escalate</button>
         )}
@@ -988,10 +1197,16 @@ function TicketDrawer({ ticketId, onClose }) {
         </div>
         <div style={field}>
           <label style={label}>Company</label>
-          <select value={t.companyId || ''} onChange={(e) => patch({ companyId: e.target.value, hrDepartmentId: '' })} style={sel}>
-            <option value="">Select company</option>
-            {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          {fullAccess ? (
+            <select value={t.companyId || ''} onChange={(e) => patch({ companyId: e.target.value, hrDepartmentId: '' })} style={sel}>
+              <option value="">Select company</option>
+              {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          ) : (
+            <div style={{ fontSize: 13, color: NX.ink, minHeight: 34, display: 'flex', alignItems: 'center' }}>
+              {companies.find((c) => c.id === t.companyId)?.name || '—'}
+            </div>
+          )}
         </div>
         <div style={field}>
           <label style={label}>Department</label>
@@ -1002,8 +1217,14 @@ function TicketDrawer({ ticketId, onClose }) {
         </div>
         <div style={field}>
           <label style={label}>SLA Due Date</label>
-          <DateField value={t.slaDueOn || ''} onChange={(v) => patch({ slaDueOn: v || '' })} color={overdue ? NX.red : undefined}
-            style={{ ...inputStyle, ...(overdue ? { fontWeight: 700 } : {}) }} />
+          {fullAccess ? (
+            <DateField value={t.slaDueOn || ''} onChange={(v) => patch({ slaDueOn: v || '' })} color={overdue ? NX.red : undefined}
+              style={{ ...inputStyle, ...(overdue ? { fontWeight: 700 } : {}) }} />
+          ) : (
+            <div style={{ fontSize: 13, color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 400, minHeight: 34, display: 'flex', alignItems: 'center' }}>
+              {t.slaDueOn ? fmtDate(t.slaDueOn) : '—'}
+            </div>
+          )}
         </div>
         {CLOSED_STATES.includes(t.status) && (
           <div style={field}>
@@ -1023,7 +1244,11 @@ function TicketDrawer({ ticketId, onClose }) {
             {TYPE_FIELDS[t.type].map((f) => (
               <div key={f.key} style={{ gridColumn: (f.full || f.type === 'textarea' || f.type === 'checklist') ? '1 / -1' : 'auto' }}>
                 <div style={{ ...label, fontSize: 11 }}>{f.label}</div>
-                <TypeFieldInput field={f} value={t.typeFields?.[f.key]} onChange={(v) => patch({ typeFields: { ...(t.typeFields || {}), [f.key]: v } })} people={people} projects={projects} />
+                {fullAccess ? (
+                  <TypeFieldInput field={f} value={t.typeFields?.[f.key]} onChange={(v) => patch({ typeFields: { ...(t.typeFields || {}), [f.key]: v } })} people={people} projects={projects} />
+                ) : (
+                  <div style={{ fontSize: 13, color: NX.ink, whiteSpace: f.type === 'textarea' ? 'pre-wrap' : 'normal' }}>{readOnlyFieldValue(f, t.typeFields?.[f.key], nameOf)}</div>
+                )}
               </div>
             ))}
           </div>
@@ -1032,18 +1257,18 @@ function TicketDrawer({ ticketId, onClose }) {
 
       <div style={field}>
         <label style={label}>Tasks</label>
-        <TicketTasks taskIds={taskIds} tasks={tasks} onSpawn={spawnTask} onLink={linkTask} onUnlink={unlinkTask} />
+        <TicketTasks taskIds={taskIds} tasks={tasks} onSpawn={spawnTask} onLink={linkTask} onUnlink={unlinkTask} readOnly={!fullAccess} />
       </div>
 
       <div style={field}>
         <label style={label}>Watchers</label>
-        <WatcherEditor watchers={t.watcherIds || []} people={people} nameOf={nameOf} onChange={(list) => patch({ watcherIds: list })} />
+        <WatcherEditor watchers={t.watcherIds || []} people={people} nameOf={nameOf} onChange={(list) => patch({ watcherIds: list })} readOnly={!fullAccess} />
       </div>
 
       <div style={field}>
         <label style={label}>Linked Tickets</label>
         <TicketLinks ticket={t} tickets={tickets} onAdd={(target, type) => addTicketLink(t.id, target, type).catch((e) => alert(e.message || e))}
-          onRemove={(target) => removeTicketLink(t.id, target).catch(() => {})} />
+          onRemove={(target) => removeTicketLink(t.id, target).catch(() => {})} readOnly={!fullAccess} />
       </div>
 
       {CLOSED_STATES.includes(t.status) && (
@@ -1061,8 +1286,12 @@ function TicketDrawer({ ticketId, onClose }) {
             {customFields.map((f) => (
               <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between' }}>
                 <span style={{ fontSize: 13, color: NX.dim }}>{f.name}</span>
-                <TicketCustomFieldInput field={f} value={(t.customFieldValues || {})[f.id]}
-                  onChange={(v) => patch({ customFieldValues: { ...(t.customFieldValues || {}), [f.id]: v } })} />
+                {fullAccess ? (
+                  <TicketCustomFieldInput field={f} value={(t.customFieldValues || {})[f.id]}
+                    onChange={(v) => patch({ customFieldValues: { ...(t.customFieldValues || {}), [f.id]: v } })} />
+                ) : (
+                  <span style={{ fontSize: 13, color: NX.ink }}>{readOnlyFieldValue(f, (t.customFieldValues || {})[f.id], nameOf)}</span>
+                )}
               </div>
             ))}
           </div>
@@ -1073,26 +1302,31 @@ function TicketDrawer({ ticketId, onClose }) {
       <div style={field}>
         <label style={label}>Tags</label>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+          {(t.tags || []).length === 0 && !fullAccess && <span style={{ fontSize: 12.5, color: NX.faint }}>No tags</span>}
           {(t.tags || []).map((tag) => (
             <span key={tag} style={{ ...chip(NX.dim, NX.border2), display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               {tag}
-              <button type="button" onClick={() => patch({ tags: (t.tags || []).filter((x) => x !== tag) })}
-                title={`Remove ${tag}`} style={{ ...btn('ghost'), padding: 0, lineHeight: 1, color: NX.faint }}>
-                <X size={11} />
-              </button>
+              {fullAccess && (
+                <button type="button" onClick={() => patch({ tags: (t.tags || []).filter((x) => x !== tag) })}
+                  title={`Remove ${tag}`} style={{ ...btn('ghost'), padding: 0, lineHeight: 1, color: NX.faint }}>
+                  <X size={11} />
+                </button>
+              )}
             </span>
           ))}
-          <input placeholder={(t.tags || []).length ? 'Add tag…' : 'Add a tag…'}
-            onKeyDown={(e) => {
-              if (e.key !== 'Enter') return;
-              const v = e.target.value.trim();
-              // Case-insensitive dedupe so "VPN" and "vpn" don't both accumulate.
-              if (v && !(t.tags || []).some((x) => x.toLowerCase() === v.toLowerCase())) {
-                patch({ tags: [...(t.tags || []), v] });
-              }
-              e.target.value = '';
-            }}
-            style={{ ...inputStyle, width: 130, padding: '4px 8px', fontSize: 12 }} />
+          {fullAccess && (
+            <input placeholder={(t.tags || []).length ? 'Add tag…' : 'Add a tag…'}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return;
+                const v = e.target.value.trim();
+                // Case-insensitive dedupe so "VPN" and "vpn" don't both accumulate.
+                if (v && !(t.tags || []).some((x) => x.toLowerCase() === v.toLowerCase())) {
+                  patch({ tags: [...(t.tags || []), v] });
+                }
+                e.target.value = '';
+              }}
+              style={{ ...inputStyle, width: 130, padding: '4px 8px', fontSize: 12 }} />
+          )}
         </div>
       </div>
 
@@ -1187,7 +1421,7 @@ function ApprovalPanel({ ticket: t, myEmail, nameOf, onDecided }) {
 }
 
 // ── Watchers — get notified on status changes and new comments ────────────────
-function WatcherEditor({ watchers, people, nameOf, onChange }) {
+function WatcherEditor({ watchers, people, nameOf, onChange, readOnly }) {
   const list = (watchers || []).map((e) => (e || '').toLowerCase()).filter(Boolean);
   const add = (email) => {
     const e = (email || '').toLowerCase();
@@ -1197,29 +1431,31 @@ function WatcherEditor({ watchers, people, nameOf, onChange }) {
   const remove = (email) => onChange(list.filter((e) => e !== email));
   return (
     <div>
+      {list.length === 0 && readOnly && <span style={{ fontSize: 12.5, color: NX.faint }}>No watchers</span>}
       {list.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
           {list.map((e) => (
             <span key={e} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: NX.border2, borderRadius: 999, padding: '3px 8px 3px 3px', fontSize: 12.5, color: NX.ink }}>
               <Avatar email={e} name={nameOf(e)} size={20} />
               {nameOf(e) || e}
-              <button onClick={() => remove(e)} title="Remove watcher" style={{ ...btn('ghost'), padding: 1, color: NX.faint }}><X size={12} /></button>
+              {!readOnly && <button onClick={() => remove(e)} title="Remove watcher" style={{ ...btn('ghost'), padding: 1, color: NX.faint }}><X size={12} /></button>}
             </span>
           ))}
         </div>
       )}
-      <PersonSelect value={null} people={people} onChange={add} placeholder="Add a watcher…" />
+      {!readOnly && <PersonSelect value={null} people={people} onChange={add} placeholder="Add a watcher…" />}
     </div>
   );
 }
 
 // ── Tasks spawned from / linked to a ticket (one ticket → many tasks) ─────────
-function TicketTasks({ taskIds, tasks, onSpawn, onLink, onUnlink }) {
+function TicketTasks({ taskIds, tasks, onSpawn, onLink, onUnlink, readOnly }) {
   const [linking, setLinking] = useState(false);
   const linked = taskIds.map((id) => tasks.find((x) => x.id === id)).filter(Boolean);
   const options = tasks.filter((x) => !taskIds.includes(x.id));
   return (
     <div>
+      {linked.length === 0 && readOnly && <span style={{ fontSize: 12.5, color: NX.faint }}>No linked tasks</span>}
       {linked.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
           {linked.map((task) => (
@@ -1229,29 +1465,31 @@ function TicketTasks({ taskIds, tasks, onSpawn, onLink, onUnlink }) {
                 {task.code ? `${task.code} · ` : ''}{task.title}
               </span>
               {task.status && <span style={{ fontSize: 11, color: NX.faint, flexShrink: 0 }}>{task.status === 'done' ? '✓ done' : task.status}</span>}
-              <button onClick={() => onUnlink(task.id)} title="Unlink task" style={{ ...btn('ghost'), padding: 2, marginLeft: 'auto', color: NX.faint }}><X size={13} /></button>
+              {!readOnly && <button onClick={() => onUnlink(task.id)} title="Unlink task" style={{ ...btn('ghost'), padding: 2, marginLeft: 'auto', color: NX.faint }}><X size={13} /></button>}
             </div>
           ))}
         </div>
       )}
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button onClick={onSpawn} style={{ ...btn('outline'), fontSize: 12 }}><Plus size={13} /> Create Task from Ticket</button>
-        {linking ? (
-          <select autoFocus defaultValue="" onChange={(e) => { if (e.target.value) onLink(e.target.value); setLinking(false); }}
-            onBlur={() => setLinking(false)} style={{ ...inputStyle, appearance: 'auto', width: 'auto', minWidth: 180, cursor: 'pointer' }}>
-            <option value="">Select a task…</option>
-            {options.map((task) => <option key={task.id} value={task.id}>{task.code ? `${task.code} · ` : ''}{task.title}</option>)}
-          </select>
-        ) : (
-          <button onClick={() => setLinking(true)} style={{ ...btn('ghost'), fontSize: 12, color: NX.dim }}><Link2 size={13} /> Link existing</button>
-        )}
-      </div>
+      {!readOnly && (
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button onClick={onSpawn} style={{ ...btn('outline'), fontSize: 12 }}><Plus size={13} /> Create Task from Ticket</button>
+          {linking ? (
+            <select autoFocus defaultValue="" onChange={(e) => { if (e.target.value) onLink(e.target.value); setLinking(false); }}
+              onBlur={() => setLinking(false)} style={{ ...inputStyle, appearance: 'auto', width: 'auto', minWidth: 180, cursor: 'pointer' }}>
+              <option value="">Select a task…</option>
+              {options.map((task) => <option key={task.id} value={task.id}>{task.code ? `${task.code} · ` : ''}{task.title}</option>)}
+            </select>
+          ) : (
+            <button onClick={() => setLinking(true)} style={{ ...btn('ghost'), fontSize: 12, color: NX.dim }}><Link2 size={13} /> Link existing</button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Ticket ↔ ticket links (relates / duplicate / blocks / blocked by) ─────────
-function TicketLinks({ ticket, tickets, onAdd, onRemove }) {
+function TicketLinks({ ticket, tickets, onAdd, onRemove, readOnly }) {
   const [adding, setAdding] = useState(false);
   const [target, setTarget] = useState('');
   const [type, setType] = useState('relates');
@@ -1263,6 +1501,7 @@ function TicketLinks({ ticket, tickets, onAdd, onRemove }) {
 
   return (
     <div>
+      {links.length === 0 && readOnly && <span style={{ fontSize: 12.5, color: NX.faint }}>No linked tickets</span>}
       {links.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
           {links.map((l) => {
@@ -1274,12 +1513,13 @@ function TicketLinks({ ticket, tickets, onAdd, onRemove }) {
                 <span style={{ color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {lt ? `${lt.code ? lt.code + ' · ' : ''}${lt.subject}` : l.ticketId}
                 </span>
-                <button onClick={() => onRemove(l.ticketId)} title="Remove link" style={{ ...btn('ghost'), padding: 2, marginLeft: 'auto', color: NX.faint }}><X size={13} /></button>
+                {!readOnly && <button onClick={() => onRemove(l.ticketId)} title="Remove link" style={{ ...btn('ghost'), padding: 2, marginLeft: 'auto', color: NX.faint }}><X size={13} /></button>}
               </div>
             );
           })}
         </div>
       )}
+      {!readOnly && (<>
       {adding ? (
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <select value={type} onChange={(e) => setType(e.target.value)} style={{ ...inputStyle, appearance: 'auto', width: 'auto', cursor: 'pointer' }}>
@@ -1295,6 +1535,7 @@ function TicketLinks({ ticket, tickets, onAdd, onRemove }) {
       ) : (
         <button onClick={() => setAdding(true)} style={{ ...btn('outline'), borderStyle: 'dashed', fontSize: 12 }}><Link2 size={13} /> Link a ticket</button>
       )}
+      </>)}
     </div>
   );
 }
