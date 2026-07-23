@@ -373,6 +373,11 @@ export default function TicketsView() {
         </div>
       )}
 
+      {/* Frozen column header — a non-scrolling sibling of the body below, so it
+          stays put while the queue scrolls. List view only, and only once
+          there's something to head. */}
+      {!isMobile && view === 'list' && visible.length > 0 && <TicketListHeader />}
+
       {/* Body. paddingBottom clears the floating mobile bar (matches My Tasks). */}
       <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, padding: view === 'board' ? 12 : 16, paddingBottom: isMobile ? 88 : undefined }}>
         {view === 'reports' ? (
@@ -446,6 +451,31 @@ export default function TicketsView() {
   );
 }
 
+// Column header for the desktop list view. Cell widths mirror TicketRow's
+// desktop cells 1:1 so labels sit above the right data — keep the two in step.
+// Rendered as a sibling above the scrollable body (not inside it), so it never
+// scrolls out of view while the queue does.
+function TicketListHeader() {
+  const cell = { fontSize: 11, fontWeight: 700, color: NX.faint, textTransform: 'uppercase', letterSpacing: '0.04em' };
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 14, padding: '9px 16px',
+      background: NX.surface2, borderTop: `1px solid ${NX.border}`, borderBottom: `1px solid ${NX.border}`,
+    }}>
+      <span style={{ width: 15, flexShrink: 0 }} />
+      <span style={{ width: 16, flexShrink: 0 }} />
+      <span style={{ ...cell, flex: '1 1 240px', minWidth: 0 }}>Title</span>
+      <span style={{ ...cell, minWidth: 150 }}>State</span>
+      <span style={{ ...cell, minWidth: 150 }}>Priority</span>
+      <span style={{ ...cell, minWidth: 92 }}>Due Date</span>
+      <span style={{ ...cell, flex: '0 1 150px', minWidth: 0 }}>Requester</span>
+      <span style={{ ...cell, flex: '0 1 150px', minWidth: 0 }}>Assigned To</span>
+      <span style={{ ...cell, minWidth: 92 }}>Created Date</span>
+      <span style={{ width: 16, flexShrink: 0 }} />
+    </div>
+  );
+}
+
 function TicketRow({ t, nameOf, hrDeptName, onOpen, checked, onToggle }) {
   const isMobile = useIsMobile();
   const overdue = t.slaDueOn && t.slaDueOn < today() && !CLOSED_STATES.includes(t.status);
@@ -510,11 +540,19 @@ function TicketRow({ t, nameOf, hrDeptName, onOpen, checked, onToggle }) {
           {t.code || '—'}{hrDept ? ` · ${hrDept}` : ''}
         </div>
       </div>
-      <TicketStatusChip status={t.status} />
-      {/* Only shows while pending — an approved request looks like any other. */}
-      {t.approvalStatus === 'pending' && <ApprovalChip ticket={t} />}
-      <PriorityChip priority={t.priority} />
-      <SlaBadge t={t} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 150 }}>
+        <TicketStatusChip status={t.status} />
+        {/* Only shows while pending — an approved request looks like any other. */}
+        {t.approvalStatus === 'pending' && <ApprovalChip ticket={t} />}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 150 }}>
+        <PriorityChip priority={t.priority} />
+        <SlaBadge t={t} />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 92 }}>
+        <Clock size={12} style={{ color: overdue ? NX.red : NX.faint }} />
+        <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 700 : 400 }}>{t.slaDueOn ? fmtDate(t.slaDueOn) : '—'}</span>
+      </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: '0 1 150px' }} title={`Requester: ${nameOf(t.requesterId) || 'Unknown'}`}>
         {t.requesterId ? <Avatar email={t.requesterId} name={nameOf(t.requesterId)} size={22} /> : <span style={{ width: 22 }} />}
         <span style={{ fontSize: 12.5, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.requesterId ? nameOf(t.requesterId) : '—'}</span>
@@ -523,9 +561,8 @@ function TicketRow({ t, nameOf, hrDeptName, onOpen, checked, onToggle }) {
         {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={22} /> : <span style={{ width: 22 }} />}
         <span style={{ fontSize: 12.5, color: t.assigneeId ? NX.dim : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned'}</span>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 92, justifyContent: 'flex-end' }}>
-        <Clock size={12} style={{ color: overdue ? NX.red : NX.faint }} />
-        <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 700 : 400 }}>{t.slaDueOn ? fmtDate(t.slaDueOn) : '—'}</span>
+      <div style={{ display: 'flex', alignItems: 'center', minWidth: 92 }} title={t.createdAt ? `Created ${fmtDate(t.createdAt)}` : ''}>
+        <span style={{ fontSize: 12, color: NX.dim }}>{t.createdAt ? fmtDate(t.createdAt) : '—'}</span>
       </div>
       {t.resolvedAt
         ? <CheckCircle2 size={16} style={{ color: NX.green, flexShrink: 0 }} title={`Resolved ${fmtDate(t.resolvedAt)}`} />
