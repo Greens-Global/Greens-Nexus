@@ -26,6 +26,10 @@ export function useNexusStore() {
   // `loading` is true until the first mount reconcile finishes, so the UI can show a spinner
   // instead of the "no properties yet" empty state during the initial async hydration.
   const [loading, setLoading] = useState(true);
+  // `serverOk` is false until a SERVER copy has been applied (hydrate or background pull).
+  // While false, an empty store means "couldn't load", NOT "portfolio is empty" — the UI must
+  // show a reconnecting state instead of the add-your-first-asset empty state.
+  const [serverOk, setServerOk] = useState(false);
   // Set right before applying a SERVER copy to state, so the push-on-change effect can tell
   // "the server told us this" apart from "the user edited this" — server-sourced changes are
   // mirrored locally but never queued back to the server (that echo used to re-PUT the whole
@@ -48,6 +52,7 @@ export function useNexusStore() {
           serverEcho.current = true;
           setLastKnown(serverState._ts || 0, (serverState.logs && serverState.logs.length) || 0);
           setStore(VNORM(serverState));
+          setServerOk(true);
           return;
         }
         let local = null;
@@ -76,8 +81,14 @@ export function useNexusStore() {
     try { localStorage.setItem(STORAGE_KEY, json); } catch { /* ignore */ }
     idbSet(STORAGE_KEY, json);
     if (serverEcho.current) { serverEcho.current = false; return; }
+    // Never push an EMPTY portfolio from a client that has not seen the server
+    // this session: a module opened during an outage boots empty, and the first
+    // edit would otherwise replace-all the shared workspace with near-nothing.
+    // (The backend refuses empty-over-populated PUTs too — this avoids even
+    // queueing one.)
+    if (!(store.properties || []).length && !serverOk) return;
     queueWrite(store);
-  }, [store]);
+  }, [store]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 3. Once on mount: wire the background poll/flush/visibility/focus/pagehide/online lifecycle.
   //    A newer server copy is normalized and applied directly (bypassing the setState-updater
@@ -85,7 +96,8 @@ export function useNexusStore() {
   useEffect(() => wireBackgroundSync((serverState) => {
     serverEcho.current = true;
     setStore(VNORM(serverState));
+    setServerOk(true);
   }), []);
 
-  return [store, setStore, loading];
+  return [store, setStore, loading, serverOk];
 }

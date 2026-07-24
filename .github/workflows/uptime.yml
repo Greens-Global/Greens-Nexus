@@ -1,0 +1,60 @@
+# External uptime probe for prod — runs from GitHub's infrastructure every 10
+# minutes, so we get an independent, timestamped record of the outages users
+# report (e.g. Neil's intermittent "this site can't be reached"). On persistent
+# failure it opens (or comments on) a single "Uptime: prod unreachable" issue —
+# check that issue's timeline against user reports to tell "our edge was down"
+# apart from "their network was broken".
+#
+# NOTE: scheduled workflows only run from the DEFAULT branch (main) — this arms
+# itself when it reaches main at the next release. `workflow_dispatch` allows a
+# manual run from any branch for testing.
+name: Uptime check
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe prod frontend and API
+        env:
+          API_BASE: ${{ secrets.VITE_API_BASE }}
+        run: |
+          set +e
+          failures=""
+          probe() {
+            local name="$1" url="$2" code="000"
+            for i in 1 2 3; do
+              code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 10 --max-time 25 "$url")
+              [ "$code" = "200" ] && { echo "OK   $name ($code)"; return 0; }
+              sleep 5
+            done
+            echo "FAIL $name (last HTTP code: $code)"
+            failures="$failures\n- $name — $url (last code $code, 3 attempts)"
+            return 1
+          }
+          probe "frontend nexus.greensglobal.com" "https://nexus.greensglobal.com/"
+          [ -n "$API_BASE" ] && probe "backend API /health" "${API_BASE%/}/health"
+          if [ -n "$failures" ]; then
+            printf 'FAILURES<<EOF\n%b\nEOF\n' "$failures" >> "$GITHUB_ENV"
+          fi
+
+      - name: Open or update the outage issue
+        if: env.FAILURES != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Uptime: prod unreachable"
+          body=$(printf 'Probe from GitHub Actions failed at %s (UTC):\n%b\n' "$(date -u '+%Y-%m-%d %H:%M')" "$FAILURES")
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$title in:title" --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          fi

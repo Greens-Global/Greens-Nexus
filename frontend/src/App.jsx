@@ -15,7 +15,7 @@ import { StepUpOverlay } from "./stepup/StepUp";
 import GlobalSearch from "./components/GlobalSearch";
 import PullToRefresh from "./components/PullToRefresh";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
-import { onBackendHealth, startKeepWarm } from "./api";
+import { onBackendHealth, isBackendDown, startKeepWarm } from "./api";
 
 // Always loaded — critical path
 import LoginPage from "./views/LoginPage";
@@ -237,8 +237,26 @@ function MainApp() {
   const [adminPanelTab,    setAdminPanelTab]    = useState('audit');
   const [backendDown,      setBackendDown]      = useState(false);
   const sidebarRef = useRef(null);
+  // Remount ticket for the active view. A module opened while the backend was
+  // down/restarting fetches nothing and settles into a false "no data yet — add
+  // one" empty state, and nothing ever refetches. Track whether the CURRENT
+  // screen was mounted during an outage; when the backend recovers, bump this
+  // key to remount it so it loads for real — no user troubleshooting.
+  const [viewEpoch,        setViewEpoch]        = useState(0);
+  const viewMountedDuringOutage = useRef(false);
+  useEffect(() => { viewMountedDuringOutage.current = isBackendDown(); }, [activeView, activeSub]);
 
-  useEffect(() => onBackendHealth(setBackendDown), []);
+  useEffect(() => onBackendHealth((down) => {
+    setBackendDown(down);
+    // Only remount screens that were OPENED during the outage (they loaded
+    // nothing and show a false-empty state). A screen that was healthy when the
+    // outage began keeps its loaded data and any in-progress user input —
+    // remounting it would throw that work away.
+    if (!down && viewMountedDuringOutage.current) {
+      viewMountedDuringOutage.current = false;
+      setViewEpoch(e => e + 1);
+    }
+  }), []);
   // Keep the Azure backend warm through a working session so screens don't eat a
   // cold start on every open.
   useEffect(() => { startKeepWarm(); }, []);
@@ -384,13 +402,14 @@ function MainApp() {
               onOpenAdmin={tab => { setAdminPanelTab(tab); setAdminPanelOpen(true); }}
             />
             <div className={activeView === 'tasks' ? 'viewport viewport-flush' : 'viewport'}>
-              <ViewErrorBoundary resetKey={`${activeView}/${activeSub}`}>
+              <ViewErrorBoundary resetKey={`${activeView}/${activeSub}/${viewEpoch}`}>
               <Suspense fallback={
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
                   <div style={{ width: 28, height: 28, borderRadius: '50%', border: '3px solid var(--border-color)', borderTopColor: 'var(--text-primary)', animation: 'spin 0.7s linear infinite' }} />
                 </div>
               }>
                 <ProtectedView
+                  key={viewEpoch}
                   activeView={activeView}
                   activeSub={activeSub}
                   onSubChange={s => setActiveSub(s)}

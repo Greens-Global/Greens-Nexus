@@ -72,7 +72,11 @@ export function serverPut(json) {
   try { ws = JSON.parse(json); } catch { return Promise.resolve({ status: 200, ts: 0 }); }
   return api.savePropertyWorkspace(ws)
     .then((r) => ({ status: 200, ts: (r && r._ts) || 0 }))
-    .catch(() => ({ status: 0, ts: 0 }));
+    // 409 = the server refused this write outright (e.g. empty-over-populated
+    // guard) — a definitive rejection, not a transient failure: surface it as
+    // 409 so the queue drops the write and the next pull re-syncs, instead of
+    // retrying a write that can never be accepted.
+    .catch((e) => ({ status: e && e.status === 409 ? 409 : 0, ts: 0 }));
 }
 
 /**

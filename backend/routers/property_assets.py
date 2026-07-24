@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime, timezone, date
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -86,6 +86,14 @@ def put_workspace(ws: Workspace, db: Session = Depends(get_db), user=Depends(req
     request is simplest and matches the module's whole-blob save semantics."""
     now = _now()
     email = (user or {}).get("email", "")
+
+    # Refuse a wipe: a client that booted during an outage starts from an EMPTY
+    # store, and its first save would replace-all a populated portfolio with
+    # nothing. Deleting the genuinely-last asset (server count <= 1) is allowed;
+    # 0-over-many can only be a broken client. 409 → the client's sync queue
+    # drops the write and re-pulls instead of retrying forever.
+    if not ws.properties and db.query(PropertyAsset).count() > 1:
+        raise HTTPException(status_code=409, detail="Refusing to replace a populated portfolio with an empty one")
 
     db.query(PropertyRecord).delete()
     db.query(PropertyActivityLog).delete()

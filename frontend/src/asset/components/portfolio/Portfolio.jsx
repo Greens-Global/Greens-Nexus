@@ -65,7 +65,7 @@ const VIEW_TABS = [
  * intentional (lets you see full-portfolio breakdowns while narrowing your view) rather than a
  * bug, but flagging it here since it's easy to "fix" by accident while touching this code.
  */
-export function Portfolio({ props, openProperty, typeFilter, setTypeFilter }) {
+export function Portfolio({ props, openProperty, typeFilter, setTypeFilter, serverOk }) {
   const [stageFilter, setStageFilter] = useState('');
   const [regionFilter, setRegionFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -76,6 +76,22 @@ export function Portfolio({ props, openProperty, typeFilter, setTypeFilter }) {
 
   const all = props.slice();
   if (!all.length) {
+    // Empty + never heard from the server this session = the load failed (outage,
+    // deploy restart, auth blip) — NOT an empty portfolio. Say so, keep retrying in
+    // the background (the sync poll already does), and offer a manual reload. Only
+    // a server-confirmed empty portfolio gets the "add your first property" invite.
+    if (!serverOk) {
+      return (
+        <EmptyState>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+            <span>Couldn't reach the server to load the portfolio — retrying automatically…</span>
+            <button className="secondary-btn" onClick={() => window.location.reload()} style={{ padding: '8px 18px' }}>
+              Reload now
+            </button>
+          </div>
+        </EmptyState>
+      );
+    }
     return <EmptyState>No properties yet. Use “Add property” to register the first one.</EmptyState>;
   }
 

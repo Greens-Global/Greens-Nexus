@@ -51,7 +51,7 @@ export default function App() {
   // owns hydration (localStorage -> IndexedDB -> server reconcile) and background sync — see
   // lib/useNexusStore.js and lib/sync.js. This component only ever reads `store` and calls
   // `setStore(updater)`; it never touches localStorage/IndexedDB/the network directly.
-  const [store, setStore, loading] = useNexusStore();
+  const [store, setStore, loading, serverOk] = useNexusStore();
 
   const [view, setView] = useState('portfolio');       // 'portfolio' | 'manage' | a TAB_LIST key
   const [activeId, setActiveId] = useState(null);        // currently open asset's id, or null
@@ -716,7 +716,7 @@ export default function App() {
         </div>
       )}
       {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <CriticalDates store={store} openProperty={openAsset} hideIfEmpty />}
-      {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <Portfolio props={visibleProperties} openProperty={openAsset} typeFilter={typeFilter} setTypeFilter={setTypeFilter} />}
+      {view === 'portfolio' && !active && !(loading && !visibleProperties.length) && <Portfolio props={visibleProperties} openProperty={openAsset} typeFilter={typeFilter} setTypeFilter={setTypeFilter} serverOk={serverOk} />}
 
       {view === 'property' && active?.assembled && !active.parentId && <AssemblageParcels lead={active} all={store.properties} onOpen={(id) => openAsset(id, 'property')} />}
       {view === 'property' && active && <CriticalDates store={store} only={active.id} openProperty={openAsset} onTab={navigate} />}
@@ -793,6 +793,7 @@ export default function App() {
           canUndo={canUndo}
           onClearFlag={toggleFlag}
           onPushFix={pushFieldFix}
+          serverOk={serverOk}
         />
       )}
 
