@@ -21,11 +21,18 @@ else:
     engine = create_engine(
         url,
         connect_args={"sslmode": "require", "options": "-c statement_timeout=25000"},
-        # 8 workers × (pool_size + max_overflow) = 64 max connections — safe on
-        # Supabase Pro. pool_pre_ping replaces stale connections transparently;
-        # pool_recycle retires them before Supabase's pooler drops them.
-        pool_size=3,
-        max_overflow=5,
+        # Connection budget: Supabase max_connections=60, ~10 reserved for
+        # superuser/internal → ~50 usable, shared by BOTH deployment slots while
+        # a deploy overlaps. The old 3+5 per worker × 8 workers = 64 potential
+        # OVERSHOT that ceiling — bursts (one page load fans out 10-15 calls)
+        # intermittently hit "too many clients" → instant OperationalError →
+        # random 500s on any endpoint (Jul 24 diagnosis). 2+3 × 8 workers = 40
+        # caps prod safely under the limit; short bursts beyond it queue for up
+        # to pool_timeout instead of erroring. pool_pre_ping replaces stale
+        # connections transparently; pool_recycle retires them before Supabase's
+        # pooler drops them.
+        pool_size=2,
+        max_overflow=3,
         pool_timeout=10,
         pool_pre_ping=True,
         pool_recycle=300,

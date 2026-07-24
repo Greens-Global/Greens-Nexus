@@ -98,6 +98,11 @@ jobs:
             echo "ready=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Start staging slot for this deploy
+        if: steps.slot.outputs.ready == 'true'
+        continue-on-error: true
+        run: az webapp start -g "${{ steps.rg.outputs.rg }}" -n "$APP_NAME" --slot "$SLOT"
+
       - name: Deploy to staging slot
         if: steps.slot.outputs.ready == 'true'
         uses: azure/webapps-deploy@v3
@@ -138,6 +143,17 @@ jobs:
           done
           echo "::error::Production unhealthy after swap — swap back with: az webapp deployment slot swap -g $RG -n $APP_NAME --slot staging --target-slot production"
           exit 1
+
+      # The slot's only job is deploy-time verification. Left running it would
+      # hold a second full app against the SAME production database (double
+      # connection pools — Jul 24: intermittent "too many clients" 500s) and
+      # double-run background jobs (ticket emails, HR reminders). Stop it once
+      # the swap is verified; the next deploy starts it again. To roll back a
+      # bad release: az webapp start --slot staging, then swap.
+      - name: Stop staging slot until the next deploy
+        if: steps.slot.outputs.ready == 'true'
+        continue-on-error: true
+        run: az webapp stop -g "${{ steps.rg.outputs.rg }}" -n "$APP_NAME" --slot "$SLOT"
 
       # Fallback path — plan below Standard: old in-place deploy (restarts prod).
       - name: Deploy to Azure Web App (in-place fallback)
