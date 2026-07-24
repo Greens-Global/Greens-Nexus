@@ -26,7 +26,7 @@ const MODES = {
     title: 'End of Day', Icon: Sunset, color: '#7c3aed', tag: 'EOD',
     sub: 'Wrapping up — post your summary and the tasks you worked on.',
     msgLabel: 'Summary', msgPlaceholder: 'Wrapping up — good progress today.',
-    tasksLabel: 'Tasks (one per line)', tasksHead: 'Tasks',
+    tasksLabel: 'Tasks (one per line)', tasksHead: 'Tasks (completed)',
     tasksPlaceholder: 'Lakeline report\nRiverside vendor call\nQ2 numbers review',
     cta: 'Send & clock out', ackLabel: 'I already sent my logout (EOD) message',
   },
@@ -91,13 +91,15 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     const h = Math.floor(workedMin / 60), m = workedMin % 60;
     const tally = mode === 'eod' && workedMin > 0
       ? ` (${h > 0 ? `${h} hr ` : ''}${m > 0 || h === 0 ? `${m} mins` : ''}`.trimEnd() + ')' : '';
-    // "1)Task" → "1) Task" — people number their own lines; make the spacing uniform.
-    const normalize = (s) => s.split('\n').map(t => t.trim().replace(/^(\d+[).:])(?=\S)/, '$1 ')).filter(Boolean);
+    // Lists are auto-numbered "1. …" — strip any numbering people typed
+    // themselves so lines don't come out as "1. 1) Task".
+    const normalize = (s) => s.split('\n').map(t => t.trim().replace(/^\d+[).:]?\s*/, '')).filter(Boolean);
+    const numbered = (lines) => lines.map((t, i) => `${i + 1}. ${esc(t)}`).join('<br/>');
     const taskLines = normalize(tasks);
     const pendingLines = mode === 'eod' ? normalize(pending) : [];
-    return `<b>${M.title}</b><br/>${dateStr}<br/>${timeStr}${tally}<br/>${esc(message)}`
-      + (taskLines.length ? `<br/><br/><b>${M.tasksHead}</b><br/>${taskLines.map(t => `• ${esc(t)}`).join('<br/>')}` : '')
-      + (pendingLines.length ? `<br/><br/><b>Pending tasks</b><br/>${pendingLines.map(t => `• ${esc(t)}`).join('<br/>')}` : '');
+    return `<b>${M.title}</b><br/>${dateStr}<br/>${timeStr}${tally}<br/><br/>${esc(message)}`
+      + (taskLines.length ? `<br/><br/><b>${M.tasksHead}</b><br/>${numbered(taskLines)}` : '')
+      + (pendingLines.length ? `<br/><br/><b>Pending tasks</b><br/>${numbered(pendingLines)}` : '');
   }
 
   async function send() {
