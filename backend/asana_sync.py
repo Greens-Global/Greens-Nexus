@@ -377,6 +377,16 @@ def _pull_comments(db, asana, asana_gid, nexus_task_id, counts):
         counts["comments"] += 1
 
 
+# Asana fires several webhook events in a burst for one new/changed task (create,
+# then separate events per field set), each spawning its own trigger_pull_async()
+# thread. Without serializing, concurrent pull() runs all see "no link yet" for
+# the same Asana task at once and each create their own duplicate Nexus task —
+# the same class of dedupe race that bit us with batched notifications
+# (see CLAUDE.md). One lock is enough because sync only ever runs on one
+# deployed instance (is_sync_worker()).
+_PULL_LOCK = threading.Lock()
+
+
 def pull(db):
     """Poll every mapped Asana project and apply changes into Nexus (tasks +
     comments). Walks all tasks and relies on the digest / comment-link to skip
@@ -384,20 +394,21 @@ def pull(db):
     cfg = get_config(db)
     if not cfg.enabled or not cfg.token:
         raise ImportError_("Sync is not enabled or has no token.")
-    asana = Asana(cfg.token)
-    counts = {"created": 0, "updated": 0, "comments": 0}
-    for pm in db.query(models.AsanaProjectMap).all():
-        if not pm.asana_project_gid:
-            continue
-        rows = asana.get(f"/projects/{pm.asana_project_gid}/tasks",
-                         opt_fields="name,notes,due_on,completed,assignee.email,modified_at")
-        for at in rows:
-            nexus_task_id = _apply_inbound(db, at, pm.nexus_project_id, counts)
-            if nexus_task_id:
-                _pull_comments(db, asana, at["gid"], nexus_task_id, counts)
-    cfg.last_pull_at = now_iso()
-    db.commit()
-    return counts
+    with _PULL_LOCK:
+        asana = Asana(cfg.token)
+        counts = {"created": 0, "updated": 0, "comments": 0}
+        for pm in db.query(models.AsanaProjectMap).all():
+            if not pm.asana_project_gid:
+                continue
+            rows = asana.get(f"/projects/{pm.asana_project_gid}/tasks",
+                             opt_fields="name,notes,due_on,completed,assignee.email,modified_at")
+            for at in rows:
+                nexus_task_id = _apply_inbound(db, at, pm.nexus_project_id, counts)
+                if nexus_task_id:
+                    _pull_comments(db, asana, at["gid"], nexus_task_id, counts)
+        cfg.last_pull_at = now_iso()
+        db.commit()
+        return counts
 
 
 # ── OUTBOUND: Nexus comment -> Asana story ───────────────────────────────────

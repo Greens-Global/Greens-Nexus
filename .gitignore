@@ -53,3 +53,7 @@ e2e/tests/generated/
 backend/qa_local.db
 backend/e2e.db
 backend/asana_import_state.json
+
+# Local-only e-sign storage fallback (no Supabase credentials configured) —
+# never exists in any deployed environment, see routers/esign.py
+backend/Generated File/

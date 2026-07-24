@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor } from './lib';
+import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor, fmtHours } from './lib';
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '—');
@@ -134,7 +134,7 @@ function MenuItem({ icon, onClick, danger, children }) {
 
 export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
   const store = useTasks();
-  const { taskById, tasks, teams, projectName, teamName, nameOf, myEmail, customFields = [], updateTask, deleteTask, createTask, getComments, addComment } = store;
+  const { taskById, tasks, teams, projects, projectName, teamName, nameOf, myEmail, customFields = [], updateTask, deleteTask, createTask, getComments, addComment } = store;
   const people = usePeople();
 
   const [activeId, setActiveId] = useState(taskId);
@@ -215,7 +215,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
     switch (key) {
       case 'overview': return (
         <OverviewTab
-          task={task} patch={patch} people={people} projectName={projectName} teamName={teamName} teams={teams}
+          task={task} patch={patch} people={people} projectName={projectName} teamName={teamName} teams={teams} projects={projects}
           blockedBy={blockedBy} depCandidates={depCandidates} addDependency={addDependency} removeDependency={removeDependency}
           setDependencyType={setDependencyType}
           subtasks={subtasks} createTask={createTask} updateTask={updateTask} onOpenSub={setActiveId}
@@ -255,9 +255,31 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <MembersMenu task={task} people={people} nameOf={nameOf} patch={patch} />
             <button onClick={() => setShareOpen(true)} title="Share" style={{ ...btn('outline'), padding: '6px 10px', fontSize: 12, color: NX.dim }}><Share2 size={14} /> Share</button>
-            <button onClick={() => patch({ likedByIds: liked ? task.likedByIds.filter((e) => e !== myEmail) : [...(task.likedByIds || []), myEmail] })} title={liked ? 'Unlike' : 'Like'} style={{ ...btn('ghost'), padding: 7, color: liked ? NX.blue : NX.faint }}>
-              <ThumbsUp size={16} fill={liked ? 'currentColor' : 'none'} />
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <button onClick={() => patch({ likedByIds: liked ? task.likedByIds.filter((e) => e !== myEmail) : [...(task.likedByIds || []), myEmail] })}
+                title={liked ? 'Remove your like' : 'Like — a quick, visible signal to the team that you support or agree with this task'}
+                style={{ ...btn('ghost'), padding: 7, color: liked ? NX.blue : NX.faint }}>
+                <ThumbsUp size={16} fill={liked ? 'currentColor' : 'none'} />
+              </button>
+              {(task.likedByIds || []).length > 0 && (
+                <Pop width={190} trigger={(t) => (
+                  <button onClick={t} title="Who liked this task" style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '0 6px 0 0', fontSize: 12, fontWeight: 700, color: NX.faint }}>
+                    {task.likedByIds.length}
+                  </button>
+                )}>
+                  {() => (
+                    <>
+                      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Liked by</div>
+                      {task.likedByIds.map((em) => (
+                        <div key={em} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, color: NX.ink }}>
+                          <Avatar email={em} name={nameOf(em)} size={20} /> {nameOf(em)}
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </Pop>
+              )}
+            </div>
             <button onClick={() => { navigator.clipboard?.writeText(`${window.location.origin}${window.location.pathname}?task=${task.id}`); }} title="Copy Task Link" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><Link2 size={16} /></button>
             {!isMobile && (
               <button onClick={toggleExpand} title={expanded ? 'Collapse' : 'Expand'} style={{ ...btn('ghost'), padding: 7, color: NX.faint }}>
@@ -437,7 +459,7 @@ function TitleInput({ value, completed, onCommit }) {
 }
 
 // ── Overview ────────────────────────────────────────────────────────────────
-function OverviewTab({ task, patch, people, projectName, teamName, teams, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh }) {
+function OverviewTab({ task, patch, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh }) {
   const isMobile = useIsMobile();
   const { statusMeta, statusOrder } = useTasks();
   const [recStep, setRecStep] = useState('root');
@@ -506,7 +528,22 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, blocke
       </Row>
 
       <Row label="Project">
-        <span style={{ color: NX.ink }}>{task.projectId ? projectName(task.projectId) : '—'}</span>
+        <Pop width={220} trigger={(t) => (
+          <button onClick={t} style={{ display: 'flex', alignItems: 'center', gap: 5, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: task.projectId ? NX.ink : NX.faint, fontSize: 13, fontFamily: FONT }}>
+            {task.projectId ? projectName(task.projectId) : 'No project'} <ChevronDown size={13} style={{ color: NX.faint }} />
+          </button>
+        )}>
+          {(close) => (
+            <>
+              <MenuItem icon={!task.projectId ? <Check size={13} /> : <span style={{ width: 13, display: 'inline-block' }} />} onClick={() => { patch({ projectId: '', teamId: '' }); close(); }}>No project</MenuItem>
+              {(projects || []).length === 0 ? (
+                <div style={{ padding: 9, fontSize: 12, color: NX.faint }}>No projects yet</div>
+              ) : (projects || []).map((p) => (
+                <MenuItem key={p.id} icon={task.projectId === p.id ? <Check size={13} /> : <span style={{ width: 13, display: 'inline-block' }} />} onClick={() => { if (p.id !== task.projectId) patch({ projectId: p.id, teamId: '' }); close(); }}>{p.name}</MenuItem>
+              ))}
+            </>
+          )}
+        </Pop>
       </Row>
 
       <Row label="Team">
@@ -667,15 +704,22 @@ function DescriptionInput({ value, onCommit }) {
 }
 
 function TimeTracking({ task, patch }) {
-  const [hours, setHours] = useState('');
-  const log = () => { const h = Number(hours); if (h > 0) { patch({ actualHours: (task.actualHours || 0) + h }); setHours(''); } };
+  const [hrs, setHrs] = useState('');
+  const [mins, setMins] = useState('');
+  const log = () => {
+    const h = (Number(hrs) || 0) + (Number(mins) || 0) / 60;
+    if (h > 0) { patch({ actualHours: (task.actualHours || 0) + h }); setHrs(''); setMins(''); }
+  };
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 18, fontSize: 13 }}>
-      <div><div style={{ color: NX.faint }}>Estimate</div><div style={{ fontWeight: 700, color: NX.ink }}>{task.estimateHours ?? 0}h</div></div>
-      <div><div style={{ color: NX.faint }}>Actual</div><div style={{ fontWeight: 700, color: NX.blue }}>{task.actualHours ?? 0}h</div></div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 18, fontSize: 13, flexWrap: 'wrap' }}>
+      <div><div style={{ color: NX.faint }}>Estimate</div><div style={{ fontWeight: 700, color: NX.ink }}>{fmtHours(task.estimateHours)}</div></div>
+      <div><div style={{ color: NX.faint }}>Actual</div><div style={{ fontWeight: 700, color: NX.blue }}>{fmtHours(task.actualHours)}</div></div>
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-        <input value={hours} onChange={(e) => setHours(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && log()} type="number" min="0" step="0.25" placeholder="0.5"
-          style={{ ...inputStyle, width: 72, padding: '6px 8px', fontSize: 12 }} />
+        <input value={hrs} onChange={(e) => setHrs(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && log()} type="number" min="0" step="1" placeholder="hrs"
+          style={{ ...inputStyle, width: 56, padding: '6px 8px', fontSize: 12 }} />
+        <span style={{ color: NX.faint }}>:</span>
+        <input value={mins} onChange={(e) => setMins(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && log()} type="number" min="0" max="59" step="5" placeholder="min"
+          style={{ ...inputStyle, width: 56, padding: '6px 8px', fontSize: 12 }} />
         <button onClick={log} style={{ ...btn('primary'), padding: '7px 11px', fontSize: 12 }}><Clock size={13} /> Log</button>
       </div>
     </div>
@@ -862,6 +906,29 @@ function AttachmentsTab({ task, refresh }) {
 }
 
 // ── Subtasks ────────────────────────────────────────────────────────────────
+function SubtaskAssignee({ subtask, people, updateTask }) {
+  return (
+    <div onClick={(e) => e.stopPropagation()}>
+      <Pop width={200} trigger={(t) => (
+        <button onClick={t} title={subtask.assigneeId ? 'Change assignee' : 'Assign'} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
+          {subtask.assigneeId
+            ? <Avatar email={subtask.assigneeId} size={18} />
+            : <span style={{ width: 18, height: 18, borderRadius: '50%', border: `1px dashed ${NX.border}`, display: 'inline-block' }} />}
+        </button>
+      )}>
+        {(close) => (
+          <>
+            <MenuItem icon={!subtask.assigneeId ? <Check size={13} /> : <span style={{ width: 13, display: 'inline-block' }} />} onClick={() => { updateTask(subtask.id, { assigneeId: '' }); close(); }}>Unassigned</MenuItem>
+            {people.map((p) => (
+              <MenuItem key={p.email} icon={<Avatar email={p.email} name={p.name} size={16} />} onClick={() => { updateTask(subtask.id, { assigneeId: p.email }); close(); }}>{p.name}</MenuItem>
+            ))}
+          </>
+        )}
+      </Pop>
+    </div>
+  );
+}
+
 function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub, hideHeading }) {
   const [title, setTitle] = useState('');
   const [dueOn, setDueOn] = useState('');
@@ -887,7 +954,7 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
             </button>
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, color: s.completed ? NX.faint : NX.ink, textDecoration: s.completed ? 'line-through' : 'none' }}>{s.title}</span>
             {s.dueOn && <span style={{ fontSize: 11, color: NX.faint }}>{fmtDate(s.dueOn)}</span>}
-            {s.assigneeId && <Avatar email={s.assigneeId} size={18} />}
+            <SubtaskAssignee subtask={s} people={people} updateTask={updateTask} />
             <ChevronRight size={14} style={{ color: NX.faint }} />
           </div>
         ))}
@@ -947,8 +1014,8 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
     ['Team', task.teamId ? teamName(task.teamId) : '—'],
     ['Start Date', fmtDate(task.startOn)],
     ['Due Date', fmtDate(task.dueOn)],
-    ['Estimate', task.estimateHours != null ? `${task.estimateHours}h` : '—'],
-    ['Actual', task.actualHours != null ? `${task.actualHours}h` : '—'],
+    ['Estimate', task.estimateHours != null ? fmtHours(task.estimateHours) : '—'],
+    ['Actual', task.actualHours != null ? fmtHours(task.actualHours) : '—'],
     ['Milestone', task.isMilestone ? 'Yes' : 'No'],
     ['Approval', !task.approvalStatus || task.approvalStatus === 'none' ? '—' : task.approvalStatus.replace('_', ' ')],
     ['Recurrence', recurrenceLabel(task.recurrence)],
@@ -966,9 +1033,7 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
         ))}
         <div style={{ display: 'flex', gap: 12, padding: '9px 12px', fontSize: 13, borderTop: `1px solid ${NX.border}` }}>
           <span style={{ width: 112, flexShrink: 0, color: NX.faint, paddingTop: 2 }}>Labels</span>
-          <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {(task.tags || []).length ? task.tags.map((t) => <Chip key={t} color={NX.dim} tint={NX.border2}>{t}</Chip>) : '—'}
-          </span>
+          <LabelsEditor tags={task.tags || []} onChange={(tags) => patch({ tags })} />
         </div>
       </div>
 
@@ -988,7 +1053,28 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
   );
 }
 
-function CustomFieldInput({ field, value, onChange }) {
+function LabelsEditor({ tags, onChange }) {
+  const [input, setInput] = useState('');
+  const add = () => {
+    const v = input.trim();
+    if (v && !tags.includes(v)) onChange([...tags, v]);
+    setInput('');
+  };
+  return (
+    <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, flex: 1 }}>
+      {tags.map((t) => (
+        <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 999, fontSize: 12, fontWeight: 600, color: NX.dim, background: NX.border2 }}>
+          {t}
+          <button onClick={() => onChange(tags.filter((x) => x !== t))} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={11} /></button>
+        </span>
+      ))}
+      <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} onBlur={add}
+        placeholder="Add label…" style={{ border: 'none', outline: 'none', background: 'transparent', fontFamily: FONT, fontSize: 12, width: 100, color: NX.ink }} />
+    </span>
+  );
+}
+
+export function CustomFieldInput({ field, value, onChange }) {
   const [v, setV] = useState(value ?? '');
   useEffect(() => setV(value ?? ''), [value]);
   if (field.type === 'select' && Array.isArray(field.options)) {

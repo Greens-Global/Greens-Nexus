@@ -9,7 +9,7 @@ import {
 import { useTasks } from './TasksContext';
 import { taskStats, topLevel } from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
-import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile } from './components';
+import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab } from './components';
 
 // Progress bar (accent-coloured) used on cards and project rows.
 function ProgressBar({ pct, color, height = 8 }) {
@@ -67,11 +67,8 @@ export default function PortfoliosView({ onNavigate }) {
           </div>
           {!isMobile && <button style={{ ...btn('primary'), padding: '10px 18px', fontSize: 13.5, borderRadius: 10 }} onClick={() => setEditing({})}><Plus size={16} />New Portfolio</button>}
         </div>
-        {/* New Portfolio · Search · Show archived — one line on mobile */}
+        {/* Search · Show archived — one line on mobile */}
         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, marginTop: isMobile ? 10 : 16, flexWrap: isMobile ? 'nowrap' : 'wrap' }}>
-          {isMobile && (
-            <button title="New Portfolio" onClick={() => setEditing({})} style={{ ...btn('primary'), padding: 9, borderRadius: 10, flexShrink: 0 }}><Plus size={16} /></button>
-          )}
           <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 0, maxWidth: isMobile ? 'none' : 420 }}>
             <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search portfolios…"
@@ -163,6 +160,8 @@ export default function PortfoliosView({ onNavigate }) {
         )}
       </div>
 
+      {isMobile && <MobileFab title="New Portfolio" onClick={() => setEditing({})} />}
+
       {editing && (
         <PortfolioModal
           portfolio={editing.id ? editing : null} people={people} projects={projects}
@@ -184,6 +183,10 @@ function PortfolioModal({ portfolio, people, projects, onClose, onCreate, onUpda
   const [ownerId, setOwnerId] = useState(portfolio?.ownerId || null);
   const [projectIds, setProjectIds] = useState(portfolio?.projectIds || []);
   const [busy, setBusy] = useState(false);
+  // See ProjectsView.jsx's ProjectModal for why: autoFocus + this Modal's
+  // vh-based sizing + mobile Chrome's keyboard-open scroll behavior combine
+  // to scroll Name/Description/Owner out of view on phones.
+  const isMobile = useIsMobile();
 
   const toggleProject = (id) => setProjectIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
 
@@ -229,7 +232,7 @@ function PortfolioModal({ portfolio, people, projects, onClose, onCreate, onUpda
       <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
         <div>
           <label style={label}>Name</label>
-          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Portfolio Name" style={inputStyle} onKeyDown={(e) => e.key === 'Enter' && save()} />
+          <input autoFocus={!isMobile} value={name} onChange={(e) => setName(e.target.value)} placeholder="Portfolio Name" style={inputStyle} onKeyDown={(e) => e.key === 'Enter' && save()} />
         </div>
         <div>
           <label style={label}>Description</label>

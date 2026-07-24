@@ -434,7 +434,17 @@ def update_task(task_id: str, upd: TaskUpdate, user: dict = Depends(get_current_
     prev_completed = bool(t.completed)
 
     new_status = data.get("status", prev_status)
-    new_completed = bool(data.get("completed", prev_completed)) or (data.get("status") == "completed")
+    # `completed` and `status` are two independent columns for one user-facing
+    # concept, so a caller changing just one has to imply the other: an explicit
+    # `completed` (or status == "completed") sets completed True as before, but a
+    # status set to anything ELSE with no explicit `completed` field now clears
+    # it too — otherwise reopening a task (status -> in_progress) left the
+    # `completed` bool stuck True, so list/board views kept it parked in their
+    # Completed bucket even though its status read "In Progress".
+    if "status" in data and data["status"] != "completed" and "completed" not in data:
+        new_completed = False
+    else:
+        new_completed = bool(data.get("completed", prev_completed)) or (data.get("status") == "completed")
     _check_dependency_gate(db, t, prev_status, prev_completed, new_status, new_completed)
 
     for field, val in data.items():
@@ -444,18 +454,18 @@ def update_task(task_id: str, upd: TaskUpdate, user: dict = Depends(get_current_
             val = (val or "").lower()
         setattr(t, field, val)
 
-    # completion handling
-    if "completed" in data:
-        t.completed = bool(data["completed"])
-        if t.completed and not prev_completed:
+    # completion handling — keep `completed` (+ its timestamp) and `status` in
+    # sync regardless of which one the caller actually sent.
+    if new_completed != prev_completed:
+        t.completed = new_completed
+        if new_completed:
             t.completed_at = now_iso()
             if t.status != "completed":
                 t.status = "completed"
-        elif not t.completed and prev_completed:
+        else:
             t.completed_at = ""
-    if data.get("status") == "completed" and not t.completed:
-        t.completed = True
-        t.completed_at = now_iso()
+            if t.status == "completed":
+                t.status = "not_started"
 
     t.modified_at = now_iso()
 

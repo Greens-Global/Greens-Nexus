@@ -7,7 +7,7 @@ import { Plus, Search, FolderKanban, AlertTriangle, Pencil, Trash2, Archive, Glo
 import { useTasks } from './TasksContext';
 import { taskStats } from './lib';
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
-import { Avatar, StatusChip, EmptyState, Modal, usePeople, PersonSelect, useIsMobile } from './components';
+import { Avatar, StatusChip, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, MobileFab } from './components';
 import TasksWorkspace from './TasksWorkspace';
 
 const EMPTY_FORM = {
@@ -78,15 +78,12 @@ export default function ProjectsView({ onNavigate }) {
             <div style={{ fontSize: isMobile ? 20 : 26, fontWeight: 800, letterSpacing: '-0.02em' }}>Projects</div>
             {!isMobile && <div style={{ fontSize: 13.5, color: NX.dim, marginTop: 4 }}>Every project in the workspace with live task rollups.</div>}
           </div>
-          {/* Desktop keeps the labelled button; on mobile it joins the row below
-              as an icon (and the floating + also creates a project here). */}
+          {/* Desktop keeps the labelled button; on mobile a floating + at the
+              bottom of the screen creates a project instead (see MobileFab below). */}
           {!isMobile && <button style={{ ...btn('primary'), padding: '10px 18px', fontSize: 13.5, borderRadius: 10 }} onClick={startCreate}><Plus size={16} />New Project</button>}
         </div>
-        {/* New Project · Search · Show archived — one line on mobile */}
+        {/* Search · Show archived — one line on mobile */}
         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 14, marginTop: isMobile ? 10 : 16, flexWrap: isMobile ? 'nowrap' : 'wrap' }}>
-          {isMobile && (
-            <button title="New Project" onClick={startCreate} style={{ ...btn('primary'), padding: 9, borderRadius: 10, flexShrink: 0 }}><Plus size={16} /></button>
-          )}
           <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 0, maxWidth: isMobile ? 'none' : 420 }}>
             <Search size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search projects…"
@@ -169,6 +166,8 @@ export default function ProjectsView({ onNavigate }) {
       )}
       </div>
 
+      {isMobile && <MobileFab title="New Project" onClick={startCreate} />}
+
       {editing && (
         <ProjectModal
           form={editing}
@@ -194,6 +193,16 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
   const label = { fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 5, display: 'block' };
   const valid = form.name.trim().length > 0;
   const [saving, setSaving] = useState(false);
+  // autoFocus on a text input inside a modal pops the on-screen keyboard the
+  // instant the modal opens on touch devices. The modal's sizing is vh-based
+  // (Modal component: 7vh top padding, 86vh max-height), and mobile Chrome
+  // recalculates vh against the keyboard-shrunk viewport differently than
+  // Safari/Edge — its scroll-focused-input-into-view then overshoots and
+  // scrolls the whole modal content past Name/Description/Owner, landing on
+  // Department instead (reported: fields "missing" in Chrome mobile, present
+  // in Safari/Edge). Skipping autoFocus on mobile avoids triggering that
+  // keyboard-open scroll entirely — desktop keeps the autofocus convenience.
+  const isMobile = useIsMobile();
 
   // Teams currently assigned to this project (none yet for a brand-new one),
   // staged locally until Save so create and edit behave the same way.
@@ -232,7 +241,7 @@ function ProjectModal({ form, setForm, people, portfolios, onClose, onSaved }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div>
           <label style={label}>Name</label>
-          <input autoFocus value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Project Name" style={inputStyle} />
+          <input autoFocus={!isMobile} value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Project Name" style={inputStyle} />
         </div>
 
         <div>

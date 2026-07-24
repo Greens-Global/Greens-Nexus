@@ -194,12 +194,30 @@ export function TasksProvider({ children }) {
   const mkUpd = (updFn, setFn) => async (id, patch) => { const r = await updFn(id, toBody(patch)); setFn((p) => p.map((x) => (x.id === id ? r : x))); return r; };
   const mkDel = (delFn, setFn) => async (id) => { await delFn(id); setFn((p) => p.filter((x) => x.id !== id)); };
 
+  // Adding/removing a project from a portfolio tags the project's own
+  // portfolioId server-side too (see backend update_portfolio) — mirror that
+  // here so ProjectsView's portfolio badge (which reads project.portfolioId,
+  // not the portfolio's projectIds) updates without a full refetch.
+  const updatePortfolio = async (id, patch) => {
+    const r = await api.updateTaskPortfolio(id, toBody(patch));
+    setPortfolios((p) => p.map((x) => (x.id === id ? r : x)));
+    if (patch.projectIds) {
+      const nextIds = new Set(r.projectIds || []);
+      setProjects((prev) => prev.map((proj) => {
+        if (nextIds.has(proj.id)) return proj.portfolioId === id ? proj : { ...proj, portfolioId: id };
+        if (proj.portfolioId === id) return { ...proj, portfolioId: null };
+        return proj;
+      }));
+    }
+    return r;
+  };
+
   const actions = useMemo(() => ({
     createProject: mk(api.createTaskProject, setProjects),
     updateProject: mkUpd(api.updateTaskProject, setProjects),
     deleteProject: mkDel(api.deleteTaskProject, setProjects),
     createPortfolio: mk(api.createTaskPortfolio, setPortfolios),
-    updatePortfolio: mkUpd(api.updateTaskPortfolio, setPortfolios),
+    updatePortfolio,
     deletePortfolio: mkDel(api.deleteTaskPortfolio, setPortfolios),
     createTeam: mk(api.createTaskTeam, setTeams),
     updateTeam: mkUpd(api.updateTaskTeam, setTeams),

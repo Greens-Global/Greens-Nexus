@@ -5,7 +5,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { ChevronDown, Lock, Globe, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2 } from 'lucide-react';
 import { useTasks } from './TasksContext';
-import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, groupAddDefaults } from './lib';
+import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, groupAddDefaults, taskIdFromUrl } from './lib';
 import { NX, FONT, btn, input as inputStyle } from './theme';
 import { Avatar, EmptyState, useClickOutside, useIsMobile, DateField } from './components';
 import { ProductivityBar, MobileFilters } from './productivity';
@@ -151,7 +151,7 @@ export default function MyTasksView() {
   const [group, setGroup] = useState('date');
   const [filters, setFilters] = useState(EMPTY_FILTER);
   const [sort, setSort] = useState({ key: 'manual', dir: 'asc' });
-  const [openId, setOpenId] = useState(null);
+  const [openId, setOpenId] = useState(taskIdFromUrl);
   const [creating, setCreating] = useState(null); // full CreateTaskModal defaults (desktop / "Full details")
   const [quickCreate, setQuickCreate] = useState(null); // mobile Asana-style quick-add defaults
   const isMobile = useIsMobile();
@@ -206,7 +206,7 @@ export default function MyTasksView() {
         </div>
         {view === 'list' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', overflowX: 'visible', flexWrap: 'wrap' }}>
-            <ProductivityBar filters={filters} setFilters={setFilters} sort={sort} setSort={setSort} current={{ view, group }} onApplyView={(v) => { if (v.group) setGroup(v.group); }} onOpenTask={setOpenId} />
+            <ProductivityBar filters={filters} setFilters={setFilters} sort={sort} setSort={setSort} hideAssignee current={{ view, group }} onApplyView={(v) => { if (v.group) setGroup(v.group); }} onOpenTask={setOpenId} />
             <select value={group} onChange={(e) => setGroup(e.target.value)} style={{ ...inputStyle, width: 'auto', flexShrink: 0, cursor: 'pointer' }}>
               {['date', 'status', 'priority', 'project', 'assignee', 'none'].map((g) => <option key={g} value={g}>Group: {g === 'date' ? 'Due Date' : g === 'none' ? 'None' : g[0].toUpperCase() + g.slice(1)}</option>)}
             </select>
@@ -263,7 +263,7 @@ export default function MyTasksView() {
           filterSheet={(onClose) => (
             <MobileFilters
               filters={filters} setFilters={setFilters} sort={sort} setSort={setSort}
-              group={group} setGroup={setGroup} groupOptions={MY_GROUP_OPTIONS}
+              group={group} setGroup={setGroup} groupOptions={MY_GROUP_OPTIONS} hideAssignee
               current={{ view, group }} onApplyView={(v) => { if (v.group) setGroup(v.group); }}
               onClose={onClose}
             />

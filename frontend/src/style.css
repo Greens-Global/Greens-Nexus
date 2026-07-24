@@ -2359,6 +2359,97 @@ button, [role="button"], select { touch-action: manipulation; }
   cursor: default;
 }
 
+/* ── Documents — Document Builder (Phase 2) ──────────────────────────────────
+   Page-styled canvas (no existing precedent in the repo to reuse) — a white
+   card sized like a printed page, typography matched to .tpl-para above for
+   visual consistency with E-Sign's template editor. */
+.doc-toolbar {
+  display: flex; align-items: center; gap: 2px; flex-wrap: wrap;
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--card); margin-bottom: 14px;
+}
+.doc-toolbar button {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border: none; background: transparent;
+  border-radius: 7px; cursor: pointer; color: var(--ink);
+}
+.doc-toolbar button:hover { background: var(--mist); }
+.doc-toolbar button.is-active { background: hsla(var(--color-blue),0.14); color: hsl(var(--color-blue)); }
+.doc-toolbar-sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
+
+.doc-page {
+  position: relative;
+  background: #fff; max-width: 850px; margin: 0 auto; border-radius: 4px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.09); padding: 56px 64px;
+  font-family: Inter, sans-serif; font-size: 14.5px; line-height: 1.7; color: #111827;
+}
+.doc-letterhead {
+  display: flex; align-items: center; gap: 16px; padding-bottom: 18px; margin-bottom: 18px;
+  border-bottom: 2px solid #111827;
+}
+.doc-letterhead img { max-height: 56px; max-width: 160px; object-fit: contain; }
+.doc-letterhead-name { font-size: 16px; font-weight: 800; color: #111827; }
+.doc-letterhead-address { font-size: 11.5px; color: #6b7280; margin-top: 2px; }
+.doc-letterhead-tagline { font-size: 10.5px; color: #6b7280; margin-bottom: 8px; }
+.doc-band { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px dashed var(--line); color: #6b7280; }
+.doc-band.doc-footer { padding-bottom: 0; padding-top: 14px; margin-bottom: 0; margin-top: 14px; border-bottom: none; border-top: 1px dashed var(--line); }
+.doc-editor .ProseMirror { outline: none; min-height: 240px; }
+.doc-band .doc-editor .ProseMirror { min-height: 40px; }
+.doc-editor .ProseMirror p { margin: 0 0 10px; }
+.doc-editor .ProseMirror table { border-collapse: collapse; margin: 12px 0; width: 100%; }
+.doc-editor .ProseMirror td, .doc-editor .ProseMirror th { border: 1px solid var(--line); padding: 6px 9px; }
+.doc-editor .ProseMirror th { background: var(--mist); font-weight: 700; text-align: left; }
+.doc-editor .ProseMirror img { max-width: 100%; border-radius: 4px; }
+.doc-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder); float: left; height: 0; pointer-events: none; color: #9ca3af; font-style: italic;
+}
+.doc-pagebreak {
+  display: flex; align-items: center; gap: 10px; margin: 18px 0;
+  color: #9ca3af; font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; user-select: none;
+}
+.doc-pagebreak::before, .doc-pagebreak::after { content: ''; flex: 1; border-top: 1px dashed var(--line); }
+.doc-shape { display: inline-block; margin: 6px 0; vertical-align: middle; user-select: none; }
+.doc-shape svg { display: block; }
+
+/* Floating shapes/text boxes (Phase 9) — drag-to-reposition + Word-style
+   text wrap. .doc-floatable is applied to both DocShape's and DocTextbox's
+   NodeView root; wrap-mode positioning itself (float/absolute/x/y) is set
+   inline per-node by applyWrapStyle() in docBuilderExtensions.js, since it's
+   per-instance data, not a fixed class of styling. */
+.doc-floatable { position: relative; }
+.doc-floatable.doc-draggable { cursor: default; }
+.doc-drag-handle {
+  display: none; align-items: center; justify-content: center;
+  position: absolute; top: -10px; left: -10px; width: 20px; height: 20px;
+  border-radius: 50%; background: hsl(var(--color-blue)); color: #fff;
+  font-size: 11px; line-height: 1; cursor: grab; z-index: 20;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.25); user-select: none; touch-action: none;
+}
+.doc-drag-handle:active { cursor: grabbing; }
+.doc-floatable.doc-draggable .doc-drag-handle { display: flex; }
+.doc-textbox {
+  border: 1px dashed var(--line); border-radius: 4px; padding: 8px 10px;
+  box-sizing: border-box; overflow: auto;
+}
+.doc-textbox-content { height: 100%; }
+.doc-textbox-content .ProseMirror { outline: none; min-height: 100%; }
+.doc-textbox-content p { margin: 0 0 6px; }
+
+/* Print Preview (Phase 4): hide everything except the page canvas so the
+   browser's native print/save-as-PDF dialog shows just the document.
+   !important is required here — the Knowledge Base module's own print rule
+   (above, "Print only the certificate or the open SOP") sets
+   `body * { visibility: hidden !important; }` globally (not scoped to its
+   own page), which silently wins over any non-!important rule regardless of
+   selector specificity or source order — that was blanking every printed
+   Document/Template until these were bumped to match it. */
+@media print {
+  body * { visibility: hidden !important; }
+  .doc-page, .doc-page * { visibility: visible !important; }
+  .doc-page { position: absolute; top: 0; left: 0; box-shadow: none; max-width: 100%; }
+}
+
 /* ============================================================
    Task module — responsive chrome
    The module is inline-styled (ported 1:1 from the export), so these rules
