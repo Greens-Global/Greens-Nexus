@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Sunrise, Sunset, Coffee, X, Send, Loader2, MessageSquare } from 'lucide-react';
 import { api } from '../api';
+import { msalInstance } from '../msalInstance';
 import { graphToken, postChatMessage } from '../teamsGraph';
 
 // ── Beginning / End-of-day / Break message ────────────────────────────────────
@@ -44,29 +45,34 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   const M = MODES[mode] || MODES.bod;
   const [message, setMessage] = useState('');
   const [tasks, setTasks] = useState('');
+  const [pending, setPending] = useState('');        // EOD only — open Nexus tasks, editable
   const [bound, setBound] = useState(null);          // { id, name } from the group binding
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [ack, setAck] = useState(false);
 
-  // On open: resolve the ONE chat an admin bound to this person's group, and
-  // pre-fill the composer with this person's template (their last BOD/EOD post,
-  // or a starter default) so they only tweak it rather than write from scratch.
+  // On open: resolve the ONE chat an admin bound to this person's group. The
+  // composer starts EMPTY on purpose — it used to pre-fill yesterday's typed
+  // message/tasks, which people kept accidentally re-posting (Jul 25). The one
+  // thing that DOES auto-fill is the EOD "Pending tasks" list, and that comes
+  // live from the person's open tasks in the Tasks module, not from history.
   useEffect(() => {
     let live = true;
     (async () => {
-      const [my, tpl] = await Promise.all([
-        api.timeMyChat().catch(() => null),
-        M.reasonOnly ? Promise.resolve(null) : api.timeBodTemplate(mode).catch(() => null),
-      ]);
+      const my = await api.timeMyChat().catch(() => null);
       if (!live) return;
       if (my?.chatId) setBound({ id: my.chatId, name: my.chatName });
-      if (tpl) {
-        setMessage(prev => prev || tpl.message || '');
-        setTasks(prev => prev || tpl.tasks || '');
-      }
       setLoading(false);
     })();
+    if (mode === 'eod') {
+      api.getTasks().then((rows) => {
+        if (!live) return;
+        const email = (msalInstance.getActiveAccount()?.username || '')
+          .toLowerCase().replace('@greensg.onmicrosoft.com', '@greensglobal.com');
+        const open = (rows || []).filter(t => (t.assigneeId || '').toLowerCase() === email && !t.completed);
+        setPending(open.slice(0, 12).map(t => t.title).filter(Boolean).join('\n'));
+      }).catch(() => {});
+    }
     return () => { live = false; };
   }, [mode]);
 
@@ -86,9 +92,12 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     const tally = mode === 'eod' && workedMin > 0
       ? ` (${h > 0 ? `${h} hr ` : ''}${m > 0 || h === 0 ? `${m} mins` : ''}`.trimEnd() + ')' : '';
     // "1)Task" → "1) Task" — people number their own lines; make the spacing uniform.
-    const taskLines = tasks.split('\n').map(t => t.trim().replace(/^(\d+[).:])(?=\S)/, '$1 ')).filter(Boolean);
+    const normalize = (s) => s.split('\n').map(t => t.trim().replace(/^(\d+[).:])(?=\S)/, '$1 ')).filter(Boolean);
+    const taskLines = normalize(tasks);
+    const pendingLines = mode === 'eod' ? normalize(pending) : [];
     return `<b>${M.title}</b><br/>${dateStr}<br/>${timeStr}${tally}<br/>${esc(message)}`
-      + (taskLines.length ? `<br/><br/><b>${M.tasksHead}</b><br/>${taskLines.map(t => `• ${esc(t)}`).join('<br/>')}` : '');
+      + (taskLines.length ? `<br/><br/><b>${M.tasksHead}</b><br/>${taskLines.map(t => `• ${esc(t)}`).join('<br/>')}` : '')
+      + (pendingLines.length ? `<br/><br/><b>Pending tasks</b><br/>${pendingLines.map(t => `• ${esc(t)}`).join('<br/>')}` : '');
   }
 
   async function send() {
@@ -156,6 +165,17 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
               <label style={FL}>{M.tasksLabel}</label>
               <textarea className="form-input" rows={4} value={tasks} onChange={e => setTasks(e.target.value)}
                 placeholder={M.tasksPlaceholder} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} />
+            </div>
+          )}
+          {mode === 'eod' && (
+            <div>
+              <label style={FL}>Pending tasks (one per line)</label>
+              <textarea className="form-input" rows={3} value={pending} onChange={e => setPending(e.target.value)}
+                placeholder="Anything still open — auto-filled from your Nexus tasks"
+                style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} />
+              <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--muted)' }}>
+                Auto-filled from your open tasks in the Tasks module — edit freely before sending.
+              </p>
             </div>
           )}
           {/* Target chat — the single chat an admin bound to this person's group */}
