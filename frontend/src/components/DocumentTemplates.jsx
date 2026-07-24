@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Search, Loader2, Plus, Copy, Archive, FileText, Award, Star, Pencil, Trash2, Eye } from 'lucide-react';
+import { Search, Loader2, Plus, Copy, Archive, RotateCcw, FileText, Award, Star, Pencil, Trash2, Eye } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import DocumentBuilder from './DocumentBuilder';
@@ -183,6 +183,7 @@ export default function DocumentTemplates({ openCreateSignal, openTemplateSignal
   const [sub, setSub] = useState('library');
   const [category, setCategory] = useState('');
   const [search, setSearch] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   const [templates, setTemplates] = useState(null);
   const [letterheads, setLetterheads] = useState([]);
   const [createOpen, setCreateOpen] = useState(false);
@@ -192,11 +193,11 @@ export default function DocumentTemplates({ openCreateSignal, openTemplateSignal
   const [seeding, setSeeding] = useState(false);
 
   const load = () => {
-    api.getDocTemplates({ ...(category ? { category } : {}), ...(search.trim() ? { q: search.trim() } : {}) })
+    api.getDocTemplates({ status: showArchived ? 'archived' : 'active', ...(category ? { category } : {}), ...(search.trim() ? { q: search.trim() } : {}) })
       .then(setTemplates).catch(() => setTemplates([]));
   };
 
-  useEffect(() => { load(); }, [category, search]);
+  useEffect(() => { load(); }, [category, search, showArchived]);
   useEffect(() => { api.getDocLetterheads().then(setLetterheads).catch(() => setLetterheads([])); }, []);
   useEffect(() => { if (openCreateSignal) setCreateOpen(true); }, [openCreateSignal]);
   useEffect(() => { if (openTemplateSignal?.id) setEditingId(openTemplateSignal.id); }, [openTemplateSignal]);
@@ -236,28 +237,23 @@ export default function DocumentTemplates({ openCreateSignal, openTemplateSignal
         <LetterheadsPanel toastOk={toastOk} toastErr={toastErr} />
       ) : (
         <div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-            <div className="scroll-tabs" style={{ display: 'flex', gap: 4, flex: 1 }}>
-              <button onClick={() => setCategory('')}
-                style={{ padding: '5px 12px', borderRadius: 16, fontSize: 11.5, fontWeight: 700, fontFamily: 'Inter,sans-serif', cursor: 'pointer', whiteSpace: 'nowrap', border: '1px solid var(--line)', background: category === '' ? 'var(--ink)' : 'transparent', color: category === '' ? 'var(--card)' : 'var(--muted)' }}>
-                All
-              </button>
-              {CATEGORIES.map(([v, l]) => (
-                <button key={v} onClick={() => setCategory(v)}
-                  style={{ padding: '5px 12px', borderRadius: 16, fontSize: 11.5, fontWeight: 700, fontFamily: 'Inter,sans-serif', cursor: 'pointer', whiteSpace: 'nowrap', border: '1px solid var(--line)', background: category === v ? 'var(--ink)' : 'transparent', color: category === v ? 'var(--card)' : 'var(--muted)' }}>
-                  {l}
-                </button>
-              ))}
-            </div>
-            <button className="primary-btn" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+            <select className="form-input" style={{ flex: '0 1 180px', minWidth: 140, fontSize: 12.5, fontWeight: 600 }}
+              value={category} onChange={e => setCategory(e.target.value)}>
+              <option value="">All Categories</option>
+              {CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+            <button className="primary-btn" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, flexShrink: 0 }}>
               <Plus size={13} /> New Template
             </button>
-          </div>
-
-          <div style={{ position: 'relative', maxWidth: 320, marginBottom: 14 }}>
-            <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-            <input className="form-input" style={{ width: '100%', fontSize: 12.5, paddingLeft: 30 }}
-              placeholder="Search templates…" value={search} onChange={e => setSearch(e.target.value)} />
+            <div style={{ position: 'relative', maxWidth: 320, flex: '1 1 220px' }}>
+              <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+              <input className="form-input" style={{ width: '100%', fontSize: 12.5, paddingLeft: 30 }}
+                placeholder="Search templates…" value={search} onChange={e => setSearch(e.target.value)} />
+            </div>
+            <label style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} /> Show archived
+            </label>
           </div>
 
           {!templates ? (
@@ -265,10 +261,12 @@ export default function DocumentTemplates({ openCreateSignal, openTemplateSignal
           ) : templates.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '52px 20px', color: 'var(--muted)' }}>
               <FileText size={36} style={{ opacity: 0.3, marginBottom: 12 }} />
-              <p style={{ fontSize: 13.5, margin: '0 0 16px' }}>No templates here yet.</p>
-              <button className="primary-btn" disabled={seeding} onClick={seedStarters} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                {seeding ? 'Adding…' : 'Add starter templates'}
-              </button>
+              <p style={{ fontSize: 13.5, margin: '0 0 16px' }}>{showArchived ? 'No archived templates.' : 'No templates here yet.'}</p>
+              {!showArchived && (
+                <button className="primary-btn" disabled={seeding} onClick={seedStarters} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {seeding ? 'Adding…' : 'Add starter templates'}
+                </button>
+              )}
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
@@ -295,10 +293,20 @@ export default function DocumentTemplates({ openCreateSignal, openTemplateSignal
                       style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Pencil size={14} /></button>
                     <button title="Duplicate" disabled={busyId === t.id} onClick={() => act(t.id, api.duplicateDocTemplate, 'Duplicated')}
                       style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Copy size={14} /></button>
-                    {t.status === 'active' && (
+                    {t.status === 'active' ? (
                       <button title="Archive" disabled={busyId === t.id} onClick={() => act(t.id, (id) => api.updateDocTemplate(id, { status: 'archived' }), 'Archived')}
                         style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><Archive size={14} /></button>
+                    ) : (
+                      <button title="Restore" disabled={busyId === t.id} onClick={() => act(t.id, (id) => api.updateDocTemplate(id, { status: 'active' }), 'Restored')}
+                        style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}><RotateCcw size={14} /></button>
                     )}
+                    <button title="Delete" disabled={busyId === t.id} onClick={() => {
+                      if (!window.confirm(`Delete template "${t.name}"? This can't be undone.`)) return;
+                      setBusyId(t.id);
+                      api.deleteDocTemplate(t.id).then(() => { toastOk?.('Deleted'); load(); })
+                        .catch(e => toastErr?.(e.status === 409 ? 'This template has generated documents — archive it instead.' : (e.message || 'Failed to delete')))
+                        .finally(() => setBusyId(''));
+                    }} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex', color: 'hsl(var(--color-red))' }}><Trash2 size={14} /></button>
                   </div>
                 </div>
               ))}

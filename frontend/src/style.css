@@ -2436,6 +2436,23 @@ button, [role="button"], select { touch-action: manipulation; }
 .doc-textbox-content .ProseMirror { outline: none; min-height: 100%; }
 .doc-textbox-content p { margin: 0 0 6px; }
 
+/* Resize grip (shapes/textboxes/images) — unlike the drag handle, resizing
+   works in every wrap mode including inline, so this shows on hover
+   regardless of .doc-draggable. */
+.doc-resize-handle {
+  display: none; position: absolute; right: -6px; bottom: -6px; width: 14px; height: 14px;
+  border-radius: 3px; background: hsl(var(--color-blue)); border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.25); cursor: nwse-resize; z-index: 20;
+  touch-action: none;
+}
+.doc-floatable:hover .doc-resize-handle { display: block; }
+
+/* Word-parity resizable/wrappable image (Phase 15) — mirrors .doc-shape's
+   inline-block + floatable pattern so the same drag/resize handles work
+   identically across shapes, text boxes, and images. */
+.doc-image-wrap { display: inline-block; vertical-align: middle; line-height: 0; }
+.doc-image-wrap img { max-width: 100%; display: block; border-radius: 4px; }
+
 /* Print Preview (Phase 4): hide everything except the page canvas so the
    browser's native print/save-as-PDF dialog shows just the document.
    !important is required here — the Knowledge Base module's own print rule

@@ -7,6 +7,8 @@ import EgnyteBrowser from './EgnyteBrowser';
 import { BODY_EXTENSIONS } from '../lib/docBuilderSchema';
 import { uploadToSupabase } from '../lib/docBuilderUpload';
 import { importDocumentFile } from '../lib/docBuilderImport';
+import TypedFieldInput from './TypedFieldInput';
+import { validateFieldValue, formatFieldValue, RESERVED_TYPES } from '../lib/mergeFieldTypes';
 
 // ── My Documents (Phase 1 browse/organize, Phase 2 adds the editor) ─────────
 // Folder browse + search/status filter + draft/library list. "Edit" opens
@@ -39,8 +41,24 @@ function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
   const [busy, setBusy] = useState(false);
   const [egnyteOpen, setEgnyteOpen] = useState(false);
   const importInputRef = useRef(null);
+  // Template Builder (Phase 13) — "Select Template -> Fill Dynamic Fields ->
+  // Generate": once a template with field_defs is picked, fetch its fields
+  // and render one typed control each, right in this same modal rather than
+  // a separate "Generate Document" screen — one flow, no duplicated
+  // template-picker UI.
+  const [fieldDefs, setFieldDefs] = useState([]);
+  const [fillValues, setFillValues] = useState({});
+  const [fillErrors, setFillErrors] = useState({});
 
   useEffect(() => { api.getDocTemplates({ status: 'active' }).then(setTemplates).catch(() => setTemplates([])); }, []);
+
+  useEffect(() => {
+    setFillValues({}); setFillErrors({});
+    if (!templateId) { setFieldDefs([]); return; }
+    api.getDocTemplate(templateId).then(t => setFieldDefs(t.fieldDefs || [])).catch(() => setFieldDefs([]));
+  }, [templateId]);
+
+  const setFillValue = (token, v) => setFillValues(prev => ({ ...prev, [token]: v }));
 
   const uploadImportedImage = async (docId, bytes, mime, n) => {
     const extGuess = (mime || '').split('/')[1]?.split('+')[0] || 'png';
@@ -53,6 +71,7 @@ function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
   const pickImportFile = (file) => {
     setImportFile(file);
     setTemplateId('');
+    setFieldDefs([]); setFillValues({}); setFillErrors({});
     if (!title.trim()) setTitle(file.name.replace(/\.[^.]+$/, ''));
   };
 
@@ -69,16 +88,38 @@ function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
 
   const create = async () => {
     if (!title.trim()) return;
+    // Required-field guard mirrors the server's own check (documents.py
+    // create_document) — client-side so the user sees it inline instead of
+    // a rejected request, not a substitute for it.
+    if (!importFile && fieldDefs.length) {
+      const errs = {};
+      for (const fd of fieldDefs) {
+        const err = validateFieldValue(fd, fillValues[fd.token]);
+        if (err) errs[fd.token] = err;
+      }
+      setFillErrors(errs);
+      if (Object.keys(errs).length) return;
+    }
     setBusy(true);
     let created = null;
     try {
-      created = await api.createDocument({ title: title.trim(), folderId, templateId: importFile ? '' : templateId });
+      const fillPayload = Object.fromEntries(
+        fieldDefs.filter(fd => !RESERVED_TYPES.includes(fd.type) && !validateFieldValue(fd, fillValues[fd.token]) && fillValues[fd.token] !== undefined && fillValues[fd.token] !== '')
+          .map(fd => [fd.token, formatFieldValue(fd, fillValues[fd.token])])
+      );
+      created = await api.createDocument({
+        title: title.trim(), folderId, templateId: importFile ? '' : templateId,
+        ...(Object.keys(fillPayload).length ? { fillValues: fillPayload } : {}),
+      });
       if (importFile) {
-        const { html, warnings } = await importDocumentFile(importFile, {
+        const { html, json: directJson, pageSetup: importedPageSetup, warnings } = await importDocumentFile(importFile, {
           uploadImage: (bytes, mime, n) => uploadImportedImage(created.id, bytes, mime, n),
         });
-        const json = generateJSON(html || '<p></p>', BODY_EXTENSIONS);
-        await api.updateDocument(created.id, { content: { body: json, header: null, footer: null } });
+        const json = directJson || generateJSON(html || '<p></p>', BODY_EXTENSIONS);
+        // .docx imports carry the source file's own page size/orientation/
+        // margins (docxToTiptap.js) — applied to the new document instead of
+        // leaving it on the default Letter/Portrait/Normal.
+        await api.updateDocument(created.id, { content: { body: json, header: null, footer: null, ...(importedPageSetup ? { pageSetup: importedPageSetup } : {}) } });
         if (warnings?.length) toastErr?.(`Imported with notes: ${warnings.slice(0, 2).join(' ')}`);
       }
       onCreated(created);
@@ -120,6 +161,23 @@ function CreateDocModal({ folders, onClose, onCreated, toastErr }) {
               {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </div>
+
+          {fieldDefs.length > 0 && !importFile && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, border: '1px solid var(--line)', borderRadius: 10, padding: 12 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Fill in the details</div>
+              {fieldDefs.map(fd => (
+                <div key={fd.token}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>
+                    {fd.label}{fd.required && !RESERVED_TYPES.includes(fd.type) && <span style={{ color: 'hsl(var(--color-red))' }}> *</span>}
+                  </label>
+                  <TypedFieldInput def={fd} value={fillValues[fd.token]} error={fillErrors[fd.token]}
+                    onChange={(v) => setFillValue(fd.token, v)} />
+                  {fillErrors[fd.token] && <p style={{ fontSize: 11, color: 'hsl(var(--color-red))', margin: '4px 0 0' }}>{fillErrors[fd.token]}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Import from file (optional)</label>
             {importFile ? (
@@ -191,29 +249,14 @@ export default function DocumentsBrowser({ openCreateSignal, openDocSignal, empl
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-        <div className="scroll-tabs" style={{ display: 'flex', gap: 4, flex: 1 }}>
-          <button onClick={() => setFolderId('')}
-            style={{ padding: '5px 12px', borderRadius: 16, fontSize: 11.5, fontWeight: 700, fontFamily: 'Inter,sans-serif', cursor: 'pointer', whiteSpace: 'nowrap', border: '1px solid var(--line)', background: folderId === '' ? 'var(--ink)' : 'transparent', color: folderId === '' ? 'var(--card)' : 'var(--muted)' }}>
-            All
-          </button>
-          {folders.map(f => (
-            <button key={f.id} onClick={() => setFolderId(f.id)}
-              style={{ padding: '5px 12px', borderRadius: 16, fontSize: 11.5, fontWeight: 700, fontFamily: 'Inter,sans-serif', cursor: 'pointer', whiteSpace: 'nowrap', border: '1px solid var(--line)', background: folderId === f.id ? 'var(--ink)' : 'transparent', color: folderId === f.id ? 'var(--card)' : 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <Folder size={11} /> {f.name}
-            </button>
-          ))}
-        </div>
-        <button className="primary-btn" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
-          <FilePlus2 size={13} /> New Document
-        </button>
-      </div>
-
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 320 }}>
-          <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
-          <input className="form-input" style={{ width: '100%', fontSize: 12.5, paddingLeft: 30 }}
-            placeholder="Search title…" value={search} onChange={e => setSearch(e.target.value)} />
+        <div style={{ position: 'relative', flex: '0 1 200px', minWidth: 150 }}>
+          <Folder size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
+          <select className="form-input" style={{ width: '100%', fontSize: 12.5, paddingLeft: 30, fontWeight: 600 }}
+            value={folderId} onChange={e => setFolderId(e.target.value)}>
+            <option value="">All Folders</option>
+            {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
         </div>
         <div className="scroll-tabs" style={{ display: 'flex', gap: 4 }}>
           {[['all', 'All'], ['draft', 'Drafts'], ['final', 'Final'], ['archived', 'Archived']].map(([v, l]) => (
@@ -223,6 +266,14 @@ export default function DocumentsBrowser({ openCreateSignal, openDocSignal, empl
             </button>
           ))}
         </div>
+        <div style={{ position: 'relative', flex: '1 1 220px', maxWidth: 320, marginLeft: 'auto' }}>
+          <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+          <input className="form-input" style={{ width: '100%', fontSize: 12.5, paddingLeft: 30 }}
+            placeholder="Search title…" value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+        <button className="primary-btn" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, flexShrink: 0 }}>
+          <FilePlus2 size={13} /> New Document
+        </button>
       </div>
 
       {!docs ? (

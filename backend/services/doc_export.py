@@ -24,6 +24,38 @@ from xml.sax.saxutils import escape as _esc
 import httpx
 
 
+# ── Page Setup (Phase 14) ────────────────────────────────────────────────────
+# `content.pageSetup` (a sibling of body/header/footer in the same JSON blob —
+# no schema change needed) drives both exporters: {size, orientation, margins}.
+# Sizes in inches (w, h) as portrait; render_pdf/render_docx swap them for
+# landscape. Tabloid has no reportlab.lib.pagesizes constant, so all four are
+# defined here directly rather than mixing a library constant with hand-rolled
+# ones.
+PAGE_SIZES_IN = {
+    "letter": (8.5, 11.0),     # US default
+    "legal": (8.5, 14.0),      # legal agreements/contracts
+    "tabloid": (11.0, 17.0),   # large reports/drawings
+    "a4": (8.27, 11.69),       # international
+}
+# Symmetric margins on all four sides — a simplification of Word's own
+# presets (whose "Wide" is asymmetric, 2in sides/1in top-bottom); kept simple
+# since both export paths apply one margin value to every side.
+MARGINS_IN = {"normal": 1.0, "narrow": 0.5, "wide": 1.5}
+
+DEFAULT_PAGE_SETUP = {"size": "letter", "orientation": "portrait", "margins": "normal"}
+
+
+def _resolve_page_setup(page_setup: dict = None):
+    """(width_in, height_in, margin_in) for the given {size, orientation,
+    margins} — unknown/missing values fall back to the US Letter default."""
+    ps = {**DEFAULT_PAGE_SETUP, **(page_setup or {})}
+    w, h = PAGE_SIZES_IN.get(ps.get("size"), PAGE_SIZES_IN["letter"])
+    if ps.get("orientation") == "landscape":
+        w, h = h, w
+    margin_in = MARGINS_IN.get(ps.get("margins"), MARGINS_IN["normal"])
+    return w, h, margin_in
+
+
 # ── TipTap JSON -> neutral blocks ────────────────────────────────────────────
 
 _EMPTY_RUN_STYLE = {"color": None, "fontFamily": None, "fontSize": None, "link": None}
@@ -70,13 +102,19 @@ def _walk_blocks(nodes, merge: dict) -> list:
         elif t == "table":
             rows = []
             for row in n.get("content") or []:
-                cells = [_walk_blocks(cell.get("content"), merge) for cell in (row.get("content") or [])]
+                cells = []
+                for cell in (row.get("content") or []):
+                    cells.append({
+                        "blocks": _walk_blocks(cell.get("content"), merge),
+                        "background": (cell.get("attrs") or {}).get("backgroundColor"),
+                    })
                 rows.append(cells)
             blocks.append({"type": "table", "rows": rows})
         elif t == "image":
-            src = (n.get("attrs") or {}).get("src") or ""
+            attrs = n.get("attrs") or {}
+            src = attrs.get("src") or ""
             if src:
-                blocks.append({"type": "image", "src": src})
+                blocks.append({"type": "image", "src": src, "width": attrs.get("width"), "height": attrs.get("height")})
         elif t == "pageBreak":
             blocks.append({"type": "pageBreak"})
         elif t == "docShape":
@@ -207,6 +245,27 @@ def _runs_to_markup(runs: list) -> str:
     return "".join(parts)
 
 
+def _para_style_for_runs(base_style, runs):
+    """A run's inline font-size (from a textStyle mark — e.g. an imported
+    Word heading with a real 26pt custom font) is applied via `_runs_to_markup`
+    as a `<font size=X>` tag INSIDE the paragraph, but reportlab's Paragraph
+    flowable allocates vertical space using the STYLE's own fixed `leading`,
+    not the actual rendered glyph size. When an inline size exceeds that fixed
+    leading, the text visually overflows into whatever flows next — reportlab
+    doesn't reflow line height per inline tag the way a browser does. Widening
+    the style's fontSize/leading to match the largest size actually used
+    (keeping the style's own leading:fontSize ratio) fixes it for whichever
+    run is biggest; smaller runs in the same paragraph still render at their
+    own explicit inline size, just with more headroom than they need."""
+    sizes = [_font_size_num(r.get("fontSize")) for r in (runs or [])]
+    sizes = [s for s in sizes if s]
+    max_size = max(sizes) if sizes else None
+    if not max_size or max_size <= base_style.fontSize:
+        return base_style
+    ratio = (base_style.leading / base_style.fontSize) if base_style.fontSize else 1.22
+    return base_style.clone(f"{base_style.name}_sz{max_size}", fontSize=max_size, leading=max_size * ratio)
+
+
 _PDF_ALIGN = None  # populated lazily (import needs reportlab, kept local to render functions)
 
 
@@ -253,10 +312,12 @@ def _blocks_to_flow(blocks: list, body_style, styles, content_width: float) -> l
         t = b["type"]
         if t == "paragraph":
             style = _pdf_align_style(body_style, b.get("align"))
+            style = _para_style_for_runs(style, b["runs"])
             flow.append(Paragraph(_runs_to_markup(b["runs"]) or "&nbsp;", style))
         elif t == "heading":
             level = max(1, min(6, b.get("level", 1)))
             style = _pdf_align_style(styles[f"Heading{level}"], b.get("align"))
+            style = _para_style_for_runs(style, b["runs"])
             flow.append(Paragraph(_runs_to_markup(b["runs"]), style))
         elif t in ("bulletList", "orderedList"):
             items = []
@@ -268,19 +329,40 @@ def _blocks_to_flow(blocks: list, body_style, styles, content_width: float) -> l
             rows = b["rows"]
             if rows:
                 ncols = max((len(r) for r in rows), default=1)
-                data = [[(_blocks_to_flow(cell, body_style, styles, content_width) or [Paragraph("", body_style)])
+                data = [[(_blocks_to_flow(cell["blocks"], body_style, styles, content_width) or [Paragraph("", body_style)])
                          for cell in row] for row in rows]
                 tbl = Table(data, colWidths=[content_width / max(ncols, 1)] * ncols)
-                tbl.setStyle(TableStyle([
+                style_cmds = [
                     ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d1d5db")),
                     ("VALIGN", (0, 0), (-1, -1), "TOP"),
                     ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
                     ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                ]))
+                ]
+                # Word-style cell shading (Phase 15) — one BACKGROUND command
+                # per shaded cell; unshaded cells are left to the table's
+                # default (white) background.
+                for ri, row in enumerate(rows):
+                    for ci, cell in enumerate(row):
+                        if cell.get("background"):
+                            style_cmds.append(("BACKGROUND", (ci, ri), (ci, ri), colors.HexColor(cell["background"])))
+                tbl.setStyle(TableStyle(style_cmds))
                 flow.append(tbl)
                 flow.append(Spacer(1, 3 * mm))
         elif t == "image":
-            img = _pdf_image_flowable(b["src"], content_width)
+            # Word-parity resize (Phase 15) — an explicit width (set by
+            # dragging the image's resize handle) is honored in points
+            # (px * 72/96, the standard CSS-px-to-point conversion) as a max
+            # width instead of always auto-scaling to the column width.
+            # Known asymmetry vs. the DOCX path: _pdf_image_flowable always
+            # preserves the source image's own aspect ratio and never
+            # upscales past its natural size (see that helper) — a
+            # non-uniform (stretched) resize in the editor is honored
+            # exactly in DOCX but only approximated (width capped, height
+            # follows aspect ratio) here.
+            if b.get("width"):
+                img = _pdf_image_flowable(b["src"], min(b["width"] * 0.75, content_width))
+            else:
+                img = _pdf_image_flowable(b["src"], content_width)
             if img:
                 flow.append(img)
                 flow.append(Spacer(1, 3 * mm))
@@ -347,18 +429,20 @@ def _letterhead_flow(letterhead: dict, content_width: float) -> list:
 
 
 def render_pdf(title: str, header_blocks: list, body_blocks: list, footer_blocks: list,
-               letterhead: dict = None) -> bytes:
-    from reportlab.lib.pagesizes import LETTER
+               letterhead: dict = None, page_setup: dict = None) -> bytes:
+    from reportlab.lib.units import inch, mm
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.units import mm
     from reportlab.lib import colors
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+
+    w_in, h_in, margin_in = _resolve_page_setup(page_setup)
+    pagesize = (w_in * inch, h_in * inch)
+    margin = margin_in * inch
 
     styles = getSampleStyleSheet()
     body_style = ParagraphStyle("body", parent=styles["Normal"], fontName="Helvetica",
                                 fontSize=10.5, leading=15, spaceAfter=8)
-    margin = 22 * mm
-    content_width = LETTER[0] - 2 * margin
+    content_width = pagesize[0] - 2 * margin
 
     flow = [Paragraph(_esc(title), ParagraphStyle("title", parent=styles["Title"], fontSize=16)), Spacer(1, 4 * mm)]
     flow.extend(_letterhead_flow(letterhead, content_width))
@@ -374,13 +458,13 @@ def render_pdf(title: str, header_blocks: list, body_blocks: list, footer_blocks
         canvas.setFont("Helvetica", 9)
         canvas.setFillColor(colors.HexColor("#6b7280"))
         if header_text:
-            canvas.drawString(margin, LETTER[1] - margin + 8, header_text)
+            canvas.drawString(margin, pagesize[1] - margin + 8, header_text)
         if footer_text:
             canvas.drawString(margin, margin - 14, footer_text)
         canvas.restoreState()
 
     buf = io.BytesIO()
-    SimpleDocTemplate(buf, pagesize=LETTER, topMargin=margin, bottomMargin=margin,
+    SimpleDocTemplate(buf, pagesize=pagesize, topMargin=margin, bottomMargin=margin,
                       leftMargin=margin, rightMargin=margin, title=title).build(
         flow, onFirstPage=decorate, onLaterPages=decorate)
     return buf.getvalue()
@@ -460,6 +544,24 @@ def _shape_png_bytes(b: dict):
     return buf.getvalue()
 
 
+def _shade_docx_cell(cell, hex_color: str) -> None:
+    """Word-style cell background shading (Phase 15) — python-docx has no
+    public API for this (unlike paragraph/run formatting), so it's set via
+    the raw <w:shd> OOXML element on the cell's <w:tcPr>, the same technique
+    Word itself uses under the hood for "Table > Shading"."""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    hex_color = (hex_color or "").lstrip("#")
+    if len(hex_color) != 6:
+        return
+    tcPr = cell._tc.get_or_add_tcPr()
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:color"), "auto")
+    shd.set(qn("w:fill"), hex_color)
+    tcPr.append(shd)
+
+
 def _blocks_to_docx(doc, blocks: list) -> None:
     from docx.shared import Inches
     for b in blocks or []:
@@ -495,13 +597,15 @@ def _blocks_to_docx(doc, blocks: list) -> None:
                 table = doc.add_table(rows=len(rows), cols=ncols)
                 table.style = "Table Grid"
                 for ri, row in enumerate(rows):
-                    for ci, cell_blocks in enumerate(row):
-                        cell = table.cell(ri, ci)
+                    for ci, cell in enumerate(row):
+                        docx_cell = table.cell(ri, ci)
+                        if cell.get("background"):
+                            _shade_docx_cell(docx_cell, cell["background"])
                         first = True
-                        for cb in cell_blocks:
+                        for cb in cell["blocks"]:
                             if cb["type"] != "paragraph":
                                 continue
-                            p = cell.paragraphs[0] if first else cell.add_paragraph()
+                            p = docx_cell.paragraphs[0] if first else docx_cell.add_paragraph()
                             _add_runs(p, cb["runs"])
                             first = False
                 doc.add_paragraph()
@@ -509,7 +613,21 @@ def _blocks_to_docx(doc, blocks: list) -> None:
             data = _fetch_image_bytes(b["src"])
             if data:
                 try:
-                    doc.add_picture(io.BytesIO(data), width=Inches(5.5))
+                    # Word-parity resize (Phase 15) — an explicit width/height
+                    # (set by dragging the image's resize handle) is honored
+                    # exactly (px/96 = inches, same convention `shape` below
+                    # already uses). Passing ONLY width to add_picture makes
+                    # python-docx auto-scale height to the source image's own
+                    # aspect ratio, silently ignoring a non-uniform resize —
+                    # both must be passed explicitly when both are known.
+                    kwargs = {}
+                    if b.get("width"):
+                        kwargs["width"] = Inches(b["width"] / 96)
+                    if b.get("height"):
+                        kwargs["height"] = Inches(b["height"] / 96)
+                    if not kwargs:
+                        kwargs["width"] = Inches(5.5)
+                    doc.add_picture(io.BytesIO(data), **kwargs)
                 except Exception:
                     pass
         elif t == "shape":
@@ -536,12 +654,25 @@ def _blocks_to_docx(doc, blocks: list) -> None:
 
 
 def render_docx(title: str, header_blocks: list, body_blocks: list, footer_blocks: list,
-                letterhead: dict = None) -> bytes:
+                letterhead: dict = None, page_setup: dict = None) -> bytes:
     from docx import Document as DocxDocument
     from docx.shared import Pt, Inches
+    from docx.enum.section import WD_ORIENT
+
+    w_in, h_in, margin_in = _resolve_page_setup(page_setup)
 
     doc = DocxDocument()
     section = doc.sections[0]
+    section.orientation = WD_ORIENT.LANDSCAPE if (page_setup or {}).get("orientation") == "landscape" else WD_ORIENT.PORTRAIT
+    # python-docx's .orientation flag is metadata only — it does not swap
+    # page_width/page_height itself, so w_in/h_in (already swapped by
+    # _resolve_page_setup for landscape) are what actually reshape the page.
+    section.page_width = Inches(w_in)
+    section.page_height = Inches(h_in)
+    section.left_margin = Inches(margin_in)
+    section.right_margin = Inches(margin_in)
+    section.top_margin = Inches(margin_in)
+    section.bottom_margin = Inches(margin_in)
 
     header_text = _blocks_to_plaintext(header_blocks)
     if header_text:
