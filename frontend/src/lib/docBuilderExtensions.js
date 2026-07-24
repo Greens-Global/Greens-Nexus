@@ -1,4 +1,5 @@
 import { Node } from '@tiptap/core';
+import TiptapImage from '@tiptap/extension-image';
 
 // ── Document Builder custom nodes (Phase 2) ──────────────────────────────────
 // Merge-field vocabulary mirrors ESign.jsx's TemplateEditorModal (MERGE_TOKENS/
@@ -134,7 +135,7 @@ export const WRAP_MODES = [
 // without breaking float-based wrapping). Behind/Front are position:absolute,
 // anchored to .doc-page (which gets position:relative in style.css) via x/y.
 function applyWrapStyle(dom, attrs) {
-  const { wrapMode, x = 0, y = 0, shapeType } = attrs;
+  const { wrapMode, x = 0, y = 0, shapeType, rotation = 0 } = attrs;
   dom.style.position = '';
   dom.style.float = '';
   dom.style.left = '';
@@ -160,6 +161,7 @@ function applyWrapStyle(dom, attrs) {
     dom.style.pointerEvents = wrapMode === 'behind' ? 'none' : 'auto';
   }
   dom.classList.toggle('doc-draggable', wrapMode !== 'inline' && !!wrapMode);
+  dom.style.transform = rotation ? `rotate(${rotation}deg)` : '';
 }
 
 // Creates the small drag-grip element and wires pointer-drag → live style
@@ -219,6 +221,60 @@ function createDragHandle({ view, getPos, getAttrs }) {
   return handle;
 }
 
+// Bottom-right resize grip — same pointer-drag → live style → commit-on-
+// release shape as createDragHandle, adjusting width/height instead of x/y.
+// Unlike the drag handle, this works in EVERY wrap mode (including inline),
+// since resizing an inline shape/textbox/image doesn't require it to be
+// position:relative/absolute the way repositioning does.
+function createResizeHandle({ view, getPos, getAttrs, minW = 24, minH = 24 }) {
+  const handle = document.createElement('div');
+  handle.className = 'doc-resize-handle';
+  handle.title = 'Drag to resize';
+
+  let resizing = false;
+  let startX = 0, startY = 0, baseW = 0, baseH = 0;
+  let dom = null;
+
+  handle.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizing = true;
+    dom = handle.parentElement;
+    startX = e.clientX;
+    startY = e.clientY;
+    const attrs = getAttrs();
+    baseW = attrs.width || 160;
+    baseH = attrs.height || 100;
+    handle.setPointerCapture(e.pointerId);
+  });
+
+  handle.addEventListener('pointermove', (e) => {
+    if (!resizing || !dom) return;
+    const w = Math.max(minW, baseW + (e.clientX - startX));
+    const h = Math.max(minH, baseH + (e.clientY - startY));
+    dom.style.width = `${w}px`;
+    dom.style.height = `${h}px`;
+  });
+
+  function endResize(e) {
+    if (!resizing) return;
+    resizing = false;
+    const w = Math.max(minW, Math.round(baseW + (e.clientX - startX)));
+    const h = Math.max(minH, Math.round(baseH + (e.clientY - startY)));
+    const pos = getPos();
+    if (typeof pos !== 'number') return;
+    const node = view.state.doc.nodeAt(pos);
+    if (!node) return;
+    const tr = view.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, width: w, height: h });
+    view.dispatch(tr);
+  }
+
+  handle.addEventListener('pointerup', endResize);
+  handle.addEventListener('pointercancel', endResize);
+
+  return handle;
+}
+
 // Block, non-editable shape. Rendered live via a NodeView (Phase 9 — plain
 // JS/DOM, no React NodeView) so it can support pointer-drag repositioning;
 // renderHTML/parseHTML are kept only for clipboard copy/paste and getHTML()
@@ -244,6 +300,7 @@ export const DocShape = Node.create({
       x: { default: 0 },
       y: { default: 0 },
       wrapMode: { default: 'inline' },
+      rotation: { default: 0 },
     };
   },
 
@@ -259,6 +316,7 @@ export const DocShape = Node.create({
         x: parseInt(el.getAttribute('data-x'), 10) || 0,
         y: parseInt(el.getAttribute('data-y'), 10) || 0,
         wrapMode: el.getAttribute('data-wrap') || 'inline',
+        rotation: parseInt(el.getAttribute('data-rotation'), 10) || 0,
       }),
     }];
   },
@@ -290,6 +348,10 @@ export const DocShape = Node.create({
         view, getPos, getAttrs: () => currentNode.attrs,
       });
       dom.appendChild(handle);
+      const resizeHandle = createResizeHandle({
+        view, getPos, getAttrs: () => currentNode.attrs, minW: 24, minH: 24,
+      });
+      dom.appendChild(resizeHandle);
 
       function render(attrs) {
         const { shapeType, width: w, height: h, fillColor, strokeColor } = attrs;
@@ -310,12 +372,12 @@ export const DocShape = Node.create({
           render(updatedNode.attrs);
           return true;
         },
-        // Only swallow events that originate on the drag handle — everything
-        // else (plain clicks) must fall through to ProseMirror's normal
-        // node-selection/deletion handling, or selecting/deleting the shape
-        // via the keyboard/toolbar would silently stop working.
+        // Only swallow events that originate on the drag/resize handles —
+        // everything else (plain clicks) must fall through to ProseMirror's
+        // normal node-selection/deletion handling, or selecting/deleting the
+        // shape via the keyboard/toolbar would silently stop working.
         stopEvent(event) {
-          return handle.contains(event.target);
+          return handle.contains(event.target) || resizeHandle.contains(event.target);
         },
       };
     };
@@ -340,6 +402,9 @@ export const DocTextbox = Node.create({
       x: { default: 0 },
       y: { default: 0 },
       wrapMode: { default: 'inline' },
+      rotation: { default: 0 },
+      borderColor: { default: '#9ca3af' },
+      fillColor: { default: 'transparent' },
     };
   },
 
@@ -352,17 +417,21 @@ export const DocTextbox = Node.create({
         x: parseInt(el.getAttribute('data-x'), 10) || 0,
         y: parseInt(el.getAttribute('data-y'), 10) || 0,
         wrapMode: el.getAttribute('data-wrap') || 'inline',
+        rotation: parseInt(el.getAttribute('data-rotation'), 10) || 0,
+        borderColor: el.getAttribute('data-border') || '#9ca3af',
+        fillColor: el.getAttribute('data-fill') || 'transparent',
       }),
     }];
   },
 
   renderHTML({ node }) {
-    const { width: w, height: h, x, y, wrapMode } = node.attrs;
+    const { width: w, height: h, x, y, wrapMode, borderColor, fillColor } = node.attrs;
     return ['div', {
       class: 'doc-textbox',
       'data-textbox': '', 'data-width': w, 'data-height': h,
       'data-x': x, 'data-y': y, 'data-wrap': wrapMode,
-      style: `width:${w}px;height:${h}px;`,
+      'data-border': borderColor, 'data-fill': fillColor,
+      style: `width:${w}px;height:${h}px;border-color:${borderColor};background:${fillColor};`,
     }, 0];
   },
 
@@ -381,10 +450,16 @@ export const DocTextbox = Node.create({
         view, getPos, getAttrs: () => currentNode.attrs,
       });
       dom.appendChild(handle);
+      const resizeHandle = createResizeHandle({
+        view, getPos, getAttrs: () => currentNode.attrs, minW: 60, minH: 40,
+      });
+      dom.appendChild(resizeHandle);
 
       function render(attrs) {
         dom.style.width = `${attrs.width}px`;
         dom.style.height = `${attrs.height}px`;
+        dom.style.borderColor = attrs.borderColor || '#9ca3af';
+        dom.style.background = attrs.fillColor || 'transparent';
         applyWrapStyle(dom, attrs);
       }
 
@@ -400,7 +475,74 @@ export const DocTextbox = Node.create({
           return true;
         },
         stopEvent(event) {
-          return handle.contains(event.target);
+          return handle.contains(event.target) || resizeHandle.contains(event.target);
+        },
+      };
+    };
+  },
+});
+
+// Word-parity image: resize (drag handle), reposition + text wrap (same
+// mechanics as DocShape/DocTextbox — square/tight/behind/front/inline), and
+// a real `alt` attribute exposed in the UI (stock @tiptap/extension-image
+// already has the `alt`/`title` attrs, just no way to set them after
+// insert). Extends Image rather than replacing it, so the inherited
+// `setImage` command keeps working unchanged for the existing upload/paste
+// insert path.
+export const ResizableImage = TiptapImage.extend({
+  name: 'image',
+
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      width: { default: null },
+      height: { default: null },
+      x: { default: 0 },
+      y: { default: 0 },
+      wrapMode: { default: 'inline' },
+      rotation: { default: 0 },
+    };
+  },
+
+  addNodeView() {
+    return ({ node, view, getPos }) => {
+      let currentNode = node;
+
+      const dom = document.createElement('span');
+      dom.className = 'doc-image-wrap doc-floatable';
+      dom.setAttribute('contenteditable', 'false');
+
+      const img = document.createElement('img');
+      dom.appendChild(img);
+
+      const handle = createDragHandle({ view, getPos, getAttrs: () => currentNode.attrs });
+      dom.appendChild(handle);
+      const resizeHandle = createResizeHandle({ view, getPos, getAttrs: () => currentNode.attrs, minW: 30, minH: 30 });
+      dom.appendChild(resizeHandle);
+
+      function render(attrs) {
+        img.src = attrs.src || '';
+        img.alt = attrs.alt || '';
+        if (attrs.title) img.title = attrs.title;
+        if (attrs.width) { dom.style.width = `${attrs.width}px`; img.style.width = '100%'; }
+        else { dom.style.width = ''; img.style.width = ''; }
+        if (attrs.height) { dom.style.height = `${attrs.height}px`; img.style.height = '100%'; }
+        else { dom.style.height = ''; img.style.height = ''; }
+        applyWrapStyle(dom, attrs);
+      }
+
+      render(currentNode.attrs);
+
+      return {
+        dom,
+        update(updatedNode) {
+          if (updatedNode.type.name !== 'image') return false;
+          currentNode = updatedNode;
+          render(updatedNode.attrs);
+          return true;
+        },
+        stopEvent(event) {
+          return handle.contains(event.target) || resizeHandle.contains(event.target);
         },
       };
     };
