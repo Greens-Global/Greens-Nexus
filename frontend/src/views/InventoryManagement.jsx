@@ -4094,6 +4094,7 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
   const [assignLoc,   setAssignLoc]   = useState('');
   const [assignName,  setAssignName]  = useState('');
   const [assignEmail, setAssignEmail] = useState('');
+  const [assignSkip,  setAssignSkip]  = useState(false); // person assigns go active without acceptance
 
   function toggleField(key) {
     setEnabled(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
@@ -4109,7 +4110,7 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
 
   function submit() {
     const assignment = (assignOn && assignVal)
-      ? { kind: assignKind, location: assignLoc.trim(), email: assignEmail.trim().toLowerCase(), name: assignName.trim() }
+      ? { kind: assignKind, location: assignLoc.trim(), email: assignEmail.trim().toLowerCase(), name: assignName.trim(), skipAcceptance: assignSkip }
       : null;
     onSave(fields, assignment);
   }
@@ -4192,12 +4193,23 @@ function BatchEditModal({ selectedItems, usingSelection, onSwitchTab, onClose, o
                   onPick={({ email, name }) => { setAssignName(name); setAssignEmail(email); }}
                   placeholder="Type a person's name…" />
               )}
+              {assignKind === 'person' && (
+                <label style={{ display:'flex', alignItems:'center', gap:8, cursor:'pointer', userSelect:'none' }}>
+                  <input type="checkbox" checked={assignSkip} onChange={e => setAssignSkip(e.target.checked)}
+                    style={{ cursor:'pointer', accentColor:'var(--pine)' }} />
+                  <span style={{ fontSize:12, color:'var(--muted)' }}>
+                    <strong style={{ color:'var(--ink)' }}>Skip acceptance</strong> — assignments go active right away
+                  </span>
+                </label>
+              )}
               <p style={{ fontSize:11, color:'var(--muted)', margin:0 }}>
                 {assignKind === 'location'
                   ? 'Sets where these items physically live — their holder (if any) is unchanged.'
                   : (assignName && !assignEmail
                       ? 'Pick a person from the list so they can be notified to accept.'
-                      : 'Each person must accept their item (with a photo) from My Items.')}
+                      : assignSkip
+                        ? 'The person is notified, but the items are theirs immediately — no acceptance step.'
+                        : 'Each person must accept their item (with a photo) from My Items.')}
               </p>
             </div>
           )}
@@ -5563,7 +5575,7 @@ const ManagerManageTab = memo(function ManagerManageTab({ items, itemsLoading, i
           parts.push(`assigned ${r?.assigned ?? ids.length} to ${assignment.location}`);
           if (r?.skipped?.length) parts.push(`${r.skipped.length} skipped (in use)`);
         } else {
-          const r = await api.bulkAssignPerson(ids, assignment.email, assignment.name);
+          const r = await api.bulkAssignPerson(ids, assignment.email, assignment.name, assignment.skipAcceptance);
           parts.push(`assigned ${r?.assigned ?? ids.length} to ${assignment.name || assignment.email}`);
           if (r?.skipped?.length) parts.push(`${r.skipped.length} skipped (in use or temporary)`);
         }
