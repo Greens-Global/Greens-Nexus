@@ -150,6 +150,25 @@ def created_email_dept_head(*, t: dict, base_url: str, logo_url: str) -> tuple[s
     return subject, html
 
 
+def approval_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
+    subject = f"[Ticket #{t['code']}] Approval Required – {t['code']} – {t['subject']}"
+    html = ticket_email_html(
+        ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
+        heading="This ticket is waiting for your approval",
+        intro="You are listed as the approver for this request. Please review it and approve or reject so work can proceed.",
+        rows=[
+            ("Description", t.get("description") or "—"),
+            ("Department", t.get("departmentName") or "—"),
+            ("Category", t.get("typeLabel") or "—"),
+            ("Priority", PRIORITY_LABEL.get(t.get("priority"), t.get("priority"))),
+            ("Requested by", t.get("requesterName") or t.get("requesterId")),
+            ("Created", t.get("createdAtDisplay") or "—"),
+        ],
+        cta_label="Review & Approve", cta_url=_ticket_url(base_url, t["id"]), logo_url=logo_url,
+    )
+    return subject, html
+
+
 def assigned_email(*, t: dict, base_url: str, logo_url: str, audience: str) -> tuple[str, str]:
     subject = f"[Ticket #{t['code']}] Ticket Assigned – {t['code']} – Assigned to {t.get('assigneeName') or t.get('assigneeId')}"
     intro = (

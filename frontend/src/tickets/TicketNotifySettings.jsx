@@ -11,7 +11,7 @@ const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: N
 const field = { marginBottom: 14 };
 const EVENT_LABELS = {
   created: 'Ticket created', assigned: 'Ticket assigned', updated: 'Ticket updates',
-  resolved: 'Ticket resolved', reopened: 'Ticket reopened',
+  resolved: 'Ticket resolved', reopened: 'Ticket reopened', approval_required: 'Approval required',
 };
 const STATUS_META = {
   sent: { color: NX.green, Icon: CheckCircle2 }, failed: { color: NX.red, Icon: AlertTriangle },
