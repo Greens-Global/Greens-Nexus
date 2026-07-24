@@ -2353,3 +2353,15 @@ class IrUpdate(Base):
     pinned      = Column(Boolean, default=False)
     created_by  = Column(String, default="")
     created_at  = Column(String, default="")
+
+
+class PropertyWorkspaceMeta(Base):
+    """Single-row (id=1) metadata for the Asset Management workspace blob: a
+    SERVER-stamped epoch-ms timestamp of the last accepted PUT. Clients compare
+    this against the last _ts they know to decide when to pull — server-stamped
+    so client clock skew can never make a newer workspace look older."""
+    __tablename__ = "property_workspace_meta"
+    id         = Column(Integer, primary_key=True)   # always 1
+    ts         = Column(BigInteger, default=0)       # epoch ms of last accepted workspace PUT
+    updated_by = Column(String, default="")
+    updated_at = Column(String, default="")

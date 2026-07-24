@@ -14,6 +14,7 @@ dataset is tiny (~24 properties + a few hundred child rows), so a whole-blob
 GET / replace-all PUT is the pragmatic, low-risk shape. Later phases can promote
 warranty/inspection date columns for expiry notifications.
 """
+import time
 import uuid
 from datetime import datetime, timezone, date
 from typing import Any, Dict, List
@@ -24,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from auth import require_module_grant
-from models import PropertyAsset, PropertyRecord, PropertyActivityLog, NexusNotification
+from models import PropertyAsset, PropertyRecord, PropertyActivityLog, PropertyWorkspaceMeta, NexusNotification
 
 router = APIRouter(tags=["Asset Management"])
 
@@ -72,6 +73,10 @@ def get_workspace(db: Session = Depends(get_db), user=Depends(require_asset_read
         if r.collection in ws:
             ws[r.collection].append(r.payload or {})
     ws["logs"] = [l.payload or {} for l in db.query(PropertyActivityLog).all()]
+    # Server-stamped freshness marker — clients pull whenever this moves past the
+    # last value they saw (value-only edits move it too, unlike the log count).
+    meta = db.get(PropertyWorkspaceMeta, 1)
+    ws["_ts"] = (meta.ts if meta else 0) or 0
     return ws
 
 
@@ -126,8 +131,19 @@ def put_workspace(ws: Workspace, db: Session = Depends(get_db), user=Depends(req
             created_at=str(entry.get("ts") or now),
         ))
 
+    # Stamp the workspace's freshness marker with SERVER time (epoch ms) so pull
+    # decisions never depend on any client's clock.
+    ts_ms = int(time.time() * 1000)
+    meta = db.get(PropertyWorkspaceMeta, 1)
+    if meta is None:
+        meta = PropertyWorkspaceMeta(id=1)
+        db.add(meta)
+    meta.ts = ts_ms
+    meta.updated_by = email
+    meta.updated_at = now
+
     db.commit()
-    return {"ok": True, "properties": len(ws.properties)}
+    return {"ok": True, "properties": len(ws.properties), "_ts": ts_ms}
 
 
 def _parse_ymd(s):
