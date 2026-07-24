@@ -35,9 +35,13 @@ export function useNameResolver() {
     return () => { alive = false; };
   }, []);
   return useCallback((email, storedName) => {
-    const s = cleanName((storedName || '').trim());
-    if (s) return s;
+    // The People directory wins over whatever name was stored on the row —
+    // stored names go stale ("Neil" typed at assignment time vs "Neil Kadakia"
+    // in People). Stored name is only the fallback while the directory loads
+    // or for emails People doesn't know.
     const e = (email || '').toLowerCase();
-    return dir[e] || emailToName(email);
+    if (e && dir[e]) return dir[e];
+    const s = cleanName((storedName || '').trim());
+    return s || emailToName(email);
   }, [dir]);
 }

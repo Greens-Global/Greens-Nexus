@@ -7371,7 +7371,7 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
     for (const c of checkouts) {
       if (!['approved','pending_receipt','allocated'].includes(c.status) || !c.requestedBy) continue;
       const key = (c.requestedByEmail || c.requestedBy).toLowerCase();
-      if (!map.has(key)) map.set(key, { name: c.requestedBy, transient: [], permanent: [], declared: [] });
+      if (!map.has(key)) map.set(key, { name: nameOf(c.requestedByEmail, c.requestedBy), transient: [], permanent: [], declared: [] });
       map.get(key).transient.push(c);
     }
     // Permanent: only items tagged to a REAL person via the assignment flow.
@@ -7387,9 +7387,12 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
       if (!email && !owner) continue;
       const key = email || `perm-${owner.toLowerCase()}`;
       if (!map.has(key)) {
-        const existing = [...map.values()].find(h => h.name.toLowerCase() === owner.toLowerCase());
+        // Resolve through People so a stale stored name ("Neil") still shows
+        // the full directory name ("Neil Kadakia").
+        const display = nameOf(email, owner);
+        const existing = [...map.values()].find(h => h.name.toLowerCase() === display.toLowerCase() || h.name.toLowerCase() === owner.toLowerCase());
         if (existing) { existing.permanent.push(i); continue; }
-        map.set(key, { name: owner, transient: [], permanent: [], declared: [] });
+        map.set(key, { name: display, transient: [], permanent: [], declared: [] });
       }
       map.get(key).permanent.push(i);
     }
@@ -7402,14 +7405,15 @@ const WhoHasItTab = memo(function WhoHasItTab({ items, checkouts, onOpenCheckout
       if (!email && !owner) continue;
       const key = email || `decl-${owner.toLowerCase()}`;
       if (!map.has(key)) {
-        const existing = [...map.values()].find(h => h.name.toLowerCase() === owner.toLowerCase());
+        const display = nameOf(email, owner);
+        const existing = [...map.values()].find(h => h.name.toLowerCase() === display.toLowerCase() || h.name.toLowerCase() === owner.toLowerCase());
         if (existing) { existing.declared.push(i); continue; }
-        map.set(key, { name: owner, transient: [], permanent: [], declared: [] });
+        map.set(key, { name: display, transient: [], permanent: [], declared: [] });
       }
       map.get(key).declared.push(i);
     }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [checkouts, items]);
+  }, [checkouts, items, nameOf]);
 
   const filtered = useMemo(() => holders.filter(h =>
     !search ||
